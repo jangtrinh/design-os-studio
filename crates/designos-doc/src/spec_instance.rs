@@ -3105,7 +3105,7 @@ mod tests {
                 visible: true,
                 opacity: 1.0,
                 blend: BlendMode::Normal,
-                kind: PaintKind::Image { image_ref: "img_hash_1".into(), scale_mode: ImageScaleMode::Fill },
+                kind: PaintKind::Image { image_ref: "img_hash_1".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             });
         }
         let mut snap = snapshot(&lib_doc, "lib_ui", "UI Kit", 1);
@@ -3626,7 +3626,7 @@ mod tests {
         lib_doc.images.insert("dot_hash".into(), vec![0x89, 0x50, 0x4E, 0x47]);
         let card_comp_id = lib_doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Card").unwrap().id;
         lib_doc.get_mut(card_comp_id).unwrap().fills.push(Paint {
-            kind: PaintKind::Image { image_ref: "dot_hash".into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: "dot_hash".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: BlendMode::Normal,

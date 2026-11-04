@@ -159,32 +159,19 @@ impl PaintCache {
                 inst.c2 = [inv.tx, inv.ty, 0.0, 0.0];
                 Some(PaintInst { inst, ramp: Some(self.ramp(stops)), image: None })
             }
-            PaintKind::Image { image_ref, scale_mode } => {
+            PaintKind::Image { image_ref, scale_mode, params } => {
                 let img = self.image(doc, image_ref)?;
                 let (iw, ih) = (img.w as f32, img.h as f32);
-                let (s, tx, ty) = match scale_mode {
-                    d::ImageScaleMode::Fill | d::ImageScaleMode::Crop => {
-                        let s = (size.x / iw).max(size.y / ih);
-                        (s, (size.x - iw * s) / 2.0, (size.y - ih * s) / 2.0)
-                    }
-                    d::ImageScaleMode::Fit => {
-                        let s = (size.x / iw).min(size.y / ih);
-                        (s, (size.x - iw * s) / 2.0, (size.y - ih * s) / 2.0)
-                    }
-                    d::ImageScaleMode::Tile => (1.0, 0.0, 0.0),
-                };
-                if !s.is_finite() || s <= 0.0 {
-                    return None;
-                }
+                let d::ImageUvMap { u, v, .. } = d::image_uv_map(size, iw, ih, *scale_mode, params)?;
                 inst.q[0] = KIND_IMAGE;
                 inst.q[2] = match scale_mode {
-                    d::ImageScaleMode::Fit => IMG_FIT,
+                    d::ImageScaleMode::Fit | d::ImageScaleMode::Crop => IMG_FIT,
                     d::ImageScaleMode::Tile => IMG_TILE,
-                    _ => IMG_PAD,
+                    d::ImageScaleMode::Fill => IMG_PAD,
                 };
                 // local -> uv (0..1 over the image)
-                inst.c1 = [1.0 / (s * iw), 0.0, 0.0, 1.0 / (s * ih)];
-                inst.c2 = [-tx / (s * iw), -ty / (s * ih), 0.0, 0.0];
+                inst.c1 = [u.0, v.0, u.1, v.1];
+                inst.c2 = [u.2, v.2, 0.0, 0.0];
                 Some(PaintInst { inst, ramp: None, image: Some(img) })
             }
         }

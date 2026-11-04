@@ -1,0 +1,4 @@
+=== GIT STATUS -S ===
+?? plans/reports/agy-1278-shadow-blend-roundtrip-evidence/git-state.log
+=== GIT LOG --ONELINE ORIGIN/MAIN..HEAD ===
+a5d66a29 fix(effects): keep a shadow's blend mode in .pen and SVG round trips (#1278)

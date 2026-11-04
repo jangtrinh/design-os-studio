@@ -1,0 +1,32 @@
+# red run on base f4e8cfcf91b9eaa2bc1a3b06392aeab840f7fe0e with the new tests only
+## cargo test -p designos-fig --locked --test fig_roundtrip clamps
+
+running 2 tests
+test rest_import_clamps_scaling_factor_into_the_tile_scale_range ... FAILED
+test fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value ... FAILED
+
+failures:
+
+---- rest_import_clamps_scaling_factor_into_the_tile_scale_range stdout ----
+
+thread 'rest_import_clamps_scaling_factor_into_the_tile_scale_range' (88567422) panicked at crates/designos-fig/tests/fig_roundtrip.rs:5035:9:
+assertion `left == right` failed: REST scalingFactor 0 imports as 0.01
+  left: 1.0
+ right: 0.01
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value stdout ----
+
+thread 'fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value' (88567421) panicked at crates/designos-fig/tests/fig_roundtrip.rs:5048:9:
+assertion `left == right` failed: .fig scale 0 imports as 0.01
+  left: 1.0
+ right: 0.01
+
+
+failures:
+    fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value
+    rest_import_clamps_scaling_factor_into_the_tile_scale_range
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`

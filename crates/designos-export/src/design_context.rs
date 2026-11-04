@@ -749,7 +749,7 @@ mod tests {
 
     fn image_paint(image_ref: &str) -> Paint {
         Paint {
-            kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: BlendMode::Normal,

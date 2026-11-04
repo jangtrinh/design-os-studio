@@ -1,0 +1,404 @@
+=== cargo test -p designos-doc --locked --lib -- old_designos_file_loads_with_default_params_and_saves_unchanged ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 1 test
+test paint::tests::old_designos_file_loads_with_default_params_and_saves_unchanged ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 745 filtered out; finished in 0.01s
+
+exit_code=0
+=== cargo test -p designos-render --locked --test render -- image_fill_modes ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-fig)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.54s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 1 test
+test image_fill_modes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+exit_code=0
+=== cargo test -p designos-fig --locked --test fig_roundtrip -- fig_round_trip_keeps_transform_rotation_scale_filters_and_flags ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.10s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 1 test
+test fig_round_trip_keeps_transform_rotation_scale_filters_and_flags ... FAILED
+
+failures:
+
+---- fig_round_trip_keeps_transform_rotation_scale_filters_and_flags stdout ----
+
+thread 'fig_round_trip_keeps_transform_rotation_scale_filters_and_flags' (87411070) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4851:5:
+export writes paintFilter
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    fig_round_trip_keeps_transform_rotation_scale_filters_and_flags
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+exit_code=101
+=== cargo test -p designos-fig --locked --test fig_roundtrip -- legacy_filter_color_adjust_reads_into_the_adjustment_set ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 1 test
+test legacy_filter_color_adjust_reads_into_the_adjustment_set ... FAILED
+
+failures:
+
+---- legacy_filter_color_adjust_reads_into_the_adjustment_set stdout ----
+
+thread 'legacy_filter_color_adjust_reads_into_the_adjustment_set' (87411089) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4912:5:
+assertion `left == right` failed
+  left: ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: 0.0, vignette: 0.0, temperature: 0.0, vibrance: 0.0, contrast: 0.0, brightness: 0.0 }
+ right: ImageAdjust { tint: 0.25, shadows: -0.5, highlights: 0.75, detail: 0.125, exposure: -0.375, vignette: 0.625, temperature: -0.25, vibrance: 0.5, contrast: 0.0, brightness: 0.0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    legacy_filter_color_adjust_reads_into_the_adjustment_set
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+exit_code=101
+=== cargo test -p designos-fig --locked --test fig_roundtrip -- rest_round_trip_keeps_image_transform_scaling_factor_and_filters ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 1 test
+test rest_round_trip_keeps_image_transform_scaling_factor_and_filters ... FAILED
+
+failures:
+
+---- rest_round_trip_keeps_image_transform_scaling_factor_and_filters stdout ----
+
+thread 'rest_round_trip_keeps_image_transform_scaling_factor_and_filters' (87411107) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4998:5:
+assertion `left == right` failed
+  left: Null
+ right: Array [Array [Number(0.5), Number(0.0), Number(0.25)], Array [Number(0.0), Number(0.75), Number(0.125)]]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    rest_round_trip_keeps_image_transform_scaling_factor_and_filters
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+exit_code=101
+=== cargo test -p designos-render --locked --test render -- rotation_90_is_exact_on_a_2x2_image ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 1 test
+test rotation_90_is_exact_on_a_2x2_image ... FAILED
+
+failures:
+
+---- rotation_90_is_exact_on_a_2x2_image stdout ----
+
+thread 'rotation_90_is_exact_on_a_2x2_image' (87411129) panicked at crates/designos-render/tests/render.rs:872:5:
+assertion `left == right` failed
+  left: [255, 0, 0, 255]
+ right: [0, 0, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    rotation_90_is_exact_on_a_2x2_image
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+exit_code=101
+=== cargo test -p designos-render --locked --test render -- tile_scale_2_doubles_the_tile_size ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 1 test
+test tile_scale_2_doubles_the_tile_size ... FAILED
+
+failures:
+
+---- tile_scale_2_doubles_the_tile_size stdout ----
+
+thread 'tile_scale_2_doubles_the_tile_size' (87411148) panicked at crates/designos-render/tests/render.rs:895:5:
+x=15 is still inside the doubled red half: [0, 0, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tile_scale_2_doubles_the_tile_size
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+exit_code=101
+=== cargo test -p designos-render --locked --test render -- crop_with_identity_transform_stretches_the_image ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 1 test
+test crop_with_identity_transform_stretches_the_image ... FAILED
+
+failures:
+
+---- crop_with_identity_transform_stretches_the_image stdout ----
+
+thread 'crop_with_identity_transform_stretches_the_image' (87411169) panicked at crates/designos-render/tests/render.rs:921:5:
+left edge of stretched crop shows red band: [0, 255, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    crop_with_identity_transform_stretches_the_image
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+exit_code=101
+=== cargo test -p designos-render --locked --test render -- crop_transform_maps_uv_through_the_affine ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 1 test
+test crop_transform_maps_uv_through_the_affine ... FAILED
+
+failures:
+
+---- crop_transform_maps_uv_through_the_affine stdout ----
+
+thread 'crop_transform_maps_uv_through_the_affine' (87411188) panicked at crates/designos-render/tests/render.rs:942:5:
+assertion `left == right` failed: UV < 0 outside cropped image is transparent over white page
+  left: [255, 0, 0, 255]
+ right: [255, 255, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    crop_transform_maps_uv_through_the_affine
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+exit_code=101
+=== cargo test -p designos-render --locked --test render -- singular_crop_transform_draws_nothing ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 1 test
+test singular_crop_transform_draws_nothing ... FAILED
+
+failures:
+
+---- singular_crop_transform_draws_nothing stdout ----
+
+thread 'singular_crop_transform_draws_nothing' (87411208) panicked at crates/designos-render/tests/render.rs:962:5:
+assertion `left == right` failed: singular crop transform draws nothing
+  left: [255, 0, 0, 255]
+ right: [255, 255, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    singular_crop_transform_draws_nothing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+exit_code=101
+=== cargo test -p designos-gpu --locked --test fidelity -- rotation_90_is_exact_on_a_2x2_image ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-fig)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.25s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+test rotation_90_is_exact_on_a_2x2_image ... FAILED
+
+failures:
+
+---- rotation_90_is_exact_on_a_2x2_image stdout ----
+GPU: Apple M4 Max (Metal)
+rotation_90_2x2: mismatch 0.0000% (0 px of 4) at tolerance 0, ssim 1.0000
+rotation_90_2x2: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'rotation_90_is_exact_on_a_2x2_image' (87411945) panicked at crates/designos-gpu/tests/fidelity.rs:769:5:
+assertion `left == right` failed
+  left: [255, 0, 0, 255]
+ right: [0, 0, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    rotation_90_is_exact_on_a_2x2_image
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+exit_code=101
+=== cargo test -p designos-gpu --locked --test fidelity -- tile_scale_2_doubles_the_tile_size ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+test tile_scale_2_doubles_the_tile_size ... FAILED
+
+failures:
+
+---- tile_scale_2_doubles_the_tile_size stdout ----
+GPU: Apple M4 Max (Metal)
+tile_scale_2: mismatch 0.0000% (0 px of 800) at tolerance 8, ssim 1.0000
+tile_scale_2: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'tile_scale_2_doubles_the_tile_size' (87412004) panicked at crates/designos-gpu/tests/fidelity.rs:800:5:
+assertion `left == right` failed
+  left: [0, 0, 255, 255]
+ right: [255, 0, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tile_scale_2_doubles_the_tile_size
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+exit_code=101
+=== cargo test -p designos-gpu --locked --test fidelity -- crop_with_identity_transform_stretches_the_image ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+test crop_with_identity_transform_stretches_the_image ... FAILED
+
+failures:
+
+---- crop_with_identity_transform_stretches_the_image stdout ----
+GPU: Apple M4 Max (Metal)
+crop_identity_stretch: mismatch 0.0000% (0 px of 800) at tolerance 8, ssim 1.0000
+crop_identity_stretch: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'crop_with_identity_transform_stretches_the_image' (87412049) panicked at crates/designos-gpu/tests/fidelity.rs:834:5:
+assertion `left == right` failed
+  left: [0, 255, 0, 255]
+ right: [255, 0, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    crop_with_identity_transform_stretches_the_image
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+exit_code=101
+=== cargo test -p designos-gpu --locked --test fidelity -- crop_transform_maps_uv_through_the_affine ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+test crop_transform_maps_uv_through_the_affine ... FAILED
+
+failures:
+
+---- crop_transform_maps_uv_through_the_affine stdout ----
+GPU: Apple M4 Max (Metal)
+crop_affine_uv: mismatch 0.0000% (0 px of 1600) at tolerance 8, ssim 1.0000
+crop_affine_uv: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'crop_transform_maps_uv_through_the_affine' (87412102) panicked at crates/designos-gpu/tests/fidelity.rs:863:5:
+assertion `left == right` failed
+  left: [255, 0, 0, 255]
+ right: [255, 255, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    crop_transform_maps_uv_through_the_affine
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+exit_code=101
+=== cargo test -p designos-gpu --locked --test fidelity -- singular_crop_transform_draws_nothing ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+test singular_crop_transform_draws_nothing ... FAILED
+
+failures:
+
+---- singular_crop_transform_draws_nothing stdout ----
+GPU: Apple M4 Max (Metal)
+singular_crop: mismatch 0.0000% (0 px of 1600) at tolerance 8, ssim 1.0000
+singular_crop: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'singular_crop_transform_draws_nothing' (87412130) panicked at crates/designos-gpu/tests/fidelity.rs:891:5:
+assertion `left == right` failed
+  left: [255, 0, 0, 255]
+ right: [255, 255, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    singular_crop_transform_draws_nothing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+exit_code=101

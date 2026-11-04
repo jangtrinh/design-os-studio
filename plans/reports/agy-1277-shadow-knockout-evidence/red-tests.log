@@ -1,0 +1,197 @@
+=== base commit ===
+06e6b84af2e1a70200ea123156b702a76d0813df
+=== 1. cargo test -p designos-doc --locked silhouette ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 15 tests
+test silhouette::tests::opaque_mode_counts_fill_less_fillable_shapes_only ... ok
+test silhouette::tests::hidden_stroke_or_zero_weight_does_not_count ... ok
+test silhouette::tests::frame_with_visible_fill_uses_its_own_shape ... ok
+test silhouette::tests::fill_less_clipping_frame_uses_children ... ok
+test silhouette::tests::fill_less_frame_with_children_uses_the_children ... ok
+test silhouette::tests::knockout_of_filled_or_stroked_node_is_its_own_shape ... ok
+test silhouette::tests::hidden_children_are_decided_at_draw_time ... ok
+test silhouette::tests::stroke_only_node_uses_its_own_shape ... ok
+test silhouette::tests::no_shape_falls_back_to_children_and_boolean_ops_draw_none ... ok
+test silhouette::tests::hidden_fill_does_not_count ... ok
+test silhouette::tests::unfillable_fill_is_ignored_but_stroke_counts ... ok
+test silhouette::tests::text_node_uses_glyphs ... ok
+test silhouette::tests::knockout_of_group_and_text_is_children_opaque_and_text ... FAILED
+test silhouette::tests::knockout_ignores_zero_alpha_fills_and_strokes ... FAILED
+test silhouette::tests::knockout_of_fill_less_frame_is_its_children_not_its_rectangle ... FAILED
+
+failures:
+
+---- silhouette::tests::knockout_of_group_and_text_is_children_opaque_and_text stdout ----
+
+thread 'silhouette::tests::knockout_of_group_and_text_is_children_opaque_and_text' (83114924) panicked at crates/designos-doc/src/silhouette.rs:261:9:
+assertion `left == right` failed
+  left: Children
+ right: ChildrenOpaque
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- silhouette::tests::knockout_ignores_zero_alpha_fills_and_strokes stdout ----
+
+thread 'silhouette::tests::knockout_ignores_zero_alpha_fills_and_strokes' (83114921) panicked at crates/designos-doc/src/silhouette.rs:237:9:
+assertion `left == right` failed
+  left: OwnShape
+ right: Nothing
+
+---- silhouette::tests::knockout_of_fill_less_frame_is_its_children_not_its_rectangle stdout ----
+
+thread 'silhouette::tests::knockout_of_fill_less_frame_is_its_children_not_its_rectangle' (83114922) panicked at crates/designos-doc/src/silhouette.rs:227:9:
+assertion `left == right` failed
+  left: OwnShape
+ right: Nothing
+
+
+failures:
+    silhouette::tests::knockout_ignores_zero_alpha_fills_and_strokes
+    silhouette::tests::knockout_of_fill_less_frame_is_its_children_not_its_rectangle
+    silhouette::tests::knockout_of_group_and_text_is_children_opaque_and_text
+
+test result: FAILED. 12 passed; 3 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== 2. cargo test -p designos-render --locked --test shadow_fillless ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.94s
+     Running tests/shadow_fillless.rs (out/cargo/debug/deps/shadow_fillless-fb6c917451d628d0)
+
+running 14 tests
+test filled_frame_shadow_comes_from_its_own_shape ... ok
+test fillless_frame_knockout_follows_children_opaque_rule ... ok
+test issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... FAILED
+test issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... FAILED
+test hidden_and_transparent_children_add_nothing ... ok
+test issue_1277_a_paint_free_and_zero_fill_children_keep_shadow ... FAILED
+test fixture_pair_probes_on_one_page ... ok
+test show_behind_on_never_knocks_out ... ok
+test issue_1277_e_runtime_opacity_zero_child_is_skipped_in_knockout ... ok
+test fillless_frame_shadow_is_not_erased_inside_the_frame ... ok
+test clipping_frame_clips_children_in_silhouette_and_knockout ... ok
+test issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... FAILED
+test issue_1277_null_control_filled_and_plain_fillless_frames_unchanged ... ok
+test tile_render_equals_full_render_for_the_fixture_pair ... ok
+
+failures:
+
+---- issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild stdout ----
+
+thread 'issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild' (83115692) panicked at crates/designos-render/tests/shadow_fillless.rs:279:5:
+fill-less child frame knocked out shadow outside grandchild: [255, 255, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect stdout ----
+
+thread 'issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect' (83115693) panicked at crates/designos-render/tests/shadow_fillless.rs:326:5:
+unmasked rect corner knocked out circular shadow at (32, 32): [255, 255, 255, 255]
+
+---- issue_1277_a_paint_free_and_zero_fill_children_keep_shadow stdout ----
+
+thread 'issue_1277_a_paint_free_and_zero_fill_children_keep_shadow' (83115691) panicked at crates/designos-render/tests/shadow_fillless.rs:238:5:
+shadow under paint-free child frame was knocked out: [255, 255, 255, 255]
+
+---- issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child stdout ----
+
+thread 'issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child' (83115694) panicked at crates/designos-render/tests/shadow_fillless.rs:366:5:
+assertion `left == right` failed: group wrapper changed 6000 shadow pixels
+  left: 6000
+ right: 0
+
+
+failures:
+    issue_1277_a_paint_free_and_zero_fill_children_keep_shadow
+    issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild
+    issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect
+    issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child
+
+test result: FAILED. 10 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p designos-render --test shadow_fillless`
+=== 3. cargo test -p designos-gpu --locked --test shadow_fillless_fixture (SAVE_1277_CROPS=before) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/shadow_fillless_fixture.rs (out/cargo/debug/deps/shadow_fillless_fixture-c94fe1135e86a581)
+
+running 8 tests
+test cpu_and_gpu_match_on_the_fixture_pair ... ok
+test cpu_and_gpu_match_on_the_fixture_pair_with_show_behind ... ok
+test issue_1277_a_paint_free_and_zero_fill_children_keep_shadow ... FAILED
+test issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... FAILED
+test issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... FAILED
+test issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... FAILED
+test issue_1277_e_gpu_skips_runtime_opacity_zero_child_like_cpu ... FAILED
+test issue_1277_null_control_filled_and_plain_fillless_frames_unchanged ... ok
+
+failures:
+
+---- issue_1277_a_paint_free_and_zero_fill_children_keep_shadow stdout ----
+GPU: Apple M4 Max (Metal)
+1277-case-a-paint-free: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9998
+1277-case-a-paint-free: 0.0000% with AA pixels forgiven (0 px)
+1277-case-a-expected: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9995
+1277-case-a-expected: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'issue_1277_a_paint_free_and_zero_fill_children_keep_shadow' (83116090) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:146:5:
+CPU knocked out shadow under paint-free child frame: [255, 255, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild stdout ----
+GPU: Apple M4 Max (Metal)
+1277-case-b-grandchild: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9997
+1277-case-b-grandchild: 0.0000% with AA pixels forgiven (0 px)
+1277-case-b-expected: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9993
+1277-case-b-expected: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild' (83116157) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:194:5:
+CPU knocked out shadow outside grandchild: [255, 255, 255, 255]
+
+---- issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect stdout ----
+GPU: Apple M4 Max (Metal)
+1277-case-c-mask: mismatch 0.4847% (95 px of 19600) at tolerance 8, ssim 0.9980
+1277-case-c-mask: 0.0000% with AA pixels forgiven (0 px)
+1277-case-c-expected: mismatch 0.3827% (75 px of 19600) at tolerance 8, ssim 0.9987
+1277-case-c-expected: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect' (83116168) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:250:5:
+CPU unmasked rect corner knocked out circular shadow: [255, 255, 255, 255]
+
+---- issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child stdout ----
+GPU: Apple M4 Max (Metal)
+1277-case-d-group: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9988
+1277-case-d-group: 0.0000% with AA pixels forgiven (0 px)
+1277-case-d-expected: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9992
+1277-case-d-expected: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child' (83116180) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:302:5:
+assertion `left == right` failed: CPU group wrapper changed 6000 px
+  left: 6000
+ right: 0
+
+---- issue_1277_e_gpu_skips_runtime_opacity_zero_child_like_cpu stdout ----
+GPU: Apple M4 Max (Metal)
+
+thread 'issue_1277_e_gpu_skips_runtime_opacity_zero_child_like_cpu' (83116202) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:335:5:
+GPU runtime-opacity-0 child knocked out shadow: [255, 255, 255, 255]
+
+
+failures:
+    issue_1277_a_paint_free_and_zero_fill_children_keep_shadow
+    issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild
+    issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect
+    issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child
+    issue_1277_e_gpu_skips_runtime_opacity_zero_child_like_cpu
+
+test result: FAILED. 3 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+
+error: test failed, to rerun pass `-p designos-gpu --test shadow_fillless_fixture`

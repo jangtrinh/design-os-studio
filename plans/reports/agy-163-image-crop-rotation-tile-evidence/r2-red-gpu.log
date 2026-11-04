@@ -1,0 +1,32 @@
+# red run on base f4e8cfcf91b9eaa2bc1a3b06392aeab840f7fe0e with the new tests only
+## cargo test -p designos-gpu --locked --test fidelity tile_scale -- --nocapture
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+tile_scale_2: mismatch 0.0000% (0 px of 800) at tolerance 8, ssim 1.0000
+tile_scale_2: 0.0000% with AA pixels forgiven (0 px)
+test tile_scale_2_doubles_the_tile_size ... ok
+tile_scale_native: mismatch 0.0000% (0 px of 800) at tolerance 8, ssim 1.0000
+tile_scale_native: 0.0000% with AA pixels forgiven (0 px)
+tile_scale_non_finite: mismatch 0.0000% (0 px of 800) at tolerance 8, ssim 1.0000
+tile_scale_non_finite: 0.0000% with AA pixels forgiven (0 px)
+tile_scale_non_finite: mismatch 0.0000% (0 px of 800) at tolerance 8, ssim 1.0000
+tile_scale_non_finite: 0.0000% with AA pixels forgiven (0 px)
+test non_finite_tile_scale_renders_at_native_size_on_cpu_and_gpu ... ok
+tile_scale_minimum: mismatch 10.0000% (80 px of 800) at tolerance 8, ssim 0.9955
+tile_scale_minimum: 0.5000% with AA pixels forgiven (4 px)
+tile_scale_clamped: mismatch 0.0000% (0 px of 800) at tolerance 8, ssim 1.0000
+tile_scale_clamped: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu' (88568447) panicked at crates/designos-gpu/tests/fidelity.rs:892:9:
+GPU: tile scale 0 renders as 0.01
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu ... FAILED
+
+failures:
+
+failures:
+    tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.36s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`

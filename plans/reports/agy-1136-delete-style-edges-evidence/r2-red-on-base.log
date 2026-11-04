@@ -1,0 +1,42 @@
+# red run: new and changed tests against production code at fb8f31b0 (tests only differ from head)
+$ cargo test -p designos-doc --locked --lib delete_style
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.57s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 7 tests
+test styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections ... ok
+test styles_ops::tests::delete_style_keeps_the_mode_sum_when_an_alias_chain_stays_inside_one_collection ... ok
+test styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look ... ok
+test styles_ops::tests::delete_style_keeps_every_look_when_one_variable_aliases_to_different_variables_per_parent_mode ... FAILED
+test styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_aliases_to_different_variables_per_parent_mode ... FAILED
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok
+test styles_ops::tests::delete_style_caps_shared_collection_mode_product_at_4096_and_keeps_binding ... ok
+
+failures:
+
+---- styles_ops::tests::delete_style_keeps_every_look_when_one_variable_aliases_to_different_variables_per_parent_mode stdout ----
+
+thread 'styles_ops::tests::delete_style_keeps_every_look_when_one_variable_aliases_to_different_variables_per_parent_mode' (85982983) panicked at crates/designos-doc/src/styles_ops.rs:3974:9:
+the 0.4 that showed in (light, b) before the delete must survive it
+
+---- styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_aliases_to_different_variables_per_parent_mode stdout ----
+
+thread 'styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_aliases_to_different_variables_per_parent_mode' (85982982) panicked at crates/designos-doc/src/styles_ops.rs:4025:9:
+assertion `left == right` failed: the style value is 70 in (light, b) and 40 elsewhere where it wins, so the layer is counted
+  left: []
+ right: [(NodeId(2), "fills/0/opacity")]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_aliases_to_different_variables_per_parent_mode
+    styles_ops::tests::delete_style_keeps_every_look_when_one_variable_aliases_to_different_variables_per_parent_mode
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 729 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+rc=101

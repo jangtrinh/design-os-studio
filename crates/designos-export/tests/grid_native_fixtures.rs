@@ -1493,7 +1493,7 @@ fn fill_child_stacked_inside_column_span_uses_its_own_column_width() {
     let swift = swiftui_for(&doc, grid);
     let fill_swift = swiftui_cell_for(&doc, grid, &swift, "InnerFill");
     assert!(
-        fill_swift.contains(".frame(maxWidth: .infinity, height: 20)\n                .frame(width: 40, height: 40, alignment: .topLeading)\n                .offset(x: 110, y: 0)"),
+        fill_swift.contains(".frame(maxWidth: .infinity, minHeight: 20, maxHeight: 20)\n                .frame(width: 40, height: 40, alignment: .topLeading)\n                .offset(x: 110, y: 0)"),
         "SwiftUI InnerFill should fill its own 40x40 column-1 cell at offset (110, 0), not the 150x40 span:\n{fill_swift}"
     );
 
