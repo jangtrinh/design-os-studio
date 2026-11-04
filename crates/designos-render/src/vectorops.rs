@@ -255,7 +255,10 @@ fn stroke_layer_name(glyphs: &[GlyphOutline], members: &[usize]) -> String {
 /// as a rule): two vectors over the same edge would both be anti-aliased there and show a stronger edge than the
 /// canvas draws. Glyphs apart from the others get a vector of their own. A thick stroke can chain the rings of a
 /// whole paragraph together; such a chain is cut into vectors of at most [`TEXT_STROKE_MAX_GLYPHS`] glyphs, each
-/// still cut against the glyphs of its neighbours, so every vector stays small. A style without a fill emits no
+/// still cut against the glyphs of its neighbours, so every vector stays small. The rings of the two glyphs on
+/// either side of a cut overlap outside every fill and both vectors paint that overlap, so a translucent
+/// `Outside` stroke shows a darker band there. Leaving the overlap to the earlier vector only would trade the band
+/// for an anti-aliased seam through the stroke, which an opaque paint shows too. A style without a fill emits no
 /// fill layer; its strokes remain. Empty for a `Center` stroke, no weight, or a non-text node.
 pub fn text_aligned_stroke_layers(doc: &Document, n: &Node) -> Vec<AlignedTextLayer> {
     let resolved = d::resolve_node(doc, n);
