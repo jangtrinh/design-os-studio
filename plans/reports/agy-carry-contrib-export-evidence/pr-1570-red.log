@@ -1,0 +1,52 @@
+=== PR #1570 Red Tests on Base HEAD (b83673d682d24fa341b5c897617c6eafeb3572d2) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.61s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-98025944470795b8)
+
+running 4 tests
+test css::tests::bound_stroke_weight_and_per_side_weights_resolve_variables ... FAILED
+test css::tests::bound_stroke_weight_emits_border_when_stored_weight_is_zero ... FAILED
+test tailwind::tests::bound_stroke_weight_uses_css_variable_in_tailwind ... FAILED
+test tailwind::tests::bound_stroke_weight_emits_tailwind_border_when_stored_weight_is_zero ... FAILED
+
+failures:
+
+---- css::tests::bound_stroke_weight_and_per_side_weights_resolve_variables stdout ----
+
+thread 'css::tests::bound_stroke_weight_and_per_side_weights_resolve_variables' (6388665) panicked at crates/designos-export/src/css.rs:1240:9:
+width: 80px;
+height: 40px;
+background: #D9D9D9;
+border: 2px solid #101828;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- css::tests::bound_stroke_weight_emits_border_when_stored_weight_is_zero stdout ----
+
+thread 'css::tests::bound_stroke_weight_emits_border_when_stored_weight_is_zero' (6388666) panicked at crates/designos-export/src/css.rs:1269:9:
+width: 80px;
+height: 40px;
+background: #D9D9D9;
+
+---- tailwind::tests::bound_stroke_weight_uses_css_variable_in_tailwind stdout ----
+
+thread 'tailwind::tests::bound_stroke_weight_uses_css_variable_in_tailwind' (6388668) panicked at crates/designos-export/src/tailwind.rs:885:9:
+<div class="w-20 h-10 bg-[#D9D9D9] border-2 border-[#101828]"></div>
+
+---- tailwind::tests::bound_stroke_weight_emits_tailwind_border_when_stored_weight_is_zero stdout ----
+
+thread 'tailwind::tests::bound_stroke_weight_emits_tailwind_border_when_stored_weight_is_zero' (6388667) panicked at crates/designos-export/src/tailwind.rs:903:9:
+<div class="w-20 h-10 bg-[#D9D9D9]"></div>
+
+
+failures:
+    css::tests::bound_stroke_weight_and_per_side_weights_resolve_variables
+    css::tests::bound_stroke_weight_emits_border_when_stored_weight_is_zero
+    tailwind::tests::bound_stroke_weight_emits_tailwind_border_when_stored_weight_is_zero
+    tailwind::tests::bound_stroke_weight_uses_css_variable_in_tailwind
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 170 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-export --lib`

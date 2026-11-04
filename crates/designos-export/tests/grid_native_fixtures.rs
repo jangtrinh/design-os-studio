@@ -1712,6 +1712,75 @@ fn compose_out_of_flow_children_wrap_grid_in_outer_box() {
 }
 
 #[test]
+fn compose_hugged_grid_axis_does_not_fill_parent_when_wrapped_for_out_of_flow_child() {
+    for (primary_sizing, counter_sizing) in
+        [(Sizing::Hug, Sizing::Fixed), (Sizing::Hug, Sizing::Hug), (Sizing::Fixed, Sizing::Hug), (Sizing::Fixed, Sizing::Fixed)]
+    {
+        let al = AutoLayout {
+            grid_columns: 2,
+            grid_rows: 1,
+            item_spacing: 8.0,
+            counter_spacing: 8.0,
+            padding: [12.0, 12.0, 12.0, 12.0],
+            primary_sizing,
+            counter_sizing,
+            ..Default::default()
+        };
+        let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 100.0));
+        add_named_item(&mut doc, grid, "Cell1", 80.0, 76.0, Sizing::Fixed, Sizing::Fixed);
+        add_named_item(&mut doc, grid, "Cell2", 80.0, 76.0, Sizing::Fixed, Sizing::Fixed);
+        let ribbon = add_named_item(&mut doc, grid, "CornerRibbon", 30.0, 16.0, Sizing::Fixed, Sizing::Fixed);
+        {
+            let r = doc.get_mut(ribbon).unwrap();
+            r.layout_child.absolute = true;
+            r.transform.tx = 160.0;
+            r.transform.ty = 4.0;
+        }
+        doc.relayout_subtree(grid);
+
+        let compose = compose_for(&doc, grid);
+        let grid_start = compose.find("LazyVerticalGrid(").expect("missing LazyVerticalGrid");
+        let grid_args = &compose[grid_start..compose[grid_start..].find("userScrollEnabled = false").unwrap() + grid_start];
+        let frame = doc.get(grid).unwrap();
+        // The outer Box carries the solved width and height on every sizing, so a hugging grid cannot
+        // grow to the parent's maximum width; the inner grid fills that Box.
+        let outer_box = format!("Box(modifier = Modifier.size(width = {}.dp, height = {}.dp))", fmt_num(frame.size.x), fmt_num(frame.size.y));
+        assert!(compose.starts_with(&format!("{outer_box} {{\n")), "wrapped grid outer Box mismatch for {primary_sizing:?} x {counter_sizing:?}: {compose}");
+        assert!(grid_args.contains(".fillMaxSize()"), "inner modifier mismatch for {primary_sizing:?} x {counter_sizing:?}: {compose}");
+        for forbidden in [".fillMaxWidth()", ".fillMaxHeight()"] {
+            assert!(!grid_args.contains(forbidden), "unexpected {forbidden} for {primary_sizing:?} x {counter_sizing:?}: {compose}");
+        }
+        assert!(grid_args.contains(".padding(12.dp)"), "grid padding must remain in the LazyVerticalGrid modifier: {compose}");
+    }
+}
+
+#[test]
+fn compose_hugged_grid_exports_solved_width_without_out_of_flow_child() {
+    for counter_sizing in [Sizing::Hug, Sizing::Fixed] {
+        let al = AutoLayout {
+            grid_columns: 2,
+            grid_rows: 1,
+            item_spacing: 8.0,
+            counter_spacing: 8.0,
+            padding: [12.0, 12.0, 12.0, 12.0],
+            primary_sizing: Sizing::Hug,
+            counter_sizing,
+            ..Default::default()
+        };
+        let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 100.0));
+        add_named_item(&mut doc, grid, "Cell1", 80.0, 76.0, Sizing::Fixed, Sizing::Fixed);
+        add_named_item(&mut doc, grid, "Cell2", 80.0, 76.0, Sizing::Fixed, Sizing::Fixed);
+        doc.relayout_subtree(grid);
+
+        let compose = compose_for(&doc, grid);
+        let frame = doc.get(grid).unwrap();
+        let size = format!(".size(width = {}.dp, height = {}.dp)", fmt_num(frame.size.x), fmt_num(frame.size.y));
+        assert!(compose.starts_with("LazyVerticalGrid("), "an unwrapped grid must stay a bare LazyVerticalGrid for {counter_sizing:?}: {compose}");
+        assert!(compose.contains(&size), "hugging grid must export its solved size {size} for {counter_sizing:?}: {compose}");
+    }
+}
+
+#[test]
 fn grid_slot_keeps_slot_parameter() {
     let mut doc = Document::new("grid-slot");
     let page = doc.add_page("Page 1");
