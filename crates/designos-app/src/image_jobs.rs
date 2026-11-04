@@ -990,6 +990,7 @@ impl App {
         }
 
         let now = self.now;
+        let asking = self.leave.is_asking();
         let tab_len = self.tabs.entries.len();
         for idx in 0..tab_len {
             let is_parked = self.tabs.parked_in_home || self.home.is_some() || !self.tabs.is_hist_in_app() || idx != self.tabs.active_idx;
@@ -1018,25 +1019,32 @@ impl App {
                                         if let (Some(lib), Some(lf)) = (&self.lib, &tab.lib_file) {
                                             // The job is a step of the tab's history, so the dot already shows it. A write
                                             // that took the whole document leaves the tab as the file holds it.
-                                            match Self::save_doc_to_library(lib, lf, &mut tab.doc, &mut tab.hist) {
-                                                Ok(_) => {
-                                                    tab.hist.mark_clean();
-                                                    tab.dirty = false;
-                                                    // The file now holds the document: its tab must not read the write as another program's.
-                                                    tab.disk = crate::home::DiskState {
-                                                        saved_hash: crate::home::doc_hash(&tab.doc),
-                                                        disk_mtime: std::fs::metadata(crate::home::library_file_disk_path(lib, &lf.project_id, &lf.id))
-                                                            .ok()
-                                                            .and_then(|m| m.modified().ok()),
-                                                        save_failed_at: None,
-                                                        conflict_mtime: None,
-                                                    };
-                                                }
-                                                Err(_) => {
-                                                    // The file does not hold the job. The tab remembers that, so leaving the
-                                                    // app asks about it and its next visit tries the write again.
-                                                    tab.disk.save_failed_at = Some(now);
-                                                    tab.dirty = true;
+                                            if tab.disk.write_held(asking) {
+                                                // The tab holds edits that were refused, or that a question still open is about:
+                                                // the write would take them along. The file keeps what it has, and the tab stays unsaved.
+                                                tab.dirty = true;
+                                            } else {
+                                                match Self::save_doc_to_library(lib, lf, &mut tab.doc, &mut tab.hist) {
+                                                    Ok(_) => {
+                                                        tab.hist.mark_clean();
+                                                        tab.dirty = false;
+                                                        // The file now holds the document: its tab must not read the write as another program's.
+                                                        tab.disk = crate::home::DiskState {
+                                                            saved_hash: crate::home::doc_hash(&tab.doc),
+                                                            disk_mtime: std::fs::metadata(crate::home::library_file_disk_path(lib, &lf.project_id, &lf.id))
+                                                                .ok()
+                                                                .and_then(|m| m.modified().ok()),
+                                                            save_failed_at: None,
+                                                            conflict_mtime: None,
+                                                            edits_refused: false,
+                                                        };
+                                                    }
+                                                    Err(_) => {
+                                                        // The file does not hold the job. The tab remembers that, so leaving the
+                                                        // app asks about it and its next visit tries the write again.
+                                                        tab.disk.save_failed_at = Some(now);
+                                                        tab.dirty = true;
+                                                    }
                                                 }
                                             }
                                         }
@@ -2500,6 +2508,205 @@ mod tests {
         std::fs::remove_file(&files).unwrap();
         std::fs::rename(&moved, &files).unwrap();
         assert_eq!(lib.load_file(&entry_a.id).unwrap().get(app.page).unwrap().children.len(), 1, "nothing of the job reached File A");
+    }
+
+    /// An agent script that finishes a job once a file named after the job exists in `gates`, so a test decides when
+    /// each job lands. The wait is bounded, so a script that nobody releases ends on its own.
+    #[cfg(unix)]
+    fn gated_agent_script(gates: &Path, result_png: &Path) -> String {
+        format!(
+            "g=\"{}/$(basename \"$(dirname \"$DESIGNOS_IMAGE_OUTPUT\")\")\"; i=0; while [ ! -e \"$g\" ] && [ \"$i\" -lt 500 ]; do sleep 0.02; i=$((i+1)); done; cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"",
+            gates.display(),
+            result_png.display()
+        )
+    }
+
+    /// File A is parked with the result of its first image job, which its file does not hold (the folder could not be
+    /// written when the job landed), and a second job still waiting to land. File B is shown. Quitting has asked
+    /// "Save changes to File A?", and the disk is writable again.
+    #[cfg(unix)]
+    struct ParkedFileWithAnUnwrittenJob {
+        _tmp: TestDir,
+        app: App,
+        lib: designos_library::Library,
+        file_a: String,
+        path_a: PathBuf,
+        before: Vec<u8>,
+        modified_before: std::time::SystemTime,
+        gates: PathBuf,
+        second_job: String,
+    }
+
+    #[cfg(unix)]
+    impl ParkedFileWithAnUnwrittenJob {
+        fn asked_about_on_quit() -> Self {
+            let tmp = TestDir::new("parked-unwritten-job");
+            let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+            app.image_jobs.custom_jobs_root = None;
+            let mut doc_b = Document::new("File B");
+            doc_b.add_page("Page 1");
+            let lib = designos_library::Library::open(tmp.path().join("library")).unwrap();
+            let proj_a = lib.create_project("Project A").unwrap();
+            let proj_b = lib.create_project("Project B").unwrap();
+            let entry_a = lib.create_file(&proj_a.id, None, "File A", &app.doc).unwrap();
+            let entry_b = lib.create_file(&proj_b.id, None, "File B", &doc_b).unwrap();
+            app.lib = Some(lib.clone());
+            app.open_library_file(&entry_a.id);
+            let mut tabs = std::mem::take(&mut app.tabs);
+            tabs.reconcile_frame(&mut app);
+            app.tabs = tabs;
+            let result_png = tmp.path().join("unwritten_job_out.png");
+            write_rgba_png(&result_png, 100, 100, true);
+            let gates = tmp.path().join("gates");
+            std::fs::create_dir_all(&gates).unwrap();
+            app.image_jobs.agent_script = Some(gated_agent_script(&gates, &result_png));
+            app.image_jobs.job_timeout = Duration::from_secs(20);
+            let first_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("the first job starts on File A");
+            let second_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("the second job waits behind it");
+            app.go_home();
+            app.open_library_file(&entry_b.id);
+            assert_eq!(app.tabs.entries.len(), 2, "File A stays parked in tab 0 and File B opens in tab 1");
+            let path_a = crate::home::library_file_disk_path(&lib, &proj_a.id, &entry_a.id);
+            let before = std::fs::read(&path_a).unwrap();
+            let modified_before = std::fs::metadata(&path_a).unwrap().modified().unwrap();
+            // File A's folder cannot be written when its first job lands; File B's can.
+            let files = path_a.parent().unwrap().to_path_buf();
+            let moved = files.with_file_name("blocked-files");
+            std::fs::rename(&files, &moved).unwrap();
+            std::fs::write(&files, b"not a directory").unwrap();
+            std::fs::File::create(gates.join(&first_job)).unwrap();
+            wait_for_job_completion(&mut app);
+            assert!(app.tabs.entries[0].disk.save_failed_at.is_some(), "File A's tab remembers that its write failed");
+            std::fs::remove_file(&files).unwrap();
+            std::fs::rename(&moved, &files).unwrap();
+            let ctx = egui::Context::default();
+            assert!(!app.may_quit(&ctx), "the unwritten result is not dropped silently");
+            assert_eq!(app.dialog.as_ref().map(|d| d.title.clone()).as_deref(), Some("Save changes to File A?"));
+            Self { _tmp: tmp, app, lib, file_a: entry_a.id, path_a, before, modified_before, gates, second_job }
+        }
+
+        fn answer(&mut self, answer: crate::home::Answer) {
+            // The dialog layer takes the question away before it passes the answer on.
+            self.app.dialog = None;
+            self.app.answer_save_changes_with(None, answer, &crate::io::SystemDialogs);
+        }
+
+        /// The second job finishes and lands on File A's parked tab.
+        fn land_the_second_job(&mut self) {
+            std::fs::File::create(self.gates.join(&self.second_job)).unwrap();
+            wait_for_job_completion(&mut self.app);
+        }
+
+        /// File A holds the same bytes and was not written at all since its first job landed.
+        fn file_a_untouched(&self) -> bool {
+            std::fs::read(&self.path_a).is_ok_and(|b| b == self.before)
+                && std::fs::metadata(&self.path_a).and_then(|m| m.modified()).is_ok_and(|t| t == self.modified_before)
+        }
+
+        fn layers_on_disk(&self) -> usize {
+            let doc = self.lib.load_file(&self.file_a).unwrap();
+            doc.get(doc.pages[0]).unwrap().children.len()
+        }
+
+        fn layers_in_the_tab(&self) -> usize {
+            let tab = &self.app.tabs.entries[0];
+            tab.doc.get(tab.doc.pages[0]).unwrap().children.len()
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_that_lands_on_a_parked_file_after_dont_save_is_not_written_to_it() {
+        let mut t = ParkedFileWithAnUnwrittenJob::asked_about_on_quit();
+        t.answer(crate::home::Answer::DontSave);
+        assert!(t.app.leave.quit_approved, "every question is answered");
+        t.land_the_second_job();
+        assert!(t.file_a_untouched(), "the refused result was not written when the next job landed");
+        assert_eq!(t.layers_in_the_tab(), 3, "the job still lands in the tab");
+        assert!(crate::tabs::tab_is_unsaved(&t.app, 0), "and shows the dot");
+        // The window's own way out.
+        let ctx = egui::Context::default();
+        assert!(t.app.may_quit(&ctx));
+        t.app.save_close_version();
+        t.app.flush_autosave();
+        assert!(t.file_a_untouched(), "nor was it written on the way out");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_that_lands_on_a_parked_file_while_its_question_is_open_is_not_written_to_it() {
+        let mut t = ParkedFileWithAnUnwrittenJob::asked_about_on_quit();
+        t.land_the_second_job();
+        assert!(t.file_a_untouched(), "an unanswered failed write is not written by the next job");
+        assert!(t.app.leave.is_asking(), "the question is still open");
+        assert_eq!(t.layers_in_the_tab(), 3, "the job still lands in the tab");
+        t.answer(crate::home::Answer::Cancel);
+        let ctx = egui::Context::default();
+        assert!(!t.app.may_quit(&ctx), "quitting still asks about File A");
+        assert_eq!(t.app.dialog.as_ref().map(|d| d.title.clone()).as_deref(), Some("Save changes to File A?"));
+        assert!(t.file_a_untouched());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_that_lands_on_a_parked_file_after_its_question_was_cancelled_writes_it() {
+        let mut t = ParkedFileWithAnUnwrittenJob::asked_about_on_quit();
+        t.answer(crate::home::Answer::Cancel);
+        assert!(!t.app.leave.is_asking());
+        t.land_the_second_job();
+        assert!(!t.file_a_untouched(), "File A is written as usual");
+        assert_eq!(t.layers_on_disk(), 3, "with both jobs");
+        assert!(!crate::tabs::tab_is_unsaved(&t.app, 0), "and its tab shows no dot");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_that_lands_on_the_shown_file_after_dont_save_is_not_written_on_the_way_out() {
+        let tmp = TestDir::new("shown-dont-save-job");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        let lib = designos_library::Library::open(tmp.path().join("library")).unwrap();
+        let proj = lib.create_project("Project A").unwrap();
+        let entry = lib.create_file(&proj.id, None, "File A", &app.doc).unwrap();
+        app.lib = Some(lib.clone());
+        app.open_library_file(&entry.id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+        let result_png = tmp.path().join("shown_dont_save_out.png");
+        write_rgba_png(&result_png, 100, 100, true);
+        let gates = tmp.path().join("gates");
+        std::fs::create_dir_all(&gates).unwrap();
+        app.image_jobs.agent_script = Some(gated_agent_script(&gates, &result_png));
+        app.image_jobs.job_timeout = Duration::from_secs(20);
+        let first_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("the first job starts");
+        let second_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("the second job waits behind it");
+        let path = crate::home::library_file_disk_path(&lib, &proj.id, &entry.id);
+        let before = std::fs::read(&path).unwrap();
+        let modified_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let files = path.parent().unwrap().to_path_buf();
+        let moved = files.with_file_name("blocked-files");
+        std::fs::rename(&files, &moved).unwrap();
+        std::fs::write(&files, b"not a directory").unwrap();
+        std::fs::File::create(gates.join(&first_job)).unwrap();
+        wait_for_job_completion(&mut app);
+        app.flush_autosave();
+        assert!(app.autosave.save_failed_at.is_some(), "the first job's write failed");
+        let ctx = egui::Context::default();
+        assert!(!app.may_quit(&ctx), "the unwritten result is asked about");
+        std::fs::remove_file(&files).unwrap();
+        std::fs::rename(&moved, &files).unwrap();
+        app.dialog = None;
+        app.answer_save_changes_with(None, crate::home::Answer::DontSave, &crate::io::SystemDialogs);
+        assert!(app.leave.quit_approved, "every question is answered");
+        std::fs::File::create(gates.join(&second_job)).unwrap();
+        wait_for_job_completion(&mut app);
+        assert!(app.may_quit(&ctx));
+        app.save_close_version();
+        app.flush_autosave();
+        let untouched =
+            std::fs::read(&path).is_ok_and(|b| b == before) && std::fs::metadata(&path).and_then(|m| m.modified()).is_ok_and(|t| t == modified_before);
+        assert!(untouched, "the second job's result was not written on the way out");
     }
 
     #[test]

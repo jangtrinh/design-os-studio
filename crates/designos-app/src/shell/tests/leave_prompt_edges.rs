@@ -750,3 +750,39 @@ fn cancelling_a_later_question_keeps_the_edits_of_a_file_that_was_answered_dont_
     assert!(t.s.app().has_unsaved_edits(), "and so does the one on screen");
     assert!(t.second_untouched(), "nothing was written");
 }
+
+#[cfg(unix)]
+#[test]
+fn edits_made_after_dont_save_on_a_tab_switch_are_written_as_usual() {
+    let mut f = FailedSave::on_the_shown_tab();
+    let other = f.other_tab;
+    f.s.shell.app.request_leave(None, Leave::SwitchTab(other));
+    assert!(asks_about(&f.s, "DESIGN-OS Studio Starter"), "{:?}", dialog_title(&f.s));
+    f.restore();
+    f.answer(Answer::DontSave);
+    assert_eq!(f.active_tab(), other, "the switch went ahead");
+    f.s.shell.app.switch_tab(0);
+    assert!(f.untouched(), "the refused edit is gone and was not written");
+    edit_now(&mut f.s);
+    wait(&mut f.s, 3.0);
+    assert!(f.on_disk() != f.before, "an edit made afterwards is written like any other");
+    assert!(!f.s.app().has_unsaved_edits(), "and the tab shows no dot");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_answered_dont_save_is_written_again_once_a_later_question_is_cancelled() {
+    let mut t = TwoFailedSaves::asked_about_the_first();
+    t.restore();
+    let first = t.s.app().tabs.entries[0].lib_file.clone().expect("the first tab is a library file");
+    let first_path = crate::home::library_file_disk_path(&lib(&t.s), &first.project_id, &first.id);
+    let first_before = std::fs::read(&first_path).unwrap();
+    t.answer(Answer::DontSave);
+    assert!(asks_about(&t.s, "Second"), "the other file is still to be answered: {:?}", dialog_title(&t.s));
+    t.answer(Answer::Cancel);
+    assert!(!t.s.app().leave.is_asking(), "the questions are over");
+    assert_eq!(std::fs::read(&first_path).unwrap(), first_before, "nothing was written meanwhile");
+    switch_to(&mut t.s, 0);
+    wait(&mut t.s, 3.0);
+    assert!(std::fs::read(&first_path).unwrap() != first_before, "its edit is written by the next autosave, as it was before the question");
+}

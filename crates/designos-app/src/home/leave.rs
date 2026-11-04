@@ -61,8 +61,9 @@ struct Pending {
     /// Ids of the tabs still to ask about, in tab order. The one being asked about is at the front.
     queue: VecDeque<u64>,
     origin: Origin,
-    /// Library tabs whose failed write was answered "Don't save". Their edits are dropped when the action goes ahead,
-    /// not before: a later Cancel leaves them as they were.
+    /// Library tabs whose failed write was answered "Don't save". Each of them also holds the refusal itself
+    /// (`edits_refused`), so that no writer touches it meanwhile. The shown one is dropped when the action goes ahead,
+    /// not before, and a later Cancel withdraws the refusals and leaves the edits as they were.
     refused: Vec<u64>,
 }
 
@@ -257,9 +258,31 @@ impl App {
         }
     }
 
+    /// Records (or withdraws) the refusal on the tab `id`, where that tab's file state lives now: for the shown tab in
+    /// the autosave, for a parked one in its own entry.
+    fn set_edits_refused(&mut self, id: u64, refused: bool) {
+        let Some(idx) = self.tabs.entries.iter().position(|t| t.id == id) else { return };
+        if self.home.is_none() && idx == self.tabs.active_idx {
+            self.autosave.edits_refused = refused;
+        } else {
+            self.tabs.entries[idx].disk.edits_refused = refused;
+        }
+    }
+
+    /// The refusals end: the questions were cancelled, or the action that goes ahead closes the refused tabs or leaves
+    /// them holding what their file holds. Whatever the shown document still holds of one is withdrawn too (a tab that
+    /// was closed took its own with it, but the autosave of a closed last tab is not reset until the next document).
+    fn withdraw_refusals(&mut self, refused: Vec<u64>) {
+        for id in refused {
+            self.set_edits_refused(id, false);
+        }
+        self.autosave.edits_refused = false;
+    }
+
     /// The action is going ahead: the shown library file whose failed write was answered "Don't save" goes back to
     /// what its file holds, so that no flush on the way out (parking the tab, closing the window) writes what was
-    /// refused. A refused tab that is not shown is closed by the action (or the window is), and nothing flushes it.
+    /// refused. A refused tab that is not shown is closed by the action (or the window is); its refusal keeps the
+    /// image job that lands on it meanwhile from writing it.
     fn drop_refused_library_edits(&mut self) -> Result<(), String> {
         let idx = self.tabs.active_idx;
         let shown_and_refused =
@@ -281,11 +304,15 @@ impl App {
                     self.cancel_leave();
                     return;
                 }
-                let Pending { action, origin, .. } = self.leave.pending.take().expect("pending was just read");
+                let Pending { action, origin, refused, .. } = self.leave.pending.take().expect("pending was just read");
                 self.set_leave_asking_marker(false);
                 self.perform_leave(ctx, action.clone());
                 if matches!(action, Leave::CloseTab(_) | Leave::CloseOthers(_)) {
                     self.restore_origin(origin);
+                }
+                // A quit keeps the refusals until the window's last flush; any other action ends them.
+                if action != Leave::Quit {
+                    self.withdraw_refusals(refused);
                 }
                 return;
             };
@@ -318,6 +345,9 @@ impl App {
                         p.refused.push(front);
                     }
                 }
+                if failed_write {
+                    self.set_edits_refused(front, true);
+                }
                 self.ask_next(ctx);
             }
             Answer::Save => {
@@ -335,10 +365,12 @@ impl App {
         }
     }
 
-    /// Cancel: nothing was dropped, so nothing is undone but where the user was.
+    /// Cancel: nothing was dropped, so nothing is undone but where the user was. The refusals are withdrawn first, so
+    /// that putting the user back does not park a refused tab with its refusal still on it.
     fn cancel_leave(&mut self) {
         let Some(p) = self.leave.pending.take() else { return };
         self.set_leave_asking_marker(false);
+        self.withdraw_refusals(p.refused);
         self.restore_origin(p.origin);
     }
 

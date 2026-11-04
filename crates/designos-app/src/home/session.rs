@@ -103,6 +103,18 @@ pub struct DiskState {
     /// The write the user was asked about and answered "Keep mine": it is not asked about again, also after a
     /// trip to another tab.
     pub conflict_mtime: Option<std::time::SystemTime>,
+    /// The user answered "Don't save" to the question about this library file's failed write. Nothing writes the
+    /// file from this document while the flag is set: not the autosave, not the way out of the app, not an image
+    /// job that lands on the tab. It ends with the tab or the app, and when the questions are cancelled.
+    pub edits_refused: bool,
+}
+
+impl DiskState {
+    /// Whether a write of this library file must wait: its edits were refused, or the question about its failed write
+    /// is open (`asking`) and not answered yet.
+    pub fn write_held(&self, asking: bool) -> bool {
+        self.edits_refused || (asking && self.save_failed_at.is_some())
+    }
 }
 
 #[derive(Default)]
@@ -134,13 +146,26 @@ pub struct Autosave {
     /// outside the library has edits no save has written). The same write is not asked about twice; kept
     /// per tab in [`DiskState`].
     pub conflict_mtime: Option<std::time::SystemTime>,
+    /// "Don't save" was the answer to the question about this file's failed write; see [`DiskState::edits_refused`].
+    pub edits_refused: bool,
     /// Background thread watching `watched_disk_path()` off the UI thread.
     watcher: Option<DiskWatcher>,
 }
 
 impl Autosave {
     pub fn disk_state(&self) -> DiskState {
-        DiskState { saved_hash: self.saved_hash, disk_mtime: self.disk_mtime, save_failed_at: self.save_failed_at, conflict_mtime: self.conflict_mtime }
+        DiskState {
+            saved_hash: self.saved_hash,
+            disk_mtime: self.disk_mtime,
+            save_failed_at: self.save_failed_at,
+            conflict_mtime: self.conflict_mtime,
+            edits_refused: self.edits_refused,
+        }
+    }
+
+    /// [`DiskState::write_held`] for the shown document.
+    pub fn write_held(&self, asking: bool) -> bool {
+        self.disk_state().write_held(asking)
     }
 
     /// Takes over the file state a parked tab kept, for the document at `path` that is about to be shown.
@@ -154,6 +179,7 @@ impl Autosave {
         self.changed_at = None;
         self.confirmed = false;
         self.conflict_mtime = state.conflict_mtime;
+        self.edits_refused = state.edits_refused;
     }
 
     /// An edit is waiting for the idle delay before it is saved.
@@ -949,9 +975,9 @@ impl App {
         if self.history.viewing.is_some() {
             return;
         }
-        if self.lib_file.is_some() && self.leave.is_asking() && self.autosave.save_failed_at.is_some() {
-            // The failed write is a question that is not answered yet: showing another tab for its own answer
-            // must not write these edits, whichever way this one is answered later.
+        if self.lib_file.is_some() && self.autosave.write_held(self.leave.is_asking()) {
+            // The failed write is a question that is not answered yet, or was answered "Don't save": showing another
+            // tab for its own answer, or closing the window, must not write these edits.
             return;
         }
         self.settle_pending_relayout();
@@ -1185,8 +1211,9 @@ impl App {
 
     /// Debounced autosave: probes a changed revision once it settled, then saves after `AUTOSAVE_IDLE`.
     fn save_when_settled(&mut self, ctx: &egui::Context, busy: bool) {
-        if self.leave.is_asking() && self.autosave.save_failed_at.is_some() {
-            // The failed write is the question on screen: only its answer writes the edits, or drops them.
+        if self.autosave.write_held(self.leave.is_asking()) {
+            // The failed write is the question on screen: only its answer writes the edits, or drops them. Once the
+            // answer is "Don't save", nothing writes them.
             return;
         }
         let Some(t) = self.autosave.changed_at else {
