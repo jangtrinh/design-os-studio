@@ -115,3 +115,10 @@ Gates after this round (exit codes):
 Status: DONE_WITH_CONCERNS
 Summary: Project tab (tree, reading page, On this page, rename, delete to trash, reorder, first-open Overview, live refresh) is implemented and tested; gates are green except pre-existing clippy findings, the base-identical 5/9 self-evolve gate and the two known vecops flakes.
 Concerns/Blockers: two out-of-list one-line edits (fs allowlist, test module registration); idle CPU proven to one ps tick only; trashed pages are not restorable from Home.
+
+## Round 2 (controller rulings)
+
+- Home empty-trash line now reads "Files, projects and pages you delete wait here until you empty the trash." (`home/mod.rs`, and the unused duplicate `home/main_view.rs`). No test pinned the string.
+- Menu-bar File commands that act on the tab's placeholder document are greyed, not hidden, while a Project tab is active, in both the logo menu and the File items: Save, Save as, Save .fig copy, Save to library, Show version history, Save to version history, Export selection as PNG, and the two deck PDF exports. Test: `panels::menus::tests::save_and_export_are_greyed_on_a_project_tab_and_enabled_on_a_design_tab` (enabled on a design tab, disabled on a Project tab, both builders).
+- A `--menu` preset now stays open over the Project tab that a screenshot run starts on; evidence `evidence-1524/real-08-file-menu-on-project-tab.png` (captured before Save to library and Show version history were greyed; those two rows show enabled there).
+- Gates: see the final report of this round (menus 38 passed, project_tab 73 passed, `cargo fmt --all --check` clean).
