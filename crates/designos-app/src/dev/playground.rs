@@ -341,8 +341,7 @@ fn live_text_input(ui: &mut Ui, rect: Rect, key: &str, value: &str) -> Option<St
         .id(id)
         .font(theme::font_body())
         .text_color(theme::TEXT)
-        .frame(egui::Frame::NONE)
-        .margin(egui::Margin::symmetric(theme::FIELD_PLAIN_X as i8, 0))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(theme::FIELD_PLAIN_X as i8, 0)))
         .vertical_align(egui::Align::Center)
         .min_size(rect.size())
         .desired_width(rect.width());

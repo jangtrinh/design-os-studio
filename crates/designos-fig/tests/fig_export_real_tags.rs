@@ -77,7 +77,9 @@ fn every_tag_of_an_exported_message_decodes_with_figmas_real_field_table() {
 
 #[test]
 fn connector_caps_are_written_on_connector_start_cap_and_connector_end_cap_and_round_trip() {
-    let bytes = export_fig(&rich_document()).expect("export_fig");
+    let mut doc = rich_document();
+    doc.kind = DocumentKind::Board;
+    let bytes = export_fig(&doc).expect("export_fig");
     let (schema, message) = canvas_of(&bytes);
     let cut = real_fields_only(&schema);
     let decoded = cut.decode_message(cut.root_message().unwrap(), &message).expect("decode with real fields");

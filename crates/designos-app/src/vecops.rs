@@ -1590,11 +1590,11 @@ mod tests {
         let mut doc = Document::new("AsyncFontTest");
         let page = doc.add_page("Page 1");
         let t_flat = doc.alloc_id();
-        let s_flat = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        let s_flat = TextStyle { font_family: "SlowFntA001".into(), font_size: 20.0, ..Default::default() };
         doc.insert(page, Node::text(t_flat, Rect::new(0.0, 0.0, 120.0, 32.0), "Async Flat", s_flat)).unwrap();
 
         let mut app = app_on_new_page(doc, page);
-        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1", "SlowvecFnt2"], std::time::Duration::from_millis(250));
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowFntA001", "SlowFntA002"], std::time::Duration::from_millis(250));
         let _ = designos_render::resolve_font("Inter", 400, false);
 
         // 1. Flatten with a slow fetcher returns immediately on the UI thread and converts in poll_fonts.
@@ -1612,7 +1612,7 @@ mod tests {
 
         // 2. Outline stroke with a slow fetcher also returns immediately and converts in poll_fonts.
         let t_out = app.doc.alloc_id();
-        let s_out = TextStyle { font_family: "SlowvecFnt2".into(), font_size: 20.0, ..Default::default() };
+        let s_out = TextStyle { font_family: "SlowFntA002".into(), font_size: 20.0, ..Default::default() };
         app.doc.insert(page, Node::text(t_out, Rect::new(0.0, 40.0, 120.0, 32.0), "Async Out", s_out)).unwrap();
         app.selection = vec![t_out];
         let t1 = std::time::Instant::now();
@@ -2414,14 +2414,14 @@ mod tests {
         let mut doc = Document::new("DeferredFlattenTarget");
         let page = doc.add_page("Page 1");
         let tid = doc.alloc_id();
-        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        let style = TextStyle { font_family: "SlowFntB001".into(), font_size: 20.0, ..Default::default() };
         doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "Target Text", style)).unwrap();
         let rid = doc.alloc_id();
         doc.insert(page, Node::rectangle(rid, Rect::new(160.0, 0.0, 80.0, 60.0))).unwrap();
         let rect = doc.get(rid).cloned().unwrap();
 
         let mut app = app_on_new_page(doc, page);
-        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowFntB001"], std::time::Duration::from_millis(250));
 
         app.selection = vec![tid];
         app.flatten_selection();
@@ -2443,7 +2443,7 @@ mod tests {
         let mut doc = Document::new("DeferredOutlineTarget");
         let page = doc.add_page("Page 1");
         let tid = doc.alloc_id();
-        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        let style = TextStyle { font_family: "SlowFntC001".into(), font_size: 20.0, ..Default::default() };
         doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "Target Outline", style)).unwrap();
         let rid = doc.alloc_id();
         let mut rect_node = Node::rectangle(rid, Rect::new(160.0, 0.0, 80.0, 60.0));
@@ -2454,7 +2454,7 @@ mod tests {
         let rect = doc.get(rid).cloned().unwrap();
 
         let mut app = app_on_new_page(doc, page);
-        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowFntC001"], std::time::Duration::from_millis(250));
 
         app.selection = vec![tid];
         app.outline_stroke_selection();
@@ -2480,7 +2480,7 @@ mod tests {
         doc.insert(page, Node::text(t_fail, Rect::new(0.0, 0.0, 120.0, 32.0), "Fail", s_fail)).unwrap();
 
         let mut app = app_on_new_page(doc, page);
-        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1", "SlowvecFnt2"], std::time::Duration::from_millis(250));
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowFntD001", "SlowFntD002"], std::time::Duration::from_millis(250));
 
         // First mark MissingFont as already failed before introducing the slow-font text layers.
         app.selection = vec![t_fail];
@@ -2489,11 +2489,11 @@ mod tests {
         assert!(app.doc.get(t_fail).is_some());
 
         let t1 = app.doc.alloc_id();
-        let s1 = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        let s1 = TextStyle { font_family: "SlowFntD001".into(), font_size: 20.0, ..Default::default() };
         app.doc.insert(page, Node::text(t1, Rect::new(0.0, 40.0, 120.0, 32.0), "First", s1)).unwrap();
 
         let t2 = app.doc.alloc_id();
-        let s2 = TextStyle { font_family: "SlowvecFnt2".into(), font_size: 20.0, ..Default::default() };
+        let s2 = TextStyle { font_family: "SlowFntD002".into(), font_size: 20.0, ..Default::default() };
         app.doc.insert(page, Node::text(t2, Rect::new(0.0, 80.0, 120.0, 32.0), "Second", s2)).unwrap();
 
         // Queue command 1 (Flatten on t1) and command 2 (Outline stroke on t2) while fonts load.
@@ -2528,14 +2528,14 @@ mod tests {
         let mut doc = Document::new("DeletedTarget");
         let page = doc.add_page("Page 1");
         let tid = doc.alloc_id();
-        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        let style = TextStyle { font_family: "SlowFntE001".into(), font_size: 20.0, ..Default::default() };
         doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "To Delete", style)).unwrap();
         let rid = doc.alloc_id();
         doc.insert(page, Node::rectangle(rid, Rect::new(160.0, 0.0, 80.0, 60.0))).unwrap();
         let rect = doc.get(rid).cloned().unwrap();
 
         let mut app = app_on_new_page(doc, page);
-        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowFntE001"], std::time::Duration::from_millis(250));
 
         app.selection = vec![tid];
         app.flatten_selection();
@@ -2559,14 +2559,14 @@ mod tests {
         let mut doc = Document::new("PenEditOpenAtArrival");
         let page = doc.add_page("Page 1");
         let tid = doc.alloc_id();
-        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        let style = TextStyle { font_family: "SlowFntF001".into(), font_size: 20.0, ..Default::default() };
         doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "Pen Wait", style)).unwrap();
         let rid = doc.alloc_id();
         doc.insert(page, Node::rectangle(rid, Rect::new(160.0, 0.0, 80.0, 60.0))).unwrap();
         let rect = doc.get(rid).cloned().unwrap();
 
         let mut app = app_on_new_page(doc, page);
-        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowFntF001"], std::time::Duration::from_millis(250));
 
         app.selection = vec![tid];
         app.flatten_selection();
@@ -2590,11 +2590,11 @@ mod tests {
         let mut doc = Document::new("LiveFontRecheck");
         let page = doc.add_page("Page 1");
         let tid = doc.alloc_id();
-        let style_a = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        let style_a = TextStyle { font_family: "SlowFntG001".into(), font_size: 20.0, ..Default::default() };
         doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "Font Switch", style_a)).unwrap();
 
         let mut app = app_on_new_page(doc, page);
-        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1", "SlowvecFnt2"], std::time::Duration::from_millis(250));
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowFntG001", "SlowFntG002"], std::time::Duration::from_millis(250));
 
         app.selection = vec![tid];
         app.flatten_selection();
@@ -2603,12 +2603,12 @@ mod tests {
         // Before family A arrives, change the text to family B (not loaded).
         app.edit_nodes(&[tid], |n| {
             if let NodeKind::Text(tp) = &mut n.kind {
-                tp.style.font_family = "SlowvecFnt2".into();
+                tp.style.font_family = "SlowFntG002".into();
             }
         });
 
-        let req_a = designos_fonts::FontRequest::new("SlowvecFnt1", 400, false);
-        let req_b = designos_fonts::FontRequest::new("SlowvecFnt2", 400, false);
+        let req_a = designos_fonts::FontRequest::new("SlowFntG001", 400, false);
+        let req_b = designos_fonts::FontRequest::new("SlowFntG002", 400, false);
         for _ in 0..6000 {
             app.poll_fonts();
             if app.fonts.registered().contains(&req_a) && !app.text_refit_pending() {
@@ -2631,7 +2631,7 @@ mod tests {
         let mut doc = Document::new("ReparentedSibling");
         let page = doc.add_page("Page 1");
         let t1 = doc.alloc_id();
-        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        let style = TextStyle { font_family: "SlowFntH001".into(), font_size: 20.0, ..Default::default() };
         doc.insert(page, Node::text(t1, Rect::new(0.0, 0.0, 120.0, 32.0), "Text One", style.clone())).unwrap();
         let t2 = doc.alloc_id();
         doc.insert(page, Node::text(t2, Rect::new(0.0, 40.0, 120.0, 32.0), "Text Two", style)).unwrap();
@@ -2639,7 +2639,7 @@ mod tests {
         doc.insert(page, Node::frame(fid, Rect::new(200.0, 0.0, 160.0, 100.0))).unwrap();
 
         let mut app = app_on_new_page(doc, page);
-        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowFntH001"], std::time::Duration::from_millis(250));
 
         app.selection = vec![t1, t2];
         app.flatten_selection();

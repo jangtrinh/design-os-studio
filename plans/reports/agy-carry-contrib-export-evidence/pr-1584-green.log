@@ -1,0 +1,44 @@
+=== PR #1584 Green Test Suite (grid_native_fixtures) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.92s
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-86b419bebdf9a27f)
+
+running 32 tests
+test explicit_trailing_grid_rows_exported ... ok
+test android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout ... ok
+test android_span_only_column_and_row_emit_space ... ok
+test compose_grid_component_instance_keeps_frame_height ... ok
+test fill_child_stacked_inside_column_span_uses_its_own_column_width ... ok
+test explicit_hole_emits_filler_and_keeps_column_width ... ok
+test compose_grid_height_fixed_vs_hug_and_fill ... ok
+test compose_out_of_flow_children_wrap_grid_in_outer_box ... ok
+test bound_item_spacing_prints_token_in_all_four_generators ... ok
+test absolute_child_in_grid_keeps_generator_handling_in_all_four_generators ... ok
+test centred_dot_keeps_its_position_when_larger_card_is_stacked_on_it ... ok
+test compose_hugged_grid_axis_does_not_fill_parent_when_wrapped_for_out_of_flow_child ... ok
+test bound_counter_axis_spacing_and_non_start_cell_alignments ... ok
+test equal_tracks_native_generators ... ok
+test android_xml_exports_all_six_grid_scenes ... ok
+test compose_exports_all_six_grid_scenes ... ok
+test grid_slot_keeps_slot_parameter ... ok
+test solver_row_heights_match_compute_grid_across_all_six_scenes ... ok
+test spanning_banner_stacked_over_earlier_column_child_uses_negative_offset_and_own_span_width ... ok
+test stacked_child_spanning_rows_uses_first_row_height_in_sub_cell ... ok
+test overlap_in_same_cell_keeps_all_children_and_solver_offsets ... ok
+test overlap_inside_col_span_keeps_all_children_and_solver_offsets ... ok
+test stacked_start_chip_keeps_top_leading_alignment_over_centred_photo ... ok
+test stacked_badge_keeps_its_own_cell_alignment_beside_a_centred_icon ... ok
+test fixed_first_column_native_generators ... ok
+test fixed_height_auto_rows_native_generators ... ok
+test hugging_grid_native_generators ... ok
+test unequal_tracks_native_generators ... ok
+test row_and_column_spans_native_generators ... ok
+test syntax_smoke_android_xml_and_swiftui_span_scene ... ok
+test uikit_exports_all_six_grid_scenes ... ok
+test swiftui_exports_all_six_grid_scenes ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

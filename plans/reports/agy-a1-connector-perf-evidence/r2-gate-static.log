@@ -1,0 +1,18 @@
+# static gates on HEAD b09d487c8
+## python3 scripts/zero_fake_ui_gate.py
+Z13   | PASS   | panels/menus.rs                  | Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state — Zoom menu = the 11 allow-listed rows, each on its real `Action`; every `checked:` is `false` or read from `app.` state
+Z14   | PASS   | updater.rs + tabs.rs             | Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists — updater UI hidden=True, sample manifest used=True; guard is code in tabs.rs button, sidebar card and update modal
+Z15   | PASS   | terminal.rs + cmdk.rs            | No fake template synthesis or canned Executed via transcript in Agents panel; synthesize_spec_from_prompt stays private to cmdk.rs — `terminal.rs` never calls `synthesize_spec_from_prompt` or prints `Executed via` / `PRD Context:`; `synthesize_spec_from_prompt` is private to `cmdk.rs`
+Z16   | PASS   | registered label helpers in designos-app/src | UX writing: action labels at registered button/menu helpers and label fns <=3 words, no count in them (ratchet vs ux_writing_baseline.json) — 18 labelled violation(s) all in scripts/ux_writing_baseline.json; none new (design/ux-writing.md rules 1 and 3)
+Z17   | PASS   | terminal.rs + mcp/server.rs      | No global /tmp/designos-live-* or designos-live-selection.spec.json fallback in shipped code — no shipped (non-test) Rust source under designos-app or designos-mcp contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json`
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+zero_fake_ui_rc=0
+## python3 -B scripts/check_spacing_relationships.py
+literal geometry outside theme.rs: offset_literals=1519, inset_literals=41, radius_literals=171, font_literals=23, nonconcentric_pairs=2, legacy_control_refs=6
+note: 2 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+spacing_rc=0
+## cargo fmt --all -- --check
+fmt_rc=0

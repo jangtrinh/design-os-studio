@@ -377,10 +377,155 @@ pub(super) fn checkbox(ui: &mut Ui, pane: &mut Pane, key: &str, label: &str, val
 }
 
 /// Common value of `f` over all selected nodes, or None if they differ.
-fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
-    let mut it = sel.iter().take(128).filter_map(|id| app.doc.get(*id)).map(f);
+fn value_common<T: PartialEq>(doc: &Document, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+    let mut it = sel.iter().filter_map(|id| doc.get(*id)).map(f);
     let first = it.next()?;
     it.all(|v| v == first).then_some(first)
+}
+
+fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+    value_common(&app.doc, sel, f)
+}
+
+/// Shared-or-mixed values the inspector reads across the whole selection each frame.
+#[derive(Clone)]
+#[cfg_attr(test, derive(Debug))]
+struct MixedValueSummary {
+    x: Option<f32>,
+    y: Option<f32>,
+    rotation_deg: Option<f32>,
+    opacity_pct: Option<f32>,
+    width: Option<f32>,
+    height: Option<f32>,
+    corner_nodes: Vec<NodeId>,
+    four_corner_nodes: Vec<NodeId>,
+    corners_differ: bool,
+    uniform_radius: Option<f32>,
+    lockable: bool,
+}
+
+struct MixedValueCache {
+    runtime_id: u64,
+    epoch: u64,
+    selection: Vec<NodeId>,
+    summary: MixedValueSummary,
+    ready: bool,
+}
+
+impl Default for MixedValueCache {
+    fn default() -> Self {
+        Self {
+            runtime_id: 0,
+            epoch: 0,
+            selection: Vec::new(),
+            summary: MixedValueSummary {
+                x: None,
+                y: None,
+                rotation_deg: None,
+                opacity_pct: None,
+                width: None,
+                height: None,
+                corner_nodes: Vec::new(),
+                four_corner_nodes: Vec::new(),
+                corners_differ: false,
+                uniform_radius: None,
+                lockable: false,
+            },
+            ready: false,
+        }
+    }
+}
+
+std::thread_local! {
+    static MIXED_VALUE_CACHE: std::cell::RefCell<MixedValueCache> = std::cell::RefCell::new(MixedValueCache::default());
+}
+
+/// Cached scan for an unchanged frame. The key is the document (`runtime_id` + `mutation_epoch`)
+/// and the selection. A property edit goes through `Document::get_mut`, which bumps the epoch.
+fn mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+    MIXED_VALUE_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if cache.ready && cache.runtime_id == doc.runtime_id() && cache.epoch == doc.mutation_epoch() && cache.selection.as_slice() == sel {
+            return cache.summary.clone();
+        }
+        let summary = compute_mixed_value_summary(doc, sel);
+        cache.runtime_id = doc.runtime_id();
+        cache.epoch = doc.mutation_epoch();
+        cache.selection.clear();
+        cache.selection.extend_from_slice(sel);
+        cache.summary = summary.clone();
+        cache.ready = true;
+        summary
+    })
+}
+
+/// Running answer to "do all layers seen so far share one value?" for one inspector field. A value is shared
+/// when it equals the first one seen; a field no layer was read for has no value.
+#[derive(Clone, Copy)]
+enum Shared<T> {
+    Empty,
+    Same(T),
+    Mixed,
+}
+
+impl<T: PartialEq + Copy> Shared<T> {
+    fn push(&mut self, value: T) {
+        *self = match *self {
+            Self::Empty => Self::Same(value),
+            Self::Same(first) if first == value => Self::Same(first),
+            _ => Self::Mixed,
+        };
+    }
+
+    fn value(self) -> Option<T> {
+        match self {
+            Self::Same(value) => Some(value),
+            Self::Empty | Self::Mixed => None,
+        }
+    }
+}
+
+/// The scan `selection_ui` runs for position, rotation, opacity, corners, and dimensions: one pass over the
+/// selection with one lookup per layer, because a miss runs on every frame the document changed.
+fn compute_mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+    let (mut x, mut y, mut rotation_deg, mut opacity_pct, mut width, mut height) =
+        (Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty);
+    let mut radius: Shared<Option<f32>> = Shared::Empty;
+    let mut corner_nodes = Vec::new();
+    let mut four_corner_nodes = Vec::new();
+    let mut corners_differ = false;
+    let mut lockable = false;
+    for &id in sel {
+        let Some(n) = doc.get(id) else { continue };
+        x.push(n.transform.tx);
+        y.push(n.transform.ty);
+        rotation_deg.push((-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0);
+        opacity_pct.push((n.opacity * 100.0).round());
+        width.push(n.size.x);
+        height.push(inspector_height(n));
+        if node_has_corners(n) {
+            corner_nodes.push(id);
+            radius.push(uniform_corner_radius(n));
+        }
+        if node_has_four_corners(n) {
+            four_corner_nodes.push(id);
+            corners_differ |= node_corners_differ(n);
+        }
+        lockable |= !matches!(n.kind, NodeKind::Line);
+    }
+    MixedValueSummary {
+        x: x.value(),
+        y: y.value(),
+        rotation_deg: rotation_deg.value(),
+        opacity_pct: opacity_pct.value(),
+        width: width.value(),
+        height: height.value(),
+        uniform_radius: radius.value().flatten(),
+        lockable,
+        corner_nodes,
+        four_corner_nodes,
+        corners_differ,
+    }
 }
 
 fn node_has_four_corners(n: &Node) -> bool {
@@ -405,7 +550,7 @@ fn uniform_corner_radius(n: &Node) -> Option<f32> {
 }
 
 fn common_corners<T: PartialEq>(doc: &Document, ids: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
-    let mut it = ids.iter().take(128).filter_map(|id| doc.get(*id)).map(f);
+    let mut it = ids.iter().filter_map(|id| doc.get(*id)).map(f);
     let first = it.next()?;
     it.all(|v| v == first).then_some(first)
 }
@@ -984,8 +1129,9 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
     row_end(pane);
     sublabel(ui, pane, "Position");
-    let xs = common(app, sel, |n| n.transform.tx);
-    let ys = common(app, sel, |n| n.transform.ty);
+    let geom = mixed_value_summary(&app.doc, sel);
+    let xs = geom.x;
+    let ys = geom.y;
     if let Some(x) = field::num_field(ui, pane.col(0, 0.0), "x", Prefix::Text("X"), xs, "") {
         app.edit_nodes(sel, |n| n.transform.tx = x);
     }
@@ -994,7 +1140,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
     row_end(pane);
     sublabel(ui, pane, "Rotation");
-    let rot = common(app, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0);
+    let rot = geom.rotation_deg;
     if let Some(deg) = field::num_field(ui, pane.col(0, 0.0), "rot", Prefix::Icon(Icon::Rotation), rot, "°") {
         if multi {
             // A group rotates as one body around its bounding-box centre.
@@ -1031,11 +1177,14 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         }
     }
 
+    // Read after auto-layout, which can change size in this same frame. Position already
+    // took x/y/rotation from the earlier summary, before those fields could edit.
+    let fresh = mixed_value_summary(&app.doc, sel);
     // ---- Layout: dimensions, resizing and constraints of everything else
     if !al_frame {
         section_sep(ui, pane, false);
         title(ui, pane, "Layout", None, false);
-        dimensions_ui(app, ui, pane, sel, is_line);
+        dimensions_ui(app, ui, pane, sel, &fresh, is_line);
         if parent_al || is_text {
             resizing_ui(app, ui, pane, sel, &n0);
         }
@@ -1068,21 +1217,19 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     // ---- Appearance
     section_sep(ui, pane, false);
     title(ui, pane, "Appearance", None, false);
-    let op = common(app, sel, |n| (n.opacity * 100.0).round());
+    let op = fresh.opacity_pct;
     let op_r = pane.col(0, 0.0);
     if let Some(v) = var_bind::numeric(app, ui, op_r, sel, &["opacity"], |ui, r| field::num_field(ui, r, "opacity", Prefix::Icon(Icon::Opacity), op, "%")) {
         let o = (v / 100.0).clamp(0.0, 1.0);
         app.edit_nodes(sel, |n| n.opacity = o);
     }
     let mut corner_nodes = std::mem::take(&mut app.props.corner_nodes);
-    corner_nodes.clear();
-    corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_corners)));
+    corner_nodes.clone_from(&fresh.corner_nodes);
     let mut four_corner_nodes = std::mem::take(&mut app.props.four_corner_nodes);
-    four_corner_nodes.clear();
-    four_corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_four_corners)));
+    four_corner_nodes.clone_from(&fresh.four_corner_nodes);
     let has_radius = !corner_nodes.is_empty();
     let has_four_corners = !four_corner_nodes.is_empty();
-    let corners_differ = four_corner_nodes.iter().any(|id| app.doc.get(*id).is_some_and(node_corners_differ));
+    let corners_differ = fresh.corners_differ;
     if !has_four_corners {
         app.props.individual_corners = false;
         app.props.individual_corners_sel = Some(sel.to_vec());
@@ -1101,7 +1248,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             for key in ["radius-tl", "radius-tr", "radius-br", "radius-bl"] {
                 remove_field_rect(ui.ctx(), key);
             }
-            let rad = common_corners(&app.doc, &corner_nodes, uniform_corner_radius).flatten();
+            let rad = fresh.uniform_radius;
             let radius_keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
             let bound_var = corner_nodes.iter().find_map(|&id| radius_keys.iter().find_map(|&k| var_bind::bound_var(app, id, k).cloned()));
             let num_id = ui.id().with(("num", "radius"));
@@ -1450,10 +1597,10 @@ pub(crate) fn inspector_height_field(n: &Node) -> String {
     crate::widgets::numeric_field_value(inspector_height(n))
 }
 
-fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is_line: bool) {
+fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], geom: &MixedValueSummary, is_line: bool) {
     sublabel(ui, pane, "Dimensions");
-    let ws = common(app, sel, |n| n.size.x);
-    let hs = common(app, sel, inspector_height);
+    let ws = geom.width;
+    let hs = geom.height;
     let (wr, hr) = (pane.col(0, 0.0), pane.col(1, 0.0));
     let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui, r| field::num_field(ui, r, "w", Prefix::Text("W"), ws, ""));
     let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui, r| field::num_field(ui, r, "h", Prefix::Text("H"), hs, "")) };
@@ -1462,7 +1609,7 @@ fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is
     }
     // The aspect lock covers the nodes that have both a width and a height. A line has only a width and never gets one.
     let lockable = |app: &App, id: NodeId| app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Line));
-    if sel.iter().any(|id| lockable(app, *id)) {
+    if geom.lockable {
         let all_locked = sel.iter().filter(|id| lockable(app, **id)).all(|id| app.doc.get(*id).is_some_and(|n| n.lock_aspect));
         let lock_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         widgets::record(ui, "lock-aspect", lock_r);
@@ -1595,7 +1742,8 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
             grid_tracks_ui(app, ui, pane, grid_id);
         }
     }
-    dimensions_ui(app, ui, pane, sel, false);
+    let geom = mixed_value_summary(&app.doc, sel);
+    dimensions_ui(app, ui, pane, sel, &geom, false);
     let _ = parent_al;
     resizing_ui(app, ui, pane, sel, n0);
     sublabel(ui, pane, "Padding");
@@ -1900,6 +2048,47 @@ fn edit_paint_list(app: &mut App, sel: &[NodeId], stroke: bool, f: impl Fn(&mut 
     });
 }
 
+fn edit_paint_node_with_binding_remap(n: &mut Node, stroke: bool, origins_for_len: impl Fn(usize) -> Vec<Option<usize>>, f: impl Fn(&mut Vec<Paint>)) {
+    // A direct paint-list edit must detach the shared style that owns the old list.
+    n.style_refs.remove(if stroke { "stroke" } else { "fill" });
+    let paints = if stroke { &mut n.stroke.paints } else { &mut n.fills };
+    let origins = origins_for_len(paints.len());
+    f(paints);
+    let prefix = if stroke { "strokes/" } else { "fills/" };
+    var_bind::remap_indexed_bindings(&mut n.variables.bindings, prefix, &origins);
+}
+
+fn edit_paint_list_with_binding_remap(
+    app: &mut App,
+    sel: &[NodeId],
+    stroke: bool,
+    origins_for_len: impl Fn(usize) -> Vec<Option<usize>>,
+    f: impl Fn(&mut Vec<Paint>),
+) {
+    app.edit_nodes(sel, |n| {
+        edit_paint_node_with_binding_remap(n, stroke, &origins_for_len, &f);
+    });
+}
+
+fn remove_paint_node_with_binding_remap(n: &mut Node, stroke: bool, index: usize) {
+    edit_paint_node_with_binding_remap(
+        n,
+        stroke,
+        move |len| {
+            if index < len {
+                (0..len).filter(|old_i| *old_i != index).map(Some).collect()
+            } else {
+                (0..len).map(Some).collect()
+            }
+        },
+        move |ps| {
+            if index < ps.len() {
+                ps.remove(index);
+            }
+        },
+    );
+}
+
 /// Width of the swatch + hex + opacity field group of a paint row (the eye and minus follow it).
 const PAINT_GROUP_W: f32 = 159.0;
 /// x of the divider between the hex and opacity cells, from the group's left edge.
@@ -2053,22 +2242,48 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             });
         }
         if widgets::icon_button(ui, minus_r, ("pminus", key), Icon::Minus, false, "").clicked() {
-            edit_paint_list(app, sel, stroke, |ps| {
-                if i < ps.len() {
-                    ps.remove(i);
-                }
-            });
+            edit_paint_list_with_binding_remap(
+                app,
+                sel,
+                stroke,
+                move |len| {
+                    if i < len {
+                        (0..len).filter(|old_i| *old_i != i).map(Some).collect()
+                    } else {
+                        (0..len).map(Some).collect()
+                    }
+                },
+                move |ps| {
+                    if i < ps.len() {
+                        ps.remove(i);
+                    }
+                },
+            );
         }
         pane.y += theme::FIELD_HEIGHT + 8.0;
     }
     if let Some((src_i, dst_i)) = reorder_pair {
-        edit_paint_list(app, sel, stroke, |ps| {
-            if src_i < ps.len() {
-                let item = ps.remove(src_i);
-                let target_idx = dst_i.min(ps.len());
-                ps.insert(target_idx, item);
-            }
-        });
+        edit_paint_list_with_binding_remap(
+            app,
+            sel,
+            stroke,
+            move |len| {
+                let mut origins: Vec<usize> = (0..len).collect();
+                if src_i < origins.len() {
+                    let item = origins.remove(src_i);
+                    let target_idx = dst_i.min(origins.len());
+                    origins.insert(target_idx, item);
+                }
+                origins.into_iter().map(Some).collect()
+            },
+            move |ps| {
+                if src_i < ps.len() {
+                    let item = ps.remove(src_i);
+                    let target_idx = dst_i.min(ps.len());
+                    ps.insert(target_idx, item);
+                }
+            },
+        );
         app.props.selected_property = Some(if stroke { SelectedProperty::Stroke(dst_i) } else { SelectedProperty::Fill(dst_i) });
         app.props.drag_property = None;
     } else if ui.ctx().input(|inp| inp.pointer.any_released())
@@ -2563,10 +2778,10 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
                 if let Some(n) = tx.ed.node(&mut app.doc, *id) {
                     match target {
                         PickTarget::Fill(i) if i < n.fills.len() => {
-                            n.fills.remove(i);
+                            remove_paint_node_with_binding_remap(n, false, i);
                         }
                         PickTarget::Stroke(i) if i < n.stroke.paints.len() => {
-                            n.stroke.paints.remove(i);
+                            remove_paint_node_with_binding_remap(n, true, i);
                         }
                         _ => {}
                     }
@@ -3013,7 +3228,9 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                 if sub == "desc" && crate::styles::style_description(&app.doc, &entry.key).is_empty() {
                     app.set_style_description_to(&entry.key, "Soft elevation shadow for cards and popovers");
                 }
-                app.apply_style(&[id], &entry.key);
+                if app.doc.get(id).is_none_or(|n| !n.style_refs.values().any(|v| v == &entry.key)) {
+                    app.apply_style(&[id], &entry.key);
+                }
                 let anchor = Rect::from_min_size(Pos2::new(screen.x - 56.0, 420.0), Vec2::splat(24.0));
                 super::style_edit::toggle(app, &entry.key, anchor);
             }
@@ -3125,6 +3342,113 @@ mod tests {
         assert_eq!(back.to_hex(), c.to_hex());
         let half = to_c32(c, 0.5);
         assert!((half.a() as i32 - 128).abs() <= 1);
+    }
+
+    fn app_with_bound_paints() -> (App, NodeId) {
+        let mut doc = Document::new("paint bindings");
+        let page = doc.add_page("Page 1");
+        let id = doc.alloc_id();
+        let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 80.0));
+        node.fills = vec![Paint::solid(Color::rgb(255, 0, 0)), Paint::solid(Color::rgb(0, 0, 255))];
+        node.variables.bindings.insert("fills/0".into(), "var-red".into());
+        node.variables.bindings.insert("fills/1".into(), "var-blue".into());
+        node.variables.bindings.insert("fills/1/opacity".into(), "var-blue-opacity".into());
+        node.variables.bindings.insert("fills/1/stops/0".into(), "var-blue-stop".into());
+        let id = doc.insert(page, node).unwrap();
+        (App::new(doc), id)
+    }
+
+    #[test]
+    fn deleting_a_fill_remaps_surviving_indexed_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        edit_paint_list_with_binding_remap(
+            &mut app,
+            &[id],
+            false,
+            |len| (0..len).filter(|old_i| *old_i != 0).map(Some).collect(),
+            |paints| {
+                paints.remove(0);
+            },
+        );
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.fills.len(), 1);
+        assert_eq!(node.variables.bindings.get("fills/0").map(String::as_str), Some("var-blue"));
+        assert_eq!(node.variables.bindings.get("fills/0/opacity").map(String::as_str), Some("var-blue-opacity"));
+        assert_eq!(node.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        assert!(!node.variables.bindings.contains_key("fills/1"));
+    }
+
+    #[test]
+    fn reordering_fills_moves_their_indexed_bindings_and_suffixes() {
+        let (mut app, id) = app_with_bound_paints();
+        edit_paint_list_with_binding_remap(
+            &mut app,
+            &[id],
+            false,
+            |len| {
+                let mut origins: Vec<usize> = (0..len).collect();
+                let first = origins.remove(0);
+                origins.push(first);
+                origins.into_iter().map(Some).collect()
+            },
+            |paints| {
+                let first = paints.remove(0);
+                paints.push(first);
+            },
+        );
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.variables.bindings.get("fills/0").map(String::as_str), Some("var-blue"));
+        assert_eq!(node.variables.bindings.get("fills/0/opacity").map(String::as_str), Some("var-blue-opacity"));
+        assert_eq!(node.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        assert_eq!(node.variables.bindings.get("fills/1").map(String::as_str), Some("var-red"));
+    }
+
+    #[test]
+    fn picker_removal_remaps_surviving_stroke_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        let node = app.doc.get_mut(id).unwrap();
+        node.stroke.paints = vec![Paint::solid(Color::rgb(255, 0, 0)), Paint::solid(Color::rgb(0, 0, 255))];
+        node.variables.bindings.insert("strokes/0".into(), "stroke-red".into());
+        node.variables.bindings.insert("strokes/1/opacity".into(), "stroke-blue-opacity".into());
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), true, 0);
+        assert!(app.run_tx(tx));
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.stroke.paints.len(), 1);
+        assert_eq!(node.variables.bindings.get("strokes/0/opacity").map(String::as_str), Some("stroke-blue-opacity"));
+        assert!(!node.variables.bindings.contains_key("strokes/1"));
+    }
+
+    #[test]
+    fn picker_removal_detaches_shared_fill_style() {
+        let (mut app, id) = app_with_bound_paints();
+        app.doc.get_mut(id).unwrap().style_refs.insert("fill".into(), "style/fill".into());
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), false, 0);
+        assert!(app.run_tx(tx));
+        let node = app.doc.get(id).unwrap();
+        assert!(!node.style_refs.contains_key("fill"));
+        assert_eq!(node.fills.len(), 1);
+    }
+
+    #[test]
+    fn picker_removal_is_one_undo_step_and_redo_restores_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        let before = app.doc.get(id).unwrap().clone();
+        let depth = app.hist.undo_depth();
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), false, 0);
+        assert!(app.run_tx(tx));
+        assert_eq!(app.hist.undo_depth(), depth + 1);
+        let after = app.doc.get(id).unwrap();
+        assert_eq!(after.fills.len(), 1);
+        assert_eq!(after.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        app.undo();
+        assert_eq!(app.doc.get(id).unwrap().fills, before.fills);
+        assert_eq!(app.doc.get(id).unwrap().variables.bindings, before.variables.bindings);
+        app.redo();
+        assert_eq!(app.doc.get(id).unwrap().fills.len(), 1);
+        assert_eq!(app.doc.get(id).unwrap().variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
     }
 
     #[test]
@@ -4197,6 +4521,185 @@ mod tests {
         for id in &ids {
             let PaintKind::Image { scale_mode, .. } = &app.doc.get(*id).unwrap().fills[0].kind else { panic!("image fill") };
             assert_eq!(*scale_mode, ImageScaleMode::Fill, "one undo restores both");
+        }
+    }
+
+    /// Prints what one inspector frame of the mixed-value summary costs when the document changed since the
+    /// last frame (a miss) and when it did not (a hit), for 10_000 and 100_000 rectangles. Ignored in the default
+    /// suite because it is a timing run. The app test binary only builds with debug assertions, so a release-like
+    /// run turns them on for the app and egui crates:
+    ///
+    /// ```text
+    /// cargo test -p designos-app --bin designos --locked --release \
+    ///   --config 'profile.release.package.designos-app.debug-assertions=true' \
+    ///   --config 'profile.release.package.egui.debug-assertions=true' \
+    ///   -- --ignored --nocapture --exact panels::properties::tests::mixed_value_summary_frame_time
+    /// ```
+    #[test]
+    #[ignore]
+    fn mixed_value_summary_frame_time() {
+        fn build(n: usize, mixed: bool) -> (Document, Vec<NodeId>) {
+            let mut doc = Document::new("mixed-time");
+            let page = doc.add_page("Page 1");
+            let mut ids = Vec::with_capacity(n);
+            for i in 0..n {
+                let id = doc.alloc_id();
+                let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+                if mixed && i + 1 == n {
+                    node.opacity = 0.75;
+                    node.corner_radii = [8.0; 4];
+                } else {
+                    node.opacity = 0.5;
+                    node.corner_radii = [6.0; 4];
+                }
+                ids.push(doc.insert(page, node).unwrap());
+            }
+            (doc, ids)
+        }
+        let reps = 5u32;
+        for mixed in [true, false] {
+            for n in [10_000usize, 100_000] {
+                let (mut doc, ids) = build(n, mixed);
+                let _ = mixed_value_summary(&doc, &ids);
+                let start = std::time::Instant::now();
+                let mut last = None;
+                for _ in 0..reps {
+                    doc.bump_mutation_epoch();
+                    last = Some(std::hint::black_box(mixed_value_summary(&doc, &ids)));
+                }
+                let miss = start.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
+                let start = std::time::Instant::now();
+                for _ in 0..reps {
+                    last = Some(std::hint::black_box(mixed_value_summary(&doc, &ids)));
+                }
+                let hit = start.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
+                let last = last.expect("at least one frame ran");
+                assert_eq!(last.opacity_pct.is_none(), mixed, "opacity at {n} is mixed only when one layer differs");
+                assert_eq!(last.uniform_radius.is_none(), mixed, "radius at {n} is mixed only when one layer differs");
+                println!("mixed-summary mixed={mixed} n={n}: miss {miss:.3} ms, hit {hit:.3} ms");
+            }
+        }
+    }
+
+    #[test]
+    fn mixed_value_summary_cache_updates_after_one_layer_changes() {
+        let mut doc = Document::new("mixed-cache");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            let id = doc.alloc_id();
+            let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+            node.opacity = 0.5;
+            node.corner_radii = [6.0; 4];
+            ids.push(doc.insert(page, node).unwrap());
+        }
+        let first = mixed_value_summary(&doc, &ids);
+        assert_eq!(first.opacity_pct, Some(50.0));
+        assert_eq!(first.uniform_radius, Some(6.0));
+        let second = mixed_value_summary(&doc, &ids);
+        assert_eq!(second.opacity_pct, Some(50.0), "an unchanged selection reuses the summary");
+        doc.get_mut(ids[2]).unwrap().opacity = 0.75;
+        let third = mixed_value_summary(&doc, &ids);
+        assert!(third.opacity_pct.is_none(), "editing one layer must refresh the cached summary");
+        assert_eq!(third.uniform_radius, Some(6.0), "a field the edit did not change stays shared");
+    }
+
+    /// Two copies of one document take the same number of edits with different values. Each copy is installed
+    /// as the live document with an id of its own, so the summary follows the copy that is installed.
+    #[test]
+    fn mixed_value_summary_follows_each_installed_copy_of_one_document() {
+        let mut base = Document::new("installed-copies");
+        let page = base.add_page("Page 1");
+        let id = base.alloc_id();
+        base.insert(page, Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let install = |opacity: f32| {
+            let mut copy = base.clone();
+            copy.renew_runtime_id();
+            copy.get_mut(id).unwrap().opacity = opacity;
+            copy
+        };
+        let (first, second) = (install(0.3), install(0.9));
+        assert_eq!(first.mutation_epoch(), second.mutation_epoch(), "both copies took the same number of edits");
+        assert_ne!(first.runtime_id(), second.runtime_id(), "each installed copy has an id of its own");
+        assert_eq!(mixed_value_summary(&first, &[id]).opacity_pct, Some(30.0));
+        assert_eq!(mixed_value_summary(&second, &[id]).opacity_pct, Some(90.0), "the second copy must not read the first copy's summary");
+        assert_eq!(mixed_value_summary(&first, &[id]).opacity_pct, Some(30.0), "switching back reads the first copy again");
+    }
+
+    /// The scan the summary replaced: one pass per field, each reading every selected layer again.
+    fn per_field_mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+        let mut corner_nodes = Vec::new();
+        corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_corners)));
+        let mut four_corner_nodes = Vec::new();
+        four_corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_four_corners)));
+        let corners_differ = four_corner_nodes.iter().any(|id| doc.get(*id).is_some_and(node_corners_differ));
+        MixedValueSummary {
+            x: value_common(doc, sel, |n| n.transform.tx),
+            y: value_common(doc, sel, |n| n.transform.ty),
+            rotation_deg: value_common(doc, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0),
+            opacity_pct: value_common(doc, sel, |n| (n.opacity * 100.0).round()),
+            width: value_common(doc, sel, |n| n.size.x),
+            height: value_common(doc, sel, inspector_height),
+            uniform_radius: common_corners(doc, &corner_nodes, uniform_corner_radius).flatten(),
+            lockable: sel.iter().any(|id| doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Line))),
+            corner_nodes,
+            four_corner_nodes,
+            corners_differ,
+        }
+    }
+
+    /// One pass over the selection must show exactly what the per-field scans showed: shared or mixed values,
+    /// the layers that have corners, a missing id, a repeated id and the empty selection.
+    #[test]
+    fn mixed_value_summary_matches_the_per_field_scans() {
+        use designos_doc::{Affine, FrameProps};
+        let mut doc = Document::new("single-pass");
+        let page = doc.add_page("Page 1");
+        let mut add = |kind: NodeKind, edit: &dyn Fn(&mut Node)| {
+            let id = doc.alloc_id();
+            let mut node = Node::new(id, kind);
+            node.size = designos_doc::Vec2::new(40.0, 40.0);
+            node.corner_radii = [6.0; 4];
+            node.opacity = 0.5;
+            edit(&mut node);
+            doc.insert(page, node).unwrap()
+        };
+        let rect = add(NodeKind::Rectangle, &|_| {});
+        let same = add(NodeKind::Rectangle, &|_| {});
+        let moved = add(NodeKind::Rectangle, &|n| n.transform = Affine::translate(12.0, 7.0));
+        let wide = add(NodeKind::Rectangle, &|n| n.size = designos_doc::Vec2::new(90.0, 40.0));
+        let faint = add(NodeKind::Rectangle, &|n| n.opacity = 0.25);
+        let turned = add(NodeKind::Rectangle, &|n| n.transform = Affine { tx: 5.0, ty: 5.0, ..Affine::rotate(0.5) });
+        let corners = add(NodeKind::Rectangle, &|n| n.corner_radii = [1.0, 2.0, 3.0, 4.0]);
+        let frame = add(NodeKind::Frame(FrameProps::default()), &|_| {});
+        let polygon = add(NodeKind::Polygon { count: 5 }, &|_| {});
+        let star = add(NodeKind::Star { count: 5, inner_ratio: 0.5 }, &|n| n.corner_radii = [9.0; 4]);
+        let line = add(NodeKind::Line, &|n| n.size = designos_doc::Vec2::new(40.0, 0.0));
+        let nan_wide = add(NodeKind::Rectangle, &|n| n.size = designos_doc::Vec2::new(f32::NAN, 40.0));
+        let selections: Vec<Vec<NodeId>> = vec![
+            vec![],
+            vec![rect],
+            vec![line],
+            vec![nan_wide],
+            vec![nan_wide, nan_wide],
+            vec![rect, same],
+            vec![rect, same, moved],
+            vec![rect, wide],
+            vec![rect, faint],
+            vec![rect, turned],
+            vec![rect, corners],
+            vec![corners, rect],
+            vec![rect, frame, polygon],
+            vec![rect, polygon, star, line],
+            vec![line, rect, star],
+            vec![rect, NodeId(u64::MAX), same],
+            vec![NodeId(u64::MAX)],
+            vec![rect, rect, same, rect],
+        ];
+        for sel in &selections {
+            let single = compute_mixed_value_summary(&doc, sel);
+            let per_field = per_field_mixed_value_summary(&doc, sel);
+            assert_eq!(format!("{single:?}"), format!("{per_field:?}"), "selection {sel:?}");
         }
     }
 }

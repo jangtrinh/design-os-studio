@@ -838,7 +838,7 @@ fn parse_text_props(
         style.font_size = fs.max(1.0);
     }
     if let Some(fw) = v.get("fontWeight") {
-        style.font_weight = parse_font_weight(fw, doc);
+        style.set_font_weight(parse_font_weight(fw, doc));
     }
     if v.get("fontStyle").and_then(Value::as_str) == Some("italic") {
         style.italic = true;
@@ -908,7 +908,7 @@ fn parse_text_props(
                     rstyle.font_size = fs.max(1.0);
                 }
                 if let Some(fw) = span.get("fontWeight") {
-                    rstyle.font_weight = parse_font_weight(fw, doc);
+                    rstyle.set_font_weight(parse_font_weight(fw, doc));
                 }
                 if span.get("fontStyle").and_then(Value::as_str) == Some("italic") {
                     rstyle.italic = true;
