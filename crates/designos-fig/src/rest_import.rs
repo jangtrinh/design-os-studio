@@ -22,14 +22,42 @@ pub(crate) fn fnum(v: &Value, k: &str) -> Option<f32> {
 /// Per-page deferred instances, pages already hydrated, instance targets and expanded instances.
 type DeferredHydration = (HashMap<NodeId, Vec<NodeId>>, HashSet<NodeId>, BTreeMap<NodeId, NodeId>, BTreeSet<NodeId>);
 
+/// Where an unmodelled stroke cap sat on import: on the node, or on the vertex at this index of its network.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StrokeCapSite {
+    Node,
+    Vertex(usize),
+}
+
+/// `fig_metadata` key that holds the [`StrokeCapSite`] of `fig_metadata["strokeCap"]`. A document without it was
+/// recorded before the site was kept.
+pub(crate) const STROKE_CAP_SITE_KEY: &str = "strokeCapSource";
+
+impl StrokeCapSite {
+    pub(crate) fn encode(self) -> String {
+        match self {
+            Self::Node => "node".into(),
+            Self::Vertex(i) => format!("vertex:{i}"),
+        }
+    }
+
+    pub(crate) fn decode(s: &str) -> Option<Self> {
+        match s.strip_prefix("vertex:") {
+            Some(i) => i.parse().ok().map(Self::Vertex),
+            None => (s == "node").then_some(Self::Node),
+        }
+    }
+}
+
 /// A stroke cap Figma draws that [`StrokeCap`] has no name for (the arrow caps), on the node or on any
-/// vertex of its network. The baked stroke outline carries the arrowhead; the name is kept in
-/// `fig_metadata["strokeCap"]` so that a resize keeps scaling the outline instead of drawing a plain line.
-fn unmodelled_stroke_cap(v: &Value) -> Option<&str> {
+/// vertex of its network, and where it sat. The baked stroke outline carries the arrowhead; the name is kept in
+/// `fig_metadata["strokeCap"]` so that a resize keeps scaling the outline instead of drawing a plain line, and
+/// the site in `fig_metadata[STROKE_CAP_SITE_KEY]` so that an export writes it back to the same place.
+fn unmodelled_stroke_cap(v: &Value) -> Option<(&str, StrokeCapSite)> {
     let unmodelled = |c: &&str| !c.is_empty() && !matches!(*c, "NONE" | "ROUND" | "SQUARE");
-    fstr(v, "strokeCap").filter(unmodelled).or_else(|| {
+    fstr(v, "strokeCap").filter(unmodelled).map(|c| (c, StrokeCapSite::Node)).or_else(|| {
         let vertices = v.get("vectorNetwork")?.get("vertices")?.as_array()?;
-        vertices.iter().find_map(|x| fstr(x, "strokeCap").filter(unmodelled))
+        vertices.iter().enumerate().find_map(|(i, x)| fstr(x, "strokeCap").filter(unmodelled).map(|c| (c, StrokeCapSite::Vertex(i))))
     })
 }
 
@@ -1349,8 +1377,11 @@ impl<'a> Ctx<'a> {
             _ => StrokeCap::None,
         };
         if matches!(ty, "VECTOR" | "BRUSH") {
-            if let Some(cap) = unmodelled_stroke_cap(v) {
-                n.fig_metadata.entry("strokeCap".into()).or_insert_with(|| cap.to_string());
+            if let Some((cap, site)) = unmodelled_stroke_cap(v) {
+                if let std::collections::btree_map::Entry::Vacant(recorded) = n.fig_metadata.entry("strokeCap".into()) {
+                    recorded.insert(cap.to_string());
+                    n.fig_metadata.insert(STROKE_CAP_SITE_KEY.into(), site.encode());
+                }
             }
         }
         n.stroke.join = match fstr(v, "strokeJoin") {
@@ -2477,7 +2508,7 @@ impl<'a> Ctx<'a> {
             }
             if fast_clone {
                 // what decides how a resize treats the baked stroke stays with the clone
-                n.fig_metadata.retain(|k, _| matches!(k.as_str(), "strokeCap" | "brushType"));
+                n.fig_metadata.retain(|k, _| matches!(k.as_str(), "strokeCap" | STROKE_CAP_SITE_KEY | "brushType"));
                 if let Some(sid) = n.source_id.take() {
                     self.override_keys.entry(src).or_insert_with(|| std::sync::Arc::from(sid.rsplit(';').next().unwrap_or(&sid)));
                 }

@@ -216,6 +216,10 @@ pub fn paths_area(paths: &[d::Path], tol: f32) -> f64 {
 
 // ---------------------------------------------------------------- outline stroke
 fn sk_stroke(s: &d::Stroke, width: f32, cap: d::StrokeCap) -> sk::Stroke {
+    sk_stroke_with_join(s, width, cap, s.join)
+}
+
+fn sk_stroke_with_join(s: &d::Stroke, width: f32, cap: d::StrokeCap, join: d::StrokeJoin) -> sk::Stroke {
     let mut st = sk::Stroke {
         width,
         miter_limit: s.miter_limit.max(1.0),
@@ -224,7 +228,7 @@ fn sk_stroke(s: &d::Stroke, width: f32, cap: d::StrokeCap) -> sk::Stroke {
             d::StrokeCap::Round => sk::LineCap::Round,
             d::StrokeCap::Square => sk::LineCap::Square,
         },
-        line_join: match s.join {
+        line_join: match join {
             d::StrokeJoin::Miter => sk::LineJoin::Miter,
             d::StrokeJoin::Bevel => sk::LineJoin::Bevel,
             d::StrokeJoin::Round => sk::LineJoin::Round,
@@ -243,11 +247,133 @@ fn sk_stroke(s: &d::Stroke, width: f32, cap: d::StrokeCap) -> sk::Stroke {
 
 /// Expands one tiny-skia path by the stroke (dashes first).
 fn expand(path: &sk::Path, st: &sk::Stroke) -> Option<sk::Path> {
-    let p = match &st.dash {
-        Some(dash) => path.dash(dash, 1.0)?,
-        None => path.clone(),
+    crate::outline::stroke_outline(path, st, 1.0)
+}
+
+/// A straight segment is stored as the cubic `[p, p, q, q]` (see `path_curves`).
+fn is_straight(c: &[Vec2; 4]) -> bool {
+    c[1] == c[0] && c[2] == c[3]
+}
+
+/// The two halves of `c`. The halves of a straight segment are the straight segments `[a, a, m, m]` and `[m, m, b, b]`.
+/// Split like a curve they would be `[a, a, a + (b - a) / 4, m]`, a collinear cubic that the stroker can take for a
+/// degenerate curve (when the corner lies on an axis) and join to the previous piece with a round join, whatever join
+/// was asked for.
+fn split_cubic_half(c: &[Vec2; 4]) -> ([Vec2; 4], [Vec2; 4]) {
+    let mid = |a: Vec2, b: Vec2| Vec2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+    if is_straight(c) {
+        let m = mid(c[0], c[3]);
+        return ([c[0], c[0], m, m], [m, m, c[3], c[3]]);
+    }
+    let m01 = mid(c[0], c[1]);
+    let m12 = mid(c[1], c[2]);
+    let m23 = mid(c[2], c[3]);
+    let m012 = mid(m01, m12);
+    let m123 = mid(m12, m23);
+    let m0123 = mid(m012, m123);
+    ([c[0], m01, m012, m0123], [m0123, m123, m23, c[3]])
+}
+
+fn push_outward_cap(pb: &mut sk::PathBuilder, p: Vec2, outward: Vec2, w: f32, cap: d::StrokeCap) {
+    let r = w * 0.5;
+    let n = Vec2::new(-outward.y, outward.x);
+    match cap {
+        d::StrokeCap::None => {}
+        d::StrokeCap::Square => {
+            let pt = |a: f32, b: f32| (p.x + n.x * a + outward.x * b, p.y + n.y * a + outward.y * b);
+            let (p0, p1, p2, p3) = (pt(-r, 0.0), pt(-r, r), pt(r, r), pt(r, 0.0));
+            pb.move_to(p0.0, p0.1);
+            pb.line_to(p1.0, p1.1);
+            pb.line_to(p2.0, p2.1);
+            pb.line_to(p3.0, p3.1);
+            pb.close();
+        }
+        d::StrokeCap::Round => {
+            let k = 0.552_284_8 * r;
+            let pt = |a: f32, b: f32| (p.x + n.x * a + outward.x * b, p.y + n.y * a + outward.y * b);
+            let a = pt(-r, 0.0);
+            let c1 = pt(-r, k);
+            let c2 = pt(-k, r);
+            let m = pt(0.0, r);
+            let c3 = pt(k, r);
+            let c4 = pt(r, k);
+            let b = pt(r, 0.0);
+            pb.move_to(a.0, a.1);
+            pb.cubic_to(c1.0, c1.1, c2.0, c2.1, m.0, m.1);
+            pb.cubic_to(c3.0, c3.1, c4.0, c4.1, b.0, b.1);
+            pb.close();
+        }
+    }
+}
+
+/// Expands one sub-path `sub` by `stroke` at `width` and `res_scale`, honouring per-vertex
+/// `StrokeJoin` overrides from `network` when present.
+fn expand_subpath(sub: &d::Path, stroke: &d::Stroke, width: f32, base_cap: d::StrokeCap, network: Option<&VectorNetwork>, res_scale: f32) -> Option<sk::Path> {
+    let skp = vector_paths(std::slice::from_ref(sub)).paths.into_iter().next().map(|x| x.0)?;
+    let Some(net) = network.filter(|n| !crate::outline::has_dashes(stroke) && n.vertices.iter().any(|v| v.join.is_some_and(|j| j != stroke.join))) else {
+        return crate::outline::stroke_outline(&skp, &sk_stroke(stroke, width, base_cap), res_scale);
     };
-    p.stroke(st, 1.0)
+    let Some((cs, is_closed)) = path_curves(sub).into_iter().next() else {
+        return crate::outline::stroke_outline(&skp, &sk_stroke(stroke, width, base_cap), res_scale);
+    };
+    let n = cs.len();
+    if n == 0 || (!is_closed && n == 1) {
+        return crate::outline::stroke_outline(&skp, &sk_stroke(stroke, width, base_cap), res_scale);
+    }
+    let join_at =
+        |p: Vec2| -> d::StrokeJoin { net.vertices.iter().find(|v| (v.pos.x - p.x).hypot(v.pos.y - p.y) <= 1e-2).and_then(|v| v.join).unwrap_or(stroke.join) };
+    let joins: Vec<d::StrokeJoin> = if is_closed { (0..n).map(|k| join_at(cs[k][0])).collect() } else { (1..n).map(|k| join_at(cs[k][0])).collect() };
+    if joins.iter().all(|&j| j == joins[0]) {
+        return crate::outline::stroke_outline(&skp, &sk_stroke_with_join(stroke, width, base_cap, joins[0]), res_scale);
+    }
+    let mut all_pb = sk::PathBuilder::new();
+    let corner_indices: std::ops::Range<usize> = if is_closed { 0..n } else { 1..n };
+    for k in corner_indices {
+        let j = if is_closed { joins[k] } else { joins[k - 1] };
+        let c_in = if is_closed {
+            split_cubic_half(&cs[(k + n - 1) % n]).1
+        } else if k == 1 {
+            cs[0]
+        } else {
+            split_cubic_half(&cs[k - 1]).1
+        };
+        let c_out = if is_closed {
+            split_cubic_half(&cs[k]).0
+        } else if k + 1 == n {
+            cs[n - 1]
+        } else {
+            split_cubic_half(&cs[k]).0
+        };
+        let mut pb = sk::PathBuilder::new();
+        pb.move_to(c_in[0].x, c_in[0].y);
+        pb.cubic_to(c_in[1].x, c_in[1].y, c_in[2].x, c_in[2].y, c_in[3].x, c_in[3].y);
+        pb.cubic_to(c_out[1].x, c_out[1].y, c_out[2].x, c_out[2].y, c_out[3].x, c_out[3].y);
+        if let Some(piece) = pb.finish() {
+            let st = sk_stroke_with_join(stroke, width, d::StrokeCap::None, j);
+            if let Some(o) = crate::outline::stroke_outline(&piece, &st, res_scale) {
+                all_pb.push_path(&o);
+            }
+        }
+    }
+    if !is_closed && base_cap != d::StrokeCap::None {
+        let dir = |from: Vec2, cands: [Vec2; 3]| -> Vec2 {
+            for c in cands {
+                let v = Vec2::new(c.x - from.x, c.y - from.y);
+                let l = (v.x * v.x + v.y * v.y).sqrt();
+                if l > 1e-4 {
+                    return Vec2::new(v.x / l, v.y / l);
+                }
+            }
+            Vec2::new(1.0, 0.0)
+        };
+        // both directions run from an end point into the path; a cap points the opposite way
+        let (first, last) = (&cs[0], &cs[n - 1]);
+        let s_in = dir(first[0], [first[1], first[2], first[3]]);
+        let e_in = dir(last[3], [last[2], last[1], last[0]]);
+        push_outward_cap(&mut all_pb, first[0], Vec2::new(-s_in.x, -s_in.y), width, base_cap);
+        push_outward_cap(&mut all_pb, last[3], Vec2::new(-e_in.x, -e_in.y), width, base_cap);
+    }
+    all_pb.finish()
 }
 
 /// Splits a document path into its sub-paths.
@@ -317,10 +443,11 @@ fn cap_polygons(sub: &d::Path, w: f32, start_cap: d::StrokeCap, end_cap: d::Stro
             out.push(vec![pt(-h, 0.0), pt(h, 0.0), pt(h, h), pt(-h, h)]);
         }
     };
-    let s_out = dir(first[0], [first[1], first[2], first[3]]);
-    let e_out = dir(last[3], [last[2], last[1], last[0]]);
-    cap_at(first[0], Vec2::new(-s_out.x, -s_out.y), start_cap);
-    cap_at(last[3], e_out, end_cap);
+    // both directions run from an end point into the path; a cap points the opposite way
+    let s_in = dir(first[0], [first[1], first[2], first[3]]);
+    let e_in = dir(last[3], [last[2], last[1], last[0]]);
+    cap_at(first[0], Vec2::new(-s_in.x, -s_in.y), start_cap);
+    cap_at(last[3], Vec2::new(-e_in.x, -e_in.y), end_cap);
     out
 }
 
@@ -329,7 +456,11 @@ fn cap_polygons(sub: &d::Path, w: f32, start_cap: d::StrokeCap, end_cap: d::Stro
 /// the stroke is dashed (dashed strokes cap every dash with `Stroke::cap`).
 pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
     let NodeKind::Vector { network: Some(net), .. } = &n.kind else { return None };
-    if crate::outline::has_dashes(&n.stroke) || !net.is_valid() || !net.vertices.iter().any(|v| v.cap.is_some()) || n.stroke.weight <= 0.0 {
+    if crate::outline::has_dashes(&n.stroke)
+        || !net.is_valid()
+        || !net.vertices.iter().any(|v| v.cap.is_some_and(|c| c != n.stroke.cap))
+        || n.stroke.weight <= 0.0
+    {
         return None;
     }
     let ends = net.open_chain_ends();
@@ -356,9 +487,56 @@ pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
     Some(out)
 }
 
+/// True when `n` is a valid, non-dashed vector network whose vertices override `Stroke::join`.
+pub fn has_per_vertex_joins(n: &Node) -> bool {
+    let NodeKind::Vector { network: Some(net), .. } = &n.kind else { return false };
+    !crate::outline::has_dashes(&n.stroke) && net.is_valid() && net.vertices.iter().any(|v| v.join.is_some_and(|j| j != n.stroke.join))
+}
+
+/// True when `n` has an `Inside` or `Outside` stroke on a shape that mixes closed and open sub-paths.
+pub fn has_mixed_subpath_align(n: &Node, sh: &crate::geom::Shape) -> bool {
+    if n.stroke.align == d::StrokeAlign::Center || sh.closed {
+        return false;
+    }
+    sh.paths.iter().any(|(p, _)| p.segments().any(|s| matches!(s, PathSegment::Close)))
+}
+
+/// Expands every sub-path of `sh` at `width` and `res_scale`, honouring per-vertex joins and caps.
+pub(crate) fn expand_node_subpaths(n: &Node, sh: &crate::geom::Shape, width: f32, res_scale: f32) -> Vec<(sk::Path, sk::FillRule)> {
+    let network = match &n.kind {
+        NodeKind::Vector { network: Some(net), .. } if net.is_valid() => Some(net),
+        _ => None,
+    };
+    let base_cap = if vertex_caps(n).is_some() { d::StrokeCap::None } else { n.stroke.cap };
+    let mut out = Vec::new();
+    for (p, r) in &sh.paths {
+        let doc_p = sk_to_doc(p, rule_of(*r));
+        for (sub, _) in subpaths(&doc_p) {
+            if let Some(o) = expand_subpath(&sub, &n.stroke, width, base_cap, network, res_scale) {
+                out.push((o, sk::FillRule::Winding));
+            }
+        }
+    }
+    if let Some(caps) = vertex_caps(n) {
+        out.extend(vector_paths(&caps).paths);
+    }
+    out
+}
+
+/// Stroke outline for a shape mixing closed sub-paths (`Inside`/`Outside`) and open sub-paths (`Center`).
+pub(crate) fn mixed_subpath_stroke_outline(n: &Node, sh: &crate::geom::Shape) -> Vec<(sk::Path, sk::FillRule)> {
+    let network = match &n.kind {
+        NodeKind::Vector { network: Some(net), .. } if net.is_valid() => Some(net),
+        _ => None,
+    };
+    let doc_paths: Vec<d::Path> = sh.paths.iter().map(|(p, r)| sk_to_doc(p, rule_of(*r))).collect();
+    let outlined = outline_stroke_along(&doc_paths, &n.stroke, network, None);
+    vector_paths(&outlined).paths
+}
+
 /// Converts the stroke of `paths` into filled geometry: weight, alignment,
 /// caps, joins, miter limit and dashes are honoured. `network` supplies
-/// per-vertex stroke caps (`paths` must then be `network.to_paths()`). The
+/// per-vertex stroke caps and joins (`paths` must then be `network.to_paths()`). The
 /// result is filled with the non-zero (or, after clipping, even-odd) rule.
 ///
 /// Centered strokes without per-vertex caps keep their curves exactly (the
@@ -392,7 +570,7 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
     if w <= 0.0 || paths.is_empty() {
         return vec![];
     }
-    let per_vertex_caps = !crate::outline::has_dashes(stroke) && network.is_some_and(|n| n.vertices.iter().any(|v| v.cap.is_some()));
+    let per_vertex_caps = !crate::outline::has_dashes(stroke) && network.is_some_and(|n| n.vertices.iter().any(|v| v.cap.is_some_and(|c| c != stroke.cap)));
     let chain_caps: Vec<(d::StrokeCap, d::StrokeCap)> = match network {
         Some(n) if per_vertex_caps => {
             n.open_chain_ends().iter().map(|(a, b)| (n.vertices[*a].cap.unwrap_or(stroke.cap), n.vertices[*b].cap.unwrap_or(stroke.cap))).collect()
@@ -402,25 +580,23 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
     let base_cap = if per_vertex_caps { d::StrokeCap::None } else { stroke.cap };
     let aligned = stroke.align != d::StrokeAlign::Center;
     let st_center = sk_stroke(stroke, w, base_cap);
-    let st_double = sk_stroke(stroke, w * 2.0, base_cap);
 
     let mut out: Vec<d::Path> = vec![];
     let mut open_index = 0;
     for p in paths {
         let mut closed_subs: Vec<d::Path> = vec![];
         for (sub, closed) in subpaths(p) {
-            let Some(skp) = vector_paths(std::slice::from_ref(&sub)).paths.into_iter().next().map(|x| x.0) else { continue };
             if closed {
                 if aligned {
                     closed_subs.push(sub);
-                } else if let Some(o) = expand(&skp, &st_center) {
+                } else if let Some(o) = expand_subpath(&sub, stroke, w, base_cap, network, 1.0) {
                     out.push(sk_to_doc(&o, d::FillRule::NonZero));
                 }
                 continue;
             }
             let caps = if per_vertex_caps { chain_caps.get(open_index).copied() } else { None };
             open_index += 1;
-            let Some(o) = expand(&skp, &st_center) else { continue };
+            let Some(o) = expand_subpath(&sub, stroke, w, base_cap, network, 1.0) else { continue };
             match caps {
                 Some((sc, ec)) => {
                     let mut shapes: Shapes = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
@@ -447,8 +623,7 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
                 }
             } else {
                 for c in &closed_subs {
-                    let Some(skp) = vector_paths(std::slice::from_ref(c)).paths.into_iter().next().map(|x| x.0) else { continue };
-                    let Some(o) = expand(&skp, &st_double) else { continue };
+                    let Some(o) = expand_subpath(c, stroke, w * 2.0, base_cap, network, 1.0) else { continue };
                     let polys = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
                     ring = if ring.is_empty() { polys } else { ring.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
                 }

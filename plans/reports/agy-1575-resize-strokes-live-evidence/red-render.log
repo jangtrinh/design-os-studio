@@ -1,0 +1,53 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-render)
+warning: function `bake_bounds` is never used
+   --> crates/designos-render/tests/resized_vector_stroke_weight.rs:315:4
+    |
+315 | fn bake_bounds(n: &Node) -> (f32, f32, f32, f32) {
+    |    ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-render` (test "resized_vector_stroke_weight") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running tests/resized_vector_stroke_weight.rs (out/cargo/debug/deps/resized_vector_stroke_weight-236926c4c166f7cb)
+
+running 11 tests
+test unresized_kit_vector_renders_are_hashed_into_a_file ... ok
+
+thread 'mixed_miter_and_round_join_path_resized_2x_keeps_both_joins' (88647562) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:484:5:
+mixed-join path drops its bake on 2x resize
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'equal_cap_open_stroke_draws_through_the_same_path_as_node_cap' (88647560) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:522:5:
+equal per-vertex caps do not trigger the separate cap polygon path
+
+thread 'an_inside_or_outside_stroke_of_a_network_with_an_open_chain_drops_its_bake_and_strokes_live' (88647558) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:375:9:
+Inside: the baked outline is dropped on resize
+test plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes ... ok
+test an_inside_or_outside_stroke_of_a_network_with_an_open_chain_drops_its_bake_and_strokes_live ... FAILED
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins ... FAILED
+test stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize ... ok
+test equal_cap_open_stroke_draws_through_the_same_path_as_node_cap ... FAILED
+test stroke_follows_the_network_while_the_fill_keeps_the_outline ... ok
+test unresized_imported_vector_renders_unchanged ... ok
+test an_inside_stroke_of_a_closed_network_still_drops_its_bake_and_stays_inside ... ok
+test syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override ... ok
+
+thread 'file_type_network_resized_2x_strokes_closed_outline_inside_and_open_fold_centered' (88647561) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:433:5:
+file-type network drops its bake on 2x resize
+test file_type_network_resized_2x_strokes_closed_outline_inside_and_open_fold_centered ... FAILED
+
+failures:
+
+failures:
+    an_inside_or_outside_stroke_of_a_network_with_an_open_chain_drops_its_bake_and_strokes_live
+    equal_cap_open_stroke_draws_through_the_same_path_as_node_cap
+    file_type_network_resized_2x_strokes_closed_outline_inside_and_open_fold_centered
+    mixed_miter_and_round_join_path_resized_2x_keeps_both_joins
+
+test result: FAILED. 7 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-render --test resized_vector_stroke_weight`

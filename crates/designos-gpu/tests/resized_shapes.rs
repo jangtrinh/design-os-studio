@@ -335,21 +335,366 @@ fn is_ink(pm: &Pixmap, x: u32, y: u32) -> bool {
 }
 
 #[test]
-fn resized_inside_and_outside_strokes_with_an_open_chain_keep_their_bake_like_cpu() {
+fn resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu() {
     for (align, name) in [(StrokeAlign::Inside, "resized_inside_chain"), (StrokeAlign::Outside, "resized_outside_chain")] {
         let mut t = T::new();
         let icon = square_with_bent_whisker(&mut t, Vec2::new(20.0, 20.0), align);
         resize(&mut t.doc, icon, Vec2::new(40.0, 40.0));
-        assert!(t.doc.get(icon).unwrap().stroke_geometry.is_some(), "{align:?}: the baked outline stays");
+        assert!(t.doc.get(icon).unwrap().stroke_geometry.is_none(), "{align:?}: the baked outline is dropped");
 
         // the square's left edge sits at x = 32: an inside stroke lies to its right, an outside one to its left
         let (clear, stroked) = if align == StrokeAlign::Inside { (31, 33) } else { (33, 31) };
         let cpu = cpu_render(&t);
         assert!(!is_ink(&cpu, clear, 34) && is_ink(&cpu, stroked, 34), "CPU {align:?}: the stroke stays on its own side of the edge");
+        assert_eq!(vertical_runs(&cpu, 28, 15..95), vec![2], "CPU {align:?}: one 2px centered band on the open chain");
         let Some(mut g) = gpu() else { return };
         let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), VIEW, 8);
         assert!(!is_ink(&c.gpu, clear, 34) && is_ink(&c.gpu, stroked, 34), "GPU {align:?}: the stroke stays on its own side of the edge");
+        assert_eq!(vertical_runs(&c.gpu, 28, 15..95), vec![2], "GPU {align:?}: one 2px centered band on the open chain");
         assert!(c.report.ratio < 0.005, "{align:?}: mismatch {:.3}%", c.report.ratio * 100.0);
         assert!(c.report.ssim > 0.98, "{align:?}: {:?}", c.report);
     }
+}
+
+#[test]
+fn file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu() {
+    let outline = Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(0.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(20.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(32.0, 12.0)),
+            PathCmd::LineTo(Vec2::new(32.0, 40.0)),
+            PathCmd::LineTo(Vec2::new(0.0, 40.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let fold = Path {
+        cmds: vec![PathCmd::MoveTo(Vec2::new(20.0, 0.0)), PathCmd::LineTo(Vec2::new(20.0, 12.0)), PathCmd::LineTo(Vec2::new(32.0, 12.0))],
+        fill_rule: FillRule::NonZero,
+    };
+    let net = VectorNetwork::from_paths(&[outline.clone(), fold]);
+    let stroke = Stroke {
+        paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+        weight: 1.5,
+        align: StrokeAlign::Inside,
+        cap: StrokeCap::Round,
+        join: StrokeJoin::Round,
+        ..Stroke::default()
+    };
+    let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
+    let mut t = T::new();
+    let icon = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(32.0, 40.0);
+        n.fills = vec![Paint::solid(Color::WHITE)];
+        n.stroke = stroke;
+        n.fill_geometry = Some(vec![outline]);
+        n.stroke_geometry = Some(bake);
+        n
+    });
+    resize(&mut t.doc, icon, Vec2::new(64.0, 80.0));
+    assert!(t.doc.get(icon).unwrap().stroke_geometry.is_none(), "file-type network drops its bake on 2x resize");
+
+    let cpu = cpu_render(&t);
+    assert!(!is_ink(&cpu, 19, 60) && is_ink(&cpu, 20, 60) && !is_ink(&cpu, 22, 60), "CPU: 1.5px inside stroke on left page edge");
+    assert!(is_ink(&cpu, 60, 32) && is_white(&cpu, 58, 32) && is_white(&cpu, 61, 32), "CPU: 1.5px centered stroke on fold leg");
+
+    let Some(mut g) = gpu() else { return };
+    let c = compare(&mut g, "file_type_resized_2x", &t.doc, t.page, Viewport::default(), VIEW, 8);
+    assert!(!is_ink(&c.gpu, 19, 60) && is_ink(&c.gpu, 20, 60) && !is_ink(&c.gpu, 22, 60), "GPU: 1.5px inside stroke on left page edge");
+    assert!(is_ink(&c.gpu, 60, 32) && is_white(&c.gpu, 58, 32) && is_white(&c.gpu, 61, 32), "GPU: 1.5px centered stroke on fold leg");
+    assert!(c.report.ratio < 0.005, "mismatch {:.3}%", c.report.ratio * 100.0);
+    assert!(c.report.ssim > 0.98, "{:?}", c.report);
+}
+
+#[test]
+fn mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu() {
+    let path = Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(4.0, 16.0)),
+            PathCmd::LineTo(Vec2::new(4.0, 4.0)),
+            PathCmd::LineTo(Vec2::new(20.0, 4.0)),
+            PathCmd::LineTo(Vec2::new(20.0, 16.0)),
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let mut net = VectorNetwork::from_paths(std::slice::from_ref(&path));
+    for v in &mut net.vertices {
+        if (v.pos.x - 4.0).abs() < 1e-3 && (v.pos.y - 4.0).abs() < 1e-3 {
+            v.join = Some(StrokeJoin::Miter);
+        } else {
+            v.join = Some(StrokeJoin::Round);
+        }
+    }
+    let stroke = Stroke {
+        paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+        weight: 8.0,
+        align: StrokeAlign::Center,
+        cap: StrokeCap::None,
+        join: StrokeJoin::Round,
+        miter_limit: 4.0,
+        ..Stroke::default()
+    };
+    let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
+    let mut t = T::new();
+    let id = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+        n.transform = Affine::translate(10.0, 10.0);
+        n.size = Vec2::new(24.0, 20.0);
+        n.stroke = stroke;
+        n.stroke_geometry = Some(bake);
+        n
+    });
+    resize(&mut t.doc, id, Vec2::new(48.0, 40.0));
+    assert!(t.doc.get(id).unwrap().stroke_geometry.is_none(), "mixed-join path drops its bake on 2x resize");
+
+    let cpu = cpu_render(&t);
+    assert!(is_ink(&cpu, 14, 14) && !is_ink(&cpu, 53, 14), "CPU: Miter corner sharp at (14, 14), Round corner rounded at (53, 14)");
+
+    let Some(mut g) = gpu() else { return };
+    let c = compare(&mut g, "mixed_join_resized_2x", &t.doc, t.page, Viewport::default(), VIEW, 8);
+    assert!(is_ink(&c.gpu, 14, 14) && !is_ink(&c.gpu, 53, 14), "GPU: Miter corner sharp at (14, 14), Round corner rounded at (53, 14)");
+    assert!(c.report.ratio < 0.005, "mismatch {:.3}%", c.report.ratio * 100.0);
+    assert!(c.report.ssim > 0.98, "{:?}", c.report);
+}
+
+#[test]
+fn equal_cap_open_stroke_draws_identically_on_cpu_and_gpu() {
+    let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(20.0, 40.0)), PathCmd::LineTo(Vec2::new(80.0, 40.0))], fill_rule: FillRule::NonZero };
+    let mut net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+    for v in &mut net.vertices {
+        v.cap = Some(StrokeCap::Round);
+    }
+    let mut t = T::new();
+    let id = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+        n.size = Vec2::new(100.0, 80.0);
+        n.stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 12.0,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::Round,
+            join: StrokeJoin::Round,
+            ..Stroke::default()
+        };
+        n
+    });
+    assert!(designos_render::vectorops::vertex_caps(t.doc.get(id).unwrap()).is_none(), "equal per-vertex caps use the node cap path");
+
+    let Some(mut g) = gpu() else { return };
+    let c = compare(&mut g, "equal_cap_open_stroke", &t.doc, t.page, Viewport::default(), VIEW, 8);
+    assert_eq!(c.report_aa.mismatched, 0, "equal-cap open stroke has 0 AA-forgiven mismatched pixels between CPU and GPU");
+    assert!(c.report.ratio < 0.005, "mismatch {:.3}%", c.report.ratio * 100.0);
+    assert!(c.report.ssim > 0.99, "{:?}", c.report);
+}
+
+/// An open path `(0, 0) -> (40, 0) -> (40, 40) -> (80, 40)` at `(20, 20)`, stroked live at weight 10 with the node
+/// join Bevel and its own join on each inner vertex (Miter at `(40, 0)`, Round at `(40, 40)`).
+fn open_path_with_mixed_vertex_joins(t: &mut T, cap: StrokeCap) -> NodeId {
+    let path = Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(0.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(40.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(40.0, 40.0)),
+            PathCmd::LineTo(Vec2::new(80.0, 40.0)),
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let mut net = VectorNetwork::from_paths(std::slice::from_ref(&path));
+    for v in &mut net.vertices {
+        let on = |x: f32, y: f32| (v.pos.x - x).abs() < 1e-3 && (v.pos.y - y).abs() < 1e-3;
+        v.join = if on(40.0, 0.0) {
+            Some(StrokeJoin::Miter)
+        } else if on(40.0, 40.0) {
+            Some(StrokeJoin::Round)
+        } else {
+            None
+        };
+    }
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(80.0, 40.0);
+        n.fills.clear();
+        n.stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 10.0,
+            align: StrokeAlign::Center,
+            cap,
+            join: StrokeJoin::Bevel,
+            miter_limit: 4.0,
+            ..Stroke::default()
+        };
+        n
+    })
+}
+
+/// Both ends of the open path carry the node cap pointing away from the stroke: a Round cap reaches half a
+/// weight past each end point, a Square cap fills the square beyond it.
+#[track_caller]
+fn assert_caps_point_outward(pm: &Pixmap, cap: StrokeCap, what: &str) {
+    // the path starts at page (20, 20) heading right and ends at page (100, 60) heading right
+    assert!(is_ink(pm, 16, 20), "{what} {cap:?}: the start cap reaches left of the start point");
+    assert!(is_ink(pm, 104, 60), "{what} {cap:?}: the end cap reaches right of the end point");
+    assert!(!is_ink(pm, 13, 20), "{what} {cap:?}: the start cap stops half a weight from the start point");
+    assert!(!is_ink(pm, 106, 60), "{what} {cap:?}: the end cap stops half a weight from the end point");
+    let square = cap == StrokeCap::Square;
+    assert_eq!(is_ink(pm, 16, 15), square, "{what} {cap:?}: the start cap fills its corner only when square");
+    assert_eq!(is_ink(pm, 104, 64), square, "{what} {cap:?}: the end cap fills its corner only when square");
+}
+
+fn assert_open_stroke_with_per_vertex_joins_caps_outward_like_cpu(cap: StrokeCap, name: &str) {
+    let mut t = T::new();
+    open_path_with_mixed_vertex_joins(&mut t, cap);
+    let Some(mut g) = gpu() else {
+        assert_caps_point_outward(&cpu_render(&t), cap, "CPU");
+        return;
+    };
+    let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), VIEW, 8);
+    assert_caps_point_outward(&c.gpu, cap, "GPU");
+    assert_caps_point_outward(&c.cpu, cap, "CPU");
+    assert!(c.report.ratio < 0.005, "{cap:?}: mismatch {:.3}%", c.report.ratio * 100.0);
+    assert!(c.report.ssim > 0.98, "{cap:?}: {:?}", c.report);
+}
+
+#[test]
+fn an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu() {
+    assert_open_stroke_with_per_vertex_joins_caps_outward_like_cpu(StrokeCap::Round, "open_mixed_join_round_caps");
+}
+
+#[test]
+fn an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu() {
+    assert_open_stroke_with_per_vertex_joins_caps_outward_like_cpu(StrokeCap::Square, "open_mixed_join_square_caps");
+}
+
+fn polyline(points: &[(f32, f32)]) -> Vec<PathCmd> {
+    let mut cmds = vec![PathCmd::MoveTo(Vec2::new(points[0].0, points[0].1))];
+    cmds.extend(points[1..].iter().map(|p| PathCmd::LineTo(Vec2::new(p.0, p.1))));
+    cmds
+}
+
+/// An open path stroked live at weight 10 at `(20, 20)`, node join Bevel and no cap, with a Miter join on the vertex at
+/// `miter` and a Round join on the vertex at `round`.
+fn open_stroke_with_a_miter_and_a_round_vertex(t: &mut T, cmds: Vec<PathCmd>, miter: (f32, f32), round: (f32, f32)) -> NodeId {
+    let path = Path { cmds, fill_rule: FillRule::NonZero };
+    let mut net = VectorNetwork::from_paths(std::slice::from_ref(&path));
+    for v in &mut net.vertices {
+        let on = |p: (f32, f32)| (v.pos.x - p.0).abs() < 1e-3 && (v.pos.y - p.1).abs() < 1e-3;
+        v.join = if on(miter) {
+            Some(StrokeJoin::Miter)
+        } else if on(round) {
+            Some(StrokeJoin::Round)
+        } else {
+            None
+        };
+    }
+    let bounds = net.bounds();
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(bounds.x + bounds.w, bounds.y + bounds.h);
+        n.fills.clear();
+        n.stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 10.0,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::None,
+            join: StrokeJoin::Bevel,
+            miter_limit: 4.0,
+            ..Stroke::default()
+        };
+        n
+    })
+}
+
+/// A path with a Miter vertex and a Round vertex, and what each pixel centre (node space) must show: the Miter corner
+/// reaches its square apex, the Round corner is an arc that is neither a bevel nor a square.
+struct JoinCase {
+    name: &'static str,
+    cmds: Vec<PathCmd>,
+    miter: (f32, f32),
+    round: (f32, f32),
+    /// `(what, x, y, ink)` in node space.
+    probes: Vec<(&'static str, f32, f32, bool)>,
+}
+
+fn join_cases() -> Vec<JoinCase> {
+    vec![
+        JoinCase {
+            name: "right_then_down_on_the_axis",
+            cmds: polyline(&[(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (80.0, 40.0)]),
+            miter: (40.0, 0.0),
+            round: (40.0, 40.0),
+            probes: vec![("miter apex", 44.5, -3.5, true), ("round arc", 36.5, 42.5, true), ("round outer corner", 35.5, 44.5, false)],
+        },
+        JoinCase {
+            name: "right_then_down_off_the_axis",
+            cmds: polyline(&[(8.0, 8.0), (48.0, 8.0), (48.0, 48.0), (88.0, 48.0)]),
+            miter: (48.0, 8.0),
+            round: (48.0, 48.0),
+            probes: vec![("miter apex", 52.5, 4.5, true), ("round arc", 44.5, 50.5, true), ("round outer corner", 43.5, 52.5, false)],
+        },
+        JoinCase {
+            name: "curve_then_right_then_down",
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(0.0, 40.0)),
+                PathCmd::CubicTo(Vec2::new(0.0, 16.0), Vec2::new(16.0, 0.0), Vec2::new(40.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(40.0, 40.0)),
+                PathCmd::LineTo(Vec2::new(80.0, 40.0)),
+            ],
+            miter: (40.0, 0.0),
+            round: (40.0, 40.0),
+            probes: vec![
+                ("curve", 11.5, 11.5, true),
+                ("miter apex", 44.5, -3.5, true),
+                ("round arc", 36.5, 42.5, true),
+                ("round outer corner", 35.5, 44.5, false),
+            ],
+        },
+        JoinCase {
+            name: "down_then_right_on_the_axis",
+            cmds: polyline(&[(0.0, 0.0), (0.0, 40.0), (40.0, 40.0), (40.0, 80.0)]),
+            miter: (0.0, 40.0),
+            round: (40.0, 40.0),
+            probes: vec![("miter apex", -4.5, 44.5, true), ("round arc", 42.5, 36.5, true), ("round outer corner", 44.5, 35.5, false)],
+        },
+    ]
+}
+
+fn page_pixel(x: f32, y: f32) -> (u32, u32) {
+    ((20.0 + x).floor() as u32, (20.0 + y).floor() as u32)
+}
+
+/// The probes of `case` that `pm` does not show as expected.
+fn failed_join_probes(pm: &Pixmap, case: &JoinCase, what: &str) -> Vec<String> {
+    case.probes
+        .iter()
+        .filter_map(|(probe, x, y, ink)| {
+            let (px_x, px_y) = page_pixel(*x, *y);
+            (is_ink(pm, px_x, px_y) != *ink)
+                .then(|| format!("{what} {}: {probe} at node ({x}, {y}) should be {}", case.name, if *ink { "inked" } else { "white" }))
+        })
+        .collect()
+}
+
+#[test]
+fn a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu() {
+    let mut failed = vec![];
+    for case in join_cases() {
+        let mut t = T::new();
+        open_stroke_with_a_miter_and_a_round_vertex(&mut t, case.cmds.clone(), case.miter, case.round);
+        let Some(mut g) = gpu() else {
+            failed.extend(failed_join_probes(&cpu_render(&t), &case, "CPU"));
+            continue;
+        };
+        let c = compare(&mut g, &format!("miter_round_joins_{}", case.name), &t.doc, t.page, Viewport::default(), VIEW, 8);
+        failed.extend(failed_join_probes(&c.gpu, &case, "GPU"));
+        failed.extend(failed_join_probes(&c.cpu, &case, "CPU"));
+        if c.report.ratio >= 0.005 || c.report.ssim <= 0.98 {
+            failed.push(format!("{}: CPU and GPU differ, mismatch {:.3}% {:?}", case.name, c.report.ratio * 100.0, c.report));
+        }
+    }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
 }

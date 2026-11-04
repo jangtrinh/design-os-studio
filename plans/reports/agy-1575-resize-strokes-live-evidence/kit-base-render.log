@@ -1,0 +1,25 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-doc)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.93s
+     Running tests/kit_evidence_temp.rs (out/cargo/debug/deps/kit_evidence_temp-eafd48b6760caf7e)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+base file-type-img: bg_id=NodeId(12752) bg_bake=false ear_id=NodeId(12753) ear_bake=true weight=1.5
+base file-type-jpg: bg_id=NodeId(12770) bg_bake=false ear_id=NodeId(12771) ear_bake=true weight=1.5
+base file-type-pdf: bg_id=NodeId(13028) bg_bake=false ear_id=NodeId(13029) ear_bake=true weight=1.5
+base arrow-16: id=NodeId(43238) bake=true weight=3 size=(490.14008, 341.27777)
+base arrow-21: id=NodeId(43240) bake=true weight=3 size=(458.54004, 244.16774)
+base arrow-34: id=NodeId(43242) bake=true weight=3 size=(371.03198, 316.7594)
+test render_kit_nodes_resized_2x ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.18s
+
