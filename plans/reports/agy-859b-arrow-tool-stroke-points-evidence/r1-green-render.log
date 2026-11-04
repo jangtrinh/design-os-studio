@@ -1,0 +1,16 @@
+# designos-render on the final commit (cargo test -p designos-render --locked): the new file and the two edited render.rs tests
+
+     Running tests/dashed_endpoint_caps.rs (<target>/debug/deps/dashed_endpoint_caps-6d0b67357c931c76)
+running 8 tests
+test a_none_end_on_a_dashed_round_line_leaves_the_end_dash_butt ... ok
+test an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes ... ok
+test a_square_start_on_a_dashed_round_line_squares_only_the_first_dash ... ok
+test outlining_a_dashed_stroke_keeps_the_dash_caps_and_the_end_caps_of_the_vertices ... ok
+test a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes ... ok
+test a_square_end_on_a_dashed_round_line_squares_only_the_end_dash ... ok
+test a_dashed_closed_path_next_to_an_arrow_keeps_its_round_dashes ... ok
+test an_end_cap_does_not_show_where_the_path_ends_in_a_gap ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+test dashed_open_line_uses_stroke_cap_on_every_dash_that_reaches_no_end_point ... ok
+test an_explicit_butt_end_vertex_cap_leaves_only_the_start_of_a_dashed_round_line_butt ... ok
