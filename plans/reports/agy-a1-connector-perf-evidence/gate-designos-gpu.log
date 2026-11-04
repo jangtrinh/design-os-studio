@@ -1,0 +1,300 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling smallvec v1.16.3
+   Compiling syn v2.0.119
+   Compiling objc2-core-foundation v0.3.2
+   Compiling serde v1.0.229
+   Compiling image v0.25.10
+   Compiling wgpu-types v29.0.4
+   Compiling wgpu-hal v29.0.4
+   Compiling wgpu-core v29.0.4
+   Compiling wgpu v29.0.4
+   Compiling zip v9.0.4
+   Compiling icu_normalizer v2.3.0
+   Compiling harfrust v0.5.2
+   Compiling parking_lot_core v0.9.12
+   Compiling kurbo v0.11.3
+   Compiling rustybuzz v0.20.1
+   Compiling parking_lot v0.12.5
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-doc)
+   Compiling idna_adapter v1.2.2
+   Compiling objc2-foundation v0.3.2
+   Compiling idna v1.1.0
+   Compiling svgtypes v0.15.3
+   Compiling url v2.5.8
+   Compiling usvg v0.45.1
+   Compiling ureq v2.12.1
+   Compiling objc2-metal v0.3.2
+   Compiling cosmic-text v0.19.0
+   Compiling designos-diff v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-diff)
+   Compiling objc2-quartz-core v0.3.2
+   Compiling raw-window-metal v1.1.0
+   Compiling zerocopy-derive v0.8.62
+   Compiling zerocopy v0.8.62
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-webcapture)
+   Compiling half v2.7.1
+   Compiling naga v29.0.4
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-fig)
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.60s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-4ae097e1783e0ef8)
+
+running 5 tests
+test geom::tests::canonical_kind_deduplicates_frames_components_and_instances ... ok
+test geom::tests::distinct_vector_paths_do_not_collide_in_shape_hash ... ok
+test geom::tests::mode_switch_rebuilds_style_bound_text_geom_and_draw_color ... ok
+test geom::tests::shared_pool_deduplicates_repeated_text_and_vectors ... ok
+test pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/adapter.rs (out/cargo/debug/deps/adapter-36866e84a449ebbf)
+
+running 1 test
+test probe_adapter ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/command_buffer_limit.rs (out/cargo/debug/deps/command_buffer_limit-286210d75a6f4f1f)
+
+running 4 tests
+test a_frame_just_under_the_command_buffer_limit_renders_without_device_loss ... ok
+test a_frame_past_the_command_buffer_limit_renders_without_device_loss ... ok
+test metal_holds_2047_render_passes_in_one_submission_and_loses_the_device_at_2048 ... ok
+test splitting_a_frame_into_submissions_changes_no_pixel ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+
+     Running tests/connector_perf.rs (out/cargo/debug/deps/connector_perf-cd840098ee68540c)
+
+running 1 test
+test perf_scene_whiteboard_2000_budgets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+     Running tests/dashed_endpoint_caps.rs (out/cargo/debug/deps/dashed_endpoint_caps-aa30ba64fe43388d)
+
+running 4 tests
+test a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu ... ok
+test a_none_end_on_a_dashed_round_line_leaves_the_last_dash_butt_on_cpu_and_gpu ... ok
+test a_square_end_on_a_dashed_round_line_squares_only_the_last_dash_on_cpu_and_gpu ... ok
+test an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes_on_cpu_and_gpu ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 31 tests
+test an_explicit_butt_end_vertex_cap_leaves_only_the_start_of_a_dashed_round_line_butt_gpu ... ok
+test auto_layout_reverse_z_matches_cpu ... ok
+test board_kinds_match_cpu ... ok
+test board_kinds_through_the_cpu_fallback_match_cpu ... ok
+test board_kinds_zoomed_match_cpu ... ok
+test cpu_fallback_matches_cpu ... ok
+test crop_transform_maps_uv_through_the_affine ... ok
+test crop_with_identity_transform_stretches_the_image ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash_that_reaches_no_end_point_gpu ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+test effects_and_blends ... ok
+test extreme_effects_render ... ok
+test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... ok
+test non_finite_tile_scale_renders_at_native_size_on_cpu_and_gpu ... ok
+test outside_stroke_with_imported_outer_disc_keeps_fill_in_centre ... ok
+test per_side_stroke_rounded_corners_match_cpu ... ok
+test radial_gradient_non_square_matches_cpu ... ok
+test render_demo ... ok
+test render_demo_zoomed ... ok
+test reverse_z_auto_layout_draws_masked_pattern_behind_heading_matches_cpu ... ok
+test rotation_90_is_exact_on_a_2x2_image ... ok
+test simple_shapes ... ok
+test singular_crop_transform_draws_nothing ... ok
+test soft_line_break_u2028_matches_cpu ... ok
+test solid_open_line_round_vertex_cap_renders_round_gpu ... ok
+test text_drop_shadow_uses_the_bound_colour_alpha_like_cpu ... ok
+test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
+test tile_scale_2_doubles_the_tile_size ... ok
+test tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu ... ok
+test translucent_color_variable_with_stored_paint_opacity_matches_cpu ... ok
+test unknown_layer_children_match_cpu ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.73s
+
+     Running tests/full_detail_at_rest.rs (out/cargo/debug/deps/full_detail_at_rest-656ccd39bc4180ee)
+
+running 8 tests
+test interactive_compile_drops_sub_pixel_leaves ... ok
+test interactive_compile_greeks_small_text_into_bars ... ok
+test interactive_compile_skips_the_children_of_small_containers ... ok
+test leaving_the_refine_returns_to_the_shortcuts ... ok
+test refine_compile_draws_the_glyphs_of_small_text ... ok
+test refine_compile_keeps_sub_pixel_leaves ... ok
+test refine_compile_keeps_the_children_of_small_containers ... ok
+test refine_compile_matches_the_headless_reference_draw_for_draw ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/large_file_perf.rs (out/cargo/debug/deps/large_file_perf-c19c8fdc40311fbf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-f861c7a96e084900)
+
+running 14 tests
+test a_built_vector_child_still_cuts_by_its_shape ... ok
+test a_deferred_child_does_not_paint_the_stand_in_box_over_alpha_already_drawn ... ok
+test a_deferred_vector_child_does_not_empty_the_mask ... ok
+test a_subpixel_zoomed_out_mask_frame_keeps_its_stand_in ... ok
+test a_tiny_zoomed_out_mask_frame_keeps_cutting ... ok
+test fill_less_mask_frames_respect_every_program_ceiling ... ok
+test fill_less_mask_frames_stay_within_the_vram_budget ... ok
+test gpu_vector_mask_outlines_and_rgb_luminance_match_cpu ... ok
+test headless_gpu_matches_cpu_for_alpha_vector_and_luminance_mask_types ... ok
+test headless_gpu_matches_the_cpu_for_a_frame_mask_without_fill ... ok
+test many_fill_less_mask_frames_stay_under_the_default_program_ceiling ... ok
+test refined_interactive_gpu_frame_cuts_by_the_children ... ok
+test standing_in_the_frame_box_opens_no_extra_program ... ok
+test the_frame_box_stands_in_for_one_frame_only ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/program_cap.rs (out/cargo/debug/deps/program_cap-49255a431957e0e4)
+
+running 5 tests
+test headless_compile_of_a_large_doc_is_never_capped ... ok
+test interactive_compile_caps_offscreen_programs_at_64 ... ok
+test refine_flag_lifts_the_program_cap ... ok
+test refine_flag_off_again_returns_to_the_cap ... ok
+test refined_frame_matches_cpu_reference_better_than_capped_frame ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.94s
+
+     Running tests/refine_chunks.rs (out/cargo/debug/deps/refine_chunks-c3dea8e8e42eacf6)
+
+running 12 tests
+test a_finished_refine_retains_the_page_only_and_an_interactive_frame_frees_it ... ok
+test a_roomy_budget_keeps_the_frame_whole_and_a_supersampled_frame_is_not_cut ... ok
+test a_skipped_chunk_hands_nothing_over ... ok
+test a_warm_frame_is_bounded_by_wall_time_and_always_builds_a_node ... ok
+test chunked_render_is_pixel_identical_to_the_whole_frame ... ok
+test compile_records_the_deferred_nodes_and_warming_builds_them_within_the_budget ... ok
+test plan_chunks_cuts_a_frame_into_ranges_under_the_budget ... ok
+test rendered_slice_by_slice_the_page_is_pixel_identical_to_the_whole_compile ... ok
+test slices_cover_the_top_level_nodes_in_order_and_stay_under_the_node_limit ... ok
+test the_first_slice_costs_the_nodes_of_that_slice_not_of_the_page ... ok
+test the_pooled_targets_of_a_slice_are_freed_with_its_last_chunk ... ok
+test warming_ignores_nodes_that_left_the_document ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+
+     Running tests/refine_vram_budget.rs (out/cargo/debug/deps/refine_vram_budget-994e01c45ec8d322)
+
+running 19 tests
+test a_blurred_layer_reserves_its_blur_targets_while_its_children_draw ... ok
+test bigger_budget_admits_more_programs ... ok
+test capped_and_headless_group_compiles_ignore_the_refine_limits ... ok
+test capped_compile_ignores_the_vram_budget ... ok
+test capped_silhouette_subtrees_keep_the_interactive_program_cap ... ok
+test default_budget_is_512_mib ... ok
+test effect_programs_of_a_node_are_budgeted_together ... ok
+test effect_silhouette_subtrees_stay_under_the_program_ceiling ... ok
+test effect_silhouette_subtrees_stay_within_the_vram_budget ... ok
+test four_hundred_thousand_tiny_effect_nodes_stay_under_the_program_ceiling ... ok
+test frames_at_the_refine_limits_render_on_the_gpu ... ok
+test headless_compile_stays_uncapped_whatever_the_budget ... ok
+test mask_programs_are_budgeted_before_the_masked_siblings_are_drawn ... ok
+test mask_programs_are_counted_before_the_masked_siblings_are_drawn ... ok
+test one_blurred_node_costs_msaa_resolve_and_two_blur_targets ... ok
+test pools_trim_on_a_real_document_when_a_fixture_is_given ... ok
+test pools_trim_unused_targets_after_refine_and_zoom_sequence ... ok
+test refine_stops_creating_programs_once_the_budget_is_reached ... ok
+test root_target_is_counted_in_vram_bytes ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.79s
+
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 19 tests
+test a_filled_arrow_head_overlaps_its_shaft_with_no_gap_on_cpu_and_gpu ... ok
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu ... ok
+test a_resized_inside_or_outside_open_arrow_stroke_drops_its_bake_and_keeps_a_head_of_five_weights_on_cpu_and_gpu ... ok
+test a_round_join_rounds_the_corners_of_the_filled_heads_and_a_miter_join_keeps_them_sharp_on_cpu_and_gpu ... ok
+test all_five_arrow_caps_match_cpu_on_lines_and_open_vectors ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu ... ok
+test equal_cap_open_stroke_draws_identically_on_cpu_and_gpu ... ok
+test file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu ... ok
+test kit_arrow_vectors_match_figma_bake_at_1x_and_keep_head_size_when_resized_2x_on_cpu_and_gpu ... ok
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu ... ok
+test per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu ... ok
+test resized_2x_arrow_vectors_drop_bake_keep_head_size_and_match_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+test resized_imported_ellipse_and_star_match_cpu ... ok
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu ... ok
+test resized_union_matches_cpu ... ok
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.66s
+
+     Running tests/shadow_blend_parity.rs (out/cargo/debug/deps/shadow_blend_parity-bcf070f30502ffa8)
+
+running 2 tests
+test a_multiply_drop_shadow_darkens_the_backdrop_on_the_gpu ... ok
+test cpu_and_gpu_match_for_every_shadow_blend_mode ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.93s
+
+     Running tests/shadow_fillless_fixture.rs (out/cargo/debug/deps/shadow_fillless_fixture-c94fe1135e86a581)
+
+running 15 tests
+test cpu_and_gpu_match_on_the_fixture_pair ... ok
+test cpu_and_gpu_match_on_the_fixture_pair_with_show_behind ... ok
+test ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... ok
+test fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... ok
+test gpu_skips_runtime_opacity_zero_child_like_cpu ... ok
+test group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... ok
+test half_opaque_text_knocks_out_the_shadow_at_full_coverage ... ok
+test luminance_mask_knocks_out_by_its_luminance ... ok
+test null_control_filled_and_plain_fillless_frames_unchanged ... ok
+test paint_free_and_zero_fill_children_keep_shadow ... ok
+test paint_free_text_children_add_nothing_to_the_knockout ... ok
+test stroke_only_text_still_knocks_out_its_glyph_interior ... ok
+test zero_fill_frame_with_children_draws_no_inner_shadow ... ok
+test zero_fill_frame_with_children_keeps_an_empty_drop_shadow ... ok
+test zero_percent_stroke_frame_keeps_its_stroke_footprint_shadow ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.57s
+
+     Running tests/shadow_silhouette_source.rs (out/cargo/debug/deps/shadow_silhouette_source-239b379538156cad)
+
+running 5 tests
+test fill_less_clipping_frame_uses_children_on_both ... ok
+test fill_less_frame_uses_children_on_both ... ok
+test hidden_fill_uses_children_on_both ... ok
+test own_fill_silhouette_matches ... ok
+test stroke_only_silhouette_matches ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running tests/text_hug_box.rs (out/cargo/debug/deps/text_hug_box-34b50f8bdd20c489)
+
+running 2 tests
+test a_hug_box_holds_the_stand_in_glyphs_and_then_the_glyphs_of_the_face_that_arrives ... ok
+test a_two_line_hug_box_holds_its_glyphs_on_the_cpu_and_the_gpu ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+   Doc-tests designos_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
