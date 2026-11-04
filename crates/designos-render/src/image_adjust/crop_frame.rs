@@ -39,22 +39,28 @@ pub fn set_image_scale_mode(paint: &mut Paint, next: ImageScaleMode) {
 ///
 /// `old` is that node's paint before the picker's current edit, `next` the picker's paint with the edit, and
 /// `quarter_turns` the rotate clicks of this edit (clockwise positive). Only an image paint that stays on the same
-/// picture and ends in Crop is touched; every other edit is written as it is. A Crop frame is always the node's own:
+/// picture is touched; any other edit is written as it is. A Crop frame is always the node's own:
 /// - entering Crop from Fill, Fit or Tile keeps the frame the node stored, else frames the picture as the node
 ///   showed it, from the node's own size (`image_size` is asked only then). When the picture size is unknown the
 ///   node keeps its stored frame, or none (the identity): no frame is invented;
 /// - a node that is already in Crop keeps its frame while a slider or another control moves, and turns it about its
 ///   own centre when the edit carries rotate clicks;
-/// - the angle shown follows the node's own turns.
+/// - the angle shown follows the node's own turns;
+/// - in any other mode each node keeps the frame it stored, so a trip through Fill, Fit or Tile and back to Crop
+///   does not hand one node's frame to the rest; a rotate click there drops it.
 pub fn crop_paint_for_node(old: &Paint, next: &mut Paint, size: Vec2, image_size: impl FnOnce() -> Option<(u32, u32)>, quarter_turns: i32) {
-    let (
-        PaintKind::Image { image_ref: old_ref, scale_mode: old_mode, params: old_params },
-        PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Crop, params },
-    ) = (&old.kind, &mut next.kind)
+    let (PaintKind::Image { image_ref: old_ref, scale_mode: old_mode, params: old_params }, PaintKind::Image { image_ref, scale_mode, params }) =
+        (&old.kind, &mut next.kind)
     else {
         return;
     };
     if old_ref != image_ref {
+        return;
+    }
+    if *scale_mode != ImageScaleMode::Crop {
+        // Outside Crop the frame is only kept for a later return: every node keeps its own, and a rotate click
+        // drops it, because the framing it was made for no longer applies.
+        params.transform = if quarter_turns == 0 { old_params.transform } else { None };
         return;
     }
     let base = if *old_mode == ImageScaleMode::Crop {

@@ -418,8 +418,8 @@ pub struct State {
     pub stop_origins: Vec<Option<usize>>,
     /// Selected node size and decoded image dimensions `(node_size, (iw, ih))` for `Mode::Image`.
     pub image_frame: Option<(DV, (u32, u32))>,
-    /// Rotate clicks (clockwise positive) made on a cropped picture that the host has not applied yet. The host turns
-    /// each selected node's own crop frame by them, because a frame depends on the node's size.
+    /// Rotate clicks (clockwise positive) that the host has not applied yet. The host turns each selected node's own
+    /// Crop frame by them, because a frame depends on the node's size, and drops the frames kept outside Crop.
     pub image_turns: i32,
 }
 
@@ -1137,10 +1137,9 @@ fn show_image_mode(ui: &mut Ui, rect: Rect, y: f32, st: &mut State, paint: &mut 
                 let delta = if click_r { 90.0 } else { -90.0 };
                 let stepped = (params.rotation + delta).rem_euclid(360.0);
                 params.rotation = if (stepped - 360.0).abs() < 1e-4 { 0.0 } else { stepped };
-                if *scale_mode == ImageScaleMode::Crop {
-                    // Crop draws from its transform alone: the host turns each node's own frame.
-                    st.image_turns += if click_r { 1 } else { -1 };
-                } else {
+                // The host turns each node's own Crop frame, which depends on the node's size, and drops it elsewhere.
+                st.image_turns += if click_r { 1 } else { -1 };
+                if *scale_mode != ImageScaleMode::Crop {
                     params.transform = None;
                 }
                 out.changed = true;
@@ -4223,7 +4222,7 @@ mod tests {
     }
 
     #[test]
-    fn picker_rotate_in_crop_hands_the_turn_to_the_host_and_elsewhere_clears_the_frame() {
+    fn picker_rotate_counts_the_turn_for_the_host_and_outside_crop_drops_the_frame() {
         let ctx = test_ctx();
         let mut paint = test_image_paint(ImageScaleMode::Crop);
         let mut st = State::new(&paint);
@@ -4245,7 +4244,7 @@ mod tests {
         let _ = visible_texts(&ctx, &mut fill, &mut st);
         click_rect(&ctx, right, &mut fill, &mut st);
         let PaintKind::Image { params, .. } = &fill.kind else { panic!("image paint") };
-        assert_eq!((st.image_turns, params.transform), (0, None), "outside Crop a turn is the angle alone and drops a stale frame");
+        assert_eq!((st.image_turns, params.transform), (1, None), "outside Crop a turn drops a stale frame and is still counted for the host");
     }
 
     /// The picker of a tiled picture with adjustments: the Tile scale row, the angle row and the Reset action show.
@@ -4290,6 +4289,31 @@ mod tests {
             before.save_png(dir.join("r1-crop-rotate-node-before.png")).expect("save before");
             after.save_png(dir.join("r1-crop-rotate-node-after.png")).expect("save after");
             cap.1.save(dir.join("r1-crop-rotate-picker.png")).expect("save picker");
+        }
+    }
+
+    #[test]
+    fn leaving_crop_and_coming_back_gives_each_node_its_own_frame_again() {
+        let fit = designos_doc::ImageParams::default();
+        let (mut h, ids) =
+            HeadlessPicker::open_image(quadrant_png(100), &[((200.0, 100.0), ImageScaleMode::Fit, fit), ((100.0, 200.0), ImageScaleMode::Fit, fit)]);
+        let own_framing: Vec<_> = ids.iter().map(|id| h.reference_pixels(*id, ImageScaleMode::Fit, fit)).collect();
+        h.click_key("picker-image-scale");
+        let frames: Vec<_> = ids.iter().map(|id| h.image_params(*id).1.transform).collect();
+        assert_ne!(frames[0], frames[1], "each node has its own frame in Crop");
+        // Tile, Fill, Fit: the picker holds the first node's frame all along, and no node may take it over.
+        for mode in [ImageScaleMode::Tile, ImageScaleMode::Fill, ImageScaleMode::Fit] {
+            h.click_key("picker-image-scale");
+            for (i, id) in ids.iter().enumerate() {
+                let (now, params) = h.image_params(*id);
+                assert_eq!(now, mode);
+                assert_eq!(params.transform, frames[i], "node {i} still stores its own frame in {mode:?}");
+            }
+        }
+        h.click_key("picker-image-scale");
+        for (i, id) in ids.iter().enumerate() {
+            assert_eq!(h.image_params(*id).0, ImageScaleMode::Crop);
+            assert_same_pixels(&h.pixels(*id), &own_framing[i], 1, &format!("node {i} is framed by its own frame after the round trip"));
         }
     }
 }

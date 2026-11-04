@@ -188,15 +188,28 @@ fn a_turn_on_an_uncropped_frame_starts_from_the_identity_and_other_edits_pass_th
     crop_paint_for_node(&old, &mut next, size, || None, 1);
     assert_eq!(transform_of(&next), rotate_crop_transform(IDENTITY_CROP_TRANSFORM, size, true));
 
-    // Another picture, or a mode other than Crop, is written exactly as the picker has it.
+    // Another picture is written exactly as the picker has it.
     let other = image_paint("other", ImageScaleMode::Fill, ImageParams::default());
     let mut next = picture_paint(ImageScaleMode::Crop, Some([3.0, 0.0, 0.0, 0.0, 3.0, 0.0]), 0.0);
     crop_paint_for_node(&other, &mut next, size, || Some((10, 10)), 0);
     assert_eq!(transform_of(&next), Some([3.0, 0.0, 0.0, 0.0, 3.0, 0.0]));
-    let old = picture_paint(ImageScaleMode::Fill, None, 0.0);
-    let mut next = picture_paint(ImageScaleMode::Tile, Some([3.0, 0.0, 0.0, 0.0, 3.0, 0.0]), 0.0);
-    crop_paint_for_node(&old, &mut next, size, || Some((10, 10)), 0);
-    assert_eq!(transform_of(&next), Some([3.0, 0.0, 0.0, 0.0, 3.0, 0.0]));
+}
+
+#[test]
+fn outside_crop_each_node_keeps_the_frame_it_stored_and_a_turn_drops_it() {
+    let own = [0.6, 0.0, 0.2, 0.0, 0.9, 0.05];
+    let picker_frame = [3.0, 0.0, 0.0, 0.0, 3.0, 0.0];
+    for mode in [ImageScaleMode::Fill, ImageScaleMode::Fit, ImageScaleMode::Tile] {
+        for stored in [Some(own), None] {
+            let old = picture_paint(ImageScaleMode::Crop, stored, 0.0);
+            let mut next = picture_paint(mode, Some(picker_frame), 0.0);
+            crop_paint_for_node(&old, &mut next, Vec2::new(40.0, 10.0), || panic!("no picture size needed"), 0);
+            assert_eq!(transform_of(&next), stored, "{mode:?}: the picker's frame is not written over the node's");
+            let mut next = picture_paint(mode, None, 90.0);
+            crop_paint_for_node(&old, &mut next, Vec2::new(40.0, 10.0), || panic!("no picture size needed"), 1);
+            assert_eq!(transform_of(&next), None, "{mode:?}: a turn drops the stored frame");
+        }
+    }
 }
 
 fn flat_scene(adjust: ImageAdjust) -> (Document, designos_doc::NodeId) {

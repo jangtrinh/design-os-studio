@@ -1451,11 +1451,11 @@ fn adjustments_act_on_the_blended_colour_at_hard_edges_equally_on_cpu_and_gpu() 
     let Some(mut g) = gpu() else { return };
     let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
     let cases: [(&str, [u8; 4], [u8; 4], ImageAdjust); 5] = [
-        ("exposure_plus_1", [48, 48, 48, 255], [208, 208, 208, 255], ImageAdjust { exposure: 1.0, ..Default::default() }),
+        ("exposure_plus_1", [40, 70, 110, 255], [230, 200, 110, 255], ImageAdjust { exposure: 1.0, ..Default::default() }),
         ("saturation_plus_1", [128, 64, 64, 255], [64, 64, 128, 255], ImageAdjust { vibrance: 1.0, ..Default::default() }),
-        ("contrast_temperature", [30, 60, 120, 255], [240, 220, 90, 255], ImageAdjust { contrast: 0.3, temperature: 0.6, ..Default::default() }),
-        ("tint", [30, 60, 120, 255], [240, 220, 90, 255], ImageAdjust { tint: 0.8, ..Default::default() }),
-        ("highlights_shadows", [48, 48, 48, 255], [208, 208, 208, 255], ImageAdjust { highlights: -0.8, shadows: 0.6, ..Default::default() }),
+        ("contrast_temperature", [150, 80, 70, 255], [70, 80, 150, 255], ImageAdjust { contrast: 0.3, temperature: 0.6, ..Default::default() }),
+        ("tint", [160, 90, 40, 255], [40, 90, 160, 255], ImageAdjust { tint: 0.8, ..Default::default() }),
+        ("highlights_shadows", [56, 56, 56, 255], [168, 168, 168, 255], ImageAdjust { highlights: -0.8, shadows: 0.6, ..Default::default() }),
     ];
     for (label, a, b, adjust) in cases {
         let t = stripes_scene(a, b, adjust);
