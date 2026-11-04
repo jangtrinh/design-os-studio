@@ -55,6 +55,7 @@ fn scene() -> T {
     t.node(grain).effects = vec![Effect::Noise(NoiseEffect {
         mode: NoiseMode::Duo { color: Color::rgb(200, 0, 0), secondary: Color::BLACK },
         size: 1.5,
+        size_y: None,
         density: 0.6,
         opacity: 0.7,
         blend: BlendMode::Normal,
@@ -65,11 +66,20 @@ fn scene() -> T {
     // different AA in a tile than in a full page (true without effects too), and the
     // texture displacement would only make that visible.
     let rough = t.rect(None, Rect::new(540.0, 150.0, 200.0, 100.0), Color::rgb(30, 90, 200));
-    t.node(rough).effects = vec![Effect::Texture(TextureEffect { size: 5.0, radius: 6.0, clip_to_shape: false, seed: 3, visible: true })];
+    t.node(rough).effects = vec![Effect::Texture(TextureEffect { size: 5.0, size_y: None, radius: 6.0, clip_to_shape: false, seed: 3, visible: true })];
     t.node(rough).corner_radii = [20.0; 4];
     let pane = t.rect(None, Rect::new(90.0, 560.0, 340.0, 150.0), Color { r: 1.0, g: 1.0, b: 1.0, a: 0.1 });
-    t.node(pane).effects =
-        vec![Effect::Glass(GlassEffect { light_angle: 315.0, light_intensity: 0.7, refraction: 0.6, depth: 14.0, dispersion: 0.5, frost: 5.0, visible: true })];
+    t.node(pane).effects = vec![Effect::Glass(GlassEffect {
+        light_angle: 315.0,
+        light_intensity: 0.7,
+        refraction: 0.6,
+        depth: 14.0,
+        dispersion: 0.5,
+        frost: 5.0,
+        splay: 0.0,
+        bevel: 0.0,
+        visible: true,
+    })];
     t.node(pane).corner_radii = [28.0; 4];
     let m = t.rect(None, Rect::new(600.0, 40.0, 120.0, 120.0), Color::BLACK);
     t.node(m).is_mask = true;

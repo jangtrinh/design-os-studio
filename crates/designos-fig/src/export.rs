@@ -1,5 +1,6 @@
 //! [`Document`] -> Figma REST-shaped JSON (the inverse of `import_rest_json`).
 
+use crate::effect_units;
 use crate::kiwi::clean_f32;
 use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align, StrokeCapSite, STROKE_CAP_SITE_KEY};
 use crate::svgpath::write_path;
@@ -114,6 +115,16 @@ pub(crate) fn paints(ps: &[Paint]) -> Value {
     Value::Array(ps.iter().map(paint).collect())
 }
 
+/// `noiseSize` as a number while both sides agree, as an `{x, y}` pair when they differ.
+fn noise_size_json(size: f32, size_y: Option<f32>) -> Value {
+    let (x, y) = effect_units::noise_size_to_kiwi(size, size_y);
+    if x == y {
+        n(x)
+    } else {
+        json!({"x": n(x), "y": n(y)})
+    }
+}
+
 fn effect(e: &Effect) -> Value {
     match e {
         Effect::DropShadow { color, offset, radius, spread, visible, show_behind, blend } => json!({
@@ -136,18 +147,18 @@ fn effect(e: &Effect) -> Value {
             };
             json!({
                 "type": "NOISE", "noiseType": mode, "color": color.map(col), "secondaryColor": secondary.map(col),
-                "noiseSize": n(e.size), "density": n(e.density), "opacity": n(e.opacity),
+                "noiseSize": noise_size_json(e.size, e.size_y), "density": n(e.density), "opacity": n(e.opacity),
                 "blendMode": blend_name(e.blend), "seed": e.seed, "visible": e.visible
             })
         }
         Effect::Texture(e) => json!({
-            "type": "TEXTURE", "noiseSize": n(e.size), "radius": n(e.radius),
+            "type": "TEXTURE", "noiseSize": noise_size_json(e.size, e.size_y), "radius": n(e.radius),
             "clipToShape": e.clip_to_shape, "seed": e.seed, "visible": e.visible
         }),
         Effect::Glass(e) => json!({
-            "type": "GLASS", "lightAngle": n(e.light_angle), "lightIntensity": n(e.light_intensity),
+            "type": "GLASS", "lightAngle": n(effect_units::specular_angle_to_kiwi(e.light_angle)), "lightIntensity": n(e.light_intensity),
             "refraction": n(e.refraction), "depth": n(e.depth), "dispersion": n(e.dispersion),
-            "radius": n(e.frost), "visible": e.visible
+            "radius": n(e.frost), "reflectionDistance": n(e.splay), "bevelSize": n(e.bevel), "visible": e.visible
         }),
     }
 }
