@@ -467,6 +467,18 @@ pub enum StrokeCap {
     None,
     Round,
     Square,
+    ArrowLines,
+    ArrowEquilateral,
+    TriangleFilled,
+    DiamondFilled,
+    CircleFilled,
+}
+
+impl StrokeCap {
+    /// True when this cap is one of the 5 arrowhead / endpoint marker caps.
+    pub fn is_arrow(self) -> bool {
+        matches!(self, Self::ArrowLines | Self::ArrowEquilateral | Self::TriangleFilled | Self::DiamondFilled | Self::CircleFilled)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

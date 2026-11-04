@@ -2,7 +2,7 @@
 
 use crate::effect_units;
 use crate::kiwi::clean_f32;
-use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align};
+use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align, StrokeCapSite, STROKE_CAP_SITE_KEY};
 use crate::svgpath::write_path;
 use designos_doc::*;
 use serde_json::{json, Map, Value};
@@ -580,9 +580,11 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             m.insert(
                 "strokeCap".into(),
                 match s.cap {
-                    StrokeCap::None => "NONE",
-                    StrokeCap::Round => "ROUND",
-                    StrokeCap::Square => "SQUARE",
+                    StrokeCap::None => match unmodelled_stroke_cap(node) {
+                        Some((cap, None | Some(StrokeCapSite::Node))) => cap,
+                        _ => "NONE",
+                    },
+                    c => crate::vecnet::cap_name(c),
                 }
                 .into(),
             );
@@ -718,7 +720,20 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 m.insert("fillGeometry".into(), geometry(paths));
             }
             if let Some(net) = network {
-                m.insert("vectorNetwork".into(), crate::vecnet::network_to_json(net));
+                let mut vn = crate::vecnet::network_to_json(net);
+                if let Some((cap, site)) = unmodelled_stroke_cap(node) {
+                    let vertices = vn["vertices"].as_array_mut();
+                    let free = |v: &&mut Value| v.get("strokeCap").is_none();
+                    let target = match site {
+                        Some(StrokeCapSite::Vertex(i)) => vertices.and_then(|a| a.get_mut(i)).filter(free),
+                        None if node.stroke.cap != StrokeCap::None => vertices.and_then(|a| a.iter_mut().find(|v| free(v))),
+                        _ => None,
+                    };
+                    if let Some(vx) = target {
+                        vx["strokeCap"] = cap.into();
+                    }
+                }
+                m.insert("vectorNetwork".into(), vn);
             }
         }
         NodeKind::Sticky(_) | NodeKind::Connector(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => {
@@ -835,4 +850,13 @@ pub fn export_rest_json(doc: &Document) -> Value {
         out["editorType"] = "figjam".into();
     }
     out
+}
+
+/// The cap the stroke model still has no name for that the node carries from import, and where it sat: on the node,
+/// or on the vertex at that index. `None` as the site means the cap was recorded before its site was kept; the
+/// export then places it as it always did: on the node when the node has no cap of its own, else on the first
+/// vertex without a cap.
+fn unmodelled_stroke_cap(node: &Node) -> Option<(&str, Option<StrokeCapSite>)> {
+    let cap = node.fig_metadata.get("strokeCap").map(String::as_str).filter(|s| !s.is_empty() && crate::vecnet::cap_from(s).is_none())?;
+    Some((cap, node.fig_metadata.get(STROKE_CAP_SITE_KEY).and_then(|s| StrokeCapSite::decode(s))))
 }

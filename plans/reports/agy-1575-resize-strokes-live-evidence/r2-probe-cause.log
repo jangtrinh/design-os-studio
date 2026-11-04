@@ -1,0 +1,11 @@
+   Compiling thiserror v2.0.21
+   Compiling quick-error v2.0.1
+   Compiling thiserror-impl v2.0.21
+PROBE corner (40.0, 0.0) requested Miter: cubic_to pieces -> curves=2 lines=8 miter_apex=false | second as line_to -> curves=0 lines=8 apex=true | both line_to -> curves=0 lines=8 apex=true
+PROBE corner (40.0, 0.0) requested Bevel: cubic_to pieces -> curves=2 lines=8 miter_apex=false | second as line_to -> curves=0 lines=9 apex=false | both line_to -> curves=0 lines=9 apex=false
+PROBE corner (40.0, 1.0) requested Miter: cubic_to pieces -> curves=0 lines=8 miter_apex=true | second as line_to -> curves=0 lines=8 apex=true | both line_to -> curves=0 lines=8 apex=true
+PROBE corner (40.0, 1.0) requested Bevel: cubic_to pieces -> curves=0 lines=9 miter_apex=false | second as line_to -> curves=0 lines=9 apex=false | both line_to -> curves=0 lines=9 apex=false
+PROBE corner (40.0, 2.0) requested Miter: cubic_to pieces -> curves=0 lines=8 miter_apex=true | second as line_to -> curves=0 lines=8 apex=true | both line_to -> curves=0 lines=8 apex=true
+PROBE corner (40.0, 2.0) requested Bevel: cubic_to pieces -> curves=0 lines=9 miter_apex=false | second as line_to -> curves=0 lines=9 apex=false | both line_to -> curves=0 lines=9 apex=false
+PROBE corner (40.0, 5.0) requested Miter: cubic_to pieces -> curves=0 lines=8 miter_apex=true | second as line_to -> curves=0 lines=8 apex=true | both line_to -> curves=0 lines=8 apex=true
+PROBE corner (40.0, 5.0) requested Bevel: cubic_to pieces -> curves=0 lines=9 miter_apex=false | second as line_to -> curves=0 lines=9 apex=false | both line_to -> curves=0 lines=9 apex=false

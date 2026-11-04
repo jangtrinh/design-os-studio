@@ -617,6 +617,25 @@ impl Svg<'_> {
             }
             return;
         }
+        if designos_render::vectorops::has_arrow_caps(n) || designos_render::vectorops::vertex_caps(n).is_some() {
+            let outlined = designos_render::vectorops::outline_node_stroke(self.doc, n);
+            if outlined.is_empty() {
+                return;
+            }
+            let g = Geo {
+                kind: GeoKind::Path,
+                paths: outlined.into_iter().map(|p| (p.cmds, p.fill_rule)).collect(),
+                closed: true,
+                fillable: true,
+                is_rect: false,
+                mask: None,
+            };
+            for p in paints {
+                let lines = self.fill_lines(&g, p, n.size);
+                self.emit_lines(lines);
+            }
+            return;
+        }
         let w = st.weight;
         let aligned = geo.closed && geo.fillable;
         // A dashed inside or outside rectangle is stroked at its own weight along the inset or outset
@@ -676,7 +695,12 @@ impl Svg<'_> {
             }
             a.push_str(&format!(" stroke-width=\"{}\"", num(width)));
             match st.cap {
-                StrokeCap::None => {}
+                StrokeCap::None
+                | StrokeCap::ArrowLines
+                | StrokeCap::ArrowEquilateral
+                | StrokeCap::TriangleFilled
+                | StrokeCap::DiamondFilled
+                | StrokeCap::CircleFilled => {}
                 StrokeCap::Round => a.push_str(" stroke-linecap=\"round\""),
                 StrokeCap::Square => a.push_str(" stroke-linecap=\"square\""),
             }

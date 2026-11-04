@@ -1,0 +1,68 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.44s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 13 tests
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu ... ok
+test resized_union_matches_cpu ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+test equal_cap_open_stroke_draws_identically_on_cpu_and_gpu ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu ... ok
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu ... ok
+test resized_imported_ellipse_and_star_match_cpu ... ok
+test resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu ... ok
+test vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends_like_cpu ... FAILED
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu ... FAILED
+
+failures:
+
+---- vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends_like_cpu stdout ----
+GPU: Apple M4 Max (Metal)
+vertex_square_caps: mismatch 0.1978% (72 px of 36400) at tolerance 8, ssim 0.9950
+vertex_square_caps: 0.1978% with AA pixels forgiven (72 px)
+GPU: Apple M4 Max (Metal)
+vertex_round_caps: mismatch 0.3407% (124 px of 36400) at tolerance 8, ssim 0.9904
+vertex_round_caps: 0.2637% with AA pixels forgiven (96 px)
+
+thread 'vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends_like_cpu' (90217748) panicked at crates/designos-gpu/tests/resized_shapes.rs:757:5:
+GPU Square: ink on y = 20 spans Some((10, 59)), expected Some((4, 65))
+CPU Square: ink on y = 20 spans Some((4, 59)), expected Some((4, 65))
+GPU Round: ink on y = 20 spans Some((10, 59)), expected Some((4, 65))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu stdout ----
+GPU: Apple M4 Max (Metal)
+miter_round_joins_right_then_down_on_the_axis: mismatch 0.0165% (6 px of 36400) at tolerance 8, ssim 1.0000
+miter_round_joins_right_then_down_on_the_axis: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+miter_round_joins_right_then_down_off_the_axis: mismatch 0.0082% (3 px of 36400) at tolerance 8, ssim 1.0000
+miter_round_joins_right_then_down_off_the_axis: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+miter_round_joins_curve_then_right_then_down: mismatch 0.2720% (99 px of 36400) at tolerance 8, ssim 0.9995
+miter_round_joins_curve_then_right_then_down: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+miter_round_joins_down_then_right_on_the_axis: mismatch 0.0165% (6 px of 36400) at tolerance 8, ssim 1.0000
+miter_round_joins_down_then_right_on_the_axis: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu' (90217736) panicked at crates/designos-gpu/tests/resized_shapes.rs:699:5:
+GPU right_then_down_on_the_axis: miter apex at node (44.5, -3.5) should be inked
+CPU right_then_down_on_the_axis: miter apex at node (44.5, -3.5) should be inked
+GPU curve_then_right_then_down: miter apex at node (44.5, -3.5) should be inked
+CPU curve_then_right_then_down: miter apex at node (44.5, -3.5) should be inked
+GPU down_then_right_on_the_axis: miter apex at node (-4.5, 44.5) should be inked
+CPU down_then_right_on_the_axis: miter apex at node (-4.5, 44.5) should be inked
+
+
+failures:
+    a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu
+    vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends_like_cpu
+
+test result: FAILED. 11 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+error: test failed, to rerun pass `-p designos-gpu --test resized_shapes`

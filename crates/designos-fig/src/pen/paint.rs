@@ -521,6 +521,11 @@ pub fn parse_stroke_cap(s: &str) -> StrokeCap {
     match s.trim().to_ascii_lowercase().as_str() {
         "round" => StrokeCap::Round,
         "square" => StrokeCap::Square,
+        "arrow_lines" | "arrow-lines" => StrokeCap::ArrowLines,
+        "arrow_equilateral" | "arrow-equilateral" => StrokeCap::ArrowEquilateral,
+        "triangle_filled" | "triangle-filled" => StrokeCap::TriangleFilled,
+        "diamond_filled" | "diamond-filled" => StrokeCap::DiamondFilled,
+        "circle_filled" | "circle-filled" => StrokeCap::CircleFilled,
         _ => StrokeCap::None,
     }
 }
@@ -799,6 +804,11 @@ pub fn export_stroke_value_filtered(
             StrokeCap::None => "none",
             StrokeCap::Round => "round",
             StrokeCap::Square => "square",
+            StrokeCap::ArrowLines => "arrow_lines",
+            StrokeCap::ArrowEquilateral => "arrow_equilateral",
+            StrokeCap::TriangleFilled => "triangle_filled",
+            StrokeCap::DiamondFilled => "diamond_filled",
+            StrokeCap::CircleFilled => "circle_filled",
         };
         sobj.insert("cap".into(), json!(cap_str));
     }

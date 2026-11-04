@@ -1123,7 +1123,7 @@ fn clean_json_floats(v: &Value) -> Value {
 }
 
 fn is_modelled_stroke_cap(c: &str) -> bool {
-    c.is_empty() || matches!(c, "NONE" | "ROUND" | "SQUARE")
+    c.is_empty() || crate::vecnet::cap_from(c).is_some()
 }
 
 fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<Value> {
@@ -1599,7 +1599,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     copy(&mut m, nc, "strokeWeight", "strokeWeight");
     copy(&mut m, nc, "strokeAlign", "strokeAlign");
-    enum_map(&mut m, nc, "strokeCap", "strokeCap", &[("ARROW_LINES", "NONE"), ("ARROW_EQUILATERAL", "NONE")]);
+    copy(&mut m, nc, "strokeCap", "strokeCap");
     copy(&mut m, nc, "strokeJoin", "strokeJoin");
     copy(&mut m, nc, "dashPattern", "strokeDashes");
     copy(&mut m, nc, "strokeMiterAngle", "strokeMiterAngle");

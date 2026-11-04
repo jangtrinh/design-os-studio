@@ -1071,8 +1071,11 @@ mod vector_page {
             if paints.is_empty() {
                 return;
             }
-            // precomputed outlines and per-side weights are areas to fill, whatever the paint
-            let area = sh.stroke_paths.is_some() || (n.stroke.side_weights.is_some() && sh.is_rect);
+            // precomputed outlines, per-side weights, and arrowhead/per-vertex caps are areas to fill
+            let area = sh.stroke_paths.is_some()
+                || (n.stroke.side_weights.is_some() && sh.is_rect)
+                || designos_render::vectorops::has_arrow_caps(n)
+                || designos_render::vectorops::vertex_caps(n).is_some();
             if !area && n.stroke.weight <= 0.0 {
                 return;
             }
@@ -1110,7 +1113,12 @@ mod vector_page {
                 let width = if align == StrokeAlign::Center || centerline.is_some() { s.weight } else { s.weight * 2.0 };
                 self.set_alpha(alpha * paint.opacity * c.a);
                 let cap = match s.cap {
-                    StrokeCap::None => 0,
+                    StrokeCap::None
+                    | StrokeCap::ArrowLines
+                    | StrokeCap::ArrowEquilateral
+                    | StrokeCap::TriangleFilled
+                    | StrokeCap::DiamondFilled
+                    | StrokeCap::CircleFilled => 0,
                     StrokeCap::Round => 1,
                     StrokeCap::Square => 2,
                 };
