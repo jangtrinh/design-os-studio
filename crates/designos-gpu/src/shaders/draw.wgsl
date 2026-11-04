@@ -222,6 +222,118 @@ fn fs_main(i: VOut) -> @location(0) vec4<f32> {
     return paint(i, i.pos.xy) * cov;
 }
 
+const ADJUST_GAMMA: f32 = 2.2;
+const INV_ADJUST_GAMMA: f32 = 0.45454547;
+const LUMA_WEIGHTS: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
+const HIGHLIGHT_SHADOW_THRESHOLD: f32 = 0.5;
+const CONTRAST_LIMIT: f32 = 0.3;
+const NEG_EXPOSURE_RESAT_PIVOT: f32 = 0.2;
+const POS_SAT_MAX_SCALE: f32 = 2.0;
+
+fn img_smootherstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+fn img_shadows_highlights_offset(lin: vec3<f32>, shadows: f32, highlights: f32) -> f32 {
+    let h = dot(lin, LUMA_WEIGHTS) - pow(HIGHLIGHT_SHADOW_THRESHOLD, ADJUST_GAMMA);
+    let weight = select(-0.999 * shadows, highlights, h > 0.0);
+    return 0.75 * h / sqrt(1.0 + 4.0 * h * h) * weight;
+}
+
+fn img_lab_tint_temp_contrast(lin: vec3<f32>, temperature: f32, tint: f32, contrast: f32) -> vec3<f32> {
+    let x_xyz = (0.4124564 * lin.r + 0.3575761 * lin.g + 0.1804375 * lin.b) / 0.95047;
+    let y_xyz = 0.2126729 * lin.r + 0.7151522 * lin.g + 0.0721750 * lin.b;
+    let z_xyz = (0.0193339 * lin.r + 0.1191920 * lin.g + 0.9503041 * lin.b) / 1.08883;
+
+    let f = pow(max(vec3<f32>(x_xyz, y_xyz, z_xyz), vec3<f32>(0.0)), vec3<f32>(1.0 / 3.0));
+    var l_lab = 116.0 * f.y - 16.0;
+    let a_lab = 500.0 * (f.x - f.y) + 30.0 * tint;
+    let b_lab = 200.0 * (f.y - f.z) + 30.0 * temperature;
+
+    let c = clamp(contrast, -CONTRAST_LIMIT, CONTRAST_LIMIT);
+    let l_c = HIGHLIGHT_SHADOW_THRESHOLD * 100.0;
+    if (c < 0.0) {
+        let low = 50.0 + 0.2 * (l_lab - l_c);
+        l_lab = mix(low, l_lab, c + 1.0);
+    } else {
+        let s = img_smootherstep(l_c - 30.0, l_c + 30.0, l_lab) * 100.0;
+        l_lab = mix(l_lab, s, c);
+    }
+
+    let fy2 = (l_lab + 16.0) / 116.0;
+    let fx2 = a_lab / 500.0 + fy2;
+    let fz2 = fy2 - b_lab / 200.0;
+
+    let f3 = vec3<f32>(fx2, fy2, fz2) * vec3<f32>(fx2, fy2, fz2) * vec3<f32>(fx2, fy2, fz2);
+    let x2 = f3.x * 0.95047;
+    let y2 = f3.y;
+    let z2 = f3.z * 1.08883;
+
+    let out_lin = vec3<f32>(
+        3.2404542 * x2 - 1.5371385 * y2 - 0.4985314 * z2,
+        -0.9692660 * x2 + 1.8760108 * y2 + 0.0415560 * z2,
+        0.0556434 * x2 - 0.2040259 * y2 + 1.0572252 * z2,
+    );
+    return clamp(out_lin, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn img_exposure(color: vec3<f32>, j: f32) -> vec3<f32> {
+    let k = pow(10.0, 2.0 * j) - 1.0;
+    let l = 0.75;
+    var m = 1.0 / (1.0 - l) - 1.0;
+    var n = dot(color, LUMA_WEIGHTS);
+    let j_neg = min(0.0, j);
+    m = m * (1.0 + n * n * j_neg / (NEG_EXPOSURE_RESAT_PIVOT - j_neg));
+    var c = color + (vec3<f32>(n) - color) * l;
+    if (j < 0.0) {
+        let s = 1.0 + j / 16.0;
+        c = c * s;
+        n = n * s;
+    }
+    c = c * (k + 1.0) / (c * k + vec3<f32>(1.0));
+    n = n * (k + 1.0) / (n * k + 1.0);
+    c = c + (c - vec3<f32>(n)) * m;
+    return clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn img_saturation(color: vec3<f32>, p: f32) -> vec3<f32> {
+    let n = dot(color, LUMA_WEIGHTS);
+    if (p <= 0.0) {
+        return clamp(color + (color - vec3<f32>(n)) * p, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    let min_c = min(min(color.r, color.g), color.b);
+    let max_c = max(max(color.r, color.g), color.b);
+    let q = n / (n - min_c + 1e-6);
+    let r = (1.0 - n) / (max_c - n + 1e-6);
+    let scale = min(mix(1.0, min(q, r), p), POS_SAT_MAX_SCALE);
+    return clamp(vec3<f32>(n) + (color - vec3<f32>(n)) * scale, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn adjust_image(rgb: vec3<f32>, c0: vec4<f32>, tint_high: vec2<f32>, shadows: f32) -> vec3<f32> {
+    let exposure = select(0.0, clamp(c0.x, -1.0, 1.0), abs(c0.x) > 1e-6);
+    let contrast = select(0.0, clamp(c0.y, -CONTRAST_LIMIT, CONTRAST_LIMIT), abs(c0.y) > 1e-6);
+    let vibrance = select(0.0, clamp(c0.z, -1.0, 1.0), abs(c0.z) > 1e-6);
+    let temperature = select(0.0, clamp(c0.w, -1.0, 1.0), abs(c0.w) > 1e-6);
+    let tint = select(0.0, clamp(tint_high.x, -1.0, 1.0), abs(tint_high.x) > 1e-6);
+    let highlights = select(0.0, clamp(tint_high.y, -1.0, 1.0), abs(tint_high.y) > 1e-6);
+    let sh = select(0.0, clamp(shadows, -1.0, 1.0), abs(shadows) > 1e-6);
+
+    var lin = pow(max(rgb, vec3<f32>(0.0)), vec3<f32>(ADJUST_GAMMA));
+    let ai = img_shadows_highlights_offset(lin, sh, highlights);
+    if (tint != 0.0 || temperature != 0.0 || contrast != 0.0) {
+        lin = img_lab_tint_temp_contrast(lin, temperature, tint, contrast);
+    }
+    let j = exposure + ai;
+    if (abs(j) > 1e-6) {
+        lin = img_exposure(lin, j);
+    }
+    if (vibrance != 0.0) {
+        lin = img_saturation(lin, vibrance);
+    }
+    return clamp(pow(max(lin, vec3<f32>(0.0)), vec3<f32>(INV_ADJUST_GAMMA)), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 @fragment
 fn fs_image(i: VOut) -> @location(0) vec4<f32> {
     let uv = vec2<f32>(i.c1.x * i.local.x + i.c1.z * i.local.y + i.c2.x, i.c1.y * i.local.x + i.c1.w * i.local.y + i.c2.y);
@@ -237,6 +349,11 @@ fn fs_image(i: VOut) -> @location(0) vec4<f32> {
     var c = textureSampleGrad(img, samp_clamp, suv, dx, dy);
     if (i.q.z == 1u && (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0)) {
         c = vec4<f32>(0.0);
+    }
+    if (i.q.y != 0u && c.a > 0.0) {
+        let straight = clamp(c.rgb / c.a, vec3<f32>(0.0), vec3<f32>(1.0));
+        let adj = adjust_image(straight, i.c0, i.c2.zw, i.t.w);
+        c = vec4<f32>(adj * c.a, c.a);
     }
     return c * i.t.z * clip_cov(i.pos.xy);
 }

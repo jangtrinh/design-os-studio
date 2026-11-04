@@ -1,0 +1,12 @@
+# CPU render time of one 256x256 tile in the middle of a 4032x3024 picture at dpr 2, release profile, 5 runs
+## base (e01b93f3a paint.rs)
+TILE_TIME unadjusted: min 1.12 ms, median 1.15 ms, max 1.16 ms (5 runs)
+TILE_TIME exposure+contrast+saturation: min 1533.29 ms, median 1540.36 ms, max 1543.27 ms (5 runs)
+## head
+TILE_TIME unadjusted: min 1.11 ms, median 1.12 ms, max 1.14 ms (5 runs)
+TILE_TIME exposure+contrast+saturation: min 9.33 ms, median 9.91 ms, max 10.16 ms (5 runs)
+
+# GPU interactive frame budget test (designos-gpu src unchanged: git diff e01b93f3a -- crates/designos-gpu/src is empty), release profile, 3 runs
+IMAGE_ADJUST_PERF: base_pan(20f) p50=0.010ms p95=0.012ms max=0.012ms draws=42 progs=1 | live_adjust_drag(20f) p50=0.027ms p95=0.031ms max=0.054ms draws=48 progs=1 | idle_stale_hits=0
+IMAGE_ADJUST_PERF: base_pan(20f) p50=0.008ms p95=0.011ms max=0.011ms draws=42 progs=1 | live_adjust_drag(20f) p50=0.023ms p95=0.028ms max=0.029ms draws=48 progs=1 | idle_stale_hits=0
+IMAGE_ADJUST_PERF: base_pan(20f) p50=0.007ms p95=0.008ms max=0.008ms draws=42 progs=1 | live_adjust_drag(20f) p50=0.019ms p95=0.027ms max=0.028ms draws=48 progs=1 | idle_stale_hits=0
