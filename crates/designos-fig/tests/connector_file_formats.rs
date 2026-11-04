@@ -199,7 +199,7 @@ fn fig_vertex_caps(vector_nc: &Value) -> Vec<String> {
 }
 
 /// The vector carrying the connector's line in a `.fig`: the node itself, or the first child of its label group.
-fn fig_connector_vector<'a>(changes: &'a [Value], labelled: bool) -> &'a Value {
+fn fig_connector_vector(changes: &[Value], labelled: bool) -> &Value {
     let top = change_named(changes, "Flow Arrow");
     if !labelled {
         assert_eq!(top["type"], "VECTOR");
@@ -239,7 +239,7 @@ fn rest_open_connector_ends_take_the_node_stroke_cap() {
     for label in [None, Some("approves")] {
         let labelled = label.is_some();
         // (start arrowhead, end arrowhead, node cap, expected caps at the first and last vertex, expected node-level cap)
-        let cases: [(ConnectorCap, ConnectorCap, StrokeCap, [Option<&str>; 2], &str); 3] = [
+        let cases = [
             (ConnectorCap::None, ConnectorCap::None, StrokeCap::Round, [Some("ROUND"), Some("ROUND")], "ROUND"),
             (ConnectorCap::None, ConnectorCap::Arrow, StrokeCap::Round, [Some("ROUND"), Some("ARROW_LINES")], "ROUND"),
             (ConnectorCap::None, ConnectorCap::None, StrokeCap::None, [None, None], "NONE"),
