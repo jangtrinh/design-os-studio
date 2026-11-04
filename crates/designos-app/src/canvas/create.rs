@@ -390,7 +390,7 @@ mod tests {
     /// The Arrow tool creates an open line vector named "Arrow" with a `None` start cap and a `Line arrow`
     /// (`ArrowLines`) end cap, preserves those caps through save and reload, and draws the arrowhead at the end point.
     #[test]
-    fn existing_arrow_layers_stay_plain_lines_through_save_and_render() {
+    fn the_arrow_tool_makes_an_open_vector_whose_caps_survive_save_and_reload_and_whose_head_paints_on_cpu_and_gpu() {
         let mut app = App::new(Document::new("arrows"));
         let page = app.doc.add_page("Page 1");
         let fid = app.doc.alloc_id();
@@ -446,6 +446,39 @@ mod tests {
             let (g_start_top, g_start_bot) = (gpu_pm.pixel(30, 40).unwrap(), gpu_pm.pixel(30, 60).unwrap());
             assert!(g_start_top.red() > 200 && g_start_bot.red() > 200, "GPU leaves start point (20, 50) without arrowhead wings");
         }
+    }
+
+    /// An arrow made before the Arrow tool drew vectors is a round-capped `Line` named "Arrow": it must
+    /// survive a save and reload unchanged and still paint.
+    #[test]
+    fn a_saved_round_capped_line_named_arrow_stays_a_plain_line_through_save_and_render() {
+        let mut app = App::new(Document::new("arrows"));
+        let page = app.doc.add_page("Page 1");
+        let fid = app.doc.alloc_id();
+        let frame = app.doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let id = app.doc.alloc_id();
+        let mut arrow = Node::new(id, NodeKind::Line);
+        arrow.name = "Arrow".into();
+        arrow.stroke.cap = StrokeCap::Round;
+        arrow.stroke.weight = 4.0;
+        arrow.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        arrow.transform = Affine::translate(10.0, 20.0);
+        arrow.size = v2(80.0, 0.0);
+        let aid = app.doc.insert(frame, arrow).unwrap();
+
+        let json = app.doc.to_json().unwrap();
+        let back = Document::from_json(&json).unwrap();
+        let after = back.get(aid).unwrap();
+        assert_eq!(after, app.doc.get(aid).unwrap(), "nothing about the arrow is lost on save and reload");
+        assert_eq!(after.kind, NodeKind::Line, "a saved line stays a line");
+        assert_eq!(after.stroke.cap, StrokeCap::Round);
+
+        let pm = designos_render::render_node(&back, frame, 1.0).expect("frame renders");
+        let (on_line, off_line) = (pm.pixel(50, 20).unwrap(), pm.pixel(50, 5).unwrap());
+        assert_eq!(on_line.red(), 0, "the reloaded arrow paints its black stroke on row 20");
+        assert_eq!(off_line.red(), 0xFF, "the white frame shows off the stroke");
+        let (before_start, after_end) = (pm.pixel(8, 20).unwrap(), pm.pixel(91, 20).unwrap());
+        assert!(before_start.red() < 128 && after_end.red() < 128, "the round caps reach 2px past both ends of the line");
     }
 
     #[test]

@@ -70,7 +70,7 @@
       "rect": [
         57.0,
         40.0,
-        184.0,
+        193.0,
         24.0
       ],
       "count": 1
@@ -198,10 +198,10 @@
     "layers-collapse-all": {
       "region": "left_panel",
       "rect": [
-        213.0,
-        213.0,
-        32.0,
-        32.0
+        229.0,
+        217.0,
+        24.0,
+        24.0
       ],
       "count": 1
     },
@@ -218,10 +218,10 @@
     "layers-search": {
       "region": "left_panel",
       "rect": [
-        249.0,
-        213.0,
-        32.0,
-        32.0
+        257.0,
+        217.0,
+        24.0,
+        24.0
       ],
       "count": 1
     },
@@ -232,16 +232,6 @@
         71.0,
         124.5,
         18.0
-      ],
-      "count": 1
-    },
-    "left-panel-resize-band": {
-      "region": "left_panel",
-      "rect": [
-        278.0,
-        32.0,
-        15.0,
-        1056.0
       ],
       "count": 1
     },
@@ -412,16 +402,6 @@
         205.0,
         240.0,
         6.0
-      ],
-      "count": 1
-    },
-    "pages-layers-separator-band": {
-      "region": "left_panel",
-      "rect": [
-        49.0,
-        196.0,
-        240.0,
-        24.0
       ],
       "count": 1
     },
@@ -905,16 +885,6 @@
       ],
       "count": 1
     },
-    "tab-close-hit-1": {
-      "region": "tab_bar",
-      "rect": [
-        307.0,
-        4.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
     "tab-unsaved-dot-1": {
       "region": "overlay:Foreground/0",
       "rect": [
@@ -991,56 +961,6 @@
         808.0,
         1036.0,
         16.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "tool-chevron-hit-0": {
-      "region": "canvas",
-      "rect": [
-        584.0,
-        1036.0,
-        24.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "tool-chevron-hit-1": {
-      "region": "canvas",
-      "rect": [
-        640.0,
-        1036.0,
-        24.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "tool-chevron-hit-2": {
-      "region": "canvas",
-      "rect": [
-        696.0,
-        1036.0,
-        24.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "tool-chevron-hit-3": {
-      "region": "canvas",
-      "rect": [
-        752.0,
-        1036.0,
-        24.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "tool-chevron-hit-4": {
-      "region": "canvas",
-      "rect": [
-        808.0,
-        1036.0,
-        24.0,
         32.0
       ],
       "count": 1
@@ -1196,10 +1116,10 @@
     {
       "region": "left_panel",
       "rect": [
-        245.0,
-        40.0,
-        32.0,
-        32.0
+        253.0,
+        44.0,
+        24.0,
+        24.0
       ],
       "sense": [
         "click",
@@ -1209,10 +1129,10 @@
     {
       "region": "left_panel",
       "rect": [
-        213.0,
-        101.0,
-        32.0,
-        32.0
+        229.0,
+        105.0,
+        24.0,
+        24.0
       ],
       "sense": [
         "click",
@@ -1222,10 +1142,10 @@
     {
       "region": "left_panel",
       "rect": [
-        249.0,
-        101.0,
-        32.0,
-        32.0
+        257.0,
+        105.0,
+        24.0,
+        24.0
       ],
       "sense": [
         "click",
@@ -1426,7 +1346,7 @@
       "rect": [
         92.0,
         3.0,
-        213.0,
+        216.0,
         26.0
       ],
       "sense": [

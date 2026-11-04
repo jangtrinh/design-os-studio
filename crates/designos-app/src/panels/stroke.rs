@@ -20,15 +20,16 @@ const WEIGHT_W: f32 = 72.0;
 const SETTINGS_X: f32 = 184.0;
 const SUB_LABEL_ADVANCE: f32 = 19.0;
 
+/// The options of the Start point and End point dropdowns, in the order Figma lists them.
 pub(crate) const ENDPOINT_CAPS: [(&str, StrokeCap); 8] = [
     ("None", StrokeCap::None),
-    ("Round", StrokeCap::Round),
-    ("Square", StrokeCap::Square),
     ("Line arrow", StrokeCap::ArrowLines),
     ("Triangle arrow", StrokeCap::ArrowEquilateral),
     ("Reversed triangle", StrokeCap::TriangleFilled),
-    ("Diamond arrow", StrokeCap::DiamondFilled),
     ("Circle arrow", StrokeCap::CircleFilled),
+    ("Diamond arrow", StrokeCap::DiamondFilled),
+    ("Round", StrokeCap::Round),
+    ("Square", StrokeCap::Square),
 ];
 
 fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
@@ -110,10 +111,21 @@ fn set_node_endpoint_cap(n: &mut Node, is_end: bool, chosen: StrokeCap) {
         }
         *paths = net.to_paths();
     }
-    n.stroke.cap = StrokeCap::None;
     n.stroke_geometry = None;
     n.fig_metadata.remove("strokeCap");
     n.fig_metadata.remove("strokeCapSource");
+}
+
+/// Writes `cap` onto both ends of every open chain of the vector network of `n`, if it has a valid one.
+fn set_open_end_caps(n: &mut Node, cap: StrokeCap) {
+    let NodeKind::Vector { network: Some(net), .. } = &mut n.kind else { return };
+    if !net.is_valid() {
+        return;
+    }
+    for (s, e) in net.open_chain_ends() {
+        net.vertices[s].cap = Some(cap);
+        net.vertices[e].cap = Some(cap);
+    }
 }
 
 fn swap_node_endpoints(n: &mut Node) {
@@ -131,7 +143,6 @@ fn swap_node_endpoints(n: &mut Node) {
         }
         *paths = net.to_paths();
     }
-    n.stroke.cap = StrokeCap::None;
     n.stroke_geometry = None;
     n.fig_metadata.remove("strokeCap");
     n.fig_metadata.remove("strokeCapSource");
@@ -217,28 +228,34 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     let open_ids: Vec<NodeId> =
         sel.iter().take(128).copied().filter(|id| app.doc.get(*id).is_some_and(|n| !n.stroke.paints.is_empty() && open_ends_of(n).is_some())).collect();
     if !open_ids.is_empty() {
-        sub_label(ui, pane, theme::FIELD_COL_X[0], "Start point");
-        sub_label(ui, pane, theme::FIELD_COL_X[1], "End point");
-        pane.y += SUB_LABEL_ADVANCE;
+        // One row per point, its label above a dropdown as wide as the section: the longest option name
+        // ("Reversed triangle") does not fit the half-width columns of the Position / Weight row.
         let endpoint_opts = ENDPOINT_CAPS.map(|(name, _)| name.to_string());
         let start_cap = common(app, &open_ids, |n| endpoint_cap_of(n, false)).flatten();
         let end_cap = common(app, &open_ids, |n| endpoint_cap_of(n, true)).flatten();
-        let start_r = pane.col(0, 0.0);
-        let end_r = pane.col(1, 0.0);
+
+        sub_label(ui, pane, theme::SECTION_CONTENT_X, "Start point");
+        pane.y += SUB_LABEL_ADVANCE;
+        let start_r = pane.full(0.0);
         let swap_r = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         widgets::record(ui, "stroke-start-point", start_r);
         if let Some(i) = dropdown(ui, start_r, "stroke-start-point", endpoint_cap_label(start_cap), &endpoint_opts) {
             let chosen = ENDPOINT_CAPS[i].1;
             app.edit_nodes(&open_ids, |n| set_node_endpoint_cap(n, false, chosen));
         }
+        widgets::record(ui, "stroke-swap-points", swap_r);
+        if widgets::icon_button(ui, swap_r, "stroke-swap-points", Icon::FlipH, false, "Swap end points").clicked() {
+            app.edit_nodes(&open_ids, swap_node_endpoints);
+        }
+        row_end(pane);
+
+        sub_label(ui, pane, theme::SECTION_CONTENT_X, "End point");
+        pane.y += SUB_LABEL_ADVANCE;
+        let end_r = pane.full(0.0);
         widgets::record(ui, "stroke-end-point", end_r);
         if let Some(i) = dropdown(ui, end_r, "stroke-end-point", endpoint_cap_label(end_cap), &endpoint_opts) {
             let chosen = ENDPOINT_CAPS[i].1;
             app.edit_nodes(&open_ids, |n| set_node_endpoint_cap(n, true, chosen));
-        }
-        widgets::record(ui, "stroke-swap-points", swap_r);
-        if widgets::icon_button(ui, swap_r, "stroke-swap-points", Icon::FlipH, false, "Swap end points").clicked() {
-            app.edit_nodes(&open_ids, swap_node_endpoints);
         }
         row_end(pane);
     } else {
@@ -293,6 +310,10 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
             if let Some(i) = dropdown(ui, r, "strokep-cap", cap_lbl, &caps) {
                 app.edit_nodes(&ids, |n| {
                     n.stroke.cap = CAPS[i].1;
+                    // a solid open path ends in its end points: they follow the cap
+                    if !has_dashes(&n.stroke) {
+                        set_open_end_caps(n, CAPS[i].1);
+                    }
                     n.stroke_geometry = None;
                 });
             }
@@ -483,6 +504,11 @@ mod tests {
 
     use egui::Pos2;
 
+    /// Row of the Start point / End point dropdowns that sets `cap`.
+    fn option_of(cap: StrokeCap) -> usize {
+        ENDPOINT_CAPS.iter().position(|&(_, c)| c == cap).expect("the dropdowns offer the cap")
+    }
+
     fn end_vertex_caps(n: &designos_doc::Node) -> Option<(Option<StrokeCap>, Option<StrokeCap>)> {
         let NodeKind::Vector { network: Some(net), .. } = &n.kind else { return None };
         let &(s, e) = net.open_chain_ends().first()?;
@@ -552,12 +578,12 @@ mod tests {
         let _swap_r = test_rect(&ctx, "stroke-swap-points").expect("stroke-swap-points button rendered for open line");
         assert!(start_r.height() >= crate::theme::TARGET_MIN && end_r.height() >= crate::theme::TARGET_MIN);
 
-        let arrow_options: [(usize, StrokeCap, (u32, u32), (u32, u32)); 5] = [
-            (3, StrokeCap::ArrowLines, (70, 40), (30, 40)),
-            (4, StrokeCap::ArrowEquilateral, (62, 41), (38, 41)),
-            (5, StrokeCap::TriangleFilled, (78, 41), (22, 41)),
-            (6, StrokeCap::DiamondFilled, (80, 40), (20, 40)),
-            (7, StrokeCap::CircleFilled, (80, 41), (20, 41)),
+        let arrow_options = [
+            (StrokeCap::ArrowLines, (70, 40), (30, 40)),
+            (StrokeCap::ArrowEquilateral, (62, 41), (38, 41)),
+            (StrokeCap::TriangleFilled, (78, 41), (22, 41)),
+            (StrokeCap::DiamondFilled, (80, 40), (20, 40)),
+            (StrokeCap::CircleFilled, (80, 41), (20, 41)),
         ];
 
         let mut gpu = designos_gpu::HeadlessGpu::new().ok().filter(|g| {
@@ -569,7 +595,8 @@ mod tests {
         });
         let vp = designos_render::Viewport { offset: designos_doc::Vec2::ZERO, zoom: 1.0, ..designos_render::Viewport::default() };
 
-        for (opt_idx, expected_cap, end_probe, start_probe) in arrow_options {
+        for (expected_cap, end_probe, start_probe) in arrow_options {
+            let opt_idx = option_of(expected_cap);
             let _ = step(&mut app, vec![]);
             let end_r = test_rect(&ctx, "stroke-end-point").expect("stroke-end-point dropdown");
             click(&mut app, end_r.center());
@@ -645,13 +672,13 @@ mod tests {
         let _ = step(&mut app, vec![]);
         let start_r = test_rect(&ctx, "stroke-start-point").expect("start point dropdown");
 
-        // Pick Round (index 1) on start and Line arrow (index 3) on end.
+        // Pick Round on start and Line arrow on end.
         click(&mut app, start_r.center());
-        let row1 = test_rect(&ctx, "menu-row-0-1").expect("Round menu row");
+        let row1 = test_rect(&ctx, &format!("menu-row-0-{}", option_of(StrokeCap::Round))).expect("Round menu row");
         click(&mut app, row1.center());
         let end_r = test_rect(&ctx, "stroke-end-point").expect("end point dropdown");
         click(&mut app, end_r.center());
-        let row3 = test_rect(&ctx, "menu-row-0-3").expect("Line arrow menu row");
+        let row3 = test_rect(&ctx, &format!("menu-row-0-{}", option_of(StrokeCap::ArrowLines))).expect("Line arrow menu row");
         click(&mut app, row3.center());
         assert_eq!(end_vertex_caps(app.doc.get(line).unwrap()), Some((Some(StrokeCap::Round), Some(StrokeCap::ArrowLines))));
 
@@ -718,10 +745,10 @@ mod tests {
         let end_r = test_rect(&ctx, "stroke-end-point").expect("end point dropdown rendered for open selection");
         assert!(shapes_contain_text(&out.shapes, "Mixed"), "differing end caps across selection must show Mixed");
 
-        // Pick Triangle arrow (index 4) on end point: applies to both v1 and v2 in one undo step.
+        // Pick Triangle arrow on end point: applies to both v1 and v2 in one undo step.
         click(&mut app, end_r.center());
         let _ = step(&mut app, vec![]);
-        let row4 = test_rect(&ctx, "menu-row-0-4").expect("Triangle arrow menu row");
+        let row4 = test_rect(&ctx, &format!("menu-row-0-{}", option_of(StrokeCap::ArrowEquilateral))).expect("Triangle arrow menu row");
         click(&mut app, row4.center());
         assert_eq!(end_vertex_caps(app.doc.get(v1).unwrap()), Some((Some(StrokeCap::None), Some(StrokeCap::ArrowEquilateral))));
         assert_eq!(end_vertex_caps(app.doc.get(v2).unwrap()), Some((Some(StrokeCap::None), Some(StrokeCap::ArrowEquilateral))));
@@ -778,3 +805,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/stroke_endpoints.rs"]
+mod endpoint_tests;

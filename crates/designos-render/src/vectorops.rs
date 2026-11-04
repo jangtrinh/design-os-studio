@@ -516,20 +516,27 @@ fn append_cap_outline(pb: &mut sk::PathBuilder, p: Vec2, outward: Vec2, w: f32, 
     }
 }
 
-fn expand_open_subpath_with_caps(
-    sub: &d::Path,
-    stroke: &d::Stroke,
-    width: f32,
-    (start_cap, end_cap): (d::StrokeCap, d::StrokeCap),
-    network: Option<&VectorNetwork>,
-    res_scale: f32,
-) -> Option<sk::Path> {
-    let Some((cs, is_closed)) = path_curves(sub).into_iter().next() else {
-        return expand_subpath(sub, stroke, width, d::StrokeCap::None, network, res_scale);
-    };
-    if is_closed || cs.is_empty() {
-        return expand_subpath(sub, stroke, width, d::StrokeCap::None, network, res_scale);
+/// A cap that leaves the stroke butt: the head of an arrow is drawn on top of the shaft, not by the stroker.
+fn shaft_cap(cap: d::StrokeCap) -> d::StrokeCap {
+    if cap.is_arrow() {
+        d::StrokeCap::None
+    } else {
+        cap
     }
+}
+
+/// The cap that the sub-paths of `stroke` take when the shaft is stroked without the caps of its ends: the dashes of a
+/// dashed stroke keep `Stroke::cap`, a solid stroke has no cap to keep.
+fn shaft_base_cap(stroke: &d::Stroke) -> d::StrokeCap {
+    if crate::outline::has_dashes(stroke) {
+        shaft_cap(stroke.cap)
+    } else {
+        d::StrokeCap::None
+    }
+}
+
+/// Directions that point out of the two ends of the open curve `cs`, away from the path: `(start, end)`.
+fn outward_directions(cs: &[[Vec2; 4]]) -> (Vec2, Vec2) {
     let dir = |from: Vec2, cands: [Vec2; 3]| -> Vec2 {
         for c in cands {
             let v = Vec2::new(c.x - from.x, c.y - from.y);
@@ -543,11 +550,112 @@ fn expand_open_subpath_with_caps(
     let (first, last) = (&cs[0], &cs[cs.len() - 1]);
     let s_in = dir(first[0], [first[1], first[2], first[3]]);
     let e_in = dir(last[3], [last[2], last[1], last[0]]);
-    let start_out = Vec2::new(-s_in.x, -s_in.y);
-    let end_out = Vec2::new(-e_in.x, -e_in.y);
+    (Vec2::new(-s_in.x, -s_in.y), Vec2::new(-e_in.x, -e_in.y))
+}
+
+/// `st` without its dashes, capped with `cap`.
+fn solid_stroke(st: &sk::Stroke, cap: sk::LineCap) -> sk::Stroke {
+    sk::Stroke { width: st.width, miter_limit: st.miter_limit, line_cap: cap, line_join: st.line_join, dash: None }
+}
+
+/// Strokes the dashed open path `shaft`. Every dash is capped with `Stroke::cap`, except where the first dash starts
+/// and where the last dash ends, if the path runs into them: those terminals take `start_cap` and `end_cap`. A path
+/// that ends in a gap shows no cap at that end, and an arrow cap leaves its terminal butt (the head sits on top).
+/// The dashes that keep `Stroke::cap` at both ends are stroked as a plain dashed line is.
+fn expand_dashed_shaft(
+    shaft: &d::Path,
+    stroke: &d::Stroke,
+    width: f32,
+    (start_cap, end_cap): (d::StrokeCap, d::StrokeCap),
+    res_scale: f32,
+) -> Option<sk::Path> {
+    let skp = vector_paths(std::slice::from_ref(shaft)).paths.into_iter().next().map(|x| x.0)?;
+    let inner = shaft_cap(stroke.cap);
+    let st = sk_stroke(stroke, width, inner);
+    let Some(dash) = st.dash.as_ref() else { return skp.stroke(&st, res_scale) };
+    let dashed = skp.dash(dash, res_scale)?;
+    let (terminal_start, terminal_end) = (skp.points().first().copied()?, skp.points().last().copied()?);
+    let at = |a: sk::Point, b: sk::Point| (a.x - b.x).hypot(a.y - b.y) <= 1e-2;
+
+    // the dashes as contours, with the points they start and end at
+    let mut contours: Vec<(sk::Path, sk::Point, sk::Point)> = Vec::new();
+    let (mut pb, mut first, mut last) = (sk::PathBuilder::new(), None::<sk::Point>, sk::Point::zero());
+    let mut flush = |pb: &mut sk::PathBuilder, first: Option<sk::Point>, last: sk::Point| {
+        if let (Some(path), Some(first)) = (std::mem::replace(pb, sk::PathBuilder::new()).finish(), first) {
+            contours.push((path, first, last));
+        }
+    };
+    for seg in dashed.segments() {
+        match seg {
+            PathSegment::MoveTo(p) => {
+                flush(&mut pb, first.take(), last);
+                pb.move_to(p.x, p.y);
+                (first, last) = (Some(p), p);
+            }
+            PathSegment::LineTo(p) => {
+                pb.line_to(p.x, p.y);
+                last = p;
+            }
+            PathSegment::QuadTo(c, p) => {
+                pb.quad_to(c.x, c.y, p.x, p.y);
+                last = p;
+            }
+            PathSegment::CubicTo(c1, c2, p) => {
+                pb.cubic_to(c1.x, c1.y, c2.x, c2.y, p.x, p.y);
+                last = p;
+            }
+            PathSegment::Close => pb.close(),
+        }
+    }
+    flush(&mut pb, first.take(), last);
+
+    let count = contours.len();
+    let mut out = sk::PathBuilder::new();
+    let mut plain = sk::PathBuilder::new();
+    for (i, (contour, from, to)) in contours.into_iter().enumerate() {
+        let start = if i == 0 && at(from, terminal_start) { shaft_cap(start_cap) } else { inner };
+        let end = if i + 1 == count && at(to, terminal_end) { shaft_cap(end_cap) } else { inner };
+        if (start, end) == (inner, inner) {
+            plain.push_path(&contour);
+            continue;
+        }
+        // a terminal with a cap of its own: stroke the dash butt and add the cap of each of its ends
+        if let Some(body) = contour.stroke(&solid_stroke(&st, sk::LineCap::Butt), res_scale) {
+            out.push_path(&body);
+        }
+        let doc = sk_to_doc(&contour, d::FillRule::NonZero);
+        if let Some((cs, false)) = path_curves(&doc).into_iter().next().filter(|(cs, _)| !cs.is_empty()) {
+            let (start_out, end_out) = outward_directions(&cs);
+            append_cap_outline(&mut out, cs[0][0], start_out, width, start, stroke.join);
+            append_cap_outline(&mut out, cs[cs.len() - 1][3], end_out, width, end, stroke.join);
+        }
+    }
+    if let Some(body) = plain.finish().and_then(|p| p.stroke(&solid_stroke(&st, st.line_cap), res_scale)) {
+        out.push_path(&body);
+    }
+    out.finish()
+}
+
+fn expand_open_subpath_with_caps(
+    sub: &d::Path,
+    stroke: &d::Stroke,
+    width: f32,
+    (start_cap, end_cap): (d::StrokeCap, d::StrokeCap),
+    network: Option<&VectorNetwork>,
+    res_scale: f32,
+) -> Option<sk::Path> {
+    let Some((cs, is_closed)) = path_curves(sub).into_iter().next() else {
+        return expand_subpath(sub, stroke, width, shaft_base_cap(stroke), network, res_scale);
+    };
+    if is_closed || cs.is_empty() {
+        return expand_subpath(sub, stroke, width, shaft_base_cap(stroke), network, res_scale);
+    }
+    let (start_out, end_out) = outward_directions(&cs);
+    let (first, last) = (&cs[0], &cs[cs.len() - 1]);
 
     let start_trim = cap_setback(start_cap, width);
     let end_trim = cap_setback(end_cap, width);
+    let dashed = crate::outline::has_dashes(stroke);
     let mut pb = sk::PathBuilder::new();
     let trimmed = trim_open_cubics(&cs, start_trim, end_trim);
     if !trimmed.is_empty() {
@@ -561,16 +669,31 @@ fn expand_open_subpath_with_caps(
             }
         }
         let trimmed_sub = d::Path { cmds, fill_rule: sub.fill_rule };
-        if let Some(shaft) = expand_subpath(&trimmed_sub, stroke, width, d::StrokeCap::None, network, res_scale) {
+        let shaft = if dashed {
+            expand_dashed_shaft(&trimmed_sub, stroke, width, (start_cap, end_cap), res_scale)
+        } else {
+            expand_subpath(&trimmed_sub, stroke, width, d::StrokeCap::None, network, res_scale)
+        };
+        if let Some(shaft) = shaft {
             pb.push_path(&shaft);
         }
     }
-    append_cap_outline(&mut pb, first[0], start_out, width, start_cap, stroke.join);
-    append_cap_outline(&mut pb, last[3], end_out, width, end_cap, stroke.join);
+    // the caps of a dashed shaft that are not arrow heads sit on its first and last dash, if the path runs into them
+    let head = |cap: d::StrokeCap| if dashed && !cap.is_arrow() { d::StrokeCap::None } else { cap };
+    append_cap_outline(&mut pb, first[0], start_out, width, head(start_cap), stroke.join);
+    append_cap_outline(&mut pb, last[3], end_out, width, head(end_cap), stroke.join);
     pb.finish()
 }
 
-fn open_subpath_caps(sub: &d::Path, net: Option<&VectorNetwork>, chain_end: Option<(usize, usize)>, default_cap: d::StrokeCap) -> (d::StrokeCap, d::StrokeCap) {
+/// The caps at the start and end of the open sub-path `sub`: the cap of the vertex it ends in, `default_cap` for a vertex
+/// without one, and `junction_cap` for a vertex that other segments run through.
+fn open_subpath_caps(
+    sub: &d::Path,
+    net: Option<&VectorNetwork>,
+    chain_end: Option<(usize, usize)>,
+    default_cap: d::StrokeCap,
+    junction_cap: d::StrokeCap,
+) -> (d::StrokeCap, d::StrokeCap) {
     let Some(net) = net else { return (default_cap, default_cap) };
     let Some((cs, false)) = path_curves(sub).into_iter().next() else { return (default_cap, default_cap) };
     if cs.is_empty() {
@@ -579,10 +702,10 @@ fn open_subpath_caps(sub: &d::Path, net: Option<&VectorNetwork>, chain_end: Opti
     let (start_pt, end_pt) = (cs[0][0], cs[cs.len() - 1][3]);
     let resolve = |hint: Option<usize>, pt: Vec2| -> d::StrokeCap {
         if let Some(vi) = hint.filter(|&i| i < net.vertices.len() && (net.vertices[i].pos.x - pt.x).hypot(net.vertices[i].pos.y - pt.y) <= 1e-2) {
-            return if net.is_endpoint(vi) { net.vertices[vi].cap.unwrap_or(default_cap) } else { d::StrokeCap::None };
+            return if net.is_endpoint(vi) { net.vertices[vi].cap.unwrap_or(default_cap) } else { junction_cap };
         }
         if let Some((vi, v)) = net.vertices.iter().enumerate().find(|(_, v)| (v.pos.x - pt.x).hypot(v.pos.y - pt.y) <= 1e-2) {
-            return if net.is_endpoint(vi) { v.cap.unwrap_or(default_cap) } else { d::StrokeCap::None };
+            return if net.is_endpoint(vi) { v.cap.unwrap_or(default_cap) } else { junction_cap };
         }
         default_cap
     };
@@ -739,16 +862,27 @@ fn cap_polygons(sub: &d::Path, w: f32, join: d::StrokeJoin, start_cap: d::Stroke
     out
 }
 
-/// Cap shapes to draw over a butt-capped stroke of a vector whose vertices
-/// carry their own stroke caps; `None` when no vertex overrides the cap or when
-/// the stroke is dashed (dashed strokes cap every dash with `Stroke::cap`).
+/// True when `stroke` is dashed and some open chain of `net` ends in an end point (a vertex that no other segment runs
+/// through) whose cap is not the cap of the dashes. A dashed stroke caps every dash with `Stroke::cap`; the cap of an
+/// end point shows only where the first dash starts or the last dash ends.
+fn dashed_end_caps(stroke: &d::Stroke, net: &VectorNetwork) -> bool {
+    stroke.weight > 0.0
+        && crate::outline::has_dashes(stroke)
+        && net.vertices.iter().any(|v| v.cap.is_some_and(|c| c != stroke.cap))
+        && net.is_valid()
+        && net.open_chain_ends().into_iter().flat_map(|(a, b)| [a, b]).any(|v| net.is_endpoint(v) && net.vertices[v].cap.is_some_and(|c| c != stroke.cap))
+}
+
+/// Cap shapes to draw over a butt-capped stroke of a vector whose vertices carry their own stroke caps; `None` when
+/// no vertex overrides the cap. A dashed stroke caps every dash with `Stroke::cap`, so there is nothing to draw over
+/// it: the list is empty (not `None`) when an end point of a dashed stroke has a cap of its own, which tells callers
+/// to take the stroke from `expand_node_subpaths` instead of the plain stroker.
 pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
     let NodeKind::Vector { network: Some(net), .. } = &n.kind else { return None };
-    if crate::outline::has_dashes(&n.stroke)
-        || !net.is_valid()
-        || !net.vertices.iter().any(|v| v.cap.is_some_and(|c| c != n.stroke.cap))
-        || n.stroke.weight <= 0.0
-    {
+    if crate::outline::has_dashes(&n.stroke) {
+        return dashed_end_caps(&n.stroke, net).then(Vec::new);
+    }
+    if !net.is_valid() || !net.vertices.iter().any(|v| v.cap.is_some_and(|c| c != n.stroke.cap)) || n.stroke.weight <= 0.0 {
         return None;
     }
     let ends = net.open_chain_ends();
@@ -807,25 +941,27 @@ pub fn has_mixed_subpath_align(n: &Node, sh: &crate::geom::Shape) -> bool {
 }
 
 /// Expands every sub-path of `sh` at `width` and `res_scale`, honouring per-vertex joins and caps
-/// (including arrowhead caps on the node or on open-chain endpoint vertices).
+/// (including arrowhead caps on the node or on open-chain endpoint vertices, and the end point caps of a dashed stroke).
 pub(crate) fn expand_node_subpaths(n: &Node, sh: &crate::geom::Shape, width: f32, res_scale: f32) -> Vec<(sk::Path, sk::FillRule)> {
     let network = match &n.kind {
         NodeKind::Vector { network: Some(net), .. } if net.is_valid() => Some(net),
         _ => None,
     };
-    if has_arrow_caps(n) {
+    if has_arrow_caps(n) || network.is_some_and(|net| dashed_end_caps(&n.stroke, net)) {
         let chain_ends = network.map(VectorNetwork::open_chain_ends).unwrap_or_default();
+        // a dashed stroke keeps its own cap on the dashes that reach no end point, and on closed sub-paths
+        let base_cap = shaft_base_cap(&n.stroke);
         let mut open_idx = 0usize;
         let mut out = Vec::new();
         for (p, r) in &sh.paths {
             let doc_p = sk_to_doc(p, rule_of(*r));
             for (sub, closed) in subpaths(&doc_p) {
                 let expanded = if closed {
-                    expand_subpath(&sub, &n.stroke, width, d::StrokeCap::None, network, res_scale)
+                    expand_subpath(&sub, &n.stroke, width, base_cap, network, res_scale)
                 } else {
                     let hint = chain_ends.get(open_idx).copied();
                     open_idx += 1;
-                    let caps = open_subpath_caps(&sub, network, hint, n.stroke.cap);
+                    let caps = open_subpath_caps(&sub, network, hint, n.stroke.cap, base_cap);
                     expand_open_subpath_with_caps(&sub, &n.stroke, width, caps, network, res_scale)
                 };
                 if let Some(o) = expanded {
@@ -905,6 +1041,9 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
         }
         _ => vec![],
     };
+    // the end points of a dashed stroke cap only the first and the last dash, the other dashes keep `Stroke::cap`
+    let dashed_caps = network.is_some_and(|n| dashed_end_caps(stroke, n));
+    let chain_ends = if dashed_caps { network.map(VectorNetwork::open_chain_ends).unwrap_or_default() } else { vec![] };
     let base_cap = if per_vertex_caps { d::StrokeCap::None } else { stroke.cap };
     let aligned = stroke.align != d::StrokeAlign::Center;
     let st_center = sk_stroke(stroke, w, base_cap);
@@ -923,6 +1062,14 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
                 continue;
             }
             let caps = if per_vertex_caps { chain_caps.get(open_index).copied() } else { None };
+            if dashed_caps {
+                let resolved = open_subpath_caps(&sub, network, chain_ends.get(open_index).copied(), stroke.cap, shaft_base_cap(stroke));
+                open_index += 1;
+                if let Some(o) = expand_open_subpath_with_caps(&sub, stroke, w, resolved, network, 1.0) {
+                    out.push(sk_to_doc(&o, d::FillRule::NonZero));
+                }
+                continue;
+            }
             open_index += 1;
             let resolved_caps = caps.unwrap_or((stroke.cap, stroke.cap));
             if resolved_caps.0.is_arrow() || resolved_caps.1.is_arrow() {
