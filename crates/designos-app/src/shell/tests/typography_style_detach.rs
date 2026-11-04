@@ -27,6 +27,13 @@ impl Sim {
         self.mods = Modifiers::NONE;
     }
 
+    fn cmd_alt_shift_key(&mut self, key: Key) {
+        let is_mac = self.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+        self.mods = Modifiers { alt: true, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        self.key(key);
+        self.mods = Modifiers::NONE;
+    }
+
     fn alt_key(&mut self, key: Key) {
         self.mods = Modifiers { alt: true, ..Modifiers::NONE };
         self.key(key);
@@ -880,4 +887,24 @@ fn alt_arrow_right_in_a_text_session_steps_the_letter_spacing_once() {
     s.alt_key(Key::ArrowRight);
 
     assert_eq!(text_of(&s, id).style.letter_spacing, 0.5, "one Alt+Right chord steps the letter spacing by half a pixel");
+}
+
+#[test]
+fn cmd_alt_shift_period_in_a_text_session_steps_the_size_by_ten_once() {
+    let (mut s, id) = linked_session_sim();
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+
+    s.cmd_alt_shift_key(Key::Period);
+
+    assert_eq!(text_of(&s, id).style.font_size, 26.0, "one Cmd+Alt+Shift+. chord steps the size by ten, once");
+}
+
+#[test]
+fn cmd_alt_shift_comma_in_a_text_session_steps_the_size_down_by_ten_once() {
+    let (mut s, id) = linked_session_sim();
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+
+    s.cmd_alt_shift_key(Key::Comma);
+
+    assert_eq!(text_of(&s, id).style.font_size, 6.0, "one Cmd+Alt+Shift+, chord steps the size down by ten, once");
 }

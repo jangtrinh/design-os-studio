@@ -73,8 +73,14 @@ pub enum TextCmd {
     Underline,
     SizeUp,
     SizeDown,
+    /// Steps the font size by this many pixels (negative to shrink).
+    SizeBy(f32),
     List(ListKind),
 }
+
+/// Font-size step of `Cmd/Ctrl+Shift+.` and `,` in a text session; `Alt` takes the larger one.
+const SIZE_STEP: f32 = 1.0;
+const SIZE_STEP_ALT: f32 = 10.0;
 
 // ------------------------------------------------------------------ lifecycle
 pub fn begin_text_edit(app: &mut App, id: NodeId) {
@@ -694,6 +700,7 @@ fn style_fn(cmd: TextCmd, sum: Option<&richtext::Summary>) -> impl Fn(&mut TextS
         TextCmd::Underline => st.decoration = if underline { TextDecoration::None } else { TextDecoration::Underline },
         TextCmd::SizeUp => st.font_size = (st.font_size + 1.0).min(1000.0),
         TextCmd::SizeDown => st.font_size = (st.font_size - 1.0).max(1.0),
+        TextCmd::SizeBy(step) => st.font_size = (st.font_size + step).clamp(1.0, 1000.0),
         TextCmd::List(_) => {}
     }
 }
@@ -812,8 +819,8 @@ fn key_event(app: &mut App, key: egui::Key, m: egui::Modifiers) -> bool {
         K::B if ctrl => text_command(app, TextCmd::Bold),
         K::I if ctrl => text_command(app, TextCmd::Italic),
         K::U if ctrl => text_command(app, TextCmd::Underline),
-        K::Period if ctrl && m.shift => text_command(app, TextCmd::SizeUp),
-        K::Comma if ctrl && m.shift => text_command(app, TextCmd::SizeDown),
+        K::Period if ctrl && m.shift => text_command(app, TextCmd::SizeBy(if m.alt { SIZE_STEP_ALT } else { SIZE_STEP })),
+        K::Comma if ctrl && m.shift => text_command(app, TextCmd::SizeBy(-if m.alt { SIZE_STEP_ALT } else { SIZE_STEP })),
         K::Tab if !ctrl => tab(app, m.shift),
         K::Num7 if ctrl && m.shift => text_command(app, TextCmd::List(ListKind::Numbered)),
         K::Num8 if ctrl && m.shift => text_command(app, TextCmd::List(ListKind::Bullet)),
