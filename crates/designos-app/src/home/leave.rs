@@ -61,6 +61,9 @@ struct Pending {
     /// Ids of the tabs still to ask about, in tab order. The one being asked about is at the front.
     queue: VecDeque<u64>,
     origin: Origin,
+    /// Library tabs whose failed write was answered "Don't save". Their edits are dropped when the action goes ahead,
+    /// not before: a later Cancel leaves them as they were.
+    refused: Vec<u64>,
 }
 
 #[derive(Default)]
@@ -178,7 +181,7 @@ impl App {
             return false;
         }
         let origin = if self.home.is_some() { Origin::Home } else { self.tabs.entries.get(self.tabs.active_idx).map_or(Origin::Home, |t| Origin::Tab(t.id)) };
-        self.leave.pending = Some(Pending { action, queue, origin });
+        self.leave.pending = Some(Pending { action, queue, origin, refused: Vec::new() });
         self.set_leave_asking_marker(true);
         self.ask_next(ctx);
         true
@@ -232,11 +235,7 @@ impl App {
                 let shown = self.home.is_none() && i == self.tabs.active_idx;
                 // The shown document's library file is the live state: its tab entry is only refreshed by the tab bar.
                 let outside_the_library = if shown { self.lib_file.is_none() } else { tab.lib_file.is_none() };
-                let failed_library_save = if shown {
-                    self.lib_file.is_some() && self.autosave.save_failed_at.is_some()
-                } else {
-                    tab.lib_file.is_some() && tab.disk.save_failed_at.is_some()
-                };
+                let failed_library_save = self.library_save_failed(i);
                 let unsaved_outside =
                     outside_the_library && (crate::tabs::tab_is_unsaved(self, i) || (shown && crate::live_patch_apply::user_edit_in_progress(self)));
                 match action {
@@ -248,11 +247,40 @@ impl App {
             .collect()
     }
 
+    /// Whether tab `idx` is a library file whose last write failed: its edits are in the window only.
+    fn library_save_failed(&self, idx: usize) -> bool {
+        let Some(tab) = self.tabs.entries.get(idx) else { return false };
+        if self.home.is_none() && idx == self.tabs.active_idx {
+            self.lib_file.is_some() && self.autosave.save_failed_at.is_some()
+        } else {
+            tab.lib_file.is_some() && tab.disk.save_failed_at.is_some()
+        }
+    }
+
+    /// The action is going ahead: the shown library file whose failed write was answered "Don't save" goes back to
+    /// what its file holds, so that no flush on the way out (parking the tab, closing the window) writes what was
+    /// refused. A refused tab that is not shown is closed by the action (or the window is), and nothing flushes it.
+    fn drop_refused_library_edits(&mut self) -> Result<(), String> {
+        let idx = self.tabs.active_idx;
+        let shown_and_refused =
+            self.home.is_none() && self.tabs.entries.get(idx).is_some_and(|t| self.leave.pending.as_ref().is_some_and(|p| p.refused.contains(&t.id)));
+        if shown_and_refused && self.library_save_failed(idx) {
+            return self.discard_failed_library_save();
+        }
+        Ok(())
+    }
+
     /// Opens the question for the first tab in the queue, or runs the action when none is left.
     fn ask_next(&mut self, ctx: Option<&egui::Context>) {
         loop {
             let Some(p) = self.leave.pending.as_mut() else { return };
             let Some(&id) = p.queue.front() else {
+                if let Err(e) = self.drop_refused_library_edits() {
+                    // The refused edits could not be dropped, so they stay, and so does what was about to be left.
+                    self.show_toast(format!("Cannot drop the unsaved edits: {e}"), true);
+                    self.cancel_leave();
+                    return;
+                }
                 let Pending { action, origin, .. } = self.leave.pending.take().expect("pending was just read");
                 self.set_leave_asking_marker(false);
                 self.perform_leave(ctx, action.clone());
@@ -283,8 +311,12 @@ impl App {
         match answer {
             Answer::Cancel => self.cancel_leave(),
             Answer::DontSave => {
+                let failed_write = self.tabs.entries.iter().position(|t| t.id == front).is_some_and(|idx| self.library_save_failed(idx));
                 if let Some(p) = self.leave.pending.as_mut() {
                     p.queue.pop_front();
+                    if failed_write {
+                        p.refused.push(front);
+                    }
                 }
                 self.ask_next(ctx);
             }

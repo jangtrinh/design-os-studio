@@ -3,7 +3,7 @@
 //! that the main tests drive directly.
 
 use super::leave_prompt::{add_an_unsaved_untitled_tab, asks_about, click, close_tab_by_click, dialog_title, make_two_tabs, tab_id};
-use super::unsaved_dot::{dot, edit, edit_now, external_sim_with, library_sim, nodes_on_disk, switch_to, two_rects, wait, SETTLED};
+use super::unsaved_dot::{dot, edit, edit_now, external_sim_with, lib, library_sim, nodes_on_disk, switch_to, two_rects, wait, SETTLED};
 use super::*;
 use crate::canvas::tools::Tool;
 use crate::canvas::Interaction;
@@ -513,4 +513,239 @@ fn a_failed_library_save_that_is_undone_does_not_prompt() {
     assert!(s.app().autosave.save_failed_at.is_none(), "the stale failure is cleared when edits net out");
     s.close_frame();
     assert!(s.app().dialog.is_none(), "a clean document needs no save question: {:?}", dialog_title(&s));
+}
+
+/// A library file that holds `before`, whose one edit could not be written: its folder is blocked until
+/// [`FailedSave::restore`]. A second tab is open next to it.
+#[cfg(unix)]
+struct FailedSave {
+    s: Sim,
+    _dir: super::unsaved_dot::TmpDir,
+    path: PathBuf,
+    before: Vec<u8>,
+    modified_before: std::time::SystemTime,
+    files: PathBuf,
+    moved: PathBuf,
+    other_tab: u64,
+}
+
+#[cfg(unix)]
+impl FailedSave {
+    /// The edit is made on the shown file and its write fails; the file's tab is shown.
+    fn on_the_shown_tab() -> Self {
+        let (mut s, dir) = library_sim();
+        let other = s.shell.app.open_new_design_tab();
+        let other_tab = tab_id(&s, other);
+        s.shell.app.switch_tab(0);
+        let path = s.app().watched_disk_path().expect("a library file is shown");
+        let before = std::fs::read(&path).unwrap();
+        let modified_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        edit_now(&mut s);
+        let (files, moved) = block_library_files(&s, &dir.0);
+        s.shell.app.flush_autosave();
+        assert!(s.app().autosave.save_failed_at.is_some(), "the write failed");
+        Self { s, _dir: dir, path, before, modified_before, files, moved, other_tab }
+    }
+
+    /// The disk problem is over.
+    fn restore(&self) {
+        restore_library_files(&self.files, &self.moved);
+    }
+
+    fn on_disk(&self) -> Vec<u8> {
+        std::fs::read(&self.path).expect("the library file is readable")
+    }
+
+    /// The file holds the same bytes and was not written at all since the edit was made.
+    fn untouched(&self) -> bool {
+        self.on_disk() == self.before && std::fs::metadata(&self.path).and_then(|m| m.modified()).is_ok_and(|t| t == self.modified_before)
+    }
+
+    fn answer(&mut self, answer: Answer) {
+        // The dialog layer takes the question away before it passes the answer on.
+        self.s.shell.app.dialog = None;
+        self.s.shell.app.answer_save_changes_with(None, answer, &ScriptedDialogs::answering(DialogOutcome::Cancelled));
+    }
+
+    fn active_tab(&self) -> u64 {
+        self.s.app().tabs.entries[self.s.app().tabs.active_idx].id
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn dont_save_after_a_failed_library_save_keeps_the_file_as_it_was_on_a_tab_switch() {
+    let mut f = FailedSave::on_the_shown_tab();
+    let other = f.other_tab;
+    f.s.shell.app.request_leave(None, Leave::SwitchTab(other));
+    assert!(asks_about(&f.s, "DESIGN-OS Studio Starter"), "{:?}", dialog_title(&f.s));
+    f.restore();
+    wait(&mut f.s, 3.0);
+    assert!(f.untouched(), "the open question writes nothing");
+    f.answer(Answer::DontSave);
+    assert_eq!(f.active_tab(), other, "the switch went ahead");
+    assert!(f.untouched(), "the refused edit was not written on the way out");
+    f.s.shell.app.switch_tab(0);
+    wait(&mut f.s, 3.0);
+    assert!(f.untouched(), "nor on a later visit");
+    assert!(!f.s.app().has_unsaved_edits(), "the tab shows what its file holds");
+    assert!(f.s.app().autosave.save_failed_at.is_none(), "and has no failed write left");
+    assert!(!f.s.app().hist.can_undo(), "the refused edit is not one undo away");
+    f.s.shell.app.switch_tab(1);
+    wait(&mut f.s, 3.0);
+    assert!(f.untouched(), "parking the tab again writes nothing");
+}
+
+#[cfg(unix)]
+#[test]
+fn dont_save_after_a_failed_library_save_keeps_the_file_as_it_was_on_quit() {
+    let mut f = FailedSave::on_the_shown_tab();
+    f.s.close_frame();
+    assert!(asks_about(&f.s, "DESIGN-OS Studio Starter"), "{:?}", dialog_title(&f.s));
+    f.restore();
+    wait(&mut f.s, 3.0);
+    assert!(f.untouched(), "the open question writes nothing");
+    f.answer(Answer::DontSave);
+    assert!(f.s.app().leave.quit_approved, "every question is answered");
+    // The close comes round again, and the window flushes what is open on its way out.
+    f.s.close_frame();
+    assert!(f.untouched(), "the refused edit was not written on the way out");
+}
+
+#[cfg(unix)]
+#[test]
+fn dont_save_while_the_library_file_is_still_unwritable_drops_the_edit_too() {
+    let mut f = FailedSave::on_the_shown_tab();
+    let other = f.other_tab;
+    f.s.shell.app.request_leave(None, Leave::SwitchTab(other));
+    assert!(asks_about(&f.s, "DESIGN-OS Studio Starter"), "{:?}", dialog_title(&f.s));
+    f.answer(Answer::DontSave);
+    assert_eq!(f.active_tab(), other, "the switch went ahead although the file cannot be read");
+    f.restore();
+    f.s.shell.app.switch_tab(0);
+    wait(&mut f.s, 3.0);
+    assert!(f.untouched(), "the refused edit is not written once the disk is back");
+    assert!(!f.s.app().has_unsaved_edits());
+}
+
+#[cfg(unix)]
+#[test]
+fn dont_save_cannot_drop_an_edit_it_cannot_reach_and_then_the_leave_does_not_go_on() {
+    let mut f = FailedSave::on_the_shown_tab();
+    // A change with no undo step, as an agent's replaced document is: only the file could undo it.
+    let id = f.s.app().doc.get(f.s.app().page).unwrap().children[0];
+    f.s.shell.app.doc.get_mut(id).unwrap().name = "Renamed by a writer with no undo step".into();
+    f.s.shell.app.flush_autosave();
+    let other = f.other_tab;
+    f.s.shell.app.request_leave(None, Leave::SwitchTab(other));
+    let first = f.active_tab();
+    f.answer(Answer::DontSave);
+    assert_eq!(f.active_tab(), first, "the edit was not dropped, so the switch did not go ahead");
+    assert!(!f.s.app().leave.is_asking(), "and the question is closed");
+    assert!(f.s.app().autosave.save_failed_at.is_some(), "the edit still counts as unsaved");
+    f.restore();
+    assert!(f.untouched(), "nothing was written");
+}
+
+#[cfg(unix)]
+#[test]
+fn save_after_a_failed_library_save_still_writes_the_edit() {
+    let mut f = FailedSave::on_the_shown_tab();
+    let other = f.other_tab;
+    f.s.shell.app.request_leave(None, Leave::SwitchTab(other));
+    assert!(asks_about(&f.s, "DESIGN-OS Studio Starter"), "{:?}", dialog_title(&f.s));
+    f.restore();
+    f.answer(Answer::Save);
+    assert_eq!(f.active_tab(), other, "the switch went ahead");
+    assert!(f.on_disk() != f.before, "the edit was written");
+    assert!(nodes_on_disk(&f.path) > nodes_in(&f.before), "and it is the edited document");
+}
+
+#[cfg(unix)]
+fn nodes_in(bytes: &[u8]) -> usize {
+    Document::from_json(std::str::from_utf8(bytes).unwrap()).map(|d| d.nodes.len()).unwrap_or(0)
+}
+
+/// Two library files whose edits could not be written: the first one's tab is parked, the second one's is shown. Their
+/// folder is blocked until [`TwoFailedSaves::restore`], and quitting has asked about the first one.
+#[cfg(unix)]
+struct TwoFailedSaves {
+    s: Sim,
+    _dir: super::unsaved_dot::TmpDir,
+    files: PathBuf,
+    moved: PathBuf,
+    second_path: PathBuf,
+    second_before: Vec<u8>,
+    second_modified: std::time::SystemTime,
+}
+
+#[cfg(unix)]
+impl TwoFailedSaves {
+    fn asked_about_the_first() -> Self {
+        let (mut s, dir) = library_sim();
+        let project = s.app().lib_file.as_ref().unwrap().project_id.clone();
+        let second = lib(&s).create_file(&project, None, "Second", &two_rects()).unwrap();
+        s.shell.app.go_home();
+        wait(&mut s, SETTLED);
+        s.shell.app.open_library_file(&second.id);
+        wait(&mut s, SETTLED);
+        assert_eq!(s.app().tabs.entries.len(), 2, "the second file opened in a tab of its own");
+        let second_path = s.app().watched_disk_path().expect("the second file is shown");
+        let second_before = std::fs::read(&second_path).unwrap();
+        let second_modified = std::fs::metadata(&second_path).unwrap().modified().unwrap();
+        switch_to(&mut s, 0);
+        edit_now(&mut s);
+        let (files, moved) = block_library_files(&s, &dir.0);
+        s.shell.app.flush_autosave();
+        switch_to(&mut s, 1);
+        edit_now(&mut s);
+        s.shell.app.flush_autosave();
+        assert!(s.app().autosave.save_failed_at.is_some() && s.app().tabs.entries[0].disk.save_failed_at.is_some(), "both writes failed");
+        s.close_frame();
+        assert!(asks_about(&s, "DESIGN-OS Studio Starter"), "the parked tab is asked about first: {:?}", dialog_title(&s));
+        Self { s, _dir: dir, files, moved, second_path, second_before, second_modified }
+    }
+
+    fn restore(&self) {
+        restore_library_files(&self.files, &self.moved);
+    }
+
+    fn answer(&mut self, answer: Answer) {
+        self.s.shell.app.dialog = None;
+        self.s.shell.app.answer_save_changes_with(None, answer, &ScriptedDialogs::answering(DialogOutcome::Cancelled));
+    }
+
+    fn second_untouched(&self) -> bool {
+        std::fs::read(&self.second_path).is_ok_and(|b| b == self.second_before)
+            && std::fs::metadata(&self.second_path).and_then(|m| m.modified()).is_ok_and(|t| t == self.second_modified)
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn saving_one_failed_library_file_does_not_write_the_other_one_that_is_still_to_be_answered() {
+    let mut t = TwoFailedSaves::asked_about_the_first();
+    t.restore();
+    t.answer(Answer::Save);
+    assert!(asks_about(&t.s, "Second"), "the other file is still to be answered: {:?}", dialog_title(&t.s));
+    assert!(t.second_untouched(), "showing the first file for its Save did not write the second one's unanswered edit");
+    t.answer(Answer::DontSave);
+    t.s.close_frame();
+    assert!(t.second_untouched(), "and its Don't save kept it that way");
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_a_later_question_keeps_the_edits_of_a_file_that_was_answered_dont_save() {
+    let mut t = TwoFailedSaves::asked_about_the_first();
+    t.restore();
+    t.answer(Answer::DontSave);
+    assert!(asks_about(&t.s, "Second"), "the other file is still to be answered: {:?}", dialog_title(&t.s));
+    t.answer(Answer::Cancel);
+    assert!(!t.s.app().leave.is_asking(), "the questions are over");
+    assert!(!t.s.app().leave.quit_approved, "and the window stays open");
+    assert!(t.s.app().tabs.entries[0].disk.save_failed_at.is_some(), "the first file's edit was not dropped, as nothing was left");
+    assert!(crate::tabs::tab_is_unsaved(t.s.app(), 0), "it still shows the dot");
+    assert!(t.s.app().has_unsaved_edits(), "and so does the one on screen");
+    assert!(t.second_untouched(), "nothing was written");
 }

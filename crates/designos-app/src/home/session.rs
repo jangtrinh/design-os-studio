@@ -59,6 +59,36 @@ pub(crate) fn library_file_disk_path(lib: &Library, project_id: &str, file_id: &
     lib.path("projects").join(project_id).join("files").join(format!("{file_id}.designos"))
 }
 
+/// What the library file `lf` holds now: the document as a tab shows it, its hash, and when the file last changed.
+fn saved_library_document(lib: &Library, lf: &LibFile) -> Result<(Document, u64, Option<std::time::SystemTime>), String> {
+    let path = library_file_disk_path(lib, &lf.project_id, &lf.id);
+    let (mut doc, _warning) = crate::io::load_path_with_warning(&path)?;
+    doc.name = lf.name.clone();
+    let mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+    let hash = doc_hash(&doc);
+    Ok((doc, hash, mtime))
+}
+
+/// Walks `doc` back through `hist` to the point of its last save. True when it is there: the history is clean and
+/// the document hashes as the file did when it was last written or read (`saved_hash`). When it cannot get there,
+/// the steps that were undone are redone, so nothing is lost by trying.
+fn rewind_to_saved_state(doc: &mut Document, hist: &mut designos_doc::History, saved_hash: u64) -> bool {
+    let mut undone = 0;
+    while !hist.is_clean() {
+        if !matches!(hist.undo(doc), Ok(true)) {
+            break;
+        }
+        undone += 1;
+    }
+    if hist.is_clean() && doc_hash(doc) == saved_hash {
+        return true;
+    }
+    for _ in 0..undone {
+        let _ = hist.redo(doc);
+    }
+    false
+}
+
 /// What a tab remembers of its file while another tab is shown: the hash it last wrote or read, and when the
 /// file last changed. Both belong to one document, so they travel with its tab, and a tab switch is never
 /// mistaken for a write by another program (which would reload the file over unsaved edits) or for an edit.
@@ -918,6 +948,11 @@ impl App {
         if self.history.viewing.is_some() {
             return;
         }
+        if self.lib_file.is_some() && self.leave.is_asking() && self.autosave.save_failed_at.is_some() {
+            // The failed write is a question that is not answered yet: showing another tab for its own answer
+            // must not write these edits, whichever way this one is answered later.
+            return;
+        }
         self.settle_pending_relayout();
         if self.lib_file.is_some() {
             if doc_hash(&self.doc) != self.autosave.saved_hash {
@@ -1089,6 +1124,17 @@ impl App {
 
     /// Puts the document that was read from the file on screen, as the document the file holds.
     fn install_disk_document(&mut self, ctx: &egui::Context, new_doc: Document, new_hash: u64, warning: Option<String>) {
+        self.swap_in_disk_document(new_doc, new_hash);
+        match warning {
+            Some(w) => self.show_toast(format!("Synced external agent changes ({w})"), true),
+            None => self.show_toast("Synced external agent changes", false),
+        }
+        ctx.request_repaint();
+    }
+
+    /// [`Self::install_disk_document`] without the toast: the document read from the file replaces the one on screen,
+    /// and its hash is the saved one.
+    fn swap_in_disk_document(&mut self, new_doc: Document, new_hash: u64) {
         let old_page = self.page;
         let old_sel = self.selection.clone();
         self.load_next_id = new_doc.peek_next_id();
@@ -1106,15 +1152,42 @@ impl App {
         self.autosave.saved_hash = new_hash;
         self.autosave.seen_rev = self.canvas.tiles.rev();
         self.autosave.changed_at = None;
-        match warning {
-            Some(w) => self.show_toast(format!("Synced external agent changes ({w})"), true),
-            None => self.show_toast("Synced external agent changes", false),
+    }
+
+    /// "Don't save" on the shown library file whose last write failed: the document goes back to what the file
+    /// holds, so that nothing that runs later (a tab switch, the way out of the app, a retry once the disk is back)
+    /// writes the edits that were refused. The file is read again; when it cannot be read, the undo history takes
+    /// the document back to the last save. Err when neither can: the edits are still there, and still unsaved.
+    pub(super) fn discard_failed_library_save(&mut self) -> Result<(), String> {
+        let (Some(lib), Some(lf)) = (self.lib.clone(), self.lib_file.clone()) else { return Err("This file is not in the library".to_string()) };
+        match saved_library_document(&lib, &lf) {
+            Ok((doc, hash, mtime)) => {
+                self.swap_in_disk_document(doc, hash);
+                self.hist = designos_doc::History::default();
+                self.autosave.disk_mtime = mtime;
+                self.autosave.note_known_mtime(mtime);
+            }
+            Err(read_error) => {
+                if !rewind_to_saved_state(&mut self.doc, &mut self.hist, self.autosave.saved_hash) {
+                    return Err(read_error);
+                }
+                self.changed();
+                self.sanitize();
+                self.autosave.seen_rev = self.canvas.tiles.rev();
+            }
         }
-        ctx.request_repaint();
+        self.mark_saved();
+        self.autosave.save_failed_at = None;
+        self.autosave.changed_at = None;
+        Ok(())
     }
 
     /// Debounced autosave: probes a changed revision once it settled, then saves after `AUTOSAVE_IDLE`.
     fn save_when_settled(&mut self, ctx: &egui::Context, busy: bool) {
+        if self.leave.is_asking() && self.autosave.save_failed_at.is_some() {
+            // The failed write is the question on screen: only its answer writes the edits, or drops them.
+            return;
+        }
         let Some(t) = self.autosave.changed_at else {
             if let Some(failed_at) = self.autosave.save_failed_at {
                 // The last save failed and the edits are still here. Retry on a frame that comes anyway: a timer
