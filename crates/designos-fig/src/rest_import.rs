@@ -136,7 +136,8 @@ fn shader_ref(v: &Value, modelled: &[&str]) -> ShaderRef {
         raw.extend(obj.iter().filter(|(k, _)| !modelled.contains(&k.as_str())).map(|(k, val)| (k.clone(), val.clone())));
     }
     if let Some(obj) = v.as_object() {
-        let beside = obj.iter().filter(|(k, _)| !modelled.contains(&k.as_str()) && !(nested.is_some() && k.as_str() == "shader"));
+        let container = nested.map(|_| "shader");
+        let beside = obj.iter().filter(|(k, _)| !modelled.contains(&k.as_str()) && container != Some(k.as_str()));
         for (k, val) in beside {
             raw.entry(k.clone()).or_insert_with(|| val.clone());
         }
