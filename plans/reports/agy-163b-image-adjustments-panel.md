@@ -4,8 +4,8 @@
 **Branch:** `jangtrinh/agy-163b-image-adjustments-panel` (base `origin/main` at `8087735f4`, `plans/reports/agy-163b-image-adjustments-panel-evidence/red-tests.log:1`)
 **Spec:** `docs/specs/v0.7/163-image-fill-adjustments-rotation-tile-scale-and-crop.md` (`docs/specs/v0.7/163-image-fill-adjustments-rotation-tile-scale-and-crop.md:1-147`)
 **Evidence Directory:** `plans/reports/agy-163b-image-adjustments-panel-evidence/` (`plans/reports/agy-163b-image-adjustments-panel-evidence/gates.log:1`)
-**Draft PR:** `PENDING_PR_URL`
-**Branch Commits (`git log --oneline origin/main..HEAD`):** `PENDING_GIT_LOG`
+**Draft PR:** `https://github.com/jangtrinh/design-os-studio/pull/1595` (`plans/reports/agy-163b-image-adjustments-panel.md:7`)
+**Branch Commits (`git log --oneline origin/main..HEAD`):** `f1e567c5f feat(images): exposure, contrast, saturation, temperature, tint, highlights and shadows on image fills, with picker controls (#163)` (`plans/reports/agy-163b-image-adjustments-panel.md:8`)
 
 ---
 
