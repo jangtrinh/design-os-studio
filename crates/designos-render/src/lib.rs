@@ -845,9 +845,25 @@ impl Renderer<'_> {
             }
             let strokes = self.visible_strokes(n);
             if !strokes.is_empty() {
-                let st = self.make_stroke(n, n.stroke.weight);
+                let shape = NodeShape { paths: paths.to_vec(), closed: true, fillable: true, is_rect: false, stroke_paths: None, fill_only: None };
+                let scale = ts_scale(&ts);
+                let Some(plan) = outline::stroke_plan(n, &shape, scale) else { continue };
+                let aligned_mask = match plan.clip {
+                    StrokeClip::None => None,
+                    StrokeClip::Inside | StrokeClip::Outside => {
+                        let Some(mut mask) = shape_mask(target.width(), target.height(), shape.fill_paths(), ts) else { continue };
+                        if plan.clip == StrokeClip::Outside {
+                            mask.invert();
+                        }
+                        if let Some(parent) = clip {
+                            mask_mul(&mut mask, parent);
+                        }
+                        Some(mask)
+                    }
+                };
+                let stroke_clip = aligned_mask.as_ref().or(clip);
                 for p in strokes {
-                    stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, clip);
+                    fill_paths(&self.env, target, &plan.outline, ts, n.size, p, alpha, stroke_clip);
                 }
             }
         }
