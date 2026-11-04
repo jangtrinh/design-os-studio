@@ -8,7 +8,7 @@ label: Story index
 order: 0
 ---
 
-Mỗi file định nghĩa một User Story độc lập. Các mã `REQ` đối chiếu trực tiếp tới [PRD](../prd/PRD.md#4-yeu-cau-va-quy-tac) và tổng hợp tại [Master Backlog](../../../BACKLOG.md).
+Each file defines one independent User Story. `REQ` IDs link directly to the [PRD](../prd/PRD.md#4-requirements-and-rules-req-01req-18) and are collected in the [Master Backlog](../../../BACKLOG.md).
 
 ### E1 Figma 1:1, Multi-Tab Projects, Spec Reader v2, REA, Auto-Update, AI Agent Suite, Parity Scorecard, Unified Phosphor Icons, Pure PTY Chat Wrapper, 1M-Node Performance & Micro-Interactions (`US-01..US-18`)
 
@@ -25,7 +25,7 @@ Mỗi file định nghĩa một User Story độc lập. Các mã `REQ` đối c
 | [US-09.md](US-09.md) | Dual-Layer Auto-Update (Atomic Self-Updater `updater.rs` + Upstream Figma `app.asar`/Kiwi Watchdog) | `EP-09` | `REQ-11` | `S09, S04, S01` | `SCN-09-01..03` |
 | [US-10.md](US-10.md) | Multiple Tab Project Workspace & Figma UI3 Desktop Tab Strip (`36px` Tab Bar, Per-Tab Isolation & Brand Wordmark) | `EP-10` | `REQ-12` | `S10, S04, S01` | `SCN-10-01..03` |
 | [US-11.md](US-11.md) | 1:1 Figma AI Agent Suite & Native PTY Terminal Core (`Claude`, `Codex`, `Antigravity`, `Grok`) | `EP-11` | `REQ-13, REQ-03` | `S03, S06, S11` | `SCN-11-01..04` |
-| [US-12.md](US-12.md) | Quantitative 1:1 Figma Parity Benchmark & Live Telemetry Scorecard (Thước đo `%` match với Figma) | `EP-12` | `REQ-14, REQ-04` | `S12, S02, S03` | `SCN-12-01..03` |
+| [US-12.md](US-12.md) | Quantitative 1:1 Figma Parity Benchmark & Live Telemetry Scorecard (`%` match with Figma meter) | `EP-12` | `REQ-14, REQ-04` | `S12, S02, S03` | `SCN-12-01..03` |
 | [US-13.md](US-13.md) | 1:1 Figma UI3 `Agents` Left Side Panel (`DIR-17`), 9 Visual Deltas & 5 End-to-End Userflows Audit (`UF-01..UF-05` · `DIR-18`) | `EP-13` | `REQ-15, REQ-16` | `S13, S01, S03, S04, S06, S07, S10, S11` | `SCN-13-01..03` |
 | [US-14.md](US-14.md) | Unified Phosphor Icons System Across Entire Studio (`@phosphor-icons/core` SVG Asset Pipeline & DPR-Aware Raster Cache · `DIR-19`) | `EP-14` | `REQ-17, REQ-07` | `S01..S13` | `SCN-14-01..03` |
 | [US-15.md](US-15.md) | Pure Chat UI Wrapper Over Native PTY Terminal Shell (`Claude Code`, `Codex`, `Antigravity CLI` · `DIR-21`) | `EP-15` | `REQ-18, REQ-15, REQ-05` | `S13, S03, S01` | `SCN-15-01..03` |
