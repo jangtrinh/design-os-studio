@@ -1,0 +1,28 @@
+# mutant 2: the incremental update no longer notices a top-level node becoming or leaving a connector
+diff --git a/crates/designos-render/src/index.rs b/crates/designos-render/src/index.rs
+index e8a61eae9..2e3a693fa 100644
+--- a/crates/designos-render/src/index.rs
++++ b/crates/designos-render/src/index.rs
+@@ -834,7 +834,6 @@ impl SceneIndex {
+         if top_cell(new_top.map(|t| t.0)) != top_cell(old_top.map(|t| t.0))
+             || new_top.map(|t| t.1) != old_top.map(|t| t.1)
+             || new_top.map(|t| t.2) != old_top.map(|t| t.3)
+-            || connector_changed
+         {
+             self.rebuild_top_grid(doc, page);
+         }
+warning: unused variable: `connector_changed`
+832 |         let connector_changed = dirty_id == top_id
+    |             ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_connector_changed`
+test index::tests::reordering_a_top_level_connector_re_sorts_the_connector_list ... ok
+test index::tests::inserting_and_removing_a_top_level_connector_updates_the_connector_list ... ok
+test index::tests::hiding_and_showing_a_top_level_connector_updates_the_connector_list ... ok
+test index::tests::query_top_level_with_connectors_adds_every_connector_to_the_grid_hits_in_paint_order ... ok
+test index::tests::changing_the_kind_of_a_top_level_node_updates_the_connector_list ... FAILED
+test index::tests::top_level_connectors_lists_visible_page_connectors_in_paint_order ... ok
+thread 'index::tests::changing_the_kind_of_a_top_level_node_updates_the_connector_list' (1587861) panicked at crates/designos-render/src/index.rs:1739:9:
+assertion `left == right` failed
+  left: [NodeId(4), NodeId(6)]
+ right: [NodeId(4), NodeId(5), NodeId(6)]
+test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 60 filtered out; finished in 0.00s
+rc=101

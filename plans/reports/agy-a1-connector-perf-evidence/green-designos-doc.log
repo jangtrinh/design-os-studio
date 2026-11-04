@@ -1,0 +1,79 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-doc)
+    Finished `release` profile [optimized] target(s) in 29.75s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test board::tests::elbow_heap_matches_linear_scan_on_3000_seeded_cases ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 781 filtered out; finished in 3.02s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.15s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test board::tests::elbow_route_p95_under_100us_on_seeded_corpus ... [elbow_route_p95_under_100us_on_seeded_corpus] n=500 p50=12.17us p95=30.25us budget=100us
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.04s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test board::tests::degenerate_rects_route_without_panic_or_hang ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_returns_same_route_without_recompute ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_misses_when_either_anchor_or_line_changes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_never_returns_a_stale_route_after_direct_node_write ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_is_bounded ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.24s
+

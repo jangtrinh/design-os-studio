@@ -1,0 +1,174 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling memchr v2.8.3
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling thiserror v2.0.21
+   Compiling regex-syntax v0.8.11
+   Compiling serde_json v1.0.154
+   Compiling serde v1.0.229
+   Compiling itoa v1.0.18
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling regex v1.13.1
+   Compiling syn v3.0.9
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-doc)
+    Finished `release` profile [optimized] target(s) in 34.49s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test board::tests::elbow_heap_matches_linear_scan_on_3000_seeded_cases ... 
+thread 'board::tests::elbow_heap_matches_linear_scan_on_3000_seeded_cases' (97668857) panicked at crates/designos-doc/src/board.rs:1572:13:
+seeded case 0 inspected 310590 states (expected binary-heap pop bound <= 16_000)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    board::tests::elbow_heap_matches_linear_scan_on_3000_seeded_cases
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test board::tests::elbow_route_p95_under_100us_on_seeded_corpus ... [elbow_route_p95_under_100us_on_seeded_corpus] n=500 p50=779.75us p95=1663.46us
+
+thread 'board::tests::elbow_route_p95_under_100us_on_seeded_corpus' (97668878) panicked at crates/designos-doc/src/board.rs:1598:9:
+elbow p95 1663.46us exceeded 100us budget
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    board::tests::elbow_route_p95_under_100us_on_seeded_corpus
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.38s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test board::tests::degenerate_rects_route_without_panic_or_hang ... 
+thread 'board::tests::degenerate_rects_route_without_panic_or_hang' (97668900) panicked at library/core/src/slice/sort/shared/smallsort.rs:860:5:
+user-provided comparison function does not correctly implement a total order
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    board::tests::degenerate_rects_route_without_panic_or_hang
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_returns_same_route_without_recompute ... 
+thread 'connector_route_cache::tests::route_cache_returns_same_route_without_recompute' (97668918) panicked at crates/designos-doc/src/connector_route_cache.rs:345:9:
+assertion `left == right` failed
+  left: (0, 0)
+ right: (0, 1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    connector_route_cache::tests::route_cache_returns_same_route_without_recompute
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_misses_when_either_anchor_or_line_changes ... 
+thread 'connector_route_cache::tests::route_cache_misses_when_either_anchor_or_line_changes' (97668964) panicked at crates/designos-doc/src/connector_route_cache.rs:363:9:
+assertion `left == right` failed
+  left: (0, 0)
+ right: (0, 1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    connector_route_cache::tests::route_cache_misses_when_either_anchor_or_line_changes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_never_returns_a_stale_route_after_direct_node_write ... 
+thread 'connector_route_cache::tests::route_cache_never_returns_a_stale_route_after_direct_node_write' (97668982) panicked at crates/designos-doc/src/connector_route_cache.rs:417:9:
+assertion `left == right` failed
+  left: (0, 0)
+ right: (0, 1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    connector_route_cache::tests::route_cache_never_returns_a_stale_route_after_direct_node_write
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_is_bounded ... 
+thread 'connector_route_cache::tests::route_cache_is_bounded' (97669000) panicked at crates/designos-doc/src/connector_route_cache.rs:469:9:
+assertion `left == right` failed
+  left: 0
+ right: 8192
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    connector_route_cache::tests::route_cache_is_bounded
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 3.16s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
