@@ -386,3 +386,21 @@ fn a_deleted_page_shows_in_homes_trash_is_counted_and_restore_puts_it_back() {
     assert!(docs.dir().join(ERROR_HANDLING).exists(), "the file is back");
     assert_eq!(manifest(&s, &pid).group(Group::Spec).pages.last().map(String::as_str), Some(ERROR_HANDLING), "listed in Spec again");
 }
+
+#[test]
+fn document_save_and_export_shortcuts_do_nothing_on_a_project_tab() {
+    let (mut s, _dir, pid, _file) = checkout_sim();
+    open_project(&mut s, &pid);
+    let before = (s.app().file_path.clone(), s.app().dialog.is_some());
+    for (key, shift) in [(Key::S, false), (Key::S, true)] {
+        s.mods = Modifiers { shift, ..Modifiers::NONE };
+        s.cmd_key(key);
+        s.mods = Modifiers::NONE;
+        for _ in 0..3 {
+            s.frame(vec![]);
+        }
+        assert!(s.app().toast.is_none(), "no save-as toast for the tab's placeholder document: {:?}", s.app().toast.as_ref().map(|t| t.text.clone()));
+        assert_eq!((s.app().file_path.clone(), s.app().dialog.is_some()), before, "no file dialog and no new file path");
+        assert!(s.app().tabs.active_is_project(), "still on the Project tab");
+    }
+}
