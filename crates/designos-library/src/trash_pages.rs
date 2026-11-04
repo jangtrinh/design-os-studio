@@ -50,7 +50,7 @@ impl Library {
         };
         if let Err(e) = write_atomic(&dir.join(TRASH_MANIFEST), serde_json::to_string_pretty(&item)?.as_bytes()) {
             cleanup(&dir);
-            return Err(e.into());
+            return Err(e);
         }
         if let Err(e) = store.move_page_out(rel, &dir.join("page.md"), read.hash) {
             cleanup(&dir);

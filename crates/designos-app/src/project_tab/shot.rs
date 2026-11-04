@@ -13,6 +13,8 @@ pub struct ShotSpec {
     /// Open the delete dialog for this page.
     pub delete: Option<String>,
     pub search: Option<String>,
+    /// Show Home's Trash section (with `--home`), for the evidence of a deleted page.
+    pub home_trash: bool,
 }
 
 fn enabled(screenshot: bool, debug_build: bool, dev_env: bool) -> bool {
@@ -31,10 +33,11 @@ impl ShotSpec {
                 "menu" => spec.menu = Some(value),
                 "delete" => spec.delete = Some(value),
                 "search" => spec.search = Some(value),
-                other => return Err(format!("{ENV}: unknown key `{other}` (expected project, page, menu, delete or search)")),
+                "home" if value == "trash" => spec.home_trash = true,
+                other => return Err(format!("{ENV}: unknown key `{other}` (expected project, page, menu, delete, search or home=trash)")),
             }
         }
-        if spec.project.is_empty() {
+        if spec.project.is_empty() && !spec.home_trash {
             return Err(format!("{ENV}: `project=<project id>` is required"));
         }
         Ok(spec)
@@ -61,11 +64,25 @@ mod tests {
     }
 
     #[test]
+    fn home_trash_needs_no_project() {
+        let s = ShotSpec::parse("home=trash").unwrap();
+        assert!(s.home_trash && s.project.is_empty());
+        assert!(ShotSpec::parse("home=recents").is_err());
+    }
+
+    #[test]
     fn a_spec_names_the_project_and_what_to_show() {
         let s = ShotSpec::parse("project=p1; page=spec/a.md ;menu=spec/a.md;search=ca").unwrap();
         assert_eq!(
             s,
-            ShotSpec { project: "p1".into(), page: Some("spec/a.md".into()), menu: Some("spec/a.md".into()), delete: None, search: Some("ca".into()) }
+            ShotSpec {
+                project: "p1".into(),
+                page: Some("spec/a.md".into()),
+                menu: Some("spec/a.md".into()),
+                delete: None,
+                search: Some("ca".into()),
+                home_trash: false
+            }
         );
         assert!(ShotSpec::parse("page=a.md").is_err(), "a project is required");
         assert!(ShotSpec::parse("project=p;color=red").unwrap_err().contains("unknown key"));
