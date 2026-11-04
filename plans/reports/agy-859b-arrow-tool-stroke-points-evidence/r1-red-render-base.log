@@ -1,0 +1,62 @@
+
+running 8 tests
+test a_square_start_on_a_dashed_round_line_squares_only_the_first_dash ... FAILED
+test a_none_end_on_a_dashed_round_line_leaves_the_end_dash_butt ... FAILED
+test an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes ... FAILED
+test a_dashed_closed_path_next_to_an_arrow_keeps_its_round_dashes ... FAILED
+test a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes ... FAILED
+test a_square_end_on_a_dashed_round_line_squares_only_the_end_dash ... FAILED
+test outlining_a_dashed_stroke_keeps_the_dash_caps_and_the_end_caps_of_the_vertices ... FAILED
+test an_end_cap_does_not_show_where_the_path_ends_in_a_gap ... ok
+
+failures:
+
+---- a_square_start_on_a_dashed_round_line_squares_only_the_first_dash stdout ----
+
+thread 'a_square_start_on_a_dashed_round_line_squares_only_the_first_dash' (94230655) panicked at crates/designos-render/tests/dashed_endpoint_caps.rs:102:9:
+the start terminal is square: pixel (8, 18) has coverage 0.25108224
+
+---- a_none_end_on_a_dashed_round_line_leaves_the_end_dash_butt stdout ----
+
+thread 'a_none_end_on_a_dashed_round_line_leaves_the_end_dash_butt' (94230653) panicked at crates/designos-render/tests/dashed_endpoint_caps.rs:123:5:
+the end terminal is butt: pixel (94, 19) has coverage 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes stdout ----
+
+thread 'an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes' (94230656) panicked at crates/designos-render/tests/dashed_endpoint_caps.rs:153:9:
+the inner dash end next to column 39 keeps its round cap, coverage 0
+
+---- a_dashed_closed_path_next_to_an_arrow_keeps_its_round_dashes stdout ----
+
+thread 'a_dashed_closed_path_next_to_an_arrow_keeps_its_round_dashes' (94230651) panicked at crates/designos-render/tests/dashed_endpoint_caps.rs:192:5:
+the closed path is drawn as without the arrow, columns [3, 4, 5, 6, 9, 10, 13, 14, 15, 16, 19, 20, 25, 26, 29, 30, 31, 32, 35, 36, 41, 42, 43, 44, 45, 46] differ
+
+---- a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes stdout ----
+
+thread 'a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes' (94230652) panicked at crates/designos-render/tests/dashed_endpoint_caps.rs:139:5:
+the shaft keeps its round dashes before the head, columns [8, 9, 20, 21, 24, 25, 36, 37, 40, 41, 52, 53, 56, 57, 68, 69, 72, 73] differ
+
+---- a_square_end_on_a_dashed_round_line_squares_only_the_end_dash stdout ----
+
+thread 'a_square_end_on_a_dashed_round_line_squares_only_the_end_dash' (94230654) panicked at crates/designos-render/tests/dashed_endpoint_caps.rs:90:9:
+the end terminal is square: pixel (95, 18) has coverage 0.25108224
+
+---- outlining_a_dashed_stroke_keeps_the_dash_caps_and_the_end_caps_of_the_vertices stdout ----
+
+thread 'outlining_a_dashed_stroke_keeps_the_dash_caps_and_the_end_caps_of_the_vertices' (94230658) panicked at crates/designos-render/tests/dashed_endpoint_caps.rs:206:5:
+outline area 291.1614374833236, expected 293.11503837897544
+
+
+failures:
+    a_dashed_closed_path_next_to_an_arrow_keeps_its_round_dashes
+    a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes
+    a_none_end_on_a_dashed_round_line_leaves_the_end_dash_butt
+    a_square_end_on_a_dashed_round_line_squares_only_the_end_dash
+    a_square_start_on_a_dashed_round_line_squares_only_the_first_dash
+    an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes
+    outlining_a_dashed_stroke_keeps_the_dash_caps_and_the_end_caps_of_the_vertices
+
+test result: FAILED. 1 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test dashed_endpoint_caps`

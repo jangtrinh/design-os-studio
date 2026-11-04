@@ -188,7 +188,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     // background
     let fills: Vec<&Paint> = match &n.kind {
         NodeKind::Text(_) => Vec::new(),
-        _ => n.fills.iter().filter(|p| p.visible && p.opacity > 0.0).collect(),
+        _ => n.fills.iter().filter(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))).collect(),
     };
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
     if !fills.is_empty() && !matches!(n.kind, NodeKind::Line) {
@@ -322,6 +322,7 @@ pub fn paint_css(p: &Paint, size: Vec2) -> String {
             };
             format!("url(<{image_ref}>) lightgray {fit}")
         }
+        PaintKind::Shader(_) => String::new(),
     }
 }
 
@@ -351,7 +352,7 @@ fn linear_css(handles: &[Vec2; 3], stops: &[GradientStop], size: Vec2, opacity: 
 
 fn border(n: &Node, out: &mut Vec<String>) {
     let st = &n.stroke;
-    let Some(p) = st.paints.iter().find(|p| p.visible && p.opacity > 0.0) else { return };
+    let Some(p) = st.paints.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))) else { return };
     if st.weight <= 0.0 && st.side_weights.is_none() {
         return;
     }
@@ -397,7 +398,7 @@ fn solid_or_first(p: &Paint) -> String {
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
         | PaintKind::DiamondGradient { stops, .. } => stops.first().map(|s| css_color(&s.color, p.opacity)).unwrap_or_else(|| "transparent".into()),
-        PaintKind::Image { .. } => "transparent".into(),
+        PaintKind::Image { .. } | PaintKind::Shader(_) => "transparent".into(),
     }
 }
 
@@ -465,7 +466,7 @@ fn distributes_space(a: LayoutAlign) -> bool {
 
 fn text_block(t: &TextProps, out: &mut Vec<String>) {
     let st = &t.style;
-    if let Some(p) = st.fills.iter().find(|p| p.visible && p.opacity > 0.0) {
+    if let Some(p) = st.fills.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))) {
         match &p.kind {
             PaintKind::Solid(c) => out.push(format!("color: {};", css_color(c, p.opacity))),
             _ => {

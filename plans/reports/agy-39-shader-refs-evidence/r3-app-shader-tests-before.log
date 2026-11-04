@@ -1,0 +1,17 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 56.84s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 5 tests
+test panels::effects::tests::shader_inspector_rows_render_label_and_toggle_visibility ... ok
+test panels::properties::tests::the_effects_row_of_a_shader_says_it_is_not_rendered ... ok
+test panels::properties::tests::the_shader_fill_row_label_is_readable_in_full_at_the_default_inspector_width ... ok
+test panels::properties::tests::hovering_the_shader_fill_label_shows_that_it_is_not_rendered ... ok
+test panels::properties::tests::shader_inspector_rows_render_label_and_toggle_visibility ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4375 filtered out; finished in 0.78s
+

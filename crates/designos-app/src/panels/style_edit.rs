@@ -91,6 +91,7 @@ fn paint_kind_name(p: &Paint) -> &'static str {
         PaintKind::AngularGradient { .. } => "Angular gradient",
         PaintKind::DiamondGradient { .. } => "Diamond gradient",
         PaintKind::Image { .. } => "Image",
+        PaintKind::Shader(_) => "Shader",
     }
 }
 

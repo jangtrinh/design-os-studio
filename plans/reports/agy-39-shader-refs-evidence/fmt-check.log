@@ -1,0 +1,1 @@
+cargo fmt --all -- --check: exit 0 (0 warnings, 0 diffs)

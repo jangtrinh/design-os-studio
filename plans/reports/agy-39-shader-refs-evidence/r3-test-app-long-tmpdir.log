@@ -1,0 +1,17 @@
+# trimmed: results, failed tests, panic lines (full output is 4.4k lines)
+TMPDIR=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.BJAeqB/tmp/ (57 chars root)
+running 4380 tests
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... FAILED
+running 1 test
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 14.05s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 14.19s
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... FAILED
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+thread 'agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root' (1228852) panicked at crates/designos-app/src/agent_approval_channel.rs:286:9:
+thread 'vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope' (1434919) panicked at crates/designos-app/src/vecops.rs:1480:9:
+thread 'vecops::tests::two_deferred_text_commands_both_convert_in_order' (1434922) panicked at crates/designos-app/src/vecops.rs:1921:9:
+    agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+    vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope
+    vecops::tests::two_deferred_text_commands_both_convert_in_order
+test result: FAILED. 4364 passed; 3 failed; 13 ignored; 0 measured; 0 filtered out; finished in 408.76s

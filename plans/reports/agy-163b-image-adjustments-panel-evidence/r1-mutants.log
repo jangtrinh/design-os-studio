@@ -1,0 +1,53 @@
+# mutants, each run on the final tree with one change, then reverted
+
+## mutant i
+CPU adjusts the picture's texels before sampling again
+test image_adjust::tests::adjusted_fill_work_is_bounded_by_the_visible_region ... FAILED
+thread 'image_adjust::tests::adjusted_fill_work_is_bounded_by_the_visible_region' (97689740) panicked at crates/designos-render/src/image_adjust/tests.rs:36:5:
+adjustment ran on 12000000 pixels, more than the 64x64 window that is on screen
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 69 filtered out; finished in 2.17s
+test time_one_tile_over_a_large_adjusted_picture ... ignored, timing only
+test saturation_is_applied_to_the_blended_colour_at_a_coloured_edge ... FAILED
+test a_translucent_edge_is_adjusted_as_straight_colour_and_keeps_its_alpha ... FAILED
+test contrast_and_temperature_are_applied_to_the_blended_colour_at_an_edge ... FAILED
+test exposure_is_applied_to_the_blended_colour_at_a_black_and_white_edge ... FAILED
+thread 'saturation_is_applied_to_the_blended_colour_at_a_coloured_edge' (97690027) panicked at crates/designos-render/tests/image_adjust_sampling.rs:58:5:
+thread 'a_translucent_edge_is_adjusted_as_straight_colour_and_keeps_its_alpha' (97690024) panicked at crates/designos-render/tests/image_adjust_sampling.rs:96:13:
+thread 'contrast_and_temperature_are_applied_to_the_blended_colour_at_an_edge' (97690025) panicked at crates/designos-render/tests/image_adjust_sampling.rs:58:5:
+thread 'exposure_is_applied_to_the_blended_colour_at_a_black_and_white_edge' (97690026) panicked at crates/designos-render/tests/image_adjust_sampling.rs:58:5:
+test result: FAILED. 0 passed; 4 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test each_backend_adjusts_the_colour_it_sampled_from_a_stretched_hard_edge ... FAILED
+test adjustments_act_on_the_blended_colour_at_hard_edges_equally_on_cpu_and_gpu ... FAILED
+thread 'each_backend_adjusts_the_colour_it_sampled_from_a_stretched_hard_edge' (97691386) panicked at crates/designos-gpu/tests/fidelity.rs:1514:17:
+CPU pixel 12: adjusted [3, 3, 3, 255] is not the adjustment of the sampled [3, 3, 3, 255] (want [24, 24, 24, 255])
+thread 'adjustments_act_on_the_blended_colour_at_hard_edges_equally_on_cpu_and_gpu' (97691385) panicked at crates/designos-gpu/tests/fidelity.rs:1476:9:
+exposure_plus_1: CPU and GPU differ by 17 levels at (18, 0) (cpu [230, 230, 230, 255], gpu [247, 247, 247, 255])
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.39s
+
+## mutant ii
+Rotate in Crop changes only params.rotation
+test widgets::picker::tests::picker_rotate_counts_the_turn_for_the_host_and_outside_crop_drops_the_frame ... FAILED
+test widgets::picker::tests::rotating_a_cropped_picture_turns_the_pixels_a_quarter_turn_each_click ... FAILED
+test widgets::picker::tests::rotating_several_cropped_nodes_turns_each_about_its_own_centre ... FAILED
+test widgets::picker::tests::a_fit_picture_turned_a_quarter_then_cropped_then_rotated_shows_the_half_turn_framing ... FAILED
+assertion `left == right` failed: two clockwise clicks and one counter-clockwise click are one net turn
+  left: 0
+ right: 1
+assertion `left == right` failed: rotate right turns the pixels clockwise
+  left: [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255], [255, 255, 0, 255]]
+ right: [[0, 0, 255, 255], [255, 0, 0, 255], [255, 255, 0, 255], [0, 255, 0, 255]]
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4370 filtered out; finished in 0.05s
+
+## mutant iii
+Crop framing for every node uses the first node's size
+test panels::properties::tests::switching_several_filled_nodes_to_crop_frames_each_by_its_own_size ... FAILED
+test widgets::picker::tests::editing_an_adjustment_keeps_every_nodes_own_crop_frame ... FAILED
+test widgets::picker::tests::leaving_crop_and_coming_back_gives_each_node_its_own_frame_again ... FAILED
+test widgets::picker::tests::cropping_several_nodes_gives_each_its_own_framing_in_one_undo_step ... FAILED
+test widgets::picker::tests::rotating_several_cropped_nodes_turns_each_about_its_own_centre ... FAILED
+assertion `left == right` failed: node 1 still shows its own Fill framing
+assertion `left != right` failed: the two nodes have different frames
+assertion `left != right` failed: each node has its own frame in Crop
+node 1 keeps its own framing: pixels differ by up to 255 levels
+node 1 turned about its own centre: pixels differ by up to 255 levels
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4369 filtered out; finished in 0.05s

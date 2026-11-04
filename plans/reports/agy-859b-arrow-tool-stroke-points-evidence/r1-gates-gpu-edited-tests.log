@@ -1,0 +1,3 @@
+# designos-gpu on the final commit (cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks): edited fidelity.rs tests
+test dashed_open_line_uses_stroke_cap_on_every_dash_that_reaches_no_end_point_gpu ... ok
+test an_explicit_butt_end_vertex_cap_leaves_only_the_start_of_a_dashed_round_line_butt_gpu ... ok

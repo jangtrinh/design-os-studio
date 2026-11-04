@@ -161,8 +161,17 @@ impl Cx<'_> {
     /// `android:background` (inline colour or a new shape drawable), `elevation`, `alpha`, `rotation`.
     fn style(&mut self, n: &Node, attrs: &mut Attrs) {
         let doc = self.doc;
-        let fill = if text_of(n).is_some() { None } else { n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0) };
-        let stroke = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0).filter(|_| n.stroke.weight > 0.0 && !matches!(n.kind, NodeKind::Line));
+        let fill = if text_of(n).is_some() {
+            None
+        } else {
+            n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
+        };
+        let stroke = n
+            .stroke
+            .paints
+            .iter()
+            .find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
+            .filter(|_| n.stroke.weight > 0.0 && !matches!(n.kind, NodeKind::Line));
         let keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
         let oval = matches!(n.kind, NodeKind::Ellipse(_));
         let rounded = n.corner_radii.iter().any(|r| *r > 0.0) || keys.iter().any(|k| bound(doc, n, k).is_some());
@@ -224,6 +233,7 @@ impl Cx<'_> {
                 }
                 PaintKind::AngularGradient { stops, .. } => l.extend(gradient_lines(doc, n, p, stops, "android:type=\"sweep\"")),
                 PaintKind::Image { .. } => l.push("    <solid android:color=\"#FF808080\" /> <!-- image fill -->".to_string()),
+                PaintKind::Shader(_) => {}
             }
         }
         if let Some(p) = stroke {

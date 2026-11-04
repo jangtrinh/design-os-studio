@@ -1,0 +1,157 @@
+=== RED TESTS ON BASE 8087735f4 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.03s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+exposure_plus_one: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_plus_one: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'exposure_plus_one_brightens_a_literal_pixel_equally_on_cpu_and_gpu' (94263632) panicked at crates/designos-gpu/tests/fidelity.rs:1092:9:
+CPU channel 0 was not brightened above 0x80: [128, 128, 128, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test exposure_plus_one_brightens_a_literal_pixel_equally_on_cpu_and_gpu ... FAILED
+
+failures:
+
+failures:
+    exposure_plus_one_brightens_a_literal_pixel_equally_on_cpu_and_gpu
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.12s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+
+thread 'adjustment_unit_tests_per_step' (94263697) panicked at crates/designos-gpu/tests/fidelity.rs:1151:13:
+exposure_+0.5_grey: adjust_rgba [128, 128, 128, 255] != expected [150, 150, 150, 255] on channel 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test adjustment_unit_tests_per_step ... FAILED
+
+failures:
+
+failures:
+    adjustment_unit_tests_per_step
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+fill_before_crop: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+fill_before_crop: 0.0200% with AA pixels forgiven (4 px)
+
+thread 'fill_to_crop_switch_reproduces_the_framing' (94263739) panicked at crates/designos-gpu/tests/fidelity.rs:1230:38:
+Fill -> Crop must write params.transform
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test fill_to_crop_switch_reproduces_the_framing ... FAILED
+
+failures:
+
+failures:
+    fill_to_crop_switch_reproduces_the_framing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+zero_adjust_a: mismatch 0.0000% (0 px of 10000) at tolerance 2, ssim 1.0000
+zero_adjust_a: 0.0000% with AA pixels forgiven (0 px)
+zero_adjust_b: mismatch 0.0000% (0 px of 10000) at tolerance 2, ssim 1.0000
+zero_adjust_b: 0.0000% with AA pixels forgiven (0 px)
+test all_zero_adjustments_are_byte_identical_to_the_previous_render ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.08s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.99s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+
+thread 'widgets::picker::tests::picker_adjustment_row_edits_through_the_paint_path' (94267497) panicked at crates/designos-app/src/widgets/picker.rs:3630:13:
+missing label "Adjustments" in image picker texts: ["Rectangle", "Position", "Alignment", "Position", "X", "0", "Y", "0", "Rotation", "0", "°", "Layout", "Dimensions", "W", "100", "H", "100", "Appearance", "100", "%", "0", "0", "%", "iOS", "Fill", "Image", "100", "%", "AI", "Stroke", "Effects", "Export", "Custom", "Libraries", "Image fill", "Scale: Fill", "Studio Grid", "Gradient Mesh", "Checkerboard", "Choose from disk…"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test widgets::picker::tests::picker_adjustment_row_edits_through_the_paint_path ... FAILED
+
+failures:
+
+failures:
+    widgets::picker::tests::picker_adjustment_row_edits_through_the_paint_path
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4327 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.50s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+
+thread 'widgets::picker::tests::picker_rotate_buttons_step_by_90_degrees' (94268729) panicked at crates/designos-app/src/widgets/picker.rs:3705:9:
+missing Rotate row label in ["Custom", "Libraries", "Image fill", "Scale: Fill", "Studio Grid", "Gradient Mesh", "Checkerboard", "Choose from disk…"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test widgets::picker::tests::picker_rotate_buttons_step_by_90_degrees ... FAILED
+
+failures:
+
+failures:
+    widgets::picker::tests::picker_rotate_buttons_step_by_90_degrees
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4327 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.02s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+
+thread 'widgets::picker::tests::picker_tile_scale_row_shown_only_in_tile_mode_and_edits_scale' (94269726) panicked at crates/designos-app/src/widgets/picker.rs:3740:9:
+Tile scale must be visible in Tile mode: ["Custom", "Libraries", "Image fill", "Scale: Tile", "Studio Grid", "Gradient Mesh", "Checkerboard", "Choose from disk…"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test widgets::picker::tests::picker_tile_scale_row_shown_only_in_tile_mode_and_edits_scale ... FAILED
+
+failures:
+
+failures:
+    widgets::picker::tests::picker_tile_scale_row_shown_only_in_tile_mode_and_edits_scale
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4327 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
