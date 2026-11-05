@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::branch_diff::{diff3, flow_key, Conflict, ConflictKind, Diff3, EntityChange, EntityKey, Group, NodeChange, SideChanges};
 use crate::{
-    reparent_would_hold_itself, Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History,
-    LibraryAssetKind, LibraryState, Node, NodeId, NodeKind, PropKind, PropValue, Style, StyleMeta, Variable, VariableCollection, VariableValue,
+    cycle_node_label, reparent_held_main, Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide,
+    History, LibraryAssetKind, LibraryState, Node, NodeId, NodeKind, PropKind, PropValue, Style, StyleMeta, Variable, VariableCollection, VariableValue,
 };
 
 /// Which side wins a conflict during a 3-way merge (`R5.18`).
@@ -89,7 +89,7 @@ pub enum MergeError {
     /// Attempted to merge an archived or already-merged branch (`T10.3 §8.6`).
     BranchArchived(String),
     /// A branch move would make a component hold an instance of itself.
-    MoveCycle { id: NodeId, parent: NodeId },
+    MoveCycle { id: NodeId, parent: NodeId, held_main: NodeId, node_name: String, parent_name: String, held_main_name: String },
 }
 
 impl std::fmt::Display for MergeError {
@@ -109,8 +109,11 @@ impl std::fmt::Display for MergeError {
             Self::BranchArchived(name) => {
                 write!(f, "branch '{name}' is archived or already merged")
             }
-            Self::MoveCycle { id, parent } => {
-                write!(f, "MOVE_CYCLE: move of node {id:?} into {parent:?} would make a component hold itself")
+            Self::MoveCycle { node_name, parent_name, held_main_name, .. } => {
+                write!(
+                    f,
+                    "MOVE_CYCLE: cannot move '{node_name}' into '{parent_name}' inside main component '{held_main_name}': that would make a component hold an instance of itself"
+                )
             }
         }
     }
@@ -808,8 +811,15 @@ fn build_merge_commands(
             if let Some(new_parent) = branch_node.parent {
                 let parent_valid = (main.nodes.contains_key(&new_parent) && !all_removed_in_main.contains(&new_parent)) || nodes_to_add.contains(&new_parent);
                 if parent_valid {
-                    if reparent_would_hold_itself(main, &[id], new_parent) {
-                        return Err(MergeError::MoveCycle { id, parent: new_parent });
+                    if let Some(held_main) = reparent_held_main(main, &[id], new_parent) {
+                        return Err(MergeError::MoveCycle {
+                            id,
+                            parent: new_parent,
+                            held_main,
+                            node_name: cycle_node_label(main, id),
+                            parent_name: cycle_node_label(main, new_parent),
+                            held_main_name: cycle_node_label(main, held_main),
+                        });
                     }
                     let new_index = remapped_branch.nodes.get(&new_parent).and_then(|p| p.children.iter().position(|&c| c == id)).unwrap_or(0);
                     move_cmds.push(Command::Reparent { id, parent: new_parent, index: new_index });
@@ -1892,7 +1902,12 @@ mod tests {
         Command::Reparent { id: moving_id, parent: b, index: 0 }.apply(&mut branch).unwrap();
         let diff = crate::diff3(&base, &main, &branch);
         let err = merge(&base, &main, &branch, &diff, &Resolution::default()).unwrap_err();
-        assert!(matches!(err, MergeError::MoveCycle { id, parent } if id == moving_id && parent == b), "{err}");
+        assert!(matches!(err, MergeError::MoveCycle { id, parent, held_main, .. } if id == moving_id && parent == b && held_main == b), "{err}");
+        let msg = err.to_string();
+        assert!(msg.contains("MOVE_CYCLE"), "{msg}");
+        assert!(msg.contains("cannot move 'A' into 'B'"), "{msg}");
+        assert!(msg.contains("main component 'B'"), "{msg}");
+        assert!(msg.contains("that would make a component hold an instance of itself"), "{msg}");
     }
 
     #[test]

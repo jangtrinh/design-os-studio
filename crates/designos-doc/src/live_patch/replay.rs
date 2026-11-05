@@ -247,8 +247,13 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("move of node {} into {} is not allowed", id.0, parent.0));
                 return None;
             }
-            if crate::reparent_would_hold_itself(doc, &[id], parent) {
-                report.skipped.push(format!("move of node {} into {} refused: MOVE_CYCLE", id.0, parent.0));
+            if let Some(held_main) = crate::reparent_held_main(doc, &[id], parent) {
+                let node_name = crate::cycle_node_label(doc, id);
+                let parent_name = crate::cycle_node_label(doc, parent);
+                let held_name = crate::cycle_node_label(doc, held_main);
+                report.skipped.push(format!(
+                    "MOVE_CYCLE: cannot move '{node_name}' into '{parent_name}' inside main component '{held_name}': that would make a component hold an instance of itself"
+                ));
                 return None;
             }
             let siblings: Vec<_> = p.children.iter().copied().filter(|c| *c != id).collect();

@@ -181,7 +181,10 @@ fn apply_spec_swap_refuses_a_held_main_without_mutating() {
     let before = d.to_json().unwrap();
     let ov: OverrideSpec = serde_json::from_value(json!({"path":"B", "swap":"A"})).unwrap();
     let err = apply_overrides(&mut d, root, &[ov], &[]).unwrap_err();
-    assert!(err.to_string().contains("INSTANCE_CYCLE"), "{err}");
+    let msg = err.to_string();
+    assert!(msg.contains("INSTANCE_CYCLE"), "{msg}");
+    assert!(msg.contains("main component 'B'"), "{msg}");
+    assert!(msg.contains("that would make a component hold an instance of itself"), "{msg}");
     assert_eq!(d.to_json().unwrap(), before);
 }
 
@@ -196,7 +199,10 @@ fn apply_spec_create_refuses_a_held_main_without_mutating() {
     let before = d.to_json().unwrap();
     let spec: crate::NodeSpec = serde_json::from_value(json!({"kind":"instance", "component":"A"})).unwrap();
     let err = d.apply_spec(parent, &spec).unwrap_err();
-    assert!(err.to_string().contains("INSTANCE_CYCLE"), "{err}");
+    let msg = err.to_string();
+    assert!(msg.contains("INSTANCE_CYCLE"), "{msg}");
+    assert!(msg.contains("main component 'B'"), "{msg}");
+    assert!(msg.contains("that would make a component hold an instance of itself"), "{msg}");
     assert_eq!(d.to_json().unwrap(), before);
 }
 

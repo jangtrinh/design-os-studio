@@ -1200,10 +1200,25 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             if !ov.variant.is_empty() {
                 swapped_with_variant = true;
             }
-            if new_comp == target_id || doc.is_ancestor(new_comp, target_id) || would_hold_itself(doc, new_comp, target_id) {
+            if let Some(held) = held_main_at(doc, new_comp, target_id) {
+                let held_name = cycle_node_label(doc, held);
                 return Err(SpecError::named(
                     "INSTANCE_CYCLE",
-                    "Cannot swap nested instance to an ancestor component (cycle)",
+                    format!(
+                        "Cannot swap nested instance to component '{swap_ref}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle)"
+                    ),
+                    Some("overrides.swap".into()),
+                    Vec::new(),
+                    None,
+                ));
+            }
+            if new_comp == target_id || doc.is_ancestor(new_comp, target_id) {
+                let target_name = cycle_node_label(doc, new_comp);
+                return Err(SpecError::named(
+                    "INSTANCE_CYCLE",
+                    format!(
+                        "Cannot swap nested instance to ancestor component '{target_name}': that would make a component hold an instance of itself (cycle)"
+                    ),
                     Some("overrides.swap".into()),
                     Vec::new(),
                     None,
@@ -1863,10 +1878,24 @@ impl Document {
         let variant_comp_id = resolve_variant_component(self, resolved_id, &spec.variant, None, Some(spec))?;
 
         // Cycle check (§8.5 / E15-2 §8.3): cannot instantiate a component inside itself, its ComponentSet, or an instance of itself
-        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) || would_hold_itself(self, variant_comp_id, parent) {
+        if let Some(held) = held_main_at(self, variant_comp_id, parent) {
+            let held_name = cycle_node_label(self, held);
             return Err(SpecError::named(
                 "INSTANCE_CYCLE",
-                format!("Cannot place an instance of component '{}' inside its own definition or enclosing instance", comp_ref),
+                format!(
+                    "Cannot place an instance of component '{comp_ref}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle)"
+                ),
+                Some("component".into()),
+                Vec::new(),
+                None,
+            ));
+        }
+        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) {
+            return Err(SpecError::named(
+                "INSTANCE_CYCLE",
+                format!(
+                    "Cannot place an instance of component '{comp_ref}' inside its own definition or enclosing instance: that would make a component hold an instance of itself (cycle)"
+                ),
                 Some("component".into()),
                 Vec::new(),
                 None,

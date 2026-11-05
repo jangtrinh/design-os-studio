@@ -22,7 +22,16 @@ fn replay_reparent_refuses_a_held_main_cycle() {
     let before = d.to_json().unwrap();
     let op = LiveOp::Reparent { id: moving, parent: b, at: SiblingHint::default() };
     let report = replay(&mut d, vec![op], &mut LivePatchState::default());
-    assert!(report.skipped.iter().any(|s| s.contains("MOVE_CYCLE")));
+    assert!(
+        report.skipped.iter().any(|s| {
+            s.contains("MOVE_CYCLE")
+                && s.contains("cannot move 'A' into 'B'")
+                && s.contains("main component 'B'")
+                && s.contains("that would make a component hold an instance of itself")
+        }),
+        "{:?}",
+        report.skipped
+    );
     assert_eq!(d.to_json().unwrap(), before);
 }
 

@@ -618,11 +618,16 @@ pub fn mains_held_by(doc: &Document, ids: &[NodeId]) -> Vec<NodeId> {
     mains_held_through(doc, direct)
 }
 
+/// The main component that moving the layers `ids` under `new_parent` would make hold an instance of itself, if any.
+pub fn reparent_held_main(doc: &Document, ids: &[NodeId], new_parent: NodeId) -> Option<NodeId> {
+    mains_held_by(doc, ids).into_iter().find(|m| new_parent == *m || doc.is_ancestor(*m, new_parent))
+}
+
 /// Whether moving the layers `ids` under `new_parent` would make a main hold itself: a layer that holds an instance
 /// of a main (directly or through other mains) does not go into that main, nor into a layer inside it. A move into the
 /// layer's own subtree is a different refusal, which the callers keep.
 pub fn reparent_would_hold_itself(doc: &Document, ids: &[NodeId], new_parent: NodeId) -> bool {
-    mains_held_by(doc, ids).into_iter().any(|m| new_parent == m || doc.is_ancestor(m, new_parent))
+    reparent_held_main(doc, ids, new_parent).is_some()
 }
 
 /// `mains` and every main that the content of those holds an instance of, through any number of mains.
@@ -646,11 +651,9 @@ pub fn mains_held_through(doc: &Document, mains: impl IntoIterator<Item = NodeId
     held
 }
 
-/// Whether an instance of `component` at `at` (the parent it goes under, or the instance it replaces) would make a
-/// main hold itself: `at` is, or sits in, `component` or a main that the content of `component` holds an instance of.
-/// Such a main mirrors itself without end.
-pub fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool {
-    // the mains `at` is in; most places are in none, and then nothing can hold itself
+/// The main component that an instance of `component` at `at` (the parent it goes under, or the instance it replaces)
+/// would make hold an instance of itself, if any.
+pub fn held_main_at(doc: &Document, component: NodeId, at: NodeId) -> Option<NodeId> {
     let mut enclosing = Vec::new();
     let mut cur = Some(at);
     while let Some(n) = cur.and_then(|id| doc.get(id)) {
@@ -659,7 +662,22 @@ pub fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool 
         }
         cur = n.parent;
     }
-    !enclosing.is_empty() && mains_held_through(doc, [component]).iter().any(|m| enclosing.contains(m))
+    if enclosing.is_empty() {
+        return None;
+    }
+    mains_held_through(doc, [component]).into_iter().find(|m| enclosing.contains(m))
+}
+
+/// User-facing label for a component or layer involved in a cycle refusal.
+pub fn cycle_node_label(doc: &Document, id: NodeId) -> String {
+    doc.get(id).map(|n| if n.name.trim().is_empty() { n.kind.default_name().to_string() } else { n.name.clone() }).unwrap_or_else(|| "Layer".to_string())
+}
+
+/// Whether an instance of `component` at `at` (the parent it goes under, or the instance it replaces) would make a
+/// main hold itself: `at` is, or sits in, `component` or a main that the content of `component` holds an instance of.
+/// Such a main mirrors itself without end.
+pub fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool {
+    held_main_at(doc, component, at).is_some()
 }
 
 /// Instantiates `component` under `parent`, with its origin at `at` (parent
