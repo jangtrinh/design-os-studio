@@ -71,33 +71,47 @@ fn random_scene(rng: &mut Rng, frames: usize, shapes: usize, connectors: usize) 
     Scene { doc, page, frames: frame_ids, shapes: shape_ids, connectors: connector_ids }
 }
 
-/// The rule, stated with parent pointers only (no index, no subtree walk).
-fn expected_candidates(doc: &Document, touched: &[NodeId]) -> Vec<NodeId> {
-    let touched: BTreeSet<NodeId> = touched.iter().copied().collect();
-    let deepest = |id: NodeId| {
-        let mut cur = Some(id);
-        while let Some(node) = cur {
-            if touched.contains(&node) {
-                return Some(node);
-            }
-            cur = doc.get(node).and_then(|n| n.parent);
+/// Deepest touched node at or above `id`, climbing parent pointers only.
+fn deepest(doc: &Document, touched: &BTreeSet<NodeId>, id: NodeId) -> Option<NodeId> {
+    let mut cur = Some(id);
+    while let Some(node) = cur {
+        if touched.contains(&node) {
+            return Some(node);
         }
-        None
-    };
+        cur = doc.get(node).and_then(|n| n.parent);
+    }
+    None
+}
+
+/// Connectors with an end on, or below, a touched node, stated with parent pointers only.
+fn expected_touching(doc: &Document, touched: &[NodeId]) -> Vec<NodeId> {
+    let touched: BTreeSet<NodeId> = touched.iter().copied().collect();
+    doc.nodes
+        .iter()
+        .filter_map(|(&id, node)| match &node.kind {
+            NodeKind::Connector(props) => [props.start.node, props.end.node].into_iter().flatten().any(|n| deepest(doc, &touched, n).is_some()).then_some(id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The candidate rule, stated with parent pointers only (no index, no subtree walk).
+fn expected_candidates(doc: &Document, touched: &[NodeId]) -> Vec<NodeId> {
+    let touched_set: BTreeSet<NodeId> = touched.iter().copied().collect();
+    let attached: BTreeSet<NodeId> = expected_touching(doc, touched).into_iter().collect();
     let mut out = Vec::new();
     for (&id, node) in &doc.nodes {
         let NodeKind::Connector(props) = &node.kind else { continue };
-        let (start, end) = (props.start.node, props.end.node);
-        if touched.contains(&id) {
+        if touched_set.contains(&id) {
             out.push(id);
             continue;
         }
-        if ![start, end].into_iter().flatten().any(|n| deepest(n).is_some()) {
+        if !attached.contains(&id) {
             continue;
         }
-        if let (Some(parent), Some(start), Some(end)) = (node.parent, start, end) {
-            if let Some(root) = deepest(parent) {
-                if start != root && end != root && deepest(start) == Some(root) && deepest(end) == Some(root) {
+        if let (Some(parent), Some(start), Some(end)) = (node.parent, props.start.node, props.end.node) {
+            if let Some(root) = deepest(doc, &touched_set, parent) {
+                if start != root && end != root && deepest(doc, &touched_set, start) == Some(root) && deepest(doc, &touched_set, end) == Some(root) {
                     continue;
                 }
             }
@@ -126,7 +140,8 @@ fn random_touched(rng: &mut Rng, scene: &Scene) -> Vec<NodeId> {
 fn assert_matches_rule(scene: &Scene, rng: &mut Rng, rounds: usize, label: &str) {
     for round in 0..rounds {
         let touched = random_touched(rng, scene);
-        assert_eq!(candidates(&scene.doc, &touched), expected_candidates(&scene.doc, &touched), "{label}, round {round}, touched {touched:?}");
+        assert_eq!(candidates(&scene.doc, &touched), expected_candidates(&scene.doc, &touched), "candidates, {label}, round {round}, touched {touched:?}");
+        assert_eq!(connectors_touching(&scene.doc, &touched), expected_touching(&scene.doc, &touched), "touching, {label}, round {round}, touched {touched:?}");
     }
 }
 
