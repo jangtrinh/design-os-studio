@@ -8,7 +8,10 @@ fn agent_renames_hero(s: &mut Sim) {
     let hero = s.by_name("Hero");
     let mut set = serde_json::Map::new();
     set.insert("name".into(), "Hero (agent)".into());
-    crate::live_patch_apply::apply_live_patches(&mut s.shell.app, &[LivePatch::new(vec![LiveOp::Update { id: hero, set, unset: Vec::new() }])]);
+    crate::live_patch_apply::apply_live_patches(
+        &mut s.shell.app,
+        &[LivePatch::new(vec![LiveOp::Update { id: hero, set, unset: Vec::new(), list_deltas: Vec::new() }])],
+    );
     s.frame(vec![]);
     s.frame(vec![]);
 }

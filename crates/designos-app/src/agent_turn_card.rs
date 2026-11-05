@@ -617,7 +617,7 @@ pub fn seed_turn_card_fixture(ctx: &egui::Context, app: &mut App, preset: &str) 
         .map(|(idx, &id)| {
             let mut set = serde_json::Map::new();
             set.insert("name".into(), format!("Row {:02} · Card Layer", idx + 1).into());
-            LiveOp::Update { id, set, unset: Vec::new() }
+            LiveOp::Update { id, set, unset: Vec::new(), list_deltas: Vec::new() }
         })
         .collect();
     crate::live_patch_apply::apply_live_patches_with_offsets(app, &[LivePatch::new(ops)], &[]);

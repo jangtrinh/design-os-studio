@@ -246,6 +246,10 @@ pub enum LiveOp {
         set: Map<String, Value>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         unset: Vec<String>,
+        /// Entries changed inside a list-valued field.  A delta is emitted only when the
+        /// list keeps its length and ordering, so a concurrent edit to another entry survives.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        list_deltas: Vec<ListDelta>,
     },
     Reparent {
         id: NodeId,
@@ -323,6 +327,25 @@ pub enum LiveOp {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         remove: Vec<String>,
     },
+}
+
+/// A conflict-safe update of entries in one list-valued node field.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListDelta {
+    /// A top-level node field (`fills` or `effects`) or a supported nested path (`stroke.paints`).
+    pub path: String,
+    /// Length of the list in the agent's base snapshot. Replay refuses a positional delta when
+    /// the editor inserted or removed entries in the meantime. Zero is valid only for an empty,
+    /// no-op delta; it cannot describe a non-empty list.
+    #[serde(default)]
+    pub base_len: usize,
+    pub entries: Vec<ListDeltaEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListDeltaEntry {
+    pub index: usize,
+    pub value: Value,
 }
 
 /// What changed in one existing comment thread.

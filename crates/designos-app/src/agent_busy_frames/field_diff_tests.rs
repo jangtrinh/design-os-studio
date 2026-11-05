@@ -1092,7 +1092,10 @@ fn ac03_user_edits_fill_then_new_agent_turn_sees_exact_same_fields_as_old_behavi
     set_5.insert("fills".into(), serde_json::json!([]));
     let mut set_10 = serde_json::Map::new();
     set_10.insert("name".into(), serde_json::json!("Agent Renamed"));
-    let ops = vec![LiveOp::Update { id: ids[5], set: set_5, unset: vec![] }, LiveOp::Update { id: ids[10], set: set_10, unset: vec![] }];
+    let ops = vec![
+        LiveOp::Update { id: ids[5], set: set_5, unset: vec![], list_deltas: vec![] },
+        LiveOp::Update { id: ids[10], set: set_10, unset: vec![], list_deltas: vec![] },
+    ];
     app.agent_busy_frames.record_agent_patch_ops(&ops, &state);
     assert_eq!(
         app.agent_busy_frames.both_changed_for_turn(app.agent_busy_frames.current_turn),
@@ -1333,8 +1336,13 @@ fn edge_case_agent_turn_running_during_edit_loses_no_fields() {
     set_0.insert("fills".into(), serde_json::json!([]));
     let mut set_1 = serde_json::Map::new();
     set_1.insert("opacity".into(), serde_json::json!(0.8));
-    app.agent_busy_frames
-        .record_agent_patch_ops(&[LiveOp::Update { id: ids[0], set: set_0, unset: vec![] }, LiveOp::Update { id: ids[1], set: set_1, unset: vec![] }], &state);
+    app.agent_busy_frames.record_agent_patch_ops(
+        &[
+            LiveOp::Update { id: ids[0], set: set_0, unset: vec![], list_deltas: vec![] },
+            LiveOp::Update { id: ids[1], set: set_1, unset: vec![], list_deltas: vec![] },
+        ],
+        &state,
+    );
 
     // While agent turn 5 is running, the user runs a transaction touching all 1,000 nodes and editing `ids[0].fills` and `ids[2].name`.
     let mut tx = Tx::new();
@@ -1351,7 +1359,7 @@ fn edge_case_agent_turn_running_during_edit_loses_no_fields() {
     // Agent turn 5 continues and edits `ids[2].name`.
     let mut set_2 = serde_json::Map::new();
     set_2.insert("name".into(), serde_json::json!("Agent Overwrote Name"));
-    app.agent_busy_frames.record_agent_patch_ops(&[LiveOp::Update { id: ids[2], set: set_2, unset: vec![] }], &state);
+    app.agent_busy_frames.record_agent_patch_ops(&[LiveOp::Update { id: ids[2], set: set_2, unset: vec![], list_deltas: vec![] }], &state);
 
     assert_eq!(
         app.agent_busy_frames.both_changed_for_turn(5),

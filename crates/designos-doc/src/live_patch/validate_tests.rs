@@ -77,7 +77,7 @@ fn an_insert_may_list_existing_layers_that_later_ops_move_in() {
 fn an_update_cannot_turn_a_frame_with_layers_into_a_leaf() {
     let (mut doc, _, frame_id) = doc_with_frame();
     let set = [("kind".to_string(), serde_json::json!("Rectangle"))].into_iter().collect();
-    let report = apply(&mut doc, &mut LivePatchState::default(), LiveOp::Update { id: frame_id, set, unset: Vec::new() });
+    let report = apply(&mut doc, &mut LivePatchState::default(), LiveOp::Update { id: frame_id, set, unset: Vec::new(), list_deltas: Vec::new() });
     assert!(!report.skipped.is_empty());
     assert!(doc.get(frame_id).unwrap().kind.is_container());
 }
@@ -88,7 +88,12 @@ fn a_failed_replay_leaves_no_id_remaps_behind() {
     // The agent inserts a layer under an id the editor already uses (it gets a fresh id), then
     // the editor fails to apply the next command, so nothing of the patch lands.
     let colliding = Node::rectangle(frame_id, Rect::new(0.0, 0.0, 5.0, 5.0));
-    let rename = |name: &str| LiveOp::Update { id: frame_id, set: [("name".to_string(), serde_json::json!(name))].into_iter().collect(), unset: Vec::new() };
+    let rename = |name: &str| LiveOp::Update {
+        id: frame_id,
+        set: [("name".to_string(), serde_json::json!(name))].into_iter().collect(),
+        unset: Vec::new(),
+        list_deltas: Vec::new(),
+    };
     let ops = vec![LiveOp::Insert { parent: page, at: SiblingHint::default(), nodes: vec![colliding] }, rename("agent layer")];
     let before = doc.clone();
     let mut state = LivePatchState::default();
@@ -126,18 +131,18 @@ fn an_agent_edit_cannot_insert_a_page_or_turn_a_layer_into_one() {
     assert_eq!(doc.nodes.len(), base.nodes.len(), "the page was inserted");
 
     let set = [("kind".to_string(), page_kind)].into_iter().collect();
-    let report = apply(&mut doc, &mut LivePatchState::default(), LiveOp::Update { id: frame_id, set, unset: Vec::new() });
+    let report = apply(&mut doc, &mut LivePatchState::default(), LiveOp::Update { id: frame_id, set, unset: Vec::new(), list_deltas: Vec::new() });
     assert!(!report.skipped.is_empty() && report.applied == 0, "{report:?}");
     assert!(matches!(doc.get(frame_id).unwrap().kind, crate::NodeKind::Frame(_)), "the frame became a page");
 
     // A page can still be renamed, but not turned into a frame.
     let rename = [("name".to_string(), serde_json::json!("Renamed"))].into_iter().collect();
-    let report = apply(&mut doc, &mut LivePatchState::default(), LiveOp::Update { id: page, set: rename, unset: Vec::new() });
+    let report = apply(&mut doc, &mut LivePatchState::default(), LiveOp::Update { id: page, set: rename, unset: Vec::new(), list_deltas: Vec::new() });
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
     assert_eq!(doc.get(page).unwrap().name, "Renamed");
     let frame_kind = serde_json::to_value(&doc.get(frame_id).unwrap().kind).unwrap();
     let set = [("kind".to_string(), frame_kind)].into_iter().collect();
-    let report = apply(&mut doc, &mut LivePatchState::default(), LiveOp::Update { id: page, set, unset: Vec::new() });
+    let report = apply(&mut doc, &mut LivePatchState::default(), LiveOp::Update { id: page, set, unset: Vec::new(), list_deltas: Vec::new() });
     assert!(!report.skipped.is_empty(), "{report:?}");
     assert!(matches!(doc.get(page).unwrap().kind, crate::NodeKind::Page { .. }));
 }
@@ -152,14 +157,24 @@ fn an_edit_to_a_layer_the_editor_replaced_goes_to_its_replacement() {
     doc.insert(page, Node::frame(fresh, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
     doc.remove(frame_id).unwrap();
     state.record_replacement(frame_id, fresh);
-    let rename = LiveOp::Update { id: frame_id, set: [("name".to_string(), serde_json::json!("Agent"))].into_iter().collect(), unset: Vec::new() };
+    let rename = LiveOp::Update {
+        id: frame_id,
+        set: [("name".to_string(), serde_json::json!("Agent"))].into_iter().collect(),
+        unset: Vec::new(),
+        list_deltas: Vec::new(),
+    };
     let report = apply(&mut doc, &mut state, rename);
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
     assert_eq!(doc.get(fresh).unwrap().name, "Agent");
 
     // While the old layer exists again (the editor reverted the swap) the edit goes to it.
     doc.insert(page, Node::frame(frame_id, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
-    let rename = LiveOp::Update { id: frame_id, set: [("name".to_string(), serde_json::json!("Agent again"))].into_iter().collect(), unset: Vec::new() };
+    let rename = LiveOp::Update {
+        id: frame_id,
+        set: [("name".to_string(), serde_json::json!("Agent again"))].into_iter().collect(),
+        unset: Vec::new(),
+        list_deltas: Vec::new(),
+    };
     let report = apply(&mut doc, &mut state, rename);
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
     assert_eq!(doc.get(frame_id).unwrap().name, "Agent again");

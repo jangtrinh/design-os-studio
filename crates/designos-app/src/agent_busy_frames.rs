@@ -316,13 +316,15 @@ impl AgentBusyFrames {
     pub fn record_agent_patch_ops(&mut self, ops: &[LiveOp], state: &LivePatchState) {
         let turn = self.current_turn;
         for op in ops {
-            if let LiveOp::Update { id, set, unset } = op {
+            if let LiveOp::Update { id, set, unset, list_deltas } = op {
                 let resolved_id = state.resolve_node_id(*id);
-                for field in set.keys().chain(unset.iter()) {
+                let fields = set.keys().map(String::as_str).chain(unset.iter().map(String::as_str)).chain(list_deltas.iter().map(|delta| delta.path.as_str()));
+                for field in fields {
+                    let field = field.split('.').next().unwrap_or(field).to_owned();
                     if matches!(field.as_str(), "id" | "parent" | "children") {
                         continue;
                     }
-                    let key = (resolved_id, field.clone());
+                    let key = (resolved_id, field);
                     self.agent_edited_fields.insert(key.clone(), turn);
                     if self.user_edited_fields.get(&key) == Some(&turn) {
                         self.both_changed.insert(key, turn);
@@ -481,7 +483,7 @@ mod tests {
         // Apply a stub live patch touching the original frame and child.
         let mut set = serde_json::Map::new();
         set.insert("name".into(), serde_json::Value::String("Hero Updated By Agent".into()));
-        let patch = LivePatch::new(vec![LiveOp::Update { id: frame_id, set, unset: Vec::new() }]);
+        let patch = LivePatch::new(vec![LiveOp::Update { id: frame_id, set, unset: Vec::new(), list_deltas: Vec::new() }]);
         crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
 
         assert_eq!(app.doc.get(frame_id).unwrap().name, "Hero Updated By Agent");
@@ -625,7 +627,7 @@ mod tests {
         // Agent also updates `opacity` on the same node in turn 1.
         let mut set = serde_json::Map::new();
         set.insert("opacity".into(), serde_json::json!(0.8));
-        let patch = LivePatch::new(vec![LiveOp::Update { id: frame_id, set, unset: Vec::new() }]);
+        let patch = LivePatch::new(vec![LiveOp::Update { id: frame_id, set, unset: Vec::new(), list_deltas: Vec::new() }]);
         crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
 
         assert!((app.doc.get(frame_id).unwrap().opacity - 0.8).abs() < 1e-4, "later write wins");
@@ -683,7 +685,7 @@ mod tests {
         agent_tf.tx += 50.0;
         let mut set = serde_json::Map::new();
         set.insert("transform".into(), serde_json::to_value(agent_tf).unwrap());
-        let patch = LivePatch::new(vec![LiveOp::Update { id: frame_id, set, unset: Vec::new() }]);
+        let patch = LivePatch::new(vec![LiveOp::Update { id: frame_id, set, unset: Vec::new(), list_deltas: Vec::new() }]);
         crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
 
         assert_eq!(
@@ -714,7 +716,7 @@ mod tests {
 
         let mut set = serde_json::Map::new();
         set.insert("opacity".into(), serde_json::json!(0.9));
-        let ops = vec![LiveOp::Update { id: orig_agent_id, set, unset: Vec::new() }];
+        let ops = vec![LiveOp::Update { id: orig_agent_id, set, unset: Vec::new(), list_deltas: Vec::new() }];
         app.agent_busy_frames.record_agent_patch_ops(&ops, &app.terminal.live_patch.state);
 
         assert_eq!(

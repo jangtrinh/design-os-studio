@@ -3,7 +3,7 @@
 use super::replay_comments::{resolve_comments, CommentRemap};
 use super::replay_tokens::{filter_missing_token_links_on_insert, filter_missing_token_links_on_update};
 use super::validate::insert_problem;
-use super::{log_version_refusal, LiveOp, LivePatch, SiblingHint, STRUCTURAL_FIELDS};
+use super::{log_version_refusal, ListDelta, LiveOp, LivePatch, SiblingHint, STRUCTURAL_FIELDS};
 use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Style, StyleMeta, Variable, VariableCollection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -170,7 +170,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             }
             resolve_insert(doc, parent, at, nodes, state, report)
         }
-        LiveOp::Update { id: agent_id, set, unset } => {
+        LiveOp::Update { id: agent_id, set, unset, list_deltas } => {
             let (id, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
             let kept;
             let (set, unset) = if redirected {
@@ -186,7 +186,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("update of missing node {}", id.0));
                 return None;
             };
-            let mut merged = match merge_fields(cur, set, unset) {
+            let mut merged = match merge_fields(cur, set, unset, list_deltas) {
                 Ok(n) => n,
                 Err(e) => {
                     report.skipped.push(format!("update of node {}: {e}", id.0));
@@ -674,7 +674,7 @@ fn resolve_insert(
 }
 
 /// `cur` with the changed top-level fields of `set` / `unset` applied; structure is kept.
-fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Result<Node, String> {
+fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String], list_deltas: &[ListDelta]) -> Result<Node, String> {
     let Value::Object(mut fields) = serde_json::to_value(cur).map_err(|e| e.to_string())? else {
         return Err("node did not serialize to an object".into());
     };
@@ -684,6 +684,21 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
                 if let (Some(Value::Object(cur_lc)), Value::Object(set_lc)) = (fields.get_mut("layout_child"), v) {
                     for (sub_k, sub_v) in set_lc {
                         cur_lc.insert(sub_k.clone(), sub_v.clone());
+                    }
+                    continue;
+                }
+            }
+            if k == "stroke" {
+                if let Value::Object(set_stroke) = v {
+                    let cur_stroke = match fields.entry("stroke".to_string()).or_insert_with(|| Value::Object(Map::new())) {
+                        Value::Object(m) => m,
+                        other => {
+                            *other = Value::Object(Map::new());
+                            other.as_object_mut().expect("stroke object inserted")
+                        }
+                    };
+                    for (sub_k, sub_v) in set_stroke {
+                        cur_stroke.insert(sub_k.clone(), sub_v.clone());
                     }
                     continue;
                 }
@@ -747,11 +762,40 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
             fields.remove(k);
         }
     }
+    apply_list_deltas(&mut fields, list_deltas)?;
     let mut merged: Node = serde_json::from_value(Value::Object(fields)).map_err(|e| e.to_string())?;
     merged.id = cur.id;
     merged.parent = cur.parent;
     merged.children = cur.children.clone();
     Ok(merged)
+}
+
+fn apply_list_deltas(fields: &mut Map<String, Value>, deltas: &[ListDelta]) -> Result<(), String> {
+    for delta in deltas {
+        let list = match delta.path.as_str() {
+            "fills" | "effects" => fields.get_mut(&delta.path),
+            "stroke.paints" => fields.get_mut("stroke").and_then(Value::as_object_mut).and_then(|stroke| stroke.get_mut("paints")),
+            path => return Err(format!("unsupported list delta path '{path}'")),
+        }
+        .ok_or_else(|| format!("list delta path '{}' is missing", delta.path))?;
+        let Value::Array(items) = list else {
+            return Err(format!("list delta path '{}' is not an array", delta.path));
+        };
+        if delta.base_len == 0 {
+            if !items.is_empty() || !delta.entries.is_empty() {
+                return Err(format!("list delta path '{}' has an invalid zero base length", delta.path));
+            }
+        } else if items.len() != delta.base_len {
+            return Err(format!("list delta path '{}' changed length (agent {}, editor {})", delta.path, delta.base_len, items.len()));
+        }
+        for entry in &delta.entries {
+            let Some(item) = items.get_mut(entry.index) else {
+                return Err(format!("list delta path '{}' index {} is out of bounds", delta.path, entry.index));
+            };
+            *item = entry.value.clone();
+        }
+    }
+    Ok(())
 }
 
 fn same_props(a: &Node, b: &Node) -> bool {

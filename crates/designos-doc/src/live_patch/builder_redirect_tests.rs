@@ -24,7 +24,7 @@ fn replaced_layer() -> (Document, LivePatchState, NodeId, NodeId, NodeId) {
 
 fn update(id: NodeId, set: Value) -> LiveOp {
     let Value::Object(set) = set else { panic!("fields are an object") };
-    LiveOp::Update { id, set, unset: Vec::new() }
+    LiveOp::Update { id, set, unset: Vec::new(), list_deltas: Vec::new() }
 }
 
 fn apply(doc: &mut Document, state: &mut LivePatchState, op: LiveOp) -> LivePatchReport {
@@ -72,6 +72,7 @@ fn local_geometry_fields_of_a_replaced_layer_are_refused_in_set_and_unset() {
             }))
             .unwrap(),
             unset: vec!["fill_geometry".into(), "stroke_geometry".into(), "corner_radii".into()],
+            list_deltas: Vec::new(),
         },
     );
     assert_eq!(*doc.get(fresh).unwrap(), before);

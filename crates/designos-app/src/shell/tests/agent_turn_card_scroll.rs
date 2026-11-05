@@ -119,7 +119,7 @@ fn apply_agent_layer_turn(s: &mut Sim, row_count: usize, prefix: &str) -> Vec<No
         .map(|(i, &id)| {
             let mut set = serde_json::Map::new();
             set.insert("name".into(), format!("{prefix} Layer {:03} (edited)", i + 1).into());
-            LiveOp::Update { id, set, unset: Vec::new() }
+            LiveOp::Update { id, set, unset: Vec::new(), list_deltas: Vec::new() }
         })
         .collect();
     crate::live_patch_apply::apply_live_patches(&mut s.shell.app, &[LivePatch::new(ops)]);
