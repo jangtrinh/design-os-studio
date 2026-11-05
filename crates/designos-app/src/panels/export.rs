@@ -448,8 +448,8 @@ enum Sink {
 impl Sink {
     fn write(&self, job: &ExportJob, bytes: &[u8]) -> Result<PathBuf, (PathBuf, std::io::Error)> {
         match self {
-            Sink::File(path) => crate::io::write_new_dashed_path(path, bytes).map_err(|e| (path.clone(), e)),
-            Sink::Dir(dir) => crate::io::write_new_dashed_in(dir, &job.file, bytes).map_err(|e| (dir.join(&job.file), e)),
+            Sink::File(path) => crate::io::write_new_dashed_path(path, bytes).map_err(|e| (e.path, e.error)),
+            Sink::Dir(dir) => crate::io::write_new_dashed_in(dir, &job.file, bytes).map_err(|e| (e.path, e.error)),
         }
     }
 }
@@ -795,6 +795,46 @@ mod tests {
         assert_eq!(names.len(), 3, "one file, then two more: {names:?}");
         assert!(names.iter().all(|n| n.len() <= 255 && n.ends_with(".png")), "{names:?}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn export_error_toast_uses_the_sanitized_layer_path() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("error_sanitized").join("missing");
+        let (mut app, a, _) = named_rects_with_png_rows();
+        app.doc.get_mut(a).unwrap().name = "../Notes".into();
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let toast = toast_of(&app).expect("failed export explains the attempted path").0;
+        assert!(toast.contains(&dir.join("-Notes.png").display().to_string()), "{toast}");
+        assert!(!toast.contains("../Notes"), "{toast}");
+
+        app.selection = vec![a];
+        app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let selection_toast = toast_of(&app).expect("failed selection export explains the attempted path").0;
+        assert!(selection_toast.contains(&dir.join("_Notes.png").display().to_string()), "{selection_toast}");
+        assert!(!selection_toast.contains("../Notes"), "{selection_toast}");
+        std::fs::remove_dir_all(dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn export_error_toast_uses_the_cut_layer_path() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("error_long").join("missing");
+        let (mut app, a, _) = named_rects_with_png_rows();
+        let name = "a".repeat(300);
+        app.doc.get_mut(a).unwrap().name = name.clone();
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let toast = toast_of(&app).expect("failed export explains the attempted path").0;
+        let expected = dir.join(format!("{}.png", "a".repeat(100))).display().to_string();
+        assert!(toast.contains(&expected), "{toast}");
+        assert!(!toast.contains(&name), "{toast}");
+
+        app.selection = vec![a];
+        app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let selection_toast = toast_of(&app).expect("failed selection export explains the attempted path").0;
+        assert!(selection_toast.contains(&expected), "{selection_toast}");
+        assert!(!selection_toast.contains(&name), "{selection_toast}");
+        std::fs::remove_dir_all(dir.parent().unwrap()).ok();
     }
 
     #[test]

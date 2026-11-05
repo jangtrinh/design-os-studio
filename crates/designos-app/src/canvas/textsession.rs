@@ -386,6 +386,11 @@ fn edit_props_linked(app: &mut App, log: Option<(EditKind, bool)>, link: Option<
 }
 
 fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: LinkEdit<'_>, f: impl FnOnce(&mut TextProps, &mut usize, &mut usize)) {
+    // A logged edit must not capture an active IME preview in its undo snapshot. End the
+    // composition first; the following IME commit inserts its final text as a normal edit.
+    if log.is_some() && app.canvas.text.as_ref().is_some_and(|s| s.preedit.is_some()) {
+        preedit(app, "");
+    }
     let now = app.now;
     let App { doc, canvas, .. } = app;
     let Some(sess) = canvas.text.as_mut() else { return };
@@ -534,9 +539,11 @@ fn enter(app: &mut App) {
 
 /// Tab / Shift+Tab: nest or un-nest the list items touched by the selection.
 fn change_list_level(app: &mut App, delta: i8) {
-    let Some(range) = app.canvas.text.as_ref().map(|s| s.range()) else { return };
-    edit_props(app, Some((EditKind::Other, true)), |t, _, _| {
-        richtext::change_level(t, range.clone(), delta);
+    if app.canvas.text.is_none() {
+        return;
+    }
+    edit_props(app, Some((EditKind::Other, true)), |t, caret, anchor| {
+        richtext::change_level(t, (*caret).min(*anchor)..(*caret).max(*anchor), delta);
     });
 }
 
@@ -653,8 +660,9 @@ pub fn text_command(app: &mut App, cmd: TextCmd) {
         let sum = session_summary(app);
         match cmd {
             TextCmd::List(kind) => {
-                let Some(range) = app.canvas.text.as_ref().map(|s| s.range()) else { return };
-                edit_props(app, Some((EditKind::Other, true)), |t, _, _| richtext::toggle_list(t, range.clone(), kind));
+                edit_props(app, Some((EditKind::Other, true)), |t, caret, anchor| {
+                    richtext::toggle_list(t, (*caret).min(*anchor)..(*caret).max(*anchor), kind);
+                });
             }
             c => {
                 let f = style_fn(c, sum.as_ref());
@@ -1666,6 +1674,21 @@ mod tests {
         assert!(t.runs.is_empty(), "no leftover underline style: {:?}", t.runs);
         assert!(app.canvas.text.as_ref().unwrap().preedit.is_none());
         assert_eq!(app.canvas.text.as_ref().unwrap().caret, "ab日本".len());
+    }
+
+    #[test]
+    fn undo_does_not_restore_ime_preedit_as_committed_text() {
+        let (mut app, id) = app_with_text("");
+        preedit(&mut app, "vie");
+        base_style(&mut app, |style| style.font_weight = 700);
+        commit_ime(&mut app, "việt");
+
+        undo_step(&mut app, false);
+        undo_step(&mut app, false);
+
+        assert_eq!(text_of(&app, id).content, "");
+        assert_eq!(caret_of(&app), 0);
+        assert_eq!(app.canvas.text.as_ref().unwrap().anchor, 0);
     }
 
     #[test]

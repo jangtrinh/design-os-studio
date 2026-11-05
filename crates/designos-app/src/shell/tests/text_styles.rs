@@ -601,6 +601,27 @@ fn a_composition_in_a_new_box_is_not_text_so_applying_a_style_keeps_the_box() {
 }
 
 #[test]
+fn undoing_a_style_picked_during_a_composition_never_restores_the_preview() {
+    let mut s = Sim::new();
+    let id = new_text_box(&mut s);
+    preedit(&mut s, "vie");
+    pick(&mut s, BUTTON, 1, 0);
+    s.frame(vec![Event::Ime(egui::ImeEvent::Commit("việt".into()))]);
+    assert_eq!(text_of(&s, id).content, "việt");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).content, "", "first undo removes the committed text");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).content, "", "second undo removes the style without bringing back the IME preview");
+    assert_eq!(link_of(&s, id), None);
+
+    s.key(Key::Escape);
+    assert!(s.app().doc.get(id).is_none(), "escaping an empty new text box discards it instead of saving the preview");
+}
+
+#[test]
 fn a_composition_in_a_new_box_leaves_create_off_with_its_reason() {
     let mut s = Sim::new();
     let id = new_text_box(&mut s);

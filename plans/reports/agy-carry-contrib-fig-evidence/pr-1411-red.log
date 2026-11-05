@@ -1,0 +1,27 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.53s
+     Running tests/fig_library.rs (out/cargo/debug/deps/fig_library-af310a22a7483a3e)
+
+running 1 test
+test uniform_scale_keeps_scaled_text_size_when_linked_style_has_binding ... FAILED
+
+failures:
+
+---- uniform_scale_keeps_scaled_text_size_when_linked_style_has_binding stdout ----
+
+thread 'uniform_scale_keeps_scaled_text_size_when_linked_style_has_binding' (10428119) panicked at crates/designos-fig/tests/fig_library.rs:385:5:
+assertion failed: matches!(raw.style.line_height, LineHeight::Pixels(px) if (px - 14.4).abs() <
+    1e-3)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    uniform_scale_keeps_scaled_text_size_when_linked_style_has_binding
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_library`
+EXIT_CODE=101
