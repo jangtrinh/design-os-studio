@@ -1,0 +1,300 @@
+commit e61aa89508ec9c64af1bc5a5d8e713e140879a9a
+Author: NamAIEngineer <NamAIEngineer@users.noreply.github.com>
+Date:   Sun Oct 25 06:43:17 2026 +0700
+
+    fix(doc): reject held-main instance cycles
+
+diff --git a/crates/designos-doc/src/branch_merge.rs b/crates/designos-doc/src/branch_merge.rs
+index ef8e0df7f..05027b70f 100644
+--- a/crates/designos-doc/src/branch_merge.rs
++++ b/crates/designos-doc/src/branch_merge.rs
+@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
+ 
+ use crate::branch_diff::{diff3, flow_key, Conflict, ConflictKind, Diff3, EntityChange, EntityKey, Group, NodeChange, SideChanges};
+ use crate::{
+-    Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History, LibraryAssetKind,
++    reparent_would_hold_itself, Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History, LibraryAssetKind,
+     LibraryState, Node, NodeId, NodeKind, PropKind, PropValue, Style, StyleMeta, Variable, VariableCollection, VariableValue,
+ };
+ 
+@@ -88,6 +88,8 @@ pub enum MergeError {
+     Apply { step: usize, reason: String },
+     /// Attempted to merge an archived or already-merged branch (`T10.3 §8.6`).
+     BranchArchived(String),
++    /// A branch move would make a component hold an instance of itself.
++    MoveCycle { id: NodeId, parent: NodeId },
+ }
+ 
+ impl std::fmt::Display for MergeError {
+@@ -107,6 +109,9 @@ impl std::fmt::Display for MergeError {
+             Self::BranchArchived(name) => {
+                 write!(f, "branch '{name}' is archived or already merged")
+             }
++            Self::MoveCycle { id, parent } => {
++                write!(f, "MOVE_CYCLE: move of node {id:?} into {parent:?} would make a component hold itself")
++            }
+         }
+     }
+ }
+@@ -222,7 +227,7 @@ pub fn merge(base: &Document, main: &Document, branch: &Document, diff: &Diff3,
+     };
+ 
+     let commands =
+-        build_merge_commands(base, main, branch, &remapped_branch, diff, resolution, &id_remap, &style_remap, &collection_remap, &variable_remap, &mut report);
++        build_merge_commands(base, main, branch, &remapped_branch, diff, resolution, &id_remap, &style_remap, &collection_remap, &variable_remap, &mut report)?;
+ 
+     // 5. Execute each command step-by-step against a working clone of `main` so
+     // any invalid intermediate operation is caught with its step index (`T10.3 §4`).
+@@ -607,7 +612,7 @@ fn build_merge_commands(
+     collection_remap: &BTreeMap<String, String>,
+     variable_remap: &BTreeMap<String, String>,
+     report: &mut MergeReport,
+-) -> Vec<Command> {
++) -> Result<Vec<Command>, MergeError> {
+     let mut entity_cmds = Vec::new();
+     let mut remove_cmds = Vec::new();
+     let mut add_cmds = Vec::new();
+@@ -803,6 +808,9 @@ fn build_merge_commands(
+             if let Some(new_parent) = branch_node.parent {
+                 let parent_valid = (main.nodes.contains_key(&new_parent) && !all_removed_in_main.contains(&new_parent)) || nodes_to_add.contains(&new_parent);
+                 if parent_valid {
++                    if reparent_would_hold_itself(main, &[id], new_parent) {
++                        return Err(MergeError::MoveCycle { id, parent: new_parent });
++                    }
+                     let new_index = remapped_branch.nodes.get(&new_parent).and_then(|p| p.children.iter().position(|&c| c == id)).unwrap_or(0);
+                     move_cmds.push(Command::Reparent { id, parent: new_parent, index: new_index });
+                 }
+@@ -895,7 +903,7 @@ fn build_merge_commands(
+     all_cmds.extend(move_cmds);
+     all_cmds.extend(update_cmds);
+     all_cmds.extend(flow_guide_comment_cmds);
+-    all_cmds
++    Ok(all_cmds)
+ }
+ 
+ fn collect_main_subtree(id: NodeId, main: &Document, out: &mut BTreeSet<NodeId>) {
+diff --git a/crates/designos-doc/src/components.rs b/crates/designos-doc/src/components.rs
+index 232973371..bbb802c04 100644
+--- a/crates/designos-doc/src/components.rs
++++ b/crates/designos-doc/src/components.rs
+@@ -619,7 +619,7 @@ pub fn mains_held_through(doc: &Document, mains: impl IntoIterator<Item = NodeId
+ /// Whether an instance of `component` at `at` (the parent it goes under, or the instance it replaces) would make a
+ /// main hold itself: `at` is, or sits in, `component` or a main that the content of `component` holds an instance of.
+ /// Such a main mirrors itself without end.
+-fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool {
++pub fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool {
+     // the mains `at` is in; most places are in none, and then nothing can hold itself
+     let mut enclosing = Vec::new();
+     let mut cur = Some(at);
+diff --git a/crates/designos-doc/src/live_patch/replay.rs b/crates/designos-doc/src/live_patch/replay.rs
+index 898bfac8d..4e987264e 100644
+--- a/crates/designos-doc/src/live_patch/replay.rs
++++ b/crates/designos-doc/src/live_patch/replay.rs
+@@ -247,6 +247,10 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
+                 report.skipped.push(format!("move of node {} into {} is not allowed", id.0, parent.0));
+                 return None;
+             }
++            if crate::reparent_would_hold_itself(doc, &[id], parent) {
++                report.skipped.push(format!("move of node {} into {} refused: MOVE_CYCLE", id.0, parent.0));
++                return None;
++            }
+             let siblings: Vec<_> = p.children.iter().copied().filter(|c| *c != id).collect();
+             let index = at.index_in(&siblings);
+             if node.parent == Some(parent) && p.children.iter().position(|c| *c == id) == Some(index) {
+diff --git a/crates/designos-doc/src/spec_instance.rs b/crates/designos-doc/src/spec_instance.rs
+index c5f019918..f08780429 100644
+--- a/crates/designos-doc/src/spec_instance.rs
++++ b/crates/designos-doc/src/spec_instance.rs
+@@ -1200,7 +1200,7 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
+             if !ov.variant.is_empty() {
+                 swapped_with_variant = true;
+             }
+-            if new_comp == target_id || doc.is_ancestor(new_comp, target_id) {
++            if new_comp == target_id || doc.is_ancestor(new_comp, target_id) || would_hold_itself(doc, new_comp, target_id) {
+                 return Err(SpecError::named(
+                     "INSTANCE_CYCLE",
+                     "Cannot swap nested instance to an ancestor component (cycle)",
+@@ -1890,7 +1890,7 @@ impl Document {
+         let variant_comp_id = resolve_variant_component(self, resolved_id, &spec.variant, None, Some(spec))?;
+ 
+         // Cycle check (§8.5 / E15-2 §8.3): cannot instantiate a component inside itself, its ComponentSet, or an instance of itself
+-        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) {
++        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) || would_hold_itself(self, variant_comp_id, parent) {
+             return Err(SpecError::named(
+                 "INSTANCE_CYCLE",
+                 format!("Cannot place an instance of component '{}' inside its own definition or enclosing instance", comp_ref),
+
+commit 0f0bae68d9f0443d0c59a2ecb07bc866ad2d84d5
+Author: NamAIEngineer <NamAIEngineer@users.noreply.github.com>
+Date:   Sun Oct 25 06:51:34 2026 +0700
+
+    test(doc): cover held-main cycle refusals
+
+diff --git a/crates/designos-doc/src/branch_merge.rs b/crates/designos-doc/src/branch_merge.rs
+index 05027b70f..1c85de9f1 100644
+--- a/crates/designos-doc/src/branch_merge.rs
++++ b/crates/designos-doc/src/branch_merge.rs
+@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
+ 
+ use crate::branch_diff::{diff3, flow_key, Conflict, ConflictKind, Diff3, EntityChange, EntityKey, Group, NodeChange, SideChanges};
+ use crate::{
+-    reparent_would_hold_itself, Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History, LibraryAssetKind,
+-    LibraryState, Node, NodeId, NodeKind, PropKind, PropValue, Style, StyleMeta, Variable, VariableCollection, VariableValue,
++    reparent_would_hold_itself, Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History,
++    LibraryAssetKind, LibraryState, Node, NodeId, NodeKind, PropKind, PropValue, Style, StyleMeta, Variable, VariableCollection, VariableValue,
+ };
+ 
+ /// Which side wins a conflict during a 3-way merge (`R5.18`).
+diff --git a/crates/designos-doc/src/component_cycle_tests.rs b/crates/designos-doc/src/component_cycle_tests.rs
+index d2734885d..5ea827c84 100644
+--- a/crates/designos-doc/src/component_cycle_tests.rs
++++ b/crates/designos-doc/src/component_cycle_tests.rs
+@@ -4,11 +4,14 @@
+ //! component links must stop at the repeat instead of overflowing the stack. Crash tests run alone with `--exact`:
+ //! a stack overflow aborts the whole test binary.
+ 
++use crate::spec::OverrideSpec;
++use crate::spec_instance::apply_overrides;
+ use crate::{
+     add_prop, bind_prop, combine_as_variants, create_component, create_instance, instance_component, mains_held_by, reparent_would_hold_itself,
+     set_instance_prop, swap_instance, sync_instances, Color, Command, ComponentPropDef, Document, Node, NodeId, NodeKind, OverrideField, Paint, PropKind,
+     PropValue, Rect, Vec2,
+ };
++use serde_json::json;
+ 
+ /// A main on `parent` with one layer inside it.
+ fn main_on(d: &mut Document, parent: NodeId, name: &str) -> NodeId {
+@@ -164,6 +167,39 @@ fn a_manual_swap_still_refuses_a_main_that_holds_the_main_it_sits_in() {
+     assert!(is_nothing(&swap_instance(&mut d, i, b)), "no instance of B inside B");
+ }
+ 
++#[test]
++fn apply_spec_swap_refuses_a_held_main_without_mutating() {
++    let mut d = Document::new("spec cycle");
++    let page = d.add_page("P");
++    let b = main_on(&mut d, page, "B");
++    let a = main_on(&mut d, page, "A");
++    place(&mut d, b, a);
++    let c = main_on(&mut d, page, "C");
++    place(&mut d, b, c);
++    let root = place(&mut d, c, page);
++    crate::Command::Reparent { id: root, parent: b, index: d.get(b).unwrap().children.len() }.apply(&mut d).unwrap();
++    let before = d.to_json().unwrap();
++    let ov: OverrideSpec = serde_json::from_value(json!({"path":"B", "swap":"A"})).unwrap();
++    let err = apply_overrides(&mut d, root, &[ov], &[]).unwrap_err();
++    assert!(err.to_string().contains("INSTANCE_CYCLE"), "{err}");
++    assert_eq!(d.to_json().unwrap(), before);
++}
++
++#[test]
++fn apply_spec_create_refuses_a_held_main_without_mutating() {
++    let mut d = Document::new("spec create cycle");
++    let page = d.add_page("P");
++    let b = main_on(&mut d, page, "B");
++    let a = main_on(&mut d, page, "A");
++    place(&mut d, b, a);
++    let parent = layer_of(&d, b);
++    let before = d.to_json().unwrap();
++    let spec: crate::NodeSpec = serde_json::from_value(json!({"kind":"instance", "component":"A"})).unwrap();
++    let err = d.apply_spec(parent, &spec).unwrap_err();
++    assert!(err.to_string().contains("INSTANCE_CYCLE"), "{err}");
++    assert_eq!(d.to_json().unwrap(), before);
++}
++
+ // ---------- the shared move check
+ 
+ #[test]
+diff --git a/crates/designos-doc/src/live_patch/tests.rs b/crates/designos-doc/src/live_patch/tests.rs
+index 1d10f17d9..4bbb25aa6 100644
+--- a/crates/designos-doc/src/live_patch/tests.rs
++++ b/crates/designos-doc/src/live_patch/tests.rs
+@@ -1,5 +1,30 @@
+ use super::*;
+-use crate::{Command, Comment, CommentAnchor, CommentThread, Document, History, Node, NodeId, Rect, Style, Vec2};
++use crate::{create_component, create_instance, Command, Comment, CommentAnchor, CommentThread, Document, History, Node, NodeId, Rect, Style, Vec2};
++
++#[test]
++fn replay_reparent_refuses_a_held_main_cycle() {
++    let mut d = Document::new("cycle");
++    let page = d.add_page("Page");
++    let make = |d: &mut Document, name: &str| {
++        let id = d.alloc_id();
++        d.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
++        d.get_mut(id).unwrap().name = name.into();
++        create_component(d, id).apply(d).unwrap();
++        id
++    };
++    let b = make(&mut d, "B");
++    let a = make(&mut d, "A");
++    let held = create_instance(&mut d, b, a, Vec2::ZERO);
++    held.apply(&mut d).unwrap();
++    let moving = create_instance(&mut d, a, page, Vec2::ZERO);
++    moving.apply(&mut d).unwrap();
++    let moving = *d.get(page).unwrap().children.last().unwrap();
++    let before = d.to_json().unwrap();
++    let op = LiveOp::Reparent { id: moving, parent: b, at: SiblingHint::default() };
++    let report = replay(&mut d, vec![op], &mut LivePatchState::default());
++    assert!(report.skipped.iter().any(|s| s.contains("MOVE_CYCLE")));
++    assert_eq!(d.to_json().unwrap(), before);
++}
+ 
+ /// A page with `frames` top-level frames of `kids` rectangles each, one style, one comment.
+ fn full_doc(frames: usize, kids: usize) -> (Document, NodeId, Vec<NodeId>) {
+
+commit bc56396afff3e1e737999a13fd7158389d1618cd
+Author: NamAIEngineer <NamAIEngineer@users.noreply.github.com>
+Date:   Sun Oct 25 06:54:05 2026 +0700
+
+    test(doc): cover merge cycle refusal
+
+diff --git a/crates/designos-doc/src/branch_merge.rs b/crates/designos-doc/src/branch_merge.rs
+index 1c85de9f1..d8342a0cb 100644
+--- a/crates/designos-doc/src/branch_merge.rs
++++ b/crates/designos-doc/src/branch_merge.rs
+@@ -1845,8 +1845,9 @@ fn check_expression_references(doc: &Document, owner: &str, expr: &Expression, d
+ mod tests {
+     use super::*;
+     use crate::{
+-        Color, ComponentPropDef, ConnectorCap, ConnectorEnd, ConnectorLine, ConnectorProps, FrameProps, Guide, GuideAxis, Magnet, Paint, Reaction, Rect,
+-        SlotPropConfig, Style, StyleMeta, StyleProperty, Trigger, Variable, VariableCollection, VariableKind, VariableMode, VariableValue, Vec2,
++        create_component, create_instance, Color, ComponentPropDef, ConnectorCap, ConnectorEnd, ConnectorLine, ConnectorProps, FrameProps, Guide, GuideAxis,
++        Magnet, Paint, Reaction, Rect, SlotPropConfig, Style, StyleMeta, StyleProperty, Trigger, Variable, VariableCollection, VariableKind, VariableMode,
++        VariableValue, Vec2,
+     };
+ 
+     fn new_doc_with_page() -> (Document, NodeId) {
+@@ -1863,6 +1864,34 @@ mod tests {
+         id
+     }
+ 
++    #[test]
++    fn merge_rejects_move_that_makes_a_main_hold_itself() {
++        let (mut base, page) = new_doc_with_page();
++        let make = |doc: &mut Document, name: &str| {
++            let id = doc.alloc_id();
++            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
++            n.name = name.into();
++            doc.insert(page, n).unwrap();
++            create_component(doc, id).apply(doc).unwrap();
++            id
++        };
++        let b = make(&mut base, "B");
++        let a = make(&mut base, "A");
++        create_instance(&mut base, b, a, Vec2::ZERO).apply(&mut base).unwrap();
++        let moving = create_instance(&mut base, a, page, Vec2::ZERO);
++        let moving_id = match &moving {
++            Command::Insert { nodes, .. } => nodes[0].id,
++            _ => panic!("expected instance"),
++        };
++        moving.apply(&mut base).unwrap();
++        let main = base.clone();
++        let mut branch = base.clone();
++        Command::Reparent { id: moving_id, parent: b, index: 0 }.apply(&mut branch).unwrap();
++        let diff = crate::diff3(&base, &main, &branch);
++        let err = merge(&base, &main, &branch, &diff, &Resolution::default()).unwrap_err();
++        assert!(matches!(err, MergeError::MoveCycle { id, parent } if id == moving_id && parent == b), "{err}");
++    }
++
+     #[test]
+     fn every_reference_resolves_after_remap() {
+         let (mut base, page) = new_doc_with_page();
