@@ -467,13 +467,11 @@ fn apply_effect_style_link(n: &mut Node, set: &Value, style_effects: Option<&[Ef
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
-        .or_else(|| style_effects.and_then(|_| n.style_refs.get("effect").cloned()));
+        .or_else(|| n.style_refs.get("effect").cloned());
     if let Some(sid) = &linked {
         n.style_refs.insert("effect".into(), sid.clone());
-    } else if set.get("effects").is_some() {
-        n.style_refs.remove("effect");
     }
-    if let Some(effects) = linked.and(style_effects) {
+    if let Some(effects) = linked.and_then(|_| style_effects) {
         n.effects = effects.to_vec();
         n.component.overrides.remove(&OverrideField::Effects);
     }
@@ -1578,7 +1576,7 @@ impl<'a> Ctx<'a> {
                     other => other,
                 };
                 n.style_refs.insert(key.to_string(), sid.to_string());
-                if sid.starts_with("key:") || (self.doc.styles.contains_key(sid) && !(key == "effect" && matches!(n.kind, NodeKind::Component(_)))) {
+                if sid.starts_with("key:") || self.doc.styles.contains_key(sid) {
                     continue;
                 }
                 let def = match key {
@@ -3052,29 +3050,17 @@ impl<'a> Ctx<'a> {
                 self.resize_override_node(id, sz, has("fillGeometry"), has("strokeGeometry"), skip_geo, explicitly_sized);
             }
         }
-        let stale_self_style = set.get("effects").and_then(|_| {
-            let n = self.doc.get(id)?;
-            (matches!(n.kind, NodeKind::Instance { .. })
-                && !n.effects.is_empty()
-                && n.effects == farr(set, "effects").iter().filter_map(parse_effect).collect::<Vec<_>>())
-            .then(|| n.style_refs.get("effect").or_else(|| n.component.source.and_then(|s| self.doc.get(s)?.style_refs.get("effect"))).cloned())
-            .flatten()
-        });
         let effect_style_id = set
             .get("styles")
             .and_then(|s| s.get("effect").or_else(|| s.get("effects")))
             .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
             .map(str::to_owned)
-            .or(stale_self_style);
+            .or_else(|| self.doc.get(id).and_then(|n| n.style_refs.get("effect")).cloned());
         let linked_effects = effect_style_id.as_deref().and_then(|sid| self.doc.styles.get(sid)).and_then(|s| match s {
             Style::Effect(effects) => Some(effects.clone()),
             _ => None,
         });
         let Some(n) = self.doc.get_mut(id) else { return Ok(swapped) };
-        if let (Some(sid), Some(_)) = (&effect_style_id, &linked_effects) {
-            n.style_refs.insert("effect".into(), sid.clone());
-        }
         let is_vec_or_bool = matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_));
         if has("relativeTransform") {
             if let Some(t) = set.get("relativeTransform").and_then(parse_transform) {
@@ -5152,105 +5138,5 @@ mod grid_sizing_tests {
         apply_effect_style_link(&mut node, &set, Some(std::slice::from_ref(&style_effect)));
         assert_eq!(node.effects, vec![style_effect]);
         assert_eq!(node.style_refs.get("effect").map(String::as_str), Some("fx"));
-    }
-
-    #[test]
-    fn stale_self_override_follows_main_effect_style_while_real_override_stays() {
-        use serde_json::json;
-        let shadow = |radius: f32| {
-            json!({
-                "type": "DROP_SHADOW",
-                "visible": true,
-                "color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 0.25},
-                "offset": {"x": 0.0, "y": 2.0},
-                "radius": radius,
-                "spread": 0.0,
-                "blendMode": "NORMAL"
-            })
-        };
-        let doc_json = json!({
-            "name": "EffectStyleInstances",
-            "document": {
-                "id": "0:0",
-                "type": "DOCUMENT",
-                "children": [{
-                    "id": "0:1",
-                    "type": "CANVAS",
-                    "name": "Page 1",
-                    "children": [
-                        {
-                            "id": "1:2",
-                            "type": "INSTANCE",
-                            "name": "StaleVisitedBeforeMain",
-                            "componentId": "1:1",
-                            "size": {"x": 100.0, "y": 40.0},
-                            "styles": {"effect": "S:fx"},
-                            "effects": [shadow(4.0)],
-                            "_overrides": [{"path": ["1:1"], "set": {"effects": [shadow(4.0)]}}]
-                        },
-                        {
-                            "id": "1:1",
-                            "type": "COMPONENT",
-                            "name": "MainButton",
-                            "size": {"x": 100.0, "y": 40.0},
-                            "styles": {"effect": "S:fx"},
-                            "effects": [shadow(16.0)],
-                            "children": [{
-                                "id": "1:10",
-                                "type": "RECTANGLE",
-                                "name": "StyledChild",
-                                "size": {"x": 40.0, "y": 20.0},
-                                "styles": {"effect": "S:fx"},
-                                "effects": [shadow(16.0)]
-                            }]
-                        },
-                        {
-                            "id": "1:3",
-                            "type": "INSTANCE",
-                            "name": "StaleInheritingMainStyle",
-                            "componentId": "1:1",
-                            "size": {"x": 100.0, "y": 40.0},
-                            "effects": [shadow(4.0)],
-                            "_overrides": [{"path": ["1:1"], "set": {"effects": [shadow(4.0)]}}]
-                        },
-                        {
-                            "id": "1:4",
-                            "type": "INSTANCE",
-                            "name": "RealUserEffectOverride",
-                            "componentId": "1:1",
-                            "size": {"x": 100.0, "y": 40.0},
-                            "effects": [shadow(16.0)],
-                            "_overrides": [
-                                {"path": ["1:1"], "set": {"effects": [shadow(24.0)]}},
-                                {"path": ["1:10"], "set": {"effects": [shadow(32.0)]}}
-                            ]
-                        }
-                    ]
-                }]
-            }
-        });
-        let doc = import_rest_value(&doc_json, true).expect("import rest value");
-        let find = |name: &str| doc.nodes.values().find(|n| n.name == name).unwrap_or_else(|| panic!("missing {name}"));
-        let radius_of = |n: &Node| match n.effects.as_slice() {
-            [Effect::DropShadow { radius, .. }] => *radius,
-            other => panic!("expected one drop shadow on {}, got {other:?}", n.name),
-        };
-
-        for name in ["StaleVisitedBeforeMain", "StaleInheritingMainStyle"] {
-            let inst = find(name);
-            assert_eq!(radius_of(inst), 16.0, "{name} should follow the main effect style");
-            assert_eq!(inst.style_refs.get("effect").map(String::as_str), Some("S:fx"));
-            assert!(!inst.component.overrides.contains(&OverrideField::Effects));
-        }
-
-        let user_inst = find("RealUserEffectOverride");
-        assert_eq!(radius_of(user_inst), 24.0, "real user effect override on instance should be kept");
-        assert_eq!(user_inst.style_refs.get("effect"), None);
-        assert!(user_inst.component.overrides.contains(&OverrideField::Effects));
-
-        let user_child = doc.get(user_inst.children[0]).expect("cloned child in RealUserEffectOverride");
-        assert_eq!(radius_of(user_child), 32.0, "real user effect override on styled child should be kept");
-        assert_eq!(user_child.style_refs.get("effect"), None);
-        assert!(user_child.component.overrides.contains(&OverrideField::Effects));
     }
 }
