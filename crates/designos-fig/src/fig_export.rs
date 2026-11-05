@@ -2234,15 +2234,16 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::Transform) {
                 ov.push(("transform", encode_matrix(&n.transform)));
             }
-            // Write a paint override only when the paint or its variable binding differs from what the node inherits
-            // from its main component counterpart.
+            // A paint the file records as an override is written as it is, even when it equals the main's paint:
+            // the record is what keeps the node from following a later change of the main. Only a paint the node
+            // merely inherits (no flag) is left out when it matches what the main component supplies.
             let text_fill_flagged = matches!(n.kind, NodeKind::Text(_)) && ovs.contains(&OverrideField::TextStyle);
-            if (ovs.contains(&OverrideField::Fills) || text_fill_flagged || has_fill_var) && fill_differs {
+            if ovs.contains(&OverrideField::Fills) || (text_fill_flagged && fill_differs) || has_fill_var {
                 let fills_slice = node_fills(n);
                 let fps: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &n.variables.bindings)).collect();
                 ov.push(("fillPaints", V::Array(fps)));
             }
-            if (ovs.contains(&OverrideField::Stroke) || has_stroke_var) && stroke_differs {
+            if ovs.contains(&OverrideField::Stroke) || has_stroke_var {
                 let sps: Vec<V> =
                     n.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &n.variables.bindings)).collect();
                 ov.push(("strokePaints", V::Array(sps)));
