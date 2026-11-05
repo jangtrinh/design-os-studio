@@ -341,9 +341,7 @@ fn rendered_line_contrast(s: &Sim, c: NodeId) -> f64 {
         Color::rgb(px.red(), px.green(), px.blue())
     };
     let fill = at(mid.x, mid.y + 12.0);
-    (-3..=3)
-        .map(|dy| designos_doc::lint::rules::contrast::contrast_ratio(at(mid.x, mid.y + dy as f32), fill))
-        .fold(1.0, f64::max)
+    (-3..=3).map(|dy| designos_doc::lint::rules::contrast::contrast_ratio(at(mid.x, mid.y + dy as f32), fill)).fold(1.0, f64::max)
 }
 
 #[test]
