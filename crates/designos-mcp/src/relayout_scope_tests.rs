@@ -214,3 +214,76 @@ fn applying_a_spec_into_an_auto_layout_parent_leaves_a_sibling_subtree_where_it_
     let moved_in_sibling: Vec<u64> = moved(&before, &after).into_iter().filter(|id| sibling_subtree.iter().any(|n| n.0 == *id)).collect();
     assert_eq!(moved_in_sibling, Vec::<u64>::new(), "the wrap row and its squares keep the geometry the document stored");
 }
+
+/// screen (row, fixed) > [side (column, fixed), chat (row, fixed, end-aligned, 32 px side padding) > [bubble]].
+/// The bubble is stored at (80, 12); a solve of `chat` would put it at (256, 0).
+struct ChatScreen {
+    e: Engine,
+    side: NodeId,
+    bubble: NodeId,
+}
+
+fn chat_screen() -> ChatScreen {
+    let mut e = Engine::new();
+    let page = e.resolve_default_page().unwrap();
+    let screen = add_frame(
+        &mut e,
+        page,
+        Rect::new(0.0, 0.0, 800.0, 600.0),
+        auto_layout(LayoutDirection::Horizontal, Sizing::Fixed, Sizing::Fixed, LayoutAlign::Start, 0.0),
+        "screen",
+    );
+    let side = add_frame(
+        &mut e,
+        screen,
+        Rect::new(0.0, 0.0, 240.0, 600.0),
+        auto_layout(LayoutDirection::Vertical, Sizing::Fixed, Sizing::Fixed, LayoutAlign::Start, 0.0),
+        "side",
+    );
+    let mut chat_kind = auto_layout(LayoutDirection::Horizontal, Sizing::Fixed, Sizing::Fixed, LayoutAlign::End, 0.0);
+    if let Some(al) = chat_kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+        al.padding = [0.0, 32.0, 0.0, 32.0];
+    }
+    let chat = add_frame(&mut e, screen, Rect::new(240.0, 0.0, 560.0, 600.0), chat_kind, "chat");
+    let bubble = add_rect(&mut e, chat, Rect::new(80.0, 12.0, 272.0, 44.0), "bubble");
+    assert_eq!(fully_solved(&e.doc)[&bubble.0][..2], [256.0, 0.0], "the fixture must not be a fixed point of the solver");
+    ChatScreen { e, side, bubble }
+}
+
+fn bubble_at(e: &Engine, bubble: NodeId) -> (f32, f32) {
+    let at = e.doc.get(bubble).unwrap().transform;
+    (at.tx, at.ty)
+}
+
+#[test]
+fn a_width_edit_re_solves_its_own_row_and_leaves_the_children_of_a_sibling_frame_alone() {
+    let ChatScreen { mut e, side, bubble } = chat_screen();
+
+    e.call("designos_update_node", json!({ "node_id": side.0, "width": 200 })).unwrap();
+
+    assert_eq!(e.doc.get(side).unwrap().size.x, 200.0);
+    assert_eq!(bubble_at(&e, bubble), (80.0, 12.0));
+}
+
+#[test]
+fn a_batch_width_edit_re_solves_its_own_row_and_leaves_the_children_of_a_sibling_frame_alone() {
+    let ChatScreen { mut e, side, bubble } = chat_screen();
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": side.0, "width": 200 }] })).unwrap();
+
+    assert_eq!(e.doc.get(side).unwrap().size.x, 200.0);
+    assert_eq!(bubble_at(&e, bubble), (80.0, 12.0));
+}
+
+#[test]
+fn re_attaching_a_connector_inside_a_wrap_frame_moves_no_layer() {
+    let WrapScreen { mut e, row, a, b } = wrap_screen();
+    let c = e.doc.get(row).unwrap().children[2];
+    let reply = e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": a.0, "to": b.0 }] })).unwrap();
+    let connector = reply["created"][0].as_u64().unwrap();
+    let before = geometry(&e.doc);
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": connector, "to": c.0, "label": "onward" }] })).unwrap();
+
+    assert_eq!(moved(&before, &geometry(&e.doc)).into_iter().filter(|id| *id != connector).collect::<Vec<_>>(), Vec::<u64>::new());
+}
