@@ -483,27 +483,46 @@ fn gpu_late_image_from_capped_frame_is_never_saved_as_at_rest_capture() {
 }
 
 #[test]
-fn last_surface_status_names_status_during_failed_attempts_and_resets_when_a_later_frame_draws() {
+fn last_surface_status_persists_across_drawn_frames_and_clears_on_new_request() {
     let (mut s, path) = showcase_shot_sim("surface_status_reset");
     // An early surface status during initial resize (before any request is sent) is ignored.
     record_surface_status("Outdated");
     run_until_first_screenshot_cmd(&mut s, 60);
     assert_eq!(s.shell.shot.as_ref().expect("shot exists").last_surface_status, None);
 
-    // A surface status during an active attempt is recorded, then reset when a later frame draws.
+    // A surface status seen since the request was sent persists across later frames that draw,
+    // and is cleared only when the next request is sent.
     record_surface_status("Outdated");
     s.frame(vec![]);
     assert_eq!(s.shell.shot.as_ref().expect("shot exists").last_surface_status.as_deref(), Some("Outdated"));
     s.frame(vec![]);
-    assert_eq!(s.shell.shot.as_ref().expect("shot exists").last_surface_status, None, "later drawn frame must reset last_surface_status");
+    assert_eq!(
+        s.shell.shot.as_ref().expect("shot exists").last_surface_status.as_deref(),
+        Some("Outdated"),
+        "a frame that draws must not clear last_surface_status before a new request is sent"
+    );
+    let mut next_sent = false;
+    for _ in 0..12 {
+        s.frame(vec![]);
+        if frame_sent_screenshot(&s) {
+            next_sent = true;
+            break;
+        }
+    }
+    assert!(next_sent, "expected the next screenshot request to be sent");
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").last_surface_status, None, "sending a new request must clear last_surface_status");
     cleanup(&path);
 
-    // When the failed attempts cannot draw because the surface stays Occluded, the failure reason names Occluded.
-    let (mut s2, path2) = showcase_shot_sim("surface_status_occluded");
-    run_until_first_screenshot_cmd(&mut s2, 60);
-    for _ in 0..200 {
-        record_surface_status("Occluded");
+    // A status of `Timeout` during every attempt (with the remaining frames of each attempt drawing cleanly)
+    // gives a failure reason that ends with "last surface status Timeout".
+    let (mut s2, path2) = showcase_shot_sim("surface_status_timeout");
+    let mut just_sent = frame_sent_screenshot(&s2);
+    for _ in 0..260 {
+        if just_sent {
+            record_surface_status("Timeout");
+        }
         s2.frame(vec![]);
+        just_sent = frame_sent_screenshot(&s2);
         if s2.commands.contains(&egui::ViewportCommand::Close) {
             break;
         }
@@ -512,7 +531,7 @@ fn last_surface_status_names_status_during_failed_attempts_and_resets_when_a_lat
     cleanup(&path2);
     match outcome {
         ShotOutcome::Failed(reason) => {
-            assert!(reason.ends_with("; last surface status Occluded"), "expected reason ending with '; last surface status Occluded', got: {reason:?}");
+            assert!(reason.ends_with("last surface status Timeout"), "expected reason ending with 'last surface status Timeout', got: {reason:?}");
         }
         other => panic!("expected ShotOutcome::Failed, got {other:?}"),
     }

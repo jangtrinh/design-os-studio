@@ -975,9 +975,11 @@ impl Shell {
             return;
         }
         shot.frames += 1;
-        // `egui-wgpu` reports a surface status only when the previous frame could not draw; a later frame
-        // that draws leaves none, resetting the status seen during the failed attempts.
-        shot.last_surface_status = take_surface_status().filter(|_| shot.requested || !shot.lost_frames.is_empty());
+        // `egui-wgpu` reports a surface status only when the previous frame could not draw; keep the
+        // last non-ok status seen since the most recent request was sent.
+        if let Some(status) = take_surface_status().filter(|_| shot.requests > 0) {
+            shot.last_surface_status = Some(status);
+        }
         ctx.request_repaint();
         if shot.frames == 1 {
             // `scale` physical pixels per egui point (1 by default, so the PNG matches the requested size).
@@ -1068,6 +1070,7 @@ impl Shell {
                         shot.requested_at = None;
                         shot.requests = 0;
                         shot.lost_frames.clear();
+                        shot.last_surface_status = None;
                         shot.accept_from = shot.next_req;
                         shot.in_flight.clear();
                         seq.wait_frames = 2;
@@ -1197,6 +1200,7 @@ impl Shell {
         shot.requested = true;
         shot.requested_at = Some(shot.frames);
         shot.requests += 1;
+        shot.last_surface_status = None;
         shot.captured_at_rest = at_rest;
         shot.last_try = last_try;
         shot.in_flight.push(ShotRequest { id, at_rest, last_try });
