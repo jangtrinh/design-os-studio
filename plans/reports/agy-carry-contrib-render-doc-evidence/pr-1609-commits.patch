@@ -1,0 +1,294 @@
+commit 28b8bef7a18a804702f9eb86879834bc8b311013
+Author: NamAIEngineer <NamAIEngineer@users.noreply.github.com>
+Date:   Wed Nov 4 22:45:23 2026 +0700
+
+    fix(render): bound CPU image fill sampling
+
+diff --git a/crates/designos-render/src/image_adjust.rs b/crates/designos-render/src/image_adjust.rs
+index 7b3444379..d32926d76 100644
+--- a/crates/designos-render/src/image_adjust.rs
++++ b/crates/designos-render/src/image_adjust.rs
+@@ -7,7 +7,9 @@ mod adjusted_region;
+ pub use adjusted_region::unadjusted_fill_fallbacks;
+ #[cfg(test)]
+ pub(crate) use adjusted_region::TEST_MAX_PIXELS;
+-pub(crate) use adjusted_region::{adjusted_fill_region, note_unadjusted_fallback, DeviceRegion, FillSource};
++pub(crate) use adjusted_region::{
++    adjusted_fill_region, note_unadjusted_fallback, sampled_fill_region, sampled_fill_region_unadjusted_fallback, DeviceRegion, FillSource,
++};
+ 
+ mod crop_frame;
+ pub use crop_frame::{crop_paint_for_node, rotate_crop_transform, set_image_scale_mode, IDENTITY_CROP_TRANSFORM};
+diff --git a/crates/designos-render/src/image_adjust/adjusted_region.rs b/crates/designos-render/src/image_adjust/adjusted_region.rs
+index c95d35f63..976dda1e3 100644
+--- a/crates/designos-render/src/image_adjust/adjusted_region.rs
++++ b/crates/designos-render/src/image_adjust/adjusted_region.rs
+@@ -10,8 +10,10 @@ use crate::tiny_skia as sk;
+ use designos_doc::ImageAdjust;
+ use std::sync::atomic::{AtomicU64, Ordering};
+ 
+-/// Largest scratch, in pixels, an adjusted fill may allocate: the bound the shadow and blur regions use.
+-pub(crate) const MAX_ADJUSTED_FILL_PIXELS: u64 = 48_000_000;
++/// Largest image-fill scratch, in pixels, that a bounded fill may allocate.
++/// The scratch follows the visible device region, so it is normally much
++/// smaller than the decoded picture.
++pub(crate) const MAX_FILL_PIXELS: u64 = 48_000_000;
+ 
+ #[cfg(test)]
+ thread_local! {
+@@ -19,13 +21,13 @@ thread_local! {
+     pub(crate) static TEST_MAX_PIXELS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+ }
+ 
+-/// The scratch limit in effect: [`MAX_ADJUSTED_FILL_PIXELS`] outside tests.
+-pub(crate) fn max_adjusted_fill_pixels() -> u64 {
++/// The scratch limit in effect: [`MAX_FILL_PIXELS`] outside tests.
++pub(crate) fn max_fill_pixels() -> u64 {
+     #[cfg(test)]
+     if let Some(limit) = TEST_MAX_PIXELS.with(|l| l.get()) {
+         return limit;
+     }
+-    MAX_ADJUSTED_FILL_PIXELS
++    MAX_FILL_PIXELS
+ }
+ 
+ /// Device-space pixel rectangle `(x0, y0, x1, y1)`, `x1 > x0` and `y1 > y0`.
+@@ -33,8 +35,9 @@ pub(crate) type DeviceRegion = (i32, i32, i32, i32);
+ 
+ static UNADJUSTED_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+ 
+-/// Number of adjusted image fills drawn without their adjustments because the scratch they needed was larger than
+-/// [`MAX_ADJUSTED_FILL_PIXELS`] or could not be allocated, since the process started.
++/// Number of image fills drawn without their optional adjustments or bounded
++/// border sampling because the scratch they needed was too large or could not
++/// be allocated, since the process started.
+ pub fn unadjusted_fill_fallbacks() -> u64 {
+     UNADJUSTED_FALLBACKS.load(Ordering::Relaxed)
+ }
+@@ -55,18 +58,23 @@ pub(crate) struct FillSource<'a> {
+     pub clear_outside_picture: bool,
+ }
+ 
+-/// Samples the picture through `source.pattern_ts` and `ts` (node-local space to target pixels) over every pixel of
+-/// `region`, then adjusts the sampled colours. `None` when the scratch would exceed [`max_adjusted_fill_pixels`] or
+-/// cannot be allocated, and the caller draws the fill without its adjustments.
+-///
+-/// The scratch holds the picture at opacity 1 and normal blending; paint opacity and blend mode belong to the
+-/// final composite. It is filled as one rectangle with an identity transform so no pixel is covered twice by the
+-/// anti-aliased edge of the fill. A pixel whose centre maps outside the picture is cleared before the adjustments
+-/// run, as the GPU does with a sample outside the unit UV square, so nothing the size of the picture is copied.
+-pub(crate) fn adjusted_fill_region(source: &FillSource<'_>, ts: &sk::Transform, region: DeviceRegion, adjust: &ImageAdjust) -> Option<sk::Pixmap> {
++/// Samples the picture through `source.pattern_ts` and `ts` over every pixel
++/// of `region`. `None` when the scratch would exceed [`max_fill_pixels`] or
++/// cannot be allocated.
++pub(crate) fn sampled_fill_region(source: &FillSource<'_>, ts: &sk::Transform, region: DeviceRegion) -> Option<sk::Pixmap> {
++    sampled_fill_region_with_limit(source, ts, region, max_fill_pixels())
++}
++
++/// Samples an unadjusted fallback with the production bound even when tests
++/// temporarily lower the adjustment scratch limit.
++pub(crate) fn sampled_fill_region_unadjusted_fallback(source: &FillSource<'_>, ts: &sk::Transform, region: DeviceRegion) -> Option<sk::Pixmap> {
++    sampled_fill_region_with_limit(source, ts, region, MAX_FILL_PIXELS)
++}
++
++fn sampled_fill_region_with_limit(source: &FillSource<'_>, ts: &sk::Transform, region: DeviceRegion, max_pixels: u64) -> Option<sk::Pixmap> {
+     let (x0, y0, x1, y1) = region;
+     let (w, h) = (u32::try_from(x1.checked_sub(x0)?).ok()?, u32::try_from(y1.checked_sub(y0)?).ok()?);
+-    if w == 0 || h == 0 || u64::from(w) * u64::from(h) > max_adjusted_fill_pixels() {
++    if w == 0 || h == 0 || u64::from(w) * u64::from(h) > max_pixels {
+         return None;
+     }
+     #[cfg(test)]
+@@ -78,6 +86,14 @@ pub(crate) fn adjusted_fill_region(source: &FillSource<'_>, ts: &sk::Transform,
+     if source.clear_outside_picture {
+         clear_outside_picture(&mut scratch, &to_scratch, source.src.width() as f32, source.src.height() as f32)?;
+     }
++    Some(scratch)
++}
++
++/// Samples the picture into a bounded scratch, then applies image
++/// adjustments. The caller draws the fill without adjustments if this returns
++/// `None`.
++pub(crate) fn adjusted_fill_region(source: &FillSource<'_>, ts: &sk::Transform, region: DeviceRegion, adjust: &ImageAdjust) -> Option<sk::Pixmap> {
++    let mut scratch = sampled_fill_region(source, ts, region)?;
+     apply_pixmap_adjustments(&mut scratch.as_mut(), adjust);
+     Some(scratch)
+ }
+diff --git a/crates/designos-render/src/image_adjust/tests.rs b/crates/designos-render/src/image_adjust/tests.rs
+index 5f4a36da9..ecf25b530 100644
+--- a/crates/designos-render/src/image_adjust/tests.rs
++++ b/crates/designos-render/src/image_adjust/tests.rs
+@@ -2,7 +2,7 @@
+ 
+ use super::*;
+ use crate::{render_page, Viewport};
+-use designos_doc::{BlendMode, Document, Node, Rect};
++use designos_doc::{BlendMode, Document, Node, Rect, StrokeAlign};
+ 
+ fn flat_png(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
+     let mut pm = sk::Pixmap::new(w, h).expect("pixmap");
+@@ -21,14 +21,14 @@ struct Work {
+     window: sk::Pixmap,
+ }
+ 
+-fn render_window(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset: Vec2) -> Work {
++fn render_window_with_adjust(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset: Vec2, adjust: ImageAdjust) -> Work {
+     let mut doc = Document::new("t");
+     let page = doc.add_page("p");
+     doc.get_mut(page).unwrap().kind = designos_doc::NodeKind::Page { background: designos_doc::Color::TRANSPARENT };
+     doc.images.insert("photo".into(), flat_png(4000, 3000, [120, 90, 60, 255]));
+     let id = doc.alloc_id();
+     let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, node.x, node.y));
+-    n.fills = vec![image_paint("photo", mode, ImageParams { adjust: ImageAdjust { exposure: 1.0, ..Default::default() }, ..params })];
++    n.fills = vec![image_paint("photo", mode, ImageParams { adjust, ..params })];
+     doc.insert(page, n).expect("insert");
+     // decode the picture first: only the work of the fill itself is counted
+     let mut warm = sk::Pixmap::new(1, 1).expect("warm-up");
+@@ -42,6 +42,10 @@ fn render_window(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset:
+     Work { adjusted_pixels: ADJUSTED_PIXELS.with(|n| n.get()), largest_allocation: LARGEST_FILL_ALLOCATION.with(|n| n.get()), window }
+ }
+ 
++fn render_window(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset: Vec2) -> Work {
++    render_window_with_adjust(mode, params, node, offset, ImageAdjust { exposure: 1.0, ..Default::default() })
++}
++
+ fn assert_bounded(work: &Work, what: &str) {
+     let window = 64 * 64;
+     assert!(work.adjusted_pixels > 0, "{what}: the fill must be adjusted");
+@@ -75,6 +79,65 @@ fn adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_tr
+     assert!(brightened(inside), "the picture below the edge is brightened: {inside:?}");
+ }
+ 
++#[test]
++fn unadjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent() {
++    // The picture is 4000x3000, but this tile sees only 64x64 pixels of a 4000x4000 Fit node.
++    let work =
++        render_window_with_adjust(ImageScaleMode::Fit, ImageParams::default(), Vec2::new(4000.0, 4000.0), Vec2::new(1800.0, 470.0), ImageAdjust::default());
++    let window = 64 * 64;
++    assert!(
++        work.largest_allocation <= window,
++        "unadjusted Fit allocated {} pixels for a tile containing only {window} visible pixels",
++        work.largest_allocation
++    );
++    assert_eq!(work.window.pixel(32, 10).expect("pixel").alpha(), 0, "the letterbox above the picture is transparent");
++    assert!(work.window.pixel(32, 50).expect("pixel").alpha() > 0, "the visible picture is drawn");
++}
++
++#[test]
++fn unadjusted_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent() {
++    let size = Vec2::new(4000.0, 3000.0);
++    let turned = rotate_crop_transform(IDENTITY_CROP_TRANSFORM, size, true).expect("turns");
++    let work = render_window_with_adjust(
++        ImageScaleMode::Crop,
++        ImageParams { transform: Some(turned), ..Default::default() },
++        size,
++        Vec2::new(470.0, 1400.0),
++        ImageAdjust::default(),
++    );
++    let window = 64 * 64;
++    assert!(
++        work.largest_allocation <= window,
++        "unadjusted Crop allocated {} pixels for a tile containing only {window} visible pixels",
++        work.largest_allocation
++    );
++    assert_eq!(work.window.pixel(10, 32).expect("pixel").alpha(), 0, "outside the turned picture is transparent");
++    assert!(work.window.pixel(50, 32).expect("pixel").alpha() > 0, "the visible picture is drawn");
++}
++
++#[test]
++fn fit_image_strokes_keep_the_letterbox_transparent_through_the_stroke_margin() {
++    let mut doc = Document::new("t");
++    let page = doc.add_page("p");
++    doc.get_mut(page).unwrap().kind = designos_doc::NodeKind::Page { background: designos_doc::Color::TRANSPARENT };
++    doc.images.insert("flat".into(), flat_png(8, 8, [180, 70, 40, 255]));
++    let id = doc.alloc_id();
++    let mut node = Node::rectangle(id, Rect::new(4.0, 4.0, 24.0, 8.0));
++    node.fills.clear();
++    node.stroke.paints = vec![image_paint("flat", ImageScaleMode::Fit, ImageParams::default())];
++    node.stroke.weight = 4.0;
++    node.stroke.align = StrokeAlign::Center;
++    doc.insert(page, node).expect("insert");
++
++    let mut rendered = sk::Pixmap::new(32, 16).expect("target");
++    render_page(&doc, page, &Viewport::default(), &mut rendered);
++    // The Fit picture occupies only the centre 8x8 of the 24x8 node. The
++    // centered image stroke reaches above the node, but its samples remain in
++    // the Fit letterbox and must not repeat the image edge colour.
++    assert_eq!(rendered.pixel(16, 2).expect("pixel").alpha(), 0, "the stroke margin above the Fit letterbox stays transparent");
++    assert_eq!(rendered.pixel(2, 8).expect("pixel").alpha(), 0, "the stroke margin left of the node stays transparent");
++}
++
+ #[test]
+ fn adjusted_quarter_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent() {
+     // Turned a quarter, the picture covers x 500..3500 of a 4000x3000 node; the window starts 30 px left of its edge.
+diff --git a/crates/designos-render/src/paint.rs b/crates/designos-render/src/paint.rs
+index f07c88a6e..b423212ce 100644
+--- a/crates/designos-render/src/paint.rs
++++ b/crates/designos-render/src/paint.rs
+@@ -348,6 +348,7 @@ pub fn with_paint<R>(
+                     !unit.contains(&uu) || !unit.contains(&vv)
+                 });
+             let needs_border = matches!(scale_mode, d::ImageScaleMode::Fit) || crop_leaves_unit_uv;
++            let mut adjustment_fallback = false;
+             if crate::image_adjust::has_rendered_adjustments(&params.adjust) {
+                 let (x0, y0, x1, y1) = transformed_bounds(ts, -margin, -margin, size.x + 2.0 * margin, size.y + 2.0 * margin);
+                 let region: crate::image_adjust::DeviceRegion = (
+@@ -370,22 +371,43 @@ pub fn with_paint<R>(
+                 }
+                 // The scratch is over budget or could not be allocated: the fill is drawn without its adjustments and counted.
+                 crate::image_adjust::note_unadjusted_fallback();
++                adjustment_fallback = true;
+             }
+-            // A 1px transparent border lets Pad leave a Fit letterbox or an out-of-bounds crop transparent.
+-            let padded: Option<sk::Pixmap> = if needs_border {
+-                #[cfg(test)]
+-                crate::image_adjust::note_fill_allocation(img.width() + 2, img.height() + 2);
+-                let mut padded = sk::Pixmap::new(img.width() + 2, img.height() + 2)?;
+-                padded.draw_pixmap(1, 1, (*img).as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
+-                Some(padded)
+-            } else {
+-                None
+-            };
+-            let (src, pattern_ts) = match &padded {
+-                Some(p) => (p.as_ref(), sk::Transform::from_translate(-1.0, -1.0).post_concat(shader_ts)),
+-                None => ((*img).as_ref(), shader_ts),
+-            };
+-            paint.shader = sk::Pattern::new(src, spread, quality, a, pattern_ts);
++            if needs_border {
++                // Sample only the visible device region into a transparent scratch. This
++                // replaces the old full-picture `(w + 2) x (h + 2)` padded copy while
++                // preserving Pad semantics for Fit letterboxes and out-of-bounds Crop.
++                // Include the caller's paint margin (for example, a centered or
++                // outside stroke). The old padded source supplied a transparent
++                // texel beyond the node, so the stroke footprint must sample the
++                // same transparent border instead of padding the scratch edge.
++                let (x0, y0, x1, y1) = transformed_bounds(ts, -margin, -margin, size.x + 2.0 * margin, size.y + 2.0 * margin);
++                let region: crate::image_adjust::DeviceRegion = (
++                    (x0.floor() as i32).max(0),
++                    (y0.floor() as i32).max(0),
++                    (x1.ceil() as i32).min(target_dims.0 as i32),
++                    (y1.ceil() as i32).min(target_dims.1 as i32),
++                );
++                if region.2 > region.0 && region.3 > region.1 {
++                    let source = crate::image_adjust::FillSource { src: (*img).as_ref(), spread, quality, pattern_ts: shader_ts, clear_outside_picture: true };
++                    let sampled = if adjustment_fallback {
++                        crate::image_adjust::sampled_fill_region_unadjusted_fallback(&source, ts, region)
++                    } else {
++                        crate::image_adjust::sampled_fill_region(&source, ts, region)
++                    };
++                    if let Some(scratch) = sampled {
++                        let inv = ts.invert()?;
++                        let from_scratch = sk::Transform::from_translate(region.0 as f32, region.1 as f32).post_concat(inv);
++                        paint.shader = sk::Pattern::new(scratch.as_ref(), sk::SpreadMode::Pad, sk::FilterQuality::Nearest, a, from_scratch);
++                        return Some(f(&paint));
++                    }
++                }
++                // Allocation failure must still draw the picture. The direct shader
++                // may pad with an edge pixel, but it is preferable to dropping the fill;
++                // the fallback is counted for diagnostics.
++                crate::image_adjust::note_unadjusted_fallback();
++            }
++            paint.shader = sk::Pattern::new((*img).as_ref(), spread, quality, a, shader_ts);
+             Some(f(&paint))
+         }
+     }

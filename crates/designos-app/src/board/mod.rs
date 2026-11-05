@@ -5,6 +5,7 @@
 
 pub mod bar;
 pub mod canvas;
+pub mod caps;
 pub mod connect;
 pub mod create;
 #[cfg(any(test, feature = "fixtures"))]

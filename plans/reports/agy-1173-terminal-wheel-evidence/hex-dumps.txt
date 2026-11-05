@@ -1,0 +1,28 @@
+=== 1. SGR mouse encoding (?1049h + ?1000h + ?1006h), delta_rows=3 (up), cell=(r0=4, c0=9) -> col=10, row=5 ===
+00000000: 1b5b 3c36 343b 3130 3b35 4d1b 5b3c 3634  .[<64;10;5M.[<64
+00000010: 3b31 303b 354d 1b5b 3c36 343b 3130 3b35  ;10;5M.[<64;10;5
+00000020: 4d                                       M
+
+=== 2. SGR mouse encoding (?1049h + ?1000h + ?1006h), delta_rows=-2 (down), cell=(r0=0, c0=0) -> col=1, row=1 ===
+00000000: 1b5b 3c36 353b 313b 314d 1b5b 3c36 353b  .[<65;1;1M.[<65;
+00000010: 313b 314d                                1;1M
+
+=== 3. Default X10 mouse encoding (?1049h + ?1000h), delta_rows=2 (up), cell=(r0=4, c0=9) -> col=10, row=5 ===
+00000000: 1b5b 4d60 2a25 1b5b 4d60 2a25            .[M`*%.[M`*%
+
+=== 4. Default X10 mouse encoding (?1049h + ?1000h), clamped past 223: delta_rows=1 (up), cell=(r0=249, c0=299) -> col=223, row=223 ===
+00000000: 1b5b 4d60 ffff                           .[M`..
+
+=== 5. UTF-8 mouse encoding (?1049h + ?1000h + ?1005h), delta_rows=2 (up), cell=(r0=4, c0=99) -> col=100 (U+0084 = c2 84), row=5 (0x25) ===
+00000000: 1b5b 4d60 c284 251b 5b4d 60c2 8425       .[M`..%.[M`..%
+
+=== 6. UTF-8 mouse encoding (?1049h + ?1000h + ?1005h), delta_rows=-1 (down), cell=(r0=199, c0=249) -> col=250 (U+011A = c4 9a), row=200 (U+00E8 = c3 a8) ===
+00000000: 1b5b 4d61 c49a c3a8                      .[Ma....
+
+=== 7. Alternate screen without mouse (?1049h, normal cursor ?1l), delta_rows=3 (up) and delta_rows=-2 (down) ===
+00000000: 1b5b 411b 5b41 1b5b 41                   .[A.[A.[A
+00000000: 1b5b 421b 5b42                           .[B.[B
+
+=== 8. Alternate screen without mouse + application cursor (?1049h + ?1h), delta_rows=3 (up) and delta_rows=-2 (down) ===
+00000000: 1b4f 411b 4f41 1b4f 41                   .OA.OA.OA
+00000000: 1b4f 421b 4f42                           .OB.OB

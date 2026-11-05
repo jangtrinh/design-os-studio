@@ -476,9 +476,20 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.8. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.9. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--079" id="new-in-v079" aria-labelledby="v079-h">
+          <h3 id="v079-h" class="new-ver">0.7.9</h3>
+          <ul class="new-bullets">
+            <li><strong>Images.</strong> Image fills gain Exposure, Contrast, Saturation, Temperature, Tint, Highlights and Shadows sliders with a Reset, the image fill picker gets rotate buttons and a tile scale slider, and switching Fill or Fit to Crop keeps the framing you see.</li>
+            <li><strong>Project tab.</strong> A project's Markdown docs open in a Project tab with a document tree, a reading page and an "On this page" outline, and read-only MCP tools let an agent list and read them.</li>
+            <li><strong>FigJam connectors.</strong> A board with 1,500 connectors pans and zooms in about 1.3 ms a frame instead of 630 ms, and connectors in a design file are kept through <code>.fig</code> and Figma REST JSON: they are saved as vectors and open again as live connectors.</li>
+            <li><strong>Shaders.</strong> Custom shader effects and fills are kept through <code>.fig</code>, REST and <code>.designos</code> files. Studio does not draw them yet; the inspector lists each one as "Shader (not rendered)".</li>
+            <li><strong>Text, styles and variables.</strong> Text strokes follow Inside and Outside alignment, a font weight set through a variable moves a variable font's weight axis, and edits that should detach a text style or a variable binding now do.</li>
+            <li><strong><code>.fig</code> files and fixes.</strong> Opening a file whose layers use variables it does not hold keeps those links and says how many are missing, and background blur on a layer with nothing visible no longer blurs what is behind it. Many fixes in this release were carried from pull requests by @NamAIEngineer.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--078" id="new-in-v078" aria-labelledby="v078-h">
           <h3 id="v078-h" class="new-ver">0.7.8</h3>
           <ul class="new-bullets">

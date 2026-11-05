@@ -147,6 +147,8 @@ impl Shell {
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(w as f32, h as f32));
             menus::preset_menu(&cc.egui_ctx, &mut shell.app, spec, screen);
         }
+        #[cfg(target_os = "macos")]
+        crate::macos_terminate::sync(&cc.egui_ctx, &shell.app);
         shell
     }
 
@@ -665,6 +667,8 @@ impl Shell {
             open_failed: shot_open_failed || select_miss.is_some(),
             layout_json,
         });
+        #[cfg(target_os = "macos")]
+        crate::macos_terminate::sync(ctx, &app);
         Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file }
     }
 
@@ -1217,7 +1221,7 @@ impl Shell {
                 }
                 if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
                     app.props.eyedropper_format = app.props.eyedropper_format.next();
-                } else if app.is_board() && !m.shift {
+                } else if app.wb_tools_enabled() && !m.shift {
                     crate::board::create::tab_next(app);
                 } else {
                     app.select_sibling(!m.shift);
@@ -1246,7 +1250,7 @@ impl Shell {
             Key::S if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Bottom)),
             Key::D if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Right)),
             // A board has no `</>` button and no Inspect panel, so it has no Dev Mode to switch.
-            Key::D if m.shift && !m.alt && !app.is_board() => app.set_dev_mode(!app.ui.dev_mode),
+            Key::D if m.shift && !m.alt && app.dev_mode_available() => app.set_dev_mode(!app.ui.dev_mode),
             Key::H if m.shift && !m.alt => app.flip_selection(true),
             Key::V if m.shift && !m.alt => app.flip_selection(false),
             Key::X if m.shift && !m.alt => menus::run(app, ctx, Action::SwapFillAndStroke),
@@ -1255,7 +1259,7 @@ impl Shell {
             Key::V if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::VCenter)),
             Key::OpenBracket if !m.shift && !m.alt => menus::run(app, ctx, Action::SendToBack),
             Key::CloseBracket if !m.shift && !m.alt => menus::run(app, ctx, Action::BringToFront),
-            Key::N if !m.alt && !app.is_board() => app.step_frame(!m.shift, true),
+            Key::N if !m.alt && app.frame_stepping_available() => app.step_frame(!m.shift, true),
             Key::Home if !m.alt => app.step_frame(false, false),
             Key::End if !m.alt => app.step_frame(true, false),
             Key::PageUp => app.step_page(false),
@@ -1288,7 +1292,7 @@ impl Shell {
             Key::Quote if m.shift => menus::run(app, ctx, Action::TogglePixelGrid),
             k => {
                 if !m.alt {
-                    let tool = if app.is_board() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
+                    let tool = if app.board_key_map() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
                     if let Some(t) = tool {
                         app.set_tool(t);
                     }
@@ -1302,7 +1306,10 @@ impl Shell {
     fn context_menu(&mut self, ui: &egui::Ui, canvas_rect: Rect) {
         let (clicked, pos, cmd) = ui.ctx().input(|i| (i.pointer.secondary_clicked(), i.pointer.interact_pos(), i.modifiers.command));
         let Some(pos) = pos.filter(|p| clicked && canvas_rect.contains(*p) && !self.app.vars.open) else { return };
-        if self.app.ui.rulers && !self.app.is_board() && (pos.x - canvas_rect.left() <= theme::RULER_SIZE || pos.y - canvas_rect.top() <= theme::RULER_SIZE) {
+        if self.app.ui.rulers
+            && self.app.ruler_strip_skips_canvas_menu()
+            && (pos.x - canvas_rect.left() <= theme::RULER_SIZE || pos.y - canvas_rect.top() <= theme::RULER_SIZE)
+        {
             return;
         }
         let app = &mut self.app;
@@ -1635,7 +1642,10 @@ impl eframe::App for Shell {
         // macOS: a Quit chosen while the window is hidden waits a few seconds for it. The wait starts at the first frame
         // after the request, and eframe runs this hook for hidden frames too; `ctx.input` still shows the previous one.
         #[cfg(target_os = "macos")]
-        crate::macos_menu::stamp_pending_quit(ctx, raw.time);
+        {
+            crate::macos_menu::stamp_pending_quit(ctx, raw.time);
+            crate::macos_terminate::sync(ctx, &self.app);
+        }
         if self.app.plugins.open {
             return;
         }
@@ -1674,6 +1684,10 @@ impl eframe::App for Shell {
                 ui.ctx().request_repaint();
             }
         }
+    }
+
+    fn on_exit(&mut self) {
+        self.finish_quit();
     }
 }
 
@@ -1799,6 +1813,20 @@ impl Shell {
         // the canvas starts its refine only after a frame that was light on work (a document
         // that has just opened is not): tell it what this frame cost
         self.app.canvas.gpu.note_frame_work(began.elapsed().as_secs_f32() * 1000.0);
+        #[cfg(target_os = "macos")]
+        crate::macos_terminate::sync(&ctx, &self.app);
+    }
+
+    fn finish_quit(&mut self) {
+        if self.shot.is_none() {
+            crate::decks::ui::flush_notes(&mut self.app);
+            self.app.save_close_version();
+            self.app.flush_autosave();
+        }
+        self.app.terminal.shutdown();
+        for tab in &mut self.app.tabs.entries {
+            tab.terminal.shutdown();
+        }
     }
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {
@@ -1818,22 +1846,11 @@ impl Shell {
         #[cfg(target_os = "macos")]
         crate::macos_menu::send_pending_quit(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
-            if self.shot.is_some() {
-                self.app.terminal.shutdown();
-                for tab in &mut self.app.tabs.entries {
-                    tab.terminal.shutdown();
-                }
-            } else if !self.app.may_quit(&ctx) {
+            if self.shot.is_some() || self.app.may_quit(&ctx) {
+                self.finish_quit();
+            } else {
                 // Edits no save has written are being asked about: the window stays open, and the close comes round again.
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            } else {
-                crate::decks::ui::flush_notes(&mut self.app);
-                self.app.save_close_version();
-                self.app.flush_autosave();
-                self.app.terminal.shutdown();
-                for tab in &mut self.app.tabs.entries {
-                    tab.terminal.shutdown();
-                }
             }
         }
         self.app.scrub_sync(&ctx);
@@ -1893,7 +1910,7 @@ impl Shell {
         }
 
         ui.painter().rect_filled(full, 0.0, theme::BG);
-        let board = self.app.is_board();
+        let board = self.app.board_chrome();
         let is_ai_panel = matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
         let (kind, requested_left_w) =
             if is_ai_panel { (columns::LeftKind::Ai, self.app.ui.ai_panel_width) } else { (columns::LeftKind::Tree, self.app.ui.left_panel_width) };
