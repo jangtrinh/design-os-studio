@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, HashSet};
 
 mod carrier;
 mod grid;
+mod kept_derived;
 mod kept_overrides;
 pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
 
@@ -206,8 +207,9 @@ fn validate_shader_refs(doc: &Document, schema: &crate::kiwi::Schema) -> Result<
 /// `meta.json`, and `images/<hash>`).
 ///
 /// `doc` is only read. An instance on a page the document's page loader has not opened yet has no children to read
-/// its overrides from, so it is written with the override entries the file stated for it; no page is opened and the
-/// loader is left as it was.
+/// its overrides from, so it is written with the override entries and the derived data the file stated for it (the
+/// derived data only while its main component is as it was when the file was opened); no page is opened and the loader
+/// is left as it was.
 pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
     let schema = export_schema();
     validate_shader_refs(doc, schema)?;
@@ -245,6 +247,8 @@ struct ExportCtx<'a> {
     node_guids: BTreeMap<NodeId, (u32, u32)>,
     /// `node_guids` the other way round, built the first time a guid has to be resolved to a node.
     nodes_by_guid: Option<BTreeMap<(u32, u32), NodeId>>,
+    /// Fingerprints of the main components whose instances are checked for stale derived data.
+    fingerprints: crate::component_fingerprint::Fingerprints,
     coll_guids: BTreeMap<String, (u32, u32)>,
     mode_guids: BTreeMap<String, (u32, u32)>,
     var_guids: BTreeMap<String, (u32, u32)>,
@@ -312,6 +316,7 @@ impl<'a> ExportCtx<'a> {
             next_local: 1,
             node_guids: BTreeMap::new(),
             nodes_by_guid: None,
+            fingerprints: Default::default(),
             coll_guids: BTreeMap::new(),
             mode_guids: BTreeMap::new(),
             var_guids: BTreeMap::new(),
@@ -1542,6 +1547,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             }
             if !sd.is_empty() {
                 fields.push(("symbolData", msg(sd)));
+            }
+            // Likewise the derived data (sizes, transforms, outlines) the file stated for an instance on a page that is
+            // not loaded, while its main component is as it was when the file was opened.
+            if let Some(derived) = component.and_then(|main| kept_derived::pending_derived_symbol_data(cx, id, main)) {
+                fields.push(("derivedSymbolData", V::Array(derived)));
             }
             if let Some(k) = component_key {
                 fields.push(("componentKey", V::String(k.clone())));

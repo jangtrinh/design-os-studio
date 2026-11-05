@@ -600,6 +600,12 @@ impl<'a> serde::ser::SerializeStructVariant for HashSerializer<'a> {
     }
 }
 
+/// A 64-bit hash of everything about `node` except its place in the tree (`parent` and `children`). Two nodes with
+/// different content hash differently up to hash collisions; callers use it to tell whether a node was edited.
+pub fn node_content_hash(node: &Node) -> u64 {
+    hash_node_props(node)
+}
+
 /// Computes a 64-bit streaming hash of a node's property groups (excluding `parent` and `children`,
 /// which belong to the `Position` / move pass).
 fn hash_node_props(node: &Node) -> u64 {

@@ -12,6 +12,7 @@
 
 mod board;
 mod clipboard;
+mod component_fingerprint;
 pub mod container;
 mod dev;
 mod effect_units;

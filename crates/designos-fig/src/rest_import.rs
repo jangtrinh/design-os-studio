@@ -7,7 +7,7 @@ use crate::effect_units;
 use crate::svgpath::parse_path;
 use crate::FigError;
 use designos_doc::*;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 const MAX_DEPTH: usize = 300;
@@ -1956,6 +1956,17 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+        let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        let mut main_fingerprints = HashMap::new();
+        for &inst in pending_by_page.values().flatten() {
+            if self.overrides.get(&inst).is_none_or(|o| o.fast_derived.is_empty()) {
+                continue;
+            }
+            if let Some(&main) = targets.get(&inst) {
+                main_fingerprints.entry(main).or_insert_with(|| fingerprints.of_main(&self.doc, main));
+            }
+        }
+        drop(fingerprints);
         let hydrator = DeferredFigHydrator {
             pending_by_page,
             hydrated_pages,
@@ -1979,6 +1990,7 @@ impl<'a> Ctx<'a> {
             budget_exhausted: self.budget_exhausted,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
+            main_fingerprints,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
     }
@@ -3590,6 +3602,9 @@ struct DeferredFigHydrator {
     budget_exhausted: bool,
     unexpanded_instances: BTreeSet<NodeId>,
     last_error: Option<String>,
+    /// Main component -> its fingerprint when the file was opened, for the mains of the instances that still have
+    /// derived data here (see [`crate::component_fingerprint`]).
+    main_fingerprints: HashMap<NodeId, u64>,
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -3762,6 +3777,47 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     fn pending_instance_overrides(&self, instance: NodeId) -> Option<String> {
         self.overrides.get(&instance)?.kept.as_deref().map(String::from)
     }
+
+    fn pending_instance_derived(&self, instance: NodeId) -> Option<String> {
+        let derived = &self.overrides.get(&instance)?.fast_derived;
+        let main = *self.targets.get(&instance)?;
+        let fingerprint = *self.main_fingerprints.get(&main)?;
+        let entries: Vec<Value> = derived.iter().filter_map(|d| derived_entry_json(d, &self.blob_cache)).collect();
+        if entries.is_empty() {
+            return None;
+        }
+        Some(json!({"main": main.0, "fingerprint": fingerprint.to_string(), "entries": entries}).to_string())
+    }
+}
+
+/// One entry of derived data as text a `.fig` writer reads: its path, size, transform and the bytes of its geometry
+/// (the loader keeps the parsed outlines, which write back to the same bytes).
+fn derived_entry_json(d: &crate::fig::FastDerivedEntry, blobs: &HashMap<(usize, bool), Path>) -> Option<Value> {
+    let geometry = |list: &Option<Vec<(usize, bool)>>| -> Vec<Value> {
+        list.iter()
+            .flatten()
+            .filter_map(|key| blobs.get(key).map(|p| json!({"odd": key.1, "bytes": crate::kiwi::hex(&crate::fig_export::path_to_commands_blob(p))})))
+            .collect()
+    };
+    let (fill, stroke) = (geometry(&d.fill_geometry), geometry(&d.stroke_geometry));
+    if d.size.is_none() && d.transform.is_none() && fill.is_empty() && stroke.is_empty() {
+        return None;
+    }
+    let mut m = serde_json::Map::new();
+    m.insert("path".into(), json!(d.path));
+    if let Some(s) = d.size {
+        m.insert("size".into(), json!([s.x, s.y]));
+    }
+    if let Some(t) = d.transform {
+        m.insert("transform".into(), json!([t.a, t.b, t.c, t.d, t.tx, t.ty]));
+    }
+    if !fill.is_empty() {
+        m.insert("fill".into(), Value::Array(fill));
+    }
+    if !stroke.is_empty() {
+        m.insert("stroke".into(), Value::Array(stroke));
+    }
+    Some(Value::Object(m))
 }
 
 /// Style values that the file states on the style node (`.fig` imports put them in the `styles`
@@ -4798,6 +4854,7 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
+            main_fingerprints: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -4838,6 +4895,7 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
+            main_fingerprints: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));

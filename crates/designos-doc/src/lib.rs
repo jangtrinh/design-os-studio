@@ -550,6 +550,12 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn pending_instance_overrides(&self, _instance: NodeId) -> Option<String> {
         None
     }
+    /// The derived data (the sizes, transforms and outlines the producing app computed for the nodes inside the
+    /// instance) the file stated for `instance` while its page has not been loaded, with the same rules as
+    /// [`Self::pending_instance_overrides`].
+    fn pending_instance_derived(&self, _instance: NodeId) -> Option<String> {
+        None
+    }
 }
 
 mod serde_images {
@@ -749,6 +755,14 @@ impl Document {
         let h = self.page_hydrator.as_ref()?;
         let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.pending_instance_overrides(instance)
+    }
+
+    /// The derived data the file stated for `instance` while its page has not been loaded (see
+    /// [`PageHydrator::pending_instance_derived`]). Read-only, like [`Self::pending_instance_overrides`].
+    pub fn pending_instance_derived(&self, instance: NodeId) -> Option<String> {
+        let h = self.page_hydrator.as_ref()?;
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.pending_instance_derived(instance)
     }
 
     /// Number of instances skipped by deferred page hydration due to hitting the clone budget.
