@@ -4548,8 +4548,27 @@ mod tests {
             assert!(emitted.contains(mode["file"].as_str().unwrap()), "manifest references missing file: {mode:?}");
         }
 
-        let manifest_bytes = bundle.files.iter().find(|(name, _)| name == "tokens.manifest.json").unwrap().1.clone();
-        let additional = bundle.files.iter().filter(|(name, _)| name != "tokens.manifest.json").cloned().collect();
+        let export_dir = std::env::temp_dir().join(format!("designos-dtcg-case-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&export_dir);
+        std::fs::create_dir_all(&export_dir).expect("create temp export dir");
+        for (name, bytes) in &bundle.files {
+            std::fs::write(export_dir.join(name), bytes).expect("write exported DTCG file");
+        }
+        let mut on_disk: Vec<(String, Vec<u8>)> = std::fs::read_dir(&export_dir)
+            .expect("read export dir")
+            .map(|entry| {
+                let entry = entry.expect("dir entry");
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let bytes = std::fs::read(entry.path()).expect("read exported file");
+                (name, bytes)
+            })
+            .collect();
+        let _ = std::fs::remove_dir_all(&export_dir);
+        assert_eq!(on_disk.len(), bundle.files.len(), "every exported DTCG file must survive on disk without overwriting another");
+        on_disk.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let manifest_bytes = on_disk.iter().find(|(name, _)| name == "tokens.manifest.json").unwrap().1.clone();
+        let additional = on_disk.into_iter().filter(|(name, _)| name != "tokens.manifest.json").collect();
         let mut imported = Document::new("casefold-roundtrip");
         let report = import_variables_bytes(
             &mut imported,
