@@ -365,10 +365,10 @@ fn doc_with_deleted_muted_and_slate() -> Document {
     doc
 }
 
-fn bound_fill(doc: &Document, spec_json: serde_json::Value) -> Result<Option<String>, SpecBindError> {
+fn bound_fill(doc: &Document, spec_json: serde_json::Value) -> Result<Option<String>, Box<SpecBindError>> {
     let page = doc.pages[0];
     let mut work = doc.clone();
-    let report = work.apply_spec_with_report(page, &spec(spec_json))?;
+    let report = work.apply_spec_with_report(page, &spec(spec_json)).map_err(Box::new)?;
     Ok(work.get(report.root_node_id).unwrap().variables.bindings.get("fills/0").cloned())
 }
 
