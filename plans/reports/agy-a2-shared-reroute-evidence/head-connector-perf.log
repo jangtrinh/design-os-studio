@@ -1,0 +1,34 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-doc)
+   Compiling designos-fonts v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-fonts)
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-render)
+   Compiling designos-svg v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-svg)
+   Compiling designos-webcapture v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-webcapture)
+   Compiling designos-gpu v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-gpu)
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-fig)
+    Finished `release` profile [optimized] target(s) in 24.12s
+     Running tests/connector_perf.rs (out/cargo/release/deps/connector_perf-7d9e006b41f478ae)
+
+running 1 test
+
+=== perf_whiteboard_2000 summary ===
+1. Single elbow route (seeded 500):        p50 =   12.62 us | p95 =   21.54 us (budget <= 100 us)
+2. Steady-state pan/zoom (1,500 conn):     p50 =   1.330 ms | p95 =   1.516 ms | hits=30000 misses=0 (budget <= 3.5 ms, 0 misses)
+3. Drag 1 node (4 conn):                   p50 =   0.067 ms | p95 =   0.775 ms | max_misses=4 (budget <= 1.0 ms)
+4. Move 1 node (50 conn):                  p50 =   1.514 ms | p95 =   1.975 ms | max_misses=50 (budget <= 4.0 ms)
+5a. Move 1 node (150 conn, visible drag):  p50 =   2.552 ms | p95 =   2.771 ms (budget <= 6.0 ms)
+5b. Move 1 node (150 conn, commit rest):   p50 =   4.030 ms | p95 =   4.208 ms | max_misses=150 (budget <= 12.0 ms)
+6. Multi-drag 20 nodes (80 conn):          p50 =   2.024 ms | p95 =   2.267 ms | max_misses=80 (budget <= 7.5 ms)
+7. Hover hit-test (2,200 nodes + 1k conn): p50 =    1.38 us | p95 =    3.33 us | max_checks=0 (budget <= 1000 us)
+8. Marquee 500x500 sweep (1,500 conn):     p50 =   0.005 ms | p95 =   0.012 ms (budget <= 1.5 ms)
+9. Move frame (1,000 internal conn):       p50 =   0.069 ms | p95 =   0.097 ms | updates=0 (budget <= 0.5 ms)
+10. Index refresh after 1 node edit:       p50 =    0.25 us | p95 =    0.33 us (budget <= 50 us)
+11. Full index rebuild (112k nodes):       p50 =   0.390 ms | p95 =   0.703 ms (budget <= 25.0 ms)
+
+test perf_scene_whiteboard_2000_budgets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+EXIT=0

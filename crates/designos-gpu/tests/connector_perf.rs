@@ -5,8 +5,8 @@
 
 use designos_doc::fixtures::perf_whiteboard_2000;
 use designos_doc::{
-    clear_route_cache, connector_route, connector_route_bounds, reroute_attached, resolve_anchors, route, route_cache_stats, sync_connector, Affine,
-    ConnectorEnd, ConnectorLine, ConnectorProps, Document, Magnet, Node, NodeId, NodeKind, Rect, Vec2,
+    clear_connector_index, clear_route_cache, connector_route, connector_route_bounds, plan_reroute, reroute_attached, resolve_anchors, route,
+    route_cache_stats, sync_connector, with_index, Affine, ConnectorEnd, ConnectorLine, ConnectorProps, Document, Magnet, Node, NodeId, NodeKind, Rect, Vec2,
 };
 use designos_render::board::lower;
 use designos_render::SceneIndex;
@@ -19,6 +19,16 @@ fn percentiles_us(mut samples_us: Vec<f64>) -> (f64, f64) {
     let p95_idx = ((samples_us.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(samples_us.len() - 1);
     let p95 = samples_us[p95_idx];
     (p50, p95)
+}
+
+/// Prints every per-sample time (in call order) when `CONNECTOR_PERF_SAMPLES` is set, so a single
+/// outlier such as a cold first call stays visible next to the p50/p95 summary.
+fn trace_samples(label: &str, samples_us: &[f64]) {
+    if std::env::var_os("CONNECTOR_PERF_SAMPLES").is_none() {
+        return;
+    }
+    let ms: Vec<String> = samples_us.iter().map(|us| format!("{:.3}", us / 1_000.0)).collect();
+    eprintln!("samples {label} (ms, call order): [{}]", ms.join(", "));
 }
 
 type AnchorPair = ((Option<Rect>, Magnet, Vec2), (Option<Rect>, Magnet, Vec2));
@@ -223,6 +233,7 @@ fn perf_scene_whiteboard_2000_budgets() {
     let (hits_after_pan, misses_after_pan) = route_cache_stats();
     let pan_hits = hits_after_pan - hits_before_pan;
     let pan_misses = misses_after_pan - misses_before_pan;
+    trace_samples("2 pan/zoom", &pan_samples_us);
     let (pan_p50_us, pan_p95_us) = percentiles_us(pan_samples_us);
 
     // 3. Dragging 1 node with 4 attached connectors
@@ -239,39 +250,70 @@ fn perf_scene_whiteboard_2000_budgets() {
         drag4_max_misses = drag4_max_misses.max(m1 - m0);
         drag4_samples_us.push(us);
     }
+    trace_samples("3 drag 4 conn", &drag4_samples_us);
     let (drag4_p50_us, drag4_p95_us) = percentiles_us(drag4_samples_us);
 
-    // 4. Dragging 1 hub node with 50 attached connectors
+    // 4. Move 1 node with 50 connectors on the 2,000-node board (via plan_reroute)
+    with_index(&scene.doc, |_| {});
     let mut drag50_samples_us = Vec::with_capacity(12);
     let mut drag50_max_misses = 0u64;
     for step in 1..=12usize {
         scene.doc.get_mut(scene.hub_50).unwrap().transform.ty += (step as f32) * 2.5;
         let (_, m0) = route_cache_stats();
         let t0 = Instant::now();
-        let touched = reroute_attached(&mut scene.doc, &[scene.hub_50]);
+        let plan = plan_reroute(&scene.doc, &[scene.hub_50], None);
+        for (cid, g) in &plan.updates {
+            if let Some(n) = scene.doc.get_mut(*cid) {
+                g.apply(n);
+            }
+        }
         let us = t0.elapsed().as_nanos() as f64 / 1_000.0;
         let (_, m1) = route_cache_stats();
-        assert_eq!(touched.len(), 50);
+        assert_eq!(plan.updates.len(), 50);
         drag50_max_misses = drag50_max_misses.max(m1 - m0);
         drag50_samples_us.push(us);
     }
+    trace_samples("4 move 50 conn", &drag50_samples_us);
     let (drag50_p50_us, drag50_p95_us) = percentiles_us(drag50_samples_us);
 
-    // 5. Dragging 1 stress hub with 150 attached connectors
-    let mut drag150_samples_us = Vec::with_capacity(12);
+    // 5. Move 1 node with 150 connectors: visible-only during drag + rest at commit
+    let drag150_vp = Rect::new(8_000.0, 11_000.0, 4_500.0, 2_000.0);
+    let mut drag150_vis_samples_us = Vec::with_capacity(12);
+    let mut drag150_commit_samples_us = Vec::with_capacity(12);
     let mut drag150_max_misses = 0u64;
     for step in 1..=12usize {
         scene.doc.get_mut(scene.hub_150).unwrap().transform.tx += (step as f32) * 2.0;
         let (_, m0) = route_cache_stats();
         let t0 = Instant::now();
-        let touched = reroute_attached(&mut scene.doc, &[scene.hub_150]);
-        let us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+        let vis_plan = plan_reroute(&scene.doc, &[scene.hub_150], Some(drag150_vp));
+        for (cid, g) in &vis_plan.updates {
+            if let Some(n) = scene.doc.get_mut(*cid) {
+                g.apply(n);
+            }
+        }
+        let vis_us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+        assert!(!vis_plan.updates.is_empty());
+        assert!(vis_plan.deferred > 0);
+        assert_eq!(vis_plan.updates.len() + vis_plan.deferred, 150);
+
+        let t1 = Instant::now();
+        let commit_plan = plan_reroute(&scene.doc, &[scene.hub_150], None);
+        for (cid, g) in &commit_plan.updates {
+            if let Some(n) = scene.doc.get_mut(*cid) {
+                g.apply(n);
+            }
+        }
+        let commit_us = t1.elapsed().as_nanos() as f64 / 1_000.0;
         let (_, m1) = route_cache_stats();
-        assert_eq!(touched.len(), 150);
+        assert_eq!(commit_plan.updates.len(), vis_plan.deferred);
         drag150_max_misses = drag150_max_misses.max(m1 - m0);
-        drag150_samples_us.push(us);
+        drag150_vis_samples_us.push(vis_us);
+        drag150_commit_samples_us.push(commit_us);
     }
-    let (drag150_p50_us, drag150_p95_us) = percentiles_us(drag150_samples_us);
+    trace_samples("5a move 150 conn visible", &drag150_vis_samples_us);
+    trace_samples("5b move 150 conn commit", &drag150_commit_samples_us);
+    let (drag150_vis_p50_us, drag150_vis_p95_us) = percentiles_us(drag150_vis_samples_us);
+    let (drag150_p50_us, drag150_p95_us) = percentiles_us(drag150_commit_samples_us);
 
     // 6. Multi-selection drag of 20 nodes with 80 attached connectors
     let mut drag80_samples_us = Vec::with_capacity(12);
@@ -289,6 +331,7 @@ fn perf_scene_whiteboard_2000_budgets() {
         drag80_max_misses = drag80_max_misses.max(m1 - m0);
         drag80_samples_us.push(us);
     }
+    trace_samples("6 multi-drag 80 conn", &drag80_samples_us);
     let (drag80_p50_us, drag80_p95_us) = percentiles_us(drag80_samples_us);
 
     // Remove the temporary drag test connectors so the page has the exact 1,500 fixture connectors for hover/marquee
@@ -343,6 +386,88 @@ fn perf_scene_whiteboard_2000_budgets() {
     }
     let (marquee_p50_us, marquee_p95_us) = percentiles_us(marquee_samples_us);
 
+    // 9. Move a frame with 1,000 internal connectors (0 updates)
+    let mut internal_doc = Document::new("frame_1000_internal");
+    let internal_page = internal_doc.add_page("Page 1");
+    let internal_frame = internal_doc.alloc_id();
+    internal_doc.insert(internal_page, Node::frame(internal_frame, Rect::new(0.0, 0.0, 2_000.0, 2_000.0))).unwrap();
+    let ia = internal_doc.alloc_id();
+    internal_doc.insert(internal_frame, Node::rectangle(ia, Rect::new(20.0, 20.0, 80.0, 60.0))).unwrap();
+    let ib = internal_doc.alloc_id();
+    internal_doc.insert(internal_frame, Node::rectangle(ib, Rect::new(300.0, 200.0, 80.0, 60.0))).unwrap();
+    for _ in 0..1_000usize {
+        let cid = internal_doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(ia, Magnet::Auto), end: ConnectorEnd::attached(ib, Magnet::Auto), ..Default::default() };
+        internal_doc.insert(internal_frame, Node::connector(cid, props)).unwrap();
+        sync_connector(&mut internal_doc, cid);
+    }
+    with_index(&internal_doc, |_| {});
+    let mut frame1000_samples_us = Vec::with_capacity(20);
+    for step in 1..=20usize {
+        internal_doc.get_mut(internal_frame).unwrap().transform.tx += (step as f32) * 5.0;
+        let t0 = Instant::now();
+        let plan = plan_reroute(&internal_doc, &[internal_frame], None);
+        let us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+        assert!(plan.updates.is_empty());
+        frame1000_samples_us.push(us);
+    }
+    trace_samples("9 move frame 1000 internal", &frame1000_samples_us);
+    let (frame1000_p50_us, frame1000_p95_us) = percentiles_us(frame1000_samples_us);
+
+    // 10. Index refresh after 1 node edit
+    with_index(&scene.doc, |_| {});
+    let mut refresh_samples_us = Vec::with_capacity(50);
+    for step in 0..50usize {
+        let nid = scene.items[200 + (step % 100)];
+        scene.doc.get_mut(nid).unwrap().transform.tx += 1.0;
+        let t0 = Instant::now();
+        with_index(&scene.doc, |idx| {
+            std::hint::black_box(idx.is_empty());
+        });
+        let us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+        refresh_samples_us.push(us);
+    }
+    let (refresh_p50_us, refresh_p95_us) = percentiles_us(refresh_samples_us);
+
+    // 11. Full index rebuild on 112k-node synthetic doc
+    let mut doc_112k = Document::new("synthetic_112k_bench");
+    let page_112k = doc_112k.add_page("Page 1");
+    let fa_112k = doc_112k.alloc_id();
+    doc_112k.insert(page_112k, Node::rectangle(fa_112k, Rect::new(0.0, 0.0, 80.0, 60.0))).unwrap();
+    let fb_112k = doc_112k.alloc_id();
+    doc_112k.insert(page_112k, Node::rectangle(fb_112k, Rect::new(240.0, 0.0, 80.0, 60.0))).unwrap();
+    let fc_112k = doc_112k.alloc_id();
+    doc_112k
+        .insert(
+            page_112k,
+            Node::connector(
+                fc_112k,
+                ConnectorProps {
+                    start: ConnectorEnd::attached(fa_112k, Magnet::Auto),
+                    end: ConnectorEnd::attached(fb_112k, Magnet::Auto),
+                    ..Default::default()
+                },
+            ),
+        )
+        .unwrap();
+    for i in 0..112_000usize {
+        let rid = doc_112k.alloc_id();
+        let mut n = Node::rectangle(rid, Rect::new((i % 200) as f32 * 20.0, (i / 200) as f32 * 20.0, 10.0, 10.0));
+        n.parent = Some(page_112k);
+        doc_112k.nodes.insert(rid, n);
+    }
+    let mut rebuild112k_samples_us = Vec::with_capacity(7);
+    for _ in 0..7usize {
+        clear_connector_index();
+        let t0 = Instant::now();
+        with_index(&doc_112k, |idx| {
+            assert!(!idx.is_empty());
+        });
+        let us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+        rebuild112k_samples_us.push(us);
+    }
+    let (rebuild112k_p50_us, rebuild112k_p95_us) = percentiles_us(rebuild112k_samples_us);
+
     eprintln!("\n=== perf_whiteboard_2000 summary ===");
     eprintln!("1. Single elbow route (seeded 500):        p50 = {elbow_p50_us:7.2} us | p95 = {elbow_p95_us:7.2} us (budget <= 100 us)");
     eprintln!(
@@ -356,12 +481,17 @@ fn perf_scene_whiteboard_2000_budgets() {
         drag4_p95_us / 1_000.0
     );
     eprintln!(
-        "4. Drag 1 hub (50 conn):                   p50 = {:7.3} ms | p95 = {:7.3} ms | max_misses={drag50_max_misses} (budget <= 5.0 ms)",
+        "4. Move 1 node (50 conn):                  p50 = {:7.3} ms | p95 = {:7.3} ms | max_misses={drag50_max_misses} (budget <= 4.0 ms)",
         drag50_p50_us / 1_000.0,
         drag50_p95_us / 1_000.0
     );
     eprintln!(
-        "5. Drag 1 stress hub (150 conn):           p50 = {:7.3} ms | p95 = {:7.3} ms | max_misses={drag150_max_misses} (budget <= 12.0 ms)",
+        "5a. Move 1 node (150 conn, visible drag):  p50 = {:7.3} ms | p95 = {:7.3} ms (budget <= 6.0 ms)",
+        drag150_vis_p50_us / 1_000.0,
+        drag150_vis_p95_us / 1_000.0
+    );
+    eprintln!(
+        "5b. Move 1 node (150 conn, commit rest):   p50 = {:7.3} ms | p95 = {:7.3} ms | max_misses={drag150_max_misses} (budget <= 12.0 ms)",
         drag150_p50_us / 1_000.0,
         drag150_p95_us / 1_000.0
     );
@@ -375,9 +505,20 @@ fn perf_scene_whiteboard_2000_budgets() {
     );
     eprintln!("   Hover, first probe on an emptied route cache: {hover_cold_first_us:9.2} us, {cold_misses} routes computed (not a budget)");
     eprintln!(
-        "8. Marquee 500x500 sweep (1,500 conn):     p50 = {:7.3} ms | p95 = {:7.3} ms (budget <= 1.5 ms)\n",
+        "8. Marquee 500x500 sweep (1,500 conn):     p50 = {:7.3} ms | p95 = {:7.3} ms (budget <= 1.5 ms)",
         marquee_p50_us / 1_000.0,
         marquee_p95_us / 1_000.0
+    );
+    eprintln!(
+        "9. Move frame (1,000 internal conn):       p50 = {:7.3} ms | p95 = {:7.3} ms | updates=0 (budget <= 0.5 ms)",
+        frame1000_p50_us / 1_000.0,
+        frame1000_p95_us / 1_000.0
+    );
+    eprintln!("10. Index refresh after 1 node edit:       p50 = {refresh_p50_us:7.2} us | p95 = {refresh_p95_us:7.2} us (budget <= 50 us)");
+    eprintln!(
+        "11. Full index rebuild (112k nodes):       p50 = {:7.3} ms | p95 = {:7.3} ms (budget <= 25.0 ms)\n",
+        rebuild112k_p50_us / 1_000.0,
+        rebuild112k_p95_us / 1_000.0
     );
 
     // Structural & cache-invalidation invariants hold in both debug and release builds.
@@ -394,9 +535,13 @@ fn perf_scene_whiteboard_2000_budgets() {
     assert!(elbow_p95_us <= 100.0 * scale, "elbow p95 {elbow_p95_us:.2}us exceeded budget");
     assert!(pan_p95_us <= 3_500.0 * scale, "pan/zoom p95 {:.3}ms exceeded budget", pan_p95_us / 1_000.0);
     assert!(drag4_p95_us <= 1_000.0 * scale, "4-connector drag p95 {:.3}ms exceeded budget", drag4_p95_us / 1_000.0);
-    assert!(drag50_p95_us <= 5_000.0 * scale, "50-connector hub drag p95 {:.3}ms exceeded budget", drag50_p95_us / 1_000.0);
-    assert!(drag150_p95_us <= 12_000.0 * scale, "150-connector stress hub drag p95 {:.3}ms exceeded budget", drag150_p95_us / 1_000.0);
+    assert!(drag50_p95_us <= 4_000.0 * scale, "50-connector hub drag p95 {:.3}ms exceeded budget", drag50_p95_us / 1_000.0);
+    assert!(drag150_vis_p95_us <= 6_000.0 * scale, "150-connector visible drag p95 {:.3}ms exceeded budget", drag150_vis_p95_us / 1_000.0);
+    assert!(drag150_p95_us <= 12_000.0 * scale, "150-connector commit p95 {:.3}ms exceeded budget", drag150_p95_us / 1_000.0);
     assert!(drag80_p95_us <= 7_500.0 * scale, "80-connector multi-drag p95 {:.3}ms exceeded budget", drag80_p95_us / 1_000.0);
     assert!(hover_p95_us <= 1_000.0 * scale, "hover hit-test p95 {hover_p95_us:.2}us exceeded budget");
     assert!(marquee_p95_us <= 1_500.0 * scale, "marquee 500x500 p95 {:.3}ms exceeded budget", marquee_p95_us / 1_000.0);
+    assert!(frame1000_p95_us <= 500.0 * scale, "frame 1,000 internal connectors p95 {:.3}ms exceeded budget", frame1000_p95_us / 1_000.0);
+    assert!(refresh_p95_us <= 50.0 * scale, "index refresh p95 {refresh_p95_us:.2}us exceeded budget");
+    assert!(rebuild112k_p95_us <= 25_000.0 * scale, "112k-node index rebuild p95 {:.3}ms exceeded budget", rebuild112k_p95_us / 1_000.0);
 }

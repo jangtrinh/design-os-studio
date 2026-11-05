@@ -1,0 +1,99 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling memchr v2.8.3
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling regex-syntax v0.8.11
+   Compiling thiserror v2.0.21
+   Compiling serde_json v1.0.154
+   Compiling serde v1.0.229
+   Compiling itoa v1.0.18
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling syn v3.0.9
+   Compiling regex v1.13.1
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.85s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 8 tests
+test connector_index::tests::index_is_not_shared_between_a_document_and_its_clone ... FAILED
+test connector_index::tests::connector_index_refreshes_from_dirty_log_not_rebuild ... FAILED
+test connector_index::tests::document_without_connectors_skips_all_reroute_work ... FAILED
+test connector_index::tests::connector_index_rebuilds_on_ring_eviction_and_len_change ... FAILED
+test connector_index::tests::reroute_defers_offscreen_connectors_until_commit ... FAILED
+test connector_index::tests::moving_a_node_reroutes_only_its_connectors ... FAILED
+test connector_index::tests::connector_inside_moved_frame_is_not_rerouted ... FAILED
+test connector_index::tests::connector_index_finds_connectors_without_scanning_nodes ... FAILED
+
+failures:
+
+---- connector_index::tests::index_is_not_shared_between_a_document_and_its_clone stdout ----
+
+thread 'connector_index::tests::index_is_not_shared_between_a_document_and_its_clone' (1571790) panicked at crates/designos-doc/src/connector_index.rs:226:32:
+assertion `left == right` failed
+  left: []
+ right: [NodeId(5)]
+
+---- connector_index::tests::connector_index_refreshes_from_dirty_log_not_rebuild stdout ----
+
+thread 'connector_index::tests::connector_index_refreshes_from_dirty_log_not_rebuild' (1571787) panicked at crates/designos-doc/src/connector_index.rs:155:13:
+assertion `left == right` failed
+  left: []
+ right: [NodeId(5)]
+
+---- connector_index::tests::document_without_connectors_skips_all_reroute_work stdout ----
+
+thread 'connector_index::tests::document_without_connectors_skips_all_reroute_work' (1571789) panicked at crates/designos-doc/src/connector_index.rs:252:32:
+assertion failed: idx.is_empty()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- connector_index::tests::connector_index_rebuilds_on_ring_eviction_and_len_change stdout ----
+
+thread 'connector_index::tests::connector_index_rebuilds_on_ring_eviction_and_len_change' (1571786) panicked at crates/designos-doc/src/connector_index.rs:189:32:
+assertion `left == right` failed
+  left: []
+ right: [NodeId(602)]
+
+---- connector_index::tests::reroute_defers_offscreen_connectors_until_commit stdout ----
+
+thread 'connector_index::tests::reroute_defers_offscreen_connectors_until_commit' (1571792) panicked at crates/designos-doc/src/connector_index.rs:338:9:
+assertion `left == right` failed
+  left: 50
+ right: 20
+
+---- connector_index::tests::moving_a_node_reroutes_only_its_connectors stdout ----
+
+thread 'connector_index::tests::moving_a_node_reroutes_only_its_connectors' (1571791) panicked at crates/designos-doc/src/connector_index.rs:290:9:
+assertion failed: connector_index_stats().node_reads <= 16
+
+---- connector_index::tests::connector_inside_moved_frame_is_not_rerouted stdout ----
+
+thread 'connector_index::tests::connector_inside_moved_frame_is_not_rerouted' (1571788) panicked at crates/designos-doc/src/connector_index.rs:312:9:
+expected 0 updates for internal connectors, got 1000
+
+---- connector_index::tests::connector_index_finds_connectors_without_scanning_nodes stdout ----
+
+thread 'connector_index::tests::connector_index_finds_connectors_without_scanning_nodes' (1571785) panicked at crates/designos-doc/src/connector_index.rs:141:9:
+expected O(subtree) node reads, got 112005
+
+
+failures:
+    connector_index::tests::connector_index_finds_connectors_without_scanning_nodes
+    connector_index::tests::connector_index_rebuilds_on_ring_eviction_and_len_change
+    connector_index::tests::connector_index_refreshes_from_dirty_log_not_rebuild
+    connector_index::tests::connector_inside_moved_frame_is_not_rerouted
+    connector_index::tests::document_without_connectors_skips_all_reroute_work
+    connector_index::tests::index_is_not_shared_between_a_document_and_its_clone
+    connector_index::tests::moving_a_node_reroutes_only_its_connectors
+    connector_index::tests::reroute_defers_offscreen_connectors_until_commit
+
+test result: FAILED. 0 passed; 8 failed; 0 ignored; 0 measured; 782 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

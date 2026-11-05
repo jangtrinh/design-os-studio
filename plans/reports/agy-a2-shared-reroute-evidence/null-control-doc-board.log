@@ -1,0 +1,60 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 19 tests
+test board::tests::magnets_resolve_to_facing_sides ... ok
+test board::tests::fit_font_size_is_monotone_and_bounded ... ok
+test board::tests::sticky_layout_reserves_the_author_line ... ok
+test board::tests::caps_point_along_the_line ... ok
+test board::tests::route_distance_and_midpoint ... ok
+test board::tests::elbow_between_aligned_boxes_is_a_straight_line ... ok
+test board::tests::curved_route_leaves_along_the_magnet ... ok
+test board::tests::elbow_same_side_loops_around_without_crossing ... ok
+test board::tests::elbow_goes_around_a_box_it_would_cross ... ok
+test board::tests::elbow_to_a_free_end_is_orthogonal_and_avoids_the_source ... ok
+test board::tests::straight_route_joins_the_anchors ... ok
+test board::tests::stamps_have_a_badge_and_glyph_layers ... ok
+test board::tests::elbow_between_offset_boxes_has_one_z_in_the_gap ... ok
+test board::tests::shape_paths_stay_inside_the_box ... ok
+test board::tests::connector_follows_its_nodes ... ok
+test board::tests::kind_roundtrips_through_json ... ok
+test board::tests::degenerate_rects_route_without_panic_or_hang ... ok
+test board::tests::elbow_route_p95_under_100us_on_seeded_corpus ... ok
+test board::tests::elbow_heap_matches_linear_scan_on_3000_seeded_cases ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 771 filtered out; finished in 30.01s
+
+     Running tests/auto_layout_wrap_fields_compat.rs (out/cargo/debug/deps/auto_layout_wrap_fields_compat-bd3d3c82fdc133ee)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/changelog_pillars.rs (out/cargo/debug/deps/changelog_pillars-5f26da692849cb6a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/glass_noise_texture_fields.rs (out/cargo/debug/deps/glass_noise_texture_fields-b4422caf2370f8e8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/glass_splay_bevel_defaults.rs (out/cargo/debug/deps/glass_splay_bevel_defaults-86780b678ab7a18f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/shadow_blend.rs (out/cargo/debug/deps/shadow_blend-36dc480d6fb8acc1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+EXIT=0
