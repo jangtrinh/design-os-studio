@@ -188,7 +188,7 @@ fn hug_text_with_max_width_grows_when_the_text_gets_longer() {
     let (w1, h1) = get_size(&mut e, text_id);
     let (fw1, fh1) = get_size(&mut e, frame_id);
     assert_near(w1, 200.0, "long text widens to max_width");
-    assert!(h1 >= 85.0 && h1 < 300.0, "long text wraps at max_width rather than a narrow column, got {h1}");
+    assert!((85.0..300.0).contains(&h1), "long text wraps at max_width rather than a narrow column, got {h1}");
     assert_near(fw1, 232.0, "enclosing hug frame widens with text + padding");
     assert_near(fh1, h1 + 32.0, "enclosing hug frame grows in height with wrapped text + padding");
     let updated_node = e.call("designos_get_node", json!({"node_id": text_id})).expect("get_node")["node"].clone();
