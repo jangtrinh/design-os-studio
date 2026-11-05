@@ -39,6 +39,9 @@ fn max_edge_diff(a: &[f32; 4], b: &[f32; 4]) -> f32 {
     (a[0] - b[0]).abs().max((a[1] - b[1]).abs()).max((a[2] - b[2]).abs()).max((a[3] - b[3]).abs())
 }
 
+/// A frame's solved size and the rect it gives each flow child.
+type SolvedFrame = (NodeId, Vec2, Vec<(NodeId, Rect)>);
+
 fn frame_free_space(doc: &Document, fid: NodeId) -> Option<(AutoLayout, f32, usize)> {
     let n = doc.get(fid)?;
     let resolved = resolve_node(doc, n);
@@ -99,7 +102,7 @@ fn kit_auto_layout_relayout_census() {
     let mut auto_frames: Vec<NodeId> = frame_info.keys().copied().collect();
     auto_frames.sort_by_key(|id| id.0);
     let measure = designos_doc::text_measure::layout_measurer();
-    let mut solved_frames: Vec<(NodeId, Vec2, Vec<(NodeId, Rect)>)> = Vec::with_capacity(auto_frames.len());
+    let mut solved_frames: Vec<SolvedFrame> = Vec::with_capacity(auto_frames.len());
     for fid in auto_frames {
         let Some(root_node) = doc.get(fid) else { continue };
         let resolved = resolve_node(&doc, root_node);

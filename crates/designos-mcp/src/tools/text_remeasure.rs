@@ -4,14 +4,17 @@
 
 use std::collections::{HashMap, HashSet};
 
-use designos_doc::{resolve_node, set_bound_property, Command, Document, Node, NodeId, NodeKind, TextAutoResize, Variable, VariableKind, VariableValue, Vec2};
+use designos_doc::{
+    resolve_node, set_bound_property, Command, Document, Node, NodeId, NodeKind, TextAutoResize, Variable, VariableCollection, VariableKind, VariableValue,
+    Vec2,
+};
 
 /// Bound properties that change the size of a text box.
 const TEXT_BOX_KEYS: [&str; 10] =
     ["fontSize", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "listSpacing", "characters", "fontFamily", "fontStyle"];
 
 /// Bound properties on a node that the auto-layout solver reads directly.
-const LAYOUT_BOX_KEYS: [&str; 16] = [
+const LAYOUT_BOX_KEYS: [&str; 14] = [
     "width",
     "height",
     "visible",
@@ -26,8 +29,6 @@ const LAYOUT_BOX_KEYS: [&str; 16] = [
     "strokeRightWeight",
     "strokeBottomWeight",
     "strokeLeftWeight",
-    "topLeftRadius",
-    "bottomRightRadius",
 ];
 
 /// Sets the size of a hug text (`WidthAndHeight` or `Height`) to the renderer's measure of
@@ -49,27 +50,41 @@ pub(crate) fn resize_hug_text(doc: &Document, node: &mut Node) {
     node.size = size;
 }
 
-/// The variables a `set_variables` op writes or deletes, as they were before it ran.
-pub(crate) struct VariablesBefore(Vec<(String, Option<Variable>)>);
+/// The variables and collections a `set_variables` op writes or deletes, as they were before it ran.
+pub(crate) struct VariablesBefore {
+    variables: Vec<(String, Option<Variable>)>,
+    collections: Vec<(String, Option<VariableCollection>)>,
+}
 
 impl VariablesBefore {
-    pub(crate) fn capture(doc: &Document, written: &[&str]) -> Self {
-        Self(written.iter().map(|id| ((*id).to_string(), doc.variables.get(*id).cloned())).collect())
+    pub(crate) fn capture(doc: &Document, written_variables: &[&str], written_collections: &[&str]) -> Self {
+        Self {
+            variables: written_variables.iter().map(|id| ((*id).to_string(), doc.variables.get(*id).cloned())).collect(),
+            collections: written_collections.iter().map(|id| ((*id).to_string(), doc.variable_collections.get(*id).cloned())).collect(),
+        }
     }
 
-    /// Ids of the written variables whose value changed and can change a text box (numbers
-    /// and strings), plus every variable whose alias chain reaches one of them.
-    fn changed_text_variables(&self, doc: &Document) -> HashSet<String> {
+    /// Ids of the variables of one of `kinds` whose resolved value can have changed in this op: the
+    /// written ones whose value changed, every variable of a collection whose default mode or mode
+    /// list changed (they pick which value each variable resolves to), and every variable whose
+    /// alias chain reaches one of those.
+    fn changed_variables(&self, doc: &Document, kinds: &[VariableKind]) -> HashSet<String> {
         let mut changed: HashSet<String> = HashSet::new();
-        for (id, before) in &self.0 {
+        for (id, before) in &self.variables {
             let after = doc.variables.get(id);
             if after == before.as_ref() {
                 continue;
             }
-            let kind = after.or(before.as_ref()).map(|v| v.kind);
-            if matches!(kind, Some(VariableKind::Number | VariableKind::String)) {
+            if after.or(before.as_ref()).is_some_and(|v| kinds.contains(&v.kind)) {
                 changed.insert(id.clone());
             }
+        }
+        for (id, before) in &self.collections {
+            let modes_of = |c: &VariableCollection| (c.default_mode.clone(), c.modes.clone());
+            if doc.variable_collections.get(id).map(modes_of) == before.as_ref().map(modes_of) {
+                continue;
+            }
+            changed.extend(doc.variables.values().filter(|v| v.collection == *id && kinds.contains(&v.kind)).map(|v| v.id.clone()));
         }
         if changed.is_empty() {
             return changed;
@@ -93,45 +108,21 @@ impl VariablesBefore {
         changed
     }
 
-    /// Nodes whose layout-affecting variable bindings reference a variable changed in this op.
+    /// Variables that can change a text box (numbers and strings).
+    fn changed_text_variables(&self, doc: &Document) -> HashSet<String> {
+        self.changed_variables(doc, &[VariableKind::Number, VariableKind::String])
+    }
+
+    /// Nodes whose layout-affecting variable bindings reference a variable changed in this op
+    /// (numbers and booleans).
     pub(crate) fn layout_bound_nodes(&self, doc: &Document) -> Vec<NodeId> {
-        let mut changed: HashSet<String> = HashSet::new();
-        for (id, before) in &self.0 {
-            let after = doc.variables.get(id);
-            if after == before.as_ref() {
-                continue;
-            }
-            let kind = after.or(before.as_ref()).map(|v| v.kind);
-            if matches!(kind, Some(VariableKind::Number | VariableKind::Boolean)) {
-                changed.insert(id.clone());
-            }
-        }
+        let changed = self.changed_variables(doc, &[VariableKind::Number, VariableKind::Boolean]);
         if changed.is_empty() {
             return Vec::new();
         }
-        let mut aliased_by: HashMap<&str, Vec<&str>> = HashMap::new();
-        for (id, v) in &doc.variables {
-            for value in v.values.values() {
-                if let VariableValue::Alias(target) = value {
-                    aliased_by.entry(target.as_str()).or_default().push(id.as_str());
-                }
-            }
-        }
-        let mut stack: Vec<String> = changed.iter().cloned().collect();
-        while let Some(id) = stack.pop() {
-            for dependent in aliased_by.get(id.as_str()).into_iter().flatten() {
-                if changed.insert((*dependent).to_string()) {
-                    stack.push((*dependent).to_string());
-                }
-            }
-        }
         doc.nodes
             .values()
-            .filter(|n| {
-                n.variables.bindings.iter().any(|(k, v)| {
-                    (LAYOUT_BOX_KEYS.contains(&k.as_str()) || (k.starts_with("strokes/") && k.ends_with("/opacity"))) && changed.contains(v.as_str())
-                })
-            })
+            .filter(|n| n.variables.bindings.iter().any(|(k, v)| LAYOUT_BOX_KEYS.contains(&k.as_str()) && changed.contains(v.as_str())))
             .map(|n| n.id)
             .collect()
     }

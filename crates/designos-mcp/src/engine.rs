@@ -1099,15 +1099,9 @@ impl Engine {
                     let fixed_count = fix_payload.get("fixed_count").and_then(Value::as_u64).unwrap_or(0);
                     let changes = fix_payload.get("changes").cloned().unwrap_or_else(|| json!([]));
                     if !cmds.is_empty() {
-                        let fixed_ids: Vec<NodeId> = cmds
-                            .iter()
-                            .filter_map(|c| match c {
-                                Command::Update { node } => Some(node.id),
-                                _ => None,
-                            })
-                            .collect();
+                        let seeds = crate::tools::relayout_scope::seeds_after_commands(&self.doc, &cmds);
                         self.exec(Command::Batch(cmds))?;
-                        for id in fixed_ids {
+                        for id in seeds {
                             self.relayout(id);
                         }
                         self.settle_layout();
@@ -1547,8 +1541,11 @@ impl Engine {
         let before_doc = a.diff_image.then(|| self.doc.clone());
         let baseline = crate::tools::issues::PreCallBaseline::capture(&self.doc, &[id], &self.session_options.issues, a.lint, self.lint_env());
         if changed {
+            let affects_layout = self.doc.get(id).is_some_and(|old| crate::tools::relayout_scope::update_affects_layout(&self.doc, old, &node));
             self.exec(Command::Update { node: Box::new(node) })?;
-            self.relayout(id);
+            if affects_layout {
+                self.relayout(id);
+            }
         }
         let mut out = json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed});
         attach_warnings(&mut out, &warnings);

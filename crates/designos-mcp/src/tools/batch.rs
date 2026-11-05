@@ -9,6 +9,7 @@
 use crate::engine::Engine;
 use crate::tools::errors::{tool_output_schema_from_object, ErrorCode, ToolError};
 use crate::tools::fill_write::{validate_fill_color, write_fill, FillTarget};
+use crate::tools::relayout_scope::{seeds_after_commands, update_affects_layout};
 use crate::tools::text_remeasure::{resize_hug_text, BoundTextIndex, VariablesBefore};
 use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
@@ -2080,15 +2081,18 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 }
                 prev_node = Some(id);
                 if node_changed {
+                    let affects_layout = trial.get(id).is_some_and(|old| update_affects_layout(&trial, old, &updated_node));
                     let cmd = Command::Update { node: Box::new(updated_node) };
                     if recording_live {
                         let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                         recorded_live_ops.extend(ops);
                     }
                     cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
-                    relayout_for_node(&mut trial, id);
+                    if affects_layout {
+                        relayout_for_node(&mut trial, id);
+                        relayout_targets.push(id);
+                    }
                     collected_cmds.push(cmd);
-                    relayout_targets.push(id);
                     changed.updated += 1;
                 }
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
@@ -2188,7 +2192,8 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             ParsedOp::SetVariables(a) => {
                 check_document_lease_guard(engine.owned_frames.as_deref(), op_idx, op_name)?;
                 let written: Vec<&str> = a.upsert_variables.iter().map(|v| v.id.as_str()).chain(a.delete_variables.iter().map(String::as_str)).collect();
-                let before_vars = VariablesBefore::capture(&trial, &written);
+                let written_collections: Vec<&str> = a.upsert_collections.iter().map(|c| c.id.as_str()).collect();
+                let before_vars = VariablesBefore::capture(&trial, &written, &written_collections);
                 let (cmd_opt, count) = apply_set_variables_op(&trial, a, op_idx)?;
                 if let Some(cmd) = cmd_opt {
                     if recording_live {
@@ -2218,7 +2223,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             }
             ParsedOp::SetStyle(a) => {
                 let (cmds, count, first_node) = apply_set_style_op(&trial, &alias_roots, prev_node, engine.owned_frames.as_deref(), a, op_idx)?;
-                let restyled = updated_node_ids(&cmds);
+                let restyled = seeds_after_commands(&trial, &cmds);
                 for cmd in cmds {
                     if recording_live {
                         let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
@@ -2226,10 +2231,6 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     }
                     cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                     collected_cmds.push(cmd);
-                }
-                if let Some(nid) = first_node {
-                    relayout_for_node(&mut trial, nid);
-                    relayout_targets.push(nid);
                 }
                 relayout_containers_of(&mut trial, &restyled, &mut relayout_targets);
                 changed.styles += count;
@@ -2732,12 +2733,12 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                             .clone()
                             .apply(&mut trial)
                             .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
-                        if let Some(op) = old_parent {
+                        // Only a connector that sat in the old parent's flow changes it; the update below
+                        // re-solves `home` when the connector leaves its flow.
+                        if let (Some(op), false) = (old_parent, cur_node.layout_child.absolute) {
                             relayout_for_node(&mut trial, op);
                             relayout_targets.push(op);
                         }
-                        relayout_for_node(&mut trial, home);
-                        relayout_targets.push(home);
                         collected_cmds.push(reparent_cmd);
                         changed.moved += 1;
                     }
@@ -2759,6 +2760,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         *slot = before_update.clone();
                     }
                     if updated_node != before_update {
+                        let affects_layout = update_affects_layout(&trial, &before_update, &updated_node);
                         let update_cmd = Command::Update { node: Box::new(updated_node) };
                         if recording_live {
                             let ops = live_ops_for_command(&trial, &update_cmd)
@@ -2769,9 +2771,11 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                             .clone()
                             .apply(&mut trial)
                             .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
-                        relayout_for_node(&mut trial, home);
+                        if affects_layout {
+                            relayout_for_node(&mut trial, home);
+                            relayout_targets.push(home);
+                        }
                         collected_cmds.push(update_cmd);
-                        relayout_targets.push(home);
                         changed.updated += 1;
                     }
                     if let Some(alias) = &a.alias {
@@ -2941,7 +2945,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         recorded_live_ops.extend(ops);
                     }
                     cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
-                    relayout_for_node(&mut trial, home);
+                    // The connector is absolutely positioned: it takes no place in `home`'s flow, so `home` is not re-solved.
 
                     created_root_ids.push(id.0);
                     created_count += 1;
@@ -2955,7 +2959,6 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     prev_node = Some(id);
                     created_roots.push(CreatedRootRecord { alias: a.alias.clone(), root_id: id, created_ids: set });
                     collected_cmds.push(cmd);
-                    relayout_targets.push(home);
                     let before_bounds = node_page_bounds(&trial, id);
                     touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
                 }

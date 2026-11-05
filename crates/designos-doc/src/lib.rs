@@ -73,6 +73,8 @@ mod spec_bind_rollback_label_tests;
 mod spec_data;
 pub use spec_data::SpecDataSnapshot;
 pub mod spec_instance;
+#[cfg(test)]
+mod spec_relayout_scope_tests;
 mod styles_ops;
 mod text_fills;
 pub mod text_measure;
