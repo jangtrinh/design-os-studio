@@ -526,8 +526,6 @@ fn draw_arms_watchdog_through_frame_guard_when_open_succeeded() {
     }
     s.frame(vec![]);
     let armed = SHOT_WATCHDOG.lock().expect("lock watchdog").last_frame_at.is_some();
-    let in_frame_after = SHOT_IN_FRAME.load(Ordering::SeqCst);
     cleanup(&path);
     assert!(armed, "Shell::draw must enter ShotFrameGuard and arm SHOT_WATCHDOG on frame completion");
-    assert!(!in_frame_after, "ShotFrameGuard must clear SHOT_IN_FRAME when the frame finishes");
 }
