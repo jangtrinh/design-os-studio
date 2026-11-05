@@ -1,0 +1,6 @@
+board: size=1440x900 total_px=1296000 diff_px=0 (0.0000%) sha256_before=88bffecc53c2f42874975850773d3708eaac74c22b0feac285055b026310fbbf sha256_after=88bffecc53c2f42874975850773d3708eaac74c22b0feac285055b026310fbbf
+kit: size=1440x900 total_px=1296000 diff_px=0 (0.0000%) sha256_before=b2eb8173307579d9e01f08290c5979102ea8e36de49367ccafca554671acfff6 sha256_after=b2eb8173307579d9e01f08290c5979102ea8e36de49367ccafca554671acfff6
+=== designos-diff compare board-before.png board-after.png ===
+{"aa_pixels":0,"height":900,"ignored":0,"mismatched":0,"pass":true,"ratio":0.0,"size_a":[1440,900],"size_b":[1440,900],"size_mismatch":false,"ssim":1.0,"threshold":0.0,"width":1440}
+=== designos-diff compare kit-before.png kit-after.png ===
+{"aa_pixels":0,"height":900,"ignored":0,"mismatched":0,"pass":true,"ratio":0.0,"size_a":[1440,900],"size_b":[1440,900],"size_mismatch":false,"ssim":1.0,"threshold":0.0,"width":1440}
