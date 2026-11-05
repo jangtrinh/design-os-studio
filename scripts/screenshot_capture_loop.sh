@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stress loop for `--screenshot` capture reliability (#1141, US-17 Case 8).
+# Stress loop for `--screenshot` capture reliability.
 #
 # Runs N screenshot captures (default: 250) in `idle` mode and/or `load` mode
 # (with a CPU load generator `yes > /dev/null` on `cores - 2` workers) against
@@ -237,7 +237,7 @@ run_worker() {
 
 run_suite() {
   local suite_mode="$1"
-  echo "=== Case 8 suite: mode=$suite_mode runs=$RUNS jobs=$JOBS ==="
+  echo "=== screenshot capture suite: mode=$suite_mode runs=$RUNS jobs=$JOBS ==="
   rm -f "$WORK_DIR/res/"*.res
   if [ "$suite_mode" = "load" ]; then
     start_cpu_load

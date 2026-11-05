@@ -148,6 +148,27 @@ fn screenshot_of_a_canvas_not_on_the_gpu_is_taken_as_before() {
 }
 
 #[test]
+fn a_lost_screenshot_request_is_retried_before_the_window_gives_up() {
+    for (gpu, tag) in [(false, "retry_cpu"), (true, "retry_gpu")] {
+        let (mut s, shot) = shot_sim(gpu, tag);
+        frames_until_screenshot(&mut s, 150).expect("the first screenshot request is sent");
+        assert!(s.app().canvas.gpu.at_rest(), "{tag}: the first request waits for an at-rest frame");
+
+        // The platform dropped the first request: no Event::Screenshot is delivered. A later
+        // request must still be sent so a transient macOS/eframe delivery loss does not turn into
+        // the generic "screenshot was not captured" exit.
+        let retry_after = (1..=300).find(|_| frame_requests_screenshot(&mut s)).expect("a dropped screenshot request is retried");
+        assert!(retry_after > 0, "{tag}: the retry must follow the lost first request");
+        assert!(s.app().canvas.gpu.at_rest(), "{tag}: the retried request is also sent at rest");
+
+        let image = Arc::new(egui::ColorImage::filled([SIZE.0 as usize, SIZE.1 as usize], egui::Color32::BLACK));
+        s.frame(vec![Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image }]);
+        assert!(shot.exists(), "{tag}: the retried request writes the PNG");
+        cleanup(&shot);
+    }
+}
+
+#[test]
 fn screenshot_gives_up_waiting_for_a_view_that_never_settles() {
     let (mut s, shot) = shot_sim(true, "never_settles");
     // a view that moves every frame never goes idle

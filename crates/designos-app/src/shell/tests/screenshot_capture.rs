@@ -1,4 +1,4 @@
-//! Unit and `Sim` tests for `--screenshot` capture retry, failure reasons, viewport level, and watchdog (`#1141`, US-17).
+//! Unit and `Sim` tests for `--screenshot` capture retry, failure reasons, viewport level, and watchdog.
 
 use super::*;
 use std::path::PathBuf;
@@ -50,11 +50,11 @@ fn screenshot_event(w: usize, h: usize) -> Event {
     Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image }
 }
 
-// Test 1: Run frames until one `ViewportCommand::Screenshot` is sent, then inject no image for 12 frames.
+// Run frames until one `ViewportCommand::Screenshot` is sent, then inject no image for 12 frames.
 // A second `Screenshot` command is sent.
 #[test]
 fn lost_screenshot_request_is_sent_again() {
-    let (mut s, path) = showcase_shot_sim("t1_re_request");
+    let (mut s, path) = showcase_shot_sim("re_request");
     run_until_first_screenshot_cmd(&mut s, 60);
     let mut second_sent = false;
     for _ in 0..12 {
@@ -68,11 +68,11 @@ fn lost_screenshot_request_is_sent_again() {
     assert!(second_sent, "expected a second ViewportCommand::Screenshot within 12 frames after a lost request");
 }
 
-// Test 2: After case 1, inject `Event::Screenshot` with a 1600x1088 `ColorImage`.
+// After a lost request is retried, inject `Event::Screenshot` with a 1600x1088 `ColorImage`.
 // The PNG exists, and `outcome == Written`.
 #[test]
 fn capture_is_written_after_a_lost_request() {
-    let (mut s, path) = showcase_shot_sim("t2_written_after_lost");
+    let (mut s, path) = showcase_shot_sim("written_after_lost");
     run_until_first_screenshot_cmd(&mut s, 60);
     let mut second_sent = false;
     for _ in 0..12 {
@@ -90,10 +90,10 @@ fn capture_is_written_after_a_lost_request() {
     assert_eq!(outcome, ShotOutcome::Written);
 }
 
-// Test 3: Never inject. `outcome == Failed` and the reason starts with `no image after 5 requests`.
+// Never inject an image. `outcome == Failed` and the reason starts with `no image after 5 requests`.
 #[test]
 fn capture_gives_up_with_a_reason_after_five_lost_requests() {
-    let (mut s, path) = showcase_shot_sim("t3_five_lost");
+    let (mut s, path) = showcase_shot_sim("five_lost");
     for _ in 0..260 {
         s.frame(vec![]);
         if s.commands.contains(&egui::ViewportCommand::Close) {
@@ -116,7 +116,7 @@ fn capture_gives_up_with_a_reason_after_five_lost_requests() {
     }
 }
 
-// Test 4 + AC-04 (Controller Ruling 2): Pure `fn failure_line(&ShotOutcome) -> String` starts with
+// Pure `fn failure_line(&ShotOutcome) -> String` starts with
 // `designos: screenshot was not captured: `, and every failure path keeps the exact INFRA prefix and exit code 1.
 #[test]
 fn failure_line_keeps_the_infra_prefix() {
@@ -139,7 +139,7 @@ fn failure_line_keeps_the_infra_prefix() {
     }
 }
 
-// Test 5: Pure image-to-buffer conversion given a mismatched size returns `Err` naming `<w>x<h>` and the byte count.
+// Pure image-to-buffer conversion given a mismatched size returns `Err` naming `<w>x<h>` and the byte count.
 #[test]
 fn malformed_image_is_reported() {
     let err = image_to_rgba(1600, 1088, vec![0u8; 12]).expect_err("mismatched byte count must fail");
@@ -147,7 +147,7 @@ fn malformed_image_is_reported() {
     assert_eq!(err, "the image was malformed (1600x1088, 12 bytes)");
 }
 
-// Test 6: Pure `fn screenshot_viewport(w, h) -> ViewportBuilder` (moved out of `main`):
+// Pure `fn screenshot_viewport(w, h) -> ViewportBuilder` (moved out of `main`):
 // `window_level == Some(AlwaysOnTop)` and `active == Some(false)`.
 #[test]
 fn screenshot_viewport_is_always_on_top() {
@@ -156,7 +156,7 @@ fn screenshot_viewport_is_always_on_top() {
     assert_eq!(vp.active, Some(false));
 }
 
-// Test 6b: Pure watchdog state: `arm` is never called, and 60 s pass in a fake clock: no fire.
+// Pure watchdog state: `arm` is never called, and 60 s pass in a fake clock: no fire.
 // Armed, then no frame for 31 s: fire, with the occluded reason.
 // Frames every 1 s for 60 s: no fire.
 #[test]
@@ -203,7 +203,7 @@ fn late_image_after_lost_request_wins_and_second_image_is_ignored() {
     assert_eq!(px, [0xE3, 0x63, 0x23, 0xFF], "first complete image must win and later images must be ignored");
 }
 
-// Round 2 (§1): The frame flag is set and 31 s elapse. The pure `check` returns `None`.
+// The frame flag is set and 31 s elapse. The pure `check` returns `None`.
 #[test]
 fn watchdog_does_not_fire_while_a_frame_is_running() {
     let mut w = ShotWatchdog::new();
@@ -217,7 +217,7 @@ fn watchdog_does_not_fire_while_a_frame_is_running() {
     );
 }
 
-// Round 2 (§1): Re-arm the clock when the frame ends, so the 30 s count starts after the frame.
+// Re-arm the clock when the frame ends, so the 30 s count starts after the frame.
 #[test]
 fn watchdog_fires_after_30s_without_frames_once_the_frame_ends() {
     let mut w = ShotWatchdog::new();
@@ -230,7 +230,7 @@ fn watchdog_fires_after_30s_without_frames_once_the_frame_ends() {
     assert_eq!(w.check(Duration::from_secs(66)), Some(SHOT_OCCLUDED_REASON), "watchdog must still report occluded 31 s after the frame ended");
 }
 
-// Round 2 (§1): A fired check plus `SHOT_OK` returns no exit. Test through the pure decision function; never call `process::exit`.
+// A fired check plus `SHOT_OK` returns no exit. Test through the pure decision function; never call `process::exit`.
 #[test]
 fn watchdog_does_not_exit_after_the_png_was_written() {
     let mut w = ShotWatchdog::new();
@@ -247,11 +247,11 @@ fn watchdog_does_not_exit_after_the_png_was_written() {
     );
 }
 
-// Round 2 (§2): After a write error, one more `drive_screenshot` pass requests no screenshot and prints nothing.
+// After a write error, one more `drive_screenshot` pass requests no screenshot and prints nothing.
 #[test]
 fn write_failure_stops_further_capture_passes() {
     // 1. Single-PNG write failure (`shell.rs` PNG save arm):
-    let (mut s, path) = showcase_shot_sim("r2_write_fail_png");
+    let (mut s, path) = showcase_shot_sim("write_fail_png");
     // Make `path` an existing directory so `buf.save(&shot.path)` fails with an OS write error.
     std::fs::create_dir_all(&path).expect("create directory at PNG path to force write failure");
     run_until_first_screenshot_cmd(&mut s, 60);
@@ -279,7 +279,7 @@ fn write_failure_stops_further_capture_passes() {
     cleanup(&path);
 
     // 2. Sequence-frame write failure (`shell.rs` sequence frame save arm):
-    let seq_dir = std::env::temp_dir().join(format!("designos_shot_capture_{}_r2_write_fail_seq", std::process::id()));
+    let seq_dir = std::env::temp_dir().join(format!("designos_shot_capture_{}_write_fail_seq", std::process::id()));
     let _ = std::fs::remove_dir_all(&seq_dir);
     std::fs::create_dir_all(seq_dir.join("frame-0000.jpg")).expect("create directory at frame-0000.jpg to force sequence write failure");
     let seq_opts = Options {
@@ -308,7 +308,7 @@ fn write_failure_stops_further_capture_passes() {
     SHOT_WRITE_FAILED.store(false, Ordering::SeqCst);
 }
 
-// Round 2 (§3): Pin the merged exit contract (`exit_code` together with the line chosen per case).
+// Pin the merged exit contract (`exit_code` together with the line chosen per case).
 #[test]
 fn screenshot_exit_contract() {
     // 1. `--select` miss: exits 2 and prints only its own message.
