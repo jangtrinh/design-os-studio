@@ -1,0 +1,340 @@
+{
+  "tag": "v0.7.5",
+  "files": {
+    "crates/designos-app/src/agent_approval_card.rs": {
+      "lines": 344,
+      "items": {
+        "39": {
+          "start_line": "pub fn paint_approval_card(",
+          "item_end": 47,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/canvas/rulers.rs": {
+      "lines": 694,
+      "items": {
+        "100": {
+          "start_line": "pub fn strips(rect: ERect) -> (ERect, ERect) {",
+          "item_end": 106,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/canvas/vector.rs": {
+      "lines": 2104,
+      "items": {
+        "1110": {
+          "start_line": "pub fn toolbar(app: &mut App, ui: &mut egui::Ui, rect: ERect) {",
+          "item_end": 1142,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/comments/pins.rs": {
+      "lines": 142,
+      "items": {
+        "44": {
+          "start_line": "pub fn overlay(app: &mut App, ui: &mut Ui, rect: Rect) {",
+          "item_end": 142,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/comments/thread.rs": {
+      "lines": 330,
+      "items": {
+        "40": {
+          "start_line": "pub fn show(app: &mut App, ctx: &Context, canvas: Rect) -> Option<Shown> {",
+          "item_end": 46,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/dev/compare.rs": {
+      "lines": 195,
+      "items": {
+        "83": {
+          "start_line": "pub fn show(app: &mut App, ctx: &Context) {",
+          "item_end": 195,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/dev/list.rs": {
+      "lines": 290,
+      "items": {
+        "123": {
+          "start_line": "pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {",
+          "item_end": 210,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/dev/mod.rs": {
+      "lines": 372,
+      "items": {
+        "109": {
+          "start_line": "    pub fn set_dev_mode(&mut self, on: bool) {",
+          "item_end": 112,
+          "closing_line": "    }"
+        }
+      }
+    },
+    "crates/designos-app/src/dev/playground.rs": {
+      "lines": 780,
+      "items": {
+        "451": {
+          "start_line": "pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {",
+          "item_end": 576,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/dev/sections.rs": {
+      "lines": 740,
+      "items": {
+        "51": {
+          "start_line": "pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {",
+          "item_end": 114,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/find/panel.rs": {
+      "lines": 472,
+      "items": {
+        "182": {
+          "start_line": "pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {",
+          "item_end": 317,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/history/banner.rs": {
+      "lines": 40,
+      "items": {
+        "9": {
+          "start_line": "pub fn show(app: &mut App, ui: &mut Ui, canvas: Rect) {",
+          "item_end": 40,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/history/session.rs": {
+      "lines": 135,
+      "items": {
+        "37": {
+          "start_line": "    pub fn view_version(&mut self, n: u32) {",
+          "item_end": 60,
+          "closing_line": "    }"
+        }
+      }
+    },
+    "crates/designos-app/src/libraries/modal.rs": {
+      "lines": 454,
+      "items": {
+        "147": {
+          "start_line": "pub fn show(app: &mut App, ctx: &Context) {",
+          "item_end": 170,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/panels/check_designs.rs": {
+      "lines": 631,
+      "items": {
+        "135": {
+          "start_line": "pub fn show(app: &mut App, ctx: &Context) {",
+          "item_end": 322,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/panels/context.rs": {
+      "lines": 246,
+      "items": {
+        "169": {
+          "start_line": "fn show_layer_picker(app: &mut App, ctx: &Context) {",
+          "item_end": 241,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/panels/layers.rs": {
+      "lines": 1338,
+      "items": {
+        "74": {
+          "start_line": "pub fn flatten(doc: &Document, page: NodeId, expanded: &HashSet<NodeId>) -> Vec<Row> {",
+          "item_end": 95,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/panels/left.rs": {
+      "lines": 566,
+      "items": {
+        "61": {
+          "start_line": "pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {",
+          "item_end": 243,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/panels/menus.rs": {
+      "lines": 1235,
+      "items": {
+        "704": {
+          "start_line": "fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {",
+          "item_end": 801,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/panels/right.rs": {
+      "lines": 760,
+      "items": {
+        "11": {
+          "start_line": "pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {",
+          "item_end": 181,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/panels/style_picker.rs": {
+      "lines": 505,
+      "items": {
+        "217": {
+          "start_line": "pub(crate) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: StyleProperty, btn: Rect, menu_right: f32) {",
+          "item_end": 292,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/panels/toolbar.rs": {
+      "lines": 808,
+      "items": {
+        "370": {
+          "start_line": "fn show_dev_mode_toolbar(app: &mut App, ui: &mut Ui, screen: Rect) {",
+          "item_end": 487,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/plugins/ui.rs": {
+      "lines": 231,
+      "items": {
+        "17": {
+          "start_line": "pub fn show(app: &mut App, ctx: &Context) {",
+          "item_end": 227,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/shell.rs": {
+      "lines": 3884,
+      "items": {
+        "1660": {
+          "start_line": "    fn draw_window(&mut self, ui: &mut egui::Ui) {",
+          "item_end": 1946,
+          "closing_line": "    }"
+        }
+      }
+    },
+    "crates/designos-app/src/skills/mod.rs": {
+      "lines": 1517,
+      "items": {
+        "816": {
+          "start_line": "    pub fn show_picker_popover(&mut self, ui: &mut Ui, panel_rect: Rect, anchor_bottom_y: f32) {",
+          "item_end": 1025,
+          "closing_line": "    }"
+        }
+      }
+    },
+    "crates/designos-app/src/styles.rs": {
+      "lines": 851,
+      "items": {
+        "50": {
+          "start_line": "pub fn style_entries(doc: &Document, text: bool) -> Vec<StyleEntry> {",
+          "item_end": 52,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/tabs.rs": {
+      "lines": 2208,
+      "items": {
+        "936": {
+          "start_line": "pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {",
+          "item_end": 1279,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/terminal.rs": {
+      "lines": 14348,
+      "items": {
+        "5872": {
+          "start_line": "pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {",
+          "item_end": 5875,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/variables/popover.rs": {
+      "lines": 240,
+      "items": {
+        "88": {
+          "start_line": "pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {",
+          "item_end": 219,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/variables/view.rs": {
+      "lines": 1848,
+      "items": {
+        "88": {
+          "start_line": "pub fn floating_rect(app: &App, screen: Rect) -> Rect {",
+          "item_end": 94,
+          "closing_line": "}"
+        },
+        "247": {
+          "start_line": "pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {",
+          "item_end": 314,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/variables/widgets.rs": {
+      "lines": 372,
+      "items": {
+        "117": {
+          "start_line": "pub fn pill(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, name: &str, swatch: Option<Color32>, detachable: bool) -> PillResponse {",
+          "item_end": 150,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/widgets/picker.rs": {
+      "lines": 1658,
+      "items": {
+        "737": {
+          "start_line": "pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env) -> (Rect, Out) {",
+          "item_end": 1217,
+          "closing_line": "}"
+        }
+      }
+    },
+    "crates/designos-app/src/widgets/popover.rs": {
+      "lines": 101,
+      "items": {
+        "17": {
+          "start_line": "pub fn show(ctx: &egui::Context, id: Id, anchor: Rect, region: Rect, w: f32, h: f32, title: &str, body: impl FnOnce(&mut Ui, Rect)) -> bool {",
+          "item_end": 50,
+          "closing_line": "}"
+        }
+      }
+    }
+  }
+}

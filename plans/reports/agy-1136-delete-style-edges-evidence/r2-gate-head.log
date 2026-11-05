@@ -1,0 +1,8 @@
+head=df3ed05442a7485fd51e3647270bdad2ccfeb55a branch=jangtrinh/agy-1136-delete-style-edges
+?? plans/reports/agy-1136-delete-style-edges-evidence/r2-gate-head.log
+?? plans/reports/agy-1136-delete-style-edges-evidence/r2-mutant-coupling-ignored.log
+?? plans/reports/agy-1136-delete-style-edges-evidence/r2-mutant-drop-parent-prefix.log
+?? plans/reports/agy-1136-delete-style-edges-evidence/r2-mutant-literal-prefix-compare.log
+?? plans/reports/agy-1136-delete-style-edges-evidence/r2-mutant-wrong-parent-mode.log
+?? plans/reports/agy-1136-delete-style-edges-evidence/r2-null-control.log
+?? plans/reports/agy-1136-delete-style-edges-evidence/r2-red-on-base.log

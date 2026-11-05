@@ -321,11 +321,30 @@ fn silhouette_effects() -> Vec<(&'static str, Effect)> {
         ("background blur", Effect::BackgroundBlur { radius: 6.0, visible: true }),
         (
             "glass",
-            Effect::Glass(GlassEffect { light_angle: 45.0, light_intensity: 0.7, refraction: 0.5, depth: 10.0, dispersion: 0.3, frost: 4.0, visible: true }),
+            Effect::Glass(GlassEffect {
+                light_angle: 45.0,
+                light_intensity: 0.7,
+                refraction: 0.5,
+                depth: 10.0,
+                dispersion: 0.3,
+                frost: 4.0,
+                splay: 0.0,
+                bevel: 0.0,
+                visible: true,
+            }),
         ),
         (
             "noise",
-            Effect::Noise(NoiseEffect { mode: NoiseMode::Multi, size: 1.0, density: 0.5, opacity: 0.5, blend: BlendMode::Normal, seed: 7, visible: true }),
+            Effect::Noise(NoiseEffect {
+                mode: NoiseMode::Multi,
+                size: 1.0,
+                size_y: None,
+                density: 0.5,
+                opacity: 0.5,
+                blend: BlendMode::Normal,
+                seed: 7,
+                visible: true,
+            }),
         ),
     ]
 }

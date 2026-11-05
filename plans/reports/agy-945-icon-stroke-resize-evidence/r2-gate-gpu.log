@@ -1,0 +1,412 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-gpu)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.26s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-4ae097e1783e0ef8)
+
+running 5 tests
+test pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant ... ok
+test geom::tests::canonical_kind_deduplicates_frames_components_and_instances ... ok
+test geom::tests::distinct_vector_paths_do_not_collide_in_shape_hash ... ok
+test geom::tests::shared_pool_deduplicates_repeated_text_and_vectors ... ok
+test geom::tests::mode_switch_rebuilds_style_bound_text_geom_and_draw_color ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/adapter.rs (out/cargo/debug/deps/adapter-36866e84a449ebbf)
+
+running 1 test
+adapter: AdapterInfo { name: "Apple M4 Max", vendor: 0, device: 0, device_type: IntegratedGpu, device_pci_bus_id: "", driver: "", driver_info: "", backend: Metal, subgroup_min_size: 4, subgroup_max_size: 64, transient_saves_memory: true }
+test probe_adapter ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/command_buffer_limit.rs (out/cargo/debug/deps/command_buffer_limit-286210d75a6f4f1f)
+
+running 4 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+500 blurred layers: 501 programs, 1977 render passes in one submission
+600 blurred layers: 601 programs, 2377 render passes in 3 submissions, largest ~2048 command buffers
+test a_frame_past_the_command_buffer_limit_renders_without_device_loss ... ok
+2047 render passes in one submission: device alive
+2048 render passes in one submission: device lost
+test metal_holds_2047_render_passes_in_one_submission_and_loses_the_device_at_2048 ... ok
+test a_frame_just_under_the_command_buffer_limit_renders_without_device_loss ... ok
+test splitting_a_frame_into_submissions_changes_no_pixel ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.52s
+
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 23 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+outside_stroke_imported_disc: mismatch 7.0000% (28 px of 400) at tolerance 8, ssim 0.9964
+outside_stroke_imported_disc: 0.0000% with AA pixels forgiven (0 px)
+test outside_stroke_with_imported_outer_disc_keeps_fill_in_centre ... ok
+dashed_open_line_round_cap: mismatch 1.1667% (56 px of 4800) at tolerance 8, ssim 0.9994
+reverse_z_mask: mismatch 0.0000% (0 px of 6400) at tolerance 4, ssim 1.0000
+auto_layout_reverse_z: mismatch 0.0000% (0 px of 4800) at tolerance 2, ssim 1.0000
+inside_dashed_ellipse_round_cap: mismatch 3.1000% (310 px of 10000) at tolerance 8, ssim 0.9962
+dashed_open_line_round_cap: 0.0000% with AA pixels forgiven (0 px)
+auto_layout_reverse_z: 0.0000% with AA pixels forgiven (0 px)
+dashed_rect_round_cap: mismatch 1.4000% (112 px of 8000) at tolerance 8, ssim 0.9993
+test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+test auto_layout_reverse_z_matches_cpu ... ok
+GPU: Apple M4 Max (Metal)
+inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+reverse_z_mask: 0.0000% with AA pixels forgiven (0 px)
+dashed_rect_round_cap: 0.0000% with AA pixels forgiven (0 px)
+test reverse_z_auto_layout_draws_masked_pattern_behind_heading_matches_cpu ... ok
+radial_non_square: mismatch 0.0000% (0 px of 20000) at tolerance 4, ssim 1.0000
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+radial_non_square: 0.0000% with AA pixels forgiven (0 px)
+test radial_gradient_non_square_matches_cpu ... ok
+GPU: Apple M4 Max (Metal)
+solid_open_line_round_vertex_cap: mismatch 0.4167% (20 px of 4800) at tolerance 8, ssim 0.9997
+thin_inside_dashed_rect: mismatch 0.7955% (42 px of 5280) at tolerance 8, ssim 0.9991
+inside_dashed_ellipse_butt_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+dashed_rect_butt_cap: mismatch 0.0000% (0 px of 8000) at tolerance 8, ssim 1.0000
+simple: mismatch 1.0391% (133 px of 12800) at tolerance 8, ssim 0.9980
+per_side_rounded: mismatch 0.4287% (107 px of 24960) at tolerance 8, ssim 0.9992
+solid_open_line_round_vertex_cap: 0.0000% with AA pixels forgiven (0 px)
+thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+test solid_open_line_round_vertex_cap_renders_round_gpu ... ok
+test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
+dashed_rect_butt_cap: 0.0000% with AA pixels forgiven (0 px)
+inside_dashed_ellipse_butt_cap: 0.0000% with AA pixels forgiven (0 px)
+simple: 0.0000% with AA pixels forgiven (0 px)
+test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... ok
+test simple_shapes ... ok
+per_side_rounded: 0.0761% with AA pixels forgiven (19 px)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test per_side_stroke_rounded_corners_match_cpu ... ok
+alpha_white_20: mismatch 0.0000% (0 px of 1600) at tolerance 2, ssim 1.0000
+unknown_table_children: mismatch 0.0000% (0 px of 6400) at tolerance 2, ssim 1.0000
+dashed_rect_outside_round_cap: mismatch 1.4000% (168 px of 12000) at tolerance 8, ssim 0.9994
+alpha_white_20: 0.0000% with AA pixels forgiven (0 px)
+test translucent_color_variable_with_stored_paint_opacity_matches_cpu ... ok
+unknown_table_children: 0.0000% with AA pixels forgiven (0 px)
+test unknown_layer_children_match_cpu ... ok
+dashed_rect_outside_round_cap: 0.0000% with AA pixels forgiven (0 px)
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+soft_line_break_u2028: mismatch 1.1049% (495 px of 44800) at tolerance 8, ssim 0.9990
+text_shadow_bound_alpha: mismatch 0.0000% (0 px of 30800) at tolerance 8, ssim 0.9996
+text_shadow_bound_alpha: 0.0000% with AA pixels forgiven (0 px)
+test text_drop_shadow_uses_the_bound_colour_alpha_like_cpu ... ok
+soft_line_break_u2028: 0.0335% with AA pixels forgiven (15 px)
+test soft_line_break_u2028_matches_cpu ... ok
+fx: mismatch 0.2361% (595 px of 252000) at tolerance 8, ssim 0.9995
+fx_fallback: mismatch 0.2361% (595 px of 252000) at tolerance 8, ssim 0.9995
+fx: 0.0698% with AA pixels forgiven (176 px)
+test effects_and_blends ... ok
+fx_fallback: 0.0698% with AA pixels forgiven (176 px)
+test cpu_fallback_matches_cpu ... ok
+extreme: mismatch 20.2500% (32400 px of 160000) at tolerance 8, ssim 0.9879
+board_zoom: mismatch 1.1979% (7547 px of 630000) at tolerance 8, ssim 0.9982
+extreme: 20.2450% with AA pixels forgiven (32392 px)
+test extreme_effects_render ... ok
+board: mismatch 1.1045% (8836 px of 800000) at tolerance 8, ssim 0.9986
+board_fallback: mismatch 0.4629% (3703 px of 800000) at tolerance 8, ssim 0.9993
+board_zoom: 0.0049% with AA pixels forgiven (31 px)
+test board_kinds_zoomed_match_cpu ... ok
+render_demo_zoom3: mismatch 0.4232% (4571 px of 1080000) at tolerance 8, ssim 0.9995
+board: 0.0032% with AA pixels forgiven (26 px)
+test board_kinds_match_cpu ... ok
+board_fallback: 0.0000% with AA pixels forgiven (0 px)
+test board_kinds_through_the_cpu_fallback_match_cpu ... ok
+render_demo_zoom3: 0.1880% with AA pixels forgiven (2030 px)
+test render_demo_zoomed ... ok
+render_demo: mismatch 0.4416% (13777 px of 3120000) at tolerance 8, ssim 0.9992
+render_demo: 0.1304% with AA pixels forgiven (4067 px)
+test render_demo ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.07s
+
+     Running tests/full_detail_at_rest.rs (out/cargo/debug/deps/full_detail_at_rest-656ccd39bc4180ee)
+
+running 8 tests
+test interactive_compile_drops_sub_pixel_leaves ... ok
+test refine_compile_keeps_sub_pixel_leaves ... ok
+test interactive_compile_skips_the_children_of_small_containers ... ok
+test interactive_compile_greeks_small_text_into_bars ... ok
+test refine_compile_keeps_the_children_of_small_containers ... ok
+test leaving_the_refine_returns_to_the_shortcuts ... ok
+test refine_compile_draws_the_glyphs_of_small_text ... ok
+test refine_compile_matches_the_headless_reference_draw_for_draw ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/large_file_perf.rs (out/cargo/debug/deps/large_file_perf-c19c8fdc40311fbf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-f861c7a96e084900)
+
+running 14 tests
+test standing_in_the_frame_box_opens_no_extra_program ... ok
+test fill_less_mask_frames_respect_every_program_ceiling ... ok
+test fill_less_mask_frames_stay_within_the_vram_budget ... ok
+test many_fill_less_mask_frames_stay_under_the_default_program_ceiling ... ok
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test refined_interactive_gpu_frame_cuts_by_the_children ... ok
+test the_frame_box_stands_in_for_one_frame_only ... ok
+test a_subpixel_zoomed_out_mask_frame_keeps_its_stand_in ... ok
+test a_built_vector_child_still_cuts_by_its_shape ... ok
+mask-type-vector-zero-fill: mismatch 0.0000% (0 px of 6400) at tolerance 4, ssim 1.0000
+mask-frame-without-fill: mismatch 0.0000% (0 px of 6400) at tolerance 4, ssim 1.0000
+GPU: Apple M4 Max (Metal)
+mask-type-vector-zero-fill: 0.0000% with AA pixels forgiven (0 px)
+mask-frame-without-fill: 0.0000% with AA pixels forgiven (0 px)
+test headless_gpu_matches_the_cpu_for_a_frame_mask_without_fill ... ok
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test a_deferred_child_does_not_paint_the_stand_in_box_over_alpha_already_drawn ... ok
+mask-type-luminance-ramp: mismatch 0.0000% (0 px of 6400) at tolerance 4, ssim 0.9998
+mask-type-luminance-ramp: 0.0000% with AA pixels forgiven (0 px)
+test headless_gpu_matches_cpu_for_alpha_vector_and_luminance_mask_types ... ok
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test a_deferred_vector_child_does_not_empty_the_mask ... ok
+GPU: Apple M4 Max (Metal)
+test a_tiny_zoomed_out_mask_frame_keeps_cutting ... ok
+mask-type-vector-group: mismatch 0.0000% (0 px of 6400) at tolerance 4, ssim 1.0000
+mask-type-vector-group: 0.0000% with AA pixels forgiven (0 px)
+mask-type-vector-boolean-union: mismatch 0.0000% (0 px of 6400) at tolerance 4, ssim 1.0000
+mask-type-vector-boolean-union: 0.0000% with AA pixels forgiven (0 px)
+test gpu_vector_mask_outlines_and_rgb_luminance_match_cpu ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests/program_cap.rs (out/cargo/debug/deps/program_cap-49255a431957e0e4)
+
+running 5 tests
+test interactive_compile_caps_offscreen_programs_at_64 ... ok
+test refine_flag_lifts_the_program_cap ... ok
+test refine_flag_off_again_returns_to_the_cap ... ok
+test headless_compile_of_a_large_doc_is_never_capped ... ok
+GPU: Apple M4 Max (Metal)
+mismatch vs CPU: capped 5.1800%, refined 0.0000%
+test refined_frame_matches_cpu_reference_better_than_capped_frame ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.10s
+
+     Running tests/refine_chunks.rs (out/cargo/debug/deps/refine_chunks-c3dea8e8e42eacf6)
+
+running 12 tests
+test slices_cover_the_top_level_nodes_in_order_and_stay_under_the_node_limit ... ok
+test a_roomy_budget_keeps_the_frame_whole_and_a_supersampled_frame_is_not_cut ... ok
+test the_first_slice_costs_the_nodes_of_that_slice_not_of_the_page ... ok
+test plan_chunks_cuts_a_frame_into_ranges_under_the_budget ... ok
+test warming_ignores_nodes_that_left_the_document ... ok
+test compile_records_the_deferred_nodes_and_warming_builds_them_within_the_budget ... ok
+test a_warm_frame_is_bounded_by_wall_time_and_always_builds_a_node ... ok
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test the_pooled_targets_of_a_slice_are_freed_with_its_last_chunk ... ok
+test a_skipped_chunk_hands_nothing_over ... ok
+retained after the last chunk at 2400x1600: 15360000 bytes (w*h*4 = 15360000)
+test a_finished_refine_retains_the_page_only_and_an_interactive_frame_frees_it ... ok
+test rendered_slice_by_slice_the_page_is_pixel_identical_to_the_whole_compile ... ok
+test chunked_render_is_pixel_identical_to_the_whole_frame ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/refine_vram_budget.rs (out/cargo/debug/deps/refine_vram_budget-994e01c45ec8d322)
+
+running 19 tests
+skipped: set test default_budget_is_512_mib ... ok
+DESIGNOS_REFINE_FIXTURE_FIG to a .fig file to measure the refine on a real document
+test pools_trim_on_a_real_document_when_a_fixture_is_given ... ok
+test one_blurred_node_costs_msaa_resolve_and_two_blur_targets ... ok
+test root_target_is_counted_in_vram_bytes ... ok
+test mask_programs_are_counted_before_the_masked_siblings_are_drawn ... ok
+test bigger_budget_admits_more_programs ... ok
+test headless_compile_stays_uncapped_whatever_the_budget ... ok
+test effect_programs_of_a_node_are_budgeted_together ... ok
+test refine_stops_creating_programs_once_the_budget_is_reached ... ok
+test capped_compile_ignores_the_vram_budget ... ok
+test mask_programs_are_budgeted_before_the_masked_siblings_are_drawn ... ok
+test a_blurred_layer_reserves_its_blur_targets_while_its_children_draw ... ok
+test capped_and_headless_group_compiles_ignore_the_refine_limits ... ok
+test capped_silhouette_subtrees_keep_the_interactive_program_cap ... ok
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test effect_silhouette_subtrees_stay_within_the_vram_budget ... ok
+test pools_trim_unused_targets_after_refine_and_zoom_sequence ... ok
+test effect_silhouette_subtrees_stay_under_the_program_ceiling ... ok
+test frames_at_the_refine_limits_render_on_the_gpu ... ok
+test four_hundred_thousand_tiny_effect_nodes_stay_under_the_program_ceiling ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.61s
+
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 5 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+resized_union: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_imported_vector: mismatch 0.0220% (8 px of 36400) at tolerance 8, ssim 0.9997
+resized_star: mismatch 0.9505% (346 px of 36400) at tolerance 8, ssim 0.9990
+resized_vector_network_stroke: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_imported_shapes: mismatch 1.1566% (421 px of 36400) at tolerance 8, ssim 0.9984
+resized_imported_vector: 0.0000% with AA pixels forgiven (0 px)
+resized_imported_shapes: 0.0000% with AA pixels forgiven (0 px)
+resized_union: 0.0000% with AA pixels forgiven (0 px)
+resized_vector_network_stroke: 0.0000% with AA pixels forgiven (0 px)
+resized_star: 0.0000% with AA pixels forgiven (0 px)
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+test resized_union_matches_cpu ... ok
+test resized_imported_ellipse_and_star_match_cpu ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/shadow_blend_parity.rs (out/cargo/debug/deps/shadow_blend_parity-bcf070f30502ffa8)
+
+running 2 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+shadow-blend-Normal: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-probe-normal: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-Normal: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-probe-normal: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-PassThrough: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-probe-multiply: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-PassThrough: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-probe-multiply: 0.0000% with AA pixels forgiven (0 px)
+test a_multiply_drop_shadow_darkens_the_backdrop_on_the_gpu ... ok
+shadow-blend-Darken: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-Darken: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Multiply: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-Multiply: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-ColorBurn: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-ColorBurn: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-LinearBurn: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-LinearBurn: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Lighten: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 1.0000
+shadow-blend-Lighten: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Screen: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9999
+shadow-blend-Screen: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-ColorDodge: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9999
+shadow-blend-ColorDodge: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-LinearDodge: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9999
+shadow-blend-LinearDodge: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Overlay: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9999
+shadow-blend-Overlay: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-SoftLight: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9999
+shadow-blend-SoftLight: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-HardLight: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-HardLight: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Difference: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9998
+shadow-blend-Difference: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Exclusion: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9999
+shadow-blend-Exclusion: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Hue: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9999
+shadow-blend-Hue: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Saturation: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 1.0000
+shadow-blend-Saturation: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Color: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9999
+shadow-blend-Color: 0.0000% with AA pixels forgiven (0 px)
+shadow-blend-Luminosity: mismatch 0.0000% (0 px of 76800) at tolerance 8, ssim 0.9997
+shadow-blend-Luminosity: 0.0000% with AA pixels forgiven (0 px)
+test cpu_and_gpu_match_for_every_shadow_blend_mode ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.91s
+
+     Running tests/shadow_fillless_fixture.rs (out/cargo/debug/deps/shadow_fillless_fixture-c94fe1135e86a581)
+
+running 2 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+fillless-fixture-pair: mismatch 0.0000% (0 px of 230400) at tolerance 8, ssim 0.9996
+fillless-fixture-pair-behind: mismatch 0.0000% (0 px of 230400) at tolerance 8, ssim 0.9996
+fillless-fixture-pair: 0.0000% with AA pixels forgiven (0 px)
+fillless-fixture-pair-behind: 0.0000% with AA pixels forgiven (0 px)
+test cpu_and_gpu_match_on_the_fixture_pair ... ok
+test cpu_and_gpu_match_on_the_fixture_pair_with_show_behind ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/shadow_silhouette_source.rs (out/cargo/debug/deps/shadow_silhouette_source-239b379538156cad)
+
+running 5 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+sil-own-fill: mismatch 0.0972% (14 px of 14400) at tolerance 4, ssim 0.9995
+sil-hidden-fill: mismatch 0.0833% (12 px of 14400) at tolerance 4, ssim 0.9994
+sil-children-clipped: mismatch 0.0833% (12 px of 14400) at tolerance 4, ssim 0.9996
+sil-children: mismatch 0.0833% (12 px of 14400) at tolerance 4, ssim 0.9994
+sil-stroke-only: mismatch 0.0417% (6 px of 14400) at tolerance 4, ssim 0.9993
+sil-own-fill: 0.0972% with AA pixels forgiven (14 px)
+sil-stroke-only: 0.0417% with AA pixels forgiven (6 px)
+sil-hidden-fill: 0.0833% with AA pixels forgiven (12 px)
+sil-children-clipped: 0.0833% with AA pixels forgiven (12 px)
+sil-children: 0.0833% with AA pixels forgiven (12 px)
+test own_fill_silhouette_matches ... ok
+test hidden_fill_uses_children_on_both ... ok
+test stroke_only_silhouette_matches ... ok
+test fill_less_clipping_frame_uses_children_on_both ... ok
+test fill_less_frame_uses_children_on_both ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/text_hug_box.rs (out/cargo/debug/deps/text_hug_box-34b50f8bdd20c489)
+
+running 2 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test a_two_line_hug_box_holds_its_glyphs_on_the_cpu_and_the_gpu ... ok
+test a_hug_box_holds_the_stand_in_glyphs_and_then_the_glyphs_of_the_face_that_arrives ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+   Doc-tests designos_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

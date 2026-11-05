@@ -1,0 +1,103 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.94s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 9 tests
+test connector_home::tests::connectable_node_rejects_hidden_or_locked_nodes ... ok
+test connector_home::tests::connectable_node_rejects_missing_id_and_accepts_standard_shapes ... ok
+test connector_home::tests::connectable_node_allows_top_level_component_set_component_and_instance_but_rejects_their_descendants ... ok
+test connector_home::tests::connectable_node_rejects_page_connector_and_unknown_kinds ... ok
+test connector_home::tests::connector_home_is_strictly_above_both_ends_so_an_end_is_never_its_own_home ... FAILED
+test connector_home::tests::connector_home_picks_nearest_common_frame_or_section_or_page ... FAILED
+test connector_home::tests::connector_home_climbs_past_group_and_boolean_op ... FAILED
+test connector_home::tests::connector_home_handles_single_attached_end_both_free_and_cross_page_fallback ... FAILED
+test connector_home::tests::connector_home_climbs_out_of_component_component_set_and_instance ... FAILED
+
+failures:
+
+---- connector_home::tests::connector_home_is_strictly_above_both_ends_so_an_end_is_never_its_own_home stdout ----
+
+thread 'connector_home::tests::connector_home_is_strictly_above_both_ends_so_an_end_is_never_its_own_home' (11452576) panicked at crates/designos-doc/src/connector_home.rs:278:9:
+assertion `left == right` failed
+  left: NodeId(1)
+ right: NodeId(2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- connector_home::tests::connector_home_picks_nearest_common_frame_or_section_or_page stdout ----
+
+thread 'connector_home::tests::connector_home_picks_nearest_common_frame_or_section_or_page' (11452577) panicked at crates/designos-doc/src/connector_home.rs:264:9:
+assertion `left == right` failed
+  left: NodeId(1)
+ right: NodeId(3)
+
+---- connector_home::tests::connector_home_climbs_past_group_and_boolean_op stdout ----
+
+thread 'connector_home::tests::connector_home_climbs_past_group_and_boolean_op' (11452574) panicked at crates/designos-doc/src/connector_home.rs:296:9:
+assertion `left == right` failed: climbs past Group to enclosing Frame
+  left: NodeId(1)
+ right: NodeId(2)
+
+---- connector_home::tests::connector_home_handles_single_attached_end_both_free_and_cross_page_fallback stdout ----
+
+thread 'connector_home::tests::connector_home_handles_single_attached_end_both_free_and_cross_page_fallback' (11452575) panicked at crates/designos-doc/src/connector_home.rs:337:9:
+assertion `left == right` failed
+  left: NodeId(1)
+ right: NodeId(2)
+
+---- connector_home::tests::connector_home_climbs_out_of_component_component_set_and_instance stdout ----
+
+thread 'connector_home::tests::connector_home_climbs_out_of_component_component_set_and_instance' (11452573) panicked at crates/designos-doc/src/connector_home.rs:320:9:
+assertion `left == right` failed: climbs out of Component
+  left: NodeId(1)
+ right: NodeId(2)
+
+
+failures:
+    connector_home::tests::connector_home_climbs_out_of_component_component_set_and_instance
+    connector_home::tests::connector_home_climbs_past_group_and_boolean_op
+    connector_home::tests::connector_home_handles_single_attached_end_both_free_and_cross_page_fallback
+    connector_home::tests::connector_home_is_strictly_above_both_ends_so_an_end_is_never_its_own_home
+    connector_home::tests::connector_home_picks_nearest_common_frame_or_section_or_page
+
+test result: FAILED. 4 passed; 5 failed; 0 ignored; 0 measured; 792 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-doc)
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-mcp)
+   Compiling designos-fonts v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-fonts)
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-render)
+   Compiling designos-docs v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-docs)
+   Compiling designos-svg v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-svg)
+   Compiling designos-export v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-export)
+   Compiling designos-webcapture v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-webcapture)
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-fig)
+   Compiling designos-library v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.24s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5b9db1a7285515c4)
+
+running 1 test
+test tools::batch::tests::mcp_connect_creates_homed_connector_between_batch_handles ... FAILED
+
+failures:
+
+---- tools::batch::tests::mcp_connect_creates_homed_connector_between_batch_handles stdout ----
+
+thread 'tools::batch::tests::mcp_connect_creates_homed_connector_between_batch_handles' (11454836) panicked at crates/designos-mcp/src/tools/batch.rs:4777:9:
+assertion `left == right` failed: new connector must be inserted last (topmost) in connector_home
+  left: Some(NodeId(4))
+ right: Some(NodeId(5))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tools::batch::tests::mcp_connect_creates_homed_connector_between_batch_handles
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 385 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`

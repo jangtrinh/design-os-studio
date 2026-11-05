@@ -1,0 +1,59 @@
+=== RED BASE COMMIT: cda82e17 (production code at cda82e17) ===
+=== RED CHECK on cda82e17: agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ===
+
+running 1 test
+test agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ... FAILED
+
+failures:
+
+---- agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation stdout ----
+
+thread 'agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation' (65827337) panicked at crates/designos-app/src/agent_composer.rs:3651:9:
+assertion `left == right` failed: dispatch_figma_ai_prompt after a Gemini dialog hold must stay queued while flush_paused is set
+  left: Some(Written)
+ right: Some(Queued)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.13s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.89s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+error: test failed, to rerun pass `-p designos-app --bin designos`
+exit_code=101
+=== RED CHECK on cda82e17: agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ===
+
+running 1 test
+test agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ... FAILED
+
+failures:
+
+---- agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end stdout ----
+
+thread 'agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end' (65828147) panicked at crates/designos-app/src/agent_composer.rs:3767:9:
+image text must stay absent after READY_QUIET_OUTPUT when no real PTY output or turn-end arrived: "\u{1b}[200~hookless turn one\u{1b}[201~\r\u{1b}[200~Image task 10: Remove background.\u{1b}[201~\r"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.37s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.34s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+error: test failed, to rerun pass `-p designos-app --bin designos`
+exit_code=101

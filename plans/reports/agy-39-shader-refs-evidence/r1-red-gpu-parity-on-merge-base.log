@@ -1,0 +1,14 @@
+# merge base 6fae028cf, plus crates/designos-gpu/tests/shadow_silhouette_source.rs: cargo check -p designos-gpu --tests --locked
+6fae028cf feat(effects): glass splay and bevel, noise and texture X/Y size, kept through .fig and REST (#38) (#1593)
+error[E0599]: no variant or associated item named `Shader` found for enum `designos_doc::PaintKind` in the current scope
+  --> crates/designos-gpu/tests/shadow_silhouette_source.rs:97:49
+error[E0433]: failed to resolve: use of undeclared type `ShaderRef`
+  --> crates/designos-gpu/tests/shadow_silhouette_source.rs:97:56
+error[E0599]: no variant or associated item named `Shader` found for enum `designos_doc::PaintKind` in the current scope
+   --> crates/designos-gpu/tests/shadow_silhouette_source.rs:136:55
+error[E0433]: failed to resolve: use of undeclared type `ShaderRef`
+   --> crates/designos-gpu/tests/shadow_silhouette_source.rs:136:62
+error[E0599]: no variant named `Shader` found for enum `designos_doc::Effect`
+   --> crates/designos-gpu/tests/shadow_silhouette_source.rs:137:40
+error[E0433]: failed to resolve: use of undeclared type `ShaderRef`
+   --> crates/designos-gpu/tests/shadow_silhouette_source.rs:137:57

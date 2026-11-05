@@ -1,0 +1,35 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.37s
+     Running tests/connector_file_formats.rs (out/cargo/debug/deps/connector_file_formats-eb441d6ced87140c)
+
+running 8 tests
+test fig_design_export_vector_cap_geometry_delta ... ok
+test fig_import_does_not_read_connector_type_as_line_style ... ok
+test fig_import_without_carrier_keeps_a_vector ... ok
+test fig_board_export_still_writes_connector_node ... ok
+test fig_keeps_unmodelled_magnets_and_text_midpoint_and_control_points ... ok
+test fig_design_export_keeps_label_as_group ... FAILED
+test fig_design_export_writes_vector_with_caps_and_carrier ... ok
+test fig_design_round_trip_restores_live_connector ... ok
+
+failures:
+
+---- fig_design_export_keeps_label_as_group stdout ----
+
+thread 'fig_design_export_keeps_label_as_group' (3693309) panicked at crates/designos-fig/tests/connector_file_formats.rs:174:5:
+assertion `left == right` failed: labelled connector exports as GROUP
+  left: String("VECTOR")
+ right: "GROUP"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    fig_design_export_keeps_label_as_group
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+error: test failed, to rerun pass `-p designos-fig --test connector_file_formats`
+EXIT:101

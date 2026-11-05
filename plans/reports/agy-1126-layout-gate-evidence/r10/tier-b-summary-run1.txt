@@ -1,0 +1,3 @@
+SKIP x-board: not applicable in Tier B (Tier A only: blank board shows no kit content; Tier A captures the same surface)
+SKIP x-deck: not applicable in Tier B (Tier A only: blank deck shows no kit content; Tier A captures the same surface)
+ERROR: case kit-agents: check 2 failed: 'spawns': true case added 0 lines to /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/out/tier-b-8dfaee93/invocations.log

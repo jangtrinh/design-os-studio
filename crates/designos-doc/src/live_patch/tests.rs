@@ -820,7 +820,7 @@ fn apply_spec_library_import_with_styles_variables_images_and_slots_replays_and_
         card.style_refs.insert("fill".into(), "Brand".into());
         card.variables.bindings.insert("itemSpacing".into(), "v1".into());
         card.fills.push(Paint {
-            kind: PaintKind::Image { image_ref: "dot_hash".into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: "dot_hash".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: BlendMode::Normal,

@@ -1,0 +1,21 @@
+## head 2145b877 branch jangtrinh/agy-1575-resize-strokes-live
+## null control (no mutation): sh /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/fix-1588-r2/test-b.sh
+test vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+## null control rc=0
+## mutation applied to crates/designos-render/src/vectorops.rs
+diff --git a/crates/designos-render/src/vectorops.rs b/crates/designos-render/src/vectorops.rs
+index 3cbf874d..73d6c8bd 100644
+--- a/crates/designos-render/src/vectorops.rs
++++ b/crates/designos-render/src/vectorops.rs
+@@ -450 +450 @@ fn cap_polygons(sub: &d::Path, w: f32, start_cap: d::StrokeCap, end_cap: d::Stro
+-    cap_at(last[3], Vec2::new(-e_in.x, -e_in.y), end_cap);
++    cap_at(last[3], e_in, end_cap);
+## mutant run: sh /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/fix-1588-r2/test-b.sh
+test vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends ... FAILED
+thread 'vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends' (90292965) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:788:5:
+CPU Square: ink on y = 20 spans Some((4, 59)), expected Some((4, 65))
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+error: test failed, to rerun pass `-p designos-render --test resized_vector_stroke_weight`
+## mutant rc=101 (non-zero = killed)
+## reverted; git status:

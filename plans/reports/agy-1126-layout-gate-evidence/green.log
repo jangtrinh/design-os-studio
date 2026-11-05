@@ -1,0 +1,46 @@
+=== Step 1 GREEN (H1-H7, H9-H11) ===
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 10 tests
+test cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host ... ok
+test cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands ... ok
+test cli_resolve::tests::every_resolver_uses_resolve_in ... ok
+test cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case ... ok
+test cli_resolve::tests::version_warmer_resolves_on_the_calling_thread ... ok
+test cli_resolve::tests::hermetic_pty_env_is_stub_path_only ... ok
+test cli_resolve::tests::hermetic_mode_writes_the_acknowledgement ... ok
+test cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags ... ok
+test cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement ... ok
+test cli_resolve::tests::hermetic_resolver_census ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2965 filtered out; finished in 0.09s
+
+=== Step 2 GREEN (H8) ===
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test cli_resolve::tests::stub_scripts_behave ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2975 filtered out; finished in 2.89s
+
+=== Step 3 GREEN (1b, 8e, vector_toolbar_uses_widgets_record) ===
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test widgets::tests::record_hook_lists_every_name_of_the_pass ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2978 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test shell::tests::agent_a11y::shell_new_uses_launch_defaults_for_its_own_mode ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2978 filtered out; finished in 0.40s
+
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test canvas::vector::tests::vector_toolbar_uses_widgets_record ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2978 filtered out; finished in 0.01s

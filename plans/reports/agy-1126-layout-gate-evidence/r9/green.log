@@ -1,0 +1,50 @@
+=== Rust layout_unchanged + panel_presets (GREEN) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.74s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-453cabe8bb4c7115)
+
+running 18 tests
+test shell::tests::layout_unchanged::panel_presets::cli_accepts_panel_comments ... ok
+test shell::tests::layout_unchanged::cases_json_has_no_old_fixture ... ok
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... ok
+test shell::tests::layout_unchanged::prep_helpers_populate_missing_starter_states ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_without_a_reacting_selection_picks_the_first_reaction_in_paint_order ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_opens_the_selected_nodes_first_reaction ... ok
+test shell::tests::layout_unchanged::panel_presets::comments_panel_opens_the_first_unresolved_thread_in_paint_order ... ok
+test shell::tests::layout_unchanged::panel_presets::comments_panel_with_no_thread_opens_comment_mode_only ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_with_no_reaction_opens_the_prototype_tab_only ... ok
+test shell::tests::layout_unchanged::sim_loads_starter_and_seed_library_at_seeds_starter_not_showcase ... ok
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 3522 filtered out; finished in 9.01s
+
+
+=== Python test_layout_baseline_capture (GREEN) ===
+test_argv0_outside_stub_dir_fails (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_dry_run_prints_import_clone_prep_and_capture_without_spawning (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_empty_named_map_fails (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_env_is_built_with_env_i_and_four_markers (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_g6_builds_crop_and_ignore_list_from_fixture_layout_json (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_infra_retry_then_exit_3 (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_kit_imported_once_and_cloned_per_case_with_headless_prep (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_missing_kit_exits_nonzero (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_missing_or_foreign_hermetic_active_fails (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_owned_infra_exits_1 (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_round9_rulings_dry_run_and_summary_counts (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+test_spawns_case_with_empty_log_fails (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 11.781s
+
+OK

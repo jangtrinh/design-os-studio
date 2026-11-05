@@ -1,0 +1,9 @@
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+open_mixed_join_square_caps: mismatch 0.0165% (6 px of 36400) at tolerance 8, ssim 1.0000
+open_mixed_join_round_caps: mismatch 0.0495% (18 px of 36400) at tolerance 8, ssim 0.9998
+open_mixed_join_square_caps: 0.0000% with AA pixels forgiven (0 px)
+open_mixed_join_round_caps: 0.0000% with AA pixels forgiven (0 px)
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.30s

@@ -1,0 +1,31 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.01s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0825e6398c47afa8)
+
+running 4 tests
+test board::connect::tests::deleting_a_target_leaves_a_free_end_and_undo_reattaches ... ok
+test board::connect::tests::locked_connector_still_reroutes ... ok
+test board::connect::tests::reroute_runs_in_a_design_file ... ok
+test board::connect::tests::studio_move_of_end_node_undoes_in_one_step ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4380 filtered out; finished in 0.01s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.02s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0825e6398c47afa8)
+
+running 2 tests
+test live_patch_apply::close_save_classification_tests::live_patch_already_rerouted_connector_is_noop ... ok
+test live_patch_apply::close_save_classification_tests::live_patch_move_reroutes_attached_connectors ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4382 filtered out; finished in 0.01s
+
+EXIT=0

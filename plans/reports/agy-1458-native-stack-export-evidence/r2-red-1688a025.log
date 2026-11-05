@@ -1,0 +1,206 @@
+# red run: new tests against src at 1688a025; crates/designos-export/src unchanged:        0 modified files
+red_rc=101
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+     Running tests/native_stack_export.rs (out/cargo/debug/deps/native_stack_export-bf2213274ac9527a)
+running 12 tests
+test null_control_frames_without_abs_children_or_fill_fixed_pairs_export_identically ... ok
+test fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames ... ok
+test absolute_children_before_the_first_in_flow_child_paint_behind_the_stack ... FAILED
+test column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them ... FAILED
+test variable_hidden_grid_child_exports_where_it_was_without_an_overlay ... FAILED
+test variable_hidden_child_stays_in_the_stack_flow ... FAILED
+test frame_with_only_absolute_children_is_sized_to_the_frame ... FAILED
+test grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place ... FAILED
+test row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them ... FAILED
+test hugging_frame_with_absolute_child_does_not_fill_its_container ... FAILED
+test grid_absolute_child_before_the_cells_paints_behind_the_grid ... FAILED
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... ok
+failures:
+---- absolute_children_before_the_first_in_flow_child_paint_behind_the_stack stdout ----
+thread 'absolute_children_before_the_first_in_flow_child_paint_behind_the_stack' (82264583) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+missing, or out of order: "VStack(alignment: .leading, spacing: 8) {"
+ZStack(alignment: .topLeading) {
+    VStack(alignment: .leading, spacing: 8) {
+        Rectangle()
+            .fill(Color(red: 0.2, green: 0.302, blue: 0.4))
+            .frame(width: 80, height: 20)
+        Rectangle()
+            .fill(Color(red: 0.302, green: 0.4, blue: 0.502))
+            .frame(width: 80, height: 20)
+    }
+        .padding(12)
+    Rectangle()
+        .fill(Color(red: 0.063, green: 0.125, blue: 0.188))
+        .frame(width: 192, height: 112)
+        .offset(x: 4, y: 4)
+    Rectangle()
+        .fill(Color(red: 0.902, green: 0.2, blue: 0.2))
+        .frame(width: 20, height: 20)
+        .offset(x: 170, y: 4)
+}
+    .frame(width: 200, height: 120, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+---- column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them stdout ----
+thread 'column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them' (82264584) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+missing, or out of order: "    }\n        .padding(16)\n        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)\n"
+ZStack(alignment: .topLeading) {
+    VStack(alignment: .leading) {
+        Rectangle()
+            .fill(Color(red: 0.102, green: 0.2, blue: 0.302))
+            .frame(width: 100, height: 24)
+        Spacer()
+        Rectangle()
+            .fill(Color(red: 0.2, green: 0.302, blue: 0.4))
+            .frame(width: 100, height: 32)
+    }
+        .padding(16)
+    Rectangle()
+        .fill(Color(red: 0.902, green: 0.2, blue: 0.2))
+        .frame(width: 24, height: 16)
+        .offset(x: 260, y: 12)
+}
+    .frame(width: 300, height: 200, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+---- variable_hidden_grid_child_exports_where_it_was_without_an_overlay stdout ----
+thread 'variable_hidden_grid_child_exports_where_it_was_without_an_overlay' (82264594) panicked at crates/designos-export/tests/native_stack_export.rs:656:5:
+assertion `left == right` failed
+  left: "ZStack(alignment: .topLeading) {\n    Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {\n        GridRow {\n            Rectangle()\n                .fill(Color(red: 0.2, green: 0.4, blue: 0.8))\n                .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)\n                .frame(width: 95, height: 40, alignment: .topLeading)\n            Rectangle()\n                .fill(Color(red: 0.302, green: 0.502, blue: 0.902))\n                .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)\n                .frame(width: 95, height: 40, alignment: .topLeading)\n        }\n    }\n        .padding(10)\n    Rectangle()\n        .fill(Color(red: 0.502, green: 0.502, blue: 0.502))\n        .frame(width: 60, height: 20)\n        .offset(x: 14, y: 70)\n}\n    .frame(width: 220, height: 100, alignment: .topLeading)\n    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))\n    .clipShape(RoundedRectangle(cornerRadius: 8))"
+ right: "Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {\n    GridRow {\n        Rectangle()\n            .fill(Color(red: 0.2, green: 0.4, blue: 0.8))\n            .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)\n            .frame(width: 95, height: 40, alignment: .topLeading)\n        Rectangle()\n            .fill(Color(red: 0.302, green: 0.502, blue: 0.902))\n            .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)\n            .frame(width: 95, height: 40, alignment: .topLeading)\n    }\n    Rectangle()\n        .fill(Color(red: 0.502, green: 0.502, blue: 0.502))\n        .frame(width: 60, height: 20)\n}\n    .padding(10)\n    .frame(width: 220, height: 100, alignment: .topLeading)\n    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))\n    .clipShape(RoundedRectangle(cornerRadius: 8))"
+---- variable_hidden_child_stays_in_the_stack_flow stdout ----
+thread 'variable_hidden_child_stays_in_the_stack_flow' (82264593) panicked at crates/designos-export/tests/native_stack_export.rs:557:5:
+assertion `left == right` failed
+  left: "ZStack(alignment: .topLeading) {\n    VStack(alignment: .leading) {\n        Rectangle()\n            .fill(Color(red: 0.102, green: 0.2, blue: 0.302))\n            .frame(width: 100, height: 24)\n        Spacer()\n        Rectangle()\n            .fill(Color(red: 0.2, green: 0.302, blue: 0.4))\n            .frame(width: 100, height: 32)\n    }\n        .padding(16)\n    Rectangle()\n        .fill(Color(red: 0.4, green: 0.4, blue: 0.4))\n        .frame(width: 80, height: 20)\n        .offset(x: 16, y: 88)\n}\n    .frame(width: 300, height: 200, alignment: .topLeading)\n    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))\n    .clipShape(RoundedRectangle(cornerRadius: 8))"
+ right: "VStack(alignment: .leading) {\n    Rectangle()\n        .fill(Color(red: 0.102, green: 0.2, blue: 0.302))\n        .frame(width: 100, height: 24)\n    Spacer()\n    Rectangle()\n        .fill(Color(red: 0.2, green: 0.302, blue: 0.4))\n        .frame(width: 100, height: 32)\n    Spacer()\n    Rectangle()\n        .fill(Color(red: 0.4, green: 0.4, blue: 0.4))\n        .frame(width: 80, height: 20)\n}\n    .padding(16)\n    .frame(width: 300, height: 200, alignment: .topLeading)\n    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))\n    .clipShape(RoundedRectangle(cornerRadius: 8))"
+---- frame_with_only_absolute_children_is_sized_to_the_frame stdout ----
+thread 'frame_with_only_absolute_children_is_sized_to_the_frame' (82264587) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+missing, or out of order: "}\n    .frame(width: 240, height: 160, alignment: .topLeading)"
+ZStack(alignment: .topLeading) {
+    Rectangle()
+        .fill(Color(red: 0.902, green: 0.2, blue: 0.2))
+        .frame(width: 10, height: 10)
+        .offset(x: 10, y: 10)
+    Rectangle()
+        .fill(Color(red: 0.2, green: 0.6, blue: 0.902))
+        .frame(width: 10, height: 10)
+        .offset(x: 200, y: 120)
+}
+    .frame(width: 240, height: 160)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+---- grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place stdout ----
+thread 'grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place' (82264589) panicked at crates/designos-export/tests/native_stack_export.rs:615:5:
+a hidden chip keeps no stale offset:
+ZStack(alignment: .topLeading) {
+    Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {
+        GridRow {
+            Rectangle()
+                .fill(Color(red: 0.2, green: 0.4, blue: 0.8))
+                .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+                .frame(width: 95, height: 40, alignment: .topLeading)
+            Rectangle()
+                .fill(Color(red: 0.302, green: 0.502, blue: 0.902))
+                .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+                .frame(width: 95, height: 40, alignment: .topLeading)
+        }
+    }
+        .padding(10)
+    Rectangle()
+        .fill(Color(red: 0.902, green: 0.2, blue: 0.2))
+        .frame(width: 28, height: 16)
+        .offset(x: 180, y: 6)
+    Rectangle()
+        .fill(Color(red: 0.502, green: 0.502, blue: 0.502))
+        .frame(width: 60, height: 20)
+        .offset(x: 14, y: 70)
+}
+    .frame(width: 220, height: 100, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+---- row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them stdout ----
+thread 'row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them' (82264592) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+missing, or out of order: "    }\n        .padding(12)\n        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)\n"
+ZStack(alignment: .topLeading) {
+    HStack(spacing: 10) {
+        Rectangle()
+            .fill(Color(red: 0.2, green: 0.502, blue: 0.8))
+            .frame(width: 60, height: 36)
+        Rectangle()
+            .fill(Color(red: 0.302, green: 0.6, blue: 0.902))
+            .frame(width: 60, height: 36)
+    }
+        .padding(12)
+    Rectangle()
+        .fill(Color(red: 0.949, green: 0.302, blue: 0.2))
+        .frame(width: 18, height: 18)
+        .offset(x: 248, y: 8)
+}
+    .frame(width: 280, height: 80, alignment: .leading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+---- hugging_frame_with_absolute_child_does_not_fill_its_container stdout ----
+thread 'hugging_frame_with_absolute_child_does_not_fill_its_container' (82264590) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+missing, or out of order: "    }\n        .padding(12)\n        .frame(maxWidth: .infinity, alignment: .topLeading)\n"
+ZStack(alignment: .topLeading) {
+    VStack(alignment: .leading, spacing: 8) {
+        Rectangle()
+            .fill(Color(red: 0.2, green: 0.302, blue: 0.4))
+            .frame(width: 150, height: 24)
+        Rectangle()
+            .fill(Color(red: 0.302, green: 0.4, blue: 0.502))
+            .frame(width: 150, height: 16)
+    }
+        .padding(12)
+    Rectangle()
+        .fill(Color(red: 0.902, green: 0.2, blue: 0.2))
+        .frame(width: 16, height: 16)
+        .offset(x: 158, y: 2)
+}
+    .frame(width: 200, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+---- grid_absolute_child_before_the_cells_paints_behind_the_grid stdout ----
+thread 'grid_absolute_child_before_the_cells_paints_behind_the_grid' (82264588) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+missing, or out of order: "Grid(alignment: .topLeading"
+ZStack(alignment: .topLeading) {
+    Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {
+        GridRow {
+            Rectangle()
+                .fill(Color(red: 0.2, green: 0.4, blue: 0.8))
+                .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+                .frame(width: 95, height: 40, alignment: .topLeading)
+            Rectangle()
+                .fill(Color(red: 0.302, green: 0.502, blue: 0.902))
+                .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+                .frame(width: 95, height: 40, alignment: .topLeading)
+        }
+    }
+        .padding(10)
+    Rectangle()
+        .fill(Color(red: 0.063, green: 0.125, blue: 0.188))
+        .frame(width: 212, height: 92)
+        .offset(x: 4, y: 4)
+    Rectangle()
+        .fill(Color(red: 0.902, green: 0.2, blue: 0.2))
+        .frame(width: 28, height: 16)
+        .offset(x: 180, y: 6)
+}
+    .frame(width: 220, height: 100, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+failures:
+    absolute_children_before_the_first_in_flow_child_paint_behind_the_stack
+    column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them
+    frame_with_only_absolute_children_is_sized_to_the_frame
+    grid_absolute_child_before_the_cells_paints_behind_the_grid
+    grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place
+    hugging_frame_with_absolute_child_does_not_fill_its_container
+    row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them
+    variable_hidden_child_stays_in_the_stack_flow
+    variable_hidden_grid_child_exports_where_it_was_without_an_overlay
+test result: FAILED. 3 passed; 9 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.02s
+error: test failed, to rerun pass `-p designos-export --test native_stack_export`

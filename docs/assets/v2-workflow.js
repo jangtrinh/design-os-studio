@@ -3,7 +3,7 @@
    box, and this module only writes inside the section. The three 0.6.0 chapter stills crossfade on one stage,
    one third of the progress per chapter; the chapter copy and the sheet tint are pure functions of that same
    progress. Motion mode only (no reduced-motion preference, viewport of 800px or more); everywhere else the
-   static markup stands: three chapters, one 0.6.0 capture each. */
+   static markup stands: three chapters, one 0.7.5 capture each. */
 (function () {
   'use strict';
   var V2 = window.V2 = window.V2 || {};

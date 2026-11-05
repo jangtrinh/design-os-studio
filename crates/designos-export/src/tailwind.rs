@@ -221,6 +221,17 @@ fn size_class(prefix: &str, d: Dim, var: Option<&Variable>) -> Option<String> {
     }
 }
 
+fn stroke_width_class(prefix: &str, px: f32, var: Option<&Variable>) -> String {
+    if let Some(v) = var {
+        return format!("{prefix}-[length:{}]", css_var(v));
+    }
+    match px as i32 {
+        1 if px == 1.0 => prefix.to_string(),
+        2 | 4 | 8 if px.fract() == 0.0 => format!("{prefix}-{:.0}", px),
+        _ => format!("{prefix}-[{}px]", num(px)),
+    }
+}
+
 fn pad_classes(doc: &Document, n: &Node, al: &AutoLayout) -> Vec<String> {
     let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     let var = |i: usize| bound(doc, n, keys[i]);
@@ -345,10 +356,15 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     }
     if let Some(al) = own_al {
         if al.direction == LayoutDirection::Grid {
+            let col_tracks = resolved_grid_col_tracks(doc, n, al);
             c.push("grid".into());
-            c.push(template_class("grid-cols", &al.grid_col_tracks, grid_column_count(al), STOCK_GRID_COLS));
-            if al.grid_rows > 0 {
-                c.push(template_class("grid-rows", &al.grid_row_tracks, al.grid_rows as usize, STOCK_GRID_ROWS));
+            c.push(template_class("grid-cols", &col_tracks, grid_column_count(al), STOCK_GRID_COLS));
+            let (row_tracks, row_count) = resolved_grid_row_tracks(doc, n, al);
+            if row_count > 0 {
+                c.push(template_class("grid-rows", &row_tracks, row_count, STOCK_GRID_ROWS));
+            }
+            if grid_packs_auto_rows(doc, n, al) {
+                c.push("content-start".into());
             }
             let col_gap = al.item_spacing;
             let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
@@ -369,7 +385,11 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
                     c.push(spaced("gap-y", row_gap, row_var));
                 }
             }
-            c.extend(pad_classes(doc, n, al));
+            let pads = pad_classes(doc, n, al);
+            if !pads.is_empty() || al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) {
+                c.push("box-border".into());
+            }
+            c.extend(pads);
         } else {
             c.push("flex".into());
             if al.direction == LayoutDirection::Vertical {
@@ -450,26 +470,55 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     if let Some(t) = text_of(n) {
         text_classes(doc, n, t, &mut c);
     } else if !matches!(n.kind, NodeKind::Line) {
-        let visible: Vec<(usize, &Paint)> = n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0).collect();
+        let visible: Vec<(usize, &Paint)> =
+            n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))).collect();
         if let Some((i, p)) = visible.last() {
             c.push(color_class(doc, n, &format!("fills/{i}"), "bg", p, false));
         }
     }
     // stroke
-    if let Some(p) = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0).filter(|_| n.stroke.weight > 0.0 && text_of(n).is_none()) {
+    let side_keys = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
+    let has_stroke_width = n.stroke.weight > 0.0
+        || n.stroke.side_weights.is_some()
+        || bound(doc, n, "strokeWeight").is_some()
+        || side_keys.iter().any(|key| bound(doc, n, key).is_some());
+    if let Some(p) = n
+        .stroke
+        .paints
+        .iter()
+        .find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
+        .filter(|_| text_of(n).is_none() && has_stroke_width)
+    {
         let w = n.stroke.weight;
-        let side = if matches!(n.kind, NodeKind::Line) { "border-t" } else { "border" };
-        c.push(match w as i32 {
-            1 if w == 1.0 => side.to_string(),
-            2 | 4 | 8 if w.fract() == 0.0 => format!("{side}-{}", w as i32),
-            _ => format!("{side}-[{}px]", num(w)),
-        });
+        let side_prefixes = ["border-t", "border-r", "border-b", "border-l"];
+        let stored = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
+        let has_side_width = n.stroke.side_weights.is_some() || side_keys.iter().any(|key| bound(doc, n, key).is_some());
+        if has_side_width && n.stroke.align == StrokeAlign::Inside && !matches!(n.kind, NodeKind::Line) {
+            for ((key, prefix), px) in side_keys.iter().zip(side_prefixes).zip(stored) {
+                if px > 0.0 || bound(doc, n, key).is_some() {
+                    c.push(stroke_width_class(prefix, px, bound(doc, n, key)));
+                }
+            }
+        } else {
+            let w = n.stroke.weight;
+            let side = if matches!(n.kind, NodeKind::Line) { "border-t" } else { "border" };
+            if w > 0.0 || bound(doc, n, "strokeWeight").is_some() {
+                c.push(stroke_width_class(side, w, bound(doc, n, "strokeWeight")));
+            }
+        }
         if n.stroke.dashes.iter().any(|d| *d > 0.0) {
             c.push("border-dashed".into());
         }
         c.push(color_class(doc, n, "strokes/0", "border", p, false));
         if n.stroke.align != StrokeAlign::Inside {
-            c.push(format!("outline-offset-[{}px]", if n.stroke.align == StrokeAlign::Center { num(-w / 2.0) } else { "0".into() }));
+            let offset = match n.stroke.align {
+                StrokeAlign::Center => {
+                    bound(doc, n, "strokeWeight").map(|v| format!("calc(-0.5*{})", css_var(v))).unwrap_or_else(|| format!("{}px", num(-w / 2.0)))
+                }
+                StrokeAlign::Outside => "0px".into(),
+                StrokeAlign::Inside => unreachable!(),
+            };
+            c.push(format!("outline-offset-[{offset}]"));
         }
     }
     // shape
@@ -533,7 +582,7 @@ pub(crate) fn instance_attrs(doc: &Document, n: &Node) -> String {
 
 fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out, jsx: bool) {
     let Some(n) = doc.get(id) else { return };
-    if !n.visible {
+    if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
     let attr = if jsx { "className" } else { "class" };
@@ -646,6 +695,206 @@ mod tests {
     }
 
     #[test]
+    fn bound_stroke_weight_exports_tailwind_width_token() {
+        let mut d = Document::new("stroke");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["stroke".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "stroke".into(),
+            Variable {
+                id: "stroke".into(),
+                name: "Stroke/Width".into(),
+                collection: "tokens".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(6.0))].into(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 2.0;
+        n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
+        let id = d.insert(page, n).unwrap();
+        let out = tailwind_for(&d, id);
+        assert!(out.contains("border-[length:var(--Stroke-Width)]"), "stored width must not leak into Tailwind: {out}");
+        assert!(!out.contains("border-2"), "stored width must not leak into Tailwind: {out}");
+    }
+
+    #[test]
+    fn zero_stored_stroke_width_with_binding_is_exported_to_tailwind() {
+        let mut d = Document::new("stroke-zero");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["stroke".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "stroke".into(),
+            Variable {
+                id: "stroke".into(),
+                name: "Stroke/Width".into(),
+                collection: "tokens".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(6.0))].into(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 0.0;
+        n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
+        let id = d.insert(page, n).unwrap();
+        let out = tailwind_for(&d, id);
+        assert!(out.contains("border-[length:var(--Stroke-Width)]"), "bound width must not be dropped: {out}");
+        assert!(!out.contains("border-0"), "zero stored width must not leak into Tailwind: {out}");
+    }
+
+    #[test]
+    fn bound_side_stroke_weights_export_tailwind_side_width_tokens() {
+        let mut d = Document::new("stroke-sides");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["top".into(), "right".into(), "bottom".into(), "left".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for (id, name, value) in [("top", "Stroke/Top", 6.0), ("right", "Stroke/Right", 7.0), ("bottom", "Stroke/Bottom", 8.0), ("left", "Stroke/Left", 9.0)] {
+            d.variables.insert(
+                id.into(),
+                Variable {
+                    id: id.into(),
+                    name: name.into(),
+                    collection: "tokens".into(),
+                    kind: VariableKind::Number,
+                    values: [("default".into(), VariableValue::Number(value))].into(),
+                    description: String::new(),
+                    scopes: vec![],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 2.0;
+        n.stroke.side_weights = Some([2.0, 3.0, 4.0, 5.0]);
+        for (key, var) in [("strokeTopWeight", "top"), ("strokeRightWeight", "right"), ("strokeBottomWeight", "bottom"), ("strokeLeftWeight", "left")] {
+            n.variables.bindings.insert(key.into(), var.into());
+        }
+        let id = d.insert(page, n).unwrap();
+        let out = tailwind_for(&d, id);
+        for want in [
+            "border-t-[length:var(--Stroke-Top)]",
+            "border-r-[length:var(--Stroke-Right)]",
+            "border-b-[length:var(--Stroke-Bottom)]",
+            "border-l-[length:var(--Stroke-Left)]",
+        ] {
+            assert!(out.contains(want), "missing {want}: {out}");
+        }
+        assert!(!out.contains("border-2"), "stored width must not leak into Tailwind: {out}");
+    }
+
+    #[test]
+    fn bound_center_stroke_uses_dynamic_outline_offset_and_not_side_classes() {
+        let mut d = Document::new("stroke-center");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["stroke".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "stroke".into(),
+            Variable {
+                id: "stroke".into(),
+                name: "Stroke/Width".into(),
+                collection: "tokens".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(6.0))].into(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 2.0;
+        n.stroke.side_weights = Some([2.0, 3.0, 4.0, 5.0]);
+        n.stroke.align = StrokeAlign::Center;
+        n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
+        let id = d.insert(page, n).unwrap();
+        let out = tailwind_for(&d, id);
+        assert!(out.contains("border-[length:var(--Stroke-Width)]"), "{out}");
+        assert!(out.contains("outline-offset-[calc(-0.5*var(--Stroke-Width))]"), "{out}");
+        assert!(!out.contains("border-t-"), "center strokes use one outline: {out}");
+        assert!(!out.contains("border-r-"), "center strokes use one outline: {out}");
+    }
+
+    #[test]
     fn golden_grid_tracks_placement_and_gaps() {
         let mut d = Document::new("grid");
         let page = d.add_page("p");
@@ -681,7 +930,7 @@ mod tests {
         n1.layout_child.row_span = 1;
         d.insert(g, n1).unwrap();
 
-        let expected = "<div class=\"grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 w-[480px] h-[200px]\">\n  <div class=\"col-start-2 col-span-2 row-start-1 w-[200px] h-20\"></div>\n</div>";
+        let expected = "<div class=\"grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] content-start gap-x-4 gap-y-6 box-border px-4 py-3 w-[480px] h-[200px]\">\n  <div class=\"col-start-2 col-span-2 row-start-1 w-[200px] h-20\"></div>\n</div>";
         assert_eq!(tailwind_for(&d, g), expected);
     }
 
@@ -747,7 +996,7 @@ mod tests {
         assert_eq!(size, Vec2::new(180.0, 10.0), "the solver sizes the columns 100, 40 and 40 and the rows at their tallest child");
         let html = tailwind_for(&d, grid);
         let t = tokens(&html, 0);
-        for want in ["grid", "grid-cols-3", "grid-rows-2", "w-[180px]", "h-2.5"] {
+        for want in ["grid", "grid-cols-[100px_40px_40px]", "grid-rows-2", "w-[180px]", "h-2.5"] {
             assert!(t.iter().any(|c| c == want), "{want} missing in {html}");
         }
         assert!(!t.iter().any(|c| c.contains("max") || c.contains("auto")), "{html}");

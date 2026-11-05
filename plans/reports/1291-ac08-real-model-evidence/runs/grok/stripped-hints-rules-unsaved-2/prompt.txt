@@ -1,0 +1,1 @@
+Use only the designos MCP tools for design work (no shell, no file copying). In the current document, add a frame named Draft; do not save it yet. Then open other.designos from the workspace and tell me the names of the frames in it. When you are done, or if you cannot finish, write your final message to me in answer.md in the current directory.

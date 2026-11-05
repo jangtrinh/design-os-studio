@@ -1,0 +1,21 @@
+1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+idle=0
+/dev/disk3s1s1   926Gi    12Gi   121Gi     9%    459k  1.3G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.24s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test panels::properties::tests::render_headless_kit_panel_evidence_when_requested ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4209 filtered out; finished in 31.49s
+
+render_rc=0
+-rw-r--r--@  1 jangtrinh  staff  129846 Nov  2 21:29 1468-lock-aspect-off.png
+-rw-r--r--@  1 jangtrinh  staff  131476 Nov  2 21:29 1468-lock-aspect-on.png
+-rw-r--r--@  1 jangtrinh  staff  259820 Nov  2 21:29 1468-lock-aspect-panel.png
+-rw-r--r--@  1 jangtrinh  staff  130457 Nov  2 23:26 lock-aspect-off.png
+-rw-r--r--@  1 jangtrinh  staff  132199 Nov  2 23:26 lock-aspect-on.png
+-rw-r--r--@  1 jangtrinh  staff  261157 Nov  2 23:26 lock-aspect-panel.png

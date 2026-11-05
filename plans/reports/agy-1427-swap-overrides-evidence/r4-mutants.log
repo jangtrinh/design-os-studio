@@ -1,0 +1,102 @@
+=== MUTANT R-AXIS-SYNC (filter: r3_m1_nested_slot_widened_by_outer_instance) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.12s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::r3_m1_nested_slot_widened_by_outer_instance' (43268819) panicked at crates/designos-doc/src/components.rs:5359:9:
+assertion `left == right` failed: nested slot widened by outer instance keeps width 280 and takes new main height 40
+  left: Vec2 { x: 280.0, y: 32.0 }
+ right: Vec2 { x: 280.0, y: 40.0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::r3_m1_nested_slot_widened_by_outer_instance ... FAILED
+
+failures:
+
+failures:
+    components::tests::r3_m1_nested_slot_widened_by_outer_instance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+
+MUTANT R-AXIS-SYNC: exit=101 (KILLED)
+=== MUTANT R-COPYFIELD-SWAP-GUARD (filter: probe_p2_swap_drops_override_on_type_mismatch) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.95s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::probe_p2_swap_drops_override_on_type_mismatch' (43269408) panicked at crates/designos-doc/src/components.rs:5298:9:
+a frame must not take the vector's outline as its fill_geometry
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::probe_p2_swap_drops_override_on_type_mismatch ... FAILED
+
+failures:
+
+failures:
+    components::tests::probe_p2_swap_drops_override_on_type_mismatch
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+
+MUTANT R-COPYFIELD-SWAP-GUARD: exit=101 (KILLED)
+=== MUTANT R-COPYFIELD-BASE (filter: r3_copy_field_size_on_imported_shapes_after_main_resize) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.08s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::r3_copy_field_size_on_imported_shapes_after_main_resize' (43269876) panicked at crates/designos-doc/src/components.rs:5248:9:
+after resizing the main from 10 to 24 and syncing, instance fill_geometry / stroke_geometry must match the main (24 px, not 10 px); stale: [("rect", Some((0.0, 0.0, 10.0, 10.0)), None), ("ellipse", Some((0.0, 0.0, 10.0, 10.0)), None), ("star", Some((0.0, 0.0, 10.0, 10.0)), None)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::r3_copy_field_size_on_imported_shapes_after_main_resize ... FAILED
+
+failures:
+
+failures:
+    components::tests::r3_copy_field_size_on_imported_shapes_after_main_resize
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+
+MUTANT R-COPYFIELD-BASE: exit=101 (KILLED)
+=== MUTANT R-M2 (filter: r4_top_level_swap_does_not_carry_diff_derived_overrides) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.11s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::r4_top_level_swap_does_not_carry_diff_derived_overrides' (43270456) panicked at crates/designos-doc/src/components.rs:5922:9:
+top-level swap must not carry diff-derived overrides onto Comp/B (R-M2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::r4_top_level_swap_does_not_carry_diff_derived_overrides ... FAILED
+
+failures:
+
+failures:
+    components::tests::r4_top_level_swap_does_not_carry_diff_derived_overrides
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+
+MUTANT R-M2: exit=101 (KILLED)

@@ -1,0 +1,98 @@
+$ cargo test -p designos-app --bin designos --locked
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.16s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 4228 tests
+test agent_busy_frames::field_diff_tests::ac01_ac04_measure_on_a_real_file ... ignored, opt-in real-file benchmark: set DESIGNOS_BENCH_FILE
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-approval-channels-test/ce080c9725c213bd/approve-hook.sh: line 92: /Users/jangtrinh/Library/Application Support/designos/auto-allow/ce080c9725c213bd/auto-allow.jsonl: Is a directory
+test agent_session_files::codex_probe_tests::probe_make_session_folder ... ignored, run by the Codex sandbox probe script
+test agent_session_files::codex_probe_tests::probe_write_session_files ... ignored, run by the Codex sandbox probe script
+test check_designs::tests::instances::measure_mirror_and_large_page_audit_perf ... ignored, release perf
+test check_designs::tests::scale::a_large_detached_frame_does_not_stall_one_slice ... ignored, release perf
+test check_designs::tests::scale::a_text_after_a_large_group_does_not_stall_one_slice ... ignored, release perf
+test check_designs::tests::scale::each_slice_respects_budget_on_112k_page ... ignored, release perf
+test decks::export::tests::write_demo_pdf_preview ... ignored, writes review artifacts only when explicitly requested
+test io::tests::pen_clone_budget_warning_reaches_the_caller_and_the_toast_text ... ignored, allocates the full 2M-node clone budget; run with --ignored
+
+running 1 test
+
+running 1 test
+test live_sync_tests::mcp_apply_spec_on_a_real_file_keeps_every_screen ... ignored, needs a real design file in DESIGNOS_LIVE_SYNC_FIG
+test plugins::store::tests::real_registry_install ... ignored, Requires explicit DESIGNOS_PLUGINS_TOKEN and access to the private registry
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4227 filtered out; finished in 12.39s
+
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4227 filtered out; finished in 12.79s
+
+test history::tests::the_version_history_preset_keeps_all_nine_versions_at_every_minute_of_the_hour has been running for over 60 seconds
+test shell::tests::chrome_census::chrome_census_print ... ignored
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_never_reaches_the_terminal_while_an_overlay_is_open has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_reaches_the_terminal_again_once_the_overlay_is_closed has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_closes_the_open_overlay_and_never_reaches_the_terminal has been running for over 60 seconds
+test shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required ... FAILED
+test shell::tests::fast_drag_transform::a_gesture_ends_at_the_release_position_however_the_frames_are_cut has been running for over 60 seconds
+test shell::tests::gpu_screenshot_wait::no_frame_of_the_settle_is_one_a_disturbance_can_turn_into_a_capped_capture has been running for over 60 seconds
+test terminal::tests::zz_let_background_launches_finish ... ignored, only the real-CLI launch check runs this, last, in a child process
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+
+failures:
+
+---- shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required stdout ----
+
+thread 'shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required' (80654851) panicked at crates/designos-app/src/shell/tests/close_human_dirty.rs:47:85:
+library save close: Object {"code": String("EDITOR_NOT_NOTIFIED"), "error": Object {"code": String("EDITOR_NOT_NOTIFIED"), "error_kind": String("retryable"), "message": String("The editor did not close the tab in time."), "next_step": String("The close was cancelled and the document stayed open. Make sure the editor is running and showing the tab, then call designos_close_document again."), "path": String(""), "received": Number(472948604495986689), "safe_to_retry": Bool(true)}, "error_kind": String("retryable"), "message": String("The editor did not close the tab in time."), "next_step": String("The close was cancelled and the document stayed open. Make sure the editor is running and showing the tab, then call designos_close_document again."), "path": String(""), "received": Number(472948604495986689), "safe_to_retry": Bool(true)}
+
+---- vecops::tests::two_deferred_text_commands_both_convert_in_order stdout ----
+
+thread 'vecops::tests::two_deferred_text_commands_both_convert_in_order' (80718911) panicked at crates/designos-app/src/vecops.rs:1882:9:
+both texts still waiting for slow fonts
+
+
+failures:
+    shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required
+    vecops::tests::two_deferred_text_commands_both_convert_in_order
+
+test result: FAILED. 4213 passed; 2 failed; 13 ignored; 0 measured; 0 filtered out; finished in 392.98s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+app_rc=101
+test agent_session_files::fallback_set_aside_tests::the_fallback_only_lists_and_a_folder_swapped_for_a_link_loses_nothing_that_is_not_studios_to_remove ... ok
+test agent_session_files::open_race_tests::a_link_swapped_in_again_before_every_attempt_is_refused_as_a_link ... ok
+test agent_session_files::poll_readers_tests::a_link_swapped_in_for_the_events_log_is_not_tailed ... ok
+test agent_session_files::session_io_tests::a_folder_swapped_for_a_link_after_it_was_opened_still_receives_the_write ... ok
+test agent_session_files::tailer_link_tests::a_link_swapped_in_for_the_patch_log_does_not_reset_what_was_read ... ok
+test agent_stop::tests::nested_spec_flags_without_a_run_id_get_the_agent_tab_run_id_and_explicit_ones_keep_theirs ... ok
+test canvas::interact::tests::double_click_drills_down_nested_containers_then_enters_vector_edit ... ok
+test agent_session_files::inner_link_race_tests::no_byte_lands_in_the_target_of_a_link_swapped_in_while_studio_rewrites_the_session_files ... ok
+test dev::playground::tests::a_nested_instance_is_the_playground_target ... ok
+test dev::playground::tests::a_nested_instance_keeps_what_its_card_customised_while_a_prop_is_edited ... ok
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... ok
+test layout::solver_parity_tests::nested_container_resized_by_parent_fill_resolves_its_own_children ... ok
+test layout::text_refit_tests::nested_auto_layout_hug_height_follows_the_inner_wrapped_text ... ok
+test ops::tests::resize_to_fit_nested_selection_fits_deepest_container_before_outer_container ... ok
+test panels::components::props_panel_tests::swapped_slot_follows_new_main_height_edit_in_app ... ok
+test proto::player::tests::actions_run_in_order_and_nested_conditionals_are_bounded ... ok
+test proto::player::tests::click_on_an_instance_swaps_it_and_stays_swapped ... ok
+test proto::player::tests::navigating_to_a_nested_layer_goes_to_its_frame ... ok
+test shell::tests::click_selection::click_nested_label_with_nothing_selected_selects_top_frame_child ... ok
+test shell::tests::click_selection::click_nested_layer_inside_section_frame_selects_direct_child_of_section_frame ... ok
+test shell::tests::click_selection::comment_pin_inside_nested_frame_attaches_to_nested_layer ... ok
+test shell::tests::click_selection::cmd_marquee_over_nested_container_selects_leaf_layers_without_ancestors ... ok
+test shell::tests::click_selection::eyedropper_shift_click_samples_deep_nested_token_and_vector_edit_exits_on_nested_sibling ... ok
+test shell::tests::click_selection::shift_marquee_over_frame_with_nested_selection_adds_only_matching_layers ... ok
+test shell::tests::click_selection::shift_click_toggles_matching_nested_layer_across_frames ... ok
+test shell::tests::click_selection::shift_marquee_with_nested_selection_toggles_only_matching_layers_and_caches_candidates ... ok
+test shell::tests::click_selection::shift_marquee_with_direct_child_selected_extends_to_siblings_and_plain_marquee_hits_nested_frame ... ok
+test shell::tests::components::slot_preferred_picker_tells_same_named_components_apart_by_id ... ok
+test shell::tests::dev::a_nested_frame_keeps_the_dev_pill_because_it_has_no_label_badge ... ok
+test shell::tests::duplicate_order::a_nested_layer_is_copied_inside_its_own_parent ... ok
+test shell::tests::expose_nested_instances::reset_all_changes_counts_nested_values_only_while_the_nested_instance_is_exposed ... ok
+test shell::tests::expose_nested_instances::reset_all_changes_takes_back_a_variant_edit_made_from_the_outer_instance ... ok
+test shell::tests::expose_nested_instances::same_named_nested_instances_have_their_own_expose_toggles_and_property_rows ... ok
+test shell::tests::expose_nested_instances::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose ... ok
+test theme::tests::nested_radii_are_concentric ... ok
+test util::tests::world_aabb_of_nested ... ok

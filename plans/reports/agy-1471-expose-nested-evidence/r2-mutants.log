@@ -1,0 +1,34 @@
+# null control on 96209831 (clean tree): git status --short ->
+$ cargo test -p designos-doc --lib --locked
+test result: ok. 733 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.44s
+rc=done
+
+# mutant (i): group key without the occurrence index
+-            path.push((cn.name.clone(), occurrence));
++            path.push((cn.name.clone(), 0 * occurrence));
+$ cargo test -p designos-doc --lib --locked
+test components::tests::same_named_nested_instances_in_one_component_are_exposed_one_by_one ... FAILED
+test components::tests::same_named_nested_instances_connect_across_variants_by_their_position_among_same_names ... FAILED
+thread 'components::tests::same_named_nested_instances_in_one_component_are_exposed_one_by_one' (80428470) panicked at crates/designos-doc/src/components.rs:7115:9:
+assertion `left == right` failed: each same-named nested instance is its own row
+  left: [NodeId(10)]
+ right: [NodeId(10), NodeId(13)]
+thread 'components::tests::same_named_nested_instances_connect_across_variants_by_their_position_among_same_names' (80428469) panicked at crates/designos-doc/src/components.rs:7167:9:
+assertion `left == right` failed: two Icons per variant make two rows
+  left: 1
+ right: 2
+test result: FAILED. 731 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.19s
+restored; git status --short:
+
+# null control before mutant (ii): clean tree (git status --short empty), same 733 tests passed as above
+# mutant (ii): the top gate removed again
+-        if top {
++        if true || top {
+$ cargo test -p designos-doc --lib --locked
+test components::tests::nested_variant_values_do_not_switch_a_nested_instance_while_expose_is_off ... FAILED
+thread 'components::tests::nested_variant_values_do_not_switch_a_nested_instance_while_expose_is_off' (80435945) panicked at crates/designos-doc/src/components.rs:7194:9:
+assertion `left == right` failed: a nested variant value is inert until the nested instance is swapped
+  left: Some(NodeId(5))
+ right: Some(NodeId(2))
+test result: FAILED. 732 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.76s
+restored; git status --short:

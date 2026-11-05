@@ -20,6 +20,10 @@ use std::{
 pub const MAX_RULES_TOKENS: usize = 6_000;
 pub const MAX_RULES_CHARS: usize = MAX_RULES_TOKENS * 4;
 
+/// Characters the committed pack must leave unused under [`MAX_RULES_CHARS`] so a sibling
+/// change can add rules without hitting the generator cap.
+pub const RULES_HEADROOM_CHARS: usize = 1_000;
+
 /// Raw workflow template (`crates/designos-mcp/rules/workflow.md`).
 pub const WORKFLOW_TEMPLATE: &str = include_str!("../rules/workflow.md");
 
@@ -42,6 +46,7 @@ pub const WRITE_TOOLS: &[&str] = &[
     "designos_redo",
     "designos_open_file",
     "designos_new_document",
+    "designos_close_document",
     "designos_import_web_capture",
     "designos_lint_fix",
 ];
@@ -154,8 +159,7 @@ impl EnabledToolsConfig {
         let canon = canonical_tool_name(tool_name);
         ToolError::new(ErrorCode::ToolDisabled, "", format!("Tool '{canon}' is disabled in this session."))
             .with_received(json!(canon))
-            .with_next_step(format!("Ask the user to enable {canon} in mcp-config.json, then restart."))
-            .with_safe_to_retry(true)
+            .with_next_step(format!("Stop; ask the user to enable {canon} in mcp-config.json."))
     }
 }
 
@@ -277,7 +281,7 @@ pub fn generate_rules_pack_with_inputs(
     render_nodespec_schema_section(&mut out, schemas, &active_names);
 
     // 4. Per-call issues block (E15-12) and structured error/retry rules (E15-5) (§3.1)
-    render_issues_and_errors_section(&mut out, &active_names, has_write_tools);
+    render_issues_and_errors_section(&mut out, has_write_tools);
 
     // 5. Design quality & anti-generic rules (§3.3)
     let quality_body = strip_leading_html_comment(design_quality_md).trim();
@@ -457,17 +461,21 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
     let opt_str = if opt.is_empty() { String::new() } else { format!(" (optional: {})", opt.join(", ")) };
     // `TOOL_DISABLED` applies to every tool and is described once in the error-recovery section.
     let errors = tool_error_codes(name).iter().copied().filter(|code| *code != "`TOOL_DISABLED`").collect::<Vec<_>>().join(", ");
-    let example = tool_worked_example(name);
+    // Every argument of the listing is optional and the Args line names them: a `{}` example would only cost budget.
+    let example = (name != "designos_docs_list").then(|| tool_worked_example(name));
 
     out.push_str(&format!("### `{name}`\n"));
     out.push_str(&format!("- **Purpose:** {}\n", purpose_summary(desc)));
     out.push_str(&format!("- **Args:** required: {req_str}{opt_str}\n"));
     out.push_str(&format!("- **Errors:** {errors}\n"));
-    out.push_str(&format!("- **Example:** `{example}`\n\n"));
+    match example {
+        Some(example) => out.push_str(&format!("- **Example:** `{example}`\n\n")),
+        None => out.push('\n'),
+    }
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 100;
+const MAX_PURPOSE_CHARS: usize = 92;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -495,6 +503,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`NODE_NOT_FOUND`",
             "`NOT_A_CONTAINER`",
             "`VALUE_OUT_OF_RANGE`",
+            "`UNSUPPORTED_NODE_KIND`",
             "`UNKNOWN_VARIABLE`",
             "`VARIABLE_TYPE_MISMATCH`",
             "`AMBIGUOUS_VARIABLE`",
@@ -532,9 +541,16 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_set_in_progress" => {
             &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`IN_PROGRESS_TARGET_NOT_ROOT`", "`NODE_IN_PROGRESS_BY_OTHER_RUN`", "`TOOL_DISABLED`"]
         }
-        "designos_export_fig_file" => {
-            &["`INVALID_ARGUMENTS`", "`INVALID_NAME`", "`NAME_TOO_LONG`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`INTERNAL_ERROR`", "`TOOL_DISABLED`"]
-        }
+        "designos_export_fig_file" => &[
+            "`INVALID_ARGUMENTS`",
+            "`INVALID_NAME`",
+            "`NAME_TOO_LONG`",
+            "`UNSUPPORTED_EXTENSION`",
+            "`PATH_OUTSIDE_WORKSPACE`",
+            "`FILE_EXISTS`",
+            "`INTERNAL_ERROR`",
+            "`TOOL_DISABLED`",
+        ],
         "designos_query_xpath" => &["`INVALID_ARGUMENTS`", "`INVALID_SELECTOR`", "`NODE_NOT_FOUND`", "`CURSOR_STALE`", "`RULE_UNAVAILABLE`", "`TOOL_DISABLED`"],
         "designos_lint" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_guidelines" => &["`INVALID_ARGUMENTS`", "`UNKNOWN_TOPIC`", "`TOPIC_NOT_AVAILABLE`", "`TOOL_DISABLED`"],
@@ -544,13 +560,24 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_open_file" => {
             &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
         }
-        "designos_save_file" => &["`INVALID_ARGUMENTS`", "`INVALID_NAME`", "`NAME_TOO_LONG`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`TOOL_DISABLED`"],
+        "designos_save_file" => &[
+            "`INVALID_ARGUMENTS`",
+            "`PATH_REQUIRED`",
+            "`INVALID_NAME`",
+            "`NAME_TOO_LONG`",
+            "`UNSUPPORTED_EXTENSION`",
+            "`PATH_OUTSIDE_WORKSPACE`",
+            "`FILE_EXISTS`",
+            "`TOOL_DISABLED`",
+        ],
+        "designos_close_document" => &["`INVALID_ARGUMENTS`", "`PATH_REQUIRED`", "`UNSAVED_CHANGES`", "`TOOL_DISABLED`"],
         "designos_render_png" => &[
             "`INVALID_ARGUMENTS`",
             "`INVALID_NAME`",
             "`NAME_TOO_LONG`",
             "`NODE_NOT_FOUND`",
             "`VALUE_OUT_OF_RANGE`",
+            "`UNSUPPORTED_EXTENSION`",
             "`PATH_OUTSIDE_WORKSPACE`",
             "`FILE_EXISTS`",
             "`TOOL_DISABLED`",
@@ -558,6 +585,10 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_new_document" => &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
         "designos_get_metadata" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_libraries" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
+        "designos_docs_list" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`CURSOR_STALE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"],
+        "designos_docs_read" => {
+            &["`INVALID_ARGUMENTS`", "`MISSING_FIELD`", "`VALUE_OUT_OF_RANGE`", "`CURSOR_STALE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
+        }
         "designos_get_screenshot" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_search_design_system" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_design_context" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TOOL_DISABLED`"],
@@ -572,6 +603,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_get_document" => r#"{}"#,
         "designos_get_metadata" => r#"{"node_id":1,"depth":3}"#,
         "designos_get_libraries" => r#"{}"#,
+        "designos_docs_read" => r#"{"page":"spec/checkout.md"}"#,
         "designos_list_nodes" => r#"{"parent_id":1,"limit":50}"#,
         "designos_get_node" => r#"{"node_id":2}"#,
         "designos_get_screenshot" => r#"{"node_id":2,"scale":2.0}"#,
@@ -585,7 +617,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_reply_comment" => r#"{"thread_id":"t1","text":"Updated to $easeui.text.primary","resolved":true}"#,
         "designos_resolve_comment" => r#"{"thread_id":"t1","resolved":true}"#,
         "designos_apply_spec" => {
-            r#"{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","layout":{"direction":"column","gap":12,"padding":[20,20,20,20]},"children":[{"kind":"text","name":"Label","text":"Net Revenue","font_size":13},{"kind":"text","name":"Value","text":"$148,920","font_size":28,"font_weight":600}]}}"#
+            r#"{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","children":[{"kind":"text","name":"Label","text":"Net Revenue"},{"kind":"text","name":"Value","text":"$148,920"}]}}"#
         }
         "designos_export_spec" => r#"{"node_id":2}"#,
         "designos_set_dev_status" => r#"{"node_id":2,"status":"ready","annotation":"Semantic tokens"}"#,
@@ -602,8 +634,9 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_configure_session" => r#"{"issues":{"mode":"preset","preset":"agent","max_items":25}}"#,
         "designos_open_file" => r#"{"path":"design.designos","discard_changes":false}"#,
         "designos_save_file" => r#"{"path":"design.designos","overwrite":true}"#,
+        "designos_close_document" => r#"{"unsaved":"save"}"#,
         "designos_render_png" => r#"{"node_id":2,"path":"preview.png","scale":2.0}"#,
-        "designos_new_document" => r#"{"name":"Fintech Workspace","discard_changes":true}"#,
+        "designos_new_document" => r#"{"name":"Fintech Workspace"}"#,
         "designos_search_design_system" => r#"{"query":"button","kinds":["component"],"limit":10}"#,
         "designos_get_design_context" => r#"{"node_id":2,"language":"css"}"#,
         "designos_lint_fix" => r#"{"page_id":1,"rules":["default-layer-name"]}"#,
@@ -613,11 +646,10 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
 }
 
 fn render_nodespec_schema_section(out: &mut String, schemas: &SpecSchemas, active_tools: &BTreeSet<String>) {
-    out.push_str("## Declarative `NodeSpec` Reference (Generated from Schema)\n\n");
-    if active_tools.contains("designos_apply_spec") {
-        out.push_str("Used by `designos_apply_spec`, `designos_export_spec`, and `$DESIGNOS_LIVE_SPEC`.\n\n");
-    } else {
-        out.push_str("Declarative scene-graph specification for DESIGN:OS Studio documents (`$DESIGNOS_LIVE_SPEC`).\n\n");
+    out.push_str("## `NodeSpec` Reference\n\n");
+    // With `designos_apply_spec` on, the schema's own first line already says which tools use the spec.
+    if !active_tools.contains("designos_apply_spec") {
+        out.push_str("Declarative spec for `$DESIGNOS_LIVE_SPEC`.\n\n");
     }
 
     render_object_schema_table(out, "NodeSpec", &schemas.node_spec);
@@ -695,21 +727,13 @@ fn summarize_schema_type(prop: &Value) -> String {
     "object".to_string()
 }
 
-fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<String>, has_write_tools: bool) {
+fn render_issues_and_errors_section(out: &mut String, has_write_tools: bool) {
     out.push_str("## Per-Call `issues` Block & Error Recovery\n\n");
     if has_write_tools {
-        out.push_str(
-            "- **Per-call `issues` block (E15-12):** Mutating responses attach `issues: {total, new_in_this_call, truncated, items, issues_skipped_rules}` with `{rule_id, severity, node_id, node_path, message, fix_hint, auto_fixable}`. Resolve `new_in_this_call > 0` before continuing.\n",
-        );
-        if active_tools.contains("designos_configure_session") {
-            out.push_str(
-                "- **Session lint tuning:** Use `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false` when bulk-loading scaffolding.\n",
-            );
-        }
+        out.push_str("- **Per-call `issues`:** Writes attach `issues`. Fix `new_in_this_call > 0` first.\n");
     }
     out.push_str(
-        "- **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.\n\
-         - **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).\n\n",
+        "- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error too. `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
     );
 }
 
@@ -827,6 +851,37 @@ mod tests {
     use designos_doc::Document;
 
     #[test]
+    fn rules_pack_names_every_error_kind() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        for kind in crate::tools::errors::ErrorKind::ALL {
+            let clause = format!("`{}` =", kind.as_str());
+            assert!(pack.contains(&clause), "rules pack must define error_kind {} as `{clause} ...`", kind.as_str());
+        }
+    }
+
+    /// The one-retry bound: an agent that follows `retryable` retries once, not forever.
+    #[test]
+    fn rules_pack_bounds_the_retry_to_once() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("`retryable` = fix and retry once"), "step 7 must bound the retry");
+    }
+
+    #[test]
+    fn per_tool_error_lists_name_the_unsupported_codes_the_tool_returns() {
+        let has = |tool: &str, code: &str| tool_error_codes(tool).contains(&format!("`{code}`").as_str());
+        assert!(has("designos_create_node", "UNSUPPORTED_NODE_KIND"));
+        for tool in ["designos_save_file", "designos_render_png", "designos_export_fig_file"] {
+            assert!(has(tool, "UNSUPPORTED_EXTENSION"), "{tool}");
+        }
+    }
+
+    #[test]
+    fn rules_pack_says_stop_and_ask_the_user_on_needs_human() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("stop and ask the user"), "rules pack must tell the agent to stop and ask the user on needs_human");
+    }
+
+    #[test]
     fn disabling_a_tool_removes_its_section() {
         let mut enabled: BTreeSet<String> = crate::server::tools().into_iter().map(|t| t.name.to_string()).collect();
         assert!(enabled.remove("designos_render_png"));
@@ -898,6 +953,17 @@ mod tests {
             .expect("CRLF inputs must normalize to LF and stay within the 6000-token budget");
         assert!(!from_crlf.contains('\r'), "generated rules pack must not contain carriage returns");
         assert_eq!(from_crlf, GENERATED_RULES_MD);
+    }
+
+    #[test]
+    fn generated_rules_pack_keeps_one_thousand_chars_of_headroom() {
+        let chars = GENERATED_RULES_MD.chars().count();
+        let limit = MAX_RULES_CHARS - RULES_HEADROOM_CHARS;
+        let cut = chars.saturating_sub(limit);
+        assert!(
+            chars <= limit,
+            "generated rules.md is {chars} chars; cut {cut} chars to keep {RULES_HEADROOM_CHARS} of the {MAX_RULES_CHARS}-char budget free"
+        );
     }
 
     /// The section of the rules pack for `tool`, from its heading to the next one.
@@ -1341,7 +1407,8 @@ mod tests {
 
         let disabled_err = EnabledToolsConfig::tool_disabled_error("designos_create_node").to_json_value();
         assert_eq!(disabled_err["error"]["code"], "TOOL_DISABLED");
-        assert_eq!(disabled_err["error"]["safe_to_retry"], true);
+        assert_eq!(disabled_err["error"]["safe_to_retry"], false);
+        assert_eq!(disabled_err["error"]["error_kind"], "needs_human");
         assert!(disabled_err["error"]["next_step"].as_str().unwrap().contains("designos_create_node"));
     }
 }

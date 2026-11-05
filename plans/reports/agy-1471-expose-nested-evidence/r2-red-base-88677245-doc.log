@@ -1,0 +1,83 @@
+warning: /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/base-r2/crates/designos-app/Cargo.toml: file `/private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/base-r2/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+error[E0425]: cannot find function `expose_nested_candidates` in this scope
+    --> crates/designos-doc/src/components.rs:6586:21
+     |
+6586 |         let cands = expose_nested_candidates(&d, card);
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-doc/src/components.rs:6603:17
+     |
+6603 |         assert!(exposed_nested_instances(&d, card_inst_1).is_empty(), "nothing exposed before toggling");
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `set_expose_nested_instance` in this scope
+    --> crates/designos-doc/src/components.rs:6606:25
+     |
+6606 |         let toggle_on = set_expose_nested_instance(&mut d, leading, true);
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-doc/src/components.rs:6613:20
+     |
+6613 |         assert_eq!(exposed_nested_instances(&d, card_inst_1), vec![inst1_leading]);
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-doc/src/components.rs:6618:17
+     |
+6618 |         assert!(exposed_nested_instances(&d, card_inst_1).is_empty());
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-doc/src/components.rs:6621:20
+     |
+6621 |         assert_eq!(exposed_nested_instances(&d, card_inst_1), vec![inst1_leading]);
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `set_expose_nested_instance` in this scope
+    --> crates/designos-doc/src/components.rs:6651:26
+     |
+6651 |         let toggle_off = set_expose_nested_instance(&mut d, leading, false);
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-doc/src/components.rs:6653:17
+     |
+6653 |         assert!(exposed_nested_instances(&d, card_inst_1).is_empty());
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `set_expose_nested_instance` in this scope
+    --> crates/designos-doc/src/components.rs:6698:17
+     |
+6698 |         let c = set_expose_nested_instance(&mut d, icon_in_mid, true);
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-doc/src/components.rs:6726:17
+     |
+6726 |         assert!(exposed_nested_instances(&d, outer_inst).is_empty());
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `set_expose_nested_instance` in this scope
+    --> crates/designos-doc/src/components.rs:6729:17
+     |
+6729 |         let c = set_expose_nested_instance(&mut d, chip1, true);
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `expose_nested_candidates` in this scope
+    --> crates/designos-doc/src/components.rs:6734:21
+     |
+6734 |         let cands = expose_nested_candidates(&d, outer_set);
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-doc/src/components.rs:6740:32
+     |
+6740 |         let exposed_in_outer = exposed_nested_instances(&d, outer_inst);
+     |                                ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `designos-doc` (lib test) due to 13 previous errors

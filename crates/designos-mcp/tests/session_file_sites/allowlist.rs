@@ -16,10 +16,16 @@ pub const FS_CALLS: &[Allowed] = &[
     Allowed { file: "src/engine.rs", func: Some("write_checked_output_file"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("new"), why: WORKSPACE_ROOT },
     Allowed { file: "src/server.rs", func: Some("with_session_dir"), why: WORKSPACE_ROOT },
+    Allowed { file: "src/server.rs", func: Some("ensure_inside_workspace"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("input_path"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("output_path_allow_overwrite"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("png_output_path"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("fig_output_path"), why: WORKSPACE_PATH },
+    Allowed {
+        file: "src/server.rs",
+        func: Some("editor_tab_is_gone"),
+        why: "asks only whether the tab folder still exists (NotFound); the marker file inside it is read through session_file_io::stat",
+    },
     Allowed {
         file: "src/server.rs",
         func: Some("call_inner"),
@@ -29,6 +35,8 @@ pub const FS_CALLS: &[Allowed] = &[
     Allowed { file: "src/tools/guidelines.rs", func: Some("list_topics_value"), why: GUIDELINES },
     Allowed { file: "src/tools/guidelines.rs", func: Some("has_toml_files"), why: GUIDELINES },
     Allowed { file: "src/tools/guidelines.rs", func: Some("validate_archetypes_dir"), why: GUIDELINES },
+    Allowed { file: "src/tools/docs_project.rs", func: Some("projects_of"), why: LIBRARY_ROOT },
+    Allowed { file: "src/tools/docs_project.rs", func: Some("project_id_of_file"), why: LIBRARY_ROOT },
     Allowed { file: "src/tools/libraries.rs", func: Some("get_libraries_at"), why: LIBRARY_ROOT },
     Allowed { file: "src/tools/library_source.rs", func: Some("load_cached_snapshot_at"), why: LIBRARY_ROOT },
     Allowed { file: "src/tools/library_source.rs", func: Some("enabled_snapshots"), why: LIBRARY_ROOT },
@@ -51,6 +59,7 @@ pub const NAMES: &[Allowed] = &[
     Allowed { file: "src/server.rs", func: Some("new"), why: "the ledger's path; Ledger reads and writes it through session_file_io" },
     Allowed { file: "src/server.rs", func: Some("with_session_dir"), why: "the ledger's path; Ledger reads and writes it through session_file_io" },
     Allowed { file: "src/server.rs", func: Some("sync_from_live_canvas_if_newer"), why: "reads mcp-config.json and bootstrap.json through file_problems" },
+    Allowed { file: "src/server.rs", func: Some("leave_is_asking"), why: "reads the leave-asking marker through file_problems" },
     Allowed { file: "src/tools/ledger.rs", func: Some("-"), why: "the ledger's file name" },
     Allowed { file: "src/tools/session_options.rs", func: Some("file_path"), why: PATH_ONLY },
 ];

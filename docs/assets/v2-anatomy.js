@@ -1,7 +1,7 @@
 /* v2-anatomy.js: scene 3, "Five layers, one window."
    A Tenant section: the engine pins it with position:sticky, progress comes from the section's own bounding
    box, and this module only writes inside the section. Six hairline drawings, traced from the real Studio
-   0.6.1 render shown in the static state, draw on, tilt and lift apart with a leader line to each label,
+   0.7.5 render shown in the static state, draw on, tilt and lift apart with a leader line to each label,
    settle back flat, and the real render cross-fades in. One pure render(p) draws every frame.
    Motion mode only (no reduced-motion preference, viewport of 800px or more): the drawings and
    anatomy.json are fetched at mount, so the static state never downloads them. If they cannot be fetched

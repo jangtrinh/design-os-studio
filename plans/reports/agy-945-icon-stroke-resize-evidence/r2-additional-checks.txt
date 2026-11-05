@@ -1,0 +1,16 @@
+Checks run on code commit dc8eb5fc with throwaway tests (not committed) against the kit clone (APFS copy; the original is untouched).
+
+1. Plain-resize drop vs keep over every kit vector (r2-kit-plain-resize-drop-vs-keep-counts.txt)
+   33,325 vectors; 12,545 have a valid network and a bake; a 2x plain resize drops the bake on 12,482 (99.5%) and keeps it on 63.
+   All 63 are hand-drawn "Arrow" illustrations whose vertices mix Miter and Round joins while the node join is Round,
+   which the live stroke cannot reproduce. No kit vector is kept for side weights, brush, arrow cap, vertex cap or dashes.
+   The kernel's drop/keep and an independent re-derivation of the six conditions agree on every vector (asserted per node).
+   The round-1 env-gated capture rerun on dc8eb5fc: kit-icon-1x and kit-icon-2x PNGs are byte-identical (cmp) to
+   kit-icon-1x-after.png and kit-icon-2x-after.png from the first round.
+
+2. GPU and CPU null control on the kit (r2-null-control-gpu-kit-vectors-{cebb38e3,head}.txt)
+   633 isolated kit vectors: 400 with no fill outline and a network that has stroke-only segments (the shapes whose GPU fill
+   mesh now follows fill_paths()), the first 200 by id, 200 with effects, mask or a non-center stroke align.
+   Per node: GPU hash, CPU hash, CPU-vs-GPU mismatched pixels. cebb38e3 and head: 0 differing lines.
+   TOTAL cpu_gpu_mismatch_px=1009636 on both builds (the difference between the two renderers on these illustrations is
+   older than this change and is not touched by it).

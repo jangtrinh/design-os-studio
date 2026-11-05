@@ -1,0 +1,173 @@
+$ cargo test -p designos-mcp --locked
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.48s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-b500445f18a41338)
+
+running 327 tests
+
+test result: ok. 327 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.90s
+
+     Running unittests src/main.rs (out/cargo/debug/deps/designos_mcp-d0dc86933af4af20)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gen-tool-docs.rs (out/cargo/debug/deps/gen_tool_docs-4a5f14536e654b8a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/button_label_centre.rs (out/cargo/debug/deps/button_label_centre-813d89705551f027)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/close_document.rs (out/cargo/debug/deps/close_document-6f9f2252bb3c86f5)
+
+running 28 tests
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running tests/colour_detach.rs (out/cargo/debug/deps/colour_detach-5cf39704880aee02)
+
+running 11 tests
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/colour_var_library.rs (out/cargo/debug/deps/colour_var_library-b67976ce3771d797)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/colour_var_refs.rs (out/cargo/debug/deps/colour_var_refs-78c42a34c10da9b8)
+
+running 16 tests
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/hug_text_relayout.rs (out/cargo/debug/deps/hug_text_relayout-0058a1a5ae43ac60)
+
+running 11 tests
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+     Running tests/list_lint_rules.rs (out/cargo/debug/deps/list_lint_rules-0dc5dd4eee4a21e8)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.33s
+
+     Running tests/live_doc_epoch.rs (out/cargo/debug/deps/live_doc_epoch-0475f3546bd57503)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/live_session_guards.rs (out/cargo/debug/deps/live_session_guards-236b45b153269306)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-35b35db3e6fb3a98)
+
+running 23 tests
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.15s
+
+     Running tests/mcp_paths_full_disk.rs (out/cargo/debug/deps/mcp_paths_full_disk-22059e96b18e777f)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/session.rs (out/cargo/debug/deps/session-a0e0aa5fe2eaf94a)
+
+running 24 tests
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/session_file_sites/main.rs (out/cargo/debug/deps/session_file_sites-19fcc5c80fb1b339)
+
+running 9 tests
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/session_files/main.rs (out/cargo/debug/deps/session_files-e7cac29f29c5c046)
+
+running 42 tests
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/set_slot_batch.rs (out/cargo/debug/deps/set_slot_batch-a4bfcbc800f0c719)
+
+running 14 tests
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-871e342f67389a5a)
+
+running 8 tests
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/spec_text_colour.rs (out/cargo/debug/deps/spec_text_colour-bbcc45af73ad569a)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/stdio.rs (out/cargo/debug/deps/stdio-d612ece310c6a381)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/text_fill.rs (out/cargo/debug/deps/text_fill-9d19295beabe3f03)
+
+running 7 tests
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/text_truncation_roundtrip.rs (out/cargo/debug/deps/text_truncation_roundtrip-98cfc4f71c4f0311)
+
+running 2 tests
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/tools_snapshot.rs (out/cargo/debug/deps/tools_snapshot-c11e9ade2e738427)
+
+running 8 tests
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/version.rs (out/cargo/debug/deps/version-2038deb2a46e541e)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/wrapped_fill_text_height.rs (out/cargo/debug/deps/wrapped_fill_text_height-106cbfe39aaabc09)
+
+running 2 tests
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Doc-tests designos_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+mcp_rc=0
+test server::tests::unknown_field_nested_paths_and_corrected_examples_pass_when_resent ... ok
+test tools::batch::tests::set_slot_prefers_bound_slot_over_same_named_ordinary_child ... ok
+test set_slot_on_nested_instance_creates_child_visible_via_get_node ... ok
+test round3_nested_spec_errors_carry_path_from_root ... ok
+test round3_set_slot_bad_child_field_in_fill_reports_nested_path ... ok

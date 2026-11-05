@@ -1,0 +1,24 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.0 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.7.0 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 02s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-50972ff16955a5d6)
+
+running 1 test
+thread B (no pin) read hermetic_mode_active() == true
+
+thread 'cli_resolve::tests::scratch_env_leak_across_threads' (14533952) panicked at crates/designos-app/src/cli_resolve.rs:1288:9:
+RED: thread B with no pin read hermetic_mode_active() == true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test cli_resolve::tests::scratch_env_leak_across_threads ... FAILED
+
+failures:
+
+failures:
+    cli_resolve::tests::scratch_env_leak_across_threads
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3576 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

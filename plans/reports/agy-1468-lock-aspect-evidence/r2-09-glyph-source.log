@@ -1,0 +1,8 @@
+$ shasum -a 256 crates/designos-app/assets/icons/phosphor/link.svg   (the vendored file)
+526d89480e3064c614b7d46a93888c187696d7776f684527d48eb94e2d7cd5d4  crates/designos-app/assets/icons/phosphor/link.svg
+$ curl https://unpkg.com/@phosphor-icons/core@2.1.1/assets/regular/link.svg | shasum -a 256   (fetched into the scratch dir before the copy)
+526d89480e3064c614b7d46a93888c187696d7776f684527d48eb94e2d7cd5d4  /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/phos.cauzHb/link-2.1.1.svg
+$ cmp <vendored> <core@2.1.1 file>
+IDENTICAL_TO_CORE_2.1.1
+$ sed -n 3p crates/designos-app/assets/icons/phosphor/README.md
+Icon set: [Phosphor Icons](https://phosphoricons.com/) (`@phosphor-icons/core@2.1.1`, MIT license, see `LICENSE`).

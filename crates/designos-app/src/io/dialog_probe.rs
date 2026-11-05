@@ -340,7 +340,7 @@ impl ProbeEnv {
     }
 
     pub fn from_vars(path: Option<&str>, data_home: Option<&str>, data_dirs: Option<&str>, home: Option<&str>, sandboxed: bool) -> Self {
-        let split = |list: &str| std::env::split_paths(list).filter(|p| !p.as_os_str().is_empty()).collect::<Vec<_>>();
+        let split = |list: &str| crate::cli_resolve::split_non_empty_paths(std::ffi::OsStr::new(list));
         let mut dirs = Vec::new();
         match (data_home, home) {
             (Some(dir), _) => dirs.push(PathBuf::from(dir)),

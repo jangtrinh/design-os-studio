@@ -1,0 +1,11 @@
+[FAIL] C5_hug_span_across_hug_cols    (css     ) max_item_err=96.00px grid_err=(0.00px, 0.00px)
+       item[1] solver=(0.0,38.0,30.0,30.0) chrome=(68.0,0.0,30.0,30.0) max_abs=68.00px
+       item[2] solver=(68.0,38.0,20.0,30.0) chrome=(96.0,0.0,20.0,30.0) max_abs=38.00px
+       item[3] solver=(96.0,38.0,40.0,30.0) chrome=(0.0,38.0,40.0,30.0) max_abs=96.00px
+       item[4] solver=(68.0,0.0,150.0,30.0) chrome=(68.0,38.0,150.0,30.0) max_abs=38.00px
+[FAIL] C5_hug_span_across_hug_cols    (tailwind) max_item_err=96.00px grid_err=(0.00px, 0.00px)
+       item[1] solver=(0.0,38.0,30.0,30.0) chrome=(68.0,0.0,30.0,30.0) max_abs=68.00px
+       item[2] solver=(68.0,38.0,20.0,30.0) chrome=(96.0,0.0,20.0,30.0) max_abs=38.00px
+       item[3] solver=(96.0,38.0,40.0,30.0) chrome=(0.0,38.0,40.0,30.0) max_abs=96.00px
+       item[4] solver=(68.0,0.0,150.0,30.0) chrome=(68.0,38.0,150.0,30.0) max_abs=38.00px
+WORST=96.00px

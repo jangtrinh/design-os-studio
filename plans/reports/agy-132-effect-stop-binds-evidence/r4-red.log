@@ -1,0 +1,489 @@
+=== 1. BLOCKER-1 RED: compile error after merging origin/main ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling zerocopy v0.8.62
+   Compiling simd-adler32 v0.3.10
+   Compiling stable_deref_trait v1.2.1
+   Compiling crc32fast v1.5.2
+   Compiling thiserror v2.0.21
+   Compiling version_check v0.9.5
+   Compiling adler2 v2.0.1
+   Compiling foldhash v0.2.0
+   Compiling miniz_oxide v0.9.1
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling writeable v0.6.4
+   Compiling bitflags v1.3.2
+   Compiling litemap v0.8.3
+   Compiling icu_properties_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling linebender_resource_handle v0.1.1
+   Compiling shlex v2.0.1
+   Compiling num-traits v0.2.19
+   Compiling find-msvc-tools v0.1.14
+   Compiling core_maths v0.1.1
+   Compiling cc v1.7.0
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling percent-encoding v2.3.2
+   Compiling quick-error v2.0.1
+   Compiling equivalent v1.0.3
+   Compiling serde_json v1.0.154
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling weezl v0.1.12
+   Compiling itoa v1.0.18
+   Compiling zune-core v0.5.3
+   Compiling zeroize v1.9.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling indexmap v2.14.2
+   Compiling zune-jpeg v0.5.15
+   Compiling form_urlencoded v1.2.2
+   Compiling slotmap v1.1.1
+   Compiling objc2-foundation v0.3.2
+   Compiling flate2 v1.1.10
+   Compiling crossbeam-utils v0.8.23
+   Compiling unicode-segmentation v1.13.3
+   Compiling color_quant v1.1.0
+   Compiling either v1.19.0
+   Compiling ref-cast v1.0.27
+   Compiling self_cell v1.3.0
+   Compiling byteorder-lite v0.1.0
+   Compiling fax v0.2.7
+   Compiling pxfm v0.1.30
+   Compiling gif v0.14.1
+   Compiling png v0.18.1
+   Compiling getrandom v0.2.17
+   Compiling image-webp v0.2.4
+   Compiling ttf-parser v0.25.1
+   Compiling hashbrown v0.16.1
+   Compiling pin-project-lite v0.2.17
+   Compiling float-cmp v0.9.0
+   Compiling synstructure v0.14.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling parking_lot_core v0.9.12
+   Compiling crossbeam-epoch v0.9.21
+   Compiling raw-window-handle v0.6.2
+   Compiling untrusted v0.9.0
+   Compiling getrandom v0.4.3
+   Compiling strict-num v0.1.1
+   Compiling euclid v0.22.14
+   Compiling moxcms v0.8.1
+   Compiling memmap2 v0.9.11
+   Compiling aho-corasick v1.1.5
+   Compiling unicode-script v0.5.8
+   Compiling tinyvec v1.13.3
+   Compiling crossbeam-deque v0.8.8
+   Compiling rustls v0.23.45
+   Compiling regex-syntax v0.8.11
+   Compiling arrayref v0.3.9
+   Compiling base64 v0.22.1
+   Compiling dyn-clone v1.0.20
+   Compiling objc-sys v0.3.5
+   Compiling rustc-hash v2.1.3
+   Compiling scopeguard v1.2.0
+   Compiling fontdb v0.23.0
+   Compiling lock_api v0.4.14
+   Compiling webpki-roots v1.0.9
+   Compiling option-ext v0.2.0
+   Compiling rayon-core v1.13.0
+   Compiling unicode-bidi v0.3.18
+   Compiling subtle v2.6.1
+   Compiling parking_lot v0.12.5
+   Compiling dirs-sys v0.4.1
+   Compiling webpki-roots v0.26.11
+   Compiling uuid v1.28.0
+   Compiling ring v0.17.14
+   Compiling png v0.17.16
+   Compiling i_float v5.0.0
+   Compiling regex-automata v0.4.18
+   Compiling naga v29.0.4
+   Compiling zeno v0.3.3
+   Compiling unicode-width v0.2.2
+   Compiling bit-vec v0.9.1
+   Compiling profiling v1.0.18
+   Compiling yazi v0.2.1
+   Compiling bit-set v0.9.1
+   Compiling codespan-reporting v0.13.1
+   Compiling i_shape v5.0.0
+   Compiling objc2 v0.5.3
+   Compiling dirs v5.0.1
+   Compiling objc2-metal v0.3.2
+   Compiling polycool v0.4.0
+   Compiling rangemap v1.8.0
+   Compiling smol_str v0.3.6
+   Compiling i_key_sort v0.12.0
+   Compiling hexf-parse v0.2.1
+   Compiling sys-locale v0.3.2
+   Compiling i_tree v0.20.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling rustc-hash v1.1.0
+   Compiling i_overlay v9.1.0
+   Compiling block2 v0.5.1
+   Compiling kurbo v0.13.1
+   Compiling regex v1.13.1
+   Compiling rayon v1.12.0
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling unicode-ccc v0.4.0
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling siphasher v1.0.4
+   Compiling unicode-properties v0.1.4
+   Compiling core-foundation-sys v0.8.7
+   Compiling utf8parse v0.2.2
+   Compiling dispatch v0.2.0
+   Compiling core-foundation v0.9.4
+   Compiling objc2-foundation v0.2.2
+   Compiling svgtypes v0.15.3
+   Compiling objc2-quartz-core v0.3.2
+   Compiling raw-window-metal v1.1.0
+   Compiling accesskit v0.24.1
+   Compiling rustls-webpki v0.103.15
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling data-url v0.3.2
+   Compiling imagesize v0.13.0
+   Compiling unicode-general-category v1.1.0
+   Compiling futures-core v0.3.34
+   Compiling xmlwriter v0.1.0
+   Compiling unicode-vo v0.1.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling fearless_simd v0.4.1
+   Compiling pico-args v0.5.0
+   Compiling futures-sink v0.3.34
+   Compiling roxmltree v0.20.0
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling winit v0.30.13
+   Compiling nix v0.31.3
+   Compiling wgpu-core v29.0.4
+   Compiling litrs v1.0.0
+   Compiling winnow v1.0.4
+   Compiling objc2-app-kit v0.2.2
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling document-features v0.2.12
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling nohash-hasher v0.2.0
+   Compiling anstyle-query v1.1.5
+   Compiling epaint_default_fonts v0.35.0
+   Compiling slab v0.4.12
+   Compiling anstyle v1.0.14
+   Compiling dpi v0.1.2
+   Compiling futures-io v0.3.34
+   Compiling smol_str v0.2.2
+   Compiling bumpalo v3.20.3
+   Compiling cursor-icon v1.2.0
+   Compiling futures-task v0.3.34
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling colorchoice v1.0.5
+   Compiling zopfli v0.8.4
+   Compiling anstream v1.0.0
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling memoffset v0.6.5
+   Compiling static_assertions v1.1.0
+   Compiling typed-path v0.12.3
+   Compiling twox-hash v2.1.5
+   Compiling heck v0.5.0
+   Compiling clap_lex v1.1.1
+   Compiling thiserror v1.0.69
+   Compiling bytes v1.12.1
+   Compiling strsim v0.11.1
+   Compiling zip v9.0.4
+   Compiling clap_builder v4.6.7
+   Compiling ruzstd v0.9.1
+   Compiling accesskit_macos v0.26.3
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling lyon_geom v1.0.19
+   Compiling termios v0.2.2
+   Compiling serial-core v0.4.0
+   Compiling ioctl-rs v0.1.6
+   Compiling web-time v1.1.0
+   Compiling rmcp v3.5.1
+   Compiling anyhow v1.0.104
+   Compiling winresource v0.1.34
+   Compiling serial-unix v0.4.0
+   Compiling lyon_path v1.0.19
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling float_next_after v1.0.0
+   Compiling pollster v0.4.0
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-mcp)
+   Compiling pastey v0.2.3
+   Compiling rfd v0.17.2
+   Compiling pin-utils v0.1.1
+   Compiling nix v0.25.1
+   Compiling vte v0.11.1
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app)
+   Compiling lyon_tessellation v1.0.22
+   Compiling serial v0.4.0
+   Compiling dispatch2 v0.3.1
+   Compiling unicode-width v0.1.14
+   Compiling shell-words v1.1.1
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling downcast-rs v1.2.1
+   Compiling open v5.4.4
+   Compiling vt100 v0.15.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling thiserror-impl v1.0.69
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling foreign-types v0.5.0
+   Compiling clap_derive v4.6.7
+   Compiling core-graphics v0.23.2
+   Compiling tracing v0.1.44
+   Compiling futures-util v0.3.34
+   Compiling bytemuck v1.25.2
+   Compiling tokio v1.53.2
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.37.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia v0.11.4
+   Compiling color v0.3.3
+   Compiling wgpu-types v29.0.4
+   Compiling peniko v0.6.1
+   Compiling read-fonts v0.39.2
+   Compiling zerofrom v0.1.8
+   Compiling rustybuzz v0.20.1
+   Compiling emath v0.35.0
+   Compiling futures-executor v0.3.34
+   Compiling ecolor v0.35.0
+   Compiling futures v0.3.34
+   Compiling accesskit_winit v0.32.2
+   Compiling tokio-util v0.7.20
+   Compiling filedescriptor v0.8.3
+   Compiling rgb v0.8.53
+   Compiling portable-pty v0.8.1
+   Compiling vello_common v0.0.9
+   Compiling yoke v0.8.3
+   Compiling usvg v0.45.1
+   Compiling zerovec v0.11.8
+   Compiling half v2.7.1
+   Compiling zerotrie v0.2.5
+   Compiling tiff v0.11.3
+   Compiling skrifa v0.40.0
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling image v0.25.10
+   Compiling skrifa v0.44.0
+   Compiling harfrust v0.5.2
+   Compiling skrifa v0.42.1
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling chrono v0.4.45
+   Compiling swash v0.2.10
+   Compiling url v2.5.8
+   Compiling harfrust v0.7.0
+   Compiling schemars v1.2.3
+   Compiling ureq v2.12.1
+   Compiling cosmic-text v0.19.0
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-doc)
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling vello_cpu v0.0.9
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling epaint v0.35.0
+   Compiling webbrowser v1.2.4
+   Compiling arboard v3.6.1
+   Compiling clap v4.6.7
+   Compiling egui v0.35.0
+   Compiling designos-diff v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-diff)
+   Compiling resvg v0.45.1
+   Compiling egui-winit v0.35.0
+   Compiling designos-fonts v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-fonts)
+   Compiling designos-render v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-render)
+   Compiling egui-wgpu v0.35.0
+   Compiling designos-svg v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-svg)
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-export)
+   Compiling designos-webcapture v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-webcapture)
+   Compiling designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-fig)
+   Compiling designos-gpu v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-gpu)
+   Compiling eframe v0.35.0
+   Compiling designos-library v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-library)
+error[E0308]: mismatched types
+   --> crates/designos-app/src/cli.rs:167:32
+    |
+167 |   pub const PANELS: [&str; 66] = [
+    |  __________________________--____^
+    | |                          |
+    | |                          help: consider specifying the actual array length: `67`
+168 | |     "agents",
+169 | |     "agents-chat",
+170 | |     "agents-picker",
+...   |
+234 | |     "micro-components-variables",
+235 | | ];
+    | |_^ expected an array with a size of 66, found one with a size of 67
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `designos-app` (bin "designos" test) due to 1 previous error
+=== 2. MAJOR-1 RED: dangling_gradient_stop_binding_edit_is_kept ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.60s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 14 tests
+test shell::tests::effect_stop_binds::probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit ... ok
+test shell::tests::effect_stop_binds::dangling_gradient_stop_binding_edit_is_kept ... FAILED
+test shell::tests::effect_stop_binds::picker_resync_runs_in_picker_popup_not_unrelated_sections ... ok
+test shell::tests::effect_stop_binds::dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag ... ok
+test shell::tests::effect_stop_binds::canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step ... ok
+test shell::tests::effect_stop_binds::multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill ... ok
+test shell::tests::effect_stop_binds::bound_gradient_stop_locks_color_controls_until_detached ... ok
+test shell::tests::effect_stop_binds::gradient_stop_colors_bind_filter_scopes_detach_and_undo ... ok
+test shell::tests::effect_stop_binds::unbound_gradient_picker_session_with_flip_stays_one_undo_step ... ok
+test shell::tests::effect_stop_binds::gradient_stop_bindings_follow_stop_across_flip_add_and_delete ... ok
+test shell::tests::effect_stop_binds::eyedropper_sample_closes_picker_and_commits_one_undo_step ... ok
+test shell::tests::effect_stop_binds::effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect ... ok
+test shell::tests::effect_stop_binds::deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down ... ok
+test shell::tests::effect_stop_binds::node_effect_rows_bind_filter_scopes_detach_and_undo ... ok
+
+failures:
+
+---- shell::tests::effect_stop_binds::dangling_gradient_stop_binding_edit_is_kept stdout ----
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::effect_stop_binds::dangling_gradient_stop_binding_edit_is_kept' (42878292) panicked at crates/designos-app/src/shell/tests/effect_stop_binds.rs:1210:5:
+assertion `left == right` failed: document raw stop colour must keep the edit on a dangling binding
+  left: Some(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 })
+ right: Some(Color { r: 0.22745098, g: 0.22745098, b: 0.22745098, a: 1.0 })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::effect_stop_binds::dangling_gradient_stop_binding_edit_is_kept
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 3919 filtered out; finished in 3.65s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== 3. MINOR-2 RED (mutant preserve_strokes_off: properties.rs stroke preserve removed) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.72s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 15 tests
+test shell::tests::effect_stop_binds::multiselect_stroke_gradient_bound_stop_preserves_bound_color_on_every_layer ... FAILED
+test shell::tests::effect_stop_binds::probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit ... ok
+test shell::tests::effect_stop_binds::picker_resync_runs_in_picker_popup_not_unrelated_sections ... ok
+test shell::tests::effect_stop_binds::multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill ... ok
+test shell::tests::effect_stop_binds::dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag ... ok
+test shell::tests::effect_stop_binds::dangling_gradient_stop_binding_edit_is_kept ... ok
+test shell::tests::effect_stop_binds::canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step ... ok
+test shell::tests::effect_stop_binds::gradient_stop_colors_bind_filter_scopes_detach_and_undo ... ok
+test shell::tests::effect_stop_binds::bound_gradient_stop_locks_color_controls_until_detached ... ok
+test shell::tests::effect_stop_binds::gradient_stop_bindings_follow_stop_across_flip_add_and_delete ... ok
+test shell::tests::effect_stop_binds::unbound_gradient_picker_session_with_flip_stays_one_undo_step ... ok
+test shell::tests::effect_stop_binds::effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect ... ok
+test shell::tests::effect_stop_binds::eyedropper_sample_closes_picker_and_commits_one_undo_step ... ok
+test shell::tests::effect_stop_binds::deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down ... ok
+test shell::tests::effect_stop_binds::node_effect_rows_bind_filter_scopes_detach_and_undo ... ok
+
+failures:
+
+---- shell::tests::effect_stop_binds::multiselect_stroke_gradient_bound_stop_preserves_bound_color_on_every_layer stdout ----
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::effect_stop_binds::multiselect_stroke_gradient_bound_stop_preserves_bound_color_on_every_layer' (42911745) panicked at crates/designos-app/src/shell/tests/effect_stop_binds.rs:1279:5:
+assertion `left == right` failed: layer b's bound stroke stop 0 raw colour stays red
+  left: Color { r: 0.13333334, g: 0.4, b: 1.0, a: 1.0 }
+ right: Color { r: 1.0, g: 0.06666667, b: 0.13333334, a: 1.0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::effect_stop_binds::multiselect_stroke_gradient_bound_stop_preserves_bound_color_on_every_layer
+
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 3919 filtered out; finished in 3.98s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

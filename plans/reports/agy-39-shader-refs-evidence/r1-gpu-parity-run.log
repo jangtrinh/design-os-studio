@@ -1,0 +1,35 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.60s
+     Running tests/shadow_silhouette_source.rs (out/cargo/debug/deps/shadow_silhouette_source-239b379538156cad)
+
+running 7 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+shader-skip-parity: mismatch 0.0000% (0 px of 14400) at tolerance 0, ssim 1.0000
+sil-own-fill: mismatch 0.0972% (14 px of 14400) at tolerance 4, ssim 0.9995
+sil-children: mismatch 0.0833% (12 px of 14400) at tolerance 4, ssim 0.9994
+sil-hidden-fill: mismatch 0.0833% (12 px of 14400) at tolerance 4, ssim 0.9994
+sil-shader-only: mismatch 0.0000% (0 px of 14400) at tolerance 0, ssim 1.0000
+sil-stroke-only: mismatch 0.0417% (6 px of 14400) at tolerance 4, ssim 0.9993
+sil-children-clipped: mismatch 0.0833% (12 px of 14400) at tolerance 4, ssim 0.9996
+shader-skip-parity: 0.0000% with AA pixels forgiven (0 px)
+sil-own-fill: 0.0972% with AA pixels forgiven (14 px)
+test own_fill_silhouette_matches ... ok
+sil-hidden-fill: 0.0833% with AA pixels forgiven (12 px)
+sil-children: 0.0833% with AA pixels forgiven (12 px)
+sil-shader-only: 0.0000% with AA pixels forgiven (0 px)
+sil-stroke-only: 0.0417% with AA pixels forgiven (6 px)
+sil-children-clipped: 0.0833% with AA pixels forgiven (12 px)
+test fill_less_frame_uses_children_on_both ... ok
+test hidden_fill_uses_children_on_both ... ok
+test shader_effect_and_paint_skipped_by_cpu_and_gpu_parity ... ok
+test stroke_only_silhouette_matches ... ok
+test fill_less_clipping_frame_uses_children_on_both ... ok
+test shader_paint_has_zero_silhouette_alpha ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+

@@ -636,7 +636,20 @@ impl Document {
     /// Materializes `spec` under `parent`, resolving `var:`, `style:`, `mode`, `$easeui.*`,
     /// and `"instance"` references against both local tokens/styles/components and enabled `libraries`.
     /// On any error, `self` is rolled back to its exact pre-call state.
+    /// Text keeps the character-width estimate. Pass a measurer with [`Self::apply_spec_with_measure`].
     pub fn apply_spec_with_libraries(&mut self, parent: NodeId, spec: &NodeSpec, libraries: &[LibrarySnapshot]) -> Result<SpecApplyReport, SpecBindError> {
+        self.apply_spec_with_measure(parent, spec, libraries, None)
+    }
+
+    /// [`Self::apply_spec_with_libraries`] that sizes hug text with `measure` when `Some`.
+    /// `None` keeps the character-width estimate. The measurer is visible only to this call.
+    pub fn apply_spec_with_measure<'m>(
+        &mut self,
+        parent: NodeId,
+        spec: &NodeSpec,
+        libraries: &'m [LibrarySnapshot],
+        measure: Option<&'m dyn crate::text_measure::TextMeasure>,
+    ) -> Result<SpecApplyReport, SpecBindError> {
         let pnode = self.get(parent).ok_or_else(|| SpecBindError {
             code: "NODE_NOT_FOUND".to_string(),
             message: format!("Parent node {} not found", parent.0),
@@ -673,6 +686,7 @@ impl Document {
         let data_before = crate::spec_data::SpecDataSnapshot::of(self);
         let mut inserted_ids: Vec<NodeId> = Vec::new();
         let mut ctx = crate::spec_instance::SpecBuildCtx::new(self, libraries);
+        ctx.measure = measure;
         let mut index = SpecBindIndex::build(self);
         let mut report = SpecApplyReport { parent_id: parent, ..Default::default() };
 
@@ -852,7 +866,7 @@ impl Document {
             "text" => {
                 let mut style = TextStyle::default();
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(14.0);
-                style.font_weight = spec.font_weight.unwrap_or(400);
+                style.set_font_weight(spec.font_weight.unwrap_or(400));
                 style.fills = vec![Paint::solid(crate::default_text_colour(self, parent))];
                 let content = if text_var.is_some() { String::new() } else { spec.text.clone().unwrap_or_default() };
                 Node::text(id, rect, content, style)
@@ -1097,9 +1111,10 @@ impl Document {
         if let Some(eff_ref) = &spec.effect_style {
             let style_key = crate::resolve_style_ref(self, index, libraries, eff_ref, StyleProperty::Effect, "effect_style", &format!("{path}.effect_style"))?;
             if let Some(style) = self.styles.get(&style_key).cloned() {
+                let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                 if let Some(n) = self.get_mut(id) {
                     n.style_refs.insert("effect".to_string(), style_key.clone());
-                    crate::apply_style_values(n, &style, &style_key);
+                    crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                     report.styles_linked += 1;
                 }
             }
@@ -1109,9 +1124,10 @@ impl Document {
         if let Some(grid_ref) = &spec.grid_style {
             let style_key = crate::resolve_style_ref(self, index, libraries, grid_ref, StyleProperty::Grid, "grid_style", &format!("{path}.grid_style"))?;
             if let Some(style) = self.styles.get(&style_key).cloned() {
+                let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                 if let Some(n) = self.get_mut(id) {
                     n.style_refs.insert("grid".to_string(), style_key.clone());
-                    crate::apply_style_values(n, &style, &style_key);
+                    crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                     report.styles_linked += 1;
                 }
             }
@@ -1122,9 +1138,10 @@ impl Document {
             if let Some(ts_ref) = &spec.text_style {
                 let style_key = crate::resolve_style_ref(self, index, libraries, ts_ref, StyleProperty::Text, "text_style", &format!("{path}.text_style"))?;
                 if let Some(style) = self.styles.get(&style_key).cloned() {
+                    let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                     if let Some(n) = self.get_mut(id) {
                         n.style_refs.insert("text".to_string(), style_key.clone());
-                        crate::apply_style_values(n, &style, &style_key);
+                        crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                         report.styles_linked += 1;
                     }
                 }
@@ -1162,10 +1179,11 @@ impl Document {
                     }
                     ResolvedColourRef::Style { style_key, .. } => {
                         if let Some(style) = self.styles.get(&style_key).cloned() {
+                            let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                             if let Some(n) = self.get_mut(id) {
                                 n.variables.bindings.remove("fills/0");
                                 n.style_refs.insert("fill".to_string(), style_key.clone());
-                                crate::apply_style_values(n, &style, &style_key);
+                                crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                                 report.styles_linked += 1;
                             }
                         }
@@ -1196,10 +1214,11 @@ impl Document {
                 }
                 ResolvedColourRef::Style { style_key, .. } => {
                     if let Some(style) = self.styles.get(&style_key).cloned() {
+                        let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                         if let Some(n) = self.get_mut(id) {
                             n.variables.bindings.remove("fills/0");
                             n.style_refs.insert("fill".to_string(), style_key.clone());
-                            crate::apply_style_values(n, &style, &style_key);
+                            crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                             report.styles_linked += 1;
                         }
                     }
@@ -1234,10 +1253,11 @@ impl Document {
                 }
                 ResolvedColourRef::Style { style_key, .. } => {
                     if let Some(style) = self.styles.get(&style_key).cloned() {
+                        let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                         if let Some(n) = self.get_mut(id) {
                             n.variables.bindings.remove("strokes/0");
                             n.style_refs.insert("stroke".to_string(), style_key.clone());
-                            crate::apply_style_values(n, &style, &style_key);
+                            crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                             report.styles_linked += 1;
                         }
                     }
@@ -1349,7 +1369,7 @@ impl Document {
             self.bind_characters(id, &node_kind, raw_ref, &spec.name, spec.preset.is_some(), &format!("{path}.text"), index, libraries, report)?;
         }
 
-        // Measure (or estimate when no measurer is installed) intrinsic text bounds after text_style / font_size / line_height / font_family application,
+        // Measure (or estimate when this call has no measurer) intrinsic text bounds after text_style / font_size / line_height / font_family application,
         // and align the glyph box with any centring on the parent auto-layout frame when the text hugs that axis.
         let (parent_centre_h, parent_centre_v) = self.parent_centres_children(parent);
         let hugs_h = spec.width.is_none() && spec.width_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
@@ -1366,10 +1386,10 @@ impl Document {
                 if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") {
                     tp.auto_resize = TextAutoResize::Height;
                     if spec.height.is_none() {
-                        n.size.y = crate::text_measure::intrinsic_text_size(tp, Some(n.size.x.max(20.0))).y;
+                        n.size.y = ctx.text_size(tp, Some(n.size.x.max(20.0))).y;
                     }
                 } else {
-                    let sz = crate::text_measure::intrinsic_text_size(tp, None);
+                    let sz = ctx.text_size(tp, None);
                     if spec.width.is_none() {
                         n.size.x = sz.x;
                     }
@@ -1377,7 +1397,7 @@ impl Document {
                         n.size.y = sz.y;
                     }
                 }
-                if needs_measure && crate::text_measure::uses_fallback_font(tp) && !report.measured_with_fallback.contains(&id.0) {
+                if needs_measure && ctx.text_fell_back(tp) && !report.measured_with_fallback.contains(&id.0) {
                     report.measured_with_fallback.push(id.0);
                 }
             }
@@ -1400,7 +1420,7 @@ impl Document {
                 })?;
                 let mut style = TextStyle::default();
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(13.0);
-                style.font_weight = spec.font_weight.unwrap_or(500);
+                style.set_font_weight(spec.font_weight.unwrap_or(500));
                 style.fills = vec![Paint::solid(crate::default_text_colour(self, id))];
                 let initial = if text_var.is_some() { String::new() } else { label.clone() };
                 let mut tnode = Node::text(tid, Rect::new(0.0, 0.0, 60.0, 18.0), initial, style);
@@ -1423,9 +1443,10 @@ impl Document {
                 if let Some(ts_ref) = &spec.text_style {
                     let style_key = crate::resolve_style_ref(self, index, libraries, ts_ref, StyleProperty::Text, "text_style", &format!("{path}.text_style"))?;
                     if let Some(s) = self.styles.get(&style_key).cloned() {
+                        let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                         if let Some(tn) = self.get_mut(tid) {
                             tn.style_refs.insert("text".to_string(), style_key.clone());
-                            crate::apply_style_values(tn, &s, &style_key);
+                            crate::apply_style_values_with_fields(tn, &s, &style_key, paragraph_fields);
                             report.styles_linked += 1;
                         }
                     }
@@ -1454,9 +1475,10 @@ impl Document {
                         }
                         ResolvedColourRef::Style { style_key, .. } => {
                             if let Some(s) = self.styles.get(&style_key).cloned() {
+                                let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                                 if let Some(tn) = self.get_mut(tid) {
                                     tn.style_refs.insert("fill".to_string(), style_key.clone());
-                                    crate::apply_style_values(tn, &s, &style_key);
+                                    crate::apply_style_values_with_fields(tn, &s, &style_key, paragraph_fields);
                                     report.styles_linked += 1;
                                 }
                             }
@@ -1476,8 +1498,8 @@ impl Document {
                         if self_centre_v && spec.text_style.is_none() && tp.style.align_v == TextAlignV::Top {
                             tp.style.align_v = TextAlignV::Center;
                         }
-                        let sz = crate::text_measure::intrinsic_text_size(tp, None);
-                        let fallback = crate::text_measure::uses_fallback_font(tp);
+                        let sz = ctx.text_size(tp, None);
+                        let fallback = ctx.text_fell_back(tp);
                         tn.size = sz;
                         if fallback && !report.measured_with_fallback.contains(&tid.0) {
                             report.measured_with_fallback.push(tid.0);
@@ -1544,7 +1566,7 @@ impl Document {
         if let Some(fw) = spec.font_weight {
             if let Some(n) = self.get_mut(id) {
                 if let NodeKind::Text(tp) = &mut n.kind {
-                    tp.style.font_weight = fw;
+                    tp.style.set_font_weight(fw);
                 }
             }
         }
@@ -2265,5 +2287,50 @@ mod tests {
         let tid = doc.apply_spec(page, &spec).unwrap();
         let tn = doc.get(tid).unwrap();
         assert_eq!(tn.size.x, 52.0, "without an installed measurer, 'Delete' at 14px Semibold keeps the 52.0px estimate");
+    }
+
+    /// A measurer passed into one apply must not leak into another thread's apply.
+    #[test]
+    fn measurer_is_per_call_not_process_wide() {
+        struct FixedMeasure;
+        impl crate::text_measure::TextMeasure for FixedMeasure {
+            fn measure(&self, _tp: &TextProps, _wrap: Option<f32>) -> Vec2 {
+                Vec2::new(123.0, 45.0)
+            }
+        }
+
+        let spec_json = serde_json::json!({
+            "kind": "text",
+            "name": "Label",
+            "text": "Delete",
+            "font_size": 14.0,
+            "font_weight": 600
+        });
+
+        for _ in 0..16 {
+            let measured_json = spec_json.clone();
+            let estimated_json = spec_json.clone();
+            let measured = std::thread::spawn(move || {
+                let mut doc = Document::new("Measured");
+                let page = doc.add_page("P");
+                let spec: NodeSpec = serde_json::from_value(measured_json).unwrap();
+                let report = doc.apply_spec_with_measure(page, &spec, &[], Some(&FixedMeasure)).unwrap();
+                let node = doc.get(report.root_node_id).unwrap();
+                assert_eq!(node.size, Vec2::new(123.0, 45.0));
+            });
+            let estimated = std::thread::spawn(move || {
+                let mut doc = Document::new("Estimated");
+                let page = doc.add_page("P");
+                let spec: NodeSpec = serde_json::from_value(estimated_json).unwrap();
+                let report = doc.apply_spec_with_report(page, &spec).unwrap();
+                let node = doc.get(report.root_node_id).unwrap();
+                let NodeKind::Text(tp) = &node.kind else { panic!("expected text") };
+                let est = estimate_intrinsic_text_size(tp);
+                assert_eq!(node.size, est, "an apply with no measurer must keep the estimate");
+                assert_ne!(node.size.x, 123.0, "the other thread's measurer must not be visible");
+            });
+            measured.join().expect("measured thread");
+            estimated.join().expect("estimated thread");
+        }
     }
 }

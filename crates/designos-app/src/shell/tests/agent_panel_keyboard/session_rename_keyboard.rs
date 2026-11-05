@@ -1,4 +1,4 @@
-//! #1001: Rename in the Sessions popover takes the keys from the agent's terminal. Until then the terminal reads every
+//! #1001: Rename in the sessions popover takes the keys from the agent's terminal. Until then the terminal reads every
 //! letter, and a letter that reaches it is typed into the agent.
 
 use super::hidden_other_cli_form::{assert_letters_went_into_the_rename, frames, press_rename};
@@ -8,7 +8,7 @@ use super::*;
 fn popover_sim() -> Sim {
     let mut s = agent_sim();
     assert!(s.app().terminal.viewport_focused, "precondition: the terminal holds the keyboard");
-    let sessions = s.rect_of("agents-sessions-btn");
+    let sessions = s.rect_of("agents-more-btn");
     s.click(sessions.center());
     frames(&mut s, 2);
     s

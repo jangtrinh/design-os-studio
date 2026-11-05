@@ -341,8 +341,7 @@ fn live_text_input(ui: &mut Ui, rect: Rect, key: &str, value: &str) -> Option<St
         .id(id)
         .font(theme::font_body())
         .text_color(theme::TEXT)
-        .frame(egui::Frame::NONE)
-        .margin(egui::Margin::symmetric(theme::FIELD_PLAIN_X as i8, 0))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(theme::FIELD_PLAIN_X as i8, 0)))
         .vertical_align(egui::Align::Center)
         .min_size(rect.size())
         .desired_width(rect.width());
@@ -655,7 +654,7 @@ mod tests {
             let id = d.alloc_id();
             let mut f = Node::frame(id, designos_doc::Rect::new(i as f32, 900.0, 10.0, 10.0));
             f.fills = vec![Paint {
-                kind: PaintKind::Image { image_ref: "unrelated".into(), scale_mode: ImageScaleMode::Fill },
+                kind: PaintKind::Image { image_ref: "unrelated".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
                 opacity: 1.0,
                 visible: true,
                 blend: BlendMode::Normal,

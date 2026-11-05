@@ -1,0 +1,111 @@
+=== Round 3 Part 1 Green Tests ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.90s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 19 tests
+test cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host ... ok
+test cli_resolve::tests::hermetic_mode_refuses_symlink_outside_stub_dir ... ok
+test cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands ... ok
+test cli_resolve::tests::every_resolver_uses_resolve_in ... ok
+test cli_resolve::tests::hermetic_startup_refuses_relative_or_dotdot_dir ... ok
+test cli_resolve::tests::hermetic_mode_refuses_background_redirect_and_unexpanded_vars ... ok
+test cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case ... ok
+test cli_resolve::tests::hermetic_mode_writes_the_acknowledgement ... ok
+test cli_resolve::tests::version_warmer_resolves_on_the_calling_thread ... ok
+test cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement ... ok
+test cli_resolve::tests::hermetic_pty_env_is_stub_path_only ... ok
+test cli_resolve::tests::hermetic_codex_expansion_uses_tab_env_not_parent_env ... ok
+test cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags ... ok
+test cli_resolve::tests::grok_usage_caller_with_no_grok_stub_spawns_nothing ... ok
+test cli_resolve::tests::hermetic_startup_dir_is_pinned_after_symlink_retarget ... ok
+test cli_resolve::tests::startup_check_runs_before_seed_library_and_agent_cli ... ok
+test cli_resolve::tests::stub_scripts_behave ... ok
+test cli_resolve::tests::non_hermetic_catalog_path_prepends_install_and_extra_before_host_path ... ok
+test cli_resolve::tests::hermetic_resolver_census ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 2972 filtered out; finished in 0.33s
+
+=== Round 3 Step 4 Green Tests ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.17s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 12 tests
+test layout_snapshot::tests::region_wide_wildcard_entry_is_rejected ... ok
+test layout_snapshot::tests::reordering_two_buttons_fails_g3 ... ok
+test layout_snapshot::tests::widening_the_left_panel_fails_g1 ... ok
+test layout_snapshot::tests::missing_baseline_fails ... ok
+test layout_snapshot::tests::stale_allow_entry_fails ... ok
+test layout_snapshot::tests::equally_specific_entries_fail_to_parse ... ok
+test layout_snapshot::tests::palette_growing_above_bottom_anchor_passes_with_allow ... ok
+test layout_snapshot::tests::centred_bar_widening_by_12_passes_with_anchor_x_centre ... ok
+test layout_snapshot::tests::growing_a_row_without_allow_fails_and_with_allow_passes ... ok
+test layout_snapshot::tests::cumulative_shift_is_derived_not_a_range ... ok
+test layout_snapshot::tests::inspector_overflow_does_not_fail_g2 ... ok
+test layout_snapshot::tests::snapshot_reports_every_region_of_the_editor ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2991 filtered out; finished in 0.23s
+
+=== Round 3 Step 5 Green Tests (8c, 8d) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 09s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 2 tests
+test layout_snapshot::tests::home_is_deterministic_with_fixed_clock ... ok
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3003 filtered out; finished in 32.71s
+
+
+=== Round 3 Step 6 Green Tests ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.70s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 9 tests
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 3005 filtered out; finished in 6.58s
+
+
+=== Round 3 Step 7 Green Tests (8, 8b) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.75s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 2 tests
+test layout_snapshot::tests::layout_json_requires_screenshot ... ok
+test layout_snapshot::tests::layout_json_matches_headless_snapshot ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3014 filtered out; finished in 0.55s
+

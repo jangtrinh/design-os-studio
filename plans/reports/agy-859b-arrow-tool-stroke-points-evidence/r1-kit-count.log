@@ -1,0 +1,4 @@
+# Dashed open vectors of the Untitled UI kit whose end points carry a cap other than the stroke cap.
+# A throw-away test (not committed) imported the kit clone with designos_fig::import_fig and counted node vectors:
+vectors=33325 stroked=18744 dashed=1641 dashed_with_valid_network=1641 dashed_open_vectors=1641 (of which stroke.cap != None: 1641) with_an_endpoint_cap_that_differs=0 (of which an explicit NONE end cap on a non-None stroke.cap: 0) examples=[]
+# Only the .fig (Kiwi) import was counted. The REST JSON import maps a vertex strokeCap NONE to Some(None); that path was not measured.

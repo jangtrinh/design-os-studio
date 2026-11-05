@@ -1,0 +1,2 @@
+ls: out/cargo: No such file or directory
+ls_rc=1

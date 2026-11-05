@@ -1,0 +1,19 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.48s
+     Running tests/kit_evidence_temp.rs (out/cargo/debug/deps/kit_evidence_temp-eafd48b6760caf7e)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+head file-type-img: bg_id=NodeId(12752) bg_bake=false ear_id=NodeId(12753) ear_bake=false weight=1.5
+head file-type-jpg: bg_id=NodeId(12770) bg_bake=false ear_id=NodeId(12771) ear_bake=false weight=1.5
+head file-type-pdf: bg_id=NodeId(13028) bg_bake=false ear_id=NodeId(13029) ear_bake=false weight=1.5
+head arrow-16: id=NodeId(43238) bake=false weight=3 size=(490.14008, 341.27777)
+head arrow-21: id=NodeId(43240) bake=false weight=3 size=(458.54004, 244.16774)
+head arrow-34: id=NodeId(43242) bake=false weight=3 size=(371.03198, 316.7594)
+test render_kit_nodes_resized_2x ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.48s
+

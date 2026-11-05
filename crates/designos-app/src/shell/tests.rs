@@ -1,7 +1,7 @@
 //! End-to-end UI tests: drive the whole window with synthetic egui input.
 
 use super::*;
-use designos_doc::{Color, NodeId, NodeKind, Paint, Vec2 as DV};
+use designos_doc::{BlendMode, Color, GradientStop, NodeId, NodeKind, Paint, PaintKind, Vec2 as DV};
 use egui::{Modifiers, PointerButton, RawInput};
 
 fn no_system_clipboard() -> Option<String> {
@@ -29,26 +29,7 @@ fn script_empty_clipboard(app: &mut App) {
 /// that is still open for writing.
 #[cfg(unix)]
 fn stub_agent_cli_dir() -> &'static std::path::Path {
-    use std::os::unix::fs::PermissionsExt;
-    const SCRIPT: &[u8] = b"#!/bin/sh\nexec /bin/cat\n";
-    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join("designos-stub-agent-clis");
-        std::fs::create_dir_all(&dir).expect("create the stub agent CLI dir");
-        for binary in ["claude", "codex", "agy", "grok", "gemini", "opencode"] {
-            let path = dir.join(binary);
-            let is_current = std::fs::read(&path).is_ok_and(|bytes| bytes == SCRIPT)
-                && std::fs::metadata(&path).is_ok_and(|meta| meta.permissions().mode() & 0o111 == 0o111);
-            if is_current {
-                continue;
-            }
-            let staged = dir.join(format!(".{binary}.{}", std::process::id()));
-            std::fs::write(&staged, SCRIPT).expect("write a stub agent CLI");
-            std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).expect("make a stub agent CLI executable");
-            std::fs::rename(&staged, &path).expect("move a stub agent CLI into place");
-        }
-        dir
-    })
+    crate::cli_resolve::stub_dir()
 }
 
 struct Sim {
@@ -72,7 +53,6 @@ impl Sim {
     }
     /// The shell after `Shell::build`, before any frame. A preset toast raised during build has not been painted.
     fn built(mut opts: Options) -> Self {
-        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
         if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
             opts.fixture = Some("demo".into());
         }
@@ -94,6 +74,51 @@ impl Sim {
     }
     fn with(opts: Options) -> Self {
         let mut s = Self::built(opts);
+        s.frame(vec![]);
+        s.frame(vec![]);
+        s
+    }
+    fn with_starter(opts: Options) -> Self {
+        Self::with_starter_prep(opts, |_| {}, |_| {})
+    }
+    fn with_starter_prep(mut opts: Options, prep_doc: impl FnOnce(&mut designos_doc::Document), prep_app: impl FnOnce(&mut App)) -> Self {
+        const STARTER_BYTES: &[u8] = include_bytes!("../../assets/starter/designos-studio-starter.designos");
+        let had_panel_or_file = opts.panel.is_some() || opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
+        let mut temp_doc_path = None;
+        if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
+            static STARTER_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let seq = STARTER_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let starter_str = std::str::from_utf8(STARTER_BYTES).expect("starter utf8");
+            let mut doc = designos_doc::Document::from_json(starter_str).expect("parse starter document");
+            prep_doc(&mut doc);
+            let p = std::env::temp_dir().join(format!("designos-sim-starter-{}-{seq}.designos", std::process::id()));
+            std::fs::write(&p, doc.to_json().expect("serialize prepared starter")).expect("write prepared starter");
+            opts.file = Some(p.clone());
+            temp_doc_path = Some(p);
+        }
+        let ctx = Context::default();
+        let mut shell = Shell::build(&ctx, opts);
+        if let Some(p) = temp_doc_path {
+            let _ = std::fs::remove_file(p);
+            shell.app.file_path = None;
+            let ds = shell.app.autosave.disk_state();
+            shell.app.autosave.adopt_disk_state(ds, None);
+            shell.launch_had_panel_or_file = had_panel_or_file;
+        }
+        prep_app(&mut shell.app);
+        script_empty_clipboard(&mut shell.app);
+        let mut s = Sim {
+            ctx,
+            shell,
+            t: 0.0,
+            pos: Pos2::new(700.0, 500.0),
+            mods: Modifiers::NONE,
+            cursor: egui::CursorIcon::Default,
+            shapes: Vec::new(),
+            accesskit_update: None,
+            commands: Vec::new(),
+            sent_commands: Vec::new(),
+        };
         s.frame(vec![]);
         s.frame(vec![]);
         s
@@ -222,7 +247,7 @@ impl Sim {
         #[cfg(unix)]
         {
             let mut dirs = vec![stub_agent_cli_dir().to_path_buf()];
-            dirs.extend(std::env::var_os("PATH").iter().flat_map(std::env::split_paths));
+            dirs.extend(crate::cli_resolve::host_path_dirs());
             self.shell.app.terminal.path_override = Some(std::env::join_paths(dirs).expect("a PATH made of existing dirs"));
         }
     }
@@ -458,16 +483,32 @@ fn hand_tool_pans() {
     assert_eq!(s.app().tool, Tool::Hand);
 }
 
+/// Centre of Layers row `i` (0 = the top-most layer) in a window that has not scrolled the list.
+fn layer_row_y(s: &Sim, i: usize) -> f32 {
+    s.rect_of("layers-list").top() + (i as f32 + 0.5) * theme::LAYER_ROW_HEIGHT
+}
+
+/// Centre of Pages row `i`.
+fn page_row_y(s: &Sim, i: usize) -> f32 {
+    s.rect_of("pages-list").top() + (i as f32 + 0.5) * theme::PAGE_ROW_HEIGHT
+}
+
+/// Centre of item `i` of a popup menu opened with its top-left corner at `top` (no separators).
+fn menu_item_y(top: f32, i: usize) -> f32 {
+    top + theme::MENU_PADDING + (i as f32 + 0.5) * theme::MENU_ITEM_HEIGHT
+}
+
 #[test]
 fn layers_panel_click_and_visibility_toggle() {
     let mut s = Sim::new();
     // first row (top-most layer = "Dashboard") of the layers list
-    s.click(Pos2::new(180.0, 241.0));
+    let row = layer_row_y(&s, 0);
+    s.click(Pos2::new(180.0, row));
     let dash = s.by_name("Dashboard");
     assert_eq!(s.app().selection, vec![dash]);
     // hover reveals the eye button at the row's right edge
-    s.mv(Pos2::new(180.0, 241.0));
-    s.click(Pos2::new(297.0 - 8.0 - 12.0 - 1.0, 241.0));
+    s.mv(Pos2::new(180.0, row));
+    s.click(Pos2::new(297.0 - 8.0 - 12.0 - 1.0, row));
     assert!(!s.app().doc.get(dash).unwrap().visible);
     s.cmd_key(Key::Z);
     assert!(s.app().doc.get(dash).unwrap().visible);
@@ -478,8 +519,8 @@ fn layers_drag_reparents_into_frame() {
     let mut s = Sim::new();
     let welcome = s.by_name("Welcome");
     let card = s.by_name("Card");
-    // rows: Dashboard (241), Card (273), Welcome (305). Drag Card onto the middle of Welcome.
-    s.drag(Pos2::new(180.0, 273.0), Pos2::new(180.0, 305.0));
+    // rows: Dashboard (0), Card (1), Welcome (2). Drag Card onto the middle of Welcome.
+    s.drag(Pos2::new(180.0, layer_row_y(&s, 1)), Pos2::new(180.0, layer_row_y(&s, 2)));
     assert_eq!(s.app().doc.get(card).unwrap().parent, Some(welcome));
 }
 
@@ -569,17 +610,115 @@ fn color_swatch_opens_picker_without_panic() {
 }
 
 #[test]
+fn gradient_picker_delete_removes_stop_without_deleting_layer() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint {
+                kind: PaintKind::LinearGradient {
+                    handles: [DV::new(0.0, 0.5), DV::new(1.0, 0.5), DV::new(0.0, 1.0)],
+                    stops: vec![
+                        GradientStop { pos: 0.0, color: Color::BLACK },
+                        GradientStop { pos: 0.5, color: Color::rgb(128, 128, 128) },
+                        GradientStop { pos: 1.0, color: Color::WHITE },
+                    ],
+                },
+                opacity: 1.0,
+                visible: true,
+                blend: BlendMode::Normal,
+            }];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some(), "gradient picker should be open");
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_some(), "{key:?} in the picker must not delete the layer");
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected surviving gradient fill")
+        };
+        assert_eq!(stops.len(), 2, "{key:?} should remove one selected gradient stop");
+        s.key(Key::Escape);
+        assert!(s.app().props.picker.is_none(), "closing the picker should commit the stop deletion");
+        s.cmd_key(Key::Z);
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected gradient after undo")
+        };
+        assert_eq!(stops.len(), 3, "undo should restore the deleted stop in one step");
+    }
+}
+
+#[test]
+fn delete_still_removes_layers_without_a_picker_and_on_a_solid_fill() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_none());
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_none(), "{key:?} with no picker must delete the layer");
+    }
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint::solid(Color::BLACK)];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some(), "solid picker should be open");
+        let solid = s.app().props.picker.as_ref().is_some_and(|pk| !crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient());
+        assert!(solid, "the open picker must be a solid fill");
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_none(), "{key:?} in a solid picker must delete the layer");
+    }
+}
+
+#[test]
+fn gradient_picker_keeps_the_last_two_stops() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint {
+                kind: PaintKind::LinearGradient {
+                    handles: [DV::new(0.0, 0.5), DV::new(1.0, 0.5), DV::new(0.0, 1.0)],
+                    stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+                },
+                opacity: 1.0,
+                visible: true,
+                blend: BlendMode::Normal,
+            }];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some());
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_some(), "{key:?} must not delete the layer when the gradient cannot lose a stop");
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected surviving gradient fill")
+        };
+        assert_eq!(stops.len(), 2, "{key:?} must not remove a stop from a two-stop gradient");
+    }
+}
+
+#[test]
 fn page_context_menu_duplicates_and_deletes() {
     let mut s = Sim::new();
     let n = s.app().doc.pages.len();
     // second page row, then the menu opens at the pointer
-    s.right_click(Pos2::new(150.0, 141.0));
+    let second = page_row_y(&s, 1);
+    s.right_click(Pos2::new(150.0, second));
     assert!(s.app().layers.page_menu.is_some());
-    s.click(Pos2::new(180.0, 141.0 + 4.0 + 24.0 + 12.0)); // Duplicate
+    s.click(Pos2::new(180.0, menu_item_y(second, 1))); // Duplicate
     assert_eq!(s.app().doc.pages.len(), n + 1);
     assert!(s.app().layers.page_menu.is_none());
-    s.right_click(Pos2::new(150.0, 118.0));
-    s.click(Pos2::new(180.0, 118.0 + 4.0 + 48.0 + 12.0)); // Delete
+    let first = page_row_y(&s, 0);
+    s.right_click(Pos2::new(150.0, first));
+    s.click(Pos2::new(180.0, menu_item_y(first, 2))); // Delete
     assert_eq!(s.app().doc.pages.len(), n);
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.pages.len(), n + 1);
@@ -604,8 +743,9 @@ fn page_context_menu_rename() {
 fn dragging_a_page_row_reorders_it() {
     let mut s = Sim::new();
     let first = s.app().doc.pages[0];
-    // drag page 1 below page 2 (slot 2)
-    s.drag(Pos2::new(150.0, 118.0), Pos2::new(150.0, 118.0 + 28.0));
+    // drag page 1 below page 2 (slot 2): one row plus 4 px past the first row's centre
+    let first_row = page_row_y(&s, 0);
+    s.drag(Pos2::new(150.0, first_row), Pos2::new(150.0, first_row + theme::PAGE_ROW_HEIGHT + 4.0));
     assert_eq!(s.app().doc.pages[1], first);
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.pages[0], first);
@@ -1120,25 +1260,38 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
     }
 }
 
+mod agent_autosave;
 mod agent_turn_card_scroll;
+mod app_shell;
 mod board;
 mod board_home;
 mod canvas_label_rename;
 mod check_designs;
+mod chrome_census;
+mod click_selection;
+mod clipboard_shortcuts;
+mod close_human_dirty;
+mod close_tab_kinds;
 mod comments;
 mod components;
 mod components_cycles;
 mod components_main_copies;
+mod corner_radius;
 mod decks;
 mod deferred_page_instances;
 mod dev;
 mod dev_code_panel;
 mod dev_mode_shortcut;
+mod dropdown_keys;
 mod duplicate_order;
+mod edit_menu_parity;
 mod effect_caps;
 mod effect_grid_styles;
+mod effect_popover_rows;
+mod effect_stop_binds;
 mod empty_slot_flows;
 mod export_toast;
+mod expose_nested_instances;
 mod fast_drag_draw;
 mod fast_drag_transform;
 mod fig_export_toast;
@@ -1150,27 +1303,36 @@ mod history;
 mod home;
 mod home_agents_card;
 mod idle_repaint;
+mod inspector_var_binds;
 mod layer_drag_fast;
+mod leave_agent;
 #[cfg(target_os = "macos")]
 mod leave_menu_quit;
 mod leave_prompt;
 mod leave_prompt_edges;
+mod left_panel_actions;
 mod live_agent_edits;
 mod live_patch_agent_switch;
 mod live_patch_agent_switch_edges;
 mod live_patch_agent_switch_guards;
 mod menus;
+mod narrow_window_layout;
+mod overlays_chrome;
+mod overlays_chrome_layout;
 mod pages_layers_separator;
 mod palette_autofix_undo;
 mod panel_export;
 mod panel_keys;
 mod picker_libraries_tooltip;
+mod picker_ok_escape;
+mod project_tab;
 mod proto;
 mod proto_vars;
 mod relayout_budget;
 mod resized_shape_geometry;
 mod screenshot_capture;
 mod select_cli;
+mod select_cli_watermark;
 mod slot_canvas_edits;
 mod stale_canvas_after_agent_edit;
 mod stray_layers;
@@ -1181,6 +1343,7 @@ mod tab_disk_state;
 mod text_styles;
 mod toast_clock;
 mod typography;
+mod typography_style_detach;
 mod undo_exact_layout;
 mod undo_layout_epoch;
 mod unsaved_dot;
@@ -1189,16 +1352,23 @@ mod vector;
 
 // Needs the stub agent CLIs of `Sim::use_stub_agent_clis`, which exist on unix only: on Windows the tab runs a real `claude`
 // that is not there, and dies at a moment that depends on machine load, so the terminal bytes the tests read are not stable.
+mod agent_chrome;
+mod agent_new_chat_composer;
 #[cfg(unix)]
 mod agent_panel_keyboard;
 mod agent_picker_return;
+mod agent_simplified_panel;
 mod agents_panel_only;
 mod agents_tab_strip;
 mod approval_banner_tab;
 mod assets_thumbs;
+mod assets_variables_libraries_chrome;
+#[cfg(unix)]
+mod layout_unchanged;
 mod libraries;
 mod lint;
 mod plugins;
+#[cfg(unix)]
 mod terminal_undo_chord;
 
 #[test]
@@ -1628,14 +1798,13 @@ mod agent_a11y {
         // In default chat mode (`side_panel_pty_open == false`), composer and runtime pills are created;
         // PTY-only buttons (`New session`, `Close tab`) and non-existent controls (`Stop`, `Send selection to agent`) must not be published.
         let update = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        for label in ["Send", "Use Claude Code", "Use Codex", "Use Antigravity (AGY)", "Use Grok", "Attach context", "Show terminal", "Attach PRD context"] {
+        for label in ["Send", "Use Claude Code", "Use Codex", "Use Antigravity (AGY)", "Use Grok", "Attach context", "Show terminal"] {
             assert!(find_accesskit_node(update, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in chat mode");
         }
-        // The Shell pill and the composer's book button both show the terminal, so both carry the same honest name.
+        // The Shell pill shows the terminal, so it carries that honest name.
         let show_terminal_ids: Vec<_> =
             update.nodes.iter().filter(|(_, n)| n.role() == egui::accesskit::Role::Button && n.label() == Some("Show terminal")).map(|(id, _)| *id).collect();
         assert!(show_terminal_ids.contains(&egui::Id::new("agents-runtime-pty-toggle").accesskit_id()), "the Shell pill must be named Show terminal");
-        assert!(show_terminal_ids.contains(&egui::Id::new("agents-composer-book").accesskit_id()), "the composer book button must be named Show terminal");
         let (claude_node_id, _) = find_accesskit_node(update, egui::accesskit::Role::Button, "Use Claude Code").expect("Claude pill");
         assert_eq!(claude_node_id, egui::Id::new("agents-runtime-claude").accesskit_id(), "Use Claude Code must target agents-runtime-claude");
         assert!(
@@ -1653,10 +1822,10 @@ mod agent_a11y {
         s.frame(vec![]);
 
         let update_pty = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        for label in ["New session", "Close tab"] {
+        for label in ["New chat", "More", "Close tab"] {
             assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in PTY mode");
         }
-        for absent in ["Stop", "Send selection to agent", "Send", "Show terminal dock", "Hide terminal dock"] {
+        for absent in ["Stop", "Send selection to agent", "Show terminal dock", "Hide terminal dock"] {
             assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, absent).is_none(), "unexpected phantom button {absent:?} in PTY mode");
         }
 
@@ -1672,13 +1841,11 @@ mod agent_a11y {
         let update_pty_selected = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
         let (chip_node_id, _) = find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Send selection to agent")
             .expect("expected Role::Button with label \"Send selection to agent\" in PTY mode when a node is selected");
-        assert_eq!(chip_node_id, egui::Id::new("agent-selection-chip-left").accesskit_id());
-        for absent in ["Stop", "Send"] {
-            assert!(
-                find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, absent).is_none(),
-                "unexpected phantom button {absent:?} in PTY mode with selection"
-            );
-        }
+        assert_eq!(chip_node_id, egui::Id::new("agents-composer-chip-selection").accesskit_id());
+        assert!(
+            find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Stop").is_none(),
+            "unexpected phantom button \"Stop\" in PTY mode with selection"
+        );
     }
 
     #[test]
@@ -1757,9 +1924,12 @@ mod agent_a11y {
             shapes.iter().any(|cs| {
                 matches!(
                     &cs.shape,
-                    egui::epaint::Shape::Circle(c) if (c.radius - 2.7).abs() < 0.05 && c.fill == expected_fill
+                    egui::epaint::Shape::Circle(c) if (c.radius - 4.0).abs() < 0.05 && c.fill == expected_fill
                 )
             })
+        };
+        let has_status_dot = |shapes: &[egui::epaint::ClippedShape]| -> bool {
+            shapes.iter().any(|cs| matches!(&cs.shape, egui::epaint::Shape::Circle(c) if (c.radius - 4.0).abs() < 0.05 && c.center.y < 40.0))
         };
 
         // Error status -> painted with theme::DANGER
@@ -1773,7 +1943,7 @@ mod agent_a11y {
         s.frame(vec![]);
         assert!(has_circle_with_fill(&s.shapes, crate::theme::DANGER), "Error status dot must paint with theme::DANGER");
 
-        // Stopped status -> painted with theme::ICON_TERTIARY
+        // Stopped status -> no dot: a tab carries one only while it needs the user
         {
             let tab = &mut s.shell.app.terminal.tabs[0];
             if let Ok(mut ts) = tab.last_output_at.lock() {
@@ -1782,7 +1952,7 @@ mod agent_a11y {
             set_tab_status_and_reported(tab, crate::terminal::AgentTabStatus::Stopped);
         }
         s.frame(vec![]);
-        assert!(has_circle_with_fill(&s.shapes, crate::theme::ICON_TERTIARY), "Stopped status dot must paint with theme::ICON_TERTIARY");
+        assert!(!has_status_dot(&s.shapes), "a stopped tab draws no status dot");
     }
 
     #[test]
@@ -1806,5 +1976,141 @@ mod agent_a11y {
             assert!(s.app().agent_a11y.queue.is_empty(), "announcer queue must stay empty when AccessKit is disabled");
             assert!(s.app().agent_a11y.shown.is_none(), "announcer shown must stay None when AccessKit is disabled");
         }
+    }
+
+    /// 8e: `Options{screenshot: Some(..)}` -> `screenshot_chrome` true, rail not opened;
+    /// `Options::default()` -> rail default applied; `Shell::draw` populates `app.ui.regions`.
+    #[test]
+    fn shell_new_uses_launch_defaults_for_its_own_mode() {
+        let tmp = std::env::temp_dir().join(format!("designos-8e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create 8e temp dir");
+
+        let cc_shot = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let shot_opts =
+            Options { library: Some(tmp.join("lib-shot")), fixture: Some("demo".to_string()), screenshot: Some(tmp.join("out.png")), ..Options::default() };
+        let shell_shot = Shell::new(&cc_shot, shot_opts);
+        assert!(shell_shot.app.ui.screenshot_chrome, "Shell::new with screenshot: Some(..) must set screenshot_chrome = true");
+        assert_ne!(shell_shot.app.ui.rail, Some(crate::app::RailItem::Agents), "Shell::new with screenshot: Some(..) must not apply the Agents rail default");
+        assert!(shell_shot.app.tabs.always_visible);
+        assert!(shell_shot.app.ui.rulers);
+
+        let cc_live = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let live_opts = Options { library: Some(tmp.join("lib-live")), fixture: Some("demo".to_string()), ..Options::default() };
+        let mut shell_live = Shell::new(&cc_live, live_opts);
+        assert!(!shell_live.app.ui.screenshot_chrome, "Shell::new without screenshot must leave screenshot_chrome = false");
+        assert_eq!(shell_live.app.ui.rail, Some(crate::app::RailItem::Agents), "Shell::new with Options::default() must apply the Agents rail default");
+        assert!(!shell_live.app.ui.left_collapsed);
+        assert!(shell_live.app.tabs.always_visible);
+        assert!(shell_live.app.ui.rulers);
+
+        // Also verify apply_launch_defaults directly on a Shell::build instance and region population in Shell::draw.
+        let ctx_build = egui::Context::default();
+        let build_opts = Options { library: Some(tmp.join("lib-build")), fixture: Some("demo".to_string()), ..Options::default() };
+        let mut shell_build = Shell::build(&ctx_build, build_opts);
+        shell_build.apply_launch_defaults(true);
+        assert!(shell_build.app.ui.screenshot_chrome, "apply_launch_defaults(true) must set screenshot_chrome = true");
+        assert_ne!(shell_build.app.ui.rail, Some(crate::app::RailItem::Agents));
+
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+        let _ = ctx_build.run_ui(raw.clone(), |ui| {
+            shell_build.draw(ui);
+        });
+        assert!(shell_build.app.ui.regions.title_bar.is_none(), "screenshot_chrome hides title_bar");
+        assert!(shell_build.app.ui.regions.tab_bar.is_some(), "tab_bar region must be populated");
+        assert!(shell_build.app.ui.regions.rail.is_some(), "rail region must be populated");
+        assert!(shell_build.app.ui.regions.left_panel.is_some(), "left_panel region must be populated");
+        assert!(shell_build.app.ui.regions.canvas.is_some(), "canvas region must be populated");
+        assert!(shell_build.app.ui.regions.right_panel.is_some(), "right_panel region must be populated");
+
+        let _ = cc_live.egui_ctx.run_ui(raw, |ui| {
+            shell_live.draw(ui);
+        });
+        assert!(shell_live.app.ui.regions.title_bar.is_some(), "non-screenshot launch draws title_bar");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos() {
+        let tmp = std::env::temp_dir().join(format!("designos-mask-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let ctx = egui::Context::default();
+        let opts = Options { library: Some(tmp.join("lib")), fixture: Some("demo".to_string()), ..Options::default() };
+        let mut shell = Shell::build(&ctx, opts);
+        let page = shell.app.page;
+        let id = shell.app.doc.alloc_id();
+        shell.app.doc.insert(page, designos_doc::Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+
+        let try_chord = |shell: &mut Shell, m: egui::Modifiers| -> bool {
+            shell.app.doc.get_mut(id).unwrap().is_mask = false;
+            shell.app.selection = vec![id];
+            shell.key(&ctx, egui::Key::M, m);
+            shell.app.doc.get(id).unwrap().is_mask
+        };
+
+        if cfg!(target_os = "macos") {
+            let ctrl_cmd = egui::Modifiers { alt: false, ctrl: true, shift: false, mac_cmd: true, command: true };
+            let alt_cmd = egui::Modifiers { alt: true, ctrl: false, shift: false, mac_cmd: true, command: true };
+            let ctrl_alt_cmd = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: true, command: true };
+            let plain_cmd = egui::Modifiers { alt: false, ctrl: false, shift: false, mac_cmd: true, command: true };
+            let ctrl_alt = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: false };
+            assert!(try_chord(&mut shell, ctrl_cmd), "⌃⌘M must toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, alt_cmd), "⌥⌘M must not toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, ctrl_alt_cmd), "⌃⌥⌘M must not toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, plain_cmd), "⌘M must not toggle Use as mask");
+            assert!(!try_chord(&mut shell, ctrl_alt), "⌃⌥M without ⌘ must not toggle Use as mask on macOS");
+        } else {
+            let ctrl_alt = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: true };
+            let plain_ctrl = egui::Modifiers { alt: false, ctrl: true, shift: false, mac_cmd: false, command: true };
+            assert!(try_chord(&mut shell, ctrl_alt), "Ctrl+Alt+M must toggle Use as mask");
+            assert!(!try_chord(&mut shell, plain_ctrl), "Ctrl+M must not toggle Use as mask");
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace() {
+        let mut s = Sim::new();
+        let page = s.app().page;
+        let frame = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::frame(frame, designos_doc::Rect::new(100.0, 120.0, 320.0, 240.0))).unwrap();
+        let child = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(frame, designos_doc::Node::rectangle(child, designos_doc::Rect::new(30.0, 40.0, 90.0, 60.0))).unwrap();
+        let src = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::rectangle(src, designos_doc::Rect::new(500.0, 120.0, 50.0, 50.0))).unwrap();
+        let target = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::rectangle(target, designos_doc::Rect::new(600.0, 120.0, 110.0, 80.0))).unwrap();
+
+        // Copy `src` into Studio's internal clip so PasteToReplace has a clip payload ready.
+        s.shell.app.selection = vec![src];
+        s.shell.app.copy_selection();
+
+        // Select `frame` and press Cmd+Alt+Shift+R (⌥⇧⌘R / Ctrl+Alt+Shift+R): must Resize to fit `frame`, NOT Paste to replace it!
+        s.shell.app.selection = vec![frame];
+        let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+        s.mods = Modifiers { alt: true, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        s.key(Key::R);
+        s.mods = Modifiers::NONE;
+
+        let f_after = s.app().doc.get(frame).expect("frame still exists and was not replaced by clipboard");
+        assert_eq!((f_after.transform.tx, f_after.transform.ty), (130.0, 160.0));
+        assert_eq!(f_after.size, DV::new(90.0, 60.0));
+        let c_after = s.app().doc.get(child).expect("child still exists");
+        assert_eq!((c_after.transform.tx, c_after.transform.ty), (0.0, 0.0));
+
+        // Now select `target` and press Cmd+Shift+R (⇧⌘R / Ctrl+Shift+R): must Paste to replace `target` with a 50x50 copy of `src`.
+        s.shell.app.selection = vec![target];
+        s.mods = Modifiers { alt: false, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        s.key(Key::R);
+        s.mods = Modifiers::NONE;
+
+        assert!(s.app().doc.get(target).is_none(), "target was replaced by PasteToReplace");
+        assert_eq!(s.app().selection.len(), 1);
+        let replaced = s.app().doc.get(s.app().selection[0]).unwrap();
+        assert_eq!(replaced.size, DV::new(50.0, 50.0));
+        assert_eq!((replaced.transform.tx, replaced.transform.ty), (600.0, 120.0));
     }
 }

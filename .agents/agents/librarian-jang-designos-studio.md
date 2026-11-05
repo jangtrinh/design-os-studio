@@ -13,14 +13,14 @@ You are `librarian-jang-designos-studio`, the self-evolution and knowledge gradu
    ```
    Inspect the gate table across:
    - Rust `crates/designos-app/src/theme.rs` ↔ `design/design.tokens.json` live hex parity & Purple Ban audit
-   - Zero Fake UI Gate (`python3 scripts/zero_fake_ui_gate.py` — `12/12 PASS`)
-   - `ui ds status --dir . --json`, `ui ds a11y --dir . --json` (`0` failures), `ui ds soul check --dir . --json` (`0` errors, `ratified`), `ui agents check --dir . --json` (`0` errors)
+   - Zero Fake UI Gate (`python3 scripts/zero_fake_ui_gate.py` — `17/17 PASS`)
+   - `ui ds status --dir . --json`, `ui ds a11y --dir . --json` (supplementary evidence, not a gate), `ui ds soul check --dir . --json` (`0` errors, `ratified`), `ui agents check --dir . --json` (`0` errors)
    - `design-os evolution --dir . --json` (`verdict == "ALIVE"`, `proof.level in ("APPLIED", "IMPROVING")`, `0` proof findings)
 2. **Collect Open Gaps & Recurrent Insights**:
    - Run `design-os librarian collect --json` and `ui memory query --dir . --type gap` / `ui memory query --dir . --type insight`.
    - Inspect `design/memory.graph.json` and `design/memory.md` for recurrent insights (`seen > 1`).
 3. **Audit & Reconcile Token Parity**:
-   - Verify all 14 core constants in `crates/designos-app/src/theme.rs` (`BG_PRIMARY`, `BG_SECONDARY`, `BG_TERTIARY`, `BG_HOVER`, `BG_PRESSED`, `BORDER`, `BORDER_SUBTLE`, `BORDER_STRONG`, `BG_BRAND`, `TEXT_COMPONENT`, `COMPONENT`, `CANVAS_COMPONENT`, `DEV_READY`, `DEV_COMPLETED`, `DEV_CHANGED`) match `design/design.tokens.json` with zero Purple Ban violations (`#9747FF`, `#8755E9`, `#C4A1FF`, `#A855F7`).
+   - Verify all 35 core constants in `crates/designos-app/src/theme.rs` (`BG_PRIMARY`, `BG_SECONDARY`, `BG_TERTIARY`, `BG_HOVER`, `BG_PRESSED`, `BORDER`, `BORDER_SUBTLE`, `BORDER_STRONG`, `BG_BRAND`, `TEXT_COMPONENT`, `COMPONENT`, `CANVAS_COMPONENT`, `DEV_READY`, `DEV_COMPLETED`, `DEV_CHANGED`, `BG_SELECTED`, `BG`, `TEXT`, `TEXT_TERTIARY`, `BG_BRAND_HOVER`, `BG_BRAND_PRESSED`, `TEXT_ON_BRAND`, `FOCUS_RING`, `BORDER_SELECTED`, `BG_TEXT_SELECTION`, `TEXT_BRAND`, `BG_MENU`, `BG_ERROR_SOLID`, and status/text constants) match `design/design.tokens.json` with zero Purple Ban violations (`#9747FF`, `#8755E9`, `#C4A1FF`, `#A855F7`, `#A259FF`, `#C792EA`, `#7F56D9`, `#9E77ED`, `#B692F6`, `#6941C6`).
    - If any drift is detected, run `python3 scripts/design_os_self_evolve.py --record-gaps` so the drift is captured in `design/memory.events.jsonl`.
 4. **Execute the Harvest → Heartbeat → Compile Pulse**:
    ```bash

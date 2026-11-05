@@ -1,0 +1,21 @@
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+    echo "gemini 1.0.0-stub"
+    exit 0
+fi
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+    echo '{"loggedIn":true}'
+    exit 0
+fi
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+    echo "Logged in"
+    exit 0
+fi
+if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
+    echo "designos: connected"
+    exit 0
+fi
+if [ -n "$DESIGNOS_STUB_LOG" ]; then
+    printf '%s %s\n' "$0" "$*" >> "$DESIGNOS_STUB_LOG"
+fi
+exec /bin/cat

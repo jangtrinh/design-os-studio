@@ -11,7 +11,7 @@
     "paddingLeft": 12,
     "fills": [
       {
-        "hex": "#121215",
+        "hex": "#0a0a0a",
         "boundToken": "colors.canvas"
       }
     ],
@@ -22,7 +22,7 @@
         "characters": "design:os studio",
         "fills": [
           {
-            "hex": "#f5f5f7",
+            "hex": "#fafafa",
             "boundToken": "colors.bg-foreground"
           }
         ]
@@ -42,7 +42,7 @@
     "paddingLeft": 8,
     "fills": [
       {
-        "hex": "#18181b",
+        "hex": "#0a0a0a",
         "boundToken": "colors.bg"
       }
     ],
@@ -60,7 +60,7 @@
         "paddingLeft": 8,
         "fills": [
           {
-            "hex": "#27272a",
+            "hex": "#262626",
             "boundToken": "colors.secondary"
           }
         ]
@@ -76,7 +76,7 @@
         "paddingLeft": 12,
         "fills": [
           {
-            "hex": "#1e1e22",
+            "hex": "#171717",
             "boundToken": "colors.surface"
           }
         ],
@@ -87,7 +87,7 @@
             "characters": "Design System v2",
             "fills": [
               {
-                "hex": "#f5f5f7",
+                "hex": "#fafafa",
                 "boundToken": "colors.surface-foreground"
               }
             ]
@@ -109,7 +109,7 @@
     "paddingLeft": 8,
     "fills": [
       {
-        "hex": "#18181b",
+        "hex": "#0a0a0a",
         "boundToken": "colors.bg"
       }
     ]
@@ -126,7 +126,7 @@
     "paddingLeft": 12,
     "fills": [
       {
-        "hex": "#18181b",
+        "hex": "#0a0a0a",
         "boundToken": "colors.bg"
       }
     ],
@@ -144,7 +144,7 @@
         "paddingLeft": 8,
         "fills": [
           {
-            "hex": "#121215",
+            "hex": "#0a0a0a",
             "boundToken": "colors.input"
           }
         ]
@@ -160,7 +160,7 @@
         "paddingLeft": 12,
         "fills": [
           {
-            "hex": "#2b1d16",
+            "hex": "#431407",
             "boundToken": "colors.accent"
           }
         ]
@@ -179,7 +179,7 @@
     "paddingLeft": 32,
     "fills": [
       {
-        "hex": "#121215",
+        "hex": "#0a0a0a",
         "boundToken": "colors.canvas"
       }
     ],
@@ -195,7 +195,7 @@
         "paddingLeft": 0,
         "fills": [
           {
-            "hex": "#121215",
+            "hex": "#0a0a0a",
             "boundToken": "colors.canvas"
           }
         ],
@@ -213,7 +213,7 @@
             "paddingLeft": 12,
             "fills": [
               {
-                "hex": "#27272a",
+                "hex": "#262626",
                 "boundToken": "colors.secondary"
               }
             ]
@@ -249,7 +249,7 @@
         "paddingLeft": 16,
         "fills": [
           {
-            "hex": "#18181b",
+            "hex": "#0a0a0a",
             "boundToken": "colors.bg"
           }
         ],
@@ -267,7 +267,7 @@
             "paddingLeft": 12,
             "fills": [
               {
-                "hex": "#1e1e22",
+                "hex": "#171717",
                 "boundToken": "colors.card"
               }
             ]
@@ -285,7 +285,7 @@
         "paddingLeft": 0,
         "fills": [
           {
-            "hex": "#121215",
+            "hex": "#0a0a0a",
             "boundToken": "colors.canvas"
           }
         ],
@@ -303,7 +303,7 @@
             "paddingLeft": 12,
             "fills": [
               {
-                "hex": "#1e1e22",
+                "hex": "#171717",
                 "boundToken": "colors.card"
               }
             ]
@@ -324,7 +324,7 @@
     "paddingLeft": 8,
     "fills": [
       {
-        "hex": "#18181b",
+        "hex": "#0a0a0a",
         "boundToken": "colors.bg"
       }
     ],
@@ -340,7 +340,7 @@
         "paddingLeft": 8,
         "fills": [
           {
-            "hex": "#1e1e22",
+            "hex": "#171717",
             "boundToken": "colors.surface"
           }
         ],
@@ -373,7 +373,7 @@
     "paddingLeft": 8,
     "fills": [
       {
-        "hex": "#121215",
+        "hex": "#0a0a0a",
         "boundToken": "colors.canvas"
       }
     ],
@@ -391,7 +391,7 @@
         "paddingLeft": 8,
         "fills": [
           {
-            "hex": "#14ae5c",
+            "hex": "#22c55e",
             "boundToken": "colors.success"
           }
         ]
@@ -410,7 +410,7 @@
     "paddingLeft": 0,
     "fills": [
       {
-        "hex": "#121215",
+        "hex": "#0a0a0a",
         "boundToken": "colors.canvas"
       }
     ]
@@ -428,7 +428,7 @@
     "paddingLeft": 8,
     "fills": [
       {
-        "hex": "#18181b",
+        "hex": "#0a0a0a",
         "boundToken": "colors.bg"
       }
     ]
@@ -446,7 +446,7 @@
     "paddingLeft": 16,
     "fills": [
       {
-        "hex": "#18181b",
+        "hex": "#0a0a0a",
         "boundToken": "colors.bg"
       }
     ],
@@ -464,7 +464,7 @@
         "paddingLeft": 8,
         "fills": [
           {
-            "hex": "#121215",
+            "hex": "#0a0a0a",
             "boundToken": "colors.input"
           }
         ]
@@ -483,7 +483,7 @@
     "paddingLeft": 16,
     "fills": [
       {
-        "hex": "#18181b",
+        "hex": "#0a0a0a",
         "boundToken": "colors.bg"
       }
     ],
@@ -501,7 +501,7 @@
         "paddingLeft": 8,
         "fills": [
           {
-            "hex": "#14ae5c",
+            "hex": "#22c55e",
             "boundToken": "colors.success"
           }
         ]

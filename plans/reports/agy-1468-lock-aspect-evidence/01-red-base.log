@@ -1,0 +1,83 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.50s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 5 tests
+test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... FAILED
+test panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_axis ... FAILED
+test panels::properties::tests::locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit ... FAILED
+test panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step ... FAILED
+test panels::properties::tests::lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio ... FAILED
+
+failures:
+
+---- canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift stdout ----
+
+thread 'canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift' (70806077) panicked at crates/designos-app/src/canvas/interact.rs:3435:17:
+handle TL (shift=false) on locked 100x50 node must resize to Vec2 { x: 140.0, y: 70.0 }, got Vec2 { x: 140.0, y: 60.0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_axis stdout ----
+
+thread 'panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_axis' (70806081) panicked at crates/designos-app/src/panels/properties.rs:3510:9:
+assertion `left == right` failed: locked node A (100x50) must scale H to 100 when W=200 is committed
+  left: Vec2 { x: 200.0, y: 50.0 }
+ right: Vec2 { x: 200.0, y: 100.0 }
+
+---- panels::properties::tests::locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit stdout ----
+
+thread 'panels::properties::tests::locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit' (70806080) panicked at crates/designos-app/src/panels/properties.rs:3547:9:
+assertion `left == right` failed: locked W edit with Fixed height must scale H to keep ratio
+  left: Vec2 { x: 120.0, y: 30.0 }
+ right: Vec2 { x: 120.0, y: 60.0 }
+
+---- panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step stdout ----
+
+thread 'panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step' (70806079) panicked at crates/designos-app/src/panels/properties.rs:3461:9:
+clicking lock-aspect when any selected node is unlocked must lock every selected node
+
+---- panels::properties::tests::lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio stdout ----
+
+thread 'panels::properties::tests::lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio' (70806078) panicked at crates/designos-app/src/panels/properties.rs:3599:9:
+.fig export then import must keep lock_aspect = true
+
+
+failures:
+    canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift
+    panels::properties::tests::lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio
+    panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step
+    panels::properties::tests::locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit
+    panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_axis
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4195 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.19s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 1 test
+test lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest ... FAILED
+
+failures:
+
+---- lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest stdout ----
+
+thread 'lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest' (70806313) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4301:5:
+REST export -> import must preserve preserveRatio / lock_aspect = true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`

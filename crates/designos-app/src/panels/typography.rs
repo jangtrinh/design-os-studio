@@ -12,7 +12,7 @@ use crate::layout;
 use crate::richtext::{self, ListKind, Summary};
 use crate::theme;
 use crate::widgets::field::{self, Prefix};
-use crate::widgets::menu::dropdown;
+use crate::widgets::menu::{dropdown, dropdown_items, MenuItem};
 use crate::widgets::{self};
 use designos_doc::*;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
@@ -70,10 +70,21 @@ fn editing(app: &App, sel: &[NodeId]) -> bool {
 /// Applies `f` to the character range being edited, or to every selected text layer.
 pub fn set_style(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
     if editing(app, sel) {
-        ts::style_selection_as(app, &f, crate::textedit::EditKind::Style);
+        ts::style_selection_detaching_as(app, &f, crate::textedit::EditKind::Style);
         return;
     }
     // The edit asks for any font face it introduces (family, weight, italic), so no caller does.
+    ts::requesting_new_faces(app, sel, |app| {
+        app.edit_nodes(sel, |n| ts::edit_node_text_detaching(n, |t| richtext::apply_all(t, &f)));
+    });
+}
+
+/// Applies a text fill edit while preserving the layer's text-style link.
+fn set_style_preserving_link(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
+    if editing(app, sel) {
+        ts::style_selection_as(app, &f, crate::textedit::EditKind::Style);
+        return;
+    }
     ts::requesting_new_faces(app, sel, |app| {
         app.edit_nodes(sel, |n| {
             if let NodeKind::Text(t) = &mut n.kind {
@@ -105,12 +116,7 @@ fn set_base(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
         ts::base_style(app, &f);
         return;
     }
-    app.edit_nodes(sel, |n| {
-        if let NodeKind::Text(t) = &mut n.kind {
-            f(&mut t.style);
-            n.size = layout::fit_text(t, n.size);
-        }
-    });
+    app.edit_nodes(sel, |n| ts::edit_node_text_detaching(n, |t| f(&mut t.style)));
 }
 
 /// Segmented control with short text labels instead of icons.
@@ -197,21 +203,51 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     }
 
     // ---- family
+    let fam_r = pane.full(0.0);
     let fam_label = sum.family.clone().unwrap_or_else(|| "Mixed".to_string());
-    if let Some(f) = family_picker(ui, pane.full(0.0), &fam_label) {
-        pick_family(app, sel, &f);
+    if !var_bind::pill_field(app, ui, fam_r, sel, &["fontFamily"]) {
+        let val_r = if in_session { fam_r } else { var_bind::value_rect(app, ui, fam_r, sel, &["fontFamily"], VariableKind::String) };
+        if let Some(f) = family_picker(ui, val_r, &fam_label) {
+            pick_family(app, sel, &f);
+        }
+        if !in_session {
+            var_bind::hover_button(app, ui, fam_r, sel, &["fontFamily"], VariableKind::String);
+        }
     }
     row_end(pane);
 
     // ---- weight + size
-    let names: Vec<String> = WEIGHTS.iter().map(|w| w.0.to_string()).collect();
     let cur = sum.weight.map(weight_name).unwrap_or("Mixed");
-    if let Some(i) = dropdown(ui, pane.col(0, 0.0), "font-weight", cur, &names) {
-        let w = WEIGHTS[i].1;
-        set_style(app, sel, |s| s.font_weight = w);
+    let wt_r = pane.col(0, 0.0);
+    if !var_bind::pill_field(app, ui, wt_r, sel, &["fontStyle"]) && !var_bind::pill_field(app, ui, wt_r, sel, &["fontWeight"]) {
+        let mut items: Vec<MenuItem> = WEIGHTS.iter().map(|w| MenuItem::new(w.0).checked(w.0 == cur)).collect();
+        if !in_session && var_bind::has_matching_var(app, ui.ctx(), "fontStyle", VariableKind::String, &NodeKind::Text(t.clone())) {
+            if let Some(last) = items.last_mut() {
+                last.separator_after = true;
+            }
+            items.push(MenuItem::new("Apply variable\u{2026}"));
+        }
+        if let Some(i) = dropdown_items(ui, wt_r, "font-weight", cur, &items, wt_r.width()) {
+            if i < WEIGHTS.len() {
+                let w = WEIGHTS[i].1;
+                set_style(app, sel, |s| s.set_font_weight(w));
+            } else {
+                var_bind::open_picker(app, sel, &["fontStyle"], VariableKind::String, wt_r);
+            }
+        }
     }
     let fs_r = pane.col(1, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, fs_r, sel, &["fontSize"], |ui| field::num_field(ui, fs_r, "font-size", Prefix::Text("S"), sum.size, "")) {
+    let fs_out = if var_bind::pill_field(app, ui, fs_r, sel, &["fontSize"]) {
+        None
+    } else if in_session {
+        field::num_field(ui, fs_r, "font-size", Prefix::Text("S"), sum.size, "")
+    } else {
+        let val_r = var_bind::value_rect(app, ui, fs_r, sel, &["fontSize"], VariableKind::Number);
+        let v = field::num_field(ui, val_r, "font-size", Prefix::Text("S"), sum.size, "");
+        var_bind::hover_button(app, ui, fs_r, sel, &["fontSize"], VariableKind::Number);
+        v
+    };
+    if let Some(v) = fs_out {
         let v = v.max(1.0);
         set_style(app, sel, |s| s.font_size = v);
     }
@@ -219,11 +255,29 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
 
     // ---- line height + letter spacing
     let lh = sum.line_height.map(|l| richtext::display_line_height_px(l, sum.size.unwrap_or(t.style.font_size)));
-    if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "line-height", Prefix::Text("\u{2195}"), lh, "") {
+    let lh_r = pane.col(0, 0.0);
+    let lh_out = if var_bind::pill_field(app, ui, lh_r, sel, &["lineHeight"]) {
+        None
+    } else if in_session {
+        field::num_field(ui, lh_r, "line-height", Prefix::Text("\u{2195}"), lh, "")
+    } else {
+        var_bind::numeric(app, ui, lh_r, sel, &["lineHeight"], |ui, r| field::num_field(ui, r, "line-height", Prefix::Text("\u{2195}"), lh, ""))
+    };
+    if let Some(v) = lh_out {
         let v = v.max(1.0);
         set_style(app, sel, |s| s.line_height = LineHeight::Pixels(v));
     }
-    if let Some(v) = field::num_field(ui, pane.col(1, 0.0), "letter-spacing", Prefix::Text("\u{2194}"), sum.letter_spacing, "") {
+    let ls_r = pane.col(1, 0.0);
+    let ls_out = if var_bind::pill_field(app, ui, ls_r, sel, &["letterSpacing"]) {
+        None
+    } else if in_session {
+        field::num_field(ui, ls_r, "letter-spacing", Prefix::Text("\u{2194}"), sum.letter_spacing, "")
+    } else {
+        var_bind::numeric(app, ui, ls_r, sel, &["letterSpacing"], |ui, r| {
+            field::num_field(ui, r, "letter-spacing", Prefix::Text("\u{2194}"), sum.letter_spacing, "")
+        })
+    };
+    if let Some(v) = ls_out {
         set_style(app, sel, |s| s.letter_spacing = v);
     }
     row_end(pane);
@@ -307,28 +361,30 @@ fn color_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], sum: &
             };
             widgets::swatch(ui.painter(), sw, col);
             widgets::record(ui, "text-sw", sw);
-            widgets::record(ui, "text-hex", hex_r);
             let swr = ui.interact(sw, ui.id().with("typo-sw"), Sense::click());
+            let in_session = editing(app, sel);
             // A variable binds the whole layer's colour (key `fills/0`, as the renderer resolves it).
             let field_r = Rect::from_min_max(hex_r.min, Pos2::new(op_r.left() - 4.0, hex_r.bottom()));
             let bound = var_bind::pill_field(app, ui, field_r, sel, &["fills/0"]);
+            let val_hex_r = if in_session || bound { hex_r } else { var_bind::value_rect(app, ui, hex_r, sel, &["fills/0"], VariableKind::Color) };
+            widgets::record(ui, "text-hex", val_hex_r);
             if swr.clicked() && !bound {
                 open_picker(app, PickTarget::TextFill, col, sw, sel.to_vec());
             }
             if !bound {
-                if let Some(s) = field::text_input(ui, hex_r, "text-hex", &c.to_hex()) {
+                if let Some(s) = field::text_input(ui, val_hex_r, "text-hex", &c.to_hex()) {
                     if let Some(nc) = Color::from_hex(&s) {
-                        set_style(app, sel, |st| set_solid(st, Color { a: c.a, ..nc }, None));
+                        set_style_preserving_link(app, sel, |st| set_solid(st, Color { a: c.a, ..nc }, None));
                     }
                 }
                 // Not offered while a character range is being edited: bindings are per layer.
-                if !editing(app, sel) {
+                if !in_session {
                     var_bind::hover_button(app, ui, hex_r, sel, &["fills/0"], VariableKind::Color);
                 }
             }
             if let Some(v) = field::num_field(ui, op_r, "text-op", Prefix::None, Some((op * 100.0).round()), "%") {
                 let o = (v / 100.0).clamp(0.0, 1.0);
-                set_style(app, sel, |st| set_solid(st, c, Some(o)));
+                set_style_preserving_link(app, sel, |st| set_solid(st, c, Some(o)));
             }
         }
         (None, _) => {
@@ -405,11 +461,10 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
         field::field_bg(ui, search, qid);
         let te = egui::TextEdit::singleline(&mut q)
             .id(qid)
-            .frame(egui::Frame::NONE)
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 0)))
             .hint_text("Search fonts")
             .font(theme::font_body())
             .text_color(theme::TEXT)
-            .margin(egui::Margin::symmetric(8, 0))
             .vertical_align(egui::Align::Center)
             .desired_width(search.width());
         let resp = ui.put(search, te);
@@ -559,12 +614,7 @@ pub fn set_text_props(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextProps))
         ts::edit_text_props(app, &f);
         return;
     }
-    app.edit_nodes(sel, |n| {
-        if let NodeKind::Text(t) = &mut n.kind {
-            f(t);
-            n.size = layout::fit_text(t, n.size);
-        }
-    });
+    app.edit_nodes(sel, |n| ts::edit_node_text_detaching(n, &f));
 }
 
 /// Sets (`Some`) or removes (`None`) OpenType features on the edited range / selected layers.
@@ -577,16 +627,116 @@ fn set_features(app: &mut App, sel: &[NodeId], changes: Vec<(&str, Option<u32>)>
     });
 }
 
+/// Uniform truncation state across `sel`: `Some(true)` when every selected text layer truncates,
+/// `Some(false)` when none truncates, `None` when mixed.
+fn truncate_state(app: &App, sel: &[NodeId]) -> Option<bool> {
+    let mut iter = sel.iter().filter_map(|id| match app.doc.get(*id).map(|n| &n.kind) {
+        Some(NodeKind::Text(t)) => Some(t.auto_resize == TextAutoResize::Truncate),
+        _ => None,
+    });
+    let first = iter.next()?;
+    iter.all(|v| v == first).then_some(first)
+}
+
+/// Uniform `max_lines` across `sel`: `Some(Some(n))` or `Some(None)` when uniform, `None` when mixed.
+fn max_lines_state(app: &App, sel: &[NodeId]) -> Option<Option<u32>> {
+    let mut iter = sel.iter().filter_map(|id| match app.doc.get(*id).map(|n| &n.kind) {
+        Some(NodeKind::Text(t)) => Some(t.max_lines),
+        _ => None,
+    });
+    let first = iter.next()?;
+    iter.all(|v| v == first).then_some(first)
+}
+
+/// Sets `auto_resize` on every selected text layer (`Truncate` when `on`, `None` when off)
+/// while keeping each layer's current `size` in one undo step. A text layer that hugs in its
+/// auto-layout parent is switched to fixed sizing so its box does not collapse; layers of any
+/// other kind in the selection are left untouched.
+fn set_truncate_text(app: &mut App, sel: &[NodeId], on: bool) {
+    app.edit_nodes(sel, |n| {
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.auto_resize = if on { TextAutoResize::Truncate } else { TextAutoResize::None };
+            if n.layout_child.horizontal == Sizing::Hug {
+                n.layout_child.horizontal = Sizing::Fixed;
+            }
+            if n.layout_child.vertical == Sizing::Hug {
+                n.layout_child.vertical = Sizing::Fixed;
+            }
+        }
+    });
+}
+
+/// Sets `max_lines` on every selected text layer in one undo step; when `max_lines` is `Some`,
+/// also clears `layout_child.max_h` and detaches any `"maxHeight"` variable binding on that layer.
+fn set_max_lines(app: &mut App, sel: &[NodeId], max_lines: Option<u32>) {
+    app.edit_nodes(sel, |n| {
+        let mut is_text = false;
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.max_lines = max_lines;
+            is_text = true;
+        }
+        if is_text && max_lines.is_some() {
+            n.layout_child.max_h = None;
+            n.variables.bindings.remove("maxHeight");
+        }
+    });
+}
+
+/// Optional positive integer field for `Max lines`: committing an empty or blank text stores `None`,
+/// committing a number clamps it to an integer `>= 1`, and a field left as it was (including a mixed
+/// selection that shows `"Mixed"`) writes nothing.
+fn max_lines_field(ui: &mut Ui, rect: Rect, key: &str, state: Option<Option<u32>>) -> Option<Option<u32>> {
+    widgets::record(ui, key, rect);
+    #[cfg(test)]
+    {
+        let k = format!("{key:?}");
+        let rect_id = egui::Id::new(("field-rect", k.clone()));
+        let prefix_id = egui::Id::new(("field-prefix", k));
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(rect_id, rect);
+            d.insert_temp(prefix_id, Prefix::None);
+        });
+    }
+    let id = ui.id().with(("max-lines", key));
+    field::field_bg(ui, rect, id);
+    let display = match state {
+        Some(Some(n)) => n.to_string(),
+        _ => String::new(),
+    };
+    let hint = state.is_none().then_some(("Mixed", theme::TEXT_TERTIARY));
+    let committed = field::edit_text_hint(ui, rect, id, &display, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X, hint)?;
+    let trimmed = committed.trim();
+    if trimmed.is_empty() {
+        return Some(None);
+    }
+    let v = trimmed.parse::<f32>().ok().filter(|v| v.is_finite())?;
+    Some(Some(v.round().max(1.0) as u32))
+}
+
+fn clear_max_lines_test_rects(ctx: &egui::Context) {
+    #[cfg(test)]
+    {
+        let k = format!("{:?}", "det-max-lines");
+        ctx.data_mut(|d| {
+            d.remove::<Rect>(egui::Id::new(("test-rect", "det-max-lines".to_string())));
+            d.remove::<Rect>(egui::Id::new(("field-rect", k.clone())));
+            d.remove::<Prefix>(egui::Id::new(("field-prefix", k)));
+        });
+    }
+    #[cfg(not(test))]
+    let _ = ctx;
+}
+
 /// Rows of the Type settings popover for a font with `sets` stylistic sets on `active_tab`.
-fn details_rows(sets: usize, active_tab: usize) -> f32 {
+fn details_rows(sets: usize, active_tab: usize, truncating: bool) -> f32 {
     let chips = if sets == 0 { 0 } else { 1 + sets.div_ceil(SETS_PER_ROW) };
     match active_tab {
         // Variable tab: 3-tab bar + Ag live preview + 4 variable axes + reset row
         2 => (1 + 5) as f32 + 2.5,
         // Details tab: 3-tab bar + Ag live preview + 7 OpenType rows + stylistic set chips
         1 => (1 + 7 + chips) as f32 + 2.5,
-        // Basic tab (default): 3-tab bar + Ag live preview + OpenType + Paragraph (hides Variable Axes to save 136px)
-        _ => (1 + 7 + chips + 8) as f32 + 3.0,
+        // Basic tab (default): 3-tab bar + Ag live preview + OpenType + Paragraph + Truncate text (+ Max lines when on)
+        _ => (1 + 7 + chips + 8 + usize::from(truncating)) as f32 + 3.0,
     }
 }
 
@@ -615,7 +765,8 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
     let sets: Vec<u32> = (1..=20u32).filter(|i| available.iter().any(|f| *f == format!("ss{i:02}"))).collect();
     let tab_state_id = egui::Id::new("type-settings-active-tab");
     let mut active_tab = ctx.data(|d| d.get_temp::<usize>(tab_state_id)).unwrap_or(0);
-    let height = widgets::popover::HEADER_H + 8.0 + details_rows(sets.len(), active_tab) * widgets::popover::ROW_H + 8.0;
+    let trunc_state = truncate_state(app, &ids);
+    let height = widgets::popover::HEADER_H + 8.0 + details_rows(sets.len(), active_tab, trunc_state == Some(true)) * widgets::popover::ROW_H + 8.0;
     let val = |tag: &str| richtext::feature_value(&feats, tag);
 
     let pop = widgets::popover::show(&ctx, egui::Id::new("inspector-popover"), st.anchor, region, DETAILS_W, height, "Type settings", |ui, body| {
@@ -802,13 +953,30 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
             widgets::hline(ui.painter(), body.left(), body.right(), sep, theme::BORDER);
             y.set(y.get() + 8.0);
             let p = t.paragraph.clone();
+            let in_session = editing(app, &ids);
             detail_row(ui, body, next(), "Paragraph indent", false, |ui, r| {
-                if let Some(v) = field::num_field(ui, r, "det-indent", Prefix::None, Some(p.indent), "") {
+                let out = if var_bind::pill_field(app, ui, r, &ids, &["paragraphIndent"]) {
+                    None
+                } else if in_session {
+                    field::num_field(ui, r, "det-indent", Prefix::None, Some(p.indent), "")
+                } else {
+                    var_bind::numeric(app, ui, r, &ids, &["paragraphIndent"], |ui, vr| field::num_field(ui, vr, "det-indent", Prefix::None, Some(p.indent), ""))
+                };
+                if let Some(v) = out {
                     set_text_props(app, &ids, |t| t.paragraph.indent = v.max(0.0));
                 }
             });
             detail_row(ui, body, next(), "Paragraph spacing", false, |ui, r| {
-                if let Some(v) = field::num_field(ui, r, "det-pspacing", Prefix::None, Some(t.style.paragraph_spacing), "") {
+                let out = if var_bind::pill_field(app, ui, r, &ids, &["paragraphSpacing"]) {
+                    None
+                } else if in_session {
+                    field::num_field(ui, r, "det-pspacing", Prefix::None, Some(t.style.paragraph_spacing), "")
+                } else {
+                    var_bind::numeric(app, ui, r, &ids, &["paragraphSpacing"], |ui, vr| {
+                        field::num_field(ui, vr, "det-pspacing", Prefix::None, Some(t.style.paragraph_spacing), "")
+                    })
+                };
+                if let Some(v) = out {
                     set_base(app, &ids, |s| s.paragraph_spacing = v.max(0.0));
                 }
             });
@@ -859,6 +1027,32 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
                     set_text_props(app, &ids, |t| t.text_wrap = w);
                 }
             });
+            let trunc_y = next() - 8.0;
+            detail_row(ui, body, trunc_y, "Truncate text", false, |ui, r| {
+                widgets::record(ui, "det-truncate", r);
+                let on = trunc_state == Some(true);
+                if trunc_state.is_none() {
+                    let font = theme::font_body();
+                    let text_x = r.left() + theme::LAYER_ICON_SIZE + theme::SPACE_INLINE;
+                    widgets::text_on_baseline(ui.painter(), text_x, widgets::centered_baseline(r, &font), "Mixed", font, theme::TEXT_TERTIARY);
+                }
+                if let Some(next_on) = widgets::popover::check(ui, r, "det-truncate", on) {
+                    set_truncate_text(app, &ids, next_on);
+                }
+            });
+            if trunc_state == Some(true) {
+                let ml = max_lines_state(app, &ids);
+                let ml_y = next() - 8.0;
+                detail_row(ui, body, ml_y, "Max lines", false, |ui, r| {
+                    if let Some(next_ml) = max_lines_field(ui, r, "det-max-lines", ml) {
+                        set_max_lines(app, &ids, next_ml);
+                    }
+                });
+            } else {
+                clear_max_lines_test_rects(&ctx);
+            }
+        } else {
+            clear_max_lines_test_rects(&ctx);
         }
 
         if active_tab == 2 {
@@ -908,5 +1102,35 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
     });
     if pop {
         app.props.pop = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn linked_text_app() -> (App, NodeId) {
+        let mut d = Document::new("typography-test");
+        let page = d.add_page("page");
+        let id = d.alloc_id();
+        let mut n = Node::text(id, designos_doc::Rect::new(0.0, 0.0, 120.0, 24.0), "hello", TextStyle { font_size: 16.0, ..Default::default() });
+        n.style_refs.insert("text".into(), "Body".into());
+        d.insert(page, n).unwrap();
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..Default::default() }));
+        (App::new(d), id)
+    }
+
+    #[test]
+    fn alignment_and_fill_edits_keep_a_linked_text_style() {
+        let (mut app, id) = linked_text_app();
+
+        set_base(&mut app, &[id], |s| s.align_h = TextAlignH::Center);
+        assert_eq!(app.doc.get(id).unwrap().style_refs.get("text").map(String::as_str), Some("Body"));
+
+        set_style_preserving_link(&mut app, &[id], |s| set_solid(s, Color::rgb(0, 0, 255), None));
+        let n = app.doc.get(id).unwrap();
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert!(matches!(t.style.fills.first().map(|p| &p.kind), Some(PaintKind::Solid(c)) if *c == Color::rgb(0, 0, 255)));
     }
 }

@@ -1,0 +1,7 @@
+cmd: /usr/bin/env -i HOME=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/home TMPDIR=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/tmp DESIGNOS_LIBRARY=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/lib DESIGNOS_AGENT_CLI_DIR=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/stubs PATH=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/stubs:/usr/bin:/bin /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/out/cargo/release/designos --screenshot /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/acc4.png --layout-json /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/acc4.layout.json
+returncode: 2
+stdout: ''
+stderr: 'designos: hermetic agent mode denied: DESIGNOS_LIBRARY (/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/lib) is missing .designos-hermetic\n'
+shot_exists: False
+layout_json_exists: False
+hermetic_active_exists: False

@@ -163,6 +163,16 @@ pub struct PropsState {
     pub sel_colors_cache: Option<(u64, u64, Vec<Color>, Vec<usize>)>,
     /// Cached `(doc_node_count_and_epoch, sorted_component_ids)` for instance swap menus.
     pub all_components_cache: Option<(u64, Vec<NodeId>)>,
+    /// View state for Figma's "Individual corners" toggle in the Appearance section.
+    pub individual_corners: bool,
+    /// Selection snapshot last synced into `individual_corners`.
+    pub individual_corners_sel: Option<Vec<NodeId>>,
+    /// Whether the current selection had differing corners on the previous frame.
+    pub individual_corners_had_diff: bool,
+    /// Scratch buffer reused across frames for selected nodes that take a corner radius.
+    pub corner_nodes: Vec<NodeId>,
+    /// Scratch buffer reused across frames for selected nodes that take four corners and smoothing.
+    pub four_corner_nodes: Vec<NodeId>,
 }
 
 pub(super) struct Pane {
@@ -367,10 +377,206 @@ pub(super) fn checkbox(ui: &mut Ui, pane: &mut Pane, key: &str, label: &str, val
 }
 
 /// Common value of `f` over all selected nodes, or None if they differ.
-fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
-    let mut it = sel.iter().take(128).filter_map(|id| app.doc.get(*id)).map(f);
+fn value_common<T: PartialEq>(doc: &Document, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+    let mut it = sel.iter().filter_map(|id| doc.get(*id)).map(f);
     let first = it.next()?;
     it.all(|v| v == first).then_some(first)
+}
+
+fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+    value_common(&app.doc, sel, f)
+}
+
+/// Shared-or-mixed values the inspector reads across the whole selection each frame.
+#[derive(Clone)]
+#[cfg_attr(test, derive(Debug))]
+struct MixedValueSummary {
+    x: Option<f32>,
+    y: Option<f32>,
+    rotation_deg: Option<f32>,
+    opacity_pct: Option<f32>,
+    width: Option<f32>,
+    height: Option<f32>,
+    corner_nodes: Vec<NodeId>,
+    four_corner_nodes: Vec<NodeId>,
+    corners_differ: bool,
+    uniform_radius: Option<f32>,
+    lockable: bool,
+}
+
+struct MixedValueCache {
+    runtime_id: u64,
+    epoch: u64,
+    selection: Vec<NodeId>,
+    summary: MixedValueSummary,
+    ready: bool,
+}
+
+impl Default for MixedValueCache {
+    fn default() -> Self {
+        Self {
+            runtime_id: 0,
+            epoch: 0,
+            selection: Vec::new(),
+            summary: MixedValueSummary {
+                x: None,
+                y: None,
+                rotation_deg: None,
+                opacity_pct: None,
+                width: None,
+                height: None,
+                corner_nodes: Vec::new(),
+                four_corner_nodes: Vec::new(),
+                corners_differ: false,
+                uniform_radius: None,
+                lockable: false,
+            },
+            ready: false,
+        }
+    }
+}
+
+std::thread_local! {
+    static MIXED_VALUE_CACHE: std::cell::RefCell<MixedValueCache> = std::cell::RefCell::new(MixedValueCache::default());
+}
+
+/// Cached scan for an unchanged frame. The key is the document (`runtime_id` + `mutation_epoch`)
+/// and the selection. A property edit goes through `Document::get_mut`, which bumps the epoch.
+fn mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+    MIXED_VALUE_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if cache.ready && cache.runtime_id == doc.runtime_id() && cache.epoch == doc.mutation_epoch() && cache.selection.as_slice() == sel {
+            return cache.summary.clone();
+        }
+        let summary = compute_mixed_value_summary(doc, sel);
+        cache.runtime_id = doc.runtime_id();
+        cache.epoch = doc.mutation_epoch();
+        cache.selection.clear();
+        cache.selection.extend_from_slice(sel);
+        cache.summary = summary.clone();
+        cache.ready = true;
+        summary
+    })
+}
+
+/// Running answer to "do all layers seen so far share one value?" for one inspector field. A value is shared
+/// when it equals the first one seen; a field no layer was read for has no value.
+#[derive(Clone, Copy)]
+enum Shared<T> {
+    Empty,
+    Same(T),
+    Mixed,
+}
+
+impl<T: PartialEq + Copy> Shared<T> {
+    fn push(&mut self, value: T) {
+        *self = match *self {
+            Self::Empty => Self::Same(value),
+            Self::Same(first) if first == value => Self::Same(first),
+            _ => Self::Mixed,
+        };
+    }
+
+    fn value(self) -> Option<T> {
+        match self {
+            Self::Same(value) => Some(value),
+            Self::Empty | Self::Mixed => None,
+        }
+    }
+}
+
+/// The scan `selection_ui` runs for position, rotation, opacity, corners, and dimensions: one pass over the
+/// selection with one lookup per layer, because a miss runs on every frame the document changed.
+fn compute_mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+    let (mut x, mut y, mut rotation_deg, mut opacity_pct, mut width, mut height) =
+        (Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty);
+    let mut radius: Shared<Option<f32>> = Shared::Empty;
+    let mut corner_nodes = Vec::new();
+    let mut four_corner_nodes = Vec::new();
+    let mut corners_differ = false;
+    let mut lockable = false;
+    for &id in sel {
+        let Some(n) = doc.get(id) else { continue };
+        x.push(n.transform.tx);
+        y.push(n.transform.ty);
+        rotation_deg.push((-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0);
+        opacity_pct.push((n.opacity * 100.0).round());
+        width.push(n.size.x);
+        height.push(inspector_height(n));
+        if node_has_corners(n) {
+            corner_nodes.push(id);
+            radius.push(uniform_corner_radius(n));
+        }
+        if node_has_four_corners(n) {
+            four_corner_nodes.push(id);
+            corners_differ |= node_corners_differ(n);
+        }
+        lockable |= !matches!(n.kind, NodeKind::Line);
+    }
+    MixedValueSummary {
+        x: x.value(),
+        y: y.value(),
+        rotation_deg: rotation_deg.value(),
+        opacity_pct: opacity_pct.value(),
+        width: width.value(),
+        height: height.value(),
+        uniform_radius: radius.value().flatten(),
+        lockable,
+        corner_nodes,
+        four_corner_nodes,
+        corners_differ,
+    }
+}
+
+fn node_has_four_corners(n: &Node) -> bool {
+    matches!(n.kind, NodeKind::Rectangle | NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. })
+}
+
+fn node_has_corners(n: &Node) -> bool {
+    node_has_four_corners(n) || matches!(n.kind, NodeKind::Polygon { .. } | NodeKind::Star { .. })
+}
+
+fn node_corners_differ(n: &Node) -> bool {
+    let r0 = n.corner_radii[0];
+    n.corner_radii[1..].iter().any(|&r| (r - r0).abs() > 1e-3)
+}
+
+fn uniform_corner_radius(n: &Node) -> Option<f32> {
+    if node_has_four_corners(n) && node_corners_differ(n) {
+        None
+    } else {
+        Some(n.corner_radii[0])
+    }
+}
+
+fn common_corners<T: PartialEq>(doc: &Document, ids: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+    let mut it = ids.iter().filter_map(|id| doc.get(*id)).map(f);
+    let first = it.next()?;
+    it.all(|v| v == first).then_some(first)
+}
+
+fn clear_rect_geom(n: &mut Node) {
+    if matches!(
+        n.kind,
+        NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. } | NodeKind::Section | NodeKind::Rectangle
+    ) {
+        n.fill_geometry = None;
+        n.stroke_geometry = None;
+    }
+}
+
+fn remove_field_rect(ctx: &egui::Context, key: &str) {
+    let id = egui::Id::new(("field-rect", format!("{key:?}")));
+    ctx.data_mut(|d| {
+        d.remove::<Rect>(id);
+    });
+}
+
+fn remove_test_rect(ctx: &egui::Context, name: &str) {
+    let id = egui::Id::new(("test-rect", name.to_string()));
+    ctx.data_mut(|d| {
+        d.remove::<Rect>(id);
+    });
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
@@ -522,7 +728,7 @@ fn paint_colors(p: &Paint) -> Vec<Color32> {
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
         | PaintKind::DiamondGradient { stops, .. } => stops.iter().map(|g| to_c32(g.color, p.opacity)).collect(),
-        PaintKind::Image { .. } => vec![Color32::GRAY],
+        PaintKind::Image { .. } | PaintKind::Shader(_) => vec![Color32::GRAY],
     }
 }
 
@@ -851,8 +1057,9 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             app.rename(sel[0], &s);
         }
     }
+    let all_mask = super::menus::selection_shows_all_mask(app);
     let btns = [
-        (Icon::Mask, "Use as mask", n0.is_mask),
+        (Icon::Mask, "Use as mask", all_mask),
         (if n0.locked { Icon::Lock } else { Icon::Unlock }, "Lock", n0.locked),
         (if n0.visible { Icon::Eye } else { Icon::EyeOff }, "Hide / show", !n0.visible),
     ];
@@ -860,7 +1067,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         let r = pane.rect(theme::RIGHT_NAME_ACTION_X[i] - 1.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         if widgets::icon_button(ui, r, ("hdr", i), *icon, *on, tip).clicked() {
             match i {
-                0 => app.edit_nodes(sel, |n| n.is_mask = !on),
+                0 => super::menus::toggle_mask_selection(app),
                 1 => app.edit_nodes(sel, |n| n.locked = !on),
                 _ => app.edit_nodes(sel, |n| n.visible = !n.visible),
             }
@@ -922,8 +1129,9 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
     row_end(pane);
     sublabel(ui, pane, "Position");
-    let xs = common(app, sel, |n| n.transform.tx);
-    let ys = common(app, sel, |n| n.transform.ty);
+    let geom = mixed_value_summary(&app.doc, sel);
+    let xs = geom.x;
+    let ys = geom.y;
     if let Some(x) = field::num_field(ui, pane.col(0, 0.0), "x", Prefix::Text("X"), xs, "") {
         app.edit_nodes(sel, |n| n.transform.tx = x);
     }
@@ -932,7 +1140,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
     row_end(pane);
     sublabel(ui, pane, "Rotation");
-    let rot = common(app, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0);
+    let rot = geom.rotation_deg;
     if let Some(deg) = field::num_field(ui, pane.col(0, 0.0), "rot", Prefix::Icon(Icon::Rotation), rot, "°") {
         if multi {
             // A group rotates as one body around its bounding-box centre.
@@ -969,11 +1177,14 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         }
     }
 
+    // Read after auto-layout, which can change size in this same frame. Position already
+    // took x/y/rotation from the earlier summary, before those fields could edit.
+    let fresh = mixed_value_summary(&app.doc, sel);
     // ---- Layout: dimensions, resizing and constraints of everything else
     if !al_frame {
         section_sep(ui, pane, false);
         title(ui, pane, "Layout", None, false);
-        dimensions_ui(app, ui, pane, sel, is_line);
+        dimensions_ui(app, ui, pane, sel, &fresh, is_line);
         if parent_al || is_text {
             resizing_ui(app, ui, pane, sel, &n0);
         }
@@ -1006,23 +1217,226 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     // ---- Appearance
     section_sep(ui, pane, false);
     title(ui, pane, "Appearance", None, false);
-    let op = common(app, sel, |n| (n.opacity * 100.0).round());
+    let op = fresh.opacity_pct;
     let op_r = pane.col(0, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, op_r, sel, &["opacity"], |ui| field::num_field(ui, op_r, "opacity", Prefix::Icon(Icon::Opacity), op, "%")) {
+    if let Some(v) = var_bind::numeric(app, ui, op_r, sel, &["opacity"], |ui, r| field::num_field(ui, r, "opacity", Prefix::Icon(Icon::Opacity), op, "%")) {
         let o = (v / 100.0).clamp(0.0, 1.0);
         app.edit_nodes(sel, |n| n.opacity = o);
     }
-    let has_radius = !matches!(n0.kind, NodeKind::Text(_) | NodeKind::Line | NodeKind::Group | NodeKind::Vector { .. });
+    let mut corner_nodes = std::mem::take(&mut app.props.corner_nodes);
+    corner_nodes.clone_from(&fresh.corner_nodes);
+    let mut four_corner_nodes = std::mem::take(&mut app.props.four_corner_nodes);
+    four_corner_nodes.clone_from(&fresh.four_corner_nodes);
+    let has_radius = !corner_nodes.is_empty();
+    let has_four_corners = !four_corner_nodes.is_empty();
+    let corners_differ = fresh.corners_differ;
+    if !has_four_corners {
+        app.props.individual_corners = false;
+        app.props.individual_corners_sel = Some(sel.to_vec());
+    } else if app.props.individual_corners_sel.as_deref() != Some(sel) {
+        app.props.individual_corners = corners_differ;
+        app.props.individual_corners_sel = Some(sel.to_vec());
+    } else if corners_differ && !app.props.individual_corners_had_diff {
+        app.props.individual_corners = true;
+    }
+    app.props.individual_corners_had_diff = corners_differ;
+
     if has_radius {
-        let rad = common(app, sel, |n| n.corner_radii[0]);
         let rad_r = pane.col(1, 0.0);
-        let radius_keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
-        if let Some(v) = var_bind::numeric(app, ui, rad_r, sel, &radius_keys, |ui| field::num_field(ui, rad_r, "radius", Prefix::Icon(Icon::Radius), rad, "")) {
-            let v = v.max(0.0);
-            app.edit_nodes(sel, |n| n.corner_radii = [v; 4]);
+        let toggle_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        if !has_four_corners || !app.props.individual_corners {
+            for key in ["radius-tl", "radius-tr", "radius-br", "radius-bl"] {
+                remove_field_rect(ui.ctx(), key);
+            }
+            let rad = fresh.uniform_radius;
+            let radius_keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
+            let bound_var = corner_nodes.iter().find_map(|&id| radius_keys.iter().find_map(|&k| var_bind::bound_var(app, id, k).cloned()));
+            let num_id = ui.id().with(("num", "radius"));
+            let editing_bound = ui.memory(|m| m.has_focus(num_id) || m.had_focus_last_frame(num_id));
+            let committed = if let (Some(var), false) = (&bound_var, editing_bound) {
+                #[cfg(test)]
+                {
+                    let k = format!("{:?}", "radius");
+                    let rect_id = egui::Id::new(("field-rect", k.clone()));
+                    let prefix_id = egui::Id::new(("field-prefix", k));
+                    ui.ctx().data_mut(|d| {
+                        d.insert_temp(rect_id, rad_r);
+                        d.insert_temp(prefix_id, Prefix::Icon(Icon::Radius));
+                    });
+                }
+                widgets::record(ui, "bound:topLeftRadius", rad_r);
+                let r = crate::variables::widgets::pill(ui, rad_r, ("bound", "topLeftRadius"), &var.name, None, true);
+                if r.detach {
+                    app.detach_variable(&corner_nodes, &radius_keys);
+                } else if r.body.clicked() {
+                    let clicked_icon = r.body.interact_pointer_pos().is_some_and(|p| p.x < rad_r.left() + theme::FIELD_PREFIX_W);
+                    if clicked_icon {
+                        var_bind::open_picker(app, &corner_nodes, &radius_keys, var.kind, rad_r);
+                    } else {
+                        let disp = rad.map(widgets::numeric_field_value).unwrap_or_default();
+                        ui.data_mut(|d| {
+                            d.insert_temp(num_id, disp.clone());
+                            d.insert_temp(num_id.with("seed"), disp.clone());
+                        });
+                        ui.memory_mut(|m| m.request_focus(num_id));
+                        field::select_value(ui.ctx(), num_id, disp.chars().count());
+                    }
+                }
+                None
+            } else if bound_var.is_some() {
+                let val_r = var_bind::value_rect(app, ui, rad_r, &corner_nodes, &radius_keys, VariableKind::Number);
+                field::num_field(ui, val_r, "radius", Prefix::Icon(Icon::Radius), rad, "")
+            } else {
+                var_bind::numeric(app, ui, rad_r, &corner_nodes, &radius_keys, |ui, r| field::num_field(ui, r, "radius", Prefix::Icon(Icon::Radius), rad, ""))
+            };
+            if let Some(v) = committed {
+                let v = v.max(0.0);
+                app.edit_nodes(&corner_nodes, |n| {
+                    for k in radius_keys {
+                        n.variables.bindings.remove(k);
+                    }
+                    n.corner_radii = [v; 4];
+                    clear_rect_geom(n);
+                });
+            }
+        } else {
+            remove_field_rect(ui.ctx(), "radius");
+        }
+        if has_four_corners {
+            widgets::record(ui, "corner-individual", toggle_r);
+            if widgets::icon_button(ui, toggle_r, "corner-individual", Icon::Grid2x2, app.props.individual_corners, "Individual corners").clicked() {
+                app.props.individual_corners = !app.props.individual_corners;
+            }
+        } else {
+            remove_test_rect(ui.ctx(), "corner-individual");
+        }
+    } else {
+        for key in ["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl", "corner-smoothing"] {
+            remove_field_rect(ui.ctx(), key);
+        }
+        for name in ["corner-individual", "corner-smoothing-slider", "corner-smoothing", "corner-smoothing-ios"] {
+            remove_test_rect(ui.ctx(), name);
         }
     }
     row_end(pane);
+
+    if has_four_corners && app.props.individual_corners {
+        let corners: [(usize, usize, &str, &str, &'static str); 4] = [
+            (0, 0, "radius-tl", "topLeftRadius", "TL"),
+            (1, 1, "radius-tr", "topRightRadius", "TR"),
+            (0, 3, "radius-bl", "bottomLeftRadius", "BL"),
+            (1, 2, "radius-br", "bottomRightRadius", "BR"),
+        ];
+        for (idx, (col_idx, corner_idx, field_key, var_key, label)) in corners.into_iter().enumerate() {
+            let r = pane.col(col_idx, 0.0);
+            let val = common_corners(&app.doc, &four_corner_nodes, |n| n.corner_radii[corner_idx]);
+            let keys = [var_key];
+            if let Some(v) =
+                var_bind::numeric(app, ui, r, &four_corner_nodes, &keys, |ui, r| field::num_field_prefix_gap(ui, r, field_key, Prefix::Text(label), val, ""))
+            {
+                let v = v.max(0.0);
+                app.edit_nodes(&four_corner_nodes, |n| {
+                    n.variables.bindings.remove(var_key);
+                    n.corner_radii[corner_idx] = v;
+                    clear_rect_geom(n);
+                });
+            }
+            if idx == 1 || idx == 3 {
+                row_end(pane);
+            }
+        }
+    }
+
+    if has_four_corners {
+        let smooth_val = common_corners(&app.doc, &four_corner_nodes, |n| (n.corner_smoothing * 100.0).round() / 100.0);
+        let smooth_pct = smooth_val.map(|v| (v * 100.0).round());
+        let slider_r = pane.col(0, 0.0);
+        widgets::record(ui, "corner-smoothing-slider", slider_r);
+        let slider_resp = ui.interact(slider_r, ui.id().with("corner-smoothing-slider"), Sense::click_and_drag());
+        let half_track = theme::SPACE_FACT * 0.5;
+        let track_r = Rect::from_min_max(
+            Pos2::new(slider_r.left() + theme::SPACE_FACT, slider_r.center().y - half_track),
+            Pos2::new(slider_r.right() - theme::SPACE_FACT, slider_r.center().y + half_track),
+        );
+        ui.painter().rect_filled(track_r, theme::cr(theme::RADIUS_MARK), theme::BG_SECONDARY);
+        const IOS_SMOOTHING: f32 = 0.6;
+        let ios_x = track_r.left() + track_r.width() * IOS_SMOOTHING;
+        widgets::vline(ui.painter(), ios_x, track_r.top() - half_track, track_r.bottom() + half_track, theme::TEXT_TERTIARY);
+        if let Some(sv) = smooth_val {
+            let cur_frac = sv.clamp(0.0, 1.0);
+            let thumb_x = track_r.left() + cur_frac * track_r.width();
+            if cur_frac > 0.0 {
+                let fill_r = Rect::from_min_max(track_r.min, Pos2::new(thumb_x, track_r.bottom()));
+                ui.painter().rect_filled(fill_r, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);
+            }
+            let thumb_c = Pos2::new(thumb_x, track_r.center().y);
+            ui.painter().circle_filled(thumb_c, theme::SPACE_FACT, theme::TEXT);
+            ui.painter().circle_stroke(thumb_c, theme::SPACE_FACT, Stroke::new(theme::BORDER_WIDTH, theme::BORDER_STRONG));
+        }
+        if slider_resp.dragged() || slider_resp.clicked() {
+            if slider_resp.dragged() {
+                app.ensure_scrub(ui.ctx());
+            }
+            if let Some(pos) = slider_resp.interact_pointer_pos() {
+                let frac = ((pos.x - track_r.left()) / track_r.width().max(1.0)).clamp(0.0, 1.0);
+                let v = (frac * 100.0).round() / 100.0;
+                app.edit_nodes(&four_corner_nodes, |n| {
+                    n.corner_smoothing = v;
+                    clear_rect_geom(n);
+                });
+            }
+        }
+        if slider_resp.drag_stopped() {
+            app.scrub_end();
+        }
+
+        let smooth_field_r = pane.col(1, 0.0);
+        let pct_w = widgets::text_width(ui.painter(), "%", &theme::font_body());
+        let smooth_text_r =
+            Rect::from_min_max(smooth_field_r.min, Pos2::new((smooth_field_r.right() - pct_w).max(smooth_field_r.left()), smooth_field_r.bottom()));
+        widgets::record(ui, "corner-smoothing", smooth_text_r);
+        if let Some(pct) = field::num_field(ui, smooth_field_r, "corner-smoothing", Prefix::None, smooth_pct, "%") {
+            let v = (pct / 100.0).clamp(0.0, 1.0);
+            app.edit_nodes(&four_corner_nodes, |n| {
+                n.corner_smoothing = v;
+                clear_rect_geom(n);
+            });
+        }
+
+        let ios_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        widgets::record(ui, "corner-smoothing-ios", ios_r);
+        let ios_resp = ui.interact(ios_r, ui.id().with("corner-smoothing-ios"), Sense::click());
+        let ios_active = smooth_val.is_some_and(|s| (s - IOS_SMOOTHING).abs() < 0.005);
+        let ios_bg = if ios_active {
+            theme::BG_SELECTED
+        } else if ios_resp.hovered() {
+            theme::BG_HOVER
+        } else {
+            theme::BG_SECONDARY
+        };
+        ui.painter().rect_filled(ios_r, theme::cr(theme::RADIUS_CONTROL), ios_bg);
+        ui.painter().text(
+            ios_r.center(),
+            Align2::CENTER_CENTER,
+            "iOS",
+            theme::font_caption_medium(),
+            if ios_active { theme::TEXT_BRAND } else { theme::TEXT_SECONDARY },
+        );
+        if ios_resp.clicked() {
+            app.edit_nodes(&four_corner_nodes, |n| {
+                n.corner_smoothing = IOS_SMOOTHING;
+                clear_rect_geom(n);
+            });
+        }
+        row_end(pane);
+    } else if has_radius {
+        remove_field_rect(ui.ctx(), "corner-smoothing");
+        for name in ["corner-smoothing-slider", "corner-smoothing", "corner-smoothing-ios"] {
+            remove_test_rect(ui.ctx(), name);
+        }
+    }
+    app.props.corner_nodes = corner_nodes;
+    app.props.four_corner_nodes = four_corner_nodes;
     if is_frame {
         let clip = n0.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
         if let Some(v) = checkbox(ui, pane, "clip", "Clip content", clip) {
@@ -1037,6 +1451,28 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         var_bind::mode_rows(app, ui, pane, sel);
     }
     pane.y += 4.0;
+
+    // ---- Mask
+    let masks: Vec<NodeId> = sel.iter().take(128).copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();
+    if !masks.is_empty() {
+        section_sep(ui, pane, false);
+        title(ui, pane, "Mask", None, false);
+        let mt = common(app, &masks, |n| n.mask_type);
+        let cur = mt.map_or("Mixed", MaskType::label);
+        let opts = MaskType::ALL.map(|m| String::from(m.label()));
+        let r = pane.full(0.0);
+        widgets::record(ui, "mask-type", r);
+        if let Some(i) = dropdown(ui, r, "mask-type", cur, &opts) {
+            let chosen = MaskType::ALL[i];
+            let masks: Vec<NodeId> = sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();
+            app.edit_nodes(&masks, |n| {
+                n.mask_type = chosen;
+                n.fig_metadata.remove("maskType");
+            });
+        }
+        row_end(pane);
+        pane.y += theme::SPACE_ROW;
+    }
 
     // ---- Fill
     if matches!(n0.kind, NodeKind::Text(_)) {
@@ -1132,22 +1568,58 @@ fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32
     let mut tx = Tx::new();
     for id in sel {
         let Some(n) = app.doc.get(*id) else { continue };
-        let size = v2(w.unwrap_or(n.size.x).max(1.0), h.unwrap_or(n.size.y).max(if matches!(n.kind, NodeKind::Line) { 0.0 } else { 1.0 }));
+        let is_line = matches!(n.kind, NodeKind::Line);
+        let min_h = if is_line { 0.0 } else { 1.0 };
+        let counter_horiz = n.parent.and_then(|p| app.doc.get(p)).and_then(LayoutChild::counter_axis_is_horizontal);
+        let (mut nw, mut nh) = (w.unwrap_or(n.size.x).max(1.0), h.unwrap_or(n.size.y).max(min_h));
+        if n.lock_aspect && !is_line {
+            if w.is_some() && h.is_none() && sizing_of_with_parent(n, false, counter_horiz) == Sizing::Fixed {
+                nh = (nw * (n.size.y.max(1e-3) / n.size.x.max(1e-3))).max(1.0);
+            } else if h.is_some() && w.is_none() && sizing_of_with_parent(n, true, counter_horiz) == Sizing::Fixed {
+                nw = (nh * (n.size.x.max(1e-3) / n.size.y.max(1e-3))).max(1.0);
+            }
+        }
+        let size = v2(nw, nh);
         let t = n.transform;
         apply_resize(&mut app.doc, &mut tx.ed, *id, size, t, true);
     }
     app.run_tx(tx);
 }
 
-fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is_line: bool) {
+/// Height the inspector H field reads.
+pub(crate) fn inspector_height(n: &Node) -> f32 {
+    n.size.y
+}
+
+/// H field text for one node. Same path as `dimensions_ui` -> `num_field`.
+#[cfg(test)]
+pub(crate) fn inspector_height_field(n: &Node) -> String {
+    crate::widgets::numeric_field_value(inspector_height(n))
+}
+
+fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], geom: &MixedValueSummary, is_line: bool) {
     sublabel(ui, pane, "Dimensions");
-    let ws = common(app, sel, |n| n.size.x);
-    let hs = common(app, sel, |n| n.size.y);
+    let ws = geom.width;
+    let hs = geom.height;
     let (wr, hr) = (pane.col(0, 0.0), pane.col(1, 0.0));
-    let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui| field::num_field(ui, wr, "w", Prefix::Text("W"), ws, ""));
-    let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui| field::num_field(ui, hr, "h", Prefix::Text("H"), hs, "")) };
+    let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui, r| field::num_field(ui, r, "w", Prefix::Text("W"), ws, ""));
+    let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui, r| field::num_field(ui, r, "h", Prefix::Text("H"), hs, "")) };
     if w_new.is_some() || h_new.is_some() {
         resize_selection(app, sel, w_new, h_new);
+    }
+    // The aspect lock covers the nodes that have both a width and a height. A line has only a width and never gets one.
+    let lockable = |app: &App, id: NodeId| app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Line));
+    if geom.lockable {
+        let all_locked = sel.iter().filter(|id| lockable(app, **id)).all(|id| app.doc.get(*id).is_some_and(|n| n.lock_aspect));
+        let lock_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        widgets::record(ui, "lock-aspect", lock_r);
+        if widgets::icon_button(ui, lock_r, "lock-aspect", Icon::Link, all_locked, "Lock aspect ratio").clicked() {
+            let next = !all_locked;
+            let ids: Vec<NodeId> = sel.iter().copied().filter(|id| lockable(app, *id)).collect();
+            app.edit_nodes(&ids, |n| n.lock_aspect = next);
+        }
+    } else {
+        remove_test_rect(ui.ctx(), "lock-aspect");
     }
     row_end(pane);
 }
@@ -1244,8 +1716,8 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         });
     }
     let gap_r = pane.col(1, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, gap_r, sel, &["itemSpacing"], |ui| {
-        field::num_field(ui, gap_r, "al-gap", Prefix::Icon(Icon::Spacing), Some(a.item_spacing), "")
+    if let Some(v) = var_bind::numeric(app, ui, gap_r, sel, &["itemSpacing"], |ui, r| {
+        field::num_field(ui, r, "al-gap", Prefix::Icon(Icon::Spacing), Some(a.item_spacing), "")
     }) {
         update_al(app, sel, |al| al.item_spacing = v);
     }
@@ -1270,15 +1742,16 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
             grid_tracks_ui(app, ui, pane, grid_id);
         }
     }
-    dimensions_ui(app, ui, pane, sel, false);
+    let geom = mixed_value_summary(&app.doc, sel);
+    dimensions_ui(app, ui, pane, sel, &geom, false);
     let _ = parent_al;
     resizing_ui(app, ui, pane, sel, n0);
     sublabel(ui, pane, "Padding");
     let ph = a.padding[1].max(a.padding[3]);
     let pv = a.padding[0].max(a.padding[2]);
     let ph_r = pane.col(0, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, ph_r, sel, &["paddingLeft", "paddingRight"], |ui| {
-        field::num_field(ui, ph_r, "al-ph", Prefix::Icon(Icon::PaddingH), Some(ph), "")
+    if let Some(v) = var_bind::numeric(app, ui, ph_r, sel, &["paddingLeft", "paddingRight"], |ui, r| {
+        field::num_field(ui, r, "al-ph", Prefix::Icon(Icon::PaddingH), Some(ph), "")
     }) {
         update_al(app, sel, |al| {
             al.padding[1] = v;
@@ -1286,8 +1759,8 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         });
     }
     let pv_r = pane.col(1, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, pv_r, sel, &["paddingTop", "paddingBottom"], |ui| {
-        field::num_field(ui, pv_r, "al-pv", Prefix::Icon(Icon::PaddingV), Some(pv), "")
+    if let Some(v) = var_bind::numeric(app, ui, pv_r, sel, &["paddingTop", "paddingBottom"], |ui, r| {
+        field::num_field(ui, r, "al-pv", Prefix::Icon(Icon::PaddingV), Some(pv), "")
     }) {
         update_al(app, sel, |al| {
             al.padding[0] = v;
@@ -1351,7 +1824,10 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
     sublabel(ui, pane, "Wrap");
     // horizontal wrap stacks rows (a vertical gap), vertical wrap stacks columns (a horizontal gap)
     let icon = if a.direction == LayoutDirection::Horizontal { Icon::PaddingV } else { Icon::PaddingH };
-    if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "al-counter-gap", Prefix::Icon(icon), Some(a.counter_spacing), "") {
+    let cgap_r = pane.col(0, 0.0);
+    if let Some(v) = var_bind::numeric(app, ui, cgap_r, sel, &["counterAxisSpacing"], |ui, r| {
+        field::num_field(ui, r, "al-counter-gap", Prefix::Icon(icon), Some(a.counter_spacing), "")
+    }) {
         update_al(app, sel, |al| al.counter_spacing = v);
     }
     let between = a.counter_align_content == CounterAlignContent::SpaceBetween;
@@ -1539,7 +2015,14 @@ fn paint_label(p: &Paint) -> String {
         PaintKind::AngularGradient { .. } => "Angular".into(),
         PaintKind::DiamondGradient { .. } => "Diamond".into(),
         PaintKind::Image { .. } => "Image".into(),
+        PaintKind::Shader(_) => "Shader".into(),
     }
+}
+
+/// Status text a paint row shows on hover: a shader is carried through save and export but never drawn. The row's own
+/// label stays short enough to read in full at the default inspector width, so the status lives here.
+fn paint_hint(p: &Paint) -> Option<&'static str> {
+    matches!(p.kind, PaintKind::Shader(_)).then_some("Shader (not rendered)")
 }
 
 fn paint_preview(p: &Paint) -> Color32 {
@@ -1549,7 +2032,7 @@ fn paint_preview(p: &Paint) -> Color32 {
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
         | PaintKind::DiamondGradient { stops, .. } => stops.first().map(|s| to_c32(s.color, p.opacity)).unwrap_or(Color32::GRAY),
-        PaintKind::Image { .. } => Color32::from_gray(150),
+        PaintKind::Image { .. } | PaintKind::Shader(_) => Color32::from_gray(150),
     }
 }
 
@@ -1563,6 +2046,47 @@ fn edit_paint_list(app: &mut App, sel: &[NodeId], stroke: bool, f: impl Fn(&mut 
             f(&mut n.fills)
         }
     });
+}
+
+fn edit_paint_node_with_binding_remap(n: &mut Node, stroke: bool, origins_for_len: impl Fn(usize) -> Vec<Option<usize>>, f: impl Fn(&mut Vec<Paint>)) {
+    // A direct paint-list edit must detach the shared style that owns the old list.
+    n.style_refs.remove(if stroke { "stroke" } else { "fill" });
+    let paints = if stroke { &mut n.stroke.paints } else { &mut n.fills };
+    let origins = origins_for_len(paints.len());
+    f(paints);
+    let prefix = if stroke { "strokes/" } else { "fills/" };
+    var_bind::remap_indexed_bindings(&mut n.variables.bindings, prefix, &origins);
+}
+
+fn edit_paint_list_with_binding_remap(
+    app: &mut App,
+    sel: &[NodeId],
+    stroke: bool,
+    origins_for_len: impl Fn(usize) -> Vec<Option<usize>>,
+    f: impl Fn(&mut Vec<Paint>),
+) {
+    app.edit_nodes(sel, |n| {
+        edit_paint_node_with_binding_remap(n, stroke, &origins_for_len, &f);
+    });
+}
+
+fn remove_paint_node_with_binding_remap(n: &mut Node, stroke: bool, index: usize) {
+    edit_paint_node_with_binding_remap(
+        n,
+        stroke,
+        move |len| {
+            if index < len {
+                (0..len).filter(|old_i| *old_i != index).map(Some).collect()
+            } else {
+                (0..len).map(Some).collect()
+            }
+        },
+        move |ps| {
+            if index < ps.len() {
+                ps.remove(index);
+            }
+        },
+    );
 }
 
 /// Width of the swatch + hex + opacity field group of a paint row (the eye and minus follow it).
@@ -1644,13 +2168,17 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             }
         }
         let swr = ui.interact(sw.expand(2.0), ui.id().with(("sw", key)), Sense::click());
-        widgets::picker::paint_swatch(ui.painter(), sw, p);
+        if matches!(p.kind, PaintKind::Shader(_)) {
+            crate::icons::paint(ui.painter(), Icon::Shader, sw.center(), 16.0, theme::TEXT_SECONDARY);
+        } else {
+            widgets::picker::paint_swatch(ui.painter(), sw, p);
+        }
         let var_key = format!("{}/{i}", if stroke { "strokes" } else { "fills" });
         let bound = var_bind::pill_field(app, ui, Rect::from_min_max(hex_r.min, Pos2::new(g.right(), hex_r.bottom())), sel, &[var_key.as_str()]);
         if !bound {
             widgets::vline(ui.painter(), g.left() + divider_x, g.top(), g.bottom(), theme::BG);
         }
-        if swr.clicked() && !bound {
+        if swr.clicked() && !bound && !matches!(p.kind, PaintKind::Shader(_)) {
             app.props.selected_property = Some(prop);
             let target = if stroke { PickTarget::Stroke(i) } else { PickTarget::Fill(i) };
             open_picker(app, target, paint_preview(p), sw, sel.to_vec());
@@ -1659,10 +2187,16 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         match &p.kind {
             _ if bound => {}
             _ if linked.is_some() => {
-                widgets::field_text(ui.painter(), hex_r, 0.0, 4.0, linked.as_deref().unwrap_or(""), font.clone(), theme::TEXT);
+                let val_hex_r = if matches!(p.kind, PaintKind::Solid(_)) {
+                    var_bind::value_rect(app, ui, hex_r, sel, &[var_key.as_str()], VariableKind::Color)
+                } else {
+                    hex_r
+                };
+                widgets::field_text(ui.painter(), val_hex_r, 0.0, 4.0, linked.as_deref().unwrap_or(""), font.clone(), theme::TEXT);
             }
             PaintKind::Solid(c) => {
-                if let Some(s) = field::edit_hex_text(ui, hex_r, hex_id, &c.to_hex(), font.clone(), theme::TEXT, 0.0) {
+                let val_hex_r = var_bind::value_rect(app, ui, hex_r, sel, &[var_key.as_str()], VariableKind::Color);
+                if let Some(s) = field::edit_hex_text(ui, val_hex_r, hex_id, &c.to_hex(), font.clone(), theme::TEXT, 0.0) {
                     if let Some(nc) = Color::from_hex(&s) {
                         edit_paint_list(app, sel, stroke, |ps| {
                             if let Some(p) = ps.get_mut(i) {
@@ -1673,7 +2207,11 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
                 }
             }
             _ => {
-                widgets::field_text(ui.painter(), hex_r, 0.0, 4.0, &paint_label(p), font.clone(), theme::TEXT);
+                let col = if matches!(p.kind, PaintKind::Shader(_)) { theme::TEXT_SECONDARY } else { theme::TEXT };
+                widgets::field_text(ui.painter(), hex_r, 0.0, 4.0, &paint_label(p), font.clone(), col);
+                if let Some(hint) = paint_hint(p) {
+                    ui.interact(hex_r, ui.id().with(("paint-hint", key)), Sense::hover()).on_hover_text(hint);
+                }
             }
         }
         if !bound && matches!(p.kind, PaintKind::Solid(_)) {
@@ -1704,22 +2242,48 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             });
         }
         if widgets::icon_button(ui, minus_r, ("pminus", key), Icon::Minus, false, "").clicked() {
-            edit_paint_list(app, sel, stroke, |ps| {
-                if i < ps.len() {
-                    ps.remove(i);
-                }
-            });
+            edit_paint_list_with_binding_remap(
+                app,
+                sel,
+                stroke,
+                move |len| {
+                    if i < len {
+                        (0..len).filter(|old_i| *old_i != i).map(Some).collect()
+                    } else {
+                        (0..len).map(Some).collect()
+                    }
+                },
+                move |ps| {
+                    if i < ps.len() {
+                        ps.remove(i);
+                    }
+                },
+            );
         }
         pane.y += theme::FIELD_HEIGHT + 8.0;
     }
     if let Some((src_i, dst_i)) = reorder_pair {
-        edit_paint_list(app, sel, stroke, |ps| {
-            if src_i < ps.len() {
-                let item = ps.remove(src_i);
-                let target_idx = dst_i.min(ps.len());
-                ps.insert(target_idx, item);
-            }
-        });
+        edit_paint_list_with_binding_remap(
+            app,
+            sel,
+            stroke,
+            move |len| {
+                let mut origins: Vec<usize> = (0..len).collect();
+                if src_i < origins.len() {
+                    let item = origins.remove(src_i);
+                    let target_idx = dst_i.min(origins.len());
+                    origins.insert(target_idx, item);
+                }
+                origins.into_iter().map(Some).collect()
+            },
+            move |ps| {
+                if src_i < ps.len() {
+                    let item = ps.remove(src_i);
+                    let target_idx = dst_i.min(ps.len());
+                    ps.insert(target_idx, item);
+                }
+            },
+        );
         app.props.selected_property = Some(if stroke { SelectedProperty::Stroke(dst_i) } else { SelectedProperty::Fill(dst_i) });
         app.props.drag_property = None;
     } else if ui.ctx().input(|inp| inp.pointer.any_released())
@@ -1801,6 +2365,53 @@ fn picker_color(p: &Picker) -> Color {
     Color::rgba(r, g, b, a)
 }
 
+fn has_stop_bindings(doc: &Document, pk: &Picker) -> bool {
+    let prefix = match pk.target {
+        PickTarget::Fill(i) => format!("fills/{i}/stops/"),
+        PickTarget::Stroke(i) => format!("strokes/{i}/stops/"),
+        _ => return false,
+    };
+    pk.ids.iter().any(|&id| {
+        doc.get(id).is_some_and(|n| n.variables.bindings.keys().any(|k| k.starts_with(&prefix) && super::var_bind::doc_bound_var(doc, id, k).is_some()))
+    })
+}
+
+fn preserve_bound_stop_colors(doc: &Document, id: NodeId, pt: &mut Paint, old_stops: &[GradientStop], prefix: &str, pi: usize, stop_origins: &[Option<usize>]) {
+    let Some(stops) = widgets::picker::stops_mut(&mut pt.kind) else { return };
+    let stop_prefix = format!("{prefix}/{pi}/stops/");
+    for (new_idx, stop) in stops.iter_mut().enumerate() {
+        if super::var_bind::doc_bound_var(doc, id, &format!("{stop_prefix}{new_idx}")).is_some() {
+            if let Some(Some(orig_idx)) = stop_origins.get(new_idx) {
+                if let Some(old) = old_stops.get(*orig_idx) {
+                    stop.color = old.color;
+                }
+            }
+        }
+    }
+}
+
+/// Gives the image paint the picker writes onto a node that node's own Crop frame; see
+/// `designos_render::image_adjust::crop_paint_for_node`.
+fn settle_image_crop(doc: &Document, size: DVec2, old: Option<&Paint>, next: &mut Paint, quarter_turns: i32) {
+    let Some(old) = old else { return };
+    let PaintKind::Image { image_ref, .. } = &old.kind else { return };
+    designos_render::image_adjust::crop_paint_for_node(old, next, size, || designos_render::image_adjust::image_dimensions(doc, image_ref), quarter_turns);
+}
+
+/// After a Crop edit the picker's paint shows the frame and angle its first node ended up with.
+fn mirror_first_crop_frame(doc: &Document, p: &mut Picker) {
+    let (Some(first), PaintKind::Image { scale_mode: ImageScaleMode::Crop, params, .. }) = (p.ids.first(), &mut p.paint.kind) else { return };
+    let paint = doc.get(*first).and_then(|n| match p.target {
+        PickTarget::Fill(i) => n.fills.get(i),
+        PickTarget::Stroke(i) => n.stroke.paints.get(i),
+        _ => None,
+    });
+    if let Some(Paint { kind: PaintKind::Image { scale_mode: ImageScaleMode::Crop, params: node_params, .. }, .. }) = paint {
+        params.transform = node_params.transform;
+        params.rotation = node_params.rotation;
+    }
+}
+
 fn apply_picker(doc: &mut Document, p: &mut Picker) {
     let c = picker_color(p);
     if let PickTarget::SelColor(old) = p.target {
@@ -1809,19 +2420,35 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
         }
         return;
     }
+    let is_grad = widgets::picker::mode_of(&p.paint.kind).is_gradient();
+    let turns = std::mem::take(&mut p.state.image_turns);
     for id in &p.ids {
         let Some(n) = p.tx.ed.node(doc, *id) else { continue };
         match p.target {
             PickTarget::Fill(i) => {
-                if let Some(pt) = n.fills.get_mut(i) {
-                    let visible = pt.visible;
-                    *pt = Paint { visible, ..p.paint.clone() };
+                let old_stops = n.fills.get(i).and_then(|pt| widgets::picker::stops_of(&pt.kind)).map(|s| s.to_vec()).unwrap_or_default();
+                let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
+                super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("fills/{i}/stops/"), origins);
+                let Some(visible) = n.fills.get(i).map(|pt| pt.visible) else { continue };
+                let (size, old) = (n.size, n.fills.get(i).cloned());
+                let mut next = Paint { visible, ..p.paint.clone() };
+                preserve_bound_stop_colors(doc, *id, &mut next, &old_stops, "fills", i, &p.state.stop_origins);
+                settle_image_crop(doc, size, old.as_ref(), &mut next, turns);
+                if let Some(pt) = doc.nodes.get_mut(id).and_then(|n| n.fills.get_mut(i)) {
+                    *pt = next;
                 }
             }
             PickTarget::Stroke(i) => {
-                if let Some(pt) = n.stroke.paints.get_mut(i) {
-                    let visible = pt.visible;
-                    *pt = Paint { visible, ..p.paint.clone() };
+                let old_stops = n.stroke.paints.get(i).and_then(|pt| widgets::picker::stops_of(&pt.kind)).map(|s| s.to_vec()).unwrap_or_default();
+                let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
+                super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("strokes/{i}/stops/"), origins);
+                let Some(visible) = n.stroke.paints.get(i).map(|pt| pt.visible) else { continue };
+                let (size, old) = (n.size, n.stroke.paints.get(i).cloned());
+                let mut next = Paint { visible, ..p.paint.clone() };
+                preserve_bound_stop_colors(doc, *id, &mut next, &old_stops, "strokes", i, &p.state.stop_origins);
+                settle_image_crop(doc, size, old.as_ref(), &mut next, turns);
+                if let Some(pt) = doc.nodes.get_mut(id).and_then(|n| n.stroke.paints.get_mut(i)) {
+                    *pt = next;
                 }
             }
             PickTarget::SelColor(_) => {}
@@ -1852,6 +2479,7 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
             }
         }
     }
+    mirror_first_crop_frame(doc, p);
 }
 
 /// Reads the page colour under `pos` (screen space) by rendering a 1x1 pixel of the page.
@@ -1901,7 +2529,8 @@ fn create_style(app: &mut App, pk: &mut Picker) {
 }
 
 fn try_sample_color_token(app: &mut App, p: Pos2, target: PickTarget, ids: &[NodeId]) -> bool {
-    let hit = app.hover.or_else(|| crate::canvas::interact::hit_under(app, app.view.to_page(app.canvas_rect.min, p), true));
+    let page_pt = app.view.to_page(app.canvas_rect.min, p);
+    let hit = crate::canvas::interact::hit_under_any_depth(app, page_pt, false).or_else(|| crate::canvas::interact::hit_under(app, page_pt, true));
     let Some(hid) = hit else { return false };
     let (style_key, var_id) = match app.doc.get(hid) {
         Some(n) => (n.style_refs.get("fill").cloned(), n.variables.bindings.get("fills/0").cloned()),
@@ -1928,6 +2557,9 @@ fn try_sample_color_token(app: &mut App, p: Pos2, target: PickTarget, ids: &[Nod
 pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
     use widgets::picker;
     let ctx = ui.ctx().clone();
+    if app.props.picker.is_some() {
+        super::var_bind::sync_picker_context(app, &ctx);
+    }
     let Some(mut pk) = app.props.picker.take() else {
         if let Some(target) = app.props.eyedropper {
             ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -2023,6 +2655,11 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         }
     }
     let env = picker::Env { paint_types, sources: &pk.sources, styles: &styles, can_add_style: paint_types };
+    pk.state.image_frame = if let PaintKind::Image { image_ref, .. } = &pk.paint.kind {
+        pk.ids.first().and_then(|id| app.doc.get(*id)).zip(designos_render::image_adjust::image_dimensions(&app.doc, image_ref)).map(|(n, dims)| (n.size, dims))
+    } else {
+        None
+    };
     let h = picker::panel_height(&env, picker::mode_of(&pk.paint.kind), pk.state.tab, pk.state.source);
     let screen = ctx.content_rect();
     let x = (region.left() - picker::W).max(screen.left() + 8.0);
@@ -2039,7 +2676,8 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         app.doc.images.insert(key, bytes);
         changed = true;
     }
-    if out.eyedrop || app.props.eyedropper.is_some() {
+    let stop_bound = widgets::picker::mode_of(&pk.paint.kind).is_gradient() && super::var_bind::picker_stop_is_bound(&ctx, pk.state.sel);
+    if !stop_bound && (out.eyedrop || app.props.eyedropper.is_some()) {
         pk.eyedrop = true;
         app.props.eyedropper = Some(pk.target);
     }
@@ -2057,14 +2695,16 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         } else if let (true, Some(p)) = (clicked, ptr) {
             if app.canvas_rect.contains(p) && !panel.contains(p) {
                 let ids = pk.ids.clone();
-                if shift && try_sample_color_token(app, p, pk.target, &ids) {
+                if !stop_bound && shift && try_sample_color_token(app, p, pk.target, &ids) {
                     pk.eyedrop = false;
                     app.props.eyedropper = None;
                 } else {
-                    if let Some([r, g, b]) = sample_canvas(app, p) {
-                        let a = widgets::picker::active_rgba(&pk.paint, pk.state.sel)[3];
-                        widgets::picker::set_active(&mut pk.paint, pk.state.sel, [r, g, b, a]);
-                        changed = true;
+                    if !stop_bound {
+                        if let Some([r, g, b]) = sample_canvas(app, p) {
+                            let a = widgets::picker::active_rgba(&pk.paint, pk.state.sel)[3];
+                            widgets::picker::set_active(&mut pk.paint, pk.state.sel, [r, g, b, a]);
+                            changed = true;
+                        }
                     }
                     pk.eyedrop = false;
                     app.props.eyedropper = None;
@@ -2072,7 +2712,8 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             }
         }
     }
-    gradient_handles(app, &ctx, &mut pk, &mut changed);
+    let mut stop_list_changed = out.stop_list_changed;
+    gradient_handles(app, &ctx, &mut pk, &mut changed, &mut stop_list_changed);
     if changed {
         if pk.target == PickTarget::TextFill && app.canvas.text.is_some() {
             // Colour of the characters being edited: goes through the text session.
@@ -2081,9 +2722,19 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             crate::canvas::textsession::style_selection_as(app, |st| super::typography::set_solid(st, col, Some(c.a)), crate::textedit::EditKind::Style);
         } else {
             pk.tx.ed.revert(&mut app.doc);
+            let stop_list_changed = stop_list_changed && has_stop_bindings(&app.doc, &pk);
             apply_picker(&mut app.doc, &mut pk);
             app.changed();
+            if stop_list_changed {
+                let tx = std::mem::replace(&mut pk.tx, Tx::new());
+                app.run_tx(tx);
+                pk.state.reset_stop_origins(&pk.paint);
+            }
         }
+    }
+    if out.commit_tx {
+        let tx = std::mem::replace(&mut pk.tx, Tx::new());
+        app.run_tx(tx);
     }
     if out.add_style {
         create_style(app, &mut pk);
@@ -2127,10 +2778,10 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
                 if let Some(n) = tx.ed.node(&mut app.doc, *id) {
                     match target {
                         PickTarget::Fill(i) if i < n.fills.len() => {
-                            n.fills.remove(i);
+                            remove_paint_node_with_binding_remap(n, false, i);
                         }
                         PickTarget::Stroke(i) if i < n.stroke.paints.len() => {
-                            n.stroke.paints.remove(i);
+                            remove_paint_node_with_binding_remap(n, true, i);
                         }
                         _ => {}
                     }
@@ -2147,6 +2798,9 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
         crate::widgets::popup_open::mark_open(&ctx);
         app.props.picker = Some(pk);
+        if changed {
+            super::var_bind::sync_picker_context(app, &ctx);
+        }
     }
 }
 
@@ -2160,7 +2814,7 @@ pub(crate) fn choose_image_fill(app: &mut App, paint: &mut Paint, dialogs: &dyn 
         Ok((bytes, _, _)) => {
             let key = format!("img-{}", app.doc.images.len() + 1);
             app.doc.images.insert(key.clone(), bytes);
-            paint.kind = PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill };
+            paint.kind = PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill, params: Default::default() };
             paint.opacity = 1.0;
             true
         }
@@ -2208,7 +2862,7 @@ fn handle_points(pk: &Picker, app: &App) -> Vec<(usize, Pos2)> {
 }
 
 /// On-canvas gradient editing: the start/end/width handles and interactive stops of the edited paint.
-fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed: &mut bool) {
+fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed: &mut bool, stop_list_changed: &mut bool) {
     let pts = handle_points(pk, app);
     if pts.len() != 3 || !matches!(pk.target, PickTarget::Fill(_) | PickTarget::Stroke(_)) {
         return;
@@ -2323,10 +2977,15 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
     }
     if let Some((si, t)) = stop_duplicated {
         if let Some(stops) = widgets::picker::stops_mut(&mut pk.paint.kind) {
+            if pk.state.stop_origins.len() != stops.len() {
+                pk.state.stop_origins = (0..stops.len()).map(Some).collect();
+            }
             if let Some(src) = stops.get(si).cloned() {
                 stops.push(GradientStop { pos: t, color: src.color });
+                pk.state.stop_origins.push(None);
                 pk.state.sel = stops.len() - 1;
                 *changed = true;
+                *stop_list_changed = true;
             }
         }
     } else if let Some((si, t)) = stop_moved {
@@ -2339,13 +2998,20 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
         }
     } else if let Some(t) = line_inserted {
         if let Some(stops) = widgets::picker::stops_mut(&mut pk.paint.kind) {
+            if pk.state.stop_origins.len() != stops.len() {
+                pk.state.stop_origins = (0..stops.len()).map(Some).collect();
+            }
             let color = widgets::picker::stop_color_at(stops, t);
-            stops.push(GradientStop { pos: t, color });
-            stops.sort_by(|a, b| a.pos.partial_cmp(&b.pos).unwrap_or(std::cmp::Ordering::Equal));
-            if let Some(idx) = stops.iter().position(|s| (s.pos - t).abs() < 1e-4) {
+            let mut pairs: Vec<(GradientStop, Option<usize>)> = stops.iter().cloned().zip(pk.state.stop_origins.iter().copied()).collect();
+            pairs.push((GradientStop { pos: t, color }, None));
+            pairs.sort_by(|a, b| a.0.pos.partial_cmp(&b.0.pos).unwrap_or(std::cmp::Ordering::Equal));
+            if let Some(idx) = pairs.iter().position(|(s, orig)| orig.is_none() && (s.pos - t).abs() < 1e-4) {
                 pk.state.sel = idx;
             }
+            *stops = pairs.iter().map(|(s, _)| *s).collect();
+            pk.state.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
             *changed = true;
+            *stop_list_changed = true;
         }
     }
     if let Some((i, v, shift_snapped)) = moved {
@@ -2562,7 +3228,9 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                 if sub == "desc" && crate::styles::style_description(&app.doc, &entry.key).is_empty() {
                     app.set_style_description_to(&entry.key, "Soft elevation shadow for cards and popovers");
                 }
-                app.apply_style(&[id], &entry.key);
+                if app.doc.get(id).is_none_or(|n| !n.style_refs.values().any(|v| v == &entry.key)) {
+                    app.apply_style(&[id], &entry.key);
+                }
                 let anchor = Rect::from_min_size(Pos2::new(screen.x - 56.0, 420.0), Vec2::splat(24.0));
                 super::style_edit::toggle(app, &entry.key, anchor);
             }
@@ -2582,21 +3250,28 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             let anchor = Rect::from_min_size(Pos2::new(screen.x - 48.0, 330.0), Vec2::splat(24.0));
             app.props.pop = Some(super::effects::PopState { kind: super::effects::PopKind::TextDetails, anchor, ids: vec![id] });
         }
-        "effect-noise" | "effect-texture" | "effect-glass" => {
+        "effect" | "effect-noise" | "effect-texture" | "effect-glass" => {
             app.props.scroll = 1.0e6;
-            let kind = match spec {
-                "effect-noise" => 4,
-                "effect-texture" => 5,
-                _ => 6,
-            };
-            let e = super::effects::default_effect(kind, 1);
-            app.edit_nodes(&[id], |n| {
-                n.effects.push(e.clone());
-                if kind == 6 {
-                    // Glass shows what is behind it: make the fill a faint tint.
-                    n.fills = vec![Paint { opacity: 0.12, ..Paint::solid(Color::WHITE) }];
+            if spec == "effect" {
+                if app.doc.get(id).is_some_and(|n| n.effects.is_empty()) {
+                    let e = super::effects::default_effect(1, 1);
+                    app.edit_nodes(&[id], |n| n.effects.push(e.clone()));
                 }
-            });
+            } else {
+                let kind = match spec {
+                    "effect-noise" => 4,
+                    "effect-texture" => 5,
+                    _ => 6,
+                };
+                let e = super::effects::default_effect(kind, 1);
+                app.edit_nodes(&[id], |n| {
+                    n.effects.push(e.clone());
+                    if kind == 6 {
+                        // Glass shows what is behind it: make the fill a faint tint.
+                        n.fills = vec![Paint { opacity: 0.12, ..Paint::solid(Color::WHITE) }];
+                    }
+                });
+            }
             let i = app.doc.get(id).map(|n| n.effects.len().saturating_sub(1)).unwrap_or(0);
             let anchor = Rect::from_min_size(Pos2::new(screen.x - 80.0, 800.0), Vec2::splat(24.0));
             app.props.pop = Some(super::effects::PopState { kind: super::effects::PopKind::Effect(i), anchor, ids: vec![id] });
@@ -2613,7 +3288,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                         visible: true,
                         opacity: 1.0,
                         blend: BlendMode::Normal,
-                        kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill },
+                        kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
                     }];
                 });
             }
@@ -2667,6 +3342,113 @@ mod tests {
         assert_eq!(back.to_hex(), c.to_hex());
         let half = to_c32(c, 0.5);
         assert!((half.a() as i32 - 128).abs() <= 1);
+    }
+
+    fn app_with_bound_paints() -> (App, NodeId) {
+        let mut doc = Document::new("paint bindings");
+        let page = doc.add_page("Page 1");
+        let id = doc.alloc_id();
+        let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 80.0));
+        node.fills = vec![Paint::solid(Color::rgb(255, 0, 0)), Paint::solid(Color::rgb(0, 0, 255))];
+        node.variables.bindings.insert("fills/0".into(), "var-red".into());
+        node.variables.bindings.insert("fills/1".into(), "var-blue".into());
+        node.variables.bindings.insert("fills/1/opacity".into(), "var-blue-opacity".into());
+        node.variables.bindings.insert("fills/1/stops/0".into(), "var-blue-stop".into());
+        let id = doc.insert(page, node).unwrap();
+        (App::new(doc), id)
+    }
+
+    #[test]
+    fn deleting_a_fill_remaps_surviving_indexed_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        edit_paint_list_with_binding_remap(
+            &mut app,
+            &[id],
+            false,
+            |len| (0..len).filter(|old_i| *old_i != 0).map(Some).collect(),
+            |paints| {
+                paints.remove(0);
+            },
+        );
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.fills.len(), 1);
+        assert_eq!(node.variables.bindings.get("fills/0").map(String::as_str), Some("var-blue"));
+        assert_eq!(node.variables.bindings.get("fills/0/opacity").map(String::as_str), Some("var-blue-opacity"));
+        assert_eq!(node.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        assert!(!node.variables.bindings.contains_key("fills/1"));
+    }
+
+    #[test]
+    fn reordering_fills_moves_their_indexed_bindings_and_suffixes() {
+        let (mut app, id) = app_with_bound_paints();
+        edit_paint_list_with_binding_remap(
+            &mut app,
+            &[id],
+            false,
+            |len| {
+                let mut origins: Vec<usize> = (0..len).collect();
+                let first = origins.remove(0);
+                origins.push(first);
+                origins.into_iter().map(Some).collect()
+            },
+            |paints| {
+                let first = paints.remove(0);
+                paints.push(first);
+            },
+        );
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.variables.bindings.get("fills/0").map(String::as_str), Some("var-blue"));
+        assert_eq!(node.variables.bindings.get("fills/0/opacity").map(String::as_str), Some("var-blue-opacity"));
+        assert_eq!(node.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        assert_eq!(node.variables.bindings.get("fills/1").map(String::as_str), Some("var-red"));
+    }
+
+    #[test]
+    fn picker_removal_remaps_surviving_stroke_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        let node = app.doc.get_mut(id).unwrap();
+        node.stroke.paints = vec![Paint::solid(Color::rgb(255, 0, 0)), Paint::solid(Color::rgb(0, 0, 255))];
+        node.variables.bindings.insert("strokes/0".into(), "stroke-red".into());
+        node.variables.bindings.insert("strokes/1/opacity".into(), "stroke-blue-opacity".into());
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), true, 0);
+        assert!(app.run_tx(tx));
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.stroke.paints.len(), 1);
+        assert_eq!(node.variables.bindings.get("strokes/0/opacity").map(String::as_str), Some("stroke-blue-opacity"));
+        assert!(!node.variables.bindings.contains_key("strokes/1"));
+    }
+
+    #[test]
+    fn picker_removal_detaches_shared_fill_style() {
+        let (mut app, id) = app_with_bound_paints();
+        app.doc.get_mut(id).unwrap().style_refs.insert("fill".into(), "style/fill".into());
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), false, 0);
+        assert!(app.run_tx(tx));
+        let node = app.doc.get(id).unwrap();
+        assert!(!node.style_refs.contains_key("fill"));
+        assert_eq!(node.fills.len(), 1);
+    }
+
+    #[test]
+    fn picker_removal_is_one_undo_step_and_redo_restores_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        let before = app.doc.get(id).unwrap().clone();
+        let depth = app.hist.undo_depth();
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), false, 0);
+        assert!(app.run_tx(tx));
+        assert_eq!(app.hist.undo_depth(), depth + 1);
+        let after = app.doc.get(id).unwrap();
+        assert_eq!(after.fills.len(), 1);
+        assert_eq!(after.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        app.undo();
+        assert_eq!(app.doc.get(id).unwrap().fills, before.fills);
+        assert_eq!(app.doc.get(id).unwrap().variables.bindings, before.variables.bindings);
+        app.redo();
+        assert_eq!(app.doc.get(id).unwrap().fills.len(), 1);
+        assert_eq!(app.doc.get(id).unwrap().variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
     }
 
     #[test]
@@ -2859,5 +3641,1065 @@ mod tests {
         let n2 = app2.doc.get(cid2).unwrap();
         assert_eq!(n2.size, v2(30.0, 100.0));
         assert_eq!(n2.layout_child.align_self, AlignSelf::Auto);
+    }
+
+    #[test]
+    fn mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step() {
+        let mut doc = designos_doc::Document::new("mask-ui");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let m1 = app.doc.alloc_id();
+        let mut n1 = Node::rectangle(m1, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        n1.is_mask = true;
+        n1.mask_type = MaskType::Alpha;
+        let m1 = app.doc.insert(page, n1).unwrap();
+
+        let m2 = app.doc.alloc_id();
+        let mut n2 = Node::rectangle(m2, designos_doc::Rect::new(50.0, 0.0, 40.0, 40.0));
+        n2.is_mask = true;
+        n2.mask_type = MaskType::Luminance;
+        let m2 = app.doc.insert(page, n2).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let step = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| show(app, ui, region));
+        };
+        let click = |app: &mut App, pos: Pos2| {
+            step(app, vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+        };
+
+        // Select mixed masks: Mask section dropdown renders and reports Mixed (`common` is None)
+        app.selection = vec![m1, m2];
+        assert_eq!(common(&app, &app.selection, |n| n.mask_type), None);
+        step(&mut app, vec![]);
+        let dd_rect = test_rect(&ctx, "mask-type").expect("mask-type dropdown rendered for mask selection");
+
+        // Open the dropdown (release sets open=true; next pass renders popup_menu) and pick "Vector" (row 1)
+        click(&mut app, dd_rect.center());
+        step(&mut app, vec![]);
+        let vector_row = test_rect(&ctx, "menu-row-0-1").expect("Vector row rendered in mask-type menu");
+        click(&mut app, vector_row.center());
+
+        assert_eq!(app.doc.get(m1).unwrap().mask_type, MaskType::Vector);
+        assert_eq!(app.doc.get(m2).unwrap().mask_type, MaskType::Vector);
+
+        // One undo step restores both nodes' original mask types
+        app.undo();
+        assert_eq!(app.doc.get(m1).unwrap().mask_type, MaskType::Alpha);
+        assert_eq!(app.doc.get(m2).unwrap().mask_type, MaskType::Luminance);
+    }
+
+    #[test]
+    fn mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle() {
+        let mut doc = designos_doc::Document::new("mask-ui-filter");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let m1 = app.doc.alloc_id();
+        let mut n1 = Node::rectangle(m1, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        n1.is_mask = true;
+        n1.mask_type = MaskType::Luminance;
+        n1.fig_metadata.insert("maskType".into(), "LUMINANCE".into());
+        let m1 = app.doc.insert(page, n1).unwrap();
+
+        let plain = app.doc.alloc_id();
+        let n2 = Node::rectangle(plain, designos_doc::Rect::new(50.0, 0.0, 40.0, 40.0));
+        let plain = app.doc.insert(page, n2).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let step = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| show(app, ui, region));
+        };
+        let click = |app: &mut App, pos: Pos2| {
+            step(app, vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+        };
+
+        // Select one Luminance mask and one non-mask layer:
+        // The dropdown label must read only mask layers ("Luminance", so row 2 is checked, not "Mixed"),
+        // and picking Vector must only update the mask layer and clear its legacy fig_metadata["maskType"].
+        app.selection = vec![m1, plain];
+        step(&mut app, vec![]);
+        let dd_rect = test_rect(&ctx, "mask-type").expect("mask-type dropdown rendered");
+        click(&mut app, dd_rect.center());
+        step(&mut app, vec![]);
+        assert!(
+            test_rect(&ctx, "menu-check-0-2").is_some_and(|r| r.is_positive()),
+            "dropdown label for [Luminance mask, plain] must read mask layers only (Luminance checked, not Mixed)"
+        );
+        let vector_row = test_rect(&ctx, "menu-row-0-1").expect("Vector row in mask-type menu");
+        click(&mut app, vector_row.center());
+
+        assert_eq!(app.doc.get(m1).unwrap().mask_type, MaskType::Vector, "mask layer updated to Vector");
+        assert!(!app.doc.get(m1).unwrap().fig_metadata.contains_key("maskType"), "dropdown edit removes legacy fig_metadata maskType");
+        assert_eq!(app.doc.get(plain).unwrap().mask_type, MaskType::Alpha, "non-mask layer must never receive mask_type");
+        assert!(!app.doc.get(plain).unwrap().is_mask);
+
+        // Clicking the header Use as mask button on a mixed [masked, unmasked] selection must turn all selected layers into masks,
+        // matching the Object -> Use as mask menu action.
+        let hdr_mask_pos = Pos2::new(
+            crate::theme::RIGHT_NAME_ACTION_X[0] - 1.0 + crate::theme::PANEL_ACTION_BUTTON * 0.5,
+            crate::theme::RIGHT_SELECTION_HEADER_Y - crate::theme::RIGHT_CONTENT_TOP + crate::theme::PANEL_ACTION_BUTTON * 0.5,
+        );
+        click(&mut app, hdr_mask_pos);
+        assert!(
+            app.doc.get(m1).unwrap().is_mask && app.doc.get(plain).unwrap().is_mask,
+            "header mask button on mixed selection must turn all selected nodes into masks"
+        );
+
+        // Per-frame scan bound (`take(128)`): when 128 non-mask layers precede a mask at index 128,
+        // the per-frame Mask section check stops at 128 and does not render the Mask dropdown.
+        app.doc.get_mut(plain).unwrap().is_mask = false;
+        let mut bounded_sel = Vec::with_capacity(129);
+        bounded_sel.push(plain);
+        for _ in 1..128 {
+            let pid = app.doc.alloc_id();
+            let pn = Node::rectangle(pid, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+            bounded_sel.push(app.doc.insert(page, pn).unwrap());
+        }
+        bounded_sel.push(m1);
+        assert_eq!(bounded_sel.len(), 129);
+        app.selection = bounded_sel;
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("test-rect", "mask-type".to_string())), Rect::NOTHING));
+        step(&mut app, vec![]);
+        assert!(
+            !test_rect(&ctx, "mask-type").is_some_and(|r| r.is_positive()),
+            "Mask section per-frame scan must be bounded to take(128) and not scan beyond index 127"
+        );
+    }
+
+    fn has_rect_fill(shapes: &[egui::epaint::ClippedShape], rect: Rect, fill: Color32) -> bool {
+        fn walk(s: &egui::Shape, rect: Rect, fill: Color32) -> bool {
+            match s {
+                egui::Shape::Rect(r) => (r.rect.min - rect.min).length() < 0.5 && (r.rect.max - rect.max).length() < 0.5 && r.fill == fill,
+                egui::Shape::Vec(v) => v.iter().any(|c| walk(c, rect, fill)),
+                _ => false,
+            }
+        }
+        shapes.iter().any(|cs| walk(&cs.shape, rect, fill))
+    }
+
+    #[test]
+    fn lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step() {
+        let mut doc = designos_doc::Document::new("lock-aspect-toggle");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let r1_id = app.doc.alloc_id();
+        let r1 = app.doc.insert(page, Node::rectangle(r1_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
+        let r2_id = app.doc.alloc_id();
+        let r2 = app.doc.insert(page, Node::rectangle(r2_id, designos_doc::Rect::new(120.0, 0.0, 80.0, 40.0))).unwrap();
+        let ln_id = app.doc.alloc_id();
+        let mut ln_node = Node::new(ln_id, NodeKind::Line);
+        ln_node.size = DVec2::new(100.0, 0.0);
+        let ln = app.doc.insert(page, ln_node).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+        let step = |app: &mut App, events: Vec<egui::Event>| -> egui::FullOutput {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            ctx.run_ui(raw, |ui| show(app, ui, region))
+        };
+        let click = |app: &mut App, pos: Pos2| -> egui::FullOutput {
+            let _ = step(app, vec![egui::Event::PointerMoved(pos)]);
+            let _ = step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE }]);
+            step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE }])
+        };
+
+        // Lines show only W (no H field) and must not show the lock-aspect toggle.
+        app.selection = vec![ln];
+        let _ = step(&mut app, vec![]);
+        assert!(test_rect(&ctx, "lock-aspect").is_none(), "lines must not render lock-aspect toggle");
+
+        // Multi-selection [r1, r2]: both unlocked -> toggle renders off.
+        app.selection = vec![r1, r2];
+        let out_off = step(&mut app, vec![]);
+        let h_rect = field_rect(&ctx, "h").expect("H field rendered for rectangle selection");
+        let fallback_lock_r = Rect::from_min_size(
+            Pos2::new(crate::theme::SECTION_TRAILING_X, h_rect.min.y + crate::theme::SPACE_FACT),
+            Vec2::splat(crate::theme::PANEL_ACTION_BUTTON),
+        );
+        let lock_r = test_rect(&ctx, "lock-aspect").unwrap_or(fallback_lock_r);
+        assert!(!has_rect_fill(&out_off.shapes, lock_r, crate::theme::BG_SELECTED), "toggle must be off when both nodes are unlocked");
+
+        // Mixed [locked, unlocked] -> toggle still shows off.
+        app.doc.get_mut(r1).unwrap().lock_aspect = true;
+        app.doc.get_mut(r2).unwrap().lock_aspect = false;
+        let out_mixed = step(&mut app, vec![]);
+        assert!(!has_rect_fill(&out_mixed.shapes, lock_r, crate::theme::BG_SELECTED), "toggle must be off when selection mixes locked and unlocked nodes");
+
+        // Clicking when mixed (any off) writes lock_aspect = true to EVERY selected node in one undo step, and toggle shows on.
+        let _ = click(&mut app, lock_r.center());
+        assert!(
+            app.doc.get(r1).unwrap().lock_aspect && app.doc.get(r2).unwrap().lock_aspect,
+            "clicking lock-aspect when any selected node is unlocked must lock every selected node"
+        );
+        let out_on = step(&mut app, vec![egui::Event::PointerMoved(Pos2::new(1.0, 1.0))]);
+        assert!(has_rect_fill(&out_on.shapes, lock_r, crate::theme::BG_SELECTED), "toggle must show on when every selected node is locked");
+
+        // One undo step restores the mixed [true, false] state.
+        app.undo();
+        assert!(app.doc.get(r1).unwrap().lock_aspect && !app.doc.get(r2).unwrap().lock_aspect, "one undo step must restore both nodes");
+
+        // Lock all, then click again when all are locked -> writes lock_aspect = false to every selected node in one undo step.
+        let _ = click(&mut app, lock_r.center());
+        assert!(app.doc.get(r1).unwrap().lock_aspect && app.doc.get(r2).unwrap().lock_aspect);
+        let _ = click(&mut app, lock_r.center());
+        assert!(
+            !app.doc.get(r1).unwrap().lock_aspect && !app.doc.get(r2).unwrap().lock_aspect,
+            "clicking lock-aspect when all selected nodes are locked must unlock every selected node"
+        );
+        app.undo();
+        assert!(app.doc.get(r1).unwrap().lock_aspect && app.doc.get(r2).unwrap().lock_aspect);
+    }
+
+    /// One selection holding a rectangle and a line, in the given order: the toggle shows, a click locks the rectangle
+    /// and never the line, and the H field still follows the first node.
+    fn check_lock_aspect_toggle_with_a_line_in_the_selection(line_first: bool) {
+        let mut doc = designos_doc::Document::new("lock-aspect-line-mix");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+        let rect_id = app.doc.alloc_id();
+        let rect = app.doc.insert(page, Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
+        let line_id = app.doc.alloc_id();
+        let mut line_node = Node::new(line_id, NodeKind::Line);
+        line_node.size = DVec2::new(100.0, 0.0);
+        let line = app.doc.insert(page, line_node).unwrap();
+        app.selection = if line_first { vec![line, rect] } else { vec![rect, line] };
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+        let step = |app: &mut App, events: Vec<egui::Event>| -> egui::FullOutput {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            ctx.run_ui(raw, |ui| show(app, ui, region))
+        };
+        let click = |app: &mut App, pos: Pos2| {
+            let _ = step(app, vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                let _ = step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+        };
+
+        let order = if line_first { "line first" } else { "rectangle first" };
+        let _ = step(&mut app, vec![]);
+        assert_eq!(field_rect(&ctx, "h").is_some(), !line_first, "the H field follows the first selected node ({order})");
+        let lock_r = test_rect(&ctx, "lock-aspect").unwrap_or_else(|| panic!("the toggle must show when any selected node has width and height ({order})"));
+
+        click(&mut app, lock_r.center());
+        assert!(app.doc.get(rect).unwrap().lock_aspect, "a click must lock the rectangle ({order})");
+        assert!(!app.doc.get(line).unwrap().lock_aspect, "a line must never get an aspect lock ({order})");
+        let out_on = step(&mut app, vec![egui::Event::PointerMoved(Pos2::new(1.0, 1.0))]);
+        assert!(
+            has_rect_fill(&out_on.shapes, lock_r, crate::theme::BG_SELECTED),
+            "the toggle shows on once every node with width and height is locked ({order})"
+        );
+
+        click(&mut app, lock_r.center());
+        assert!(!app.doc.get(rect).unwrap().lock_aspect, "a second click must unlock the rectangle ({order})");
+        assert!(!app.doc.get(line).unwrap().lock_aspect, "a line must never get an aspect lock ({order})");
+    }
+
+    #[test]
+    fn lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first() {
+        check_lock_aspect_toggle_with_a_line_in_the_selection(true);
+    }
+
+    #[test]
+    fn lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first() {
+        check_lock_aspect_toggle_with_a_line_in_the_selection(false);
+    }
+
+    #[test]
+    fn w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_axis() {
+        let mut doc = designos_doc::Document::new("lock-aspect-wh");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        // Locked node A: 100x50 (ratio 2:1)
+        let a_id = app.doc.alloc_id();
+        let mut na = Node::rectangle(a_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0));
+        na.lock_aspect = true;
+        let a = app.doc.insert(page, na).unwrap();
+
+        // Locked node B: 60x90 (ratio 2:3)
+        let b_id = app.doc.alloc_id();
+        let mut nb = Node::rectangle(b_id, designos_doc::Rect::new(120.0, 0.0, 60.0, 90.0));
+        nb.lock_aspect = true;
+        let b = app.doc.insert(page, nb).unwrap();
+
+        // Unlocked node C: 80x40
+        let c_id = app.doc.alloc_id();
+        let nc = Node::rectangle(c_id, designos_doc::Rect::new(220.0, 0.0, 80.0, 40.0));
+        let c = app.doc.insert(page, nc).unwrap();
+
+        // Commit W = 200 on multi-selection [a, b, c]: each locked node keeps its own ratio, unlocked changes only W.
+        resize_selection(&mut app, &[a, b, c], Some(200.0), None);
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 100.0), "locked node A (100x50) must scale H to 100 when W=200 is committed");
+        assert_eq!(app.doc.get(b).unwrap().size, v2(200.0, 300.0), "locked node B (60x90) must scale H to 300 when W=200 is committed");
+        assert_eq!(app.doc.get(c).unwrap().size, v2(200.0, 40.0), "unlocked node C (80x40) must change only W");
+
+        // One undo step restores all three nodes.
+        app.undo();
+        assert_eq!(app.doc.get(a).unwrap().size, v2(100.0, 50.0));
+        assert_eq!(app.doc.get(b).unwrap().size, v2(60.0, 90.0));
+        assert_eq!(app.doc.get(c).unwrap().size, v2(80.0, 40.0));
+
+        // Commit H = 150 on [a, c]: locked node A scales W to 300, unlocked node C changes only H.
+        resize_selection(&mut app, &[a, c], None, Some(150.0));
+        assert_eq!(app.doc.get(a).unwrap().size, v2(300.0, 150.0), "locked node A (100x50) must scale W to 300 when H=150 is committed");
+        assert_eq!(app.doc.get(c).unwrap().size, v2(80.0, 150.0), "unlocked node C must change only H");
+    }
+
+    #[test]
+    fn locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit() {
+        // 1. Horizontal auto-layout frame (200x100) with a child whose height is Fill (stretched to 100).
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        let fid = app.doc.get(cid).unwrap().parent.unwrap();
+        app.doc.relayout_subtree(fid);
+        app.doc.get_mut(cid).unwrap().lock_aspect = true;
+        assert_eq!(app.doc.get(cid).unwrap().size, v2(30.0, 100.0));
+
+        // While height is Fill, a W edit (W = 60) must keep height Fill (and 100.0) without converting height to Fixed.
+        resize_selection(&mut app, &[cid], Some(60.0), None);
+        let n_fill = app.doc.get(cid).unwrap();
+        assert_eq!(n_fill.layout_child.vertical, Sizing::Fill, "locked W edit must keep Fill height sizing mode");
+        assert_eq!(n_fill.layout_child.align_self, AlignSelf::Stretch, "locked W edit must keep AlignSelf::Stretch");
+        assert_eq!(n_fill.size, v2(60.0, 100.0), "locked W edit with Fill height must change only W");
+
+        // When height is switched to Fixed (60x30), a locked W edit (W = 120) scales H to 60.
+        set_sizing(&mut app, &[cid], false, Sizing::Fixed);
+        resize_selection(&mut app, &[cid], None, Some(30.0));
+        app.doc.get_mut(cid).unwrap().size = v2(60.0, 30.0);
+        resize_selection(&mut app, &[cid], Some(120.0), None);
+        assert_eq!(app.doc.get(cid).unwrap().size, v2(120.0, 60.0), "locked W edit with Fixed height must scale H to keep ratio");
+
+        // 2. Auto-layout frame whose own width is Fixed (200) and height is Hug: a locked W edit keeps Hug height.
+        app.doc.get_mut(fid).unwrap().lock_aspect = true;
+        if let Some(al) = app.doc.get_mut(fid).unwrap().kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+            al.primary_sizing = Sizing::Fixed;
+            al.counter_sizing = Sizing::Hug;
+        }
+        resize_selection(&mut app, &[fid], Some(300.0), None);
+        let f_al = app.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!(f_al.counter_sizing, Sizing::Hug, "locked W edit on frame with Hug height must keep Hug height");
+    }
+
+    #[test]
+    fn lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio() {
+        let mut doc = designos_doc::Document::new("lock-aspect-roundtrip");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let card_id = app.doc.alloc_id();
+        let mut card = Node::rectangle(card_id, designos_doc::Rect::new(0.0, 0.0, 160.0, 90.0));
+        card.name = "LockedCard".into();
+        let card = app.doc.insert(page, card).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+        let step = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| show(app, ui, region));
+        };
+
+        // Click lock-aspect in the inspector on LockedCard.
+        app.selection = vec![card];
+        step(&mut app, vec![]);
+        let h_rect = field_rect(&ctx, "h").expect("H field rendered");
+        let pos = test_rect(&ctx, "lock-aspect")
+            .map(|r| r.center())
+            .unwrap_or_else(|| Pos2::new(crate::theme::SECTION_TRAILING_X + crate::theme::PANEL_ACTION_BUTTON * 0.5, h_rect.center().y));
+        step(&mut app, vec![egui::Event::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            step(&mut app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+        }
+
+        // 1. Export to binary .fig and re-import: lock_aspect must remain true.
+        let fig_bytes = designos_fig::export_fig(&app.doc).expect("export_fig");
+        let fig_doc = designos_fig::import_fig(&fig_bytes).expect("import_fig");
+        let fig_card = fig_doc.nodes.values().find(|n| n.name == "LockedCard").expect("LockedCard in .fig import");
+        assert!(fig_card.lock_aspect, ".fig export then import must keep lock_aspect = true");
+
+        // 2. Export to REST JSON and re-import: preserveRatio must import as lock_aspect = true.
+        let rest_json = designos_fig::export_rest_json(&app.doc);
+        let rest_doc = designos_fig::import_rest_json(&rest_json.to_string()).expect("import_rest_json");
+        let rest_card = rest_doc.nodes.values().find(|n| n.name == "LockedCard").expect("LockedCard in REST import");
+        assert!(rest_card.lock_aspect, "REST preserveRatio must import as lock_aspect = true");
+    }
+
+    fn rasterize_egui_output(
+        ctx: &egui::Context,
+        out: egui::FullOutput,
+        textures: &mut std::collections::HashMap<egui::TextureId, egui::ColorImage>,
+        width_pt: u32,
+        height_pt: u32,
+    ) -> image::RgbaImage {
+        for (id, delta) in out.textures_delta.set {
+            let egui::ImageData::Color(cimg) = delta.image;
+            if let Some([ox, oy]) = delta.pos {
+                if let Some(existing) = textures.get_mut(&id) {
+                    for y in 0..cimg.size[1] {
+                        for x in 0..cimg.size[0] {
+                            let dx = ox + x;
+                            let dy = oy + y;
+                            if dx < existing.size[0] && dy < existing.size[1] {
+                                existing.pixels[dy * existing.size[0] + dx] = cimg.pixels[y * cimg.size[0] + x];
+                            }
+                        }
+                    }
+                }
+            } else {
+                textures.insert(id, (*cimg).clone());
+            }
+        }
+        let ppp = out.pixels_per_point;
+        let w_px = (width_pt as f32 * ppp).round() as u32;
+        let h_px = (height_pt as f32 * ppp).round() as u32;
+        let mut fb = vec![[0.1725_f32, 0.1725_f32, 0.1725_f32, 1.0_f32]; (w_px * h_px) as usize];
+        let prims = ctx.tessellate(out.shapes, ppp);
+
+        for egui::ClippedPrimitive { clip_rect, primitive } in prims {
+            let egui::epaint::Primitive::Mesh(mesh) = primitive else { continue };
+            let cx0 = (clip_rect.min.x * ppp).floor().max(0.0) as i32;
+            let cy0 = (clip_rect.min.y * ppp).floor().max(0.0) as i32;
+            let cx1 = (clip_rect.max.x * ppp).ceil().min(w_px as f32) as i32;
+            let cy1 = (clip_rect.max.y * ppp).ceil().min(h_px as f32) as i32;
+            let tex = textures.get(&mesh.texture_id);
+
+            for tri in mesh.indices.chunks_exact(3) {
+                let v0 = &mesh.vertices[tri[0] as usize];
+                let v1 = &mesh.vertices[tri[1] as usize];
+                let v2 = &mesh.vertices[tri[2] as usize];
+                let (p0x, p0y) = (v0.pos.x * ppp, v0.pos.y * ppp);
+                let (p1x, p1y) = (v1.pos.x * ppp, v1.pos.y * ppp);
+                let (p2x, p2y) = (v2.pos.x * ppp, v2.pos.y * ppp);
+                let denom = (p1y - p2y) * (p0x - p2x) + (p2x - p1x) * (p0y - p2y);
+                if denom.abs() < 1e-6 {
+                    continue;
+                }
+                let inv_d = 1.0 / denom;
+                let x0 = p0x.min(p1x).min(p2x).floor().max(cx0 as f32) as i32;
+                let y0 = p0y.min(p1y).min(p2y).floor().max(cy0 as f32) as i32;
+                let x1 = p0x.max(p1x).max(p2x).ceil().min(cx1 as f32) as i32;
+                let y1 = p0y.max(p1y).max(p2y).ceil().min(cy1 as f32) as i32;
+                let c0 = v0.color.to_normalized_gamma_f32();
+                let c1 = v1.color.to_normalized_gamma_f32();
+                let c2 = v2.color.to_normalized_gamma_f32();
+
+                for py in y0..y1 {
+                    for px in x0..x1 {
+                        let mut acc = [0.0_f32; 4];
+                        let mut hits = 0;
+                        for sy in [0.25_f32, 0.75_f32] {
+                            for sx in [0.25_f32, 0.75_f32] {
+                                let qx = px as f32 + sx;
+                                let qy = py as f32 + sy;
+                                let w0 = ((p1y - p2y) * (qx - p2x) + (p2x - p1x) * (qy - p2y)) * inv_d;
+                                let w1 = ((p2y - p0y) * (qx - p2x) + (p0x - p2x) * (qy - p2y)) * inv_d;
+                                let w2 = 1.0 - w0 - w1;
+                                if w0 >= -1e-4 && w1 >= -1e-4 && w2 >= -1e-4 {
+                                    hits += 1;
+                                    let mut col = [
+                                        w0 * c0[0] + w1 * c1[0] + w2 * c2[0],
+                                        w0 * c0[1] + w1 * c1[1] + w2 * c2[1],
+                                        w0 * c0[2] + w1 * c1[2] + w2 * c2[2],
+                                        w0 * c0[3] + w1 * c1[3] + w2 * c2[3],
+                                    ];
+                                    if let Some(t) = tex {
+                                        let u = (w0 * v0.uv.x + w1 * v1.uv.x + w2 * v2.uv.x).clamp(0.0, 1.0);
+                                        let v = (w0 * v0.uv.y + w1 * v1.uv.y + w2 * v2.uv.y).clamp(0.0, 1.0);
+                                        let tx = ((u * t.size[0] as f32).floor() as usize).min(t.size[0].saturating_sub(1));
+                                        let ty = ((v * t.size[1] as f32).floor() as usize).min(t.size[1].saturating_sub(1));
+                                        let tc = t.pixels[ty * t.size[0] + tx].to_normalized_gamma_f32();
+                                        for k in 0..4 {
+                                            col[k] *= tc[k];
+                                        }
+                                    }
+                                    for k in 0..4 {
+                                        acc[k] += col[k];
+                                    }
+                                }
+                            }
+                        }
+                        if hits > 0 {
+                            let src = [acc[0] * 0.25, acc[1] * 0.25, acc[2] * 0.25, acc[3] * 0.25];
+                            let dst = &mut fb[(py as u32 * w_px + px as u32) as usize];
+                            let inv_a = (1.0 - src[3]).clamp(0.0, 1.0);
+                            for k in 0..4 {
+                                dst[k] = (src[k] + dst[k] * inv_a).clamp(0.0, 1.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut img = image::RgbaImage::new(w_px, h_px);
+        for (i, p) in fb.into_iter().enumerate() {
+            let x = (i as u32) % w_px;
+            let y = (i as u32) / w_px;
+            img.put_pixel(x, y, image::Rgba([(p[0] * 255.0).round() as u8, (p[1] * 255.0).round() as u8, (p[2] * 255.0).round() as u8, 255]));
+        }
+        img
+    }
+
+    #[test]
+    fn render_headless_kit_panel_evidence_when_requested() {
+        let Ok(kit_path) = std::env::var("DESIGNOS_KIT_PANEL_COPY") else { return };
+        let bytes = std::fs::read(&kit_path).expect("read kit copy");
+        let (doc, _) = designos_fig::import_fig_with_budget(&bytes, 256).expect("import kit copy");
+        let mut app = App::new(doc);
+        // Find a card / frame node with fixed non-zero W and H in the kit.
+        let card_id = app
+            .doc
+            .pages
+            .iter()
+            .flat_map(|&pid| app.doc.get(pid).into_iter().flat_map(|p| p.children.iter().copied()))
+            .flat_map(|id| {
+                let mut v = vec![id];
+                if let Some(n) = app.doc.get(id) {
+                    v.extend(n.children.iter().copied());
+                }
+                v
+            })
+            .find(|&id| {
+                app.doc.get(id).is_some_and(|n| {
+                    matches!(n.kind, NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::Instance { .. })
+                        && sizing_of_with_parent(n, true, None) == Sizing::Fixed
+                        && sizing_of_with_parent(n, false, None) == Sizing::Fixed
+                        && n.size.x >= 200.0
+                        && n.size.y >= 100.0
+                        && !n.name.is_empty()
+                })
+            })
+            .expect("kit card node");
+        app.doc.relayout_subtree(card_id);
+        if let Some(page) = app.doc.page_of(card_id) {
+            app.page = page;
+        }
+        app.selection = vec![card_id];
+        app.doc.get_mut(card_id).unwrap().lock_aspect = false;
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let (w_pt, h_pt) = (241_u32, 560_u32);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(w_pt as f32, h_pt as f32));
+        let mut textures = std::collections::HashMap::new();
+        let run_pass = |app: &mut App, events: Vec<egui::Event>, textures: &mut std::collections::HashMap<egui::TextureId, egui::ColorImage>| {
+            let raw = egui::RawInput {
+                screen_rect: Some(region),
+                viewports: std::iter::once((egui::ViewportId::ROOT, egui::ViewportInfo { native_pixels_per_point: Some(2.0), ..Default::default() })).collect(),
+                events,
+                ..Default::default()
+            };
+            let out = ctx.run_ui(raw, |ui| show(app, ui, region));
+            rasterize_egui_output(&ctx, out, textures, w_pt, h_pt)
+        };
+
+        // Warm-up pass so fonts and icon textures are registered, then render OFF state.
+        let _ = run_pass(&mut app, vec![], &mut textures);
+        let img_off = run_pass(&mut app, vec![], &mut textures);
+
+        // Click the lock-aspect toggle button to turn it ON, then render ON state.
+        let lock_r = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "lock-aspect".to_string())))).expect("lock-aspect rect");
+        let pos = lock_r.center();
+        let _ = run_pass(&mut app, vec![egui::Event::PointerMoved(pos)], &mut textures);
+        for pressed in [true, false] {
+            let _ = run_pass(
+                &mut app,
+                vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }],
+                &mut textures,
+            );
+        }
+        assert!(app.doc.get(card_id).unwrap().lock_aspect, "card lock_aspect must be true after click");
+        let img_on = run_pass(&mut app, vec![egui::Event::PointerMoved(Pos2::new(1.0, 1.0))], &mut textures);
+
+        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/evidence");
+        std::fs::create_dir_all(&out_dir).expect("create out/evidence");
+        img_off.save(out_dir.join("lock-aspect-off.png")).expect("save off png");
+        img_on.save(out_dir.join("lock-aspect-on.png")).expect("save on png");
+
+        // Side-by-side comparison image (off on left, 16px gap, on on right).
+        let gap = 32_u32;
+        let mut combined = image::RgbaImage::from_pixel(img_off.width() * 2 + gap, img_off.height(), image::Rgba([0x1E, 0x1E, 0x1E, 0xFF]));
+        for y in 0..img_off.height() {
+            for x in 0..img_off.width() {
+                combined.put_pixel(x, y, *img_off.get_pixel(x, y));
+                combined.put_pixel(img_off.width() + gap + x, y, *img_on.get_pixel(x, y));
+            }
+        }
+        combined.save(out_dir.join("lock-aspect-panel.png")).expect("save combined png");
+    }
+
+    #[test]
+    fn shader_inspector_rows_render_label_and_toggle_visibility() {
+        let fill_raw = serde_json::json!({
+            "patternSource": {"sessionID": 3, "localID": 44},
+            "patternSpacing": {"x": 4.0, "y": 8.0}
+        });
+        let effect_raw = serde_json::json!({
+            "radius": 12.0,
+            "backgroundShader": {
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            }
+        });
+        let shader_paint =
+            Paint { kind: PaintKind::Shader(designos_doc::ShaderRef { raw: fill_raw.clone() }), opacity: 0.75, visible: true, blend: BlendMode::Screen };
+        assert_eq!(paint_label(&shader_paint), "Shader");
+        assert_eq!(paint_hint(&shader_paint), Some("Shader (not rendered)"));
+
+        let mut doc = designos_doc::Document::new("shader-inspector");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+        let card_id = app.doc.alloc_id();
+        let mut card = Node::rectangle(card_id, designos_doc::Rect::new(0.0, 0.0, 160.0, 90.0));
+        card.name = "ShaderCard".into();
+        card.fills = vec![shader_paint.clone()];
+        card.effects = vec![Effect::Shader { shader: designos_doc::ShaderRef { raw: effect_raw.clone() }, visible: true }];
+        let card = app.doc.insert(page, card).unwrap();
+        app.selection = vec![card];
+        let before_bytes = serde_json::to_vec(&shader_paint).expect("serialize shader paint before");
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(241.0, 800.0));
+        let mut textures = std::collections::HashMap::new();
+        for _ in 0..2 {
+            let raw = egui::RawInput {
+                screen_rect: Some(region),
+                viewports: std::iter::once((egui::ViewportId::ROOT, egui::ViewportInfo { native_pixels_per_point: Some(2.0), ..Default::default() })).collect(),
+                ..Default::default()
+            };
+            let out = ctx.run_ui(raw, |ui| show(&mut app, ui, region));
+            if let Ok(out_path) = std::env::var("DESIGNOS_SHADER_INSPECTOR_PNG") {
+                let full_img = rasterize_egui_output(&ctx, out, &mut textures, 241, 800);
+                let cropped = image::imageops::crop_imm(&full_img, 0, 980, full_img.width(), 480).to_image();
+                cropped.save(&out_path).expect("save shader inspector png");
+            }
+        }
+        assert!(app.props.picker.is_none());
+        assert!(app.props.pop.is_none());
+
+        // Open the fill picker directly on the shader fill, run a frame with the picker open,
+        // then close it with Escape; the shader paint must remain byte-equal.
+        open_picker(&mut app, PickTarget::Fill(0), Color32::GRAY, Rect::from_min_size(Pos2::new(200.0, 120.0), Vec2::splat(16.0)), vec![card]);
+        assert!(app.props.picker.is_some());
+        let raw_open = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(600.0, 560.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw_open, |ui| show(&mut app, ui, region));
+        assert!(app.props.picker.is_some());
+        let raw_close = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(600.0, 560.0))),
+            events: vec![egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw_close, |ui| show(&mut app, ui, region));
+        let after_bytes = serde_json::to_vec(&app.doc.get(card).unwrap().fills[0]).expect("serialize shader paint after");
+        assert_eq!(after_bytes, before_bytes, "opening and closing the picker on a shader fill must keep the paint byte-equal");
+
+        // Toggle visibility on both fill and effect, verifying ShaderRef::raw is preserved.
+        app.edit_nodes(&[card], |n| {
+            n.fills[0].visible = false;
+            if let Effect::Shader { visible, .. } = &mut n.effects[0] {
+                *visible = false;
+            }
+        });
+        let n = app.doc.get(card).unwrap();
+        assert!(!n.fills[0].visible);
+        match &n.fills[0].kind {
+            PaintKind::Shader(s) => assert_eq!(s.raw, fill_raw),
+            other => panic!("expected PaintKind::Shader, got {other:?}"),
+        }
+        match &n.effects[0] {
+            Effect::Shader { shader, visible } => {
+                assert!(!*visible);
+                assert_eq!(shader.raw, effect_raw);
+            }
+            other => panic!("expected Effect::Shader, got {other:?}"),
+        }
+
+        // Removing the rows drops them from the node.
+        app.edit_nodes(&[card], |n| {
+            n.fills.remove(0);
+            n.effects.remove(0);
+        });
+        let n = app.doc.get(card).unwrap();
+        assert!(n.fills.is_empty());
+        assert!(n.effects.is_empty());
+    }
+    /// Every text painted in `out`, with the rect it covers.
+    fn painted_texts(out: &egui::FullOutput) -> Vec<(String, Rect)> {
+        fn walk(shape: &egui::Shape, all: &mut Vec<(String, Rect)>) {
+            match shape {
+                egui::Shape::Text(t) => all.push((t.galley.job.text.clone(), Rect::from_min_size(t.pos, t.galley.size()))),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, all)),
+                _ => {}
+            }
+        }
+        let mut all = Vec::new();
+        for clipped in &out.shapes {
+            walk(&clipped.shape, &mut all);
+        }
+        all
+    }
+
+    /// A layer with a solid fill, a shader fill and a shader effect, selected in an app.
+    fn shader_card_app() -> App {
+        let mut doc = designos_doc::Document::new("shader-fill-row");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+        let id = app.doc.alloc_id();
+        let mut card = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 160.0, 90.0));
+        card.name = "ShaderCard".into();
+        let shader = designos_doc::ShaderRef { raw: serde_json::json!({"customEffectId": {"guid": {"sessionID": 10, "localID": 25}}}) };
+        card.fills = vec![Paint { kind: PaintKind::Shader(shader.clone()), opacity: 1.0, visible: true, blend: BlendMode::Normal }];
+        card.effects = vec![Effect::Shader { shader, visible: true }];
+        let card = app.doc.insert(page, card).unwrap();
+        app.selection = vec![card];
+        app
+    }
+
+    /// Runs the inspector at its default width until the layout settles and returns the last frame's output
+    /// together with the rect the first fill's swatch was drawn at.
+    fn shader_card_frame(app: &mut App, ctx: &egui::Context, events: Vec<egui::Event>, time: f64) -> (egui::FullOutput, Rect) {
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::RIGHT_PANEL_WIDTH, 900.0));
+        let raw = egui::RawInput { screen_rect: Some(region), time: Some(time), events, ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| show(app, ui, region));
+        let swatch = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "sw:false:0".to_string())))).expect("the first fill swatch is drawn");
+        (out, swatch)
+    }
+
+    fn shader_card_context() -> egui::Context {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        ctx
+    }
+
+    #[test]
+    fn the_shader_fill_row_label_is_readable_in_full_at_the_default_inspector_width() {
+        let mut app = shader_card_app();
+        let ctx = shader_card_context();
+        shader_card_frame(&mut app, &ctx, vec![], 1.0);
+        let (out, swatch) = shader_card_frame(&mut app, &ctx, vec![], 1.1);
+        let texts = painted_texts(&out);
+
+        // the label sits to the right of the swatch, on the same row
+        let on_row = |r: &Rect| r.left() > swatch.right() && (r.center().y - swatch.center().y).abs() < 8.0;
+        let label = texts.iter().find(|(t, r)| t.starts_with("Shader") && on_row(r)).unwrap_or_else(|| panic!("the fill row paints a shader label: {texts:?}"));
+        assert_eq!(label.0, "Shader", "the fill row label is shown in full, not cut with an ellipsis");
+        // the label may use the room between the swatch and the hairline in front of the opacity, less its own padding
+        let room = PAINT_DIVIDER_X - theme::FIELD_PREFIX_X - theme::FIELD_PREFIX_ICON - 4.0;
+        assert!(label.1.width() <= room, "the label is {} px wide, the row has {room} px", label.1.width());
+    }
+
+    #[test]
+    fn the_effects_row_of_a_shader_says_it_is_not_rendered() {
+        let mut app = shader_card_app();
+        let ctx = shader_card_context();
+        shader_card_frame(&mut app, &ctx, vec![], 1.0);
+        let (out, swatch) = shader_card_frame(&mut app, &ctx, vec![], 1.1);
+        let rows: Vec<_> = painted_texts(&out).into_iter().filter(|(t, _)| t == "Shader (not rendered)").collect();
+        assert_eq!(rows.len(), 1, "one row of the Effects section says the shader is not rendered: {rows:?}");
+        assert!(rows[0].1.top() > swatch.bottom(), "the Effects row sits under the Fill row");
+        // the Effects row is 159 px wide and the label starts 24 px in, after the icon
+        assert!(rows[0].1.width() <= 159.0 - 24.0, "the status text fits its row: {} px", rows[0].1.width());
+    }
+
+    #[test]
+    fn hovering_the_shader_fill_label_shows_that_it_is_not_rendered() {
+        let mut app = shader_card_app();
+        let ctx = shader_card_context();
+        shader_card_frame(&mut app, &ctx, vec![], 1.0);
+        let (_, swatch) = shader_card_frame(&mut app, &ctx, vec![], 1.1);
+        let over_label = Pos2::new(swatch.right() + 30.0, swatch.center().y);
+        let before = painted_texts(&shader_card_frame(&mut app, &ctx, vec![], 1.2).0).iter().filter(|(t, _)| t == "Shader (not rendered)").count();
+        shader_card_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(over_label)], 1.3);
+        let mut tip = 0;
+        for step in 0..8 {
+            let out = shader_card_frame(&mut app, &ctx, vec![], 1.5 + step as f64 * 0.3).0;
+            tip = painted_texts(&out).iter().filter(|(t, _)| t == "Shader (not rendered)").count();
+        }
+        assert_eq!(tip, before + 1, "the hover tooltip adds the status text next to the Effects row's own");
+    }
+
+    fn quadrant_picture() -> Vec<u8> {
+        let img = image::RgbaImage::from_fn(100, 100, |x, y| match (x / 50, y / 50) {
+            (0, 0) => image::Rgba([255, 0, 0, 255]),
+            (1, 0) => image::Rgba([0, 255, 0, 255]),
+            (0, 1) => image::Rgba([0, 0, 255, 255]),
+            _ => image::Rgba([255, 255, 0, 255]),
+        });
+        let mut out = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).expect("encode png");
+        out
+    }
+
+    fn picture_paint(mode: ImageScaleMode) -> Paint {
+        Paint {
+            kind: PaintKind::Image { image_ref: "picture".into(), scale_mode: mode, params: ImageParams::default() },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }
+    }
+
+    #[test]
+    fn switching_several_filled_nodes_to_crop_frames_each_by_its_own_size() {
+        let mut doc = designos_doc::Document::new("crop-several");
+        let page = doc.add_page("Page 1");
+        doc.images.insert("picture".into(), quadrant_picture());
+        let mut app = App::new(doc);
+        app.page = page;
+        let mut ids = Vec::new();
+        for (x, (w, h)) in [(0.0, (200.0, 100.0)), (240.0, (100.0, 200.0))] {
+            let id = app.doc.alloc_id();
+            let mut node = Node::rectangle(id, designos_doc::Rect::new(x, 0.0, w, h));
+            node.fills = vec![picture_paint(ImageScaleMode::Fill)];
+            ids.push(app.doc.insert(page, node).unwrap());
+        }
+        app.selection = ids.clone();
+        let own_fill: Vec<_> = ids.iter().map(|id| designos_render::render_node(&app.doc, *id, 1.0).unwrap()).collect();
+        let depth = app.hist.undo_depth();
+
+        open_picker(&mut app, PickTarget::Fill(0), Color32::BLACK, Rect::NOTHING, ids.clone());
+        let mut pk = app.props.picker.take().expect("picker open");
+        // What the Scale button leaves in the picker's paint: Crop, framed for the first node only.
+        let first = app.doc.get(ids[0]).unwrap().size;
+        designos_render::image_adjust::switch_image_scale_mode(&mut pk.paint, ImageScaleMode::Crop, first, (100, 100));
+        apply_picker(&mut app.doc, &mut pk);
+        let tx = std::mem::replace(&mut pk.tx, Tx::new());
+        app.run_tx(tx);
+        app.props.picker = Some(pk);
+
+        for (i, id) in ids.iter().enumerate() {
+            let PaintKind::Image { scale_mode, .. } = &app.doc.get(*id).unwrap().fills[0].kind else { panic!("image fill") };
+            assert_eq!(*scale_mode, ImageScaleMode::Crop, "node {i} is cropped");
+            let now = designos_render::render_node(&app.doc, *id, 1.0).unwrap();
+            assert_eq!(now.data(), own_fill[i].data(), "node {i} still shows its own Fill framing");
+        }
+        assert_eq!(app.hist.undo_depth(), depth + 1, "both nodes change in one undo step");
+        app.undo();
+        for id in &ids {
+            let PaintKind::Image { scale_mode, .. } = &app.doc.get(*id).unwrap().fills[0].kind else { panic!("image fill") };
+            assert_eq!(*scale_mode, ImageScaleMode::Fill, "one undo restores both");
+        }
+    }
+
+    /// Prints what one inspector frame of the mixed-value summary costs when the document changed since the
+    /// last frame (a miss) and when it did not (a hit), for 10_000 and 100_000 rectangles. Ignored in the default
+    /// suite because it is a timing run. The app test binary only builds with debug assertions, so a release-like
+    /// run turns them on for the app and egui crates:
+    ///
+    /// ```text
+    /// cargo test -p designos-app --bin designos --locked --release \
+    ///   --config 'profile.release.package.designos-app.debug-assertions=true' \
+    ///   --config 'profile.release.package.egui.debug-assertions=true' \
+    ///   -- --ignored --nocapture --exact panels::properties::tests::mixed_value_summary_frame_time
+    /// ```
+    #[test]
+    #[ignore]
+    fn mixed_value_summary_frame_time() {
+        fn build(n: usize, mixed: bool) -> (Document, Vec<NodeId>) {
+            let mut doc = Document::new("mixed-time");
+            let page = doc.add_page("Page 1");
+            let mut ids = Vec::with_capacity(n);
+            for i in 0..n {
+                let id = doc.alloc_id();
+                let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+                if mixed && i + 1 == n {
+                    node.opacity = 0.75;
+                    node.corner_radii = [8.0; 4];
+                } else {
+                    node.opacity = 0.5;
+                    node.corner_radii = [6.0; 4];
+                }
+                ids.push(doc.insert(page, node).unwrap());
+            }
+            (doc, ids)
+        }
+        let reps = 5u32;
+        for mixed in [true, false] {
+            for n in [10_000usize, 100_000] {
+                let (mut doc, ids) = build(n, mixed);
+                let _ = mixed_value_summary(&doc, &ids);
+                let start = std::time::Instant::now();
+                let mut last = None;
+                for _ in 0..reps {
+                    doc.bump_mutation_epoch();
+                    last = Some(std::hint::black_box(mixed_value_summary(&doc, &ids)));
+                }
+                let miss = start.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
+                let start = std::time::Instant::now();
+                for _ in 0..reps {
+                    last = Some(std::hint::black_box(mixed_value_summary(&doc, &ids)));
+                }
+                let hit = start.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
+                let last = last.expect("at least one frame ran");
+                assert_eq!(last.opacity_pct.is_none(), mixed, "opacity at {n} is mixed only when one layer differs");
+                assert_eq!(last.uniform_radius.is_none(), mixed, "radius at {n} is mixed only when one layer differs");
+                println!("mixed-summary mixed={mixed} n={n}: miss {miss:.3} ms, hit {hit:.3} ms");
+            }
+        }
+    }
+
+    #[test]
+    fn mixed_value_summary_cache_updates_after_one_layer_changes() {
+        let mut doc = Document::new("mixed-cache");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            let id = doc.alloc_id();
+            let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+            node.opacity = 0.5;
+            node.corner_radii = [6.0; 4];
+            ids.push(doc.insert(page, node).unwrap());
+        }
+        let first = mixed_value_summary(&doc, &ids);
+        assert_eq!(first.opacity_pct, Some(50.0));
+        assert_eq!(first.uniform_radius, Some(6.0));
+        let second = mixed_value_summary(&doc, &ids);
+        assert_eq!(second.opacity_pct, Some(50.0), "an unchanged selection reuses the summary");
+        doc.get_mut(ids[2]).unwrap().opacity = 0.75;
+        let third = mixed_value_summary(&doc, &ids);
+        assert!(third.opacity_pct.is_none(), "editing one layer must refresh the cached summary");
+        assert_eq!(third.uniform_radius, Some(6.0), "a field the edit did not change stays shared");
+    }
+
+    /// Two copies of one document take the same number of edits with different values. Each copy is installed
+    /// as the live document with an id of its own, so the summary follows the copy that is installed.
+    #[test]
+    fn mixed_value_summary_follows_each_installed_copy_of_one_document() {
+        let mut base = Document::new("installed-copies");
+        let page = base.add_page("Page 1");
+        let id = base.alloc_id();
+        base.insert(page, Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let install = |opacity: f32| {
+            let mut copy = base.clone();
+            copy.renew_runtime_id();
+            copy.get_mut(id).unwrap().opacity = opacity;
+            copy
+        };
+        let (first, second) = (install(0.3), install(0.9));
+        assert_eq!(first.mutation_epoch(), second.mutation_epoch(), "both copies took the same number of edits");
+        assert_ne!(first.runtime_id(), second.runtime_id(), "each installed copy has an id of its own");
+        assert_eq!(mixed_value_summary(&first, &[id]).opacity_pct, Some(30.0));
+        assert_eq!(mixed_value_summary(&second, &[id]).opacity_pct, Some(90.0), "the second copy must not read the first copy's summary");
+        assert_eq!(mixed_value_summary(&first, &[id]).opacity_pct, Some(30.0), "switching back reads the first copy again");
+    }
+
+    /// The scan the summary replaced: one pass per field, each reading every selected layer again.
+    fn per_field_mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+        let mut corner_nodes = Vec::new();
+        corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_corners)));
+        let mut four_corner_nodes = Vec::new();
+        four_corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_four_corners)));
+        let corners_differ = four_corner_nodes.iter().any(|id| doc.get(*id).is_some_and(node_corners_differ));
+        MixedValueSummary {
+            x: value_common(doc, sel, |n| n.transform.tx),
+            y: value_common(doc, sel, |n| n.transform.ty),
+            rotation_deg: value_common(doc, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0),
+            opacity_pct: value_common(doc, sel, |n| (n.opacity * 100.0).round()),
+            width: value_common(doc, sel, |n| n.size.x),
+            height: value_common(doc, sel, inspector_height),
+            uniform_radius: common_corners(doc, &corner_nodes, uniform_corner_radius).flatten(),
+            lockable: sel.iter().any(|id| doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Line))),
+            corner_nodes,
+            four_corner_nodes,
+            corners_differ,
+        }
+    }
+
+    /// One pass over the selection must show exactly what the per-field scans showed: shared or mixed values,
+    /// the layers that have corners, a missing id, a repeated id and the empty selection.
+    #[test]
+    fn mixed_value_summary_matches_the_per_field_scans() {
+        use designos_doc::{Affine, FrameProps};
+        let mut doc = Document::new("single-pass");
+        let page = doc.add_page("Page 1");
+        let mut add = |kind: NodeKind, edit: &dyn Fn(&mut Node)| {
+            let id = doc.alloc_id();
+            let mut node = Node::new(id, kind);
+            node.size = designos_doc::Vec2::new(40.0, 40.0);
+            node.corner_radii = [6.0; 4];
+            node.opacity = 0.5;
+            edit(&mut node);
+            doc.insert(page, node).unwrap()
+        };
+        let rect = add(NodeKind::Rectangle, &|_| {});
+        let same = add(NodeKind::Rectangle, &|_| {});
+        let moved = add(NodeKind::Rectangle, &|n| n.transform = Affine::translate(12.0, 7.0));
+        let wide = add(NodeKind::Rectangle, &|n| n.size = designos_doc::Vec2::new(90.0, 40.0));
+        let faint = add(NodeKind::Rectangle, &|n| n.opacity = 0.25);
+        let turned = add(NodeKind::Rectangle, &|n| n.transform = Affine { tx: 5.0, ty: 5.0, ..Affine::rotate(0.5) });
+        let corners = add(NodeKind::Rectangle, &|n| n.corner_radii = [1.0, 2.0, 3.0, 4.0]);
+        let frame = add(NodeKind::Frame(FrameProps::default()), &|_| {});
+        let polygon = add(NodeKind::Polygon { count: 5 }, &|_| {});
+        let star = add(NodeKind::Star { count: 5, inner_ratio: 0.5 }, &|n| n.corner_radii = [9.0; 4]);
+        let line = add(NodeKind::Line, &|n| n.size = designos_doc::Vec2::new(40.0, 0.0));
+        let nan_wide = add(NodeKind::Rectangle, &|n| n.size = designos_doc::Vec2::new(f32::NAN, 40.0));
+        let selections: Vec<Vec<NodeId>> = vec![
+            vec![],
+            vec![rect],
+            vec![line],
+            vec![nan_wide],
+            vec![nan_wide, nan_wide],
+            vec![rect, same],
+            vec![rect, same, moved],
+            vec![rect, wide],
+            vec![rect, faint],
+            vec![rect, turned],
+            vec![rect, corners],
+            vec![corners, rect],
+            vec![rect, frame, polygon],
+            vec![rect, polygon, star, line],
+            vec![line, rect, star],
+            vec![rect, NodeId(u64::MAX), same],
+            vec![NodeId(u64::MAX)],
+            vec![rect, rect, same, rect],
+        ];
+        for sel in &selections {
+            let single = compute_mixed_value_summary(&doc, sel);
+            let per_field = per_field_mixed_value_summary(&doc, sel);
+            assert_eq!(format!("{single:?}"), format!("{per_field:?}"), "selection {sel:?}");
+        }
     }
 }

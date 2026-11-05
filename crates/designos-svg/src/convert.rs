@@ -377,7 +377,7 @@ impl Conv<'_> {
         let size = pi.image.size();
         let (iw, ih) = (size.width() * ts.sx.abs(), size.height() * ts.sy.abs());
         let covers = iw >= tile.width() - 0.5 && ih >= tile.height() - 0.5;
-        Some(PaintKind::Image { image_ref: key, scale_mode: if covers { ImageScaleMode::Fill } else { ImageScaleMode::Fit } })
+        Some(PaintKind::Image { image_ref: key, scale_mode: if covers { ImageScaleMode::Fill } else { ImageScaleMode::Fit }, params: Default::default() })
     }
 
     fn store_image(&mut self, kind: &usvg::ImageKind) -> Option<String> {
@@ -482,8 +482,12 @@ impl Conv<'_> {
         self.apply_attrs(&mut node, a);
         node.size = Vec2::new(size.width(), size.height());
         node.name = layer_name(img.id()).unwrap_or_else(|| "Image".into());
-        node.fills =
-            vec![Paint { kind: PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill }, opacity: 1.0, visible: true, blend: BlendMode::Normal }];
+        node.fills = vec![Paint {
+            kind: PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill, params: Default::default() },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
         self.push(node, parent);
     }
 
@@ -523,7 +527,7 @@ fn luma_paint(mut p: Paint) -> Paint {
                 s.color = conv(s.color);
             }
         }
-        PaintKind::Image { .. } => {}
+        PaintKind::Image { .. } | PaintKind::Shader(_) => {}
     }
     p
 }

@@ -1,0 +1,219 @@
+=== 0. NULL CONTROL (NO MUTANTS) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 4 tests
+test solid_open_line_all_butt_vertex_caps_stay_butt ... ok
+test thin_inside_dashed_rect_keeps_stroke ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.01s
+
+null_render_rc=0
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 4 tests
+test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
+test solid_open_line_round_vertex_cap_renders_round_gpu ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.13s
+
+null_gpu_rc=0
+=== 1. MUTANT 1: node_stroke_style consults vertex_caps again ===
+diff --git a/crates/designos-render/src/outline.rs b/crates/designos-render/src/outline.rs
+index 51fa63d6..606a382c 100644
+--- a/crates/designos-render/src/outline.rs
++++ b/crates/designos-render/src/outline.rs
+@@ -65,7 +65,6 @@ pub fn has_dashes(s: &d::Stroke) -> bool {
+ /// The stroke style the renderer uses for `n` at line width `width`.
+ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
+     let s = &n.stroke;
+-    // per-vertex caps are drawn as decorations over a butt-capped stroke
+     let cap = if crate::vectorops::vertex_caps(n).is_some() { d::StrokeCap::None } else { s.cap };
+     let mut st = sk::Stroke {
+         width,
+@@ -83,6 +82,9 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
+         dash: None,
+     };
+     if has_dashes(s) {
++        if width > s.weight {
++            st.line_cap = sk::LineCap::Butt;
++        }
+         let mut v = s.dashes.clone();
+         if v.len() % 2 == 1 {
+             v.extend_from_within(..);
+@@ -278,11 +280,12 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
+         return None;
+     }
+     if sh.is_rect && has_dashes(&n.stroke) && align != d::StrokeAlign::Center {
+-        let center_path = dashed_rect_center_path(n, align)?;
+-        let st = node_stroke_style(n, w);
+-        let outline = stroke_outline(&center_path, &st, res_scale)?;
+-        let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
+-        return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
++        if let Some(center_path) = dashed_rect_center_path(n, align) {
++            let st = node_stroke_style(n, w);
++            let outline = stroke_outline(&center_path, &st, res_scale)?;
++            let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
++            return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
++        }
+     }
+     let (width, clip) = match align {
+         d::StrokeAlign::Center => (w, StrokeClip::None),
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.32s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+test solid_open_line_round_vertex_cap_renders_round_gpu ... FAILED
+
+failures:
+
+---- solid_open_line_round_vertex_cap_renders_round_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+solid_open_line_round_vertex_cap: mismatch 1.2500% (60 px of 4800) at tolerance 8, ssim 0.9663
+solid_open_line_round_vertex_cap: 0.8333% with AA pixels forgiven (40 px)
+
+thread 'solid_open_line_round_vertex_cap_renders_round_gpu' (75914545) panicked at crates/designos-gpu/tests/fidelity.rs:643:5:
+assertion `left == right` failed: GPU round cap painted at (18, 20)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    solid_open_line_round_vertex_cap_renders_round_gpu
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+mutant1_gpu_rc=101
+=== 2. MUTANT 2: None fallback removed ===
+diff --git a/crates/designos-render/src/lib.rs b/crates/designos-render/src/lib.rs
+index 2159d778..b6f99753 100644
+--- a/crates/designos-render/src/lib.rs
++++ b/crates/designos-render/src/lib.rs
+@@ -830,7 +830,11 @@ impl Renderer<'_> {
+     }
+ 
+     fn make_stroke(&self, n: &Node, width: f32) -> sk::Stroke {
+-        outline::node_stroke_style(n, width)
++        let mut st = outline::node_stroke_style(n, width);
++        if vectorops::vertex_caps(n).is_some() {
++            st.line_cap = sk::LineCap::Butt;
++        }
++        st
+     }
+ 
+     fn draw_strokes(&self, n: &Node, sh: &Shape, ts: sk::Transform, target: &mut sk::Pixmap, clip: Option<&sk::Mask>, alpha: f32) {
+diff --git a/crates/designos-render/src/outline.rs b/crates/designos-render/src/outline.rs
+index 51fa63d6..b562e340 100644
+--- a/crates/designos-render/src/outline.rs
++++ b/crates/designos-render/src/outline.rs
+@@ -65,12 +65,10 @@ pub fn has_dashes(s: &d::Stroke) -> bool {
+ /// The stroke style the renderer uses for `n` at line width `width`.
+ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
+     let s = &n.stroke;
+-    // per-vertex caps are drawn as decorations over a butt-capped stroke
+-    let cap = if crate::vectorops::vertex_caps(n).is_some() { d::StrokeCap::None } else { s.cap };
+     let mut st = sk::Stroke {
+         width,
+         miter_limit: s.miter_limit.max(1.0),
+-        line_cap: match cap {
++        line_cap: match s.cap {
+             d::StrokeCap::None => sk::LineCap::Butt,
+             d::StrokeCap::Round => sk::LineCap::Round,
+             d::StrokeCap::Square => sk::LineCap::Square,
+@@ -83,6 +81,9 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
+         dash: None,
+     };
+     if has_dashes(s) {
++        if width > s.weight {
++            st.line_cap = sk::LineCap::Butt;
++        }
+         let mut v = s.dashes.clone();
+         if v.len() % 2 == 1 {
+             v.extend_from_within(..);
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.86s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 1 test
+test thin_inside_dashed_rect_keeps_stroke ... FAILED
+
+failures:
+
+---- thin_inside_dashed_rect_keeps_stroke stdout ----
+
+thread 'thin_inside_dashed_rect_keeps_stroke' (75918418) panicked at crates/designos-render/tests/render.rs:815:5:
+assertion `left == right` failed: thin inside dashed rectangle paints first dash at (14, 12)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    thin_inside_dashed_rect_keeps_stroke
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+mutant2_render_rc=101
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.90s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+
+failures:
+
+---- thin_inside_dashed_rect_keeps_stroke_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+thin_inside_dashed_rect: mismatch 0.0000% (0 px of 5280) at tolerance 8, ssim 1.0000
+thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'thin_inside_dashed_rect_keeps_stroke_gpu' (75919840) panicked at crates/designos-gpu/tests/fidelity.rs:667:5:
+assertion `left == right` failed: GPU thin inside dashed rectangle paints dash at (14, 12)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    thin_inside_dashed_rect_keeps_stroke_gpu
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+mutant2_gpu_rc=101

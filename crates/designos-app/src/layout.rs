@@ -8,7 +8,7 @@ use crate::edit::Edit;
 use crate::util::{aabb_of, rect_corners, v2};
 use designos_doc::{resolve_node, Affine, Document, LayoutDirection, NodeId, NodeKind, Rect, Sizing, TextAutoResize, TextProps, Vec2};
 
-use designos_doc::layout_solver::{compute_with_stroke, ChildIn, SizeLimits};
+use designos_doc::layout_solver::{compute_then_refit_wrapped, ChildIn, SizeLimits};
 
 /// Measured text extent when the text hugs its content (no wrapping).
 pub fn estimate_text_size(t: &TextProps) -> Vec2 {
@@ -57,6 +57,12 @@ pub fn layout_node(doc: &mut Document, ed: &mut Edit, id: NodeId) {
     layout_self(doc, ed, id);
 }
 
+fn wrapped_text_height(doc: &Document, id: NodeId, width: f32) -> Option<f32> {
+    crate::textmeasure::install_layout_measurer();
+    let measure = designos_doc::text_measure::layout_measurer()?;
+    designos_doc::text_measure::height_resize_text_height(doc.get(id)?, width, measure.as_ref())
+}
+
 /// Solves auto-layout for `id` using its direct children's current sizes,
 /// recursing into a child container only if `id` changed that child's size (e.g. `Sizing::Fill`).
 /// Returns `true` if `id`'s own outer `size` changed.
@@ -76,40 +82,50 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
             }
         }
     }
-    // the one reading of a flow child (variable-bound sizes, content-sized axes) shared with the headless relayout
-    let (ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|c| doc.flow_child_input(*c, horiz).map(|k| (*c, k))).unzip();
-    let frame_size = doc.get(id).unwrap().size;
-    let own_limits = SizeLimits::from(&doc.get(id).unwrap().layout_child);
-    let out = compute_with_stroke(&al, frame_size, own_limits, &stroke, &kids);
-    let new_frame = out.frame;
-    let frame_changed = (new_frame.x - frame_size.x).abs() > 1e-3 || (new_frame.y - frame_size.y).abs() > 1e-3;
-    if frame_changed {
-        if let Some(n) = ed.node(doc, id) {
-            n.size = new_frame;
-        }
-    }
-    for ((cid, kid), r) in ids.iter().zip(kids.iter()).zip(out.rects.iter()) {
-        let n = doc.get(*cid).unwrap();
-        let new_size = v2(r.w, r.h);
-        let size_changed = (n.size.x - new_size.x).abs() > 1e-3 || (n.size.y - new_size.y).abs() > 1e-3;
-        let pos_changed = (n.transform.tx - r.x).abs() > 1e-3 || (n.transform.ty - r.y).abs() > 1e-3;
-        let mut new_lc = n.layout_child;
-        new_lc.record_stretched(kid.size, new_size, horiz, kid.stretches_cross());
-        let lc_changed = n.layout_child != new_lc;
-        if size_changed || pos_changed || lc_changed {
-            if let Some(n) = ed.node(doc, *cid) {
-                n.transform.tx = r.x;
-                n.transform.ty = r.y;
-                n.layout_child = new_lc;
+    let mut frame_changed = false;
+    let mut recurse_width_only = false;
+    loop {
+        let (ids, mut kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|c| doc.flow_child_input(*c, horiz).map(|k| (*c, k))).unzip();
+        let frame_size = doc.get(id).unwrap().size;
+        let own_limits = SizeLimits::from(&doc.get(id).unwrap().layout_child);
+        let out = compute_then_refit_wrapped(&al, frame_size, own_limits, &stroke, &ids, &mut kids, |cid, w| wrapped_text_height(doc, cid, w));
+        let new_frame = out.frame;
+        if (new_frame.x - frame_size.x).abs() > 1e-3 || (new_frame.y - frame_size.y).abs() > 1e-3 {
+            if let Some(n) = ed.node(doc, id) {
+                n.size = new_frame;
             }
-            if size_changed {
-                let placed = doc.get(*cid).map(|n| n.transform).unwrap_or_default();
-                set_box(doc, ed, *cid, placed, new_size);
+            frame_changed = true;
+        }
+        for ((cid, kid), r) in ids.iter().zip(kids.iter()).zip(out.rects.iter()) {
+            let n = doc.get(*cid).unwrap();
+            let new_size = v2(r.w, r.h);
+            let width_changed = (n.size.x - new_size.x).abs() > 1e-3;
+            let size_changed = width_changed || (n.size.y - new_size.y).abs() > 1e-3;
+            let pos_changed = (n.transform.tx - r.x).abs() > 1e-3 || (n.transform.ty - r.y).abs() > 1e-3;
+            let mut new_lc = n.layout_child;
+            new_lc.record_stretched(kid.size, new_size, horiz, kid.stretches_cross());
+            let lc_changed = n.layout_child != new_lc;
+            if size_changed || pos_changed || lc_changed {
+                if let Some(n) = ed.node(doc, *cid) {
+                    n.transform.tx = r.x;
+                    n.transform.ty = r.y;
+                    n.layout_child = new_lc;
+                }
+                if size_changed {
+                    let placed = doc.get(*cid).map(|n| n.transform).unwrap_or_default();
+                    set_box(doc, ed, *cid, placed, new_size);
+                }
+            }
+            if size_changed && doc.get(*cid).map(|n| n.kind.is_container()).unwrap_or(false) && (!recurse_width_only || width_changed) {
+                layout_node(doc, ed, *cid);
             }
         }
-        if size_changed && doc.get(*cid).map(|n| n.kind.is_container()).unwrap_or(false) {
-            layout_node(doc, ed, *cid);
+        let drifted =
+            ids.iter().zip(out.rects.iter()).any(|(cid, r)| doc.get(*cid).is_some_and(|n| (n.size.x - r.w).abs() > 1e-3 || (n.size.y - r.h).abs() > 1e-3));
+        if recurse_width_only || !drifted {
+            break;
         }
+        recurse_width_only = true;
     }
     frame_changed
 }
@@ -120,7 +136,11 @@ pub fn fit_group(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
     let Some(g) = doc.get(id) else { return false };
     let mut pts = Vec::new();
     for c in &g.children {
-        if let Some(k) = doc.get(*c) {
+        if let Some(raw) = doc.get(*c) {
+            let k = resolve_node(doc, raw);
+            if !k.visible {
+                continue;
+            }
             let r = Rect::new(0.0, 0.0, k.size.x, k.size.y);
             pts.extend(rect_corners(&r).map(|p| k.transform.apply(p)));
         }
@@ -152,9 +172,10 @@ pub fn fit_group(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
 /// `GroupsAndStacksObserver` (`apply_groups_and_stacks_layout`) bottom-up frontier
 /// propagation with Fixed-box boundary cutoff.
 pub fn relayout_up(doc: &mut Document, ed: &mut Edit, start: NodeId) {
-    // on a board, connectors follow the moved node live (every move, resize and rotate comes through here)
+    // connectors follow the moved node live (every move, resize and rotate comes through here)
     crate::board::connect::reroute_touched(doc, ed);
     let mut cur = doc.get(start).and_then(|n| n.parent);
+    let mut any_ancestor_changed = false;
     while let Some(p) = cur {
         let is_group = matches!(doc.get(p).map(|n| &n.kind), Some(NodeKind::Group));
         let is_al = doc.get(p).and_then(|n| n.kind.frame_props()).map(|f| f.auto_layout.is_some()).unwrap_or(false);
@@ -168,7 +189,11 @@ pub fn relayout_up(doc: &mut Document, ed: &mut Edit, start: NodeId) {
         if !box_changed {
             break;
         }
+        any_ancestor_changed = true;
         cur = doc.get(p).and_then(|n| n.parent);
+    }
+    if any_ancestor_changed {
+        crate::board::connect::reroute_touched(doc, ed);
     }
 }
 
@@ -689,11 +714,12 @@ mod tests {
             kid(40.0, 20.0),
         ];
         let out_span = compute(&al, v2(320.0, 100.0), &kids);
-        // kid[1] reserves (row 0..2, col 1); kid[0] takes (0, 0); kid[2] (col_span=2) cannot fit on row 0 or row 1 so takes (2, 0); kid[3] takes (0, 2).
+        // kid[1] reserves (row 0..2, col 1); kid[0] takes (0, 0); kid[2] (col_span=2) cannot fit on row 0 or row 1 so takes (2, 0);
+        // kid[3] follows kid[2] on the auto-placement cursor, which does not go back to the free cell at (0, 2), and takes (2, 2).
         assert_eq!((out_span.rects[0].x, out_span.rects[0].y), (0.0, 0.0));
         assert_eq!((out_span.rects[1].x, out_span.rects[1].y), (110.0, 0.0));
         assert_eq!((out_span.rects[2].x, out_span.rects[2].y), (0.0, 60.0));
-        assert_eq!((out_span.rects[3].x, out_span.rects[3].y), (220.0, 0.0));
+        assert_eq!((out_span.rects[3].x, out_span.rects[3].y), (220.0, 60.0));
 
         // 3. Explicit row 0 uses grid_row_tracks[0] (30px), while overflow auto rows (1, 2) use grid_auto_tracks (50px).
         al.grid_rows = 1;
@@ -789,3 +815,5 @@ mod tests {
 
 #[cfg(test)]
 mod solver_parity_tests;
+#[cfg(test)]
+mod text_refit_tests;

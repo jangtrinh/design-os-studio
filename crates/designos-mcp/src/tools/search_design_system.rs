@@ -891,6 +891,7 @@ fn summarize_style(style: &Style) -> String {
                     PaintKind::AngularGradient { .. } => "angular-gradient".into(),
                     PaintKind::DiamondGradient { .. } => "diamond-gradient".into(),
                     PaintKind::Image { .. } => "image".into(),
+                    PaintKind::Shader(_) => "shader".into(),
                 }
             } else {
                 "empty".into()
@@ -1153,7 +1154,7 @@ fn variable_example(ref_str: &str, kind: VariableKind, scopes: &[String]) -> Val
     let has_scope = |target: &str| scopes.iter().any(|s| s.eq_ignore_ascii_case(target));
     match kind {
         VariableKind::Color => {
-            if has_scope("STROKE_COLOR")
+            if (has_scope("STROKE") || has_scope("STROKE_COLOR"))
                 && !has_scope("ALL_FILLS")
                 && !has_scope("FRAME_FILL")
                 && !has_scope("SHAPE_FILL")
@@ -1842,6 +1843,57 @@ mod tests {
         assert!(err.contains("itemSpacing"), "{err}");
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stroke_scoped_colour_is_offered_for_strokes_not_fills() {
+        for spelling in ["STROKE", "STROKE_COLOR"] {
+            clear_snapshot_cache();
+            clear_search_index_cache();
+            let root = make_temp_dir("var_stroke_scope");
+            let mut doc = Document::new("Tokens");
+            doc.add_page("Page 1");
+            doc.variable_collections.insert(
+                "c_colors".into(),
+                VariableCollection {
+                    extensions: Default::default(),
+                    id: "c_colors".into(),
+                    name: "Colors".into(),
+                    modes: vec![VariableMode { id: "m_light".into(), name: "Light".into() }],
+                    default_mode: "m_light".into(),
+                    variables: vec!["v_border".into()],
+                    key: None,
+                    source_library_key: None,
+                },
+            );
+            doc.variables.insert(
+                "v_border".into(),
+                Variable {
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                    id: "v_border".into(),
+                    name: "border-strong".into(),
+                    collection: "c_colors".into(),
+                    kind: VariableKind::Color,
+                    values: BTreeMap::from([("m_light".into(), VariableValue::Color(Color::from_hex("#D0D5DD").unwrap()))]),
+                    description: String::new(),
+                    scopes: vec![spelling.into()],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                },
+            );
+
+            let for_strokes = search_design_system_at(&doc, json!({"query": "border", "kinds": ["variable"], "property": "strokes/0"}), &root).unwrap();
+            let hits = for_strokes["results"].as_array().unwrap();
+            assert_eq!(hits.len(), 1, "{spelling} colour must be offered for strokes/0: {for_strokes}");
+            assert_eq!(hits[0]["example"], json!({"stroke": "var:Colors/border-strong"}), "{spelling} example must bind a stroke");
+
+            let for_fills = search_design_system_at(&doc, json!({"query": "border", "kinds": ["variable"], "property": "fills/0"}), &root).unwrap();
+            assert!(for_fills["results"].as_array().unwrap().is_empty(), "{spelling} colour must not be offered for fills/0: {for_fills}");
+
+            let _ = std::fs::remove_dir_all(&root);
+        }
     }
 
     #[test]

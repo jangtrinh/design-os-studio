@@ -1,0 +1,27 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.76s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 15 tests
+test agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it ... ok
+test agent_composer::tests::working_agent_waits_for_turn_end_before_flushing_next_entry ... ok
+test agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state ... ok
+test agent_composer::tests::notice_reads_2_messages_waiting_to_send_with_two_entries ... ok
+test agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends ... ok
+test agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice ... ok
+test agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft ... ok
+test agent_composer::tests::flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft ... ok
+test shell::tests::agent_new_chat_composer::make_design_then_send_queues_both_and_writes_in_order ... ok
+test shell::tests::agent_new_chat_composer::spec_ask_then_send_queues_both_and_writes_in_order ... ok
+test agent_composer::tests::held_prompt_with_trailing_space_and_refused_held_prompt_replay_once_in_order ... ok
+test agent_composer::tests::entry_point_in_new_chat_over_a_shell_tab_starts_agent_and_sends ... ok
+test shell::tests::agent_new_chat_composer::queued_first_message_then_spec_ask_queues_both_in_order ... ok
+test agent_composer::tests::send_on_an_exited_tab_beside_a_live_one_starts_a_new_agent ... ok
+test agent_composer::tests::start_window_keeps_every_written_entry_when_start_fails ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 3.15s
+

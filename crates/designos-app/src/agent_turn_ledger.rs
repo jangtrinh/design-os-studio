@@ -5,6 +5,7 @@
 //! hooks), and reverts an entire turn in one undoable step while preserving layers the user
 //! edited after the turn.
 
+use crate::agent_permissions::{AutoAllowRow, AUTO_ALLOW_CAP};
 use crate::agent_turn_marks::{TurnMarkLine, TurnPhase};
 use crate::edit::Tx;
 use crate::home::node_fingerprint;
@@ -86,6 +87,8 @@ pub struct TurnRecord {
     pub created_at: Instant,
     pub last_patch_at: Instant,
     pub ended_at: Option<Instant>,
+    pub calls: Vec<AutoAllowRow>,
+    pub calls_dropped: u64,
     pub approx_bytes: usize,
 }
 
@@ -123,6 +126,8 @@ impl TurnRecord {
             created_at: now,
             last_patch_at: now,
             ended_at: None,
+            calls: Vec::new(),
+            calls_dropped: 0,
             approx_bytes: std::mem::size_of::<Self>(),
         }
     }
@@ -139,7 +144,11 @@ impl TurnRecord {
     }
 
     pub fn headline(&self, fallback_cli: &str) -> String {
-        format!("{} changed layers", self.cli_display_name(fallback_cli))
+        if !self.has_edits() && !self.calls.is_empty() {
+            format!("{} auto-allowed", self.cli_display_name(fallback_cli))
+        } else {
+            format!("{} changed layers", self.cli_display_name(fallback_cli))
+        }
     }
 
     pub fn total_edits(&self) -> usize {
@@ -187,6 +196,7 @@ pub struct AgentTurnLedger {
     /// subsequent patches before `End` open a fresh non-approximate continuation turn.
     open_hook_continuation: Option<u64>,
     last_working: bool,
+    pending_calls: Vec<AutoAllowRow>,
 }
 
 impl Default for AgentTurnLedger {
@@ -199,6 +209,7 @@ impl Default for AgentTurnLedger {
             max_bytes: MAX_LEDGER_BYTES,
             open_hook_continuation: None,
             last_working: false,
+            pending_calls: Vec::new(),
         }
     }
 }
@@ -242,42 +253,109 @@ impl AgentTurnLedger {
         }
     }
 
+    fn push_call(turn: &mut TurnRecord, row: AutoAllowRow) {
+        turn.calls.push(row);
+        if turn.calls.len() > AUTO_ALLOW_CAP {
+            let excess = turn.calls.len() - AUTO_ALLOW_CAP;
+            turn.calls.drain(0..excess);
+            turn.calls_dropped = turn.calls_dropped.saturating_add(excess as u64);
+        }
+    }
+
+    fn flush_pending_into(&mut self, idx: usize) {
+        if self.pending_calls.is_empty() {
+            return;
+        }
+        if self.turns.get(idx).is_some_and(|turn| turn.state == TurnState::Kept) {
+            return;
+        }
+        let rows = std::mem::take(&mut self.pending_calls);
+        if let Some(turn) = self.turns.get_mut(idx) {
+            for row in rows {
+                Self::push_call(turn, row);
+            }
+        }
+    }
+
+    pub fn record_auto_allow(&mut self, rows: Vec<AutoAllowRow>) {
+        if rows.is_empty() {
+            return;
+        }
+        if let Some(idx) = self.turns.iter().rposition(|turn| turn.end_patch_bytes.is_none() && turn.state != TurnState::Kept) {
+            for row in rows {
+                Self::push_call(&mut self.turns[idx], row);
+            }
+            return;
+        }
+        self.pending_calls.extend(rows);
+        if self.pending_calls.len() > AUTO_ALLOW_CAP {
+            let excess = self.pending_calls.len() - AUTO_ALLOW_CAP;
+            self.pending_calls.drain(0..excess);
+        }
+    }
+
+    fn flush_pending_after_marks(&mut self) {
+        if self.pending_calls.is_empty() {
+            return;
+        }
+        if let Some(idx) = self.turns.iter().rposition(|turn| turn.end_patch_bytes.is_none() && turn.state != TurnState::Kept) {
+            self.flush_pending_into(idx);
+            return;
+        }
+        if let Some(idx) = self.turns.iter().rposition(|turn| turn.state != TurnState::Kept) {
+            self.flush_pending_into(idx);
+        }
+    }
+
     /// Applies `Start` / `End` marks read from `turn-marks.jsonl` of the hook folder (`agent_hook_outputs`).
     pub fn ingest_marks(&mut self, marks: impl IntoIterator<Item = TurnMarkLine>, now: Instant) {
         for mark in marks {
             match mark.turn_mark {
                 TurnPhase::Start => {
                     self.open_hook_continuation = None;
-                    if let Some(last) = self.turns.last_mut() {
+                    let reused = if let Some(last_idx) = self.turns.len().checked_sub(1) {
+                        let last = &mut self.turns[last_idx];
                         if last.end_patch_bytes.is_none() {
                             if last.steps.is_empty() && last.start_patch_bytes == mark.patch_bytes {
-                                last.cli = mark.cli;
+                                last.cli = mark.cli.clone();
                                 last.approximate = false;
                                 last.state = TurnState::Active;
                                 last.created_at = now;
-                                continue;
-                            }
-                            if last.approximate && last.steps.first().is_some_and(|s| s.patch_offset >= mark.patch_bytes) {
-                                last.cli = mark.cli;
+                                Some(last_idx)
+                            } else if last.approximate && last.steps.first().is_some_and(|s| s.patch_offset >= mark.patch_bytes) {
+                                last.cli = mark.cli.clone();
                                 last.start_patch_bytes = mark.patch_bytes;
                                 last.approximate = false;
-                                continue;
+                                Some(last_idx)
+                            } else {
+                                last.end_patch_bytes = Some(mark.patch_bytes);
+                                if last.state == TurnState::Active {
+                                    last.state = TurnState::Completed;
+                                }
+                                last.ended_at.get_or_insert(now);
+                                None
                             }
-                            last.end_patch_bytes = Some(mark.patch_bytes);
-                            if last.state == TurnState::Active {
-                                last.state = TurnState::Completed;
-                            }
-                            last.ended_at.get_or_insert(now);
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(idx) = reused {
+                        self.flush_pending_into(idx);
+                        continue;
                     }
                     self.dismiss_completed_turns_with_edits();
                     let id = self.alloc_id();
                     self.turns.push(TurnRecord::new(id, mark.cli, mark.patch_bytes, false, now));
+                    let idx = self.turns.len() - 1;
+                    self.flush_pending_into(idx);
                     self.enforce_bounds();
                 }
                 TurnPhase::End => {
                     self.open_hook_continuation = None;
                     if let Some(pos) = self.turns.iter().rposition(|t| t.end_patch_bytes.is_none()) {
+                        self.flush_pending_into(pos);
                         let turn = &mut self.turns[pos];
                         if turn.cli.is_none() {
                             turn.cli = mark.cli;
@@ -289,13 +367,14 @@ impl AgentTurnLedger {
                         }
                         // A chat-only turn whose `[start, end)` byte range in `doc-patch.jsonl` is empty
                         // produced zero patches and should not leave an empty record around.
-                        if turn.steps.is_empty() && mark.patch_bytes <= turn.start_patch_bytes {
+                        if turn.steps.is_empty() && turn.calls.is_empty() && mark.patch_bytes <= turn.start_patch_bytes {
                             self.turns.remove(pos);
                         }
                     }
                 }
             }
         }
+        self.flush_pending_after_marks();
     }
 
     /// Handles heuristic status transitions (`Idle`/`Done` <-> `Working`) for CLIs without hooks
@@ -310,12 +389,14 @@ impl AgentTurnLedger {
                 self.dismiss_completed_turns_with_edits();
                 let id = self.alloc_id();
                 self.turns.push(TurnRecord::new(id, None, current_patch_bytes, true, now));
+                let idx = self.turns.len() - 1;
+                self.flush_pending_into(idx);
                 self.enforce_bounds();
             }
         } else if was_working && !is_working {
             if let Some(pos) = self.turns.len().checked_sub(1) {
                 if self.turns[pos].approximate && self.turns[pos].end_patch_bytes.is_none() {
-                    if self.turns[pos].steps.is_empty() && current_patch_bytes <= self.turns[pos].start_patch_bytes {
+                    if self.turns[pos].steps.is_empty() && self.turns[pos].calls.is_empty() && current_patch_bytes <= self.turns[pos].start_patch_bytes {
                         self.turns.remove(pos);
                     } else {
                         let turn = &mut self.turns[pos];
@@ -335,7 +416,7 @@ impl AgentTurnLedger {
         self.open_hook_continuation = None;
         if let Some(pos) = self.turns.len().checked_sub(1) {
             if self.turns[pos].end_patch_bytes.is_none() {
-                if self.turns[pos].steps.is_empty() && current_patch_bytes <= self.turns[pos].start_patch_bytes {
+                if self.turns[pos].steps.is_empty() && self.turns[pos].calls.is_empty() && current_patch_bytes <= self.turns[pos].start_patch_bytes {
                     self.turns.remove(pos);
                 } else {
                     let turn = &mut self.turns[pos];
@@ -391,6 +472,7 @@ impl AgentTurnLedger {
             self.evicted_turn_ids.insert(t.id);
         }
         self.turns.clear();
+        self.pending_calls.clear();
         if let Some((cli, start)) = open_hook {
             let id = self.alloc_id();
             self.turns.push(TurnRecord::new(id, cli, start, false, now));
@@ -564,7 +646,9 @@ impl AgentTurnLedger {
         if self.open_hook_continuation.is_some() {
             let id = self.alloc_id();
             self.turns.push(TurnRecord::new(id, None, patch_offset, false, now));
-            return Some(self.turns.len() - 1);
+            let idx = self.turns.len() - 1;
+            self.flush_pending_into(idx);
+            return Some(idx);
         }
 
         // 3. Late patch arriving within `HEURISTIC_GRACE_WINDOW` (2 s) after a closed turn:
@@ -598,7 +682,9 @@ impl AgentTurnLedger {
         self.dismiss_completed_turns_with_edits();
         let id = self.alloc_id();
         self.turns.push(TurnRecord::new(id, None, patch_offset, true, now));
-        Some(self.turns.len() - 1)
+        let idx = self.turns.len() - 1;
+        self.flush_pending_into(idx);
+        Some(idx)
     }
 
     fn enforce_bounds(&mut self) {
@@ -611,7 +697,7 @@ impl AgentTurnLedger {
     /// The turn currently shown in the review card at the bottom of the agent panel, if any.
     /// Returns the most recent turn with ≥ 1 applied edit unless it has been dismissed (`Kept`).
     pub fn visible_turn(&self, _now: Instant) -> Option<&TurnRecord> {
-        let turn = self.turns.iter().rev().find(|t| t.has_edits())?;
+        let turn = self.turns.iter().rev().find(|t| t.has_edits() || !t.calls.is_empty())?;
         match turn.state {
             TurnState::Active | TurnState::Completed | TurnState::Reverted => Some(turn),
             TurnState::Kept => None,
@@ -1029,6 +1115,7 @@ mod tests {
         fn drop(&mut self) {
             self.app.terminal.shutdown();
             crate::agent_approval_channel::remove_channel(&self.dir);
+            crate::agent_permissions::remove_auto_allow_log(&self.dir);
             let _ = std::fs::remove_dir_all(&self.dir);
             let _ = std::fs::remove_dir_all(&self.workspace);
         }
@@ -1251,6 +1338,89 @@ mod tests {
         // Undoing the Revert reapplies the entire turn in one step.
         assert!(r.app.hist.undo(&mut r.app.doc).unwrap());
         assert_eq!(doc_hash(&r.app.doc), hash_after_turn, "Undo after Revert must reapply the turn");
+    }
+
+    fn painted_card_lines(app: &mut App) -> Vec<String> {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1280.0, 800.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let h = agent_turn_card::desired_card_height(app, 0);
+            assert!(h > 0.0, "card must have positive height");
+            let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(720.0, h + 16.0));
+            agent_turn_card::show_in_rect(ui, app, 0, rect);
+        });
+        crate::lint::take_icons();
+        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
+        texts.into_iter().map(|text| text.text).collect()
+    }
+
+    #[test]
+    fn turn_card_lists_auto_allow_rows() {
+        let mut r = rig();
+        r.run_hook("start", "claude");
+        crate::agent_permissions::append_auto_allow_row(&r.dir, "designos_get_document", "", crate::agent_permissions::AutoAllowReason::Tier, 70, None)
+            .unwrap();
+        r.run_hook("end", "claude");
+        r.deliver();
+
+        let turn = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("a read-only auto-allow is visible");
+        assert_eq!(turn.calls.len(), 1);
+        assert_eq!(turn.calls[0].tool_name, "designos_get_document");
+        assert_eq!(turn.calls[0].reason, crate::agent_permissions::AutoAllowReason::Tier);
+        assert_eq!(turn.calls[0].kind, crate::agent_permissions::AutoAllowKind::Informational);
+        assert!(!turn.has_edits());
+        let painted = painted_card_lines(&mut r.app);
+        assert!(painted.iter().any(|line| line.contains("designos_get_document") && line.contains("read") && line.contains("tier")), "{painted:?}");
+        assert!(!painted.iter().any(|line| line == "Keep" || line == "Revert"), "no canvas edits hide Keep/Revert: {painted:?}");
+    }
+
+    #[test]
+    fn turn_card_hides_keep_and_revert_when_the_turn_has_no_canvas_edits() {
+        let mut r = rig();
+        r.run_hook("start", "claude");
+        crate::agent_permissions::append_auto_allow_row(&r.dir, "designos_get_document", "", crate::agent_permissions::AutoAllowReason::Tier, 71, None)
+            .unwrap();
+        r.run_hook("end", "claude");
+        r.deliver();
+        let turn = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible");
+        assert!(!turn.has_edits());
+        assert!(!turn.calls.is_empty());
+        let painted = painted_card_lines(&mut r.app);
+        assert!(painted.iter().any(|line| line.contains("designos_get_document")), "{painted:?}");
+        assert!(!painted.contains(&"Keep".to_string()), "{painted:?}");
+        assert!(!painted.contains(&"Revert".to_string()), "{painted:?}");
+    }
+
+    #[test]
+    fn revert_of_an_auto_allowed_write_restores_the_document_and_keeps_the_row() {
+        let mut r = rig();
+        let hash_before = doc_hash(&r.app.doc);
+        r.run_hook("start", "claude");
+        let added = r.agent_create_frame("Auto Allowed Frame", 20.0, 20.0);
+        crate::agent_permissions::append_auto_allow_row(&r.dir, "designos_apply_spec", "", crate::agent_permissions::AutoAllowReason::Tier, 80, None).unwrap();
+        r.run_hook("end", "claude");
+        r.deliver();
+
+        assert!(r.app.doc.get(added).is_some(), "the auto-allowed write landed");
+        let turn = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible turn");
+        assert_eq!(turn.calls.len(), 1);
+        assert_eq!(turn.calls[0].tool_name, "designos_apply_spec");
+        assert_eq!(turn.calls[0].kind, crate::agent_permissions::AutoAllowKind::Revertable);
+        let turn_id = turn.id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+
+        assert_eq!(doc_hash(&r.app.doc), hash_before, "Revert restores the document");
+        let turn = r.app.terminal.active_turn_ledger().turns.iter().find(|turn| turn.id == turn_id).expect("turn remains");
+        assert_eq!(turn.state, TurnState::Reverted);
+        assert_eq!(turn.calls.len(), 1, "the audit row stays");
+        assert_eq!(turn.calls[0].tool_name, "designos_apply_spec");
+        let painted = painted_card_lines(&mut r.app);
+        assert!(
+            painted.iter().any(|line| line.contains("designos_apply_spec") && line.contains("reverted")),
+            "the reverted card still lists the row: {painted:?}"
+        );
     }
 
     /// §10 Case 8: the user edits one touched layer after the turn: after Revert that layer keeps

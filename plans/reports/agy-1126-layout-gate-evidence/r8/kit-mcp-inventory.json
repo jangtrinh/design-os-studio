@@ -1,0 +1,2327 @@
+[
+  {
+    "tool": "designos_open_file",
+    "arguments": {
+      "path": "kit.fig",
+      "discard_changes": true
+    },
+    "summary": {
+      "name": "\u2756 Untitled UI Figma \u2013 PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy)",
+      "node_count": 207601,
+      "page_count": 113,
+      "style_count": 1009,
+      "variable_count": 697
+    }
+  },
+  {
+    "tool": "designos_list_nodes",
+    "arguments": {
+      "parent_id": 44616,
+      "limit": 20
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"next_offset\":20,\"nodes\":[{\"child_count\":2,\"height\":1908.0,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":44617,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":39006.0,\"y\":620.0},{\"child_count\":2,\"height\":1908.0,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":44687,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":39006.0,\"y\":3842.0},{\"child_count\":3,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":44757,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":37502.0,\"y\":620.0},{\"child_count\":3,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":44853,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":37502.0,\"y\":3842.0},{\"child_count\":2,\"height\":1895.0,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":44949,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":36927.0,\"y\":620.0},{\"child_count\":2,\"height\":1895.0,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":44983,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":36927.0,\"y\":3842.0},{\"child_count\":2,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":45017,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":35423.0,\"y\":620.0},{\"child_count\":2,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":45068,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":35423.0,\"y\":3842.0},{\"child_count\":2,\"height\":1985.5,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":45115,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":34848.0,\"y\":620.0},{\"child_count\":2,\"height\":1985.5,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":45146,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":34848.0,\"y\":3842.0},{\"child_count\":2,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":45177,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":33344.0,\"y\":620.0},{\"child_count\":2,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":45219,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":33344.0,\"y\":3842.0},{\"child_count\":2,\"height\":2030.0,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":45254,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":32769.0,\"y\":620.0},{\"child_count\":2,\"height\":2030.0,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":45319,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":32769.0,\"y\":3842.0},{\"child_count\":3,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":45384,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":31265.0,\"y\":620.0},{\"child_count\":3,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":45516,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":31265.0,\"y\":3842.0},{\"child_count\":2,\"height\":1327.0,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":45640,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":30690.0,\"y\":620.0},{\"child_count\":2,\"height\":1331.0,\"kind\":\"Frame\",\"name\":\"Mobile\",\"node_id\":45675,\"parent_id\":44616,\"visible\":true,\"width\":375.0,\"x\":30690.0,\"y\":3842.0},{\"child_count\":2,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":45710,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":29186.0,\"y\":620.0},{\"child_count\":2,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Desktop\",\"node_id\":45801,\"parent_id\":44616,\"visible\":true,\"width\":1440.0,\"x\":29186.0,\"y\":3842.0}],\"offset\":0,\"total\":78}"
+          }
+        ],
+        "structuredContent": {
+          "next_offset": 20,
+          "nodes": [
+            {
+              "child_count": 2,
+              "height": 1908.0,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 44617,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 39006.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 2,
+              "height": 1908.0,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 44687,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 39006.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 3,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 44757,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 37502.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 3,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 44853,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 37502.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 2,
+              "height": 1895.0,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 44949,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 36927.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 2,
+              "height": 1895.0,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 44983,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 36927.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 2,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 45017,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 35423.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 2,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 45068,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 35423.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 2,
+              "height": 1985.5,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 45115,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 34848.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 2,
+              "height": 1985.5,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 45146,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 34848.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 2,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 45177,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 33344.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 2,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 45219,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 33344.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 2,
+              "height": 2030.0,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 45254,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 32769.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 2,
+              "height": 2030.0,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 45319,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 32769.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 3,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 45384,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 31265.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 3,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 45516,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 31265.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 2,
+              "height": 1327.0,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 45640,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 30690.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 2,
+              "height": 1331.0,
+              "kind": "Frame",
+              "name": "Mobile",
+              "node_id": 45675,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 375.0,
+              "x": 30690.0,
+              "y": 3842.0
+            },
+            {
+              "child_count": 2,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 45710,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 29186.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 2,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Desktop",
+              "node_id": 45801,
+              "parent_id": 44616,
+              "visible": true,
+              "width": 1440.0,
+              "x": 29186.0,
+              "y": 3842.0
+            }
+          ],
+          "offset": 0,
+          "total": 78
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_list_nodes",
+    "arguments": {
+      "parent_id": 44757,
+      "limit": 30
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"next_offset\":null,\"nodes\":[{\"child_count\":0,\"height\":960.0,\"kind\":\"Instance\",\"name\":\"Sidebar navigation\",\"node_id\":44758,\"parent_id\":44757,\"visible\":true,\"width\":68.0,\"x\":0.0,\"y\":0.0},{\"child_count\":3,\"height\":1111.0,\"kind\":\"Frame\",\"name\":\"Main\",\"node_id\":44759,\"parent_id\":44757,\"visible\":true,\"width\":972.0,\"x\":68.0,\"y\":0.0},{\"child_count\":3,\"height\":960.0,\"kind\":\"Frame\",\"name\":\"Side panel\",\"node_id\":44827,\"parent_id\":44757,\"visible\":true,\"width\":400.0,\"x\":1040.0,\"y\":0.0}],\"offset\":0,\"total\":3}"
+          }
+        ],
+        "structuredContent": {
+          "next_offset": null,
+          "nodes": [
+            {
+              "child_count": 0,
+              "height": 960.0,
+              "kind": "Instance",
+              "name": "Sidebar navigation",
+              "node_id": 44758,
+              "parent_id": 44757,
+              "visible": true,
+              "width": 68.0,
+              "x": 0.0,
+              "y": 0.0
+            },
+            {
+              "child_count": 3,
+              "height": 1111.0,
+              "kind": "Frame",
+              "name": "Main",
+              "node_id": 44759,
+              "parent_id": 44757,
+              "visible": true,
+              "width": 972.0,
+              "x": 68.0,
+              "y": 0.0
+            },
+            {
+              "child_count": 3,
+              "height": 960.0,
+              "kind": "Frame",
+              "name": "Side panel",
+              "node_id": 44827,
+              "parent_id": 44757,
+              "visible": true,
+              "width": 400.0,
+              "x": 1040.0,
+              "y": 0.0
+            }
+          ],
+          "offset": 0,
+          "total": 3
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_list_nodes",
+    "arguments": {
+      "parent_id": 81958,
+      "limit": 10
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"next_offset\":null,\"nodes\":[{\"child_count\":12,\"height\":2710.0,\"kind\":\"Component set\",\"name\":\"Page header\",\"node_id\":81959,\"parent_id\":81958,\"visible\":true,\"width\":1863.0,\"x\":80.0,\"y\":590.0},{\"child_count\":0,\"height\":462.0,\"kind\":\"Instance\",\"name\":\"Design system header\",\"node_id\":82141,\"parent_id\":81958,\"visible\":true,\"width\":2400.0,\"x\":0.0,\"y\":0.0}],\"offset\":0,\"total\":2}"
+          }
+        ],
+        "structuredContent": {
+          "next_offset": null,
+          "nodes": [
+            {
+              "child_count": 12,
+              "height": 2710.0,
+              "kind": "Component set",
+              "name": "Page header",
+              "node_id": 81959,
+              "parent_id": 81958,
+              "visible": true,
+              "width": 1863.0,
+              "x": 80.0,
+              "y": 590.0
+            },
+            {
+              "child_count": 0,
+              "height": 462.0,
+              "kind": "Instance",
+              "name": "Design system header",
+              "node_id": 82141,
+              "parent_id": 81958,
+              "visible": true,
+              "width": 2400.0,
+              "x": 0.0,
+              "y": 0.0
+            }
+          ],
+          "offset": 0,
+          "total": 2
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_list_nodes",
+    "arguments": {
+      "parent_id": 78919,
+      "limit": 10
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"next_offset\":null,\"nodes\":[{\"child_count\":36,\"height\":2326.0,\"kind\":\"Component set\",\"name\":\"Metric item\",\"node_id\":78920,\"parent_id\":78919,\"visible\":true,\"width\":1622.0,\"x\":2880.0,\"y\":620.0},{\"child_count\":24,\"height\":880.0,\"kind\":\"Component set\",\"name\":\"_Chart mini\",\"node_id\":79336,\"parent_id\":78919,\"visible\":true,\"width\":320.0,\"x\":80.0,\"y\":620.0},{\"child_count\":6,\"height\":160.0,\"kind\":\"Component set\",\"name\":\"_Change\",\"node_id\":79529,\"parent_id\":78919,\"visible\":true,\"width\":198.0,\"x\":80.0,\"y\":1564.0},{\"child_count\":0,\"height\":492.0,\"kind\":\"Instance\",\"name\":\"Design system header\",\"node_id\":79548,\"parent_id\":78919,\"visible\":true,\"width\":2400.0,\"x\":0.0,\"y\":0.0},{\"child_count\":0,\"height\":492.0,\"kind\":\"Instance\",\"name\":\"Design system header\",\"node_id\":79549,\"parent_id\":78919,\"visible\":true,\"width\":2400.0,\"x\":2800.0,\"y\":0.0}],\"offset\":0,\"total\":5}"
+          }
+        ],
+        "structuredContent": {
+          "next_offset": null,
+          "nodes": [
+            {
+              "child_count": 36,
+              "height": 2326.0,
+              "kind": "Component set",
+              "name": "Metric item",
+              "node_id": 78920,
+              "parent_id": 78919,
+              "visible": true,
+              "width": 1622.0,
+              "x": 2880.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 24,
+              "height": 880.0,
+              "kind": "Component set",
+              "name": "_Chart mini",
+              "node_id": 79336,
+              "parent_id": 78919,
+              "visible": true,
+              "width": 320.0,
+              "x": 80.0,
+              "y": 620.0
+            },
+            {
+              "child_count": 6,
+              "height": 160.0,
+              "kind": "Component set",
+              "name": "_Change",
+              "node_id": 79529,
+              "parent_id": 78919,
+              "visible": true,
+              "width": 198.0,
+              "x": 80.0,
+              "y": 1564.0
+            },
+            {
+              "child_count": 0,
+              "height": 492.0,
+              "kind": "Instance",
+              "name": "Design system header",
+              "node_id": 79548,
+              "parent_id": 78919,
+              "visible": true,
+              "width": 2400.0,
+              "x": 0.0,
+              "y": 0.0
+            },
+            {
+              "child_count": 0,
+              "height": 492.0,
+              "kind": "Instance",
+              "name": "Design system header",
+              "node_id": 79549,
+              "parent_id": 78919,
+              "visible": true,
+              "width": 2400.0,
+              "x": 2800.0,
+              "y": 0.0
+            }
+          ],
+          "offset": 0,
+          "total": 5
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_list_nodes",
+    "arguments": {
+      "parent_id": 24944,
+      "limit": 15
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"next_offset\":null,\"nodes\":[{\"child_count\":200,\"height\":1568.0,\"kind\":\"Component set\",\"name\":\"Buttons/Button\",\"node_id\":24945,\"parent_id\":24944,\"visible\":true,\"width\":1364.0,\"x\":80.0,\"y\":590.0},{\"child_count\":216,\"height\":1336.0,\"kind\":\"Component set\",\"name\":\"Buttons/Social button\",\"node_id\":25646,\"parent_id\":24944,\"visible\":true,\"width\":2095.0,\"x\":2891.0,\"y\":590.0},{\"child_count\":12,\"height\":628.0,\"kind\":\"Component set\",\"name\":\"Buttons/Social button group\",\"node_id\":26187,\"parent_id\":24944,\"visible\":true,\"width\":1440.0,\"x\":5050.0,\"y\":590.0},{\"child_count\":20,\"height\":136.0,\"kind\":\"Component set\",\"name\":\"Mobile app store badge\",\"node_id\":26248,\"parent_id\":24944,\"visible\":true,\"width\":1804.0,\"x\":7050.0,\"y\":590.0},{\"child_count\":0,\"height\":462.0,\"kind\":\"Instance\",\"name\":\"Design system header\",\"node_id\":26357,\"parent_id\":24944,\"visible\":true,\"width\":2400.0,\"x\":-1.4210854715202004e-14,\"y\":0.0},{\"child_count\":0,\"height\":462.0,\"kind\":\"Instance\",\"name\":\"Design system header\",\"node_id\":26358,\"parent_id\":24944,\"visible\":true,\"width\":3770.0,\"x\":2800.0,\"y\":0.0},{\"child_count\":0,\"height\":462.0,\"kind\":\"Instance\",\"name\":\"Design system header\",\"node_id\":26359,\"parent_id\":24944,\"visible\":true,\"width\":2400.0,\"x\":6970.0,\"y\":0.0},{\"child_count\":3,\"height\":11446.0,\"kind\":\"Frame\",\"name\":\"Notes and documentation (you can delete this)\",\"node_id\":26360,\"parent_id\":24944,\"visible\":true,\"width\":1600.0,\"x\":9770.0,\"y\":0.0},{\"child_count\":18,\"height\":188.0,\"kind\":\"Component set\",\"name\":\"Buttons/Button close X\",\"node_id\":26431,\"parent_id\":24944,\"visible\":true,\"width\":477.0,\"x\":1508.0,\"y\":590.0},{\"child_count\":175,\"height\":1320.0,\"kind\":\"Component set\",\"name\":\"Buttons/Button destructive\",\"node_id\":26468,\"parent_id\":24944,\"visible\":true,\"width\":1364.0,\"x\":80.0,\"y\":2286.0},{\"child_count\":16,\"height\":528.0,\"kind\":\"Component set\",\"name\":\"Buttons/Button utility\",\"node_id\":27074,\"parent_id\":24944,\"visible\":true,\"width\":192.0,\"x\":1508.0,\"y\":842.0},{\"child_count\":2,\"height\":56.0,\"kind\":\"Component set\",\"name\":\"Buttons/Button loading icon\",\"node_id\":27115,\"parent_id\":24944,\"visible\":true,\"width\":108.0,\"x\":1764.0,\"y\":842.0}],\"offset\":0,\"total\":12}"
+          }
+        ],
+        "structuredContent": {
+          "next_offset": null,
+          "nodes": [
+            {
+              "child_count": 200,
+              "height": 1568.0,
+              "kind": "Component set",
+              "name": "Buttons/Button",
+              "node_id": 24945,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 1364.0,
+              "x": 80.0,
+              "y": 590.0
+            },
+            {
+              "child_count": 216,
+              "height": 1336.0,
+              "kind": "Component set",
+              "name": "Buttons/Social button",
+              "node_id": 25646,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 2095.0,
+              "x": 2891.0,
+              "y": 590.0
+            },
+            {
+              "child_count": 12,
+              "height": 628.0,
+              "kind": "Component set",
+              "name": "Buttons/Social button group",
+              "node_id": 26187,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 1440.0,
+              "x": 5050.0,
+              "y": 590.0
+            },
+            {
+              "child_count": 20,
+              "height": 136.0,
+              "kind": "Component set",
+              "name": "Mobile app store badge",
+              "node_id": 26248,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 1804.0,
+              "x": 7050.0,
+              "y": 590.0
+            },
+            {
+              "child_count": 0,
+              "height": 462.0,
+              "kind": "Instance",
+              "name": "Design system header",
+              "node_id": 26357,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 2400.0,
+              "x": -1.4210854715202004e-14,
+              "y": 0.0
+            },
+            {
+              "child_count": 0,
+              "height": 462.0,
+              "kind": "Instance",
+              "name": "Design system header",
+              "node_id": 26358,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 3770.0,
+              "x": 2800.0,
+              "y": 0.0
+            },
+            {
+              "child_count": 0,
+              "height": 462.0,
+              "kind": "Instance",
+              "name": "Design system header",
+              "node_id": 26359,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 2400.0,
+              "x": 6970.0,
+              "y": 0.0
+            },
+            {
+              "child_count": 3,
+              "height": 11446.0,
+              "kind": "Frame",
+              "name": "Notes and documentation (you can delete this)",
+              "node_id": 26360,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 1600.0,
+              "x": 9770.0,
+              "y": 0.0
+            },
+            {
+              "child_count": 18,
+              "height": 188.0,
+              "kind": "Component set",
+              "name": "Buttons/Button close X",
+              "node_id": 26431,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 477.0,
+              "x": 1508.0,
+              "y": 590.0
+            },
+            {
+              "child_count": 175,
+              "height": 1320.0,
+              "kind": "Component set",
+              "name": "Buttons/Button destructive",
+              "node_id": 26468,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 1364.0,
+              "x": 80.0,
+              "y": 2286.0
+            },
+            {
+              "child_count": 16,
+              "height": 528.0,
+              "kind": "Component set",
+              "name": "Buttons/Button utility",
+              "node_id": 27074,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 192.0,
+              "x": 1508.0,
+              "y": 842.0
+            },
+            {
+              "child_count": 2,
+              "height": 56.0,
+              "kind": "Component set",
+              "name": "Buttons/Button loading icon",
+              "node_id": 27115,
+              "parent_id": 24944,
+              "visible": true,
+              "width": 108.0,
+              "x": 1764.0,
+              "y": 842.0
+            }
+          ],
+          "offset": 0,
+          "total": 12
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_query_xpath",
+    "arguments": {
+      "selector": "//FRAME",
+      "page_id": 44616,
+      "limit": 25
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"columns\":[\"id\",\"name\",\"type\",\"x\",\"y\",\"w\",\"h\",\"problems\",\"in_progress\"],\"complete\":false,\"count\":25,\"cursor\":\"eyJ2IjoxLCJkb2NfcmV2aXNpb24iOjUxNTkzMCwic2NvcGVfcm9vdCI6NDQ2MTYsImV4cHJfaGFzaCI6MjcxMjQ1NTEzOTMzNDc4NjIzNiwic2NvcGVfc2l6ZSI6NDgyNSwic2Nhbm5lZF90b3RhbCI6NzcsInN0YWNrIjpbWzQ0NjE2LDMsMF0sWzQ0Njg3LDMsMV0sWzQ0Njg5LDMsMV0sWzQ0NjkzLDEsMV1dfQ\",\"done\":false,\"remaining\":4748,\"rows\":[[44617,\"Mobile\",\"FRAME\",39006.0,620.0,375.0,1908.0,null,false],[44619,\"Main\",\"FRAME\",39006.0,676.0,375.0,1852.0,null,false],[44620,\"Header section\",\"FRAME\",39006.0,708.0,375.0,129.0,null,false],[44621,\"Container\",\"FRAME\",39006.0,708.0,375.0,129.0,null,false],[44623,\"Section\",\"FRAME\",39006.0,869.0,375.0,361.0,null,false],[44624,\"Container\",\"FRAME\",39006.0,869.0,375.0,361.0,null,false],[44627,\"Section\",\"FRAME\",39006.0,1262.0,375.0,593.0,null,false],[44628,\"Container\",\"FRAME\",39006.0,1262.0,375.0,593.0,null,false],[44630,\"Table\",\"FRAME\",39022.0,1315.0,343.0,540.0,null,false],[44631,\"Content\",\"FRAME\",39022.0,1315.0,343.0,504.0,null,false],[44632,\"Column\",\"FRAME\",39022.0,1315.0,200.0,504.0,null,false],[44640,\"Column\",\"FRAME\",39222.0,1315.0,99.0,504.0,null,false],[44648,\"Column\",\"FRAME\",39321.0,1315.0,44.0,504.0,null,false],[44657,\"Section\",\"FRAME\",39006.0,1887.0,375.0,593.0,null,false],[44658,\"Container\",\"FRAME\",39006.0,1887.0,375.0,593.0,null,false],[44660,\"Table\",\"FRAME\",39022.0,1940.0,343.0,540.0,null,false],[44661,\"Content\",\"FRAME\",39022.0,1940.0,343.0,504.0,null,false],[44662,\"Column\",\"FRAME\",39022.0,1940.0,199.0,504.0,null,false],[44670,\"Column\",\"FRAME\",39221.0,1940.0,100.0,504.0,null,false],[44678,\"Column\",\"FRAME\",39321.0,1940.0,44.0,504.0,null,false],[44687,\"Mobile\",\"FRAME\",39006.0,3842.0,375.0,1908.0,null,false],[44689,\"Main\",\"FRAME\",39006.0,3898.0,375.0,1852.0,null,false],[44690,\"Header section\",\"FRAME\",39006.0,3930.0,375.0,129.0,null,false],[44691,\"Container\",\"FRAME\",39006.0,3930.0,375.0,129.0,null,false],[44693,\"Section\",\"FRAME\",39006.0,4091.0,375.0,361.0,null,false]],\"scanned\":77,\"scanned_total\":77,\"scope_size\":4825}"
+          }
+        ],
+        "structuredContent": {
+          "columns": [
+            "id",
+            "name",
+            "type",
+            "x",
+            "y",
+            "w",
+            "h",
+            "problems",
+            "in_progress"
+          ],
+          "complete": false,
+          "count": 25,
+          "cursor": "eyJ2IjoxLCJkb2NfcmV2aXNpb24iOjUxNTkzMCwic2NvcGVfcm9vdCI6NDQ2MTYsImV4cHJfaGFzaCI6MjcxMjQ1NTEzOTMzNDc4NjIzNiwic2NvcGVfc2l6ZSI6NDgyNSwic2Nhbm5lZF90b3RhbCI6NzcsInN0YWNrIjpbWzQ0NjE2LDMsMF0sWzQ0Njg3LDMsMV0sWzQ0Njg5LDMsMV0sWzQ0NjkzLDEsMV1dfQ",
+          "done": false,
+          "remaining": 4748,
+          "rows": [
+            [
+              44617,
+              "Mobile",
+              "FRAME",
+              39006.0,
+              620.0,
+              375.0,
+              1908.0,
+              null,
+              false
+            ],
+            [
+              44619,
+              "Main",
+              "FRAME",
+              39006.0,
+              676.0,
+              375.0,
+              1852.0,
+              null,
+              false
+            ],
+            [
+              44620,
+              "Header section",
+              "FRAME",
+              39006.0,
+              708.0,
+              375.0,
+              129.0,
+              null,
+              false
+            ],
+            [
+              44621,
+              "Container",
+              "FRAME",
+              39006.0,
+              708.0,
+              375.0,
+              129.0,
+              null,
+              false
+            ],
+            [
+              44623,
+              "Section",
+              "FRAME",
+              39006.0,
+              869.0,
+              375.0,
+              361.0,
+              null,
+              false
+            ],
+            [
+              44624,
+              "Container",
+              "FRAME",
+              39006.0,
+              869.0,
+              375.0,
+              361.0,
+              null,
+              false
+            ],
+            [
+              44627,
+              "Section",
+              "FRAME",
+              39006.0,
+              1262.0,
+              375.0,
+              593.0,
+              null,
+              false
+            ],
+            [
+              44628,
+              "Container",
+              "FRAME",
+              39006.0,
+              1262.0,
+              375.0,
+              593.0,
+              null,
+              false
+            ],
+            [
+              44630,
+              "Table",
+              "FRAME",
+              39022.0,
+              1315.0,
+              343.0,
+              540.0,
+              null,
+              false
+            ],
+            [
+              44631,
+              "Content",
+              "FRAME",
+              39022.0,
+              1315.0,
+              343.0,
+              504.0,
+              null,
+              false
+            ],
+            [
+              44632,
+              "Column",
+              "FRAME",
+              39022.0,
+              1315.0,
+              200.0,
+              504.0,
+              null,
+              false
+            ],
+            [
+              44640,
+              "Column",
+              "FRAME",
+              39222.0,
+              1315.0,
+              99.0,
+              504.0,
+              null,
+              false
+            ],
+            [
+              44648,
+              "Column",
+              "FRAME",
+              39321.0,
+              1315.0,
+              44.0,
+              504.0,
+              null,
+              false
+            ],
+            [
+              44657,
+              "Section",
+              "FRAME",
+              39006.0,
+              1887.0,
+              375.0,
+              593.0,
+              null,
+              false
+            ],
+            [
+              44658,
+              "Container",
+              "FRAME",
+              39006.0,
+              1887.0,
+              375.0,
+              593.0,
+              null,
+              false
+            ],
+            [
+              44660,
+              "Table",
+              "FRAME",
+              39022.0,
+              1940.0,
+              343.0,
+              540.0,
+              null,
+              false
+            ],
+            [
+              44661,
+              "Content",
+              "FRAME",
+              39022.0,
+              1940.0,
+              343.0,
+              504.0,
+              null,
+              false
+            ],
+            [
+              44662,
+              "Column",
+              "FRAME",
+              39022.0,
+              1940.0,
+              199.0,
+              504.0,
+              null,
+              false
+            ],
+            [
+              44670,
+              "Column",
+              "FRAME",
+              39221.0,
+              1940.0,
+              100.0,
+              504.0,
+              null,
+              false
+            ],
+            [
+              44678,
+              "Column",
+              "FRAME",
+              39321.0,
+              1940.0,
+              44.0,
+              504.0,
+              null,
+              false
+            ],
+            [
+              44687,
+              "Mobile",
+              "FRAME",
+              39006.0,
+              3842.0,
+              375.0,
+              1908.0,
+              null,
+              false
+            ],
+            [
+              44689,
+              "Main",
+              "FRAME",
+              39006.0,
+              3898.0,
+              375.0,
+              1852.0,
+              null,
+              false
+            ],
+            [
+              44690,
+              "Header section",
+              "FRAME",
+              39006.0,
+              3930.0,
+              375.0,
+              129.0,
+              null,
+              false
+            ],
+            [
+              44691,
+              "Container",
+              "FRAME",
+              39006.0,
+              3930.0,
+              375.0,
+              129.0,
+              null,
+              false
+            ],
+            [
+              44693,
+              "Section",
+              "FRAME",
+              39006.0,
+              4091.0,
+              375.0,
+              361.0,
+              null,
+              false
+            ]
+          ],
+          "scanned": 77,
+          "scanned_total": 77,
+          "scope_size": 4825
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_query_xpath",
+    "arguments": {
+      "selector": "//INSTANCE",
+      "page_id": 44616,
+      "limit": 25
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"columns\":[\"id\",\"name\",\"type\",\"x\",\"y\",\"w\",\"h\",\"problems\",\"in_progress\"],\"complete\":false,\"count\":25,\"cursor\":\"eyJ2IjoxLCJkb2NfcmV2aXNpb24iOjUxNTkzMCwic2NvcGVfcm9vdCI6NDQ2MTYsImV4cHJfaGFzaCI6NTczNDkzMDY2NDE2MDM4NjM0MCwic2NvcGVfc2l6ZSI6NDgyNSwic2Nhbm5lZF90b3RhbCI6MzgsInN0YWNrIjpbWzQ0NjE2LDIsMF0sWzQ0NjE3LDMsMF0sWzQ0NjE5LDQsMF0sWzQ0NjI3LDIsMF0sWzQ0NjI4LDMsMF0sWzQ0NjMwLDIsMF0sWzQ0NjMxLDQsMF0sWzQ0NjQ4LDcsMF1dfQ\",\"done\":false,\"remaining\":4787,\"rows\":[[44618,\"Sidebar navigation\",\"INSTANCE\",39006.0,620.0,375.0,56.0,null,false],[44622,\"Page header\",\"INSTANCE\",39022.0,708.0,165.0,129.0,null,false],[44625,\"Section header\",\"INSTANCE\",39022.0,869.0,343.0,97.0,null,false],[44626,\"Line and bar chart\",\"INSTANCE\",39022.0,990.0,343.0,240.0,null,false],[44629,\"Section header\",\"INSTANCE\",39022.0,1262.0,343.0,45.0,null,false],[44633,\"Table cell\",\"INSTANCE\",39022.0,1315.0,200.0,72.0,null,false],[44634,\"Table cell\",\"INSTANCE\",39022.0,1387.0,200.0,72.0,null,false],[44635,\"Table cell\",\"INSTANCE\",39022.0,1459.0,200.0,72.0,null,false],[44636,\"Table cell\",\"INSTANCE\",39022.0,1531.0,200.0,72.0,null,false],[44637,\"Table cell\",\"INSTANCE\",39022.0,1603.0,200.0,72.0,null,false],[44638,\"Table cell\",\"INSTANCE\",39022.0,1675.0,200.0,72.0,null,false],[44639,\"Table cell\",\"INSTANCE\",39022.0,1747.0,200.0,72.0,null,false],[44641,\"Table cell\",\"INSTANCE\",39222.0,1315.0,99.0,72.0,null,false],[44642,\"Table cell\",\"INSTANCE\",39222.0,1387.0,99.0,72.0,null,false],[44643,\"Table cell\",\"INSTANCE\",39222.0,1459.0,99.0,72.0,null,false],[44644,\"Table cell\",\"INSTANCE\",39222.0,1531.0,99.0,72.0,null,false],[44645,\"Table cell\",\"INSTANCE\",39222.0,1603.0,99.0,72.0,null,false],[44646,\"Table cell\",\"INSTANCE\",39222.0,1675.0,99.0,72.0,null,false],[44647,\"Table cell\",\"INSTANCE\",39222.0,1747.0,99.0,72.0,null,false],[44649,\"Table cell\",\"INSTANCE\",39321.0,1315.0,44.0,72.0,null,false],[44650,\"Table cell\",\"INSTANCE\",39321.0,1387.0,44.0,72.0,null,false],[44651,\"Table cell\",\"INSTANCE\",39321.0,1459.0,44.0,72.0,null,false],[44652,\"Table cell\",\"INSTANCE\",39321.0,1531.0,44.0,72.0,null,false],[44653,\"Table cell\",\"INSTANCE\",39321.0,1603.0,44.0,72.0,null,false],[44654,\"Table cell\",\"INSTANCE\",39321.0,1675.0,44.0,72.0,null,false]],\"scanned\":38,\"scanned_total\":38,\"scope_size\":4825}"
+          }
+        ],
+        "structuredContent": {
+          "columns": [
+            "id",
+            "name",
+            "type",
+            "x",
+            "y",
+            "w",
+            "h",
+            "problems",
+            "in_progress"
+          ],
+          "complete": false,
+          "count": 25,
+          "cursor": "eyJ2IjoxLCJkb2NfcmV2aXNpb24iOjUxNTkzMCwic2NvcGVfcm9vdCI6NDQ2MTYsImV4cHJfaGFzaCI6NTczNDkzMDY2NDE2MDM4NjM0MCwic2NvcGVfc2l6ZSI6NDgyNSwic2Nhbm5lZF90b3RhbCI6MzgsInN0YWNrIjpbWzQ0NjE2LDIsMF0sWzQ0NjE3LDMsMF0sWzQ0NjE5LDQsMF0sWzQ0NjI3LDIsMF0sWzQ0NjI4LDMsMF0sWzQ0NjMwLDIsMF0sWzQ0NjMxLDQsMF0sWzQ0NjQ4LDcsMF1dfQ",
+          "done": false,
+          "remaining": 4787,
+          "rows": [
+            [
+              44618,
+              "Sidebar navigation",
+              "INSTANCE",
+              39006.0,
+              620.0,
+              375.0,
+              56.0,
+              null,
+              false
+            ],
+            [
+              44622,
+              "Page header",
+              "INSTANCE",
+              39022.0,
+              708.0,
+              165.0,
+              129.0,
+              null,
+              false
+            ],
+            [
+              44625,
+              "Section header",
+              "INSTANCE",
+              39022.0,
+              869.0,
+              343.0,
+              97.0,
+              null,
+              false
+            ],
+            [
+              44626,
+              "Line and bar chart",
+              "INSTANCE",
+              39022.0,
+              990.0,
+              343.0,
+              240.0,
+              null,
+              false
+            ],
+            [
+              44629,
+              "Section header",
+              "INSTANCE",
+              39022.0,
+              1262.0,
+              343.0,
+              45.0,
+              null,
+              false
+            ],
+            [
+              44633,
+              "Table cell",
+              "INSTANCE",
+              39022.0,
+              1315.0,
+              200.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44634,
+              "Table cell",
+              "INSTANCE",
+              39022.0,
+              1387.0,
+              200.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44635,
+              "Table cell",
+              "INSTANCE",
+              39022.0,
+              1459.0,
+              200.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44636,
+              "Table cell",
+              "INSTANCE",
+              39022.0,
+              1531.0,
+              200.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44637,
+              "Table cell",
+              "INSTANCE",
+              39022.0,
+              1603.0,
+              200.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44638,
+              "Table cell",
+              "INSTANCE",
+              39022.0,
+              1675.0,
+              200.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44639,
+              "Table cell",
+              "INSTANCE",
+              39022.0,
+              1747.0,
+              200.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44641,
+              "Table cell",
+              "INSTANCE",
+              39222.0,
+              1315.0,
+              99.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44642,
+              "Table cell",
+              "INSTANCE",
+              39222.0,
+              1387.0,
+              99.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44643,
+              "Table cell",
+              "INSTANCE",
+              39222.0,
+              1459.0,
+              99.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44644,
+              "Table cell",
+              "INSTANCE",
+              39222.0,
+              1531.0,
+              99.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44645,
+              "Table cell",
+              "INSTANCE",
+              39222.0,
+              1603.0,
+              99.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44646,
+              "Table cell",
+              "INSTANCE",
+              39222.0,
+              1675.0,
+              99.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44647,
+              "Table cell",
+              "INSTANCE",
+              39222.0,
+              1747.0,
+              99.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44649,
+              "Table cell",
+              "INSTANCE",
+              39321.0,
+              1315.0,
+              44.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44650,
+              "Table cell",
+              "INSTANCE",
+              39321.0,
+              1387.0,
+              44.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44651,
+              "Table cell",
+              "INSTANCE",
+              39321.0,
+              1459.0,
+              44.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44652,
+              "Table cell",
+              "INSTANCE",
+              39321.0,
+              1531.0,
+              44.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44653,
+              "Table cell",
+              "INSTANCE",
+              39321.0,
+              1603.0,
+              44.0,
+              72.0,
+              null,
+              false
+            ],
+            [
+              44654,
+              "Table cell",
+              "INSTANCE",
+              39321.0,
+              1675.0,
+              44.0,
+              72.0,
+              null,
+              false
+            ]
+          ],
+          "scanned": 38,
+          "scanned_total": 38,
+          "scope_size": 4825
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_query_xpath",
+    "arguments": {
+      "selector": "//TEXT",
+      "page_id": 44616,
+      "limit": 25
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"columns\":[\"id\",\"name\",\"type\",\"x\",\"y\",\"w\",\"h\",\"problems\",\"in_progress\"],\"complete\":false,\"count\":25,\"cursor\":\"eyJ2IjoxLCJkb2NfcmV2aXNpb24iOjUxNTkzMCwic2NvcGVfcm9vdCI6NDQ2MTYsImV4cHJfaGFzaCI6MTMwMTMxOTI5MzM2NzMxOTI4OTYsInNjb3BlX3NpemUiOjQ4MjUsInNjYW5uZWRfdG90YWwiOjkxMywic3RhY2siOltbNDQ2MTYsMTYsMF0sWzQ1Mzg0LDQsMF0sWzQ1NDc5LDQsMF0sWzQ1NDk3LDIsMF0sWzQ1NDk4LDMsMF0sWzQ1NTAwLDQsMF0sWzQ1NTA3LDIsMF1dfQ\",\"done\":false,\"remaining\":3912,\"rows\":[[44968,\"Number\",\"TEXT\",36959.0,1547.0,311.0,44.0,null,false],[45002,\"Number\",\"TEXT\",36959.0,4769.0,311.0,44.0,null,false],[45049,\"Number\",\"TEXT\",36543.0,1067.0,264.0,44.0,null,false],[45054,\"Text\",\"TEXT\",36583.0,1131.0,224.0,20.0,null,false],[123839,\"Percentage\",\"TEXT\",36777.0,1153.0,30.0,20.0,null,false],[45100,\"Number\",\"TEXT\",36543.0,4289.0,264.0,44.0,null,false],[45192,\"Heading\",\"TEXT\",33448.0,793.0,204.0,20.0,null,false],[45194,\"Number\",\"TEXT\",33448.0,821.0,64.0,38.0,null,false],[123842,\"Text\",\"TEXT\",33550.0,831.0,32.0,20.0,null,false],[45265,\"Number\",\"TEXT\",32785.0,874.0,180.0,38.0,null,false],[45286,\"Text\",\"TEXT\",32805.0,1884.0,221.0,20.0,null,false],[45287,\"Supporting text\",\"TEXT\",33042.0,1884.0,66.0,20.0,null,false],[45330,\"Number\",\"TEXT\",32785.0,4096.0,180.0,38.0,null,false],[45351,\"Text\",\"TEXT\",32805.0,5106.0,221.0,20.0,null,false],[45352,\"Supporting text\",\"TEXT\",33042.0,5106.0,66.0,20.0,null,false],[45397,\"Number\",\"TEXT\",31389.0,788.0,180.0,38.0,null,false],[45410,\"Heading\",\"TEXT\",31385.0,1226.0,249.33,20.0,null,false],[45411,\"Number\",\"TEXT\",31385.0,1250.0,249.33,32.0,null,false],[45493,\"Text\",\"TEXT\",32357.0,904.0,222.0,20.0,null,false],[45494,\"Supporting text\",\"TEXT\",32595.0,904.0,66.0,20.0,null,false],[45502,\"Text\",\"TEXT\",32337.0,1074.0,209.0,20.0,null,false],[45503,\"Number\",\"TEXT\",32562.0,1074.0,119.0,32.0,null,false],[45505,\"Text\",\"TEXT\",32337.0,1122.0,194.0,20.0,null,false],[45506,\"Number\",\"TEXT\",32547.0,1122.0,134.0,32.0,null,false],[45508,\"Text\",\"TEXT\",32337.0,1170.0,204.0,20.0,null,false]],\"scanned\":913,\"scanned_total\":913,\"scope_size\":4825}"
+          }
+        ],
+        "structuredContent": {
+          "columns": [
+            "id",
+            "name",
+            "type",
+            "x",
+            "y",
+            "w",
+            "h",
+            "problems",
+            "in_progress"
+          ],
+          "complete": false,
+          "count": 25,
+          "cursor": "eyJ2IjoxLCJkb2NfcmV2aXNpb24iOjUxNTkzMCwic2NvcGVfcm9vdCI6NDQ2MTYsImV4cHJfaGFzaCI6MTMwMTMxOTI5MzM2NzMxOTI4OTYsInNjb3BlX3NpemUiOjQ4MjUsInNjYW5uZWRfdG90YWwiOjkxMywic3RhY2siOltbNDQ2MTYsMTYsMF0sWzQ1Mzg0LDQsMF0sWzQ1NDc5LDQsMF0sWzQ1NDk3LDIsMF0sWzQ1NDk4LDMsMF0sWzQ1NTAwLDQsMF0sWzQ1NTA3LDIsMF1dfQ",
+          "done": false,
+          "remaining": 3912,
+          "rows": [
+            [
+              44968,
+              "Number",
+              "TEXT",
+              36959.0,
+              1547.0,
+              311.0,
+              44.0,
+              null,
+              false
+            ],
+            [
+              45002,
+              "Number",
+              "TEXT",
+              36959.0,
+              4769.0,
+              311.0,
+              44.0,
+              null,
+              false
+            ],
+            [
+              45049,
+              "Number",
+              "TEXT",
+              36543.0,
+              1067.0,
+              264.0,
+              44.0,
+              null,
+              false
+            ],
+            [
+              45054,
+              "Text",
+              "TEXT",
+              36583.0,
+              1131.0,
+              224.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              123839,
+              "Percentage",
+              "TEXT",
+              36777.0,
+              1153.0,
+              30.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45100,
+              "Number",
+              "TEXT",
+              36543.0,
+              4289.0,
+              264.0,
+              44.0,
+              null,
+              false
+            ],
+            [
+              45192,
+              "Heading",
+              "TEXT",
+              33448.0,
+              793.0,
+              204.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45194,
+              "Number",
+              "TEXT",
+              33448.0,
+              821.0,
+              64.0,
+              38.0,
+              null,
+              false
+            ],
+            [
+              123842,
+              "Text",
+              "TEXT",
+              33550.0,
+              831.0,
+              32.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45265,
+              "Number",
+              "TEXT",
+              32785.0,
+              874.0,
+              180.0,
+              38.0,
+              null,
+              false
+            ],
+            [
+              45286,
+              "Text",
+              "TEXT",
+              32805.0,
+              1884.0,
+              221.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45287,
+              "Supporting text",
+              "TEXT",
+              33042.0,
+              1884.0,
+              66.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45330,
+              "Number",
+              "TEXT",
+              32785.0,
+              4096.0,
+              180.0,
+              38.0,
+              null,
+              false
+            ],
+            [
+              45351,
+              "Text",
+              "TEXT",
+              32805.0,
+              5106.0,
+              221.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45352,
+              "Supporting text",
+              "TEXT",
+              33042.0,
+              5106.0,
+              66.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45397,
+              "Number",
+              "TEXT",
+              31389.0,
+              788.0,
+              180.0,
+              38.0,
+              null,
+              false
+            ],
+            [
+              45410,
+              "Heading",
+              "TEXT",
+              31385.0,
+              1226.0,
+              249.33,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45411,
+              "Number",
+              "TEXT",
+              31385.0,
+              1250.0,
+              249.33,
+              32.0,
+              null,
+              false
+            ],
+            [
+              45493,
+              "Text",
+              "TEXT",
+              32357.0,
+              904.0,
+              222.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45494,
+              "Supporting text",
+              "TEXT",
+              32595.0,
+              904.0,
+              66.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45502,
+              "Text",
+              "TEXT",
+              32337.0,
+              1074.0,
+              209.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45503,
+              "Number",
+              "TEXT",
+              32562.0,
+              1074.0,
+              119.0,
+              32.0,
+              null,
+              false
+            ],
+            [
+              45505,
+              "Text",
+              "TEXT",
+              32337.0,
+              1122.0,
+              194.0,
+              20.0,
+              null,
+              false
+            ],
+            [
+              45506,
+              "Number",
+              "TEXT",
+              32547.0,
+              1122.0,
+              134.0,
+              32.0,
+              null,
+              false
+            ],
+            [
+              45508,
+              "Text",
+              "TEXT",
+              32337.0,
+              1170.0,
+              204.0,
+              20.0,
+              null,
+              false
+            ]
+          ],
+          "scanned": 913,
+          "scanned_total": 913,
+          "scope_size": 4825
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_query_xpath",
+    "arguments": {
+      "selector": "//VECTOR",
+      "page_id": 44616,
+      "limit": 25
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"columns\":[\"id\",\"name\",\"type\",\"x\",\"y\",\"w\",\"h\",\"problems\",\"in_progress\"],\"complete\":true,\"count\":16,\"cursor\":null,\"done\":true,\"remaining\":0,\"rows\":[[123830,\"Vector\",\"VECTOR\",36543.0,1131.0,24.0,24.0,null,false],[123831,\"Vector\",\"VECTOR\",36554.48,1139.87,12.52,3.13,null,false],[123832,\"Vector\",\"VECTOR\",36554.48,1133.61,10.76,3.13,null,false],[123833,\"Vector\",\"VECTOR\",36547.53,1152.39,14.94,2.61,null,false],[123834,\"Vector\",\"VECTOR\",36543.41,1146.13,23.17,3.13,null,false],[123835,\"Vector\",\"VECTOR\",36543.0,1131.0,12.0,12.0,null,false],[123843,\"Icon\",\"VECTOR\",33535.0,838.5,10.0,5.0,null,false],[123846,\"Icon\",\"VECTOR\",31397.5,1173.89,15.0,15.61,null,false],[123851,\"Icon\",\"VECTOR\",31627.17,1165.33,1.67,13.33,null,false],[45744,\"Divider\",\"VECTOR\",29878.0,737.0,1.0,1195.0,null,false],[45835,\"Divider\",\"VECTOR\",29878.0,3959.0,1.0,1195.0,null,false],[123876,\"Icon\",\"VECTOR\",26822.33,1113.67,13.33,6.67,null,false],[123879,\"Icon\",\"VECTOR\",26864.17,923.33,1.67,13.33,null,false],[123896,\"Icon\",\"VECTOR\",25845.17,819.33,1.67,13.33,null,false],[123898,\"Icon\",\"VECTOR\",25799.33,917.67,13.33,6.67,null,false],[123902,\"Icon\",\"VECTOR\",24048.67,1349.5,16.67,15.0,null,false]],\"scanned\":4825,\"scanned_total\":4825,\"scope_size\":4825}"
+          }
+        ],
+        "structuredContent": {
+          "columns": [
+            "id",
+            "name",
+            "type",
+            "x",
+            "y",
+            "w",
+            "h",
+            "problems",
+            "in_progress"
+          ],
+          "complete": true,
+          "count": 16,
+          "cursor": null,
+          "done": true,
+          "remaining": 0,
+          "rows": [
+            [
+              123830,
+              "Vector",
+              "VECTOR",
+              36543.0,
+              1131.0,
+              24.0,
+              24.0,
+              null,
+              false
+            ],
+            [
+              123831,
+              "Vector",
+              "VECTOR",
+              36554.48,
+              1139.87,
+              12.52,
+              3.13,
+              null,
+              false
+            ],
+            [
+              123832,
+              "Vector",
+              "VECTOR",
+              36554.48,
+              1133.61,
+              10.76,
+              3.13,
+              null,
+              false
+            ],
+            [
+              123833,
+              "Vector",
+              "VECTOR",
+              36547.53,
+              1152.39,
+              14.94,
+              2.61,
+              null,
+              false
+            ],
+            [
+              123834,
+              "Vector",
+              "VECTOR",
+              36543.41,
+              1146.13,
+              23.17,
+              3.13,
+              null,
+              false
+            ],
+            [
+              123835,
+              "Vector",
+              "VECTOR",
+              36543.0,
+              1131.0,
+              12.0,
+              12.0,
+              null,
+              false
+            ],
+            [
+              123843,
+              "Icon",
+              "VECTOR",
+              33535.0,
+              838.5,
+              10.0,
+              5.0,
+              null,
+              false
+            ],
+            [
+              123846,
+              "Icon",
+              "VECTOR",
+              31397.5,
+              1173.89,
+              15.0,
+              15.61,
+              null,
+              false
+            ],
+            [
+              123851,
+              "Icon",
+              "VECTOR",
+              31627.17,
+              1165.33,
+              1.67,
+              13.33,
+              null,
+              false
+            ],
+            [
+              45744,
+              "Divider",
+              "VECTOR",
+              29878.0,
+              737.0,
+              1.0,
+              1195.0,
+              null,
+              false
+            ],
+            [
+              45835,
+              "Divider",
+              "VECTOR",
+              29878.0,
+              3959.0,
+              1.0,
+              1195.0,
+              null,
+              false
+            ],
+            [
+              123876,
+              "Icon",
+              "VECTOR",
+              26822.33,
+              1113.67,
+              13.33,
+              6.67,
+              null,
+              false
+            ],
+            [
+              123879,
+              "Icon",
+              "VECTOR",
+              26864.17,
+              923.33,
+              1.67,
+              13.33,
+              null,
+              false
+            ],
+            [
+              123896,
+              "Icon",
+              "VECTOR",
+              25845.17,
+              819.33,
+              1.67,
+              13.33,
+              null,
+              false
+            ],
+            [
+              123898,
+              "Icon",
+              "VECTOR",
+              25799.33,
+              917.67,
+              13.33,
+              6.67,
+              null,
+              false
+            ],
+            [
+              123902,
+              "Icon",
+              "VECTOR",
+              24048.67,
+              1349.5,
+              16.67,
+              15.0,
+              null,
+              false
+            ]
+          ],
+          "scanned": 4825,
+          "scanned_total": 4825,
+          "scope_size": 4825
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_query_xpath",
+    "arguments": {
+      "selector": "//COMPONENT",
+      "page_id": 78919,
+      "limit": 25
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 12,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"columns\":[\"id\",\"name\",\"type\",\"x\",\"y\",\"w\",\"h\",\"problems\",\"in_progress\"],\"complete\":false,\"count\":25,\"cursor\":\"eyJ2IjoxLCJkb2NfcmV2aXNpb24iOjUxNTkzMCwic2NvcGVfcm9vdCI6Nzg5MTksImV4cHJfaGFzaCI6MTY2ODU5NDQ5ODYwNTM5OTA0NzgsInNjb3BlX3NpemUiOjc4OSwic2Nhbm5lZF90b3RhbCI6MzY5LCJzdGFjayI6W1s3ODkxOSwyLDBdLFs3ODkyMCwyNiwwXSxbNzkyMDUsMSwxXV19\",\"done\":false,\"remaining\":420,\"rows\":[[78921,\"Actions=False, Type=Simple, Breakpoint=Desktop\",\"COMPONENT\",2896.0,636.0,388.0,106.0,null,false],[78927,\"Actions=True, Type=Simple, Breakpoint=Desktop\",\"COMPONENT\",3723.0,636.0,388.0,158.0,null,false],[78937,\"Actions=True, Type=Simple, Breakpoint=Mobile\",\"COMPONENT\",4143.0,636.0,343.0,158.0,null,false],[78947,\"Actions=False, Type=Icon 01, Breakpoint=Desktop\",\"COMPONENT\",2896.0,826.0,388.0,174.0,null,false],[78955,\"Actions=False, Type=Icon 03, Breakpoint=Desktop\",\"COMPONENT\",2896.0,1346.0,388.0,174.0,null,false],[78965,\"Actions=False, Type=Icon 04, Breakpoint=Desktop\",\"COMPONENT\",2896.0,1620.0,388.0,106.0,null,false],[78973,\"Actions=False, Type=Chart 03, Breakpoint=Desktop\",\"COMPONENT\",2896.0,2376.0,388.0,198.0,null,false],[78983,\"Actions=True, Type=Icon 01, Breakpoint=Desktop\",\"COMPONENT\",3723.0,826.0,388.0,226.0,null,false],[78995,\"Actions=True, Type=Icon 03, Breakpoint=Desktop\",\"COMPONENT\",3723.0,1346.0,388.0,242.0,null,false],[79010,\"Actions=True, Type=Icon 04, Breakpoint=Desktop\",\"COMPONENT\",3723.0,1620.0,388.0,174.0,null,false],[79023,\"Actions=True, Type=Chart 03, Breakpoint=Desktop\",\"COMPONENT\",3723.0,2376.0,388.0,266.0,null,false],[79038,\"Actions=True, Type=Icon 01, Breakpoint=Mobile\",\"COMPONENT\",4143.0,826.0,343.0,222.0,null,false],[79050,\"Actions=True, Type=Icon 03, Breakpoint=Mobile\",\"COMPONENT\",4143.0,1346.0,343.0,230.0,null,false],[79065,\"Actions=True, Type=Icon 04, Breakpoint=Mobile\",\"COMPONENT\",4143.0,1620.0,343.0,222.0,null,false],[79078,\"Actions=True, Type=Chart 03, Breakpoint=Mobile\",\"COMPONENT\",4143.0,2376.0,343.0,254.0,null,false],[79093,\"Actions=False, Type=Icon 02, Breakpoint=Desktop\",\"COMPONENT\",2896.0,1084.0,388.0,178.0,null,false],[79103,\"Actions=False, Type=Chart 02, Breakpoint=Desktop\",\"COMPONENT\",2896.0,2112.0,388.0,164.0,null,false],[79113,\"Actions=False, Type=Chart 01, Breakpoint=Desktop\",\"COMPONENT\",2896.0,1874.0,388.0,154.0,null,false],[79123,\"Actions=False, Type=Chart 01, Breakpoint=Mobile\",\"COMPONENT\",3316.0,1874.0,343.0,154.0,null,false],[79133,\"Actions=True, Type=Icon 02, Breakpoint=Desktop\",\"COMPONENT\",3723.0,1084.0,388.0,230.0,null,false],[79147,\"Actions=True, Type=Chart 02, Breakpoint=Desktop\",\"COMPONENT\",3723.0,2112.0,388.0,232.0,null,false],[79162,\"Actions=True, Type=Icon 02, Breakpoint=Mobile\",\"COMPONENT\",4143.0,1084.0,343.0,226.0,null,false],[79176,\"Actions=True, Type=Chart 01, Breakpoint=Desktop\",\"COMPONENT\",3723.0,1874.0,388.0,206.0,null,false],[79190,\"Actions=True, Type=Chart 02, Breakpoint=Mobile\",\"COMPONENT\",4143.0,2112.0,343.0,220.0,null,false],[79205,\"Actions=True, Type=Chart 01, Breakpoint=Mobile\",\"COMPONENT\",4143.0,1874.0,343.0,206.0,null,false]],\"scanned\":369,\"scanned_total\":369,\"scope_size\":789}"
+          }
+        ],
+        "structuredContent": {
+          "columns": [
+            "id",
+            "name",
+            "type",
+            "x",
+            "y",
+            "w",
+            "h",
+            "problems",
+            "in_progress"
+          ],
+          "complete": false,
+          "count": 25,
+          "cursor": "eyJ2IjoxLCJkb2NfcmV2aXNpb24iOjUxNTkzMCwic2NvcGVfcm9vdCI6Nzg5MTksImV4cHJfaGFzaCI6MTY2ODU5NDQ5ODYwNTM5OTA0NzgsInNjb3BlX3NpemUiOjc4OSwic2Nhbm5lZF90b3RhbCI6MzY5LCJzdGFjayI6W1s3ODkxOSwyLDBdLFs3ODkyMCwyNiwwXSxbNzkyMDUsMSwxXV19",
+          "done": false,
+          "remaining": 420,
+          "rows": [
+            [
+              78921,
+              "Actions=False, Type=Simple, Breakpoint=Desktop",
+              "COMPONENT",
+              2896.0,
+              636.0,
+              388.0,
+              106.0,
+              null,
+              false
+            ],
+            [
+              78927,
+              "Actions=True, Type=Simple, Breakpoint=Desktop",
+              "COMPONENT",
+              3723.0,
+              636.0,
+              388.0,
+              158.0,
+              null,
+              false
+            ],
+            [
+              78937,
+              "Actions=True, Type=Simple, Breakpoint=Mobile",
+              "COMPONENT",
+              4143.0,
+              636.0,
+              343.0,
+              158.0,
+              null,
+              false
+            ],
+            [
+              78947,
+              "Actions=False, Type=Icon 01, Breakpoint=Desktop",
+              "COMPONENT",
+              2896.0,
+              826.0,
+              388.0,
+              174.0,
+              null,
+              false
+            ],
+            [
+              78955,
+              "Actions=False, Type=Icon 03, Breakpoint=Desktop",
+              "COMPONENT",
+              2896.0,
+              1346.0,
+              388.0,
+              174.0,
+              null,
+              false
+            ],
+            [
+              78965,
+              "Actions=False, Type=Icon 04, Breakpoint=Desktop",
+              "COMPONENT",
+              2896.0,
+              1620.0,
+              388.0,
+              106.0,
+              null,
+              false
+            ],
+            [
+              78973,
+              "Actions=False, Type=Chart 03, Breakpoint=Desktop",
+              "COMPONENT",
+              2896.0,
+              2376.0,
+              388.0,
+              198.0,
+              null,
+              false
+            ],
+            [
+              78983,
+              "Actions=True, Type=Icon 01, Breakpoint=Desktop",
+              "COMPONENT",
+              3723.0,
+              826.0,
+              388.0,
+              226.0,
+              null,
+              false
+            ],
+            [
+              78995,
+              "Actions=True, Type=Icon 03, Breakpoint=Desktop",
+              "COMPONENT",
+              3723.0,
+              1346.0,
+              388.0,
+              242.0,
+              null,
+              false
+            ],
+            [
+              79010,
+              "Actions=True, Type=Icon 04, Breakpoint=Desktop",
+              "COMPONENT",
+              3723.0,
+              1620.0,
+              388.0,
+              174.0,
+              null,
+              false
+            ],
+            [
+              79023,
+              "Actions=True, Type=Chart 03, Breakpoint=Desktop",
+              "COMPONENT",
+              3723.0,
+              2376.0,
+              388.0,
+              266.0,
+              null,
+              false
+            ],
+            [
+              79038,
+              "Actions=True, Type=Icon 01, Breakpoint=Mobile",
+              "COMPONENT",
+              4143.0,
+              826.0,
+              343.0,
+              222.0,
+              null,
+              false
+            ],
+            [
+              79050,
+              "Actions=True, Type=Icon 03, Breakpoint=Mobile",
+              "COMPONENT",
+              4143.0,
+              1346.0,
+              343.0,
+              230.0,
+              null,
+              false
+            ],
+            [
+              79065,
+              "Actions=True, Type=Icon 04, Breakpoint=Mobile",
+              "COMPONENT",
+              4143.0,
+              1620.0,
+              343.0,
+              222.0,
+              null,
+              false
+            ],
+            [
+              79078,
+              "Actions=True, Type=Chart 03, Breakpoint=Mobile",
+              "COMPONENT",
+              4143.0,
+              2376.0,
+              343.0,
+              254.0,
+              null,
+              false
+            ],
+            [
+              79093,
+              "Actions=False, Type=Icon 02, Breakpoint=Desktop",
+              "COMPONENT",
+              2896.0,
+              1084.0,
+              388.0,
+              178.0,
+              null,
+              false
+            ],
+            [
+              79103,
+              "Actions=False, Type=Chart 02, Breakpoint=Desktop",
+              "COMPONENT",
+              2896.0,
+              2112.0,
+              388.0,
+              164.0,
+              null,
+              false
+            ],
+            [
+              79113,
+              "Actions=False, Type=Chart 01, Breakpoint=Desktop",
+              "COMPONENT",
+              2896.0,
+              1874.0,
+              388.0,
+              154.0,
+              null,
+              false
+            ],
+            [
+              79123,
+              "Actions=False, Type=Chart 01, Breakpoint=Mobile",
+              "COMPONENT",
+              3316.0,
+              1874.0,
+              343.0,
+              154.0,
+              null,
+              false
+            ],
+            [
+              79133,
+              "Actions=True, Type=Icon 02, Breakpoint=Desktop",
+              "COMPONENT",
+              3723.0,
+              1084.0,
+              388.0,
+              230.0,
+              null,
+              false
+            ],
+            [
+              79147,
+              "Actions=True, Type=Chart 02, Breakpoint=Desktop",
+              "COMPONENT",
+              3723.0,
+              2112.0,
+              388.0,
+              232.0,
+              null,
+              false
+            ],
+            [
+              79162,
+              "Actions=True, Type=Icon 02, Breakpoint=Mobile",
+              "COMPONENT",
+              4143.0,
+              1084.0,
+              343.0,
+              226.0,
+              null,
+              false
+            ],
+            [
+              79176,
+              "Actions=True, Type=Chart 01, Breakpoint=Desktop",
+              "COMPONENT",
+              3723.0,
+              1874.0,
+              388.0,
+              206.0,
+              null,
+              false
+            ],
+            [
+              79190,
+              "Actions=True, Type=Chart 02, Breakpoint=Mobile",
+              "COMPONENT",
+              4143.0,
+              2112.0,
+              343.0,
+              220.0,
+              null,
+              false
+            ],
+            [
+              79205,
+              "Actions=True, Type=Chart 01, Breakpoint=Mobile",
+              "COMPONENT",
+              4143.0,
+              1874.0,
+              343.0,
+              206.0,
+              null,
+              false
+            ]
+          ],
+          "scanned": 369,
+          "scanned_total": 369,
+          "scope_size": 789
+        },
+        "isError": false
+      }
+    }
+  },
+  {
+    "tool": "designos_query_xpath",
+    "arguments": {
+      "selector": "//COMPONENT",
+      "page_id": 81958,
+      "limit": 25
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 13,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"columns\":[\"id\",\"name\",\"type\",\"x\",\"y\",\"w\",\"h\",\"problems\",\"in_progress\"],\"complete\":true,\"count\":12,\"cursor\":null,\"done\":true,\"remaining\":0,\"rows\":[[81960,\"Style=Simple, Breakpoint=Desktop\",\"COMPONENT\",96.0,606.0,1216.0,117.0,null,false],[81972,\"Style=Avatar, Breakpoint=Desktop\",\"COMPONENT\",96.0,911.0,1216.0,117.0,null,false],[81986,\"Style=Avatar, Breakpoint=Mobile\",\"COMPONENT\",1552.0,911.0,375.0,217.0,null,false],[82000,\"Style=Banner avatar, Breakpoint=Mobile\",\"COMPONENT\",1552.0,1681.0,375.0,409.0,null,false],[82017,\"Style=Banner avatar centered, Breakpoint=Mobile\",\"COMPONENT\",1552.0,2735.0,375.0,409.0,null,false],[82034,\"Style=Banner simple centered, Breakpoint=Mobile\",\"COMPONENT\",1552.0,2154.0,375.0,401.0,null,false],[82049,\"Style=Banner simple, Breakpoint=Mobile\",\"COMPONENT\",1552.0,1192.0,375.0,425.0,null,false],[82064,\"Style=Simple, Breakpoint=Mobile\",\"COMPONENT\",1552.0,606.0,375.0,241.0,null,false],[82076,\"Style=Banner avatar, Breakpoint=Desktop\",\"COMPONENT\",96.0,1681.0,1440.0,393.0,null,false],[82094,\"Style=Banner avatar centered, Breakpoint=Desktop\",\"COMPONENT\",96.0,2735.0,1440.0,549.0,null,false],[82110,\"Style=Banner simple centered, Breakpoint=Desktop\",\"COMPONENT\",96.0,2154.0,1440.0,517.0,null,false],[82125,\"Style=Banner simple, Breakpoint=Desktop\",\"COMPONENT\",96.0,1192.0,1440.0,393.0,null,false]],\"scanned\":660,\"scanned_total\":660,\"scope_size\":660}"
+          }
+        ],
+        "structuredContent": {
+          "columns": [
+            "id",
+            "name",
+            "type",
+            "x",
+            "y",
+            "w",
+            "h",
+            "problems",
+            "in_progress"
+          ],
+          "complete": true,
+          "count": 12,
+          "cursor": null,
+          "done": true,
+          "remaining": 0,
+          "rows": [
+            [
+              81960,
+              "Style=Simple, Breakpoint=Desktop",
+              "COMPONENT",
+              96.0,
+              606.0,
+              1216.0,
+              117.0,
+              null,
+              false
+            ],
+            [
+              81972,
+              "Style=Avatar, Breakpoint=Desktop",
+              "COMPONENT",
+              96.0,
+              911.0,
+              1216.0,
+              117.0,
+              null,
+              false
+            ],
+            [
+              81986,
+              "Style=Avatar, Breakpoint=Mobile",
+              "COMPONENT",
+              1552.0,
+              911.0,
+              375.0,
+              217.0,
+              null,
+              false
+            ],
+            [
+              82000,
+              "Style=Banner avatar, Breakpoint=Mobile",
+              "COMPONENT",
+              1552.0,
+              1681.0,
+              375.0,
+              409.0,
+              null,
+              false
+            ],
+            [
+              82017,
+              "Style=Banner avatar centered, Breakpoint=Mobile",
+              "COMPONENT",
+              1552.0,
+              2735.0,
+              375.0,
+              409.0,
+              null,
+              false
+            ],
+            [
+              82034,
+              "Style=Banner simple centered, Breakpoint=Mobile",
+              "COMPONENT",
+              1552.0,
+              2154.0,
+              375.0,
+              401.0,
+              null,
+              false
+            ],
+            [
+              82049,
+              "Style=Banner simple, Breakpoint=Mobile",
+              "COMPONENT",
+              1552.0,
+              1192.0,
+              375.0,
+              425.0,
+              null,
+              false
+            ],
+            [
+              82064,
+              "Style=Simple, Breakpoint=Mobile",
+              "COMPONENT",
+              1552.0,
+              606.0,
+              375.0,
+              241.0,
+              null,
+              false
+            ],
+            [
+              82076,
+              "Style=Banner avatar, Breakpoint=Desktop",
+              "COMPONENT",
+              96.0,
+              1681.0,
+              1440.0,
+              393.0,
+              null,
+              false
+            ],
+            [
+              82094,
+              "Style=Banner avatar centered, Breakpoint=Desktop",
+              "COMPONENT",
+              96.0,
+              2735.0,
+              1440.0,
+              549.0,
+              null,
+              false
+            ],
+            [
+              82110,
+              "Style=Banner simple centered, Breakpoint=Desktop",
+              "COMPONENT",
+              96.0,
+              2154.0,
+              1440.0,
+              517.0,
+              null,
+              false
+            ],
+            [
+              82125,
+              "Style=Banner simple, Breakpoint=Desktop",
+              "COMPONENT",
+              96.0,
+              1192.0,
+              1440.0,
+              393.0,
+              null,
+              false
+            ]
+          ],
+          "scanned": 660,
+          "scanned_total": 660,
+          "scope_size": 660
+        },
+        "isError": false
+      }
+    }
+  }
+]

@@ -111,8 +111,8 @@ pub fn selection_box(app: &App) -> Option<([DV; 4], bool)> {
     }
 }
 
-/// Containers that may be descended into on click (ancestors of the selection).
-fn entered(app: &App) -> Vec<NodeId> {
+/// Every ancestor of each selected layer is treated as entered so its direct children can be clicked; to be confirmed against Figma.
+fn entered_ancestors(app: &App) -> Vec<NodeId> {
     let mut v = Vec::new();
     for id in app.selection.iter().take(64) {
         let mut cur = app.doc.get(*id).and_then(|n| n.parent);
@@ -124,6 +124,16 @@ fn entered(app: &App) -> Vec<NodeId> {
         }
     }
     v
+}
+
+/// Containers that may be descended into on click (ancestors of the selection).
+fn entered(app: &App) -> Vec<NodeId> {
+    entered_ancestors(app)
+}
+
+/// Drilling into a text layer with a double-click starts text editing immediately; to be confirmed against Figma.
+fn double_click_drills_into_text_edits_immediately() -> bool {
+    true
 }
 
 pub(crate) fn active_index(app: &App) -> Option<&designos_render::SceneIndex> {
@@ -149,6 +159,47 @@ pub(crate) fn active_index(app: &App) -> Option<&designos_render::SceneIndex> {
 pub fn hit_under(app: &App, page: DV, deep: bool) -> Option<NodeId> {
     let tol = 2.0 / app.view.zoom;
     hit::hit_test_with_index(&app.doc, app.page, page, tol, deep, &entered(app), active_index(app))
+}
+
+fn selection_hover_hash(sel: &[NodeId]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    sel.hash(&mut h);
+    h.finish()
+}
+
+/// Shared canvas node hit test for pointer press and hover preview, including
+/// `Cmd/Ctrl` deep selection and `Shift` matching-layer target resolution.
+pub(crate) fn press_target(app: &App, page: DV, mods: egui::Modifiers) -> Option<NodeId> {
+    let deep = mods.command;
+    if mods.shift && !deep && !app.selection.is_empty() {
+        let stack = hit::hit_all_under(&app.doc, app.page, page, active_index(app));
+        if let Some(m) = stack.into_iter().find(|&c| {
+            app.selection.iter().any(|&s| designos_doc::find::matches_layer_across_containers(&app.doc, s, c))
+                || (app.is_selected(c) && designos_doc::find::matching_scope_of(&app.doc, c).is_some())
+        }) {
+            return Some(m);
+        }
+    }
+    hit_under(app, page, deep)
+}
+
+fn marquee_matching_candidates(app: &App, base: &[NodeId]) -> Option<Vec<(NodeId, Rect)>> {
+    let nested = base.iter().any(|&s| hit::is_nested_selection_layer(&app.doc, s));
+    if !nested {
+        return None;
+    }
+    let mut ids = designos_doc::find::find_matching_layers(&app.doc, base);
+    ids.extend(base.iter().copied().filter(|&b| base.iter().any(|&s| s != b && designos_doc::find::matches_layer_across_containers(&app.doc, s, b))));
+    let idx = active_index(app);
+    Some(ids.into_iter().map(|cid| (cid, super::fast_world_aabb(&app.doc, idx, cid))).collect())
+}
+
+/// Like [`hit_under`], descending through nested frames at any depth
+/// (used by non-selection callers such as comment pins and vector path hover).
+pub fn hit_under_any_depth(app: &App, page: DV, deep: bool) -> Option<NodeId> {
+    let tol = 2.0 / app.view.zoom;
+    hit::hit_test_any_depth_with_index(&app.doc, app.page, page, tol, deep, &entered(app), active_index(app))
 }
 
 /// Rects of snap candidates (visible nodes near the viewport/moving selection except `exclude` subtrees, capped to 128).
@@ -292,7 +343,7 @@ fn snap_point(p: DV, targets: &[Rect], zoom: f32) -> (DV, snap::SnapResult) {
 // ------------------------------------------------------------------ main entry
 pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
     let ctx = ui.ctx().clone();
-    let agent_rail_open = !app.ui.left_collapsed && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+    let agent_rail_open = !app.ui.left_hidden() && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
     let typing = (crate::agent_a11y::non_canvas_has_focus(&ctx) || app.terminal.is_capturing_keyboard(agent_rail_open)) && app.canvas.text.is_none();
     let inp = gather(ui, typing);
     let hovered = resp.hovered();
@@ -709,13 +760,12 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         return;
     }
     // board: a magnet dot starts a connector
-    if app.is_board() && !mid && !inp.space && matches!(app.tool, Tool::Move | Tool::Connector) {
+    if app.wb_connectors_enabled() && !mid && !inp.space && matches!(app.tool, Tool::Move | Tool::Connector) {
         if let Some((node, magnet)) = crate::board::connect::dot_hit(app, rect, pos) {
             crate::board::connect::start(app, Some((node, magnet)), page);
             return;
         }
     }
-    let deep = inp.mods.command;
     let over_handle = handle_hit(app, rect, pos);
     let over_corner = matches!(over_handle, Some(HandleHit::Resize(h)) if h.is_corner());
     if !over_corner && !mid && !inp.space && matches!(app.tool, Tool::Move) {
@@ -730,7 +780,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
     }
     let target = if let Some(h) = over_handle {
         PressTarget::Handle(h)
-    } else if let Some(id) = label_hit(app, ctx, rect, pos).or_else(|| hit_under(app, page, deep)) {
+    } else if let Some(id) = label_hit(app, ctx, rect, pos).or_else(|| press_target(app, page, inp.mods)) {
         if app.is_selected(id) {
             PressTarget::SelectedNode(id)
         } else {
@@ -764,7 +814,8 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
             if !inp.mods.shift {
                 app.clear_selection();
             }
-            app.canvas.inter = Interaction::Marquee { start: page, cur: page, base };
+            let matching = marquee_matching_candidates(app, &base);
+            app.canvas.inter = Interaction::Marquee { start: page, cur: page, base, matching };
         }
         PressAction::Draw(tool) => start_draw(app, tool, page),
         PressAction::Build => builder::press(app, page, inp.mods.alt),
@@ -1051,17 +1102,39 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_) => follow_pointer(app, &mut inter, pos, cur, inp),
         Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
         Interaction::Connect(c) => crate::board::connect::drag(app, c, cur),
-        Interaction::Marquee { start, cur: c, base } => {
+        Interaction::Marquee { start, cur: c, base, matching } => {
             if inp.space {
                 let delta = sub(cur, *c);
                 *start = add(*start, delta);
             }
             *c = cur;
             let r = rect_from_points(*start, cur);
-            let hits = hit::marquee_select_with_index(&app.doc, app.page, &r, active_index(app));
+            let idx = active_index(app);
             if base.is_empty() {
-                app.selection = hits;
+                app.selection = if inp.mods.command {
+                    hit::marquee_select_deep_with_index(&app.doc, app.page, &r, idx)
+                } else {
+                    hit::marquee_select_with_index(&app.doc, app.page, &r, idx)
+                };
+            } else if let Some(cands) = matching.as_ref() {
+                let mut sel = base.clone();
+                for &(cid, ref bb) in cands {
+                    if !r.intersects(bb) {
+                        continue;
+                    }
+                    if let Some(i) = sel.iter().position(|&x| x == cid) {
+                        sel.remove(i);
+                    } else {
+                        sel.push(cid);
+                    }
+                }
+                app.selection = sel;
             } else {
+                let hits = if inp.mods.command {
+                    hit::marquee_select_deep_with_index(&app.doc, app.page, &r, idx)
+                } else {
+                    hit::marquee_select_with_index(&app.doc, app.page, &r, idx)
+                };
                 let mut sel = base.clone();
                 let mut seen: std::collections::HashSet<NodeId> = sel.iter().copied().collect();
                 for id in hits {
@@ -1245,6 +1318,7 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
         ids.push(clicked);
     }
     let mut tx = Tx::new();
+    tx.ed.reroute_viewport = Some(super::agent_changes_chip::viewport_page_rect(app.view, app.canvas_rect));
     let mut dup_blocked = None;
     let mut main_copies = Vec::new();
     if alt {
@@ -1387,6 +1461,11 @@ fn update_rotate(app: &mut App, r: &mut RotateState, cur: DV, inp: &Inp) {
     app.changed();
 }
 
+/// Whether `id` keeps the ratio of a resize drag through its own aspect lock. A line has no ratio to keep.
+fn keeps_aspect_in_drag(doc: &Document, id: NodeId) -> bool {
+    doc.get(id).is_some_and(|n| n.lock_aspect && !matches!(n.kind, NodeKind::Line))
+}
+
 fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
     r.tx.ed.revert(&mut app.doc);
     let mut mouse = cur;
@@ -1396,7 +1475,13 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
         ResizeKind::Single { world0, .. } => world0.b.abs() < 1e-4 && world0.c.abs() < 1e-4,
         ResizeKind::Multi { .. } => true,
     };
-    if axis_aligned && !inp.mods.command && !inp.mods.shift {
+    // A locked node keeps the ratio from every handle, as Shift does, and then the pointer is not snapped either:
+    // snapping one axis would move the other off the size the same drag gives with Shift held.
+    let locked_ratio = match &r.kind {
+        ResizeKind::Single { id, .. } => keeps_aspect_in_drag(&app.doc, *id),
+        ResizeKind::Multi { nodes, .. } => nodes.iter().any(|(id, ..)| keeps_aspect_in_drag(&app.doc, *id)),
+    };
+    if axis_aligned && !inp.mods.command && !inp.mods.shift && !locked_ratio {
         let xe: Vec<f32> = if r.handle.affects_x() { vec![mouse.x] } else { vec![] };
         let ye: Vec<f32> = if r.handle.affects_y() { vec![mouse.y] } else { vec![] };
         let s = snap::snap_edges(&Rect::new(mouse.x, mouse.y, 0.0, 0.0), &xe, &ye, &r.targets, theme::SNAP_THRESHOLD_PX / app.view.zoom);
@@ -1416,7 +1501,7 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
             let ml = inv.apply(mouse);
             let is_text = matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Text(_)));
             let is_line = matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Line));
-            let lock_aspect = is_scale_tool || (inp.mods.shift && !is_line) || (is_text && r.handle.is_corner());
+            let lock_aspect = is_scale_tool || (inp.mods.shift && !is_line) || locked_ratio || (is_text && r.handle.is_corner());
             let (mut ns, d) = handles::resize_local(*size0, r.handle, ml, lock_aspect, inp.mods.alt);
             if is_line {
                 ns.y = 0.0;
@@ -1439,7 +1524,7 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
         }
         ResizeKind::Multi { bbox0, nodes } => {
             let ml = sub(mouse, v2(bbox0.x, bbox0.y));
-            let (ns, d) = handles::resize_local(v2(bbox0.w, bbox0.h), r.handle, ml, inp.mods.shift || is_scale_tool, inp.mods.alt);
+            let (ns, d) = handles::resize_local(v2(bbox0.w, bbox0.h), r.handle, ml, inp.mods.shift || is_scale_tool || locked_ratio, inp.mods.alt);
             let nb = Rect::new(bbox0.x + d.x, bbox0.y + d.y, ns.x, ns.y);
             let (sx, sy) = (ns.x / bbox0.w.max(1e-3), ns.y / bbox0.h.max(1e-3));
             let mut relayout_roots = Vec::new();
@@ -1483,6 +1568,8 @@ fn scale_node_properties_proportionally(doc: &mut Document, ed: &mut crate::edit
     while let Some(cur) = stack.pop() {
         let children = doc.get(cur).map(|n| n.children.clone()).unwrap_or_default();
         if let Some(n) = ed.node(doc, cur) {
+            let text_ref = crate::styles::StyleKind::Text.ref_key();
+            let before_text = n.style_refs.contains_key(text_ref).then(|| n.kind.any_text().cloned()).flatten();
             for r in &mut n.corner_radii {
                 *r = (*r * factor).max(0.0);
             }
@@ -1491,6 +1578,9 @@ fn scale_node_properties_proportionally(doc: &mut Document, ed: &mut crate::edit
                 crate::richtext::apply_all(tp, |st| {
                     st.font_size = (st.font_size * factor).clamp(4.0, 512.0);
                 });
+            }
+            if before_text.is_some_and(|before| n.kind.any_text().is_some_and(|after| before != *after)) {
+                n.style_refs.remove(text_ref);
             }
             if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
                 for p in &mut al.padding {
@@ -1660,7 +1750,12 @@ pub fn auto_layout_inline_overlay(app: &mut App, ui: &mut Ui, rect: ERect) {
             .show(ui, |ui| {
                 let resp = ui.add_sized(
                     [48.0, 18.0],
-                    egui::TextEdit::singleline(&mut inline.text).font(egui::FontId::proportional(11.0)).horizontal_align(egui::Align::Center),
+                    // The editor's own frame is the field: a framed TextEdit would draw a second box (field fill and ring) inside it.
+                    // The margin is the one egui's default frame gave the text, so the value stays where it was.
+                    egui::TextEdit::singleline(&mut inline.text)
+                        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(theme::SPACE_FACT as i8, theme::INSET_SEGMENT as i8)))
+                        .font(egui::FontId::proportional(11.0))
+                        .horizontal_align(egui::Align::Center),
                 );
                 if inline.request_focus {
                     resp.request_focus();
@@ -1920,7 +2015,7 @@ fn on_double_click(app: &mut App, rect: ERect, inp: &Inp) {
     if let Some(id) = drilled {
         let is_text = matches!(app.doc.get(id).map(|n| &n.kind), Some(NodeKind::Text(_)));
         let board_kind = app.doc.get(id).map(|n| &n.kind);
-        if is_text {
+        if is_text && double_click_drills_into_text_edits_immediately() {
             begin_text_edit(app, id);
         } else if matches!(board_kind, Some(NodeKind::Sticky(_) | NodeKind::ShapeWithText(_))) {
             // stickies and shapes take their text on double-click
@@ -2260,7 +2355,7 @@ pub fn place_video_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     let mut node = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, w * scale, h * scale));
     node.name = name.to_string();
     node.fills = vec![designos_doc::Paint {
-        kind: designos_doc::PaintKind::Image { image_ref: poster_key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
+        kind: designos_doc::PaintKind::Image { image_ref: poster_key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill, params: Default::default() },
         opacity: 1.0,
         visible: true,
         blend: designos_doc::BlendMode::Normal,
@@ -2318,7 +2413,7 @@ pub fn insert_image(app: &mut App, tx: &mut Tx, parent: NodeId, name: &str, byte
     let mut n = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, size.x, size.y));
     n.name = name.to_string();
     n.fills = vec![designos_doc::Paint {
-        kind: designos_doc::PaintKind::Image { image_ref: key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
+        kind: designos_doc::PaintKind::Image { image_ref: key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill, params: Default::default() },
         opacity: 1.0,
         visible: true,
         blend: designos_doc::BlendMode::Normal,
@@ -2370,7 +2465,7 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
 
     if !idle {
         // Skip recomputing hover / hit_under while actively panning, dragging, resizing, or marquee-selecting.
-        if app.is_board() && matches!(app.canvas.inter, Interaction::Connect(_)) {
+        if app.wb_connectors_enabled() && matches!(app.canvas.inter, Interaction::Connect(_)) {
             let board_page = (hovered && app.canvas.text.is_none()).then(|| inp.pos.map(|p| app.view.to_page(rect.min, p))).flatten();
             crate::board::connect::update_hover(app, board_page);
         } else {
@@ -2407,7 +2502,7 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
     }
 
     // board: magnet dots follow the pointer only on board documents
-    let over_dot = if app.is_board() {
+    let over_dot = if app.wb_connectors_enabled() {
         let board_page = (hovered && app.canvas.text.is_none()).then(|| inp.pos.map(|p| app.view.to_page(rect.min, p))).flatten();
         crate::board::connect::update_hover(app, board_page);
         hovered && inp.pos.is_some_and(|p| crate::board::connect::dot_hit(app, rect, p).is_some())
@@ -2446,9 +2541,10 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
                             if special_handle_hovered(app, rect, pos) {
                                 cursor = egui::CursorIcon::PointingHand;
                             }
-                            let query_key = (pos, app.canvas.tiles.rev(), inp.mods.command, app.view.zoom);
+                            let query_key =
+                                (pos, app.canvas.tiles.rev(), inp.mods.command, inp.mods.shift, app.view.zoom, selection_hover_hash(&app.selection));
                             if app.canvas.dirty || app.canvas.last_hover_query != Some(query_key) {
-                                app.hover = label_hit(app, ctx, rect, pos).or_else(|| page.and_then(|p| hit_under(app, p, inp.mods.command)));
+                                app.hover = label_hit(app, ctx, rect, pos).or_else(|| page.and_then(|p| press_target(app, p, inp.mods)));
                                 app.canvas.last_hover_query = Some(query_key);
                             }
                         }
@@ -2516,6 +2612,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scale_tool_detaches_linked_text_style_when_font_size_changes() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let id = doc.alloc_id();
+        let id = doc
+            .insert(
+                page,
+                designos_doc::Node::text(id, Rect::new(0.0, 0.0, 120.0, 24.0), "Hello", designos_doc::TextStyle { font_size: 16.0, ..Default::default() }),
+            )
+            .unwrap();
+        doc.get_mut(id).unwrap().style_refs.insert("text".into(), "Body".into());
+
+        let mut edit = crate::edit::Edit::new();
+        scale_node_properties_proportionally(&mut doc, &mut edit, id, 2.0);
+
+        let node = doc.get(id).unwrap();
+        let text = node.kind.any_text().expect("text node");
+        assert_eq!(text.style.font_size, 32.0);
+        assert!(!node.style_refs.contains_key("text"), "a scale override must detach the shared text style");
+    }
+
+    #[test]
     fn alt_drag_of_a_main_and_a_plain_frame_makes_an_instance_of_the_main_and_a_copy_of_the_frame() {
         let mut d = Document::new("t");
         let page = d.add_page("p");
@@ -2540,6 +2658,54 @@ mod tests {
         assert_eq!(mains, 1, "the file keeps its one main");
         app.undo();
         assert_eq!(app.doc.nodes.len(), nodes, "one undo takes both copies away");
+    }
+
+    fn flat_shapes(shape: &egui::Shape, out: &mut Vec<egui::epaint::RectShape>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| flat_shapes(s, out)),
+            egui::Shape::Rect(r) => out.push(r.clone()),
+            _ => {}
+        }
+    }
+
+    /// The inline gap and padding editor sits in its own `BG_SECONDARY` frame: the text field inside it is
+    /// frameless, so the frame is the field and no second box (resting field ring on the field fill) shows.
+    #[test]
+    fn the_inline_gap_editor_draws_one_box_not_a_field_inside_a_frame() {
+        let (d, _page, frames) = page_of_frames(1);
+        let mut app = App::new(d);
+        app.selection = vec![frames[0]];
+        let canvas_rect = egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        app.canvas_rect = canvas_rect;
+        app.view = crate::app::View { offset: DV::ZERO, zoom: 1.0 };
+        app.canvas.al_inline = Some(AutoLayoutInlineEdit {
+            id: frames[0],
+            kind: handles::AutoLayoutHandleKind::Gap(0),
+            anchor_page: DV::new(120.0, 120.0),
+            text: "12".into(),
+            request_focus: false,
+        });
+        let ctx = egui::Context::default();
+        theme::apply(&ctx);
+        theme::install_fonts(&ctx);
+        // The first pass sizes the area; egui then fades a new area in, so run until it is fully opaque.
+        let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(canvas_rect), time: Some(0.9), ..Default::default() }, |ui| {
+            auto_layout_inline_overlay(&mut app, ui, canvas_rect);
+        });
+        for time in [1.5, 2.0, 2.5] {
+            out = ctx.run_ui(egui::RawInput { screen_rect: Some(canvas_rect), time: Some(time), ..Default::default() }, |ui| {
+                auto_layout_inline_overlay(&mut app, ui, canvas_rect);
+            });
+        }
+        assert!(app.canvas.al_inline.is_some(), "the editor stays open while no key was pressed");
+        let mut rects = Vec::new();
+        out.shapes.iter().for_each(|c| flat_shapes(&c.shape, &mut rects));
+        assert!(rects.iter().any(|r| r.fill == theme::BG_SECONDARY), "the editor's own frame is painted");
+        let field_rings = rects.iter().filter(|r| r.stroke.color == theme::BORDER_STRONG).count();
+        assert_eq!(field_rings, 0, "a framed TextEdit draws the resting field ring inside the editor frame");
+        let rose = egui::Color32::from_rgb(244, 63, 94);
+        assert!(rects.iter().any(|r| r.stroke.color == rose && r.stroke.width == 1.0), "the rose frame is the editing indicator");
+        assert_eq!(rects.iter().filter(|r| r.stroke.color == theme::FOCUS_RING).count(), 0, "the editor draws no focus ring of its own");
     }
 
     /// A page with `count` plain frames at x = 0, 300, 600 ..., each 100 x 100 with one 40 x 40 layer inside.
@@ -2929,7 +3095,7 @@ mod tests {
     #[test]
     fn marquee_selects_enclosed() {
         let (mut app, a, b) = app_with_two();
-        app.canvas.inter = Interaction::Marquee { start: v2(-10.0, -10.0), cur: v2(-10.0, -10.0), base: vec![] };
+        app.canvas.inter = Interaction::Marquee { start: v2(-10.0, -10.0), cur: v2(-10.0, -10.0), base: vec![], matching: None };
         let r = rect_from_points(v2(-10.0, -10.0), v2(150.0, 150.0));
         let ids = hit::marquee_select(&app.doc, app.page, &r);
         assert_eq!(ids, vec![a]);
@@ -3256,5 +3422,194 @@ mod tests {
         app.run_tx(r.tx);
         assert_eq!(app.doc.get(frame).unwrap().size, v2(400.0, 400.0));
         assert_eq!(app.doc.get(child).unwrap().size, v2(100.0, 100.0), "Cmd+Resize on Frame must leave Scale-constrained child untouched");
+    }
+
+    #[test]
+    fn handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift() {
+        let (mut app, a, _b) = app_with_two();
+        app.doc.get_mut(a).unwrap().transform = Affine::translate(100.0, 100.0);
+        app.doc.get_mut(a).unwrap().size = v2(100.0, 50.0);
+        app.doc.get_mut(a).unwrap().lock_aspect = true;
+
+        let cases = [
+            (Handle::TL, v2(60.0, 90.0), v2(140.0, 70.0)),
+            (Handle::T, v2(150.0, 50.0), v2(200.0, 100.0)),
+            (Handle::TR, v2(300.0, 90.0), v2(200.0, 100.0)),
+            (Handle::L, v2(50.0, 125.0), v2(150.0, 75.0)),
+            (Handle::R, v2(300.0, 125.0), v2(200.0, 100.0)),
+            (Handle::BL, v2(50.0, 160.0), v2(150.0, 75.0)),
+            (Handle::B, v2(150.0, 200.0), v2(200.0, 100.0)),
+            (Handle::BR, v2(300.0, 160.0), v2(200.0, 100.0)),
+        ];
+
+        for shift in [false, true] {
+            let inp = Inp {
+                pos: None,
+                press_pos: None,
+                release_pos: None,
+                prior_release_pos: None,
+                release_mods: None,
+                prior_release_mods: None,
+                pressed: false,
+                down: true,
+                released: false,
+                mid_pressed: false,
+                mid_down: false,
+                mods: Modifiers { shift, ..Modifiers::NONE },
+                space: false,
+                z_down: false,
+            };
+            for (handle, target, expected_size) in cases {
+                app.doc.get_mut(a).unwrap().transform = Affine::translate(100.0, 100.0);
+                app.doc.get_mut(a).unwrap().size = v2(100.0, 50.0);
+                let world0 = app.doc.world_transform(a);
+                let mut r = ResizeState {
+                    tx: Tx::new(),
+                    handle,
+                    kind: ResizeKind::Single { id: a, world0, t0: app.doc.get(a).unwrap().transform, size0: v2(100.0, 50.0) },
+                    targets: vec![],
+                };
+                update_resize(&mut app, &mut r, target, &inp);
+                let sz = app.doc.get(a).unwrap().size;
+                assert!(
+                    (sz.x - expected_size.x).abs() < 1e-3 && (sz.y - expected_size.y).abs() < 1e-3,
+                    "handle {handle:?} (shift={shift}) on locked 100x50 node must resize to {expected_size:?}, got {sz:?}"
+                );
+            }
+        }
+
+        // Unlocked node without Shift changes only the dragged axis on edge handles and free-resizes on corners.
+        app.doc.get_mut(a).unwrap().lock_aspect = false;
+        app.doc.get_mut(a).unwrap().transform = Affine::translate(100.0, 100.0);
+        app.doc.get_mut(a).unwrap().size = v2(100.0, 50.0);
+        let world0 = app.doc.world_transform(a);
+        let mut r = ResizeState {
+            tx: Tx::new(),
+            handle: Handle::BR,
+            kind: ResizeKind::Single { id: a, world0, t0: app.doc.get(a).unwrap().transform, size0: v2(100.0, 50.0) },
+            targets: vec![],
+        };
+        let inp_plain = Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers::NONE,
+            space: false,
+            z_down: false,
+        };
+        update_resize(&mut app, &mut r, v2(300.0, 160.0), &inp_plain);
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 60.0), "unlocked node without Shift must free-resize");
+    }
+
+    fn drag_inp(shift: bool) -> Inp {
+        Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers { shift, ..Modifiers::NONE },
+            space: false,
+            z_down: false,
+        }
+    }
+
+    /// Selects `ids`, grabs `handle` through the real resize start and returns the drag state.
+    fn grab_handle(app: &mut App, ids: &[NodeId], handle: Handle, at: DV, targets: Vec<Rect>) -> ResizeState {
+        app.selection = ids.to_vec();
+        start_resize(app, handle, at);
+        let Interaction::Resize(mut r) = std::mem::take(&mut app.canvas.inter) else { panic!("grabbing a handle must start a resize") };
+        r.targets = targets;
+        r
+    }
+
+    /// Locked 100x50 rectangle at the origin next to an unlocked 100x100 one, in one selection.
+    fn mixed_lock_pair() -> (App, NodeId, NodeId) {
+        let (mut app, a, b) = app_with_two();
+        let na = app.doc.get_mut(a).unwrap();
+        na.transform = Affine::translate(0.0, 0.0);
+        na.size = v2(100.0, 50.0);
+        na.lock_aspect = true;
+        let nb = app.doc.get_mut(b).unwrap();
+        nb.transform = Affine::translate(120.0, 0.0);
+        nb.size = v2(100.0, 100.0);
+        (app, a, b)
+    }
+
+    #[test]
+    fn multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked() {
+        // Right edge to twice the box width, no Shift.
+        let (mut app, a, b) = mixed_lock_pair();
+        let mut r = grab_handle(&mut app, &[a, b], Handle::R, v2(220.0, 50.0), vec![]);
+        update_resize(&mut app, &mut r, v2(440.0, 50.0), &drag_inp(false));
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 100.0), "the locked node must keep its 2:1 ratio in a multi-selection drag");
+        assert_eq!(app.doc.get(b).unwrap().size, v2(200.0, 200.0), "the unlocked node scales with the selection box");
+
+        // A selection with no locked node still resizes freely on an edge handle.
+        let (mut app, a, b) = mixed_lock_pair();
+        app.doc.get_mut(a).unwrap().lock_aspect = false;
+        let mut r = grab_handle(&mut app, &[a, b], Handle::R, v2(220.0, 50.0), vec![]);
+        update_resize(&mut app, &mut r, v2(440.0, 50.0), &drag_inp(false));
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 50.0), "an unlocked-only selection keeps its height on a right-edge drag");
+        assert_eq!(app.doc.get(b).unwrap().size, v2(200.0, 100.0));
+
+        // The bottom-edge handle keeps the ratio too.
+        let (mut app, a, b) = mixed_lock_pair();
+        let mut r = grab_handle(&mut app, &[a, b], Handle::B, v2(110.0, 100.0), vec![]);
+        update_resize(&mut app, &mut r, v2(110.0, 200.0), &drag_inp(false));
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 100.0), "the locked node keeps its ratio from the bottom edge");
+        assert_eq!(app.doc.get(b).unwrap().size, v2(200.0, 200.0));
+    }
+
+    #[test]
+    fn multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target() {
+        let target = Rect::new(440.0, 400.0, 10.0, 10.0);
+        let drag_to = v2(437.0, 50.0);
+        let sizes = |shift: bool, lock: bool| {
+            let (mut app, a, b) = mixed_lock_pair();
+            app.doc.get_mut(a).unwrap().lock_aspect = lock;
+            let mut r = grab_handle(&mut app, &[a, b], Handle::R, v2(220.0, 50.0), vec![target]);
+            update_resize(&mut app, &mut r, drag_to, &drag_inp(shift));
+            (app.doc.get(a).unwrap().size, app.doc.get(b).unwrap().size)
+        };
+        let (free_a, _) = sizes(false, false);
+        assert_eq!(free_a.x, 200.0, "control: an unlocked drag three units from the target snaps onto it");
+        let shift = sizes(true, false);
+        assert_ne!(shift.0.x, 200.0, "control: Shift skips the snap");
+        assert_eq!(sizes(false, true), shift, "a locked multi-selection drag must give the Shift size");
+    }
+
+    #[test]
+    fn locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag() {
+        let target = Rect::new(300.0, 400.0, 10.0, 10.0);
+        let drag_to = v2(298.0, 125.0);
+        let size_after = |shift: bool, lock: bool| {
+            let (mut app, a, _b) = app_with_two();
+            let n = app.doc.get_mut(a).unwrap();
+            n.transform = Affine::translate(100.0, 100.0);
+            n.size = v2(100.0, 50.0);
+            n.lock_aspect = lock;
+            let mut r = grab_handle(&mut app, &[a], Handle::R, v2(200.0, 125.0), vec![target]);
+            update_resize(&mut app, &mut r, drag_to, &drag_inp(shift));
+            app.doc.get(a).unwrap().size
+        };
+        assert_eq!(size_after(false, false), v2(200.0, 50.0), "control: an unlocked drag two units from the target snaps onto it");
+        assert_eq!(size_after(true, false), v2(198.0, 99.0), "control: a Shift drag skips the snap and keeps the ratio");
+        assert_eq!(size_after(false, true), size_after(true, false), "a locked drag must give the Shift size, not a snapped one");
+        assert_eq!(size_after(true, true), size_after(true, false));
     }
 }

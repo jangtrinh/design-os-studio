@@ -1,0 +1,38 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-doc)
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-mcp)
+   Compiling designos-fonts v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-fonts)
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-render)
+   Compiling designos-svg v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-svg)
+   Compiling designos-export v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-export)
+   Compiling designos-gpu v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-webcapture)
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-fig)
+   Compiling designos-library v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-library)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.53s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0825e6398c47afa8)
+
+running 1 test
+test board::connect::tests::reroute_runs_in_a_design_file ... FAILED
+
+failures:
+
+---- board::connect::tests::reroute_runs_in_a_design_file stdout ----
+
+thread 'board::connect::tests::reroute_runs_in_a_design_file' (1884326) panicked at crates/designos-app/src/board/connect.rs:226:9:
+assertion `left != right` failed
+  left: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 102.4, ty: 22.400002 }
+ right: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 102.4, ty: 22.400002 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    board::connect::tests::reroute_runs_in_a_design_file
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4383 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+EXIT=101

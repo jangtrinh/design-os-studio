@@ -1,0 +1,192 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+warning: fields `doc`, `name`, `page`, `prep`, and `unreachable` are never read
+  --> crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:37:9
+   |
+35 | pub struct TierTarget {
+   |            ---------- fields in this struct
+36 |     #[serde(default)]
+37 |     pub doc: String,
+   |         ^^^
+...
+41 |     pub name: Option<String>,
+   |         ^^^^
+42 |     #[serde(default)]
+43 |     pub page: Option<String>,
+   |         ^^^^
+44 |     #[serde(default)]
+45 |     pub prep: Vec<PrepKind>,
+   |         ^^^^
+46 |     #[serde(default)]
+47 |     pub unreachable: Option<String>,
+   |         ^^^^^^^^^^^
+   |
+   = note: `TierTarget` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.21s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-453cabe8bb4c7115)
+
+running 12 tests
+
+thread 'shell::tests::layout_unchanged::cases_json_has_no_old_fixture' (5225756) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:235:5:
+cases.json must not contain --fixture
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::layout_unchanged::cases_json_has_no_old_fixture ... FAILED
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... ok
+
+thread 'shell::tests::layout_unchanged::prep_helpers_populate_missing_starter_states' (5225765) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:288:5:
+prep::comment_thread must add a comment thread
+test shell::tests::layout_unchanged::prep_helpers_populate_missing_starter_states ... FAILED
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Button" matched 6 layers; selected id 248 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::layout_unchanged::sim_loads_starter_and_seed_library_at_seeds_starter_not_showcase' (5225766) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:267:5:
+seed_library_at must seed the 'Getting started' starter project, got ["Marlow"]
+test shell::tests::layout_unchanged::sim_loads_starter_and_seed_library_at_seeds_starter_not_showcase ... FAILED
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+designos: --select "Home" matched 25 layers; selected id 251 (first in page order; use id:<n> for another)
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+
+failures:
+
+failures:
+    shell::tests::layout_unchanged::cases_json_has_no_old_fixture
+    shell::tests::layout_unchanged::prep_helpers_populate_missing_starter_states
+    shell::tests::layout_unchanged::sim_loads_starter_and_seed_library_at_seeds_starter_not_showcase
+
+test result: FAILED. 9 passed; 3 failed; 0 ignored; 0 measured; 3522 filtered out; finished in 6.64s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+
+=== Deliverable 6 (RED): python3 -m unittest discover -s scripts/tests -v ===
+test_clean_tree_passes_its_baseline (test_check_spacing_relationships.SpacingRatchetTest.test_clean_tree_passes_its_baseline) ... ok
+test_comments_and_tests_are_not_counted (test_check_spacing_relationships.SpacingRatchetTest.test_comments_and_tests_are_not_counted) ... ok
+test_dirty_tree_fails_in_every_category (test_check_spacing_relationships.SpacingRatchetTest.test_dirty_tree_fails_in_every_category) ... ok
+test_matching_baseline_passes_and_one_extra_literal_fails (test_check_spacing_relationships.SpacingRatchetTest.test_matching_baseline_passes_and_one_extra_literal_fails) ... ok
+test_missing_baseline_is_a_usage_error_not_a_pass (test_check_spacing_relationships.SpacingRatchetTest.test_missing_baseline_is_a_usage_error_not_a_pass) ... ok
+test_new_file_with_a_literal_fails_even_when_totals_would_fall (test_check_spacing_relationships.SpacingRatchetTest.test_new_file_with_a_literal_fails_even_when_totals_would_fall) ... ok
+test_write_baseline_refuses_to_raise_a_count (test_check_spacing_relationships.SpacingRatchetTest.test_write_baseline_refuses_to_raise_a_count) ... ok
+test_gsap_entrance_never_fades_the_header (test_homepage_motion.HomepageMotionTests.test_gsap_entrance_never_fades_the_header) ... ok
+test_gsap_entrance_still_moves_the_header (test_homepage_motion.HomepageMotionTests.test_gsap_entrance_still_moves_the_header) ... ok
+test_header_is_not_hidden_by_the_static_preflight (test_homepage_motion.HomepageMotionTests.test_header_is_not_hidden_by_the_static_preflight) ... ok
+test_hero_blocks_are_still_hidden_until_the_cascade (test_homepage_motion.HomepageMotionTests.test_hero_blocks_are_still_hidden_until_the_cascade) ... ok
+test_argv0_outside_stub_dir_fails (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_argv0_outside_stub_dir_fails) ... ok
+test_dry_run_prints_import_clone_prep_and_capture_without_spawning (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_dry_run_prints_import_clone_prep_and_capture_without_spawning) ... FAIL
+test_empty_named_map_fails (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_empty_named_map_fails) ... ok
+test_env_is_built_with_env_i_and_four_markers (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_env_is_built_with_env_i_and_four_markers) ... ok
+test_g6_builds_crop_and_ignore_list_from_fixture_layout_json (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_g6_builds_crop_and_ignore_list_from_fixture_layout_json) ... ok
+test_infra_retry_then_exit_3 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_infra_retry_then_exit_3) ... ok
+test_kit_imported_once_and_cloned_per_case_with_headless_prep (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_kit_imported_once_and_cloned_per_case_with_headless_prep) ... FAIL
+test_missing_kit_exits_nonzero (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_kit_exits_nonzero) ... FAIL
+test_missing_or_foreign_hermetic_active_fails (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_or_foreign_hermetic_active_fails) ... ok
+test_owned_infra_exits_1 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_owned_infra_exits_1) ... ok
+test_spawns_case_with_empty_log_fails (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_spawns_case_with_empty_log_fails) ... ok
+test_a_drifted_ladder_rung_in_the_real_theme_fails (test_non_colour_token_parity.NonColourParityTest.test_a_drifted_ladder_rung_in_the_real_theme_fails) ... ok
+test_a_new_role_constant_without_a_token_or_a_reason_fails (test_non_colour_token_parity.NonColourParityTest.test_a_new_role_constant_without_a_token_or_a_reason_fails) ... ok
+test_agreement_passes (test_non_colour_token_parity.NonColourParityTest.test_agreement_passes) ... ok
+test_alias_or_expression_constant_fails (test_non_colour_token_parity.NonColourParityTest.test_alias_or_expression_constant_fails) ... ok
+test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive (test_non_colour_token_parity.NonColourParityTest.test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive) ... ok
+test_known_drift_passes_only_while_pinned (test_non_colour_token_parity.NonColourParityTest.test_known_drift_passes_only_while_pinned) ... ok
+test_missing_token_fails (test_non_colour_token_parity.NonColourParityTest.test_missing_token_fails) ... ok
+test_repository_is_in_parity_with_the_pinned_drift_only (test_non_colour_token_parity.NonColourParityTest.test_repository_is_in_parity_with_the_pinned_drift_only) ... ok
+test_rust_drift_fails (test_non_colour_token_parity.NonColourParityTest.test_rust_drift_fails) ... ok
+test_title_token_is_not_matched_by_name (test_non_colour_token_parity.NonColourParityTest.test_title_token_is_not_matched_by_name) ... ok
+test_token_drift_fails (test_non_colour_token_parity.NonColourParityTest.test_token_drift_fails) ... ok
+test_numeric_compare_refuses_0_10_0_to_0_9_0 (test_release_sync_pages.GuardTests.test_numeric_compare_refuses_0_10_0_to_0_9_0) ... ok
+test_refuses_downgrade (test_release_sync_pages.GuardTests.test_refuses_downgrade) ... ok
+test_refuses_prerelease_and_bad_version (test_release_sync_pages.GuardTests.test_refuses_prerelease_and_bad_version) ... ok
+test_size_label_rounds_decimal_megabytes (test_release_sync_pages.GuardTests.test_size_label_rounds_decimal_megabytes) ... ok
+test_version_compare_is_numeric_not_lexicographic (test_release_sync_pages.GuardTests.test_version_compare_is_numeric_not_lexicographic) ... ok
+test_final_assertion_catches_leftover_old_link (test_release_sync_pages.MissingAssetTests.test_final_assertion_catches_leftover_old_link) ... ok
+test_missing_asset_in_markdown_fails (test_release_sync_pages.MissingAssetTests.test_missing_asset_in_markdown_fails) ... ok
+test_missing_required_dmg_fails (test_release_sync_pages.MissingAssetTests.test_missing_required_dmg_fails) ... ok
+test_optional_assets_missing_are_dropped_with_warning (test_release_sync_pages.MissingAssetTests.test_optional_assets_missing_are_dropped_with_warning) ... ok
+test_cli_exit_code_matches (test_release_sync_pages.PublishJobTests.test_cli_exit_code_matches) ... ok
+test_cli_unusable_answer_exits_2_not_skip (test_release_sync_pages.PublishJobTests.test_cli_unusable_answer_exits_2_not_skip) ... ok
+test_publish_skipped_or_failed_or_missing (test_release_sync_pages.PublishJobTests.test_publish_skipped_or_failed_or_missing) ... ok
+test_publish_succeeded_while_a_platform_leg_failed (test_release_sync_pages.PublishJobTests.test_publish_succeeded_while_a_platform_leg_failed) ... ok
+test_accepts_v_prefix (test_release_sync_pages.RewriteTests.test_accepts_v_prefix) ... ok
+test_idempotent (test_release_sync_pages.RewriteTests.test_idempotent) ... ok
+test_marketing_copy_is_not_rewritten (test_release_sync_pages.RewriteTests.test_marketing_copy_is_not_rewritten) ... ok
+test_report_lists_manual_followups (test_release_sync_pages.RewriteTests.test_report_lists_manual_followups) ... ok
+test_rewrites_every_download_link_and_size (test_release_sync_pages.RewriteTests.test_rewrites_every_download_link_and_size) ... ok
+test_updates_readme_install_and_sitemap (test_release_sync_pages.RewriteTests.test_updates_readme_install_and_sitemap) ... ok
+test_mismatch_is_detected (test_release_sync_pages.WhatsNewParityTests.test_mismatch_is_detected) ... ok
+test_readme_and_homepage_whats_new_versions_match (test_release_sync_pages.WhatsNewParityTests.test_readme_and_homepage_whats_new_versions_match) ... ok
+test_ac03_no_legacy_demos_in_shipped_code (test_shipped_resources.ShippedResourcesTest.test_ac03_no_legacy_demos_in_shipped_code) ... ok
+test_ac12_no_untitled_ui_in_shipped_resources_or_starter (test_shipped_resources.ShippedResourcesTest.test_ac12_no_untitled_ui_in_shipped_resources_or_starter) ... ok
+test_examples_removed_and_unreferenced (test_shipped_resources.ShippedResourcesTest.test_examples_removed_and_unreferenced) ... ok
+
+======================================================================
+FAIL: test_dry_run_prints_import_clone_prep_and_capture_without_spawning (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_dry_run_prints_import_clone_prep_and_capture_without_spawning)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/tests/test_layout_baseline_capture.py", line 768, in test_dry_run_prints_import_clone_prep_and_capture_without_spawning
+    self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 2 != 0 : usage: layout_baseline_capture.py [-h] [--bin BIN] --cases CASES --stubs STUBS
+                                  --out OUT [--compare COMPARE]
+                                  [--only-spec ONLY_SPEC] [--kit KIT]
+                                  [--diff-bin DIFF_BIN] [--allow ALLOW]
+layout_baseline_capture.py: error: unrecognized arguments: --dry-run
+
+
+======================================================================
+FAIL: test_kit_imported_once_and_cloned_per_case_with_headless_prep (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_kit_imported_once_and_cloned_per_case_with_headless_prep)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/tests/test_layout_baseline_capture.py", line 689, in test_kit_imported_once_and_cloned_per_case_with_headless_prep
+    self.assertIn("SKIP x-board: unreachable in Tier B", proc.stdout)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'SKIP x-board: unreachable in Tier B' not found in 'Every case has its acknowledgement.\nEvery spawns case logged a stub line.\nEvery $0 in invocations.log starts with the stub dir (/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-iijx1jh6/run/stubs/).\nCases: 3 captured, 0 skipped (3 total), wall time 0.57s\n'
+
+======================================================================
+FAIL: test_missing_kit_exits_nonzero (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_kit_exits_nonzero)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/tests/test_layout_baseline_capture.py", line 581, in test_missing_kit_exits_nonzero
+    self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 2 : ERROR: case d-editor-default: check 1 failed: missing /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-0rgk_m21/run/tmp/.designos-hermetic-active
+
+
+----------------------------------------------------------------------
+Ran 57 tests in 12.081s
+
+FAILED (failures=3)

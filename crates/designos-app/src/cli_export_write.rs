@@ -72,6 +72,12 @@ pub fn write_export(path: &Path, ext: &str, bytes: &[u8], overwrite: bool) -> Re
     }
 }
 
+/// Writes a generated JSON export without following a path planted by another process.
+/// Spec exports replace the previous file, matching the old `std::fs::write` behavior.
+pub(crate) fn write_json_export(path: &Path, json: &str) -> Result<(), String> {
+    write_export(path, "json", json.as_bytes(), true)
+}
+
 fn write_error(path: &Path, e: &io::Error) -> String {
     format!("Cannot write {}: {e}", path.display())
 }

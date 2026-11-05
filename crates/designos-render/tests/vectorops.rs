@@ -168,13 +168,14 @@ fn flatten_merges_a_selection_in_the_target_space() {
 }
 
 #[test]
-fn flatten_skips_text_and_empty_selections() {
+fn flatten_converts_text_and_skips_empty_selections() {
     let (d, page) = doc_with(|d, page| {
         let t = d.alloc_id();
-        add(d, page, Node::text(t, Rect::new(0.0, 0.0, 10.0, 10.0), "hi", TextStyle::default()));
+        add(d, page, Node::text(t, Rect::new(0.0, 0.0, 40.0, 20.0), "hi", TextStyle::default()));
     });
     let t = d.get(page).unwrap().children[0];
-    assert!(flatten_nodes(&d, &[t], &Affine::IDENTITY).is_none());
+    let flat = flatten_nodes(&d, &[t], &Affine::IDENTITY).expect("text flattens to vector geometry");
+    assert!(!flat.paths.is_empty());
     assert!(flatten_nodes(&d, &[], &Affine::IDENTITY).is_none());
 }
 

@@ -2,6 +2,7 @@
 
 mod support;
 
+use designos_eval::agent::{action_on_tool_error, run_stub_agent, run_stub_agent_with_policy, StubErrorAction};
 use designos_eval::mcp_client::McpClient;
 use designos_eval::runner::{replay_transcript_file, rfc3339_utc, run_harness};
 use designos_eval::transcript::{had_document_edits, TranscriptLine};
@@ -134,6 +135,90 @@ fn mcp_client_reports_a_failing_tool_as_a_result_not_a_transport_error() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// Runs a scripted agent whose last call retries `open_file` with `discard_changes: true` right after the unsaved-changes refusal.
+/// Returns how many scripted calls were sent and whether the document the agent edited was thrown away (`start.designos` reopened).
+fn run_needs_human_open_file_agent(policy: Option<fn(&Value) -> StubErrorAction>) -> (usize, bool, Vec<TranscriptLine>) {
+    let root = temp_test_dir("needs-human-open");
+    let transcript = root.join("transcript.jsonl");
+    let config = json!({"mcpServers": {"designos": {
+        "command": mcp_bin().to_string_lossy(),
+        "args": ["--workspace", root.to_string_lossy()],
+        "env": {"DESIGNOS_MCP_TRANSCRIPT": transcript.to_string_lossy()},
+    }}});
+    let config_path = root.join("mcp.json");
+    fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
+    let script_path = root.join("script.jsonl");
+    fs::write(
+        &script_path,
+        script(&[
+            json!({"tool": "designos_save_file", "args": {"path": "start.designos"}}),
+            create_hero_frame_call(),
+            json!({"tool": "designos_open_file", "args": {"path": "start.designos"}}),
+            json!({"tool": "designos_open_file", "args": {"path": "start.designos", "discard_changes": true}}),
+        ]),
+    )
+    .unwrap();
+
+    // `None` runs the entry point agents use (`run_stub_agent`), which must carry the default policy by itself.
+    let sent = match policy {
+        Some(policy) => run_stub_agent_with_policy(&script_path, &config_path, policy).unwrap(),
+        None => {
+            run_stub_agent(&script_path, &config_path).unwrap();
+            usize::MAX
+        }
+    };
+    let lines: Vec<TranscriptLine> = fs::read_to_string(&transcript).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let sent = if sent == usize::MAX { lines.len() } else { sent };
+    let discarded = lines.iter().any(|l| l.tool == "designos_open_file" && l.args["discard_changes"] == json!(true) && !l.is_error);
+    let _ = fs::remove_dir_all(&root);
+    (sent, discarded, lines)
+}
+
+#[test]
+fn needs_human_agent_stops_instead_of_discarding() {
+    let (sent, discarded, lines) = run_needs_human_open_file_agent(Some(action_on_tool_error));
+    let refusal = lines.iter().find(|l| l.tool == "designos_open_file").expect("the dirty open_file call was sent");
+    let err = refusal.error.as_ref().expect("the refusal is recorded");
+    assert!(refusal.is_error, "{err}");
+    assert_eq!(sent, 3, "the stub stops at the needs_human refusal and never sends the discard retry: {lines:?}");
+    assert!(!discarded, "the agent must not retry with discard_changes=true");
+    assert!(lines.iter().all(|l| l.args.get("discard_changes").is_none()), "{lines:?}");
+}
+
+/// `run_stub_agent` itself, with no policy argument, stops at the refusal: the default wiring is what an eval run uses.
+#[test]
+fn the_default_stub_agent_stops_at_a_needs_human_refusal() {
+    let (sent, discarded, lines) = run_needs_human_open_file_agent(None);
+    assert_eq!(sent, 3, "{lines:?}");
+    assert!(!discarded, "{lines:?}");
+}
+
+/// The same script with a policy that ignores `error_kind` sends the discard retry, so the verdict above flips and the test can fail.
+#[test]
+fn needs_human_scenario_fails_when_the_policy_ignores_error_kind() {
+    let (sent, discarded, _) = run_needs_human_open_file_agent(Some(|_| StubErrorAction::Continue));
+    assert_eq!(sent, 4, "an agent that ignores error_kind sends every scripted call");
+    assert!(discarded, "and so throws the unsaved edit away");
+}
+
+/// What the server tells the agent in that refusal: `needs_human`, never safe to retry, no example to resend.
+#[test]
+fn the_unsaved_changes_refusal_is_needs_human_with_no_example() {
+    let root = temp_test_dir("needs-human-open-wire");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    assert!(!client.call_tool("designos_save_file", &json!({"path": "start.designos"})).unwrap().is_error);
+    let page = client.call_tool("designos_get_document", &json!({})).unwrap().value["pages"][0]["node_id"].clone();
+    assert!(!client.call_tool("designos_create_node", &json!({"parent_id": page, "kind": "frame", "name": "Unsaved"})).unwrap().is_error);
+    let open = client.call_tool("designos_open_file", &json!({"path": "start.designos"})).unwrap();
+    assert!(open.is_error, "{:?}", open.value);
+    assert_eq!(open.value["error_kind"], "needs_human", "{:?}", open.value);
+    assert_eq!(open.value["safe_to_retry"], false);
+    assert!(open.value.get("corrected_example").is_none(), "{:?}", open.value);
+    assert_eq!(action_on_tool_error(&open.value), StubErrorAction::StopAndReport);
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
+}
+
 fn line(undo_depth: usize, is_error: bool) -> TranscriptLine {
     TranscriptLine { seq: 1, t_ms: 0, tool: "t".to_string(), args: Value::Null, result: None, error: None, is_error, undo_depth }
 }
@@ -145,6 +230,69 @@ fn only_a_growing_undo_stack_counts_as_an_edit() {
     assert!(had_document_edits(&[line(0, false), line(1, false)]));
     assert!(!had_document_edits(&[line(0, false), line(1, true)]), "a failed call changed nothing");
     assert!(had_document_edits(&[line(3, false), line(0, false), line(1, false)]), "an edit after opening a file counts");
+}
+
+#[test]
+fn scripted_loop_returns_loop_suspected() {
+    let root = temp_test_dir("loop-suspected");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    let args = json!({"node_id": 9_876_543_210u64, "name": "loop"});
+    let first = client.call_tool("designos_update_node", &args).unwrap();
+    assert!(first.is_error);
+    assert_ne!(first.value["code"], json!("LOOP_SUSPECTED"), "{:?}", first.value);
+    let second = client.call_tool("designos_update_node", &args).unwrap();
+    assert!(second.is_error);
+    assert_ne!(second.value["code"], json!("LOOP_SUSPECTED"), "{:?}", second.value);
+    let third = client.call_tool("designos_update_node", &args).unwrap();
+    assert!(third.is_error, "{:?}", third.value);
+    let code = third.value.get("code").or_else(|| third.value.pointer("/error/code"));
+    assert_eq!(code, Some(&json!("LOOP_SUSPECTED")), "{:?}", third.value);
+    assert_eq!(third.value.get("safe_to_retry").or_else(|| third.value.pointer("/error/safe_to_retry")), Some(&json!(false)));
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn scripted_read_loop_returns_warning() {
+    let root = temp_test_dir("loop-read-warning");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    let args = json!({});
+    let first = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!first.is_error, "{:?}", first.value);
+    assert!(first.value.get("warning").is_none(), "{:?}", first.value);
+    let second = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!second.is_error, "{:?}", second.value);
+    assert!(second.value.get("warning").is_none(), "{:?}", second.value);
+    let third = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!third.is_error, "{:?}", third.value);
+    let warning = third.value.get("warning").unwrap_or_else(|| panic!("missing warning: {:?}", third.value));
+    assert_eq!(warning["code"], json!("LOOP_SUSPECTED"), "{:?}", third.value);
+    assert_eq!(warning["safe_to_retry"], json!(false), "{:?}", third.value);
+    assert_eq!(warning["next_step"], json!("Change the arguments, read the document state, or ask the user."), "{:?}", third.value);
+    assert_eq!(warning["message"], json!("The same call has returned the same result 3 times"), "{:?}", third.value);
+    let mut stripped = third.value.clone();
+    stripped.as_object_mut().unwrap().remove("warning");
+    assert_eq!(stripped, first.value);
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn polling_a_changing_document_stays_silent() {
+    let root = temp_test_dir("loop-poll");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    let doc = client.call_tool("designos_get_document", &json!({})).unwrap();
+    assert!(!doc.is_error, "{:?}", doc.value);
+    let page = doc.value["pages"][0]["node_id"].as_u64().expect("page node_id");
+    for i in 0..3 {
+        let created = client.call_tool("designos_create_node", &json!({"parent_id": page, "kind": "frame", "name": format!("Poll{i}")})).unwrap();
+        assert!(!created.is_error, "{:?}", created.value);
+        let again = client.call_tool("designos_get_document", &json!({})).unwrap();
+        assert!(!again.is_error, "{:?}", again.value);
+        assert_ne!(again.value.get("code"), Some(&json!("LOOP_SUSPECTED")));
+    }
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]

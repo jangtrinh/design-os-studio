@@ -1,0 +1,40 @@
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-svg)
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-export)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fig)
+   Compiling designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.53s
+     Running tests/resized_vector_via_update.rs (out/cargo/debug/deps/resized_vector_via_update-fe25817e7a75a15d)
+
+running 3 tests
+test a_vector_keeps_its_stroke_weight_when_an_agent_resizes_it ... ok
+test a_rectangle_keeps_its_baked_geometry_when_an_agent_resizes_it ... FAILED
+test a_boolean_group_is_resized_by_an_agent_exactly_as_before ... FAILED
+
+failures:
+
+---- a_rectangle_keeps_its_baked_geometry_when_an_agent_resizes_it stdout ----
+
+thread 'a_rectangle_keeps_its_baked_geometry_when_an_agent_resizes_it' (83416878) panicked at crates/designos-mcp/tests/resized_vector_via_update.rs:104:5:
+assertion `left == right` failed: only the box changes
+  left: (None, None)
+ right: (Some([Path { cmds: [MoveTo(Vec2 { x: 1.0, y: 1.0 }), LineTo(Vec2 { x: 19.0, y: 1.0 }), LineTo(Vec2 { x: 19.0, y: 19.0 }), LineTo(Vec2 { x: 1.0, y: 19.0 }), Close, MoveTo(Vec2 { x: 3.0, y: 3.0 }), LineTo(Vec2 { x: 17.0, y: 3.0 }), LineTo(Vec2 { x: 17.0, y: 17.0 }), LineTo(Vec2 { x: 3.0, y: 17.0 }), Close], fill_rule: NonZero }]), Some([Path { cmds: [MoveTo(Vec2 { x: 1.0, y: 1.0 }), LineTo(Vec2 { x: 19.0, y: 1.0 }), LineTo(Vec2 { x: 19.0, y: 19.0 }), LineTo(Vec2 { x: 1.0, y: 19.0 }), Close, MoveTo(Vec2 { x: 3.0, y: 3.0 }), LineTo(Vec2 { x: 17.0, y: 3.0 }), LineTo(Vec2 { x: 17.0, y: 17.0 }), LineTo(Vec2 { x: 3.0, y: 17.0 }), Close], fill_rule: NonZero }]))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_boolean_group_is_resized_by_an_agent_exactly_as_before stdout ----
+
+thread 'a_boolean_group_is_resized_by_an_agent_exactly_as_before' (83416877) panicked at crates/designos-mcp/tests/resized_vector_via_update.rs:85:5:
+assertion `left == right` failed: the group's baked outline is not touched
+  left: Some([Path { cmds: [MoveTo(Vec2 { x: 2.0, y: 2.0 }), LineTo(Vec2 { x: 38.0, y: 2.0 }), LineTo(Vec2 { x: 38.0, y: 38.0 }), LineTo(Vec2 { x: 2.0, y: 38.0 }), Close, MoveTo(Vec2 { x: 6.0, y: 6.0 }), LineTo(Vec2 { x: 34.0, y: 6.0 }), LineTo(Vec2 { x: 34.0, y: 34.0 }), LineTo(Vec2 { x: 6.0, y: 34.0 }), Close], fill_rule: NonZero }])
+ right: Some([Path { cmds: [MoveTo(Vec2 { x: 1.0, y: 1.0 }), LineTo(Vec2 { x: 19.0, y: 1.0 }), LineTo(Vec2 { x: 19.0, y: 19.0 }), LineTo(Vec2 { x: 1.0, y: 19.0 }), Close, MoveTo(Vec2 { x: 3.0, y: 3.0 }), LineTo(Vec2 { x: 17.0, y: 3.0 }), LineTo(Vec2 { x: 17.0, y: 17.0 }), LineTo(Vec2 { x: 3.0, y: 17.0 }), Close], fill_rule: NonZero }])
+
+
+failures:
+    a_boolean_group_is_resized_by_an_agent_exactly_as_before
+    a_rectangle_keeps_its_baked_geometry_when_an_agent_resizes_it
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-mcp --test resized_vector_via_update`

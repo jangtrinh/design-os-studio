@@ -16,6 +16,7 @@ pub mod diff_image;
 mod effects;
 mod fx;
 mod geom;
+pub mod image_adjust;
 mod index;
 pub mod lint_env;
 mod mask;
@@ -34,10 +35,10 @@ pub use diff_image::{render_diff_image, DiffImageResult};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
 pub use lint_env::RenderLintEnv;
-pub use mask::{mask_frame_box, mask_stencil};
+pub use mask::{apply_luminance_mask, mask_frame_box, mask_stencil, vector_mask_descendant_stencil, LUMINANCE_MASK_COEFFS};
 pub use outline::{
-    decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
-    StrokeClip, StrokePlan, TextOutline,
+    dashed_rect_stroke_path, decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan,
+    text_outlines, NodeShape, StrokeClip, StrokePlan, TextOutline,
 };
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
 pub use text::{
@@ -400,15 +401,42 @@ impl Renderer<'_> {
                 let needs_back = children[i + 1..].iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c)));
                 let backdrop = needs_back.then(|| composite_backdrop(back, target));
                 self.draw_children(&children[i + 1..], parent_ts, &mut layer, clip, backdrop.as_ref());
-                // Masks use the shape's alpha regardless of its paints.
+                // Masks use the shape's alpha (or geometry coverage / Rec. 709 luminance) regardless of its paints.
                 let mask_node = mask::mask_stencil(child);
-                self.draw_node(&mask_node, ts, &mut mask_layer, None, None);
+                if child.mask_type == designos_doc::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
+                    self.draw_vector_group_children(&mask_node.children, ts, &mut mask_layer, None, None);
+                } else {
+                    self.draw_node(&mask_node, ts, &mut mask_layer, None, None);
+                }
+                if child.mask_type == designos_doc::MaskType::Luminance {
+                    mask::apply_luminance_mask(&mut mask_layer);
+                }
                 let pp = sk::PixmapPaint { blend_mode: sk::BlendMode::DestinationIn, ..Default::default() };
                 layer.draw_pixmap(0, 0, mask_layer.as_ref(), &pp, sk::Transform::identity(), None);
                 target.draw_pixmap(0, 0, layer.as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
                 return;
             }
             self.draw_node(child, ts, target, clip, back);
+        }
+    }
+
+    fn draw_vector_group_children(&self, children: &[NodeId], parent_ts: sk::Transform, target: &mut sk::Pixmap, clip: Option<&sk::Mask>, back: Back) {
+        for cid in children {
+            if self.hide.contains(cid) {
+                continue;
+            }
+            let Some(child) = board::get(self.doc, *cid) else { continue };
+            let child = &*resolve_node(self.doc, &child);
+            if !child.visible {
+                continue;
+            }
+            let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
+            let stencil_child = mask::vector_mask_descendant_stencil(child);
+            if matches!(stencil_child.kind, NodeKind::Group) {
+                self.draw_vector_group_children(&stencil_child.children, ts, target, clip, back);
+            } else {
+                self.draw_node(&stencil_child, ts, target, clip, back);
+            }
         }
     }
 
@@ -432,9 +460,10 @@ impl Renderer<'_> {
             return false;
         }
         (!matches!(n.kind, NodeKind::Unknown { .. })
-            && n.effects
-                .iter()
-                .any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible)))
+            && n.effects.iter().any(|e| {
+                (matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) && n.background_blur_has_surface())
+                    || matches!(e, Effect::Glass(g) if g.visible)
+            }))
             || (Self::draws_children(n) && n.children.iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c))))
     }
 
@@ -590,7 +619,7 @@ impl Renderer<'_> {
                     }
                     effects::drop_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha, &sil)
                 }
-                Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
+                Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 && n.background_blur_has_surface() => {
                     effects::background_blur(target, back, clip, inner_bb, scale, *radius, &sil)
                 }
                 Effect::Glass(g) if g.visible => fx::glass(target, back, clip, inner_bb, scale, g, &sil),
@@ -663,17 +692,41 @@ impl Renderer<'_> {
     /// Draws each visible child's own opaque silhouette (a knockout): paint alpha is ignored,
     /// hidden and fully transparent children add nothing.
     fn knockout_children(&self, children: &[NodeId], parent_ts: sk::Transform, pm: &mut sk::Pixmap) {
-        for cid in children {
+        for (i, cid) in children.iter().enumerate() {
             if self.hide.contains(cid) {
                 continue;
             }
             let Some(child) = board::get(self.doc, *cid) else { continue };
             let child = &*resolve_node(self.doc, &child);
-            let runtime_mul = self.runtime_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
-            if !child.visible || child.is_mask || matches!(child.kind, NodeKind::Page { .. }) || child.opacity * runtime_mul <= 0.0 {
+            if !child.visible || matches!(child.kind, NodeKind::Page { .. }) {
                 continue;
             }
             let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
+            if child.is_mask {
+                let (w, h) = (pm.width(), pm.height());
+                let (Some(mut layer), Some(mut mask_layer)) = (sk::Pixmap::new(w, h), sk::Pixmap::new(w, h)) else {
+                    return;
+                };
+                self.knockout_children(&children[i + 1..], parent_ts, &mut layer);
+                let r = Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide };
+                let mask_node = mask::mask_stencil(child);
+                if child.mask_type == designos_doc::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
+                    r.draw_vector_group_children(&mask_node.children, ts, &mut mask_layer, None, None);
+                } else {
+                    r.draw_node(&mask_node, ts, &mut mask_layer, None, None);
+                }
+                if child.mask_type == designos_doc::MaskType::Luminance {
+                    mask::apply_luminance_mask(&mut mask_layer);
+                }
+                let pp = sk::PixmapPaint { blend_mode: sk::BlendMode::DestinationIn, ..Default::default() };
+                layer.draw_pixmap(0, 0, mask_layer.as_ref(), &pp, sk::Transform::identity(), None);
+                pm.draw_pixmap(0, 0, layer.as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
+                return;
+            }
+            let runtime_mul = self.runtime_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+            if child.opacity * runtime_mul <= 0.0 {
+                continue;
+            }
             let scale = ts_scale(&ts);
             let shape = node_shape(self.doc, child, 0.15 / scale);
             let text_layout = match &child.kind {
@@ -706,11 +759,11 @@ impl Renderer<'_> {
                 let Some(tl) = tl else { return };
                 for (i, path) in tl.paths.iter().enumerate() {
                     if let Some(path) = path {
-                        let a = if opaque {
-                            1.0
-                        } else {
-                            tl.styles[i].fills.iter().filter(|p| p.visible).map(designos_doc::Paint::silhouette_alpha).fold(0.0, f32::max)
-                        };
+                        let a = mode.text_run_alpha(n, &tl.styles[i].fills);
+                        // a run that paints nothing removes nothing from a knockout
+                        if a <= 0.0 && mode == designos_doc::SilhouetteMode::Knockout {
+                            continue;
+                        }
                         pm.fill_path(path, &black_paint(a), sk::FillRule::Winding, ts2, None);
                     }
                 }
@@ -794,39 +847,34 @@ impl Renderer<'_> {
             }
             let strokes = self.visible_strokes(n);
             if !strokes.is_empty() {
-                let st = self.make_stroke(n, n.stroke.weight);
+                let shape = NodeShape { paths: paths.to_vec(), closed: true, fillable: true, is_rect: false, stroke_paths: None, fill_only: None };
+                let scale = ts_scale(&ts);
+                let Some(plan) = outline::stroke_plan(n, &shape, scale) else { continue };
+                let aligned_mask = match plan.clip {
+                    StrokeClip::None => None,
+                    StrokeClip::Inside | StrokeClip::Outside => {
+                        let Some(mut mask) = shape_mask(target.width(), target.height(), shape.fill_paths(), ts) else { continue };
+                        if plan.clip == StrokeClip::Outside {
+                            mask.invert();
+                        }
+                        if let Some(parent) = clip {
+                            mask_mul(&mut mask, parent);
+                        }
+                        Some(mask)
+                    }
+                };
+                let stroke_clip = aligned_mask.as_ref().or(clip);
                 for p in strokes {
-                    stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, clip);
+                    fill_paths(&self.env, target, &plan.outline, ts, n.size, p, alpha, stroke_clip);
                 }
             }
         }
     }
 
     fn make_stroke(&self, n: &Node, width: f32) -> sk::Stroke {
-        let s = &n.stroke;
-        // per-vertex caps are drawn as decorations over a butt-capped stroke
-        let cap = if vectorops::vertex_caps(n).is_some() { designos_doc::StrokeCap::None } else { s.cap };
-        let mut st = sk::Stroke {
-            width,
-            miter_limit: s.miter_limit.max(1.0),
-            line_cap: match cap {
-                designos_doc::StrokeCap::None => sk::LineCap::Butt,
-                designos_doc::StrokeCap::Round => sk::LineCap::Round,
-                designos_doc::StrokeCap::Square => sk::LineCap::Square,
-            },
-            line_join: match s.join {
-                designos_doc::StrokeJoin::Miter => sk::LineJoin::Miter,
-                designos_doc::StrokeJoin::Bevel => sk::LineJoin::Bevel,
-                designos_doc::StrokeJoin::Round => sk::LineJoin::Round,
-            },
-            dash: None,
-        };
-        if !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0 {
-            let mut v = s.dashes.clone();
-            if v.len() % 2 == 1 {
-                v.extend_from_within(..);
-            }
-            st.dash = sk::StrokeDash::new(v, 0.0);
+        let mut st = outline::node_stroke_style(n, width);
+        if vectorops::vertex_caps(n).is_some() {
+            st.line_cap = sk::LineCap::Butt;
         }
         st
     }
@@ -885,11 +933,31 @@ impl Renderer<'_> {
         if w <= 0.0 {
             return;
         }
-        if let Some(caps) = vectorops::vertex_caps(n) {
-            let caps = geom::vector_paths(&caps).paths;
-            for p in &paints {
-                fill_paths(&self.env, target, &caps, ts, n.size, p, alpha, clip);
+        if vectorops::has_mixed_subpath_align(n, sh)
+            || vectorops::has_per_vertex_joins(n)
+            || vectorops::has_arrow_caps(n)
+            || vectorops::vertex_caps(n).is_some()
+        {
+            let scale = (ts.sx.hypot(ts.ky)).max(ts.kx.hypot(ts.sy)).max(1.0);
+            let Some(plan) = outline::stroke_plan(n, sh, scale) else { return };
+            let mask = match plan.clip {
+                StrokeClip::None => None,
+                StrokeClip::Inside | StrokeClip::Outside => {
+                    let Some(mut m) = shape_mask(tw, th, sh.fill_paths(), ts) else { return };
+                    if plan.clip == StrokeClip::Outside {
+                        m.invert();
+                    }
+                    if let Some(c) = clip {
+                        mask_mul(&mut m, c);
+                    }
+                    Some(m)
+                }
+            };
+            let cl = mask.as_ref().or(clip);
+            for p in paints {
+                fill_paths(&self.env, target, &plan.outline, ts, n.size, p, alpha, cl);
             }
+            return;
         }
         match align {
             designos_doc::StrokeAlign::Center => {
@@ -905,6 +973,14 @@ impl Renderer<'_> {
                 }
                 if let Some(c) = clip {
                     mask_mul(&mut m, c);
+                }
+                if let Some(center_path) = outline::dashed_rect_stroke_path(n, sh) {
+                    let st = self.make_stroke(n, w);
+                    let paths = [(center_path, sk::FillRule::Winding)];
+                    for p in paints {
+                        stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, Some(&m));
+                    }
+                    return;
                 }
                 let st = self.make_stroke(n, w * 2.0);
                 for p in paints {

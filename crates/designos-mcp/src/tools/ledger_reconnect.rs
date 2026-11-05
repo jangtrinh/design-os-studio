@@ -27,7 +27,7 @@ fn scan(log: &[u8], canvas_base: Option<u64>) -> (Vec<LivePatch>, Option<u32>) {
         match LiveLogLine::parse(line) {
             Ok(LiveLogLine::Patch(patch)) => patches.push(patch),
             // Everything above a switch was made on the previous document.
-            Ok(LiveLogLine::DocEpoch(_)) => {
+            Ok(LiveLogLine::DocEpoch(_)) | Ok(LiveLogLine::Close(_)) => {
                 patches.clear();
                 newer = None;
             }

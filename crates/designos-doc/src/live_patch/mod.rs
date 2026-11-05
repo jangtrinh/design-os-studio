@@ -91,6 +91,41 @@ impl LivePatch {
     }
 }
 
+/// The agent's session closed the document (`designos_close_document`). One line of
+/// `doc-patch.jsonl`, after any patches of that document, so the editor closes the tab once those
+/// edits are in. `close` is always true and is how a reader tells this line from a patch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloseIntent {
+    pub v: u32,
+    pub close: bool,
+    pub unsaved: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close_id: Option<u64>,
+}
+
+impl CloseIntent {
+    pub const RESULT_FILE: &'static str = "close-result.json";
+    pub const CANCEL_FILE: &'static str = "close-cancel.json";
+    /// Written into a session folder that outlives its tab (a library file's folder) when the editor closes that tab, and removed
+    /// when the folder is bound again. A close that finds it, or finds no folder at all, has no tab to ask: the editor no longer
+    /// reads the log, so a close published now would only wait out its timeout.
+    pub const TAB_CLOSED_FILE: &'static str = "tab-closed.json";
+
+    pub fn of(unsaved: impl Into<String>, path: Option<String>) -> Self {
+        Self { v: LIVE_PATCH_VERSION, close: true, unsaved: unsaved.into(), path, tab_id: None, close_id: None }
+    }
+
+    pub fn targeting(mut self, tab_id: u64, close_id: u64) -> Self {
+        self.tab_id = Some(tab_id);
+        self.close_id = Some(close_id);
+        self
+    }
+}
+
 /// The agent's session switched to another document (`designos_open_file`,
 /// `designos_new_document`). One line of `doc-patch.jsonl`, written after the document itself
 /// (`doc-sync.designos`) so the one log fixes the order: patches above it were made on the
@@ -127,6 +162,7 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 pub enum LiveLogLine {
     Patch(LivePatch),
     DocEpoch(DocEpoch),
+    Close(CloseIntent),
     /// An edit written in a format version newer than this build reads. Its ops are not parsed: a
     /// newer writer may use ops this build has never heard of, and the reader must still say "newer"
     /// instead of "unreadable". Never replay it; report [`log_version_refusal`].
@@ -136,9 +172,10 @@ pub enum LiveLogLine {
 }
 
 impl LiveLogLine {
-    /// Reads one log line. A line holding `doc_epoch` is a document switch, any other an edit. An
-    /// edit in a newer format version is named, not parsed. A switch always parses, so a reader
-    /// that cannot honour it still stops following the agent's previous document.
+    /// Reads one log line. A line holding `close: true` is a document close, a line holding
+    /// `doc_epoch` is a document switch, any other an edit. An edit in a newer format version is
+    /// named, not parsed. A switch always parses, so a reader that cannot honour it still stops
+    /// following the agent's previous document.
     pub fn parse(line: &[u8]) -> Result<Self, serde_json::Error> {
         #[derive(Deserialize)]
         struct Probe {
@@ -146,9 +183,13 @@ impl LiveLogLine {
             v: Option<u32>,
             #[serde(default)]
             doc_epoch: Option<u64>,
+            #[serde(default)]
+            close: Option<bool>,
         }
         let probe = serde_json::from_slice::<Probe>(line)?;
-        if probe.doc_epoch.is_some() {
+        if probe.close == Some(true) {
+            serde_json::from_slice(line).map(Self::Close)
+        } else if probe.doc_epoch.is_some() {
             serde_json::from_slice(line).map(Self::DocEpoch)
         } else if let Some(v) = probe.v.filter(|v| *v > LIVE_PATCH_VERSION) {
             Ok(Self::Newer { v })

@@ -213,8 +213,8 @@ mod fidelity {
     /// The fills the renderer paints: a text node's base style fills, the node's own fills otherwise.
     pub(super) fn visible_fills(n: &Node) -> Vec<&Paint> {
         match &n.kind {
-            NodeKind::Text(t) => t.style.fills.iter().filter(|p| p.visible).collect(),
-            _ => n.fills.iter().filter(|p| p.visible).collect(),
+            NodeKind::Text(t) => t.style.fills.iter().filter(|p| p.visible && !matches!(p.kind, PaintKind::Shader(_))).collect(),
+            _ => n.fills.iter().filter(|p| p.visible && !matches!(p.kind, PaintKind::Shader(_))).collect(),
         }
     }
 
@@ -223,7 +223,7 @@ mod fidelity {
         if n.stroke.weight <= 0.0 && n.stroke.side_weights.is_none() {
             return Vec::new();
         }
-        n.stroke.paints.iter().filter(|p| p.visible).collect()
+        n.stroke.paints.iter().filter(|p| p.visible && !matches!(p.kind, PaintKind::Shader(_))).collect()
     }
 
     fn subtree_reason(doc: &Document, n: &Node) -> Option<&'static str> {
@@ -257,7 +257,7 @@ mod fidelity {
         if layer_blend(n) {
             return Some("a layer blend mode");
         }
-        if n.effects.iter().any(|e| e.visible()) {
+        if n.effects.iter().any(|e| e.visible() && !matches!(e, designos_doc::Effect::Shader { .. })) {
             return Some("a visible effect");
         }
         let fills = visible_fills(n);
@@ -397,7 +397,7 @@ mod fidelity {
             return Some("a paint blend mode");
         }
         match &p.kind {
-            PaintKind::Solid(_) => None,
+            PaintKind::Solid(_) | PaintKind::Shader(_) => None,
             PaintKind::Image { .. } => Some("an image paint"),
             PaintKind::AngularGradient { .. } | PaintKind::DiamondGradient { .. } => Some("an angular or diamond gradient"),
             PaintKind::LinearGradient { stops, .. } | PaintKind::RadialGradient { stops, .. } => {
@@ -738,7 +738,7 @@ mod vector_page {
         resolve_node, Affine, Color, Document, FillRule, GradientStop, Node, NodeId, NodeKind, Paint, PaintKind, PathCmd, StrokeAlign, StrokeCap, StrokeJoin,
         TextProps, Vec2,
     };
-    use designos_render::{outline_of, stroke_plan, NodeShape, StrokeClip};
+    use designos_render::{dashed_rect_stroke_path, outline_of, stroke_plan, NodeShape, StrokeClip};
     use std::fmt::Write as _;
     use tiny_skia::{FillRule as SkRule, Path as SkPath, PathSegment, Point};
 
@@ -1032,7 +1032,7 @@ mod vector_page {
                 PaintKind::Solid(c) => self.flat(paths, *c, a),
                 PaintKind::LinearGradient { stops, handles } => self.gradient(false, paths, stops, handles, size, a),
                 PaintKind::RadialGradient { stops, handles } => self.gradient(true, paths, stops, handles, size, a),
-                PaintKind::AngularGradient { .. } | PaintKind::DiamondGradient { .. } | PaintKind::Image { .. } => {}
+                PaintKind::AngularGradient { .. } | PaintKind::DiamondGradient { .. } | PaintKind::Image { .. } | PaintKind::Shader(_) => {}
             }
         }
 
@@ -1071,8 +1071,11 @@ mod vector_page {
             if paints.is_empty() {
                 return;
             }
-            // precomputed outlines and per-side weights are areas to fill, whatever the paint
-            let area = sh.stroke_paths.is_some() || (n.stroke.side_weights.is_some() && sh.is_rect);
+            // precomputed outlines, per-side weights, and arrowhead/per-vertex caps are areas to fill
+            let area = sh.stroke_paths.is_some()
+                || (n.stroke.side_weights.is_some() && sh.is_rect)
+                || designos_render::vectorops::has_arrow_caps(n)
+                || designos_render::vectorops::vertex_caps(n).is_some();
             if !area && n.stroke.weight <= 0.0 {
                 return;
             }
@@ -1093,10 +1096,13 @@ mod vector_page {
             }
         }
 
-        /// A solid stroke as a PDF stroke. Inside and outside strokes are twice as wide, clipped to one side.
+        /// A solid stroke as a PDF stroke. Inside and outside strokes are twice as wide, clipped to one side,
+        /// except a dashed rectangle, whose dashes run along its inset or outset outline at the true weight.
         fn stroke_line(&mut self, n: &Node, sh: &NodeShape, paint: &Paint, c: Color, alpha: f32) {
             let s = &n.stroke;
             let align = Self::alignment(n, sh);
+            let dash = dash_pattern(&s.dashes);
+            let centerline = dashed_rect_stroke_path(n, sh);
             self.body.push_str("q\n");
             let clipped = match align {
                 StrokeAlign::Center => true,
@@ -1104,10 +1110,15 @@ mod vector_page {
                 StrokeAlign::Outside => self.clip_outside(sh),
             };
             if clipped {
-                let width = if align == StrokeAlign::Center { s.weight } else { s.weight * 2.0 };
+                let width = if align == StrokeAlign::Center || centerline.is_some() { s.weight } else { s.weight * 2.0 };
                 self.set_alpha(alpha * paint.opacity * c.a);
                 let cap = match s.cap {
-                    StrokeCap::None => 0,
+                    StrokeCap::None
+                    | StrokeCap::ArrowLines
+                    | StrokeCap::ArrowEquilateral
+                    | StrokeCap::TriangleFilled
+                    | StrokeCap::DiamondFilled
+                    | StrokeCap::CircleFilled => 0,
                     StrokeCap::Round => 1,
                     StrokeCap::Square => 2,
                 };
@@ -1117,10 +1128,14 @@ mod vector_page {
                     StrokeJoin::Bevel => 2,
                 };
                 let _ = writeln!(self.body, "{} {} {} RG {} w {cap} J {join} j {} M", num(c.r), num(c.g), num(c.b), num(width), num(s.miter_limit.max(1.0)));
-                if let Some(dash) = dash_pattern(&s.dashes) {
+                if let Some(dash) = &dash {
                     let _ = writeln!(self.body, "{dash}");
                 }
-                for (cmds, _) in path_cmds(&sh.paths) {
+                let drawn = match centerline {
+                    Some(path) => path_cmds(&[(path, SkRule::Winding)]),
+                    None => path_cmds(&sh.paths),
+                };
+                for (cmds, _) in drawn {
                     emit_path_cmds(&mut self.body, &cmds);
                     self.body.push_str("S\n");
                 }

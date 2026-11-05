@@ -2,7 +2,7 @@
 //! version read-only, and restoring it.
 //!
 //! Restoring replaces the document wholesale, which the command history cannot
-//! express, so the pre-restore state (document, undo stack, page) is parked in
+//! express, so the pre-restore state (document, its load watermark, undo stack, page) is parked in
 //! [`HistoryState::restore_undo`]; the first undo with nothing left to undo
 //! swaps it back, and the next redo swaps forward again.
 
@@ -52,6 +52,8 @@ pub struct Snapshot {
     pub hist: History,
     pub page: NodeId,
     pub selection: Vec<NodeId>,
+    /// [`crate::app::App::load_next_id`] of `doc`, from when that document was opened.
+    pub load_next_id: NodeId,
 }
 
 /// A version shown read-only on the canvas; `saved` is the live state to come back to.
@@ -157,9 +159,11 @@ impl App {
         }
     }
 
-    /// Stores the live document as an automatic version unless nothing changed since the last one.
+    /// Stores the live document as an automatic version unless nothing changed since the last one, or the user
+    /// answered "Don't save" for this file's edits: a version could be restored onto the file, which is what that
+    /// answer kept from happening.
     pub fn save_auto_version(&mut self) -> Option<FileVersion> {
-        if self.history.viewing.is_some() {
+        if self.history.viewing.is_some() || self.autosave.edits_refused {
             return None;
         }
         let (lib, lf) = (self.lib.clone()?, self.lib_file.clone()?);
@@ -307,3 +311,5 @@ pub fn finish_dialog(app: &mut App, d: &crate::home::Dialog) -> bool {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_restore_watermark;

@@ -117,7 +117,7 @@ pub fn new_shape(app: &mut App, tool: Tool) -> Node {
         Tool::Section => {
             let mut s = Node::new(id, NodeKind::Section);
             s.fills = vec![Paint::solid(Color::rgb(0xF5, 0xF5, 0xF5))];
-            if app.is_board() {
+            if app.wb_section_defaults() {
                 // a board section is a white panel with a light outline
                 s.fills = vec![Paint::solid(Color::WHITE)];
                 s.stroke.paints = vec![Paint::solid(Color::rgb(0xCF, 0xCF, 0xCF))];
@@ -150,15 +150,26 @@ pub fn new_shape(app: &mut App, tool: Tool) -> Node {
             s.name = app.unique_name("Star");
             s
         }
-        Tool::Line | Tool::Arrow => {
+        Tool::Line => {
             let mut s = Node::new(id, NodeKind::Line);
             s.stroke.paints = vec![Paint::solid(Color::from_hex(&format!("{:06X}", theme::DEFAULT_STROKE)).unwrap_or(Color::BLACK))];
             s.stroke.weight = 1.0;
             s.stroke.align = StrokeAlign::Center;
-            if tool == Tool::Arrow {
-                s.stroke.cap = StrokeCap::Round;
-            }
-            s.name = app.unique_name(if tool == Tool::Arrow { "Arrow" } else { "Line" });
+            s.name = app.unique_name("Line");
+            s
+        }
+        Tool::Arrow => {
+            let path = Path { cmds: vec![PathCmd::MoveTo(Vec2::ZERO), PathCmd::LineTo(v2(100.0, 0.0))], fill_rule: FillRule::NonZero };
+            let mut net = VectorNetwork::from_paths(std::slice::from_ref(&path));
+            net.vertices[0].cap = Some(StrokeCap::None);
+            net.vertices[1].cap = Some(StrokeCap::ArrowLines);
+            let mut s = Node::new(id, NodeKind::Vector { paths: vec![path], network: Some(net) });
+            s.fills.clear();
+            s.stroke.paints = vec![Paint::solid(Color::from_hex(&format!("{:06X}", theme::DEFAULT_STROKE)).unwrap_or(Color::BLACK))];
+            s.stroke.weight = 1.0;
+            s.stroke.align = StrokeAlign::Center;
+            s.stroke.cap = StrokeCap::None;
+            s.name = app.unique_name("Arrow");
             s
         }
         _ => {
@@ -178,8 +189,21 @@ pub fn apply_geom(doc: &mut Document, tx: &mut Tx, id: NodeId, parent: NodeId, g
     match g.line {
         Some((origin, len, ang)) => {
             let o = inv.apply(origin);
+            let w = len.max(0.0);
             n.transform = Affine::translate(o.x, o.y) * Affine::rotate(ang);
-            n.size = v2(len.max(0.0), 0.0);
+            n.size = v2(w, 0.0);
+            if let NodeKind::Vector { paths, network } = &mut n.kind {
+                let end_pt = v2(w, 0.0);
+                if let Some(net) = network {
+                    if net.vertices.len() == 2 {
+                        net.vertices[0].pos = Vec2::ZERO;
+                        net.vertices[1].pos = end_pt;
+                    }
+                    *paths = net.to_paths();
+                } else {
+                    *paths = vec![Path { cmds: vec![PathCmd::MoveTo(Vec2::ZERO), PathCmd::LineTo(end_pt)], fill_rule: FillRule::NonZero }];
+                }
+            }
         }
         None => {
             let o = inv.apply(v2(g.rect.x, g.rect.y));
@@ -195,7 +219,7 @@ pub fn new_text(app: &mut App, parent: NodeId, at: Vec2) -> Option<(Node, Vec2)>
     let inv = app.doc.world_transform(parent).invert()?;
     let o = inv.apply(at);
     let id = app.doc.alloc_id();
-    let size = if app.is_board() { 24.0 } else { theme::DEFAULT_TEXT_SIZE };
+    let size = if app.wb_text_defaults() { 24.0 } else { theme::DEFAULT_TEXT_SIZE };
     let style = TextStyle { font_size: size, fills: vec![Paint::solid(Color::BLACK)], ..Default::default() };
     let mut n = Node::text(id, Rect::new(o.x, o.y, 10.0, 10.0), "", style);
     if let NodeKind::Text(t) = &n.kind {
@@ -363,19 +387,81 @@ mod tests {
         assert_eq!(g.rect, Rect::new(80.0, 90.0, 40.0, 20.0));
     }
 
-    /// An arrow made before the tool was hidden is a round-capped `Line` named "Arrow": it must
+    /// The Arrow tool creates an open line vector named "Arrow" with a `None` start cap and a `Line arrow`
+    /// (`ArrowLines`) end cap, preserves those caps through save and reload, and draws the arrowhead at the end point.
+    #[test]
+    fn the_arrow_tool_makes_an_open_vector_whose_caps_survive_save_and_reload_and_whose_head_paints_on_cpu_and_gpu() {
+        let mut app = App::new(Document::new("arrows"));
+        let page = app.doc.add_page("Page 1");
+        let fid = app.doc.alloc_id();
+        let frame = app.doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 110.0, 100.0))).unwrap();
+        let mut arrow = new_shape(&mut app, Tool::Arrow);
+        assert!(arrow.name.starts_with("Arrow"), "named {:?}", arrow.name);
+        assert_eq!(arrow.stroke.cap, StrokeCap::None);
+        let NodeKind::Vector { network: Some(net), .. } = &arrow.kind else {
+            panic!("Arrow tool must create a vector network carrying endpoint caps, got {:?}", arrow.kind);
+        };
+        assert_eq!(net.vertices.first().and_then(|v| v.cap), Some(StrokeCap::None), "start point cap is None");
+        assert_eq!(net.vertices.last().and_then(|v| v.cap), Some(StrokeCap::ArrowLines), "end point cap is ArrowLines");
+        arrow.stroke.weight = 4.0;
+        arrow.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        let aid = app.doc.insert(frame, arrow).unwrap();
+
+        let mut tx = crate::edit::Tx::new();
+        let g = draw_geom(Tool::Arrow, v2(20.0, 50.0), v2(80.0, 50.0), false, false);
+        apply_geom(&mut app.doc, &mut tx, aid, frame, &g);
+        app.run_tx(tx);
+
+        let json = app.doc.to_json().unwrap();
+        let back = Document::from_json(&json).unwrap();
+        let after = back.get(aid).unwrap();
+        assert_eq!(after, app.doc.get(aid).unwrap(), "nothing about the arrow is lost on save and reload");
+        let NodeKind::Vector { network: Some(after_net), .. } = &after.kind else {
+            panic!("reloaded arrow keeps its vector network");
+        };
+        assert_eq!(after_net.vertices[0].cap, Some(StrokeCap::None));
+        assert_eq!(after_net.vertices[1].cap, Some(StrokeCap::ArrowLines));
+        assert_eq!(after.size, v2(60.0, 0.0));
+
+        let pm = designos_render::render_node(&back, frame, 1.0).expect("frame renders");
+        let (on_line, off_line) = (pm.pixel(50, 50).unwrap(), pm.pixel(50, 5).unwrap());
+        assert_eq!(on_line.red(), 0, "the reloaded arrow paints its black stroke on row 50");
+        assert_eq!(off_line.red(), 0xFF, "the white frame shows off the stroke");
+        let (end_wing_top, end_wing_bot) = (pm.pixel(70, 40).unwrap(), pm.pixel(70, 60).unwrap());
+        assert!(end_wing_top.red() < 200 && end_wing_bot.red() < 200, "ArrowLines wings paint at the end point (80, 50)");
+        let (start_wing_top, start_wing_bot) = (pm.pixel(30, 40).unwrap(), pm.pixel(30, 60).unwrap());
+        assert_eq!((start_wing_top.red(), start_wing_bot.red()), (0xFF, 0xFF), "start point (20, 50) has no arrowhead wings");
+
+        if let Some(mut gpu) = designos_gpu::HeadlessGpu::new().ok().filter(|g| {
+            let name = g.ctx.adapter_info.name.to_lowercase();
+            g.ctx.adapter_info.device_type != designos_gpu::wgpu::DeviceType::Cpu
+                && !name.contains("llvmpipe")
+                && !name.contains("lavapipe")
+                && !name.contains("software")
+        }) {
+            let vp = designos_render::Viewport { offset: Vec2::ZERO, zoom: 1.0, ..designos_render::Viewport::default() };
+            let gpu_pm = gpu.render_page(&back, page, &vp, (110, 100));
+            let (g_end_top, g_end_bot) = (gpu_pm.pixel(70, 40).unwrap(), gpu_pm.pixel(70, 60).unwrap());
+            assert!(g_end_top.red() < 200 && g_end_bot.red() < 200, "GPU renders ArrowLines wings at end point (80, 50)");
+            let (g_start_top, g_start_bot) = (gpu_pm.pixel(30, 40).unwrap(), gpu_pm.pixel(30, 60).unwrap());
+            assert!(g_start_top.red() > 200 && g_start_bot.red() > 200, "GPU leaves start point (20, 50) without arrowhead wings");
+        }
+    }
+
+    /// An arrow made before the Arrow tool drew vectors is a round-capped `Line` named "Arrow": it must
     /// survive a save and reload unchanged and still paint.
     #[test]
-    fn existing_arrow_layers_stay_plain_lines_through_save_and_render() {
+    fn a_saved_round_capped_line_named_arrow_stays_a_plain_line_through_save_and_render() {
         let mut app = App::new(Document::new("arrows"));
         let page = app.doc.add_page("Page 1");
         let fid = app.doc.alloc_id();
         let frame = app.doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
-        let mut arrow = new_shape(&mut app, Tool::Arrow);
-        assert_eq!(arrow.kind, NodeKind::Line, "the model has no arrow kind");
-        assert!(arrow.name.starts_with("Arrow"), "named {:?}", arrow.name);
-        assert_eq!(arrow.stroke.cap, StrokeCap::Round);
+        let id = app.doc.alloc_id();
+        let mut arrow = Node::new(id, NodeKind::Line);
+        arrow.name = "Arrow".into();
+        arrow.stroke.cap = StrokeCap::Round;
         arrow.stroke.weight = 4.0;
+        arrow.stroke.paints = vec![Paint::solid(Color::BLACK)];
         arrow.transform = Affine::translate(10.0, 20.0);
         arrow.size = v2(80.0, 0.0);
         let aid = app.doc.insert(frame, arrow).unwrap();
@@ -384,12 +470,15 @@ mod tests {
         let back = Document::from_json(&json).unwrap();
         let after = back.get(aid).unwrap();
         assert_eq!(after, app.doc.get(aid).unwrap(), "nothing about the arrow is lost on save and reload");
-        assert_eq!(after.kind, NodeKind::Line);
+        assert_eq!(after.kind, NodeKind::Line, "a saved line stays a line");
+        assert_eq!(after.stroke.cap, StrokeCap::Round);
 
         let pm = designos_render::render_node(&back, frame, 1.0).expect("frame renders");
         let (on_line, off_line) = (pm.pixel(50, 20).unwrap(), pm.pixel(50, 5).unwrap());
         assert_eq!(on_line.red(), 0, "the reloaded arrow paints its black stroke on row 20");
         assert_eq!(off_line.red(), 0xFF, "the white frame shows off the stroke");
+        let (before_start, after_end) = (pm.pixel(8, 20).unwrap(), pm.pixel(91, 20).unwrap());
+        assert!(before_start.red() < 128 && after_end.red() < 128, "the round caps reach 2px past both ends of the line");
     }
 
     #[test]

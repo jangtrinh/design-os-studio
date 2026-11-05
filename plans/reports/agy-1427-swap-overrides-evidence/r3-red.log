@@ -1,0 +1,682 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling zmij v1.0.23
+   Compiling regex-syntax v0.8.11
+   Compiling serde_json v1.0.154
+   Compiling thiserror v2.0.21
+   Compiling serde v1.0.229
+   Compiling itoa v1.0.18
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling regex v1.13.1
+   Compiling syn v3.0.9
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.26s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 7 tests
+test components::tests::probe_p2_swap_instance_same_family_preserves_custom_name ... ok
+test components::tests::probe_p3_swap_instance_preserves_overridden_size ... FAILED
+test components::tests::probe_p6_variant_switch_without_size_override_takes_new_variant_size ... FAILED
+test components::tests::probe_p5_swap_main_matches_renamed_child_by_source_name ... FAILED
+test components::tests::probe_p4_variant_switch_keeps_new_variant_child_offsets ... FAILED
+test components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size ... FAILED
+test components::tests::probe_p1_sync_instances_does_not_double_scale_fill_geometry ... FAILED
+
+failures:
+
+---- components::tests::probe_p3_swap_instance_preserves_overridden_size stdout ----
+
+thread 'components::tests::probe_p3_swap_instance_preserves_overridden_size' (41232162) panicked at crates/designos-doc/src/components.rs:4493:9:
+assertion `left == right` failed: per-axis size rule keeps custom width and takes new main height
+  left: Vec2 { x: 240.0, y: 40.0 }
+ right: Vec2 { x: 240.0, y: 60.0 }
+
+---- components::tests::probe_p6_variant_switch_without_size_override_takes_new_variant_size stdout ----
+
+thread 'components::tests::probe_p6_variant_switch_without_size_override_takes_new_variant_size' (41232165) panicked at crates/designos-doc/src/components.rs:4625:9:
+assertion `left == right` failed: variant switch without OverrideField::Size must take new variant's size
+  left: Vec2 { x: 120.0, y: 40.0 }
+ right: Vec2 { x: 200.0, y: 60.0 }
+
+---- components::tests::probe_p5_swap_main_matches_renamed_child_by_source_name stdout ----
+
+thread 'components::tests::probe_p5_swap_main_matches_renamed_child_by_source_name' (41232164) panicked at crates/designos-doc/src/components.rs:4584:9:
+assertion `left == right` failed: renamed child must still match new main's 'Glyph' via its source name in old main
+  left: Solid(Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 })
+ right: Solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- components::tests::probe_p4_variant_switch_keeps_new_variant_child_offsets stdout ----
+
+thread 'components::tests::probe_p4_variant_switch_keeps_new_variant_child_offsets' (41232163) panicked at crates/designos-doc/src/components.rs:4541:9:
+assertion `left == right` failed: variant switch must keep LG's own child size (160, 28)
+  left: 80.0
+ right: 160.0
+
+---- components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size stdout ----
+
+thread 'components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size' (41232166) panicked at crates/designos-doc/src/components.rs:4730:9:
+assertion `left == right` failed: inset 12x12 glyph in 16x16 icon scaled into 20x20 slot must be 15x15, not 20x20
+  left: Vec2 { x: 20.0, y: 20.0 }
+ right: Vec2 { x: 15.0, y: 15.0 }
+
+---- components::tests::probe_p1_sync_instances_does_not_double_scale_fill_geometry stdout ----
+
+thread 'components::tests::probe_p1_sync_instances_does_not_double_scale_fill_geometry' (41232160) panicked at crates/designos-doc/src/components.rs:4405:9:
+assertion `left == right` failed
+  left: [MoveTo(Vec2 { x: 6.25, y: 6.25 }), LineTo(Vec2 { x: 18.75, y: 18.75 })]
+ right: [MoveTo(Vec2 { x: 5.0, y: 5.0 }), LineTo(Vec2 { x: 15.0, y: 15.0 })]
+
+
+failures:
+    components::tests::probe_p1_sync_instances_does_not_double_scale_fill_geometry
+    components::tests::probe_p3_swap_instance_preserves_overridden_size
+    components::tests::probe_p4_variant_switch_keeps_new_variant_child_offsets
+    components::tests::probe_p5_swap_main_matches_renamed_child_by_source_name
+    components::tests::probe_p6_variant_switch_without_size_override_takes_new_variant_size
+    components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size
+
+test result: FAILED. 1 passed; 6 failed; 0 ignored; 0 measured; 675 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+test components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards ... FAILED
+
+failures:
+
+---- components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards stdout ----
+
+thread 'components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards' (41232259) panicked at crates/designos-doc/src/components.rs:4863:9:
+assertion `left == right` failed: auto-named instance takes new main's name on swap
+  left: "Comp/Rect"
+ right: "Comp/EllipseSame"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+test spec_instance::tests::spec_swap_paths_apply_auto_vs_custom_name_per_axis_size_and_originally_matched_gate ... FAILED
+
+failures:
+
+---- spec_instance::tests::spec_swap_paths_apply_auto_vs_custom_name_per_axis_size_and_originally_matched_gate stdout ----
+
+thread 'spec_instance::tests::spec_swap_paths_apply_auto_vs_custom_name_per_axis_size_and_originally_matched_gate' (41232338) panicked at crates/designos-doc/src/spec_instance.rs:3754:9:
+assertion `left == right` failed: auto-named nested instance takes new main's name on overrides[].swap
+  left: "IconPlus"
+ right: "IconCheckSame"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    spec_instance::tests::spec_swap_paths_apply_auto_vs_custom_name_per_axis_size_and_originally_matched_gate
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling unicode-ident v1.0.27
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling zerocopy v0.8.62
+   Compiling simd-adler32 v0.3.10
+   Compiling stable_deref_trait v1.2.1
+   Compiling proc-macro2 v1.0.107
+   Compiling version_check v0.9.5
+   Compiling crc32fast v1.5.2
+   Compiling foldhash v0.2.0
+   Compiling adler2 v2.0.1
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling memchr v2.8.3
+   Compiling litemap v0.8.3
+   Compiling bitflags v1.3.2
+   Compiling miniz_oxide v0.9.1
+   Compiling quote v1.0.47
+   Compiling hashbrown v0.17.1
+   Compiling writeable v0.6.4
+   Compiling icu_properties_data v2.3.0
+   Compiling syn v3.0.9
+   Compiling num-traits v0.2.19
+   Compiling syn v2.0.119
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling core_maths v0.1.1
+   Compiling linebender_resource_handle v0.1.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling serde v1.0.229
+   Compiling cc v1.7.0
+   Compiling quick-error v2.0.1
+   Compiling percent-encoding v2.3.2
+   Compiling flate2 v1.1.10
+   Compiling serde_json v1.0.154
+   Compiling weezl v0.1.12
+   Compiling equivalent v1.0.3
+   Compiling zune-core v0.5.3
+   Compiling zeroize v1.9.1
+   Compiling synstructure v0.14.0
+   Compiling block2 v0.6.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling zune-jpeg v0.5.15
+   Compiling rustls-pki-types v1.15.1
+   Compiling indexmap v2.14.2
+   Compiling form_urlencoded v1.2.2
+   Compiling slotmap v1.1.1
+   Compiling either v1.19.0
+   Compiling crossbeam-utils v0.8.23
+   Compiling self_cell v1.3.0
+   Compiling byteorder-lite v0.1.0
+   Compiling color_quant v1.1.0
+   Compiling ref-cast v1.0.27
+   Compiling objc2-foundation v0.3.2
+   Compiling fax v0.2.7
+   Compiling pxfm v0.1.30
+   Compiling unicode-segmentation v1.13.3
+   Compiling image-webp v0.2.4
+   Compiling gif v0.14.1
+   Compiling getrandom v0.2.17
+   Compiling png v0.18.1
+   Compiling serde_derive_internals v0.30.0
+   Compiling ttf-parser v0.25.1
+   Compiling hashbrown v0.16.1
+   Compiling untrusted v0.9.0
+   Compiling parking_lot_core v0.9.12
+   Compiling crossbeam-epoch v0.9.21
+   Compiling pin-project-lite v0.2.17
+   Compiling raw-window-handle v0.6.2
+   Compiling getrandom v0.4.3
+   Compiling float-cmp v0.9.0
+   Compiling strict-num v0.1.1
+   Compiling moxcms v0.8.1
+   Compiling euclid v0.22.14
+   Compiling memmap2 v0.9.11
+   Compiling ring v0.17.14
+   Compiling aho-corasick v1.1.5
+   Compiling dyn-clone v1.0.20
+   Compiling tinyvec v1.13.3
+   Compiling base64 v0.22.1
+   Compiling unicode-script v0.5.8
+   Compiling rustls v0.23.45
+   Compiling rustc-hash v2.1.3
+   Compiling scopeguard v1.2.0
+   Compiling arrayref v0.3.9
+   Compiling crossbeam-deque v0.8.8
+   Compiling objc-sys v0.3.5
+   Compiling lock_api v0.4.14
+   Compiling regex-automata v0.4.18
+   Compiling fontdb v0.23.0
+   Compiling webpki-roots v1.0.9
+   Compiling unicode-bidi v0.3.18
+   Compiling rayon-core v1.13.0
+   Compiling option-ext v0.2.0
+   Compiling subtle v2.6.1
+   Compiling dirs-sys v0.4.1
+   Compiling webpki-roots v0.26.11
+   Compiling parking_lot v0.12.5
+   Compiling uuid v1.28.0
+   Compiling png v0.17.16
+   Compiling i_float v5.0.0
+   Compiling regex v1.13.1
+   Compiling naga v29.0.4
+   Compiling zeno v0.3.3
+   Compiling unicode-width v0.2.2
+   Compiling profiling v1.0.18
+   Compiling bit-vec v0.9.1
+   Compiling yazi v0.2.1
+   Compiling codespan-reporting v0.13.1
+   Compiling bit-set v0.9.1
+   Compiling i_shape v5.0.0
+   Compiling objc2 v0.5.3
+   Compiling dirs v5.0.1
+   Compiling objc2-metal v0.3.2
+   Compiling polycool v0.4.0
+   Compiling i_tree v0.20.0
+   Compiling sys-locale v0.3.2
+   Compiling hexf-parse v0.2.1
+   Compiling i_key_sort v0.12.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling rangemap v1.8.0
+   Compiling rustc-hash v1.1.0
+   Compiling smol_str v0.3.6
+   Compiling i_overlay v9.1.0
+   Compiling block2 v0.5.1
+   Compiling kurbo v0.13.1
+   Compiling rayon v1.12.0
+   Compiling wgpu-hal v29.0.4
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling siphasher v1.0.4
+   Compiling unicode-properties v0.1.4
+   Compiling unicode-ccc v0.4.0
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling dispatch v0.2.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling utf8parse v0.2.2
+   Compiling svgtypes v0.15.3
+   Compiling core-foundation v0.9.4
+   Compiling objc2-foundation v0.2.2
+   Compiling objc2-quartz-core v0.3.2
+   Compiling accesskit v0.24.1
+   Compiling raw-window-metal v1.1.0
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling data-url v0.3.2
+   Compiling xmlwriter v0.1.0
+   Compiling futures-core v0.3.34
+   Compiling roxmltree v0.20.0
+   Compiling rustls-webpki v0.103.15
+   Compiling unicode-vo v0.1.0
+   Compiling futures-sink v0.3.34
+   Compiling unicode-general-category v1.1.0
+   Compiling imagesize v0.13.0
+   Compiling pico-args v0.5.0
+   Compiling fearless_simd v0.4.1
+   Compiling foreign-types-shared v0.3.1
+   Compiling objc2-app-kit v0.2.2
+   Compiling core-graphics-types v0.1.3
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling objc2-core-graphics v0.3.2
+   Compiling winit v0.30.13
+   Compiling wgpu-core v29.0.4
+   Compiling nix v0.31.3
+   Compiling winnow v1.0.4
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling litrs v1.0.0
+   Compiling foreign-types v0.5.0
+   Compiling core-graphics v0.23.2
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling futures-macro v0.3.34
+   Compiling document-features v0.2.12
+   Compiling objc2-app-kit v0.3.2
+   Compiling futures-channel v0.3.34
+   Compiling tracing v0.1.44
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling bytemuck v1.25.2
+   Compiling dpi v0.1.2
+   Compiling anstyle v1.0.14
+   Compiling futures-task v0.3.34
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling slab v0.4.12
+   Compiling cursor-icon v1.2.0
+   Compiling anstyle-query v1.1.5
+   Compiling futures-io v0.3.34
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling tiny-skia-path v0.11.4
+   Compiling wgpu-types v29.0.4
+   Compiling color v0.3.3
+   Compiling rustybuzz v0.20.1
+   Compiling read-fonts v0.41.0
+   Compiling read-fonts v0.37.0
+   Compiling thiserror v2.0.21
+   Compiling tiny-skia v0.11.4
+   Compiling peniko v0.6.1
+   Compiling read-fonts v0.39.2
+   Compiling usvg v0.45.1
+   Compiling vello_common v0.0.9
+   Compiling emath v0.35.0
+   Compiling zerofrom v0.1.8
+   Compiling vello_cpu v0.0.9
+   Compiling ecolor v0.35.0
+   Compiling colorchoice v1.0.5
+   Compiling yoke v0.8.3
+   Compiling nohash-hasher v0.2.0
+   Compiling smol_str v0.2.2
+   Compiling bumpalo v3.20.3
+   Compiling epaint_default_fonts v0.35.0
+   Compiling zopfli v0.8.4
+   Compiling anstream v1.0.0
+   Compiling futures-util v0.3.34
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling chrono v0.4.45
+   Compiling half v2.7.1
+   Compiling tiff v0.11.3
+   Compiling schemars v1.2.3
+   Compiling skrifa v0.44.0
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling image v0.25.10
+   Compiling skrifa v0.40.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling swash v0.2.10
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling harfrust v0.5.2
+   Compiling url v2.5.8
+   Compiling harfrust v0.7.0
+   Compiling ureq v2.12.1
+   Compiling cosmic-text v0.19.0
+   Compiling skrifa v0.42.1
+   Compiling epaint v0.35.0
+   Compiling serde_spanned v1.1.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling tokio-macros v2.7.2
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling memoffset v0.6.5
+   Compiling heck v0.5.0
+   Compiling static_assertions v1.1.0
+   Compiling thiserror v1.0.69
+   Compiling typed-path v0.12.3
+   Compiling bytes v1.12.1
+   Compiling strsim v0.11.1
+   Compiling twox-hash v2.1.5
+   Compiling clap_lex v1.1.1
+   Compiling clap_builder v4.6.7
+   Compiling zip v9.0.4
+   Compiling ruzstd v0.9.1
+   Compiling tokio v1.53.2
+   Compiling clap_derive v4.6.7
+   Compiling egui v0.35.0
+   Compiling accesskit_macos v0.26.3
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling futures-executor v0.3.34
+   Compiling thiserror-impl v1.0.69
+   Compiling lyon_geom v1.0.19
+   Compiling termios v0.2.2
+   Compiling serial-core v0.4.0
+   Compiling ioctl-rs v0.1.6
+   Compiling anyhow v1.0.104
+   Compiling rmcp v3.5.1
+   Compiling web-time v1.1.0
+   Compiling designos-fonts v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-fonts)
+   Compiling serial-unix v0.4.0
+   Compiling tokio-util v0.7.20
+   Compiling lyon_path v1.0.19
+   Compiling futures v0.3.34
+   Compiling winresource v0.1.34
+   Compiling accesskit_winit v0.32.2
+   Compiling webbrowser v1.2.4
+   Compiling arboard v3.6.1
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling rfd v0.17.2
+   Compiling float_next_after v1.0.0
+   Compiling pin-utils v0.1.1
+   Compiling pollster v0.4.0
+   Compiling designos-render v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-render)
+   Compiling pastey v0.2.3
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app)
+   Compiling nix v0.25.1
+   Compiling clap v4.6.7
+   Compiling designos-diff v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-diff)
+   Compiling vte v0.11.1
+   Compiling lyon_tessellation v1.0.22
+   Compiling egui-winit v0.35.0
+   Compiling egui-wgpu v0.35.0
+   Compiling filedescriptor v0.8.3
+   Compiling serial v0.4.0
+   Compiling rgb v0.8.53
+   Compiling dispatch2 v0.3.1
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling downcast-rs v1.2.1
+   Compiling shell-words v1.1.1
+   Compiling unicode-width v0.1.14
+   Compiling portable-pty v0.8.1
+   Compiling vt100 v0.15.2
+   Compiling resvg v0.45.1
+   Compiling eframe v0.35.0
+   Compiling designos-svg v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-svg)
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-export)
+   Compiling designos-gpu v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-gpu)
+   Compiling open v5.4.4
+   Compiling designos-webcapture v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-webcapture)
+   Compiling designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-fig)
+   Compiling designos-library v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-library)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 50s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 1 test
+test panels::components::props_panel_tests::properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo ... FAILED
+
+failures:
+
+---- panels::components::props_panel_tests::properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo stdout ----
+
+thread 'panels::components::props_panel_tests::properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo' (41270726) panicked at crates/designos-app/src/panels/components.rs:558:9:
+assertion `left == right` failed: auto-named instance takes new main's name on panel swap
+  left: "Icon/Plus"
+ right: "Icon/Check"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::components::props_panel_tests::properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3887 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling smallvec v1.16.3
+   Compiling num-traits v0.2.19
+   Compiling bitflags v2.13.2
+   Compiling serde_json v1.0.154
+   Compiling syn v3.0.9
+   Compiling percent-encoding v2.3.2
+   Compiling regex-automata v0.4.18
+   Compiling arrayvec v0.7.8
+   Compiling allocator-api2 v0.2.21
+   Compiling nix v0.31.3
+   Compiling syn v2.0.119
+   Compiling either v1.19.0
+   Compiling rustc-hash v2.1.3
+   Compiling errno v0.3.14
+   Compiling mio v1.2.4
+   Compiling getrandom v0.3.4
+   Compiling form_urlencoded v1.2.2
+   Compiling png v0.18.1
+   Compiling kurbo v0.11.3
+   Compiling rayon v1.12.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling hashbrown v0.17.1
+   Compiling zerocopy v0.8.62
+   Compiling ahash v0.8.12
+   Compiling rmcp v3.5.1
+   Compiling svgtypes v0.15.3
+   Compiling indexmap v2.14.2
+   Compiling moxcms v0.8.1
+   Compiling num-integer v0.1.47
+   Compiling num-bigint v0.4.8
+   Compiling regex v1.13.1
+   Compiling num-iter v0.1.46
+   Compiling num-complex v0.4.6
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-mcp)
+   Compiling parking_lot_core v0.9.12
+   Compiling synstructure v0.14.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling bit-vec v0.8.0
+   Compiling zip v9.0.4
+   Compiling num-rational v0.4.2
+   Compiling num v0.4.3
+   Compiling borrow-or-share v0.2.4
+   Compiling jsonschema-value v0.59.0
+   Compiling fraction v0.17.0
+   Compiling bit-set v0.8.0
+   Compiling parking_lot v0.12.5
+   Compiling micromap v0.3.0
+   Compiling bytecount v0.6.9
+   Compiling num-cmp v0.1.0
+   Compiling outref v0.5.2
+   Compiling vsimd v0.8.0
+   Compiling fancy-regex v0.19.2
+   Compiling jsonschema-regex v0.59.0
+   Compiling data-encoding v2.11.1
+   Compiling uuid-simd v0.8.0
+   Compiling quick-xml v0.41.0
+   Compiling zerofrom-derive v0.1.8
+   Compiling bytemuck_derive v1.12.1
+   Compiling yoke-derive v0.8.4
+   Compiling zerovec-derive v0.11.6
+   Compiling serde_derive v1.0.229
+   Compiling displaydoc v0.2.7
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling thiserror-impl v2.0.21
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling tracing-attributes v0.1.31
+   Compiling ref-cast v1.0.27
+   Compiling clap_derive v4.6.7
+   Compiling strum_macros v0.28.0
+   Compiling bytemuck v1.25.2
+   Compiling font-types v0.12.7
+   Compiling font-types v0.11.3
+   Compiling read-fonts v0.41.0
+   Compiling read-fonts v0.37.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling image v0.25.10
+   Compiling tiny-skia v0.11.4
+   Compiling rustybuzz v0.20.1
+   Compiling tokio v1.53.2
+   Compiling thiserror v2.0.21
+   Compiling futures-util v0.3.34
+   Compiling tracing v0.1.44
+   Compiling usvg v0.45.1
+   Compiling strum v0.28.0
+   Compiling harfrust v0.5.2
+   Compiling serde v1.0.229
+   Compiling skrifa v0.40.0
+   Compiling skrifa v0.44.0
+   Compiling futures-executor v0.3.34
+   Compiling zerofrom v0.1.8
+   Compiling chrono v0.4.45
+   Compiling futures v0.3.34
+   Compiling clap v4.6.7
+   Compiling process-wrap v10.0.1
+   Compiling tokio-util v0.7.20
+   Compiling yoke v0.8.3
+   Compiling schemars v1.2.3
+   Compiling tokio-stream v0.1.19
+   Compiling swash v0.2.10
+   Compiling fluent-uri v0.4.1
+   Compiling designos-diff v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-diff)
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling referencing v0.59.0
+   Compiling cosmic-text v0.19.0
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling email_address v0.2.9
+   Compiling jsonschema v0.59.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling ureq v2.12.1
+   Compiling designos-fonts v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-fonts)
+   Compiling designos-render v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-render)
+   Compiling designos-svg v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-svg)
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-export)
+   Compiling designos-webcapture v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-webcapture)
+   Compiling designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-fig)
+   Compiling designos-library v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 02s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-8836ae03c5bd8f58)
+
+running 1 test
+test engine::tests::apply_batch_and_apply_spec_instance_swap_name_and_override_rules ... FAILED
+
+failures:
+
+---- engine::tests::apply_batch_and_apply_spec_instance_swap_name_and_override_rules stdout ----
+
+thread 'engine::tests::apply_batch_and_apply_spec_instance_swap_name_and_override_rules' (41288126) panicked at crates/designos-mcp/src/engine.rs:4622:9:
+assertion `left == right` failed: non-matching default fill drops override on MCP apply_spec swap
+  left: Solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 })
+ right: Solid(Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::apply_batch_and_apply_spec_instance_swap_name_and_override_rules
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 296 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`

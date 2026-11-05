@@ -1,0 +1,2 @@
+$ cargo fmt --all -- --check; echo fmt_rc=$?   (HEAD 93fb2855)
+fmt_rc=0

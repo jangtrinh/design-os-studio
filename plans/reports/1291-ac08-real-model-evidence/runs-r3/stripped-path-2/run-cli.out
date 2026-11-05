@@ -1,0 +1,18 @@
+run-cli-netproxy listening on unix:/tmp/run-cli-snap.x8NSnO/run-cli-proxy.sock
+PROXY_FIRST_REQ ts_ms=1793286122122 CONNECT auth.x.ai:443
+UNCHECKED_AREAS:
+- outbound net only via CONNECT proxy (no raw sockets; loopback/private blocked by resolved IP)
+- host processes outside the bwrap pid namespace (after --die-with-parent cleanup)
+- filesystem areas outside: repo toplevel (/workspace/dev/ac08/run), maintenance/ (/workspace/projects/maintenance), and exact --frozen file paths
+- .git object store / pack files / reflogs (only HEAD, packed-refs, config, index, hooks/, info/, refs/ are checked)
+- /proc /sys /dev contents beyond sandbox setup
+- file owners/xattrs/timestamps (mtime); only mode+sha256 (files), symlink targets, empty dirs
+- kernel memory, swap, and other hosts' disks
+- CLI home paths under RW allowlist (sessions/tmp/sqlite/locks/auth) — intentional; NEW/CHANGED elsewhere are checked
+- host loopback/RFC1918/CGNAT/ULA/docker/metadata: blocked via CONNECT proxy (resolved-IP)
+VERDICT: SKIPPED-ERROR
+illegal writes:
+CHANGED .git/index
+CHANGED run-cli.out
+CHANGED wire.jsonl
+run-cli exit 3

@@ -1,0 +1,35 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-gpu)
+    Finished `release` profile [optimized] target(s) in 0.70s
+     Running tests/connector_perf.rs (out/cargo/release/deps/connector_perf-0b2f838f89a5500b)
+
+running 1 test
+test perf_scene_whiteboard_2000_budgets ... 
+=== perf_whiteboard_2000 summary ===
+1. Single elbow route (seeded 500):        p50 = 1108.71 us | p95 = 1856.67 us (budget <= 100 us)
+2. Steady-state pan/zoom (1,500 conn):     p50 = 629.587 ms | p95 = 634.303 ms | hits=0 misses=0 (budget <= 3.5 ms, 0 misses)
+3. Drag 1 node (4 conn):                   p50 =   0.978 ms | p95 =   1.510 ms | max_misses=0 (budget <= 1.0 ms)
+4. Drag 1 hub (50 conn):                   p50 =  46.802 ms | p95 =  59.313 ms | max_misses=0 (budget <= 5.0 ms)
+5. Drag 1 stress hub (150 conn):           p50 = 204.775 ms | p95 = 205.688 ms | max_misses=0 (budget <= 12.0 ms)
+6. Multi-drag 20 nodes (80 conn):          p50 = 100.324 ms | p95 = 102.916 ms | max_misses=0 (budget <= 7.5 ms)
+7. Hover hit-test (2,200 nodes + 1k conn): p50 =    1.46 us | p95 = 115696.08 us | max_checks=184 (budget <= 250 us)
+8. Marquee 500x500 sweep (1,500 conn):     p50 =   0.005 ms | p95 =   0.014 ms (budget <= 1.5 ms)
+
+
+thread 'perf_scene_whiteboard_2000_budgets' (97708304) panicked at crates/designos-gpu/tests/connector_perf.rs:379:5:
+assertion `left == right` failed: steady-state pan/zoom must hit the route cache on all 1,500 connectors per frame
+  left: 0
+ right: 30000
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    perf_scene_whiteboard_2000_budgets
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.16s
+
+error: test failed, to rerun pass `-p designos-gpu --test connector_perf`

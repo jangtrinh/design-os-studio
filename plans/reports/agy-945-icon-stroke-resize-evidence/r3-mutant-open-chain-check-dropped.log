@@ -1,0 +1,20 @@
+=== green control on HEAD ===
+### ctl-render
+test an_inside_stroke_of_a_closed_network_still_drops_its_bake_and_stays_inside ... ok
+test an_inside_or_outside_stroke_of_a_network_with_an_open_chain_keeps_its_scaled_bake ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+### ctl-gpu
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test resized_inside_and_outside_strokes_with_an_open_chain_keep_their_bake_like_cpu ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.24s
+=== mutant: the open-chain check dropped ===
+### mut-render
+test an_inside_stroke_of_a_closed_network_still_drops_its_bake_and_stays_inside ... ok
+test an_inside_or_outside_stroke_of_a_network_with_an_open_chain_keeps_its_scaled_bake ... FAILED
+thread 'an_inside_or_outside_stroke_of_a_network_with_an_open_chain_keeps_its_scaled_bake' (84314084) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:317:43:
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+### mut-gpu
+thread 'resized_inside_and_outside_strokes_with_an_open_chain_keep_their_bake_like_cpu' (84317895) panicked at crates/designos-gpu/tests/resized_shapes.rs:343:9:
+test resized_inside_and_outside_strokes_with_an_open_chain_keep_their_bake_like_cpu ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s

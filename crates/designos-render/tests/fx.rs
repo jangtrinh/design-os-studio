@@ -5,7 +5,7 @@ use common::*;
 use designos_doc::*;
 
 fn noise(mode: NoiseMode, size: f32, density: f32, opacity: f32, seed: u32) -> Effect {
-    Effect::Noise(NoiseEffect { mode, size, density, opacity, blend: BlendMode::Normal, seed, visible: true })
+    Effect::Noise(NoiseEffect { mode, size, size_y: None, density, opacity, blend: BlendMode::Normal, seed, visible: true })
 }
 
 fn card(t: &mut T, r: Rect, fill: Color, fx: Vec<Effect>) -> NodeId {
@@ -134,7 +134,7 @@ fn hidden_effects_draw_nothing() {
 }
 
 fn texture(size: f32, radius: f32, clip: bool) -> Effect {
-    Effect::Texture(TextureEffect { size, radius, clip_to_shape: clip, seed: 4, visible: true })
+    Effect::Texture(TextureEffect { size, size_y: None, radius, clip_to_shape: clip, seed: 4, visible: true })
 }
 
 fn red_outside(pm: &designos_render::tiny_skia::Pixmap, inner: (u32, u32, u32, u32)) -> usize {
@@ -185,7 +185,17 @@ fn texture_with_zero_radius_changes_nothing() {
 }
 
 fn glass(frost: f32, intensity: f32, refraction: f32, dispersion: f32, angle: f32) -> Effect {
-    Effect::Glass(GlassEffect { light_angle: angle, light_intensity: intensity, refraction, depth: 12.0, dispersion, frost, visible: true })
+    Effect::Glass(GlassEffect {
+        light_angle: angle,
+        light_intensity: intensity,
+        refraction,
+        depth: 12.0,
+        dispersion,
+        frost,
+        splay: 0.0,
+        bevel: 0.0,
+        visible: true,
+    })
 }
 
 /// Black stripe at x 40..60 under a clear pane covering x 20..100.

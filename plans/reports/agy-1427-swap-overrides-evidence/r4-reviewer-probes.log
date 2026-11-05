@@ -1,0 +1,69 @@
+
+running 7 tests
+test probe_p1_sync_keeps_fill_geometry_of_resized_vector ... PROBE p1 after-resize size=Vec2 { x: 20.0, y: 20.0 } ov={Size} paths=(0.0, 0.0, 20.0, 20.0) fill_geometry=(0.0, 0.0, 20.0, 20.0)
+PROBE p1 sync#1 size=Vec2 { x: 20.0, y: 20.0 } paths=(0.0, 0.0, 20.0, 20.0) fill_geometry=(0.0, 0.0, 20.0, 20.0)
+PROBE p1 sync#2 size=Vec2 { x: 20.0, y: 20.0 } paths=(0.0, 0.0, 20.0, 20.0) fill_geometry=(0.0, 0.0, 20.0, 20.0)
+PROBE p1 sync#3 size=Vec2 { x: 20.0, y: 20.0 } paths=(0.0, 0.0, 20.0, 20.0) fill_geometry=(0.0, 0.0, 20.0, 20.0)
+ok
+test probe_p2_swap_drops_override_on_type_mismatch ... PROBE p2 kind=frame-like fills=[Solid(Color { r: 0.0, g: 0.5019608, b: 0.0, a: 1.0 })] size=Vec2 { x: 20.0, y: 20.0 } fill_geometry=None ov={Size}
+ok
+test probe_p3_top_level_swap_name ... PROBE p3 before name="Icon/Plus"
+PROBE p3 after swap_instance name="Icon/Check" ov={MainComponent}
+ok
+test probe_p4_variant_switch_does_not_turn_refit_size_into_override ... PROBE p4 before ov={Characters} size=Vec2 { x: 140.0, y: 20.0 }
+PROBE p4 after variant=Md ov={Characters} size=Vec2 { x: 50.0, y: 24.0 } font_size=16
+ok
+test probe_p5_size_rule_is_whole_vector ... PROBE p5 slot comp=Some("Btn/B") size=Vec2 { x: 280.0, y: 40.0 } bg size=Vec2 { x: 80.0, y: 40.0 } bg ov={}
+ok
+test probe_p6_top_level_variant_switch_children_match_root ... PROBE p6 root size=Vec2 { x: 100.0, y: 60.0 } root ov={} bg size=Vec2 { x: 100.0, y: 60.0 } bg ov={}
+ok
+test probe_p7_carried_glyph_size_ignores_new_main_inset ... PROBE p7 slot size=Vec2 { x: 20.0, y: 20.0 } glyph at=(2, 2) size=Vec2 { x: 12.0, y: 12.0 } right_edge=14 stroke_weight=1.5 paths=(0.0, 0.0, 12.0, 12.0)
+ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+test r3_b1_swap_then_three_syncs_matches_direct_20px_glyph ... PROBE b1 direct20 fill_geom_placed=(3.75, 2.5, 16.25, 17.5)
+PROBE b1 after 0 sync(s): slot=Vec2 { x: 20.0, y: 20.0 } glyph at=(0.000,0.000) size=Vec2 { x: 20.0, y: 20.0 } fill_geom_placed=Some((3.75, 2.5, 16.25, 17.5)) ov={Size}
+PROBE b1 after 1 sync(s): slot=Vec2 { x: 20.0, y: 20.0 } glyph at=(0.000,0.000) size=Vec2 { x: 20.0, y: 20.0 } fill_geom_placed=Some((3.75, 2.5, 16.25, 17.5)) ov={Size}
+PROBE b1 after 2 sync(s): slot=Vec2 { x: 20.0, y: 20.0 } glyph at=(0.000,0.000) size=Vec2 { x: 20.0, y: 20.0 } fill_geom_placed=Some((3.75, 2.5, 16.25, 17.5)) ov={Size}
+PROBE b1 after 3 sync(s): slot=Vec2 { x: 20.0, y: 20.0 } glyph at=(0.000,0.000) size=Vec2 { x: 20.0, y: 20.0 } fill_geom_placed=Some((3.75, 2.5, 16.25, 17.5)) ov={Size}
+PROBE b1 sync#0 max|delta| vs direct = 0.0000
+PROBE b1 sync#1 max|delta| vs direct = 0.0000
+PROBE b1 sync#2 max|delta| vs direct = 0.0000
+PROBE b1 sync#3 max|delta| vs direct = 0.0000
+ok
+test r3_copy_field_size_on_imported_shapes_after_main_resize ... PROBE cf ellipse: main size=20 main fill_geom=None | instance size=Vec2 { x: 20.0, y: 20.0 } fill_geom=None
+PROBE cf star: main size=20 main fill_geom=None | instance size=Vec2 { x: 20.0, y: 20.0 } fill_geom=None
+PROBE cf rectangle: main size=20 main fill_geom=None | instance size=Vec2 { x: 20.0, y: 20.0 } fill_geom=None
+PROBE cf vector: main size=20 main fill_geom=Some((3.0, 2.0, 18.0, 17.0)) | instance size=Vec2 { x: 20.0, y: 20.0 } fill_geom=Some((3.0, 2.0, 18.0, 17.0))
+ok
+test r3_gate_is_per_field ... PROBE gate fills=[Solid(Color { r: 0.0, g: 0.5019608, b: 0.0, a: 1.0 })] opacity=0.5 ov={Opacity}
+ok
+test r3_inner_swap_below_swapped_slot ... PROBE inner before outer swap: badge main=Some("Badge/Blue") badge ov={} dot fill=[Solid(Color { r: 1.0, g: 0.78431374, b: 0.0, a: 1.0 })] dot ov={}
+PROBE inner after outer swap to Icon/B: badge main=Some("Badge/Red") badge ov={} dot fill=[Solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 })] dot ov={}
+ok
+test r3_inner_swap_below_swapped_slot_by_index ... PROBE inner2 before outer swap: badge name="Badge" main=Some("Badge/Blue") dot fill=[Solid(Color { r: 1.0, g: 0.78431374, b: 0.0, a: 1.0 })]
+PROBE inner2 after outer swap to Icon/B: badge name="Badge" main=Some("Badge/Red") dot fill=[Solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 })]
+ok
+test r3_m1_nested_slot_widened_by_outer_instance ... PROBE m1n before swap slot size=Vec2 { x: 280.0, y: 32.0 } bg size=Vec2 { x: 280.0, y: 32.0 }
+PROBE m1n after swap slot size=Vec2 { x: 280.0, y: 40.0 } slot ov={} bg size=Vec2 { x: 280.0, y: 40.0 } bg ov={}
+ok
+test r3_m4_minmin_glyph_swap_vs_shared_solver ... PROBE m4 minmin swap-into-20: slot=Vec2 { x: 20.0, y: 20.0 } glyph at=(2.000,2.000) size=Vec2 { x: 12.0, y: 12.0 } fill_geom_placed=Some((3.8000002, 3.2, 12.799999, 12.200001)) ov={}
+PROBE m4 minmin shared-solver-16-to-20: glyph at=(2.000,2.000) size=Vec2 { x: 12.0, y: 12.0 }
+PROBE m4 minmin matches ruling: true
+PROBE m4 scale swap-into-20: slot=Vec2 { x: 20.0, y: 20.0 } glyph at=(2.500,2.500) size=Vec2 { x: 15.0, y: 15.0 } fill_geom_placed=Some((4.75, 4.0, 15.999999, 15.250001)) ov={}
+PROBE m4 scale shared-solver-16-to-20: glyph at=(2.500,2.500) size=Vec2 { x: 15.0, y: 15.0 }
+PROBE m4 scale matches ruling: true
+ok
+test r3_m4_minmin_logo_distorts_on_per_axis_kept_width ... PROBE m4b card size=Vec2 { x: 300.0, y: 100.0 } logo at=(8.00,8.00) size=Vec2 { x: 24.0, y: 24.0 } fill_geom=Some((3.6000001, 2.4, 21.599998, 20.400002)) ov={}
+ok
+test r3_m4_minmin_logo_distorts_on_user_resized_card ... PROBE m4c sync0 card size=Vec2 { x: 300.0, y: 100.0 } card ov={Size, MainComponent} logo at=(8.00,8.00) size=Vec2 { x: 24.0, y: 24.0 } ov={}
+PROBE m4c sync1 card size=Vec2 { x: 300.0, y: 100.0 } card ov={Size, MainComponent} logo at=(8.00,8.00) size=Vec2 { x: 24.0, y: 24.0 } ov={}
+ok
+test r3_name_rule_variant_instance_cross_family ... PROBE name variant instance: created as "Button" (old main "Size=Sm") -> after swap to Badge: "Badge"
+ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

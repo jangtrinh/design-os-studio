@@ -1,0 +1,13 @@
+diff --git a/crates/designos-fig/src/rest_import.rs b/crates/designos-fig/src/rest_import.rs
+index f54cd6cb..b2bba309 100644
+--- a/crates/designos-fig/src/rest_import.rs
++++ b/crates/designos-fig/src/rest_import.rs
+@@ -2421,7 +2421,7 @@ impl<'a> Ctx<'a> {
+             }
+             if fast_clone {
+                 // what decides how a resize treats the baked stroke stays with the clone
+-                n.fig_metadata.retain(|k, _| matches!(k.as_str(), "strokeCap" | "brushType"));
++                n.fig_metadata.clear();
+                 if let Some(sid) = n.source_id.take() {
+                     self.override_keys.entry(src).or_insert_with(|| std::sync::Arc::from(sid.rsplit(';').next().unwrap_or(&sid)));
+                 }

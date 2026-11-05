@@ -1,0 +1,12 @@
+=== mutant (iv): the GPU fills shape.paths again (green control for it is the (iii) control above) ===
+### mut-iv-gpu
+GPU: Apple M4 Max (Metal)
+thread 'resized_vector_strokes_its_network_and_fills_its_outline_like_cpu' (83505812) panicked at crates/designos-gpu/tests/resized_shapes.rs:327:5:
+GPU: the stroke-only chain is not filled
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.26s
+=== mutant (v): the bulk clone of a large file drops the stroke markers again ===
+### mut-v
+test an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized ... FAILED
+thread 'an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized' (83507037) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:352:9:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.31s

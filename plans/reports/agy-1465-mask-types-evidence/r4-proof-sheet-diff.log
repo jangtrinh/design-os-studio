@@ -1,0 +1,6 @@
+r3_proof_sheet_path=plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png size=(1266, 1842)
+r2_proof_sheet_path=/Users/jangtrinh/Products/design-os-studio/plans/reports/code-reviewer-261101-1900-pr-1492-r2-evidence/proof-sheet-r2-cpu-gpu-per-type.png size=(1266, 1842)
+proof_sheet_diff_bbox=None differing_pixels=0
+r3_probe_log_path=plans/reports/agy-1465-mask-types-evidence/r3-probe-log.txt lines=76
+r2_probe_log_path=/Users/jangtrinh/Products/design-os-studio/plans/reports/code-reviewer-261101-1900-pr-1492-r2-evidence/head-r2-probe-log.txt lines=76
+probe_log_diff_exit=0 diff_lines=0

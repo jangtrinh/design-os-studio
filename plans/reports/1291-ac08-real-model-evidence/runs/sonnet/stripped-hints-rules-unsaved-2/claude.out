@@ -1,0 +1,9 @@
+I added the Draft frame but couldn't open `other.designos`, so I don't have its frame names yet.
+
+- **Draft frame:** it's on Page 1 (node 2) and is not saved.
+- **Opening the file:** the open was refused with `UNSAVED_CHANGES`. Opening another file replaces the current document and would throw away Draft. I didn't force it, because discarding needs your OK.
+
+To finish, either tell me it's fine to discard Draft, or tell me where to save the current document first. Then I'll open `other.designos` and list its frames.
+
+I wrote this status to `answer.md` in the current directory.
+claude exit 0

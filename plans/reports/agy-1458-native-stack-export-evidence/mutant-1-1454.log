@@ -1,0 +1,129 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.22s
+     Running tests/native_stack_export.rs (out/cargo/debug/deps/native_stack_export-bf2213274ac9527a)
+
+running 5 tests
+
+thread 'test null_control_frames_without_abs_children_or_fill_fixed_pairs_export_identically ... ok
+fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames' (81578174test absolute_and_variable_hidden_children_in_grid_are_emitted_in_overlay_out_of_flow ... ) panicked at crates/designos-export/tests/native_stack_export.rs:117:5:
+Fill-width + Fixed-height leaf must use minHeight/maxHeight overload:
+VStack(alignment: .leading, spacing: 8) {
+    Rectangle()
+        .fill(Color(red: 0.2, green: 0.4, blue: 0.8))
+        .frame(maxWidth: .infinity, height: 44)
+    HStack(spacing: 6) {
+        Spacer()
+        Rectangle()
+            .fill(Color(red: 0.102, green: 0.702, blue: 0.502))
+            .frame(width: 120, maxHeight: .infinity)
+        Spacer()
+    }
+        .frame(maxWidth: .infinity, height: 64)
+}
+    .padding(12)
+    .frame(width: 320, height: 200, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ok
+test absolute_and_variable_hidden_children_in_stacks_are_emitted_in_overlay_out_of_flow ... ok
+test fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames ... FAILED
+swiftc_typecheck_summary: checked=12 passed=3 failed=9
+--- FAILED 01_grid_equal_tracks ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/01_grid_equal_tracks.swift:9:57: error: extra argument 'height' in call
+ 7 |                 Rectangle()
+ 8 |                     .fill(Color(red: 0.208, green: 0.51, blue: 1))
+ 9 |                     .frame(maxWidth: .infinity, height: 36)
+   |                                                         `- error: extra argument 'height' in call
+10 |                     .frame(width: 92, height: 36, alignment: .topLeading)
+11 |                 Rectangle()
+
+--- FAILED 02_grid_unequal_tracks ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/02_grid_unequal_tracks.swift:23:57: error: extra argument 'height' in call
+21 |                 Rectangle()
+22 |                     .fill(Color(red: 0.208, green: 0.51, blue: 1))
+23 |                     .frame(maxWidth: .infinity, height: 30)
+   |                                                         `- error: extra argument 'height' in call
+24 |                     .frame(width: 100, height: 30, alignment: .topLeading)
+25 |                 Rectangle()
+
+--- FAILED 03_grid_fixed_first_column ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/03_grid_fixed_first_column.swift:9:57: error: extra argument 'height' in call
+ 7 |                 Rectangle()
+ 8 |                     .fill(Color(red: 0.208, green: 0.51, blue: 1))
+ 9 |                     .frame(maxWidth: .infinity, height: 40)
+   |                                                         `- error: extra argument 'height' in call
+10 |                     .frame(width: 200, height: 40, alignment: .topLeading)
+11 |                 Rectangle()
+
+--- FAILED 04_grid_hugging_grid ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/04_grid_hugging_grid.swift:23:57: error: extra argument 'height' in call
+21 |                 Rectangle()
+22 |                     .fill(Color(red: 0.208, green: 0.51, blue: 1))
+23 |                     .frame(maxWidth: .infinity, height: 20)
+   |                                                         `- error: extra argument 'height' in call
+24 |                     .frame(width: 100, height: 20, alignment: .topLeading)
+25 |                 Rectangle()
+
+--- FAILED 05_grid_fixed_height_auto_rows ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/05_grid_fixed_height_auto_rows.swift:9:57: error: extra argument 'height' in call
+ 7 |                 Rectangle()
+ 8 |                     .fill(Color(red: 0.208, green: 0.51, blue: 1))
+ 9 |                     .frame(maxWidth: .infinity, height: 24)
+   |                                                         `- error: extra argument 'height' in call
+10 |                     .frame(width: 108, height: 24, alignment: .topLeading)
+11 |                 Rectangle()
+
+--- FAILED 07_grid_fill_child_stacked_in_col_span ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/07_grid_fill_child_stacked_in_col_span.swift:15:61: error: extra argument 'height' in call
+13 |                     Rectangle()
+14 |                         .fill(Color(red: 0.8, green: 0.4, blue: 0.2))
+15 |                         .frame(maxWidth: .infinity, height: 20)
+   |                                                             `- error: extra argument 'height' in call
+16 |                         .frame(width: 40, height: 40, alignment: .topLeading)
+17 |                         .offset(x: 110, y: 0)
+
+--- FAILED 08_grid_with_absolute_child ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/08_grid_with_absolute_child.swift:10:61: error: extra argument 'height' in call
+ 8 |                     Rectangle()
+ 9 |                         .fill(Color(red: 0.2, green: 0.4, blue: 0.8))
+10 |                         .frame(maxWidth: .infinity, height: 36)
+   |                                                             `- error: extra argument 'height' in call
+11 |                         .frame(width: 90, height: 36, alignment: .topLeading)
+12 |                     Rectangle()
+
+--- FAILED 09_stack_fill_width_fixed_height ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/09_stack_fill_width_fixed_height.swift:8:53: error: extra argument 'height' in call
+ 6 |             Rectangle()
+ 7 |                 .fill(Color(red: 0.2, green: 0.502, blue: 0.8))
+ 8 |                 .frame(maxWidth: .infinity, height: 44)
+   |                                                     `- error: extra argument 'height' in call
+ 9 |         }
+10 |             .padding(12)
+
+--- FAILED 10_stack_fixed_width_fill_height ---
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.zjo9wJ/tmp/designos-swiftc-check-57836/10_stack_fixed_width_fill_height.swift:8:31: error: extra argument 'width' in call
+ 6 |             Rectangle()
+ 7 |                 .fill(Color(red: 0.2, green: 0.702, blue: 0.502))
+ 8 |                 .frame(width: 88, maxHeight: .infinity)
+   |                               `- error: extra argument 'width' in call
+ 9 |         }
+10 |             .padding(12)
+
+
+thread 'every_swiftui_test_fixture_passes_swiftc_typecheck' (81578173) panicked at crates/designos-export/tests/native_stack_export.rs:700:5:
+swiftc -typecheck failed on 9/12 SwiftUI fixtures
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... FAILED
+
+failures:
+
+failures:
+    every_swiftui_test_fixture_passes_swiftc_typecheck
+    fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames
+
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.68s
+
+error: test failed, to rerun pass `-p designos-export --test native_stack_export`

@@ -1,0 +1,49 @@
+warning: /Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-docs v0.7.7 (/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-docs)
+error[E0432]: unresolved import `designos_docs::ListItem`
+ --> crates/designos-docs/tests/nested_lists.rs:4:67
+  |
+4 | use designos_docs::{plain_text, BlockKind, ChecklistItem, Inline, ListItem, Page};
+  |                                                                   ^^^^^^^^ no `ListItem` in the root
+
+error[E0308]: mismatched types
+ --> crates/designos-docs/tests/nested_lists.rs:7:5
+  |
+6 | fn parse(text: &str) -> Page {
+  |                         ---- expected `Page` because of return type
+7 |     Page::parse(text)
+  |     ^^^^^^^^^^^^^^^^^ expected `Page`, found `Result<Page, DocsError>`
+  |
+  = note: expected struct `Page`
+               found enum `Result<Page, DocsError>`
+help: consider using `Result::expect` to unwrap the `Result<Page, DocsError>` value, panicking if the value is a `Result::Err`
+  |
+7 |     Page::parse(text).expect("REASON")
+  |                      +++++++++++++++++
+
+error[E0609]: no field `content` on type `&Vec<Inline>`
+  --> crates/designos-docs/tests/nested_lists.rs:30:49
+   |
+30 |     assert_eq!(sub.iter().map(|i| plain_text(&i.content)).collect::<Vec<_>>(), ["b", "c"]);
+   |                                                 ^^^^^^^ unknown field
+
+error[E0609]: no field `children` on type `Vec<Inline>`
+  --> crates/designos-docs/tests/nested_lists.rs:75:26
+   |
+75 |     let moved = items[0].children.remove(0);
+   |                          ^^^^^^^^ unknown field
+
+error[E0599]: no function or associated item named `new` found for struct `ChecklistItem` in the current scope
+  --> crates/designos-docs/tests/nested_lists.rs:82:64
+   |
+82 |     one.children.push(BlockKind::Checklist(vec![ChecklistItem::new(true, vec![Inline::Text("sub".into())])]));
+   |                                                                ^^^ function or associated item not found in `ChecklistItem`
+   |
+help: there is a method `ne` with a similar name, but with different arguments
+  --> /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/cmp.rs:264:5
+
+Some errors have detailed explanations: E0308, E0432, E0599, E0609.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `designos-docs` (test "nested_lists") due to 5 previous errors

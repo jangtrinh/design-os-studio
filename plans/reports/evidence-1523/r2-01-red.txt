@@ -1,0 +1,106 @@
+     Running tests/edit_blocks.rs (target/debug/deps/edit_blocks-b4949b74cfad121a)
+
+running 9 tests
+--
+test a_numbered_list_between_a_dot_list_and_a_paren_list_is_kept_apart_by_a_comment ... FAILED
+test edited_and_inserted_blocks_keep_the_crlf_line_endings_of_the_file ... ok
+test editing_one_block_leaves_every_other_byte_alone ... ok
+--
+thread 'a_numbered_list_between_a_dot_list_and_a_paren_list_is_kept_apart_by_a_comment' (103074474) panicked at crates/designos-docs/tests/edit_blocks.rs:123:5:
+assertion `left == right` failed: three separate lists must survive: "1. a\n\n1. mid\n\n1) b\n"
+  left: 2
+--
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-docs --test edit_blocks`
+     Running tests/front_matter.rs (target/debug/deps/front_matter-dbe357bddc1dc5f6)
+
+running 8 tests
+--
+test replacing_a_block_scalar_title_removes_its_continuation_lines ... FAILED
+test reading_a_page_with_bad_front_matter_succeeds_and_reports_the_problem ... ok
+
+--
+thread 'replacing_a_block_scalar_title_removes_its_continuation_lines' (103074520) panicked at crates/designos-docs/tests/front_matter.rs:22:5:
+assertion `left == right` failed
+  left: "---\ntitle: x\n  multi\n  line\ngroup: spec\n---\n# Body\n"
+--
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-docs --test front_matter`
+     Running tests/soup.rs (target/debug/deps/soup-f3428b25b5c7f329)
+
+running 2 tests
+test touching_a_block_without_changing_it_leaves_the_blocks_as_they_were ... FAILED
+test random_markdown_soup_is_always_lossless_and_the_canonical_form_is_stable ... ok
+
+--
+thread 'touching_a_block_without_changing_it_leaves_the_blocks_as_they_were' (103074589) panicked at crates/designos-docs/tests/soup.rs:182:13:
+case 216: touching block 0 of "\r\n1. x\n\r\n    indented\n\\*esc\\*\n> [!note]\n> body\n  para\n" changed a block's content: "\r\n1. x\r\n\r\n   indented\r\n   \\*esc\\*\n> [!note]\n> body\n  para\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+error: test failed, to rerun pass `-p designos-docs --test soup`
+     Running tests/store.rs (target/debug/deps/store-eacd7d2a077f8a34)
+
+running 15 tests
+--
+test a_lock_held_by_another_program_fails_fast_with_an_error_that_names_the_fix ... FAILED
+test subfolders_are_created_and_listed ... ok
+test writing_identical_content_is_a_no_op ... ok
+--
+thread 'a_lock_held_by_another_program_fails_fast_with_an_error_that_names_the_fix' (103074743) panicked at crates/designos-docs/tests/store.rs:216:5:
+/var/folders/86/k_xm7wj92y33f2kjw3sr_4x00000gn/T/.tmp6tUrYL/docs/.docs.lock is locked by another program, so nothing was written; fix: close the other Studio window or agent that is saving this project's docs, or delete the stale lock file if no program is running
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+error: test failed, to rerun pass `-p designos-docs --test store`
+     Running tests/touch_deep.rs (target/debug/deps/touch_deep-b57a0b09d91f6556)
+
+running 4 tests
+test touching_a_nested_list_keeps_it_a_list ... FAILED
+test a_nested_list_that_cannot_interrupt_a_paragraph_is_built_with_a_blank_line ... FAILED
+test touching_an_indented_list_keeps_the_paragraph_after_it ... FAILED
+test random_nested_list_soup_keeps_its_structure_when_touched ... FAILED
+
+failures:
+--
+thread 'touching_a_nested_list_keeps_it_a_list' (103074921) panicked at crates/designos-docs/tests/touch_deep.rs:58:9:
+["touching block 0 of \"- a\\n\\n  3. b\\n\" gave \"- a\\n  3. b\\n\""]
+
+--
+thread 'a_nested_list_that_cannot_interrupt_a_paragraph_is_built_with_a_blank_line' (103074919) panicked at crates/designos-docs/tests/touch_deep.rs:70:5:
+assertion `left == right` failed: "- a\n  3. b\n"
+  left: Raw("- a\n  3. b")
+--
+thread 'touching_an_indented_list_keeps_the_paragraph_after_it' (103074922) panicked at crates/designos-docs/tests/touch_deep.rs:40:9:
+"  - three\n\n  para\n" glued the paragraph to the list: "- threepara\n"
+
+--
+thread 'random_nested_list_soup_keeps_its_structure_when_touched' (103074920) panicked at crates/designos-docs/tests/touch_deep.rs:95:5:
+336 touches changed the page, first: [
+    "touching block 2 of \"      - deep\\n* b\\n- a\\n\\n  3. three\\n# H\\n   1. nnum\\n\" gave \"      - deep\\n* b\\n- a\\n  3. three\\n# H\\n   1. nnum\\n\"",
+--
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+error: test failed, to rerun pass `-p designos-docs --test touch_deep`
+     Running tests/watch_robustness.rs (target/debug/deps/watch_robustness-e38c55de98971080)
+
+running 9 tests
+--
+test folders_created_one_level_at_a_time_with_pauses_are_followed ... FAILED
+test start_does_no_disk_work_on_the_callers_thread ... ok
+
+--
+thread 'folders_created_one_level_at_a_time_with_pauses_are_followed' (103074964) panicked at crates/designos-docs/tests/watch_robustness.rs:135:5:
+assertion `left == right` failed
+  left: None
+--
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 55.14s
+
+error: test failed, to rerun pass `-p designos-docs --test watch_robustness`
+error: 6 targets failed:
+    `-p designos-docs --test edit_blocks`
+    `-p designos-docs --test front_matter`

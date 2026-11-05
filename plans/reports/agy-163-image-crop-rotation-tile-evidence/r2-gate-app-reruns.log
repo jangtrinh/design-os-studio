@@ -1,0 +1,10 @@
+# failures in r2-gate-app.log: vecops::tests::two_deferred_text_commands_both_convert_in_order (known flaky under load: vecops deferred-text). Rerun alone on gated HEAD d1beba6a:
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.01s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4280 filtered out; finished in 1.56s
+
+app_rerun_rc=0

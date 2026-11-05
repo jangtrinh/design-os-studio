@@ -15,7 +15,7 @@ fn gemini_ask_tab_waiting_needs_approval_and_shows_open_tab() {
     assert_eq!(st.tabs[0].spawn_preset, AgentCliPreset::Gemini, "a real Gemini spawn, not a relabelled shell");
     assert!(st.needs_approval(), "an Ask-mode Gemini tab that waits needs approval");
     let painted = frame(&mut st, &ctx, false, vec![]);
-    for expected in ["Gemini CLI needs approval in its terminal", "Open tab", "Needs approval", "Ask for changes"] {
+    for expected in ["Gemini CLI needs approval in its terminal", "Open tab", "Needs approval"] {
         assert!(painted.iter().any(|t| t == expected), "{expected:?} is not painted: {painted:?}");
     }
     for absent in ["Approve", "Deny", "Select an agent tab"] {

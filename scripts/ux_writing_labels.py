@@ -43,6 +43,16 @@ COUNT_LABEL_KIND = "count-in-label"
 # Exact product / app names count as one word (rule 1).
 PRODUCT_NAMES = ("DESIGN:OS Studio", "Claude Code", "Google Fonts")
 
+# Figma command names a menu or palette command copies verbatim, kept past the word cap
+# (design/ux-writing.md rule 1, exception). Key: (file, label). Value: the Figma string id that
+# carries that exact label in Figma's editor bundle (`figma_app-*.min.en.json`), as evidence.
+# Only the word count is waived: a count in the label still fails, and any label not listed
+# here follows the cap. Never add a label without its Figma string id.
+FIGMA_COMMAND_LABELS: Dict[Tuple[str, str], str] = {
+    ("panels/menus.rs", "Paste and match style"): "fullscreen_actions.paste-and-match-style",
+    ("panels/menus.rs", "Swap fill and stroke"): "fullscreen_actions.swap-fill-and-stroke",
+}
+
 # Files that build document content (demo kits, prototypes) or tests, not app chrome.
 SKIPPED_PREFIXES = ("showcase/", "shell/tests", "tests/")
 SKIPPED_FILES = ("protovars.rs", "tests.rs")
@@ -64,6 +74,10 @@ LABEL_CALLS: List[Tuple[str, str, int]] = [
     (r"(?<![\w.])(?:ui::|buttons::|modal::)?button", "libraries/", 3),
     (r"(?<![\w.])button", "home/", 4),
     (r"(?<![\w.])paint_card_button", "agent_approval_card.rs", 6),
+    (r"(?<![\w.])paint_icon_btn", "agent_header.rs", 6),
+    (r"(?<![\w.])paint_icon_button", "agent_composer_toolbar.rs", 5),
+    (r"(?<![\w.])paint_text_button", "agent_composer_toolbar.rs", 5),
+    (r"(?<![\w.])menu_row", "agent_composer_menus.rs", 3),
     (r"(?<![\w.])add_row", "panels/proto_actions.rs", 3),
     (r"(?<![\w.])add_row_indented", "panels/proto_actions.rs", 3),
 ]
@@ -74,6 +88,7 @@ LABEL_FNS: List[Tuple[str, str]] = [
     ("action_label", "agent_"),
     ("button_label", "agent_"),
     ("button_label", "terminal.rs"),
+    ("mode_label", "agent_composer_toolbar.rs"),
 ]
 
 # Row headings: only rule 3 applies (they are not actions), and only when the argument formats a `.len()` count.
@@ -223,6 +238,10 @@ def fn_bodies(code: str, name: str) -> Iterator[str]:
         yield code[m.end() : i]
 
 
+def _waived(rel: str, literal: str, kind: str) -> bool:
+    return kind == WORDS_KIND and (rel, literal) in FIGMA_COMMAND_LABELS
+
+
 def _skipped(rel: str) -> bool:
     return rel.startswith(SKIPPED_PREFIXES) or "/tests/" in rel or rel.endswith(SKIPPED_FILES)
 
@@ -251,7 +270,7 @@ def scan_labels(files: Dict[str, str], code_of: Callable[[str], str]) -> Counter
                     arg = let_bound_expr(code, m.start(), bound.group(1)) or arg
                 for literal in literals_in(arg):
                     for kind in violations_of(literal, arg):
-                        if count_only and kind != COUNT_KIND:
+                        if (count_only and kind != COUNT_KIND) or _waived(rel, literal, kind):
                             continue
                         found[(rel, kind, literal)] += 1
         for fn_name, prefix in LABEL_FNS:
@@ -259,6 +278,8 @@ def scan_labels(files: Dict[str, str], code_of: Callable[[str], str]) -> Counter
                 for body in fn_bodies(code, fn_name):
                     for literal in literals_in(body):
                         for kind in violations_of(literal):
+                            if _waived(rel, literal, kind):
+                                continue
                             found[(rel, kind, literal)] += 1
     return found
 

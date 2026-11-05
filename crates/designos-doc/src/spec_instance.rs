@@ -178,7 +178,12 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub warnings: Vec<crate::SpecWarning>,
     pub measured_with_fallback: Vec<u64>,
     pub touched_slot_containers: HashMap<NodeId, String>,
+    /// Renderer measurer for this call. `None` keeps the character-width estimate.
+    pub measure: Option<&'a dyn crate::text_measure::TextMeasure>,
 }
+
+/// Width an empty hug text keeps on the spec paths, as under the character-width estimate.
+const EMPTY_TEXT_MIN_WIDTH: f32 = 16.0;
 
 impl<'a> SpecBuildCtx<'a> {
     pub fn new(_doc: &Document, snapshots: &'a [LibrarySnapshot]) -> Self {
@@ -205,7 +210,22 @@ impl<'a> SpecBuildCtx<'a> {
             warnings: Vec::new(),
             measured_with_fallback: Vec::new(),
             touched_slot_containers: HashMap::new(),
+            measure: None,
         }
+    }
+
+    /// Intrinsic size of `tp` on the spec paths. A measured empty label keeps the estimate's
+    /// 16 px minimum width so it stays selectable; the editor's measure alone would give 1 px.
+    pub(crate) fn text_size(&self, tp: &crate::TextProps, wrap_width: Option<f32>) -> crate::Vec2 {
+        let mut size = crate::text_measure::intrinsic_text_size(tp, wrap_width, self.measure);
+        if self.measure.is_some() && wrap_width.is_none() && tp.content.is_empty() {
+            size.x = size.x.max(EMPTY_TEXT_MIN_WIDTH);
+        }
+        size
+    }
+
+    pub(crate) fn text_fell_back(&self, tp: &crate::TextProps) -> bool {
+        crate::text_measure::uses_fallback_font(tp, self.measure)
     }
 
     fn ensure_indexed(&mut self, doc: &Document) {
@@ -1102,16 +1122,16 @@ pub(crate) fn apply_instance_props_with_ctx(
                         let new_size = match tp.auto_resize {
                             TextAutoResize::WidthAndHeight => {
                                 measured = true;
-                                Some(crate::text_measure::intrinsic_text_size(tp, None))
+                                Some(ctx.text_size(tp, None))
                             }
                             TextAutoResize::Height => {
                                 measured = true;
-                                let h = crate::text_measure::intrinsic_text_size(tp, Some(node.size.x.max(20.0))).y;
+                                let h = ctx.text_size(tp, Some(node.size.x.max(20.0))).y;
                                 Some(Vec2::new(node.size.x, h))
                             }
                             TextAutoResize::None | TextAutoResize::Truncate => None,
                         };
-                        let fallback = measured && crate::text_measure::uses_fallback_font(tp);
+                        let fallback = measured && ctx.text_fell_back(tp);
                         if let Some(sz) = new_size {
                             node.size = sz;
                         }
@@ -1189,23 +1209,9 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                     None,
                 ));
             }
-            let prev_name = doc.get(target_id).map(|n| n.name.clone());
-            let had_size_override = doc.get(target_id).is_some_and(|n| n.component.overrides.contains(&OverrideField::Size));
-            let new_comp_size = doc.get(new_comp).map(|n| n.size);
             let cmd = swap_instance(doc, target_id, new_comp);
             cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
 
-            if let Some(target_mut) = doc.get_mut(target_id) {
-                if let Some(name) = prev_name {
-                    target_mut.name = name;
-                }
-                if !had_size_override {
-                    if let Some(sz) = new_comp_size {
-                        target_mut.size = sz;
-                    }
-                }
-                target_mut.component.overrides.insert(OverrideField::MainComponent);
-            }
             let comp_key = library_key_for_component(doc, new_comp);
             if let Some(target_mut) = doc.get_mut(target_id) {
                 if let NodeKind::Instance { component_key, .. } = &mut target_mut.kind {
@@ -1231,9 +1237,6 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                 .filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))))
                 .unwrap_or(cur_comp);
             let new_comp = resolve_variant_component(doc, owner, &ov.variant, Some(cur_comp), None)?;
-            let prev_name = doc.get(target_id).map(|n| n.name.clone());
-            let had_size_override = doc.get(target_id).is_some_and(|n| n.component.overrides.contains(&OverrideField::Size));
-            let new_comp_size = doc.get(new_comp).map(|n| n.size);
             for (k, v) in &ov.variant {
                 let cmd = set_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
@@ -1241,16 +1244,6 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             if new_comp != cur_comp {
                 let cmd = swap_instance(doc, target_id, new_comp);
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
-                if let Some(target_mut) = doc.get_mut(target_id) {
-                    if let Some(name) = prev_name {
-                        target_mut.name = name;
-                    }
-                    if !had_size_override {
-                        if let Some(sz) = new_comp_size {
-                            target_mut.size = sz;
-                        }
-                    }
-                }
             }
         }
 
@@ -1305,16 +1298,16 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                         let mut measured = false;
                         match tp.auto_resize {
                             TextAutoResize::WidthAndHeight => {
-                                node.size = crate::text_measure::intrinsic_text_size(tp, None);
+                                node.size = ctx.text_size(tp, None);
                                 measured = true;
                             }
                             TextAutoResize::Height => {
-                                node.size.y = crate::text_measure::intrinsic_text_size(tp, Some(node.size.x.max(20.0))).y;
+                                node.size.y = ctx.text_size(tp, Some(node.size.x.max(20.0))).y;
                                 measured = true;
                             }
                             TextAutoResize::None | TextAutoResize::Truncate => {}
                         }
-                        if measured && crate::text_measure::uses_fallback_font(tp) && !ctx.measured_with_fallback.contains(&target_id.0) {
+                        if measured && ctx.text_fell_back(tp) && !ctx.measured_with_fallback.contains(&target_id.0) {
                             ctx.measured_with_fallback.push(target_id.0);
                         }
                     }
@@ -2302,6 +2295,18 @@ impl Document {
 /// subtree `Command::Insert`) along with [`ApplySpecReport`]. Both before `Command::apply` runs and
 /// on any error, `doc` is left completely untouched.
 pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, snapshots: &[LibrarySnapshot]) -> Result<(Command, ApplySpecReport), SpecError> {
+    apply_spec_command_with(doc, parent, spec, snapshots, None)
+}
+
+/// [`apply_spec_command`] that sizes hug text with `measure` when `Some`.
+/// `None` keeps the character-width estimate. The measurer is visible only to this call.
+pub fn apply_spec_command_with<'m>(
+    doc: &mut Document,
+    parent: NodeId,
+    spec: &NodeSpec,
+    snapshots: &'m [LibrarySnapshot],
+    measure: Option<&'m dyn crate::text_measure::TextMeasure>,
+) -> Result<(Command, ApplySpecReport), SpecError> {
     let pnode = doc.get(parent).ok_or_else(|| SpecError::plain(format!("Parent node {} not found", parent.0)))?;
     if !pnode.kind.is_container() {
         return Err(SpecError::plain(format!("Parent node {} is not a container", parent.0)));
@@ -2351,6 +2356,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     };
 
     let mut ctx = SpecBuildCtx::new(doc, snapshots);
+    ctx.measure = measure;
     let mut bind_index = crate::SpecBindIndex::build(doc);
     let mut report = ApplySpecReport { parent_id: parent, ..Default::default() };
     let mut inserted_ids = Vec::new();
@@ -3099,7 +3105,7 @@ mod tests {
                 visible: true,
                 opacity: 1.0,
                 blend: BlendMode::Normal,
-                kind: PaintKind::Image { image_ref: "img_hash_1".into(), scale_mode: ImageScaleMode::Fill },
+                kind: PaintKind::Image { image_ref: "img_hash_1".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             });
         }
         let mut snap = snapshot(&lib_doc, "lib_ui", "UI Kit", 1);
@@ -3620,7 +3626,7 @@ mod tests {
         lib_doc.images.insert("dot_hash".into(), vec![0x89, 0x50, 0x4E, 0x47]);
         let card_comp_id = lib_doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Card").unwrap().id;
         lib_doc.get_mut(card_comp_id).unwrap().fills.push(Paint {
-            kind: PaintKind::Image { image_ref: "dot_hash".into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: "dot_hash".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: BlendMode::Normal,
@@ -3661,5 +3667,106 @@ mod tests {
         assert!(doc.library_page.is_none());
         assert!(doc.images.is_empty());
         assert_eq!(doc.nodes.len(), 1, "only Page 1 should remain in doc.nodes after undo");
+    }
+
+    #[test]
+    fn spec_swap_paths_apply_auto_vs_custom_name_per_axis_size_and_originally_matched_gate() {
+        let mut doc = Document::new("SpecSwapRulings");
+        let page = doc.add_page("Page 1");
+
+        let make_icon = |doc: &mut Document, name: &str, fill: Color, x: f32| -> NodeId {
+            let id = doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = doc.insert(page, f).unwrap();
+            let gid = doc.alloc_id();
+            let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            g.name = "Glyph".into();
+            g.fills = vec![Paint::solid(fill)];
+            doc.insert(comp, g).unwrap();
+            crate::components::create_component(doc, comp).apply(doc).unwrap();
+            comp
+        };
+
+        let icon_plus = make_icon(&mut doc, "IconPlus", Color::rgb(255, 255, 255), 0.0);
+        let icon_check_same = make_icon(&mut doc, "IconCheckSame", Color::rgb(255, 255, 255), 40.0);
+        let icon_diff = make_icon(&mut doc, "IconDiffFill", Color::rgb(0, 255, 0), 80.0);
+
+        // Button has two icon instances:
+        // - slot 0 renamed to "Leading icon" (custom name, resized to 20x16, Glyph fill overridden to red)
+        // - slot 1 kept auto-named "IconPlus"
+        let btn = {
+            let id = doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 60.0, 120.0, 40.0));
+            f.name = "Button".into();
+            let comp = doc.insert(page, f).unwrap();
+            crate::components::create_component(&mut doc, comp).apply(&mut doc).unwrap();
+            crate::components::create_instance(&mut doc, icon_plus, comp, Vec2::new(8.0, 10.0)).apply(&mut doc).unwrap();
+            crate::components::create_instance(&mut doc, icon_plus, comp, Vec2::new(40.0, 10.0)).apply(&mut doc).unwrap();
+            let slot_custom = doc.get(comp).unwrap().children[0];
+            {
+                let sn = doc.get_mut(slot_custom).unwrap();
+                sn.name = "Leading icon".into();
+                sn.size = Vec2::new(20.0, 16.0);
+            }
+            let glyph = doc.get(slot_custom).unwrap().children[0];
+            {
+                let gn = doc.get_mut(glyph).unwrap();
+                gn.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+                gn.component.overrides.insert(OverrideField::Fills);
+            }
+            crate::components::add_prop(
+                &mut doc,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_plus, icon_check_same, icon_diff] },
+                    default: PropValue::Instance(icon_plus),
+                },
+            )
+            .apply(&mut doc)
+            .unwrap();
+            crate::components::bind_prop(&mut doc, slot_custom, OverrideField::MainComponent, Some("Icon")).apply(&mut doc).unwrap();
+            comp
+        };
+        let _ = btn;
+
+        // 1. Swap via `props: {"Icon": "IconCheckSame"}` and `overrides: [{"path": "IconPlus", "swap": "IconCheckSame"}]`:
+        // - "Leading icon" keeps custom name "Leading icon" and red fill (originally matched).
+        // - Auto-named "IconPlus" takes new main's name "IconCheckSame".
+        let spec_same: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Button",
+            "props": { "Icon": "IconCheckSame" },
+            "overrides": [
+                { "path": "IconPlus", "swap": "IconCheckSame" }
+            ]
+        }))
+        .unwrap();
+        let inst_same = doc.apply_spec(page, &spec_same).unwrap();
+        let kids_same = doc.get(inst_same).unwrap().children.clone();
+        let custom_slot = doc.get(kids_same[0]).unwrap();
+        assert_eq!(custom_slot.name, "Leading icon");
+        assert_eq!(custom_slot.size, Vec2::new(20.0, 16.0));
+        let custom_glyph = doc.get(custom_slot.children[0]).unwrap();
+        assert_eq!(custom_glyph.fills[0].kind, PaintKind::Solid(Color::rgb(255, 0, 0)), "originally-matched fill override kept");
+        let auto_slot = doc.get(kids_same[1]).unwrap();
+        assert_eq!(auto_slot.name, "IconCheckSame", "auto-named nested instance takes new main's name on overrides[].swap");
+
+        // 2. Swap via `overrides: [{"path": "Leading icon", "swap": "IconDiffFill"}]`:
+        // - "Originally matched" gate drops red fill override because IconDiffFill's default fill is green (#00ff00 != #ffffff).
+        let spec_diff: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Button",
+            "overrides": [
+                { "path": "Leading icon", "swap": "IconDiffFill" }
+            ]
+        }))
+        .unwrap();
+        let inst_diff = doc.apply_spec(page, &spec_diff).unwrap();
+        let diff_slot = doc.get(doc.get(inst_diff).unwrap().children[0]).unwrap();
+        assert_eq!(diff_slot.name, "Leading icon");
+        let diff_glyph = doc.get(diff_slot.children[0]).unwrap();
+        assert_eq!(diff_glyph.fills[0].kind, PaintKind::Solid(Color::rgb(0, 255, 0)), "non-matching default fill drops override on spec swap");
     }
 }

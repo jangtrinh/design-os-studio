@@ -24,6 +24,9 @@ pub fn react_for(doc: &Document, node: NodeId) -> String {
 /// `var(--token)` references.
 pub fn react_with(doc: &Document, node: NodeId, opts: &ReactOptions) -> String {
     let Some(n) = doc.get(node) else { return String::new() };
+    if matches!(n.kind, NodeKind::Connector(_)) {
+        return String::new();
+    }
     let mut o = Out::new("  ");
     o.line(0, react_slot_signature(doc, n));
     o.line(1, "return (");
@@ -137,7 +140,7 @@ fn open_tag(o: &mut Out, depth: usize, tag: &str, extra: &str, style: &[String],
 
 fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
-    if !n.visible {
+    if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
     let style = style_entries(doc, id, parent.root);
@@ -338,9 +341,11 @@ mod tests {
         width: 480,
         height: 200,
         padding: '12px 16px',
+        boxSizing: 'border-box',
         gridTemplateColumns: 'minmax(0, 1fr) 120px auto',
         gridTemplateRows: '80px auto',
         gap: '24px 16px',
+        alignContent: 'start',
       }}
     >
       <div
@@ -358,7 +363,7 @@ mod tests {
 
         let expected_tw = r####"export function DashboardGrid() {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 w-[480px] h-[200px]">
+    <div className="grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] content-start gap-x-4 gap-y-6 box-border px-4 py-3 w-[480px] h-[200px]">
       <div className="col-start-2 col-span-2 row-start-1 w-[200px] h-20" />
     </div>
   );

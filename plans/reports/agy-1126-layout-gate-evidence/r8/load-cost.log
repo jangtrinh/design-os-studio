@@ -1,0 +1,43 @@
+=== /usr/bin/time -l designos kit.fig --inspect-json (size=336639376 bytes) ===
+wall_sec=7.502
+        7.48 real         6.13 user         1.19 sys
+          9923100672  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              621129  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   9  voluntary context switches
+                9188  involuntary context switches
+        109580671771  instructions retired
+         30193019514  cycles elapsed
+          6485154440  peak memory footprint
+
+=== designos-mcp open(kit.fig) + save(kit.designos) ===
+wall_sec=12.476s, kit.designos size=1672773383 bytes
+
+=== /usr/bin/time -l designos kit.designos --inspect-json (wall=4.077s, size=1672773383 bytes) ===
+        4.06 real         3.63 user         0.31 sys
+          3527344128  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              215309  page reclaims
+                 290  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  12  voluntary context switches
+                5134  involuntary context switches
+         53172059398  instructions retired
+         16376660276  cycles elapsed
+          3519024224  peak memory footprint

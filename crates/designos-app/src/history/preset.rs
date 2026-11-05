@@ -9,6 +9,11 @@ const HOUR: u64 = 60 * MIN;
 const DAY: u64 = 24 * HOUR;
 
 pub fn apply(app: &mut App, library: Option<PathBuf>) {
+    apply_at(app, library, crate::comments::time::now_ms());
+}
+
+/// `apply` with the clock given: the versions are saved relative to `now`.
+pub fn apply_at(app: &mut App, library: Option<PathBuf>, now: u64) {
     let root = library.unwrap_or_else(|| std::env::temp_dir().join(format!("designos_version_history_shot_{}", std::process::id())));
     let _ = std::fs::remove_dir_all(&root);
     app.attach_library(root);
@@ -23,7 +28,6 @@ pub fn apply(app: &mut App, library: Option<PathBuf>) {
     for id in drop {
         let _ = older.remove(id);
     }
-    let now = crate::comments::time::now_ms();
     let at = |ago: u64| now.saturating_sub(ago);
     let save = |d: &designos_doc::Document, label: Option<&str>, desc: Option<&str>, auto: bool, ago: u64| {
         let _ = lib.save_version_at(&entry.id, d, label.map(str::to_string), desc.map(str::to_string), auto, at(ago));
@@ -33,7 +37,8 @@ pub fn apply(app: &mut App, library: Option<PathBuf>) {
     save(&older, None, None, true, DAY + 2 * HOUR);
     save(&doc, Some("Ready for review"), Some("Card and dashboard added"), false, 26 * HOUR);
     save(&doc, None, None, true, 3 * HOUR);
-    save(&doc, None, None, true, 2 * HOUR + 10 * MIN);
+    // More than an hour after the version above, so the library's one-automatic-version-per-clock-hour thinning keeps both.
+    save(&doc, None, None, true, HOUR + 50 * MIN);
     save(&doc, Some("Before the colour pass"), None, false, 55 * MIN);
     save(&doc, None, None, true, 20 * MIN);
     save(&doc, None, None, true, 6 * MIN);

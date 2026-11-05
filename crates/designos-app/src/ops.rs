@@ -134,6 +134,126 @@ pub(crate) fn slot_edit_error(doc: &Document, leaving: &[(NodeId, usize)], enter
     check_slot_replace(doc, slot, removing, roots).err()
 }
 
+/// Whether `kind` is text whose runs paint a different fill list than its base style.
+fn text_runs_paint_different_fills(kind: &NodeKind) -> bool {
+    matches!(kind, NodeKind::Text(tp) if tp.runs.iter().any(|r| r.style.fills != tp.style.fills))
+}
+
+/// A stroke with paint but no width draws nothing, so a stroke that every width leaves at 0 gets width 1; a
+/// stroke with at least one non-zero side keeps all of its sides.
+fn give_zero_width_stroke_a_width(stroke: &mut Stroke) {
+    let no_width = match stroke.side_weights {
+        Some(sides) => sides.iter().all(|w| *w <= 0.0),
+        None => stroke.weight <= 0.0,
+    };
+    if no_width {
+        stroke.weight = 1.0;
+        if let Some(sides) = &mut stroke.side_weights {
+            *sides = [1.0; 4];
+        }
+    }
+}
+
+/// The fills `target` paints: a text layer paints its text style's fills, never `Node::fills`.
+fn painted_fills_of(target: &Node) -> Vec<Paint> {
+    match &target.kind {
+        NodeKind::Text(tp) => tp.style.fills.clone(),
+        _ => target.fills.clone(),
+    }
+}
+
+/// Variable binding keys of the visual set a paste that matches style takes from its target.
+fn is_visual_binding(key: &str) -> bool {
+    key.starts_with("fills/")
+        || key.starts_with("strokes/")
+        || key.starts_with("effects/")
+        || matches!(
+            key,
+            "strokeWeight"
+                | "strokeTopWeight"
+                | "strokeRightWeight"
+                | "strokeBottomWeight"
+                | "strokeLeftWeight"
+                | "opacity"
+                | "topLeftRadius"
+                | "topRightRadius"
+                | "bottomRightRadius"
+                | "bottomLeftRadius"
+        )
+}
+
+/// Variable binding keys of a text layer's typography.
+fn is_typography_binding(key: &str) -> bool {
+    matches!(key, "fontSize" | "fontFamily" | "fontStyle" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent")
+}
+
+/// Replaces the bindings of `node` that `takes` accepts with those of `target`; every other binding stays.
+fn match_bindings(node: &mut Node, target: &Node, takes: impl Fn(&str) -> bool) {
+    node.variables.bindings.retain(|key, _| !takes(key));
+    node.variables.bindings.extend(target.variables.bindings.iter().filter(|(key, _)| takes(key)).map(|(key, id)| (key.clone(), id.clone())));
+}
+
+/// Links `node` to the style `target` links for each of `keys`, or to none where `target` has none.
+fn match_style_links(node: &mut Node, target: &Node, keys: &[&str]) {
+    for key in keys {
+        match target.style_refs.get(*key) {
+            Some(style) => {
+                node.style_refs.insert((*key).into(), style.clone());
+            }
+            None => {
+                node.style_refs.remove(*key);
+            }
+        }
+    }
+}
+
+/// What a pasted layer takes from the target: the root its visual set, and every text layer of the pasted subtree the
+/// target's text style when the target is text.
+fn match_pasted_style(node: &mut Node, is_root: bool, target: &Node, painted_fills: &[Paint], text: Option<&TextStyle>) {
+    if is_root {
+        match_root_style(node, target, painted_fills, text.is_some());
+    }
+    if let Some(style) = text {
+        match_text_style(node, target, style, is_root);
+    }
+}
+
+/// The pasted root takes the visual set `copy_properties` copies from `target`, with the style links and bindings
+/// of those fields. A root that holds text but whose target is not text paints the target's fills as its text colour.
+fn match_root_style(root: &mut Node, target: &Node, painted_fills: &[Paint], target_is_text: bool) {
+    root.stroke = target.stroke.clone();
+    root.effects = target.effects.clone();
+    root.opacity = target.opacity;
+    root.blend = target.blend;
+    root.corner_radii = target.corner_radii;
+    root.corner_smoothing = target.corner_smoothing;
+    root.fills = if matches!(root.kind, NodeKind::Text(_)) { Vec::new() } else { painted_fills.to_vec() };
+    match_style_links(root, target, &["fill", "stroke", "effect"]);
+    let typography = target_is_text && root.kind.any_text().is_some();
+    match_bindings(root, target, |key| is_visual_binding(key) || (typography && is_typography_binding(key)));
+    if !target_is_text {
+        if let Some(tp) = root.kind.any_text_mut() {
+            crate::richtext::apply_all(tp, |st| st.fills = painted_fills.to_vec());
+        }
+    }
+}
+
+/// A text layer of the pasted subtree takes the text style of the target. Its `text` link and typography
+/// bindings follow; below the root its fill link and fill bindings do too, as the style carries the fills.
+fn match_text_style(node: &mut Node, target: &Node, style: &TextStyle, is_root: bool) {
+    let Some(tp) = node.kind.any_text_mut() else { return };
+    crate::richtext::apply_all(tp, |st| *st = style.clone());
+    if let NodeKind::Text(tp) = &node.kind {
+        node.size = layout::fit_text(tp, node.size);
+    }
+    if is_root {
+        match_style_links(node, target, &["text"]);
+    } else {
+        match_style_links(node, target, &["text", "fill"]);
+        match_bindings(node, target, |key| key.starts_with("fills/") || is_typography_binding(key));
+    }
+}
+
 impl App {
     /// Mirrors the selection across the centre of its bounding box.
     pub fn flip_selection(&mut self, horizontal: bool) {
@@ -240,6 +360,22 @@ impl App {
         }
     }
 
+    /// Closes an open colour-picker edit before a history navigation.
+    ///
+    /// Picker changes are applied live while their [`Tx`] stays open so a whole picker session can
+    /// commit as one undo step when it closes.  History navigation must first record that live
+    /// edit; otherwise the history step behind it can be undone while the picker still owns an old
+    /// snapshot, and the next picker change can restore that snapshot into the document.
+    pub(crate) fn commit_pending_picker_tx(&mut self) {
+        let Some(pk) = self.props.picker.as_mut() else { return };
+        if pk.tx.ed.touched().is_empty() {
+            return;
+        }
+        let tx = std::mem::replace(&mut pk.tx, Tx::new());
+        pk.state.reset_stop_origins(&pk.paint);
+        self.run_tx(tx);
+    }
+
     /// Applies `f` to each node and commits one undo step.
     pub fn edit_nodes(&mut self, ids: &[NodeId], mut f: impl FnMut(&mut Node)) {
         let mut tx = Tx::new();
@@ -288,49 +424,57 @@ impl App {
             ctx.data_mut(|d| d.insert_temp(id, false));
         }
         match (active, self.scrub.is_some()) {
-            (true, false) => {
-                if self.doc.nodes.len() <= 5_000 {
-                    self.begin_scrub(self.doc.nodes.clone());
-                } else {
-                    let mut snap = std::collections::BTreeMap::new();
-                    if let Some(pn) = self.doc.get(self.page) {
-                        snap.insert(self.page, pn.clone());
-                    }
-                    let mut stack: Vec<NodeId> = Vec::new();
-                    for &sid in &self.selection {
-                        stack.push(sid);
-                        let mut cur = self.doc.get(sid).and_then(|n| n.parent);
-                        while let Some(p) = cur {
-                            if p == self.page {
-                                break;
-                            }
-                            if let Some(pn) = self.doc.get(p) {
-                                snap.entry(p).or_insert_with(|| pn.clone());
-                                for &sib in pn.children.iter().take(256) {
-                                    if let Some(sn) = self.doc.get(sib) {
-                                        snap.entry(sib).or_insert_with(|| sn.clone());
-                                    }
-                                }
-                                cur = pn.parent;
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                    while let Some(nid) = stack.pop() {
-                        if snap.len() >= 4_096 {
-                            break;
-                        }
-                        if let Some(n) = self.doc.get(nid) {
-                            snap.entry(nid).or_insert_with(|| n.clone());
-                            stack.extend(n.children.iter().copied());
-                        }
-                    }
-                    self.begin_scrub(snap);
-                }
-            }
+            (true, false) => self.ensure_scrub(ctx),
             (false, true) => self.scrub_end(),
             _ => {}
+        }
+    }
+
+    /// Ensures a scrub session is open on the current document state before a continuous drag/slider edit mutates nodes.
+    pub(crate) fn ensure_scrub(&mut self, ctx: &egui::Context) {
+        let id = egui::Id::new(crate::widgets::field::SCRUB_FLAG);
+        ctx.data_mut(|d| d.insert_temp(id, true));
+        if self.scrub.is_some() {
+            return;
+        }
+        if self.doc.nodes.len() <= 5_000 {
+            self.begin_scrub(self.doc.nodes.clone());
+        } else {
+            let mut snap = std::collections::BTreeMap::new();
+            if let Some(pn) = self.doc.get(self.page) {
+                snap.insert(self.page, pn.clone());
+            }
+            let mut stack: Vec<NodeId> = Vec::new();
+            for &sid in &self.selection {
+                stack.push(sid);
+                let mut cur = self.doc.get(sid).and_then(|n| n.parent);
+                while let Some(p) = cur {
+                    if p == self.page {
+                        break;
+                    }
+                    if let Some(pn) = self.doc.get(p) {
+                        snap.entry(p).or_insert_with(|| pn.clone());
+                        for &sib in pn.children.iter().take(256) {
+                            if let Some(sn) = self.doc.get(sib) {
+                                snap.entry(sib).or_insert_with(|| sn.clone());
+                            }
+                        }
+                        cur = pn.parent;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            while let Some(nid) = stack.pop() {
+                if snap.len() >= 4_096 {
+                    break;
+                }
+                if let Some(n) = self.doc.get(nid) {
+                    snap.entry(nid).or_insert_with(|| n.clone());
+                    stack.extend(n.children.iter().copied());
+                }
+            }
+            self.begin_scrub(snap);
         }
     }
 
@@ -379,7 +523,9 @@ impl App {
     }
 
     pub fn undo(&mut self) {
+        self.commit_pending_picker_tx();
         if self.try_undo_restore() {
+            crate::panels::var_bind::adopt_picker_paint_after_history(self);
             return;
         }
         let copy_undo_match =
@@ -396,22 +542,26 @@ impl App {
                 }
                 self.relayout_moved_geometry();
                 self.sanitize();
+                crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
-            Ok(false) => {}
+            Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
             Err(e) => self.show_toast(format!("Undo failed: {e}"), true),
         }
     }
 
     pub fn redo(&mut self) {
+        self.commit_pending_picker_tx();
         if self.try_redo_restore() {
+            crate::panels::var_bind::adopt_picker_paint_after_history(self);
             return;
         }
         match self.hist.redo(&mut self.doc) {
             Ok(true) => {
                 self.relayout_moved_geometry();
                 self.sanitize();
+                crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
-            Ok(false) => {}
+            Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
             Err(e) => self.show_toast(format!("Redo failed: {e}"), true),
         }
     }
@@ -843,7 +993,7 @@ impl App {
         self.show_toast("Pasted over selection", false);
     }
 
-    /// `Cmd+Shift+R` / `Cmd+Alt+Shift+R` (`PasteToReplace`): replaces each selected node in-place with the
+    /// `Cmd+Shift+R` (`PasteToReplace`): replaces each selected node in-place with the
     /// clipboard contents, preserving the target's parent, child index, and `(tx, ty)` position.
     pub fn paste_to_replace(&mut self) {
         let Some(clip) = self.clip.clone() else { return };
@@ -943,6 +1093,14 @@ impl App {
         for id in ids {
             let mut relayout_text = false;
             if let Some(n) = tx.ed.node(&mut self.doc, id) {
+                // These values are replaced by the copied snapshot. Any bindings or shared
+                // style links that point at the old indexed items must be removed in the same
+                // transaction; otherwise the target's variables keep overriding the pasted
+                // paints/effects.
+                n.variables.bindings.retain(|key, _| !key.starts_with("fills/") && !key.starts_with("strokes/") && !key.starts_with("effects/"));
+                n.style_refs.remove("fill");
+                n.style_refs.remove("stroke");
+                n.style_refs.remove("effect");
                 n.fills = snap.fills.clone();
                 n.stroke = snap.stroke.clone();
                 n.effects = snap.effects.clone();
@@ -953,6 +1111,7 @@ impl App {
                 let is_text = matches!(n.kind, NodeKind::Text(_));
                 if let (Some(style), Some(tp)) = (&snap.text_style, n.kind.any_text_mut()) {
                     crate::richtext::apply_all(tp, |st| *st = style.clone());
+                    n.style_refs.remove("text");
                     if is_text {
                         n.size = layout::fit_text(tp, n.size);
                         relayout_text = true;
@@ -967,45 +1126,196 @@ impl App {
         self.show_toast("Pasted properties", false);
     }
 
+    /// `PasteAndMatchStyle` (Edit menu and command palette, no shortcut): pastes clipboard text into an active
+    /// text session with the target caret/selection's text style, or pastes copied layers over the selected
+    /// target layer in a single undo step. The pasted layers take the visual set `copy_properties` copies, the
+    /// style links and variable bindings of those fields, and, when the target is text, its text style on every
+    /// text layer of the pasted subtree, recorded as an override on layers that mirror a main component. Size,
+    /// characters, layout and grid links stay the pasted layer's own.
+    pub fn paste_and_match_style(&mut self) {
+        if self.canvas.text.is_some() {
+            let sys = (self.system_text)();
+            let plain = match sys.as_deref() {
+                Some(s) if !s.is_empty() && clipboard::from_json(s).is_none() => Some(s.to_owned()),
+                _ => {
+                    let clip = sys.as_deref().and_then(clipboard::from_json).or_else(|| self.clip.clone());
+                    clip.and_then(|c| {
+                        let parts: Vec<&str> = c.nodes.iter().filter_map(|n| n.kind.any_text().map(|t| t.content.as_str())).collect();
+                        (!parts.is_empty()).then(|| parts.join("\n"))
+                    })
+                }
+            };
+            if let Some(text) = plain {
+                if let Some(sess) = self.canvas.text.as_mut() {
+                    sess.typing = None;
+                }
+                crate::canvas::textsession::insert_text(self, &text, crate::textedit::EditKind::Other);
+            }
+            return;
+        }
+        let Some(clip) = self.clip.clone() else { return };
+        let Some(&target_id) = self.selection.first() else { return };
+        let Some(target) = self.doc.get(target_id).cloned() else { return };
+        let painted_fills = painted_fills_of(&target);
+        let target_text = target.kind.any_text().map(|t| t.style.clone());
+
+        let container = self.container_for_insert();
+        let parent = clipboard::paste_parent(&self.doc, &clip, container);
+        let over = if parent == container { self.selection.first().copied() } else { child_holding(&self.doc, parent, container) };
+        let (target_local, base_idx) = if let Some(sel_id) = over {
+            if sel_id == parent {
+                (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+            } else if let Some(n) = self.doc.get(sel_id) {
+                let idx = self
+                    .doc
+                    .get(parent)
+                    .and_then(|p| p.children.iter().position(|&c| c == sel_id).map(|i| i + 1))
+                    .unwrap_or_else(|| self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
+                (v2(n.transform.tx, n.transform.ty), idx)
+            } else {
+                (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+            }
+        } else {
+            (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+        };
+        let lists = clipboard::instantiate(&mut self.doc, &clip);
+        let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
+        if !self.slot_insert_allowed(parent, &roots) {
+            return;
+        }
+        let first_orig = lists.first().and_then(|l| l.first()).map(|r| v2(r.transform.tx, r.transform.ty)).unwrap_or(v2(0.0, 0.0));
+        let delta = v2(target_local.x - first_orig.x, target_local.y - first_orig.y);
+        let mut tx = Tx::new();
+        let mut new_sel = Vec::new();
+        for (k, mut nodes) in lists.into_iter().enumerate() {
+            // A layer that mirrors a main component takes its style through the editor once it is inserted, so
+            // the change is recorded as an override and survives a sync of that main.
+            let mut mirrored = Vec::new();
+            for (i, node) in nodes.iter_mut().enumerate() {
+                if i == 0 {
+                    node.transform.tx += delta.x;
+                    node.transform.ty += delta.y;
+                }
+                if is_linked(node) {
+                    mirrored.push((node.id, i == 0));
+                } else {
+                    match_pasted_style(node, i == 0, &target, &painted_fills, target_text.as_ref());
+                }
+            }
+            if let Some(root) = nodes.first_mut() {
+                apply_slot_stretch_on_insert(&self.doc, parent, root);
+                new_sel.push(root.id);
+            }
+            let index = (base_idx + k).min(self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
+            let _ = tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes });
+            for (id, is_root) in mirrored {
+                if let Some(node) = tx.ed.node(&mut self.doc, id) {
+                    match_pasted_style(node, is_root, &target, &painted_fills, target_text.as_ref());
+                }
+            }
+        }
+        Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
+        layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
+        self.run_tx(tx);
+        self.selection = new_sel;
+        self.show_toast("Pasted and matched style", false);
+    }
+
+    /// `Shift+X` (`SwapFillAndStroke`): swaps fill and stroke paint arrays, `fills/*` <-> `strokes/*`
+    /// variable bindings, and `"fill"` <-> `"stroke"` shared style refs across all selected layers in one undo step.
+    /// A text layer swaps the fills it paints (its text style and every run) with the stroke; one whose runs paint
+    /// different fills is left as it is, since one stroke cannot hold them without flattening the runs.
+    pub fn swap_fill_and_stroke(&mut self) {
+        let ids: Vec<NodeId> = self
+            .selection
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Page { .. } | NodeKind::Group) && !text_runs_paint_different_fills(&n.kind))
+            })
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        let mut tx = Tx::new();
+        for id in ids {
+            let Some(n) = tx.ed.node(&mut self.doc, id) else { continue };
+            if let NodeKind::Text(tp) = &mut n.kind {
+                // `Node::fills` is never painted on text; the text style and its runs hold the colour.
+                let text_fills = std::mem::replace(&mut n.stroke.paints, std::mem::take(&mut tp.style.fills));
+                for run in &mut tp.runs {
+                    run.style.fills = text_fills.clone();
+                }
+                tp.style.fills = text_fills;
+            } else {
+                std::mem::swap(&mut n.fills, &mut n.stroke.paints);
+            }
+            if !n.stroke.paints.is_empty() {
+                give_zero_width_stroke_a_width(&mut n.stroke);
+            }
+            let old_bindings = std::mem::take(&mut n.variables.bindings);
+            for (k, v) in old_bindings {
+                let new_k = if let Some(rest) = k.strip_prefix("fills/") {
+                    format!("strokes/{rest}")
+                } else if let Some(rest) = k.strip_prefix("strokes/") {
+                    format!("fills/{rest}")
+                } else {
+                    k
+                };
+                n.variables.bindings.insert(new_k, v);
+            }
+            let fill_ref = n.style_refs.remove("fill");
+            let stroke_ref = n.style_refs.remove("stroke");
+            if let Some(r) = stroke_ref {
+                n.style_refs.insert("fill".into(), r);
+            }
+            if let Some(r) = fill_ref {
+                n.style_refs.insert("stroke".into(), r);
+            }
+        }
+        self.run_tx(tx);
+    }
+
     /// `Q` or `Cmd/Ctrl + Alt + A`: Multi-Edit / Select Matching Layers across top-level frames
-    /// and component variants on the active page (matching `name` and `NodeKind` variant).
+    /// and component variants on the active page.
     pub fn select_matching_layers(&mut self) -> usize {
         if self.selection.is_empty() {
             return 0;
         }
-        let targets: Vec<(String, std::mem::Discriminant<NodeKind>)> =
-            self.selection.iter().filter_map(|&id| self.doc.get(id).map(|n| (n.name.clone(), std::mem::discriminant(&n.kind)))).collect();
-        if targets.is_empty() {
-            return 0;
-        }
-        let mut matched: Vec<NodeId> = Vec::new();
-        let doc = &self.doc;
-        doc.walk(self.page, |n, depth| {
-            if depth == 0 || !n.visible {
-                return;
-            }
-            let disc = std::mem::discriminant(&n.kind);
-            if targets.iter().any(|(name, d)| *name == n.name && *d == disc) {
-                let mut cur = n.parent;
-                let mut all_vis = true;
-                while let Some(p) = cur {
-                    if p == self.page {
-                        break;
-                    }
-                    if !doc.get(p).is_some_and(|pn| pn.visible) {
-                        all_vis = false;
-                        break;
-                    }
-                    cur = doc.get(p).and_then(|pn| pn.parent);
-                }
-                if all_vis && !matched.contains(&n.id) {
-                    matched.push(n.id);
+        let new_matches = designos_doc::find::find_matching_layers(&self.doc, &self.selection);
+        if !new_matches.is_empty() {
+            let n = new_matches.len();
+            for id in new_matches {
+                if !self.selection.contains(&id) {
+                    self.selection.push(id);
                 }
             }
-        });
-        if !matched.is_empty() {
-            self.selection = matched;
-            self.show_toast(format!("Selected {} matching layers", self.selection.len()), false);
+            let total = self.selection.len();
+            self.canvas.last_hover_query = None;
+            self.show_toast(format!("{n} matching layers found, {total} items selected"), false);
+        } else {
+            let msg = match self.selection.first().and_then(|&s| designos_doc::find::matching_scope_of(&self.doc, s)).map(|(sc, _)| sc) {
+                Some(designos_doc::find::MatchScope::ComponentSet(_)) => "No matching layers to select in this component set",
+                Some(designos_doc::find::MatchScope::Section(_)) => "No matching layers to select in this section",
+                _ => {
+                    let mut cur = self.selection.first().and_then(|&s| self.doc.get(s)).and_then(|n| n.parent);
+                    let mut fallback = "No matching layers to select on page";
+                    while let Some(pid) = cur {
+                        let Some(pn) = self.doc.get(pid) else { break };
+                        if matches!(pn.kind, NodeKind::ComponentSet(_)) {
+                            fallback = "No matching layers to select in this component set";
+                            break;
+                        }
+                        if matches!(pn.kind, NodeKind::Section) {
+                            fallback = "No matching layers to select in this section";
+                            break;
+                        }
+                        cur = pn.parent;
+                    }
+                    fallback
+                }
+            };
+            self.show_toast(msg, false);
         }
         self.selection.len()
     }
@@ -1156,6 +1466,33 @@ impl App {
         if let Some(g) = g {
             self.selection = vec![g];
         }
+    }
+
+    /// Whether the current selection contains at least one container (`Frame`, `Group`, `Component`,
+    /// `ComponentSet`) with at least one visible child that can be resized to fit.
+    pub fn can_resize_to_fit(&self) -> bool {
+        designos_doc::can_resize_to_fit(&self.doc, &self.selection)
+    }
+
+    /// `Cmd+Alt+Shift+R` (`Resize to fit`): fits each selected `Frame`, `Group`, `Component`, or
+    /// `ComponentSet` to its visible children as one undo step.
+    pub fn resize_to_fit(&mut self) -> bool {
+        let targets = designos_doc::ordered_resize_to_fit_targets(&self.doc, &self.selection);
+        if targets.is_empty() {
+            return false;
+        }
+        let mut tx = Tx::new();
+        for id in targets {
+            match designos_doc::apply_resize_to_fit_one(&mut self.doc, id, |doc, nid| {
+                tx.ed.touch(doc, nid);
+            }) {
+                Some(true) => layout::relayout_around(&mut self.doc, &mut tx.ed, id),
+                Some(false) => layout::relayout_up(&mut self.doc, &mut tx.ed, id),
+                None => {}
+            }
+        }
+        self.run_tx(tx);
+        true
     }
 
     pub fn ungroup_selection(&mut self) {
@@ -1658,6 +1995,55 @@ impl App {
     /// dragged nodes are removed), preserving their page position.
     pub fn move_to_parent(&mut self, ids: &[NodeId], new_parent: NodeId, index: usize) {
         let Some(npw) = self.doc.world_transform(new_parent).invert() else { return };
+        // Layer-panel selection order reflects click order, which can be the
+        // reverse of the document order. Reparenting selected siblings in
+        // click order would reverse their relative order at the drop point.
+        // Canonicalize a selection from one source parent; cross-parent moves
+        // retain the caller's explicit order because there is no single
+        // sibling list to define its order.
+        let mut ids = ids.to_vec();
+        let common_parent = ids.first().and_then(|id| self.doc.get(*id)).and_then(|n| n.parent);
+        let one_source_parent = common_parent.is_some() && ids.iter().all(|id| self.doc.get(*id).and_then(|n| n.parent) == common_parent);
+        if one_source_parent {
+            if let Some(parent) = common_parent.and_then(|p| self.doc.get(p)) {
+                ids.sort_by_key(|id| parent.children.iter().position(|child| child == id).unwrap_or(usize::MAX));
+            }
+        }
+        let same_parent = one_source_parent && common_parent == Some(new_parent);
+        if same_parent {
+            let move_ids: Vec<NodeId> = ids
+                .iter()
+                .copied()
+                .filter(|id| {
+                    *id != new_parent
+                        && !self.doc.is_ancestor(*id, new_parent)
+                        && !reparent_would_hold_itself(&self.doc, &[*id], new_parent)
+                        && self.slot_move_allowed(&[*id], new_parent)
+                })
+                .collect();
+            if move_ids.is_empty() {
+                return;
+            }
+            let mut tx = Tx::new();
+            // Park the selected siblings after the unselected siblings. This removes them
+            // without changing the relative order of either group, including non-contiguous
+            // selections that straddle the drop point. Reinsert the parked block at the
+            // resolved post-removal index. Keep all structural commands atomic so a future
+            // document/slot validation failure cannot leave a partial move behind.
+            let commands = move_ids
+                .iter()
+                .map(|id| Command::Reparent { id: *id, parent: new_parent, index: usize::MAX })
+                .chain(move_ids.iter().enumerate().map(|(i, id)| Command::Reparent { id: *id, parent: new_parent, index: index + i }))
+                .collect();
+            if let Err(e) = tx.cmds_all_or_none(&mut self.doc, commands) {
+                self.show_toast(format!("Cannot move layer: {e}"), true);
+                return;
+            }
+            Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, new_parent);
+            layout::relayout_around(&mut self.doc, &mut tx.ed, new_parent);
+            self.run_tx(tx);
+            return;
+        }
         let mut tx = Tx::new();
         let mut old_parents = Vec::new();
         let mut moved = false;
@@ -2030,6 +2416,8 @@ impl App {
         });
         io::ensure_page(&mut doc);
         let first_page = doc.pages[0];
+        // Before page 0 expands instances. Ids allocated there are per session (`--select id:` refuses them).
+        self.load_next_id = doc.peek_next_id();
         doc.ensure_page_hydrated(first_page);
         self.page = first_page;
         self.doc = doc;
@@ -2234,8 +2622,13 @@ impl App {
             }
         };
         let Some(path) = target else { return };
+        let _ = self.persist_document_to(&path);
+    }
+
+    pub(crate) fn persist_document_to(&mut self, path: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
+        crate::decks::ui::flush_notes(self);
         self.settle_pending_relayout();
-        match io::save_path_counted(&self.doc, &path) {
+        match io::save_path_counted(&self.doc, path) {
             Ok((p, replaced)) => {
                 if replaced > 0 {
                     self.doc.neutralize_non_finite();
@@ -2267,8 +2660,12 @@ impl App {
                         self.mark_saved();
                     }
                 }
+                Ok(p)
             }
-            Err(e) => self.show_toast(e, true),
+            Err(e) => {
+                self.show_toast(e.to_string(), true);
+                Err(e)
+            }
         }
     }
 
@@ -2536,6 +2933,84 @@ mod tests {
     }
 
     #[test]
+    fn move_to_parent_keeps_multi_selection_sibling_order() {
+        let (mut app, ids) = app_with_rects();
+        let [card, welcome, dashboard] = ids.as_slice() else { unreachable!() };
+        // A bottom-up layer-panel selection supplies the IDs in reverse document order.
+        app.move_to_parent(&[*welcome, *card], app.page, 1);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*dashboard, *card, *welcome]);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*card, *welcome, *dashboard]);
+
+        // A top-down selection must produce the same document order.
+        app.move_to_parent(&[*card, *welcome], app.page, 1);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*dashboard, *card, *welcome]);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*card, *welcome, *dashboard]);
+
+        // A non-contiguous selection also stays together.
+        app.move_to_parent(&[*dashboard, *card], app.page, 1);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*welcome, *card, *dashboard]);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*card, *welcome, *dashboard]);
+
+        // Moving into a frame keeps source sibling order as well.
+        let frame_id = app.doc.alloc_id();
+        let frame = app.doc.insert(app.page, Node::frame(frame_id, Rect::new(500.0, 500.0, 300.0, 300.0))).unwrap();
+        app.move_to_parent(&[*welcome, *card], frame, 0);
+        assert_eq!(app.doc.get(frame).unwrap().children, vec![*card, *welcome]);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*card, *welcome, *dashboard, frame]);
+    }
+
+    #[test]
+    fn move_to_parent_keeps_block_order_at_each_same_parent_drop_position() {
+        let (mut app, ids) = app_with_rects();
+        let [a, b, c] = ids.as_slice() else { unreachable!() };
+
+        // The drop index is relative to the sibling list after the selected nodes
+        // are removed. The moved block must remain contiguous at every position.
+        app.move_to_parent(&[*c, *b], app.page, 0);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*b, *c, *a]);
+        app.undo();
+
+        app.move_to_parent(&[*c, *b], app.page, 1);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, *b, *c]);
+        app.undo();
+
+        app.move_to_parent(&[*b, *c], app.page, 2);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, *b, *c]);
+        app.undo();
+
+        // A non-contiguous selection keeps source order when moved as one block.
+        app.move_to_parent(&[*c, *a], app.page, 0);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, *c, *b]);
+        app.undo();
+    }
+
+    #[test]
+    fn move_to_parent_keeps_order_when_drop_is_before_or_after_selected_block() {
+        let (mut app, ids) = app_with_rects();
+        let [a, b, c] = ids.as_slice() else { unreachable!() };
+        let d = app.doc.alloc_id();
+        let d = app.doc.insert(app.page, Node::rectangle(d, Rect::new(300.0, 60.0, 50.0, 50.0))).unwrap();
+
+        // Drop above the first unselected sibling.
+        app.move_to_parent(&[*c, *b], app.page, 0);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*b, *c, *a, d]);
+        app.undo();
+
+        // Drop after the last unselected sibling.
+        app.move_to_parent(&[*c, *b], app.page, 2);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, d, *b, *c]);
+        app.undo();
+
+        // Non-contiguous selections also move as a source-order block.
+        app.move_to_parent(&[d, *b], app.page, 0);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*b, d, *a, *c]);
+    }
+
+    #[test]
     fn ungroup_restores_children() {
         let (mut app, ids) = app_with_rects();
         app.selection = vec![ids[0], ids[1]];
@@ -2699,6 +3174,80 @@ mod tests {
         assert_eq!(app.doc.get(replaced_id).unwrap().transform.tx, 100.0);
         assert_eq!(app.doc.get(replaced_id).unwrap().transform.ty, 20.0);
         assert_eq!(app.doc.get(app.page).unwrap().children[orig_idx], replaced_id);
+    }
+
+    #[test]
+    fn paste_properties_drops_target_paint_bindings_in_the_same_undo_step() {
+        let (mut app, ids) = app_with_rects();
+        let source = ids[0];
+        let target = ids[1];
+        let gradient = |color: Color| Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [v2(0.0, 0.0), v2(1.0, 0.0), v2(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        };
+        app.doc.get_mut(source).unwrap().fills = vec![gradient(Color::rgb(0x0D, 0x99, 0xFF))];
+        let target_node = app.doc.get_mut(target).unwrap();
+        target_node.fills = vec![gradient(Color::rgb(0xFF, 0x00, 0x00))];
+        target_node.variables.bindings.insert("fills/0/stops/0".into(), "var-target".into());
+        target_node.variables.bindings.insert("opacity".into(), "var-opacity".into());
+
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![target];
+        app.paste_properties();
+
+        let pasted = app.doc.get(target).unwrap();
+        assert_eq!(pasted.fills, app.doc.get(source).unwrap().fills);
+        assert!(!pasted.variables.bindings.contains_key("fills/0/stops/0"), "a replaced paint must not keep the target's indexed binding");
+        assert_eq!(pasted.variables.bindings.get("opacity").map(String::as_str), Some("var-opacity"));
+
+        app.undo();
+        let restored = app.doc.get(target).unwrap();
+        assert!(matches!(restored.fills[0].kind, PaintKind::LinearGradient { .. }));
+        assert_eq!(restored.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-target"));
+    }
+
+    #[test]
+    fn paste_properties_detaches_target_text_style_and_undo_restores_link() {
+        let mut d = Document::new("paste-text-properties");
+        let page = d.add_page("p");
+        let source_id = d.alloc_id();
+        let source = d
+            .insert(
+                page,
+                Node::text(source_id, Rect::new(0.0, 0.0, 160.0, 32.0), "Source", TextStyle { font_size: 32.0, font_weight: 700, ..Default::default() }),
+            )
+            .unwrap();
+        let target_id = d.alloc_id();
+        let mut target =
+            Node::text(target_id, Rect::new(0.0, 48.0, 160.0, 20.0), "Target", TextStyle { font_size: 10.0, font_weight: 400, ..Default::default() });
+        target.style_refs.insert("text".into(), "Body".into());
+        let target = d.insert(page, target).unwrap();
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, font_weight: 500, ..Default::default() }));
+
+        let mut app = App::new(d);
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![target];
+        app.paste_properties();
+
+        let pasted = app.doc.get(target).expect("target text");
+        assert!(!pasted.style_refs.contains_key("text"), "pasted text properties must detach the target shared text style");
+        let NodeKind::Text(tp) = &pasted.kind else { panic!("target text") };
+        let NodeKind::Text(source_tp) = &app.doc.get(source).expect("source text").kind else { panic!("source text") };
+        assert_eq!(tp.style, source_tp.style);
+
+        app.undo();
+        let restored = app.doc.get(target).expect("restored target text");
+        assert_eq!(restored.style_refs.get("text").map(String::as_str), Some("Body"));
+        let NodeKind::Text(tp) = &restored.kind else { panic!("restored target text") };
+        assert_eq!(tp.style.font_size, 10.0);
+        assert_eq!(tp.style.font_weight, 400);
     }
 
     #[test]
@@ -2954,5 +3503,674 @@ mod tests {
         let toast = app.toast.as_ref().expect("a failure toast must be shown");
         assert_eq!(toast.text, "Web capture import stopped unexpectedly. Try again.");
         assert!(toast.error);
+    }
+
+    #[test]
+    fn app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+
+        let frame = doc.alloc_id();
+        doc.insert(page, Node::frame(frame, Rect::new(10.0, 20.0, 300.0, 240.0))).unwrap();
+        let f_child = doc.alloc_id();
+        let mut fc = Node::rectangle(f_child, Rect::new(25.0, 35.0, 80.0, 50.0));
+        fc.constraints = designos_doc::Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        doc.insert(frame, fc).unwrap();
+
+        let al_frame = doc.alloc_id();
+        let mut alf = Node::frame(al_frame, Rect::new(350.0, 20.0, 260.0, 200.0));
+        alf.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                padding: [12.0; 4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, alf).unwrap();
+        let al_child = doc.alloc_id();
+        doc.insert(al_frame, Node::rectangle(al_child, Rect::new(0.0, 0.0, 76.0, 36.0))).unwrap();
+
+        let leaf_shape = doc.alloc_id();
+        doc.insert(page, Node::rectangle(leaf_shape, Rect::new(700.0, 20.0, 40.0, 30.0))).unwrap();
+        let leaf_text = doc.alloc_id();
+        doc.insert(page, Node::text(leaf_text, Rect::new(760.0, 20.0, 60.0, 20.0), "Caption", TextStyle::default())).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+
+        app.selection = vec![leaf_shape, leaf_text];
+        assert!(!app.can_resize_to_fit());
+        assert!(!app.resize_to_fit());
+
+        app.selection = vec![frame, al_frame, leaf_shape, leaf_text];
+        assert!(app.can_resize_to_fit());
+        assert!(app.resize_to_fit());
+
+        let f_after = app.doc.get(frame).unwrap();
+        assert_eq!((f_after.transform.tx, f_after.transform.ty), (35.0, 55.0));
+        assert_eq!(f_after.size, v2(80.0, 50.0));
+        let fc_after = app.doc.get(f_child).unwrap();
+        assert_eq!((fc_after.transform.tx, fc_after.transform.ty), (0.0, 0.0));
+        assert_eq!(fc_after.size, v2(80.0, 50.0));
+
+        let alf_after = app.doc.get(al_frame).unwrap();
+        let al_props = alf_after.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!((al_props.primary_sizing, al_props.counter_sizing), (Sizing::Hug, Sizing::Hug));
+        assert_eq!(alf_after.size, v2(100.0, 60.0));
+
+        // One undo restores both frames and child local positions.
+        app.undo();
+        assert_eq!(app.doc.get(frame).unwrap().size, v2(300.0, 240.0));
+        assert_eq!((app.doc.get(frame).unwrap().transform.tx, app.doc.get(frame).unwrap().transform.ty), (10.0, 20.0));
+        assert_eq!((app.doc.get(f_child).unwrap().transform.tx, app.doc.get(f_child).unwrap().transform.ty), (25.0, 35.0));
+        assert_eq!(app.doc.get(al_frame).unwrap().size, v2(260.0, 200.0));
+    }
+
+    #[test]
+    fn resize_to_fit_cpu_render_preserves_child_pixels_and_trims_excess_frame_bounds() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+        if let Some(p) = doc.get_mut(page) {
+            p.kind = NodeKind::Page { background: Color::rgb(0x18, 0x18, 0x1B) };
+        }
+
+        let frame = doc.alloc_id();
+        let mut frame_node = Node::frame(frame, Rect::new(40.0, 40.0, 320.0, 220.0));
+        frame_node.fills = vec![Paint::solid(Color::rgb(0x27, 0x27, 0x2A))];
+        frame_node.stroke = designos_doc::Stroke { paints: vec![Paint::solid(Color::rgb(0x38, 0xBD, 0xF8))], weight: 2.0, ..Default::default() };
+        doc.insert(page, frame_node).unwrap();
+
+        let c1 = doc.alloc_id();
+        let mut c1_node = Node::rectangle(c1, Rect::new(60.0, 50.0, 90.0, 70.0));
+        c1_node.fills = vec![Paint::solid(Color::rgb(0xF9, 0x73, 0x16))];
+        doc.insert(frame, c1_node).unwrap();
+
+        let c2 = doc.alloc_id();
+        let mut c2_node = Node::rectangle(c2, Rect::new(170.0, 80.0, 80.0, 60.0));
+        c2_node.fills = vec![Paint::solid(Color::rgb(0x22, 0xC5, 0x5E))];
+        doc.insert(frame, c2_node).unwrap();
+
+        let hidden = doc.alloc_id();
+        let mut hidden_node = Node::rectangle(hidden, Rect::new(260.0, 160.0, 40.0, 40.0));
+        hidden_node.visible = false;
+        doc.insert(frame, hidden_node).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![frame];
+
+        let vp = designos_render::Viewport::default();
+        let mut before_pm = designos_render::tiny_skia::Pixmap::new(400, 300).unwrap();
+        designos_render::render_page(&app.doc, page, &vp, &mut before_pm);
+
+        assert!(app.resize_to_fit());
+
+        let mut after_pm = designos_render::tiny_skia::Pixmap::new(400, 300).unwrap();
+        designos_render::render_page(&app.doc, page, &vp, &mut after_pm);
+
+        if let Some(out_dir) = std::env::var_os("DESIGNOS_RESIZE_TO_FIT_EVIDENCE_OUT") {
+            let out_path = std::path::Path::new(&out_dir);
+            std::fs::create_dir_all(out_path).unwrap();
+            before_pm.save_png(out_path.join("resize-to-fit-before.png")).unwrap();
+            after_pm.save_png(out_path.join("resize-to-fit-after.png")).unwrap();
+        }
+
+        let px = |pm: &designos_render::tiny_skia::Pixmap, x: u32, y: u32| {
+            let p = pm.pixel(x, y).unwrap();
+            (p.red(), p.green(), p.blue(), p.alpha())
+        };
+        // (60, 60) was inside the oversized frame before, and is outside the fitted (100, 90, 190, 90) frame after.
+        assert_eq!(px(&before_pm, 60, 60), (0x27, 0x27, 0x2A, 0xFF));
+        assert_eq!(px(&after_pm, 60, 60), (0x18, 0x18, 0x1B, 0xFF));
+        // Both visible children stay at the exact same page coordinates.
+        assert_eq!(px(&before_pm, 120, 110), (0xF9, 0x73, 0x16, 0xFF));
+        assert_eq!(px(&after_pm, 120, 110), (0xF9, 0x73, 0x16, 0xFF));
+        assert_eq!(px(&before_pm, 230, 140), (0x22, 0xC5, 0x5E, 0xFF));
+        assert_eq!(px(&after_pm, 230, 140), (0x22, 0xC5, 0x5E, 0xFF));
+    }
+
+    fn page_transform(doc: &Document, id: NodeId) -> Affine {
+        let mut chain = Vec::new();
+        let mut cur = Some(id);
+        while let Some(nid) = cur {
+            let Some(n) = doc.get(nid) else { break };
+            if matches!(n.kind, NodeKind::Page { .. }) {
+                break;
+            }
+            chain.push(n.transform);
+            cur = n.parent;
+        }
+        let mut out = Affine::IDENTITY;
+        for t in chain.into_iter().rev() {
+            out = out * t;
+        }
+        out
+    }
+
+    fn assert_affine_close(a: Affine, b: Affine, eps: f32) {
+        assert!(
+            (a.a - b.a).abs() <= eps
+                && (a.b - b.b).abs() <= eps
+                && (a.c - b.c).abs() <= eps
+                && (a.d - b.d).abs() <= eps
+                && (a.tx - b.tx).abs() <= eps
+                && (a.ty - b.ty).abs() <= eps,
+            "expected affine {b:?}, got {a:?}"
+        );
+    }
+
+    #[test]
+    fn resize_to_fit_frame_larger_than_children_shrinks_and_keeps_child_page_positions() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(100.0, 200.0, 500.0, 400.0))).unwrap();
+        let c1 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c1, Rect::new(40.0, 50.0, 60.0, 80.0))).unwrap();
+        let c2 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c2, Rect::new(140.0, 110.0, 90.0, 70.0))).unwrap();
+
+        let c1_page_before = page_transform(&doc, c1);
+        let c2_page_before = page_transform(&doc, c2);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        assert_eq!((f.transform.tx, f.transform.ty), (140.0, 250.0));
+        assert_eq!(f.size, Vec2::new(190.0, 130.0));
+        assert_eq!((app.doc.get(c1).unwrap().transform.tx, app.doc.get(c1).unwrap().transform.ty), (0.0, 0.0));
+        assert_eq!((app.doc.get(c2).unwrap().transform.tx, app.doc.get(c2).unwrap().transform.ty), (100.0, 60.0));
+        assert_affine_close(page_transform(&app.doc, c1), c1_page_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, c2), c2_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_frame_smaller_than_children_grows_and_keeps_child_page_positions() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(50.0, 60.0, 40.0, 30.0))).unwrap();
+        let c1 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c1, Rect::new(-20.0, -15.0, 50.0, 40.0))).unwrap();
+        let c2 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c2, Rect::new(80.0, 95.0, 60.0, 50.0))).unwrap();
+
+        let c1_page_before = page_transform(&doc, c1);
+        let c2_page_before = page_transform(&doc, c2);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        assert_eq!((f.transform.tx, f.transform.ty), (30.0, 45.0));
+        assert_eq!(f.size, Vec2::new(160.0, 160.0));
+        assert_affine_close(page_transform(&app.doc, c1), c1_page_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, c2), c2_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_group_fits_visible_children() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let gid = doc.alloc_id();
+        let mut g = Node::new(gid, NodeKind::Group);
+        g.transform = Affine::translate(10.0, 20.0);
+        g.size = Vec2::new(300.0, 300.0);
+        doc.insert(page, g).unwrap();
+        let c1 = doc.alloc_id();
+        doc.insert(gid, Node::rectangle(c1, Rect::new(25.0, 35.0, 80.0, 45.0))).unwrap();
+        let c1_page_before = page_transform(&doc, c1);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![gid];
+        assert!(app.resize_to_fit());
+
+        let g_after = app.doc.get(gid).unwrap();
+        assert_eq!((g_after.transform.tx, g_after.transform.ty), (35.0, 55.0));
+        assert_eq!(g_after.size, Vec2::new(80.0, 45.0));
+        assert_affine_close(page_transform(&app.doc, c1), c1_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_group_does_not_reinclude_hidden_child_on_child_edit() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let gid = doc.alloc_id();
+        let mut group = Node::new(gid, NodeKind::Group);
+        group.transform = Affine::translate(10.0, 20.0);
+        group.size = Vec2::new(300.0, 300.0);
+        doc.insert(page, group).unwrap();
+
+        let visible = doc.alloc_id();
+        doc.insert(gid, Node::rectangle(visible, Rect::new(30.0, 40.0, 50.0, 60.0))).unwrap();
+        let hidden = doc.alloc_id();
+        let mut hidden_node = Node::rectangle(hidden, Rect::new(200.0, 220.0, 80.0, 70.0));
+        hidden_node.visible = false;
+        doc.insert(gid, hidden_node).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![gid];
+        assert!(app.resize_to_fit());
+        let fitted = app.doc.get(gid).unwrap();
+        assert_eq!(fitted.size, Vec2::new(50.0, 60.0));
+
+        // Editing the visible child re-runs the enclosing group's fit. The hidden child must
+        // remain excluded, otherwise the group grows back to include its stale bounds.
+        app.selection = vec![visible];
+        app.nudge(1.0, 0.0);
+        let after = app.doc.get(gid).unwrap();
+        assert_eq!(after.size, Vec2::new(50.0, 60.0));
+        assert_eq!((after.transform.tx, after.transform.ty), (41.0, 60.0));
+    }
+
+    #[test]
+    fn resize_to_fit_component_and_component_set_fit_visible_children() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+
+        let comp_id = doc.alloc_id();
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        comp.transform = Affine::translate(10.0, 15.0);
+        comp.size = Vec2::new(200.0, 180.0);
+        doc.insert(page, comp).unwrap();
+        let comp_child = doc.alloc_id();
+        doc.insert(comp_id, Node::rectangle(comp_child, Rect::new(12.0, 18.0, 64.0, 32.0))).unwrap();
+
+        let set_id = doc.alloc_id();
+        let mut set_node = Node::new(set_id, NodeKind::ComponentSet(FrameProps::default()));
+        set_node.transform = Affine::translate(300.0, 40.0);
+        set_node.size = Vec2::new(500.0, 400.0);
+        doc.insert(page, set_node).unwrap();
+        let var1 = doc.alloc_id();
+        let mut v1 = Node::new(var1, NodeKind::Component(FrameProps::default()));
+        v1.transform = Affine::translate(24.0, 30.0);
+        v1.size = Vec2::new(80.0, 36.0);
+        doc.insert(set_id, v1).unwrap();
+        let var2 = doc.alloc_id();
+        let mut v2 = Node::new(var2, NodeKind::Component(FrameProps::default()));
+        v2.transform = Affine::translate(124.0, 30.0);
+        v2.size = Vec2::new(96.0, 44.0);
+        doc.insert(set_id, v2).unwrap();
+
+        let comp_child_page = page_transform(&doc, comp_child);
+        let var1_page = page_transform(&doc, var1);
+        let var2_page = page_transform(&doc, var2);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![comp_id, set_id];
+        assert!(app.resize_to_fit());
+
+        let comp_after = app.doc.get(comp_id).unwrap();
+        assert_eq!((comp_after.transform.tx, comp_after.transform.ty), (22.0, 33.0));
+        assert_eq!(comp_after.size, Vec2::new(64.0, 32.0));
+        assert_affine_close(page_transform(&app.doc, comp_child), comp_child_page, 1e-4);
+
+        let set_after = app.doc.get(set_id).unwrap();
+        assert_eq!((set_after.transform.tx, set_after.transform.ty), (324.0, 70.0));
+        assert_eq!(set_after.size, Vec2::new(196.0, 44.0));
+        assert_affine_close(page_transform(&app.doc, var1), var1_page, 1e-4);
+        assert_affine_close(page_transform(&app.doc, var2), var2_page, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_auto_layout_frame_turns_hug_on_both_axes() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(20.0, 30.0, 400.0, 300.0));
+        frame.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                item_spacing: 10.0,
+                padding: [8.0, 12.0, 8.0, 12.0],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, frame).unwrap();
+        let c1 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c1, Rect::new(0.0, 0.0, 50.0, 24.0))).unwrap();
+        let c2 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c2, Rect::new(0.0, 0.0, 70.0, 34.0))).unwrap();
+        doc.relayout_subtree(fid);
+        assert_eq!(doc.get(fid).unwrap().size, Vec2::new(400.0, 300.0));
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        let al = f.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!(al.primary_sizing, Sizing::Hug);
+        assert_eq!(al.counter_sizing, Sizing::Hug);
+        // 12 + 50 + 10 + 70 + 12 = 154 width; 8 + max(24, 34) + 8 = 50 height.
+        assert_eq!(f.size, Vec2::new(154.0, 50.0));
+        assert_eq!((f.transform.tx, f.transform.ty), (20.0, 30.0));
+    }
+
+    #[test]
+    fn resize_to_fit_ignores_hidden_children_and_disables_when_none_visible() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 300.0))).unwrap();
+        let vis = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(vis, Rect::new(30.0, 40.0, 50.0, 60.0))).unwrap();
+        let hid = doc.alloc_id();
+        let mut hid_node = Node::rectangle(hid, Rect::new(200.0, 220.0, 80.0, 70.0));
+        hid_node.visible = false;
+        doc.insert(fid, hid_node).unwrap();
+
+        let vis_page_before = page_transform(&doc, vis);
+        let hid_page_before = page_transform(&doc, hid);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.can_resize_to_fit());
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        assert_eq!((f.transform.tx, f.transform.ty), (30.0, 40.0));
+        assert_eq!(f.size, Vec2::new(50.0, 60.0));
+        assert_affine_close(page_transform(&app.doc, vis), vis_page_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, hid), hid_page_before, 1e-4);
+
+        // Hide the remaining visible child: resize_to_fit must now be disabled and a no-op.
+        app.doc.get_mut(vis).unwrap().visible = false;
+        assert!(!app.can_resize_to_fit());
+        assert!(!app.resize_to_fit());
+    }
+
+    #[test]
+    fn resize_to_fit_rotated_child_and_rotated_container_use_container_space() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 400.0));
+        // Rotate the container itself by 30 degrees and translate to (100, 150).
+        frame.transform = Affine::translate(100.0, 150.0) * Affine::rotate(30.0_f32.to_radians());
+        doc.insert(page, frame).unwrap();
+
+        let cid = doc.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 100.0, 40.0));
+        // Rotate the child 90 degrees inside the container: local corners span x in [20, 60], y in [30, 130].
+        child.transform = Affine { a: 0.0, b: 1.0, c: -1.0, d: 0.0, tx: 60.0, ty: 30.0 };
+        doc.insert(fid, child).unwrap();
+
+        let child_page_before = page_transform(&doc, cid);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        assert!((f.size.x - 40.0).abs() < 1e-4 && (f.size.y - 100.0).abs() < 1e-4, "got size {:?}", f.size);
+        let c = app.doc.get(cid).unwrap();
+        // Child's rotated bounds in container now start at (0, 0), so tx became 60 - 20 = 40, ty became 30 - 30 = 0.
+        assert!((c.transform.tx - 40.0).abs() < 1e-4 && c.transform.ty.abs() < 1e-4, "got child transform {:?}", c.transform);
+        assert_affine_close(page_transform(&app.doc, cid), child_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_does_not_apply_child_constraints() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(10.0, 20.0, 400.0, 300.0))).unwrap();
+
+        let stretch_child = doc.alloc_id();
+        let mut sc = Node::rectangle(stretch_child, Rect::new(50.0, 60.0, 120.0, 80.0));
+        sc.constraints = designos_doc::Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Scale };
+        doc.insert(fid, sc).unwrap();
+
+        let max_child = doc.alloc_id();
+        let mut mc = Node::rectangle(max_child, Rect::new(90.0, 100.0, 100.0, 70.0));
+        mc.constraints = designos_doc::Constraints { horizontal: Constraint::Max, vertical: Constraint::Center };
+        doc.insert(fid, mc).unwrap();
+
+        let sc_page_before = page_transform(&doc, stretch_child);
+        let mc_page_before = page_transform(&doc, max_child);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        // Neither child's size nor page position may change despite Stretch/Scale/Max/Center constraints.
+        assert_eq!(app.doc.get(stretch_child).unwrap().size, Vec2::new(120.0, 80.0));
+        assert_eq!(app.doc.get(max_child).unwrap().size, Vec2::new(100.0, 70.0));
+        assert_affine_close(page_transform(&app.doc, stretch_child), sc_page_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, max_child), mc_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+
+        let f1 = doc.alloc_id();
+        doc.insert(page, Node::frame(f1, Rect::new(0.0, 0.0, 300.0, 200.0))).unwrap();
+        let f1_c = doc.alloc_id();
+        doc.insert(f1, Node::rectangle(f1_c, Rect::new(20.0, 30.0, 70.0, 50.0))).unwrap();
+
+        let f2 = doc.alloc_id();
+        let mut al_frame = Node::frame(f2, Rect::new(400.0, 0.0, 250.0, 180.0));
+        al_frame.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                padding: [10.0; 4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, al_frame).unwrap();
+        let f2_c = doc.alloc_id();
+        doc.insert(f2, Node::rectangle(f2_c, Rect::new(0.0, 0.0, 60.0, 40.0))).unwrap();
+        doc.relayout_subtree(f2);
+
+        let shape = doc.alloc_id();
+        doc.insert(page, Node::rectangle(shape, Rect::new(700.0, 10.0, 45.0, 35.0))).unwrap();
+        let text = doc.alloc_id();
+        doc.insert(page, Node::text(text, Rect::new(760.0, 10.0, 80.0, 24.0), "Hello", TextStyle::default())).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+        // Selecting only a shape and text does nothing.
+        app.selection = vec![shape, text];
+        assert!(!app.can_resize_to_fit());
+        assert!(!app.resize_to_fit());
+
+        // Selecting both frames + shape + text fits both frames and skips the shape and text in one undo step.
+        app.selection = vec![f1, f2, shape, text];
+        assert!(app.resize_to_fit());
+        assert_eq!(app.doc.get(f1).unwrap().size, Vec2::new(70.0, 50.0));
+        assert_eq!((app.doc.get(f1).unwrap().transform.tx, app.doc.get(f1).unwrap().transform.ty), (20.0, 30.0));
+        assert_eq!(app.doc.get(f2).unwrap().size, Vec2::new(80.0, 60.0));
+        assert_eq!(app.doc.get(shape).unwrap().size, Vec2::new(45.0, 35.0));
+        assert_eq!(app.doc.get(text).unwrap().size, Vec2::new(80.0, 24.0));
+
+        // Single undo restores both frames and their children.
+        app.undo();
+        assert_eq!(app.doc.get(f1).unwrap().size, Vec2::new(300.0, 200.0));
+        assert_eq!((app.doc.get(f1).unwrap().transform.tx, app.doc.get(f1).unwrap().transform.ty), (0.0, 0.0));
+        assert_eq!((app.doc.get(f1_c).unwrap().transform.tx, app.doc.get(f1_c).unwrap().transform.ty), (20.0, 30.0));
+        assert_eq!(app.doc.get(f2).unwrap().size, Vec2::new(250.0, 180.0));
+        let al_restored = app.doc.get(f2).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!(al_restored.primary_sizing, Sizing::Fixed);
+        assert_eq!(al_restored.counter_sizing, Sizing::Fixed);
+    }
+
+    #[test]
+    fn resize_to_fit_frame_inside_auto_layout_parent_reflows_parent_and_moves_child_on_page() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let p = doc.alloc_id();
+        let mut pn = Node::frame(p, Rect::new(0.0, 0.0, 400.0, 300.0));
+        pn.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Hug,
+                item_spacing: 10.0,
+                padding: [10.0; 4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, pn).unwrap();
+        let a = doc.alloc_id();
+        doc.insert(p, Node::rectangle(a, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let f = doc.alloc_id();
+        doc.insert(p, Node::frame(f, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let c = doc.alloc_id();
+        doc.insert(f, Node::rectangle(c, Rect::new(40.0, 40.0, 60.0, 60.0))).unwrap();
+        doc.relayout_subtree(p);
+
+        let before = doc.to_json().unwrap();
+        assert_eq!(doc.get(p).unwrap().size, Vec2::new(280.0, 220.0));
+        let c_before = page_transform(&doc, c);
+        assert_eq!((c_before.tx, c_before.ty), (110.0, 50.0));
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![f];
+        assert!(app.resize_to_fit());
+
+        let fn_ = app.doc.get(f).unwrap();
+        assert_eq!(fn_.size, Vec2::new(60.0, 60.0));
+        assert_eq!((fn_.transform.tx, fn_.transform.ty), (70.0, 10.0));
+        assert_eq!((fn_.layout_child.horizontal, fn_.layout_child.vertical), (Sizing::Fixed, Sizing::Fixed));
+        assert_eq!(app.doc.get(p).unwrap().size, Vec2::new(140.0, 80.0));
+        let c_after = page_transform(&app.doc, c);
+        assert_eq!((c_after.tx, c_after.ty), (70.0, 10.0));
+
+        let committed = app.doc.to_json().unwrap();
+        app.undo();
+        assert_eq!(app.doc.to_json().unwrap(), before);
+        app.redo();
+        assert_eq!(app.doc.to_json().unwrap(), committed);
+    }
+
+    #[test]
+    fn resize_to_fit_nested_selection_fits_deepest_container_before_outer_container() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let o = doc.alloc_id();
+        doc.insert(page, Node::frame(o, Rect::new(0.0, 0.0, 600.0, 600.0))).unwrap();
+        let n = doc.alloc_id();
+        doc.insert(o, Node::frame(n, Rect::new(50.0, 50.0, 400.0, 400.0))).unwrap();
+        let nc = doc.alloc_id();
+        doc.insert(n, Node::rectangle(nc, Rect::new(10.0, 10.0, 20.0, 20.0))).unwrap();
+        let s = doc.alloc_id();
+        doc.insert(o, Node::rectangle(s, Rect::new(100.0, 100.0, 10.0, 10.0))).unwrap();
+
+        let nc_before = page_transform(&doc, nc);
+        let s_before = page_transform(&doc, s);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![o, n];
+        assert!(app.resize_to_fit());
+
+        let n_after = app.doc.get(n).unwrap();
+        assert_eq!(n_after.size, Vec2::new(20.0, 20.0));
+        let o_after = app.doc.get(o).unwrap();
+        assert_eq!(o_after.size, Vec2::new(50.0, 50.0));
+        assert_eq!((o_after.transform.tx, o_after.transform.ty), (60.0, 60.0));
+        assert_affine_close(page_transform(&app.doc, nc), nc_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, s), s_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_frame_inside_group_refits_enclosing_group() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let g = doc.alloc_id();
+        let mut gn = Node::new(g, NodeKind::Group);
+        gn.transform = Affine::translate(10.0, 20.0);
+        gn.size = Vec2::new(300.0, 300.0);
+        doc.insert(page, gn).unwrap();
+        let f = doc.alloc_id();
+        doc.insert(g, Node::frame(f, Rect::new(0.0, 0.0, 300.0, 300.0))).unwrap();
+        let c = doc.alloc_id();
+        doc.insert(f, Node::rectangle(c, Rect::new(40.0, 50.0, 80.0, 60.0))).unwrap();
+
+        let c_before = page_transform(&doc, c);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![f];
+        assert!(app.resize_to_fit());
+
+        let f_after = app.doc.get(f).unwrap();
+        assert_eq!(f_after.size, Vec2::new(80.0, 60.0));
+        assert_eq!((f_after.transform.tx, f_after.transform.ty), (0.0, 0.0));
+        let g_after = app.doc.get(g).unwrap();
+        assert_eq!(g_after.size, Vec2::new(80.0, 60.0));
+        assert_eq!((g_after.transform.tx, g_after.transform.ty), (50.0, 70.0));
+        assert_affine_close(page_transform(&app.doc, c), c_before, 1e-4);
+
+        app.undo();
+        let g_restored = app.doc.get(g).unwrap();
+        assert_eq!(g_restored.size, Vec2::new(300.0, 300.0));
+        assert_eq!((g_restored.transform.tx, g_restored.transform.ty), (10.0, 20.0));
+    }
+
+    #[test]
+    fn resize_to_fit_fill_width_frame_in_auto_layout_parent_becomes_fixed_and_keeps_fitted_size() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let p = doc.alloc_id();
+        let mut pn = Node::frame(p, Rect::new(0.0, 0.0, 300.0, 200.0));
+        pn.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                padding: [10.0; 4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, pn).unwrap();
+        let f = doc.alloc_id();
+        let mut fn_ = Node::frame(f, Rect::new(0.0, 0.0, 100.0, 100.0));
+        fn_.layout_child.horizontal = Sizing::Fill;
+        fn_.layout_child.vertical = Sizing::Fill;
+        doc.insert(p, fn_).unwrap();
+        let c = doc.alloc_id();
+        doc.insert(f, Node::rectangle(c, Rect::new(20.0, 15.0, 80.0, 50.0))).unwrap();
+        doc.relayout_subtree(p);
+        assert_eq!(doc.get(f).unwrap().size, Vec2::new(280.0, 180.0));
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![f];
+        assert!(app.resize_to_fit());
+
+        let f_after = app.doc.get(f).unwrap();
+        assert_eq!((f_after.layout_child.horizontal, f_after.layout_child.vertical), (Sizing::Fixed, Sizing::Fixed));
+        assert_eq!(f_after.size, Vec2::new(80.0, 50.0));
+
+        app.doc.relayout_subtree(p);
+        assert_eq!(app.doc.get(f).unwrap().size, Vec2::new(80.0, 50.0));
     }
 }

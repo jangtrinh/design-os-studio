@@ -378,7 +378,8 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
                 widgets::labelled(ui, Id::new(("agents-left-tab-close", tab.id)), Role::Button, "Close tab");
             }
         }
-        widgets::labelled(ui, Id::new("agents-runtime-add-btn"), Role::Button, "New session");
+        widgets::labelled(ui, Id::new("agents-new-chat-btn"), Role::Button, "New chat");
+        widgets::labelled(ui, Id::new("agents-more-btn"), Role::Button, "More");
     } else {
         // A runtime pill switches the active CLI (it starts nothing) and the Shell pill shows the terminal (this branch is chat mode).
         widgets::labelled(ui, Id::new("agents-runtime-claude"), Role::Button, "Use Claude Code");
@@ -400,9 +401,7 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
     widgets::labelled(ui, Id::new("agents-composer-region"), Role::Region, "Message composer");
     if !state.side_panel_pty_open {
         widgets::labelled(ui, composer_id(), Role::TextInput, "Ask for changes");
-        widgets::labelled(ui, Id::new("agents-composer-plus"), Role::Button, "Attach context");
-        widgets::labelled(ui, Id::new("agents-composer-book"), Role::Button, "Show terminal");
-        widgets::labelled(ui, Id::new("agents-composer-prd"), Role::Button, "Attach PRD context");
+        widgets::labelled(ui, Id::new("agents-composer-add-btn"), Role::Button, "Attach context");
         widgets::labelled(ui, Id::new("agents-composer-send"), Role::Button, "Send");
     }
 }
@@ -414,7 +413,9 @@ fn is_agents_panel_focus(id: Id) -> bool {
         || id == Id::new("agents-tab-strip-region")
         || id == Id::new("agents-composer-region")
         || id == Id::new("agents-composer-send")
-        || id == Id::new("agents-runtime-add-btn")
+        || id == Id::new("agents-composer-add-btn")
+        || id == Id::new("agents-new-chat-btn")
+        || id == Id::new("agents-more-btn")
         || id == Id::new("agents-runtime-pty-toggle")
 }
 

@@ -1,0 +1,10 @@
+# HEAD 6aabc5991985e2dc9586b93d6bd0411a312090f7  branch jangtrinh/agy-1478-dash-cap
+# git status --short -- crates:
+# ---
+# green: the committed tree
+test dashed_inside_and_outside_rectangle_strokes_match_the_canvas ... ok
+test thin_dashed_rectangle_stroke_matches_the_canvas ... ok
+test randomised_frames_with_unsupported_features_still_match_the_canvas ... ok
+test randomised_frames_of_supported_features_are_vector_and_match_the_canvas ... ok
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.61s
+export_rc=0

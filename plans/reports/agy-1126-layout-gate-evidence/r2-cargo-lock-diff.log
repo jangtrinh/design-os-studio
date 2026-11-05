@@ -1,0 +1,12 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index abaa1df1..95cc6846 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -968,6 +968,7 @@ dependencies = [
+  "roxmltree",
+  "serde",
+  "serde_json",
++ "shell-words",
+  "toml",
+  "unicode-segmentation",
+  "ureq",

@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "case": "d-editor-default",
+  "size": [200, 160],
+  "scale": 1.0,
+  "regions": {
+    "title_bar": null,
+    "tab_bar": [0.0, 0.0, 200.0, 30.0],
+    "rail": [0.0, 30.0, 40.0, 130.0],
+    "left_panel": null,
+    "canvas": [40.0, 30.0, 120.0, 100.0],
+    "notes": null,
+    "right_panel": [160.0, 30.0, 40.0, 130.0],
+    "home": null,
+    "present": null,
+    "variables_full": null
+  },
+  "overlays": [
+    {
+      "name": "cmdk",
+      "rect": [70.0, 60.0, 30.0, 20.0]
+    }
+  ],
+  "named": {
+    "toolbar-move": {
+      "region": "canvas",
+      "rect": [80.0, 75.0, 25.0, 15.0],
+      "count": 1
+    }
+  },
+  "unnamed": [
+    {
+      "region": "canvas",
+      "rect": [90.0, 80.0, 12.0, 10.0],
+      "sense": ["click"]
+    },
+    {
+      "region": "right_panel",
+      "rect": [165.0, 40.0, 20.0, 14.0],
+      "sense": ["click"]
+    }
+  ],
+  "scroll": []
+}

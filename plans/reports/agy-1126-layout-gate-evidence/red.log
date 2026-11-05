@@ -1,0 +1,247 @@
+=== Step 1 RED (H1-H7, H9-H11) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.29s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 10 tests
+test cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case ... FAILED
+test cli_resolve::tests::every_resolver_uses_resolve_in ... FAILED
+test cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host ... FAILED
+test cli_resolve::tests::version_warmer_resolves_on_the_calling_thread ... FAILED
+test cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement ... FAILED
+test cli_resolve::tests::hermetic_mode_writes_the_acknowledgement ... FAILED
+test cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands ... FAILED
+test cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags ... FAILED
+test cli_resolve::tests::hermetic_pty_env_is_stub_path_only ... FAILED
+test cli_resolve::tests::hermetic_resolver_census ... FAILED
+
+failures:
+
+---- cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case stdout ----
+
+thread 'cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case' (69567558) panicked at crates/designos-app/src/cli_resolve.rs:326:13:
+assertion `left == right` failed
+  left: []
+ right: ["/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/designos-1126-h7-63872-7"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- cli_resolve::tests::every_resolver_uses_resolve_in stdout ----
+
+thread 'cli_resolve::tests::every_resolver_uses_resolve_in' (69567551) panicked at crates/designos-app/src/cli_resolve.rs:290:9:
+assertion `left == right` failed
+  left: None
+ right: Some("/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/designos-1126-h6-63872-1/stubs/claude")
+
+---- cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host stdout ----
+
+thread 'cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host' (69567559) panicked at crates/designos-app/src/cli_resolve.rs:166:9:
+assertion `left == right` failed: hermetic must win over scoped, explicit, and host
+  left: ["/tmp/host-bin"]
+ right: ["/tmp/hermetic-stubs"]
+
+---- cli_resolve::tests::version_warmer_resolves_on_the_calling_thread stdout ----
+
+thread 'cli_resolve::tests::version_warmer_resolves_on_the_calling_thread' (69567560) panicked at crates/designos-app/src/cli_resolve.rs:460:9:
+assertion `left == right` failed: warm_cli_version_cache must resolve on the calling thread inside ScopedCliDirs before spawning
+  left: None
+ right: Some(Some("/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/designos-1126-h11-63872-8/claude"))
+
+---- cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement stdout ----
+
+thread 'cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement' (69567552) panicked at crates/designos-app/src/cli_resolve.rs:223:96:
+missing --screenshot must be denied: ()
+
+---- cli_resolve::tests::hermetic_mode_writes_the_acknowledgement stdout ----
+
+thread 'cli_resolve::tests::hermetic_mode_writes_the_acknowledgement' (69567554) panicked at crates/designos-app/src/cli_resolve.rs:368:9:
+missing --screenshot must fail
+
+---- cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands stdout ----
+
+thread 'cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands' (69567553) panicked at crates/designos-app/src/cli_resolve.rs:266:26:
+hermetic mode must refuse "claude; rm -rf x"
+
+---- cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags stdout ----
+
+thread 'cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags' (69567557) panicked at crates/designos-app/src/cli_resolve.rs:137:13:
+assertion `left == right` failed: preset Claude argv must use /bin/sh -c without -l or -i
+  left: ["/bin/zsh", "-d", "-f", "-c", "exec claude --dangerously-skip-permissions"]
+ right: ["/bin/sh", "-c", "exec /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/designos-1126-h1-63872-6/claude --dangerously-skip-permissions"]
+
+---- cli_resolve::tests::hermetic_pty_env_is_stub_path_only stdout ----
+
+thread 'cli_resolve::tests::hermetic_pty_env_is_stub_path_only' (69567555) panicked at crates/designos-app/src/cli_resolve.rs:191:9:
+assertion `left == right` failed: hermetic PTY env must set PATH=DIR:/usr/bin:/bin
+  left: Some("/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/home/.cargo/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/home/.local/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/home/.antigravity/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/home/.antigravity/antigravity/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/home/.grok/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/home/.npm-global/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/home/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/jangtrinh/.cargo/bin")
+ right: Some("/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.mlATuu/designos-1126-h3-63872-5:/usr/bin:/bin")
+
+---- cli_resolve::tests::hermetic_resolver_census stdout ----
+
+thread 'cli_resolve::tests::hermetic_resolver_census' (69567556) panicked at crates/designos-app/src/cli_resolve.rs:439:9:
+found split_paths( or var_os("PATH") outside cli_resolve.rs and configure_pty_env_with_session:
+agent_cli_catalog.rs:206: if let Some(path_os) = std::env::var_os("PATH") {
+agent_cli_catalog.rs:207: for p in std::env::split_paths(&path_os) {
+agent_session_failure.rs:562: let path_key = format!("{bin}:{:?}", std::env::var_os("PATH"));
+agent_session_failure.rs:585: if let Some(path_os) = std::env::var_os("PATH") {
+agent_session_failure.rs:586: for p in std::env::split_paths(&path_os) {
+agent_usage.rs:609: if let Some(path_os) = std::env::var_os("PATH") {
+agent_usage.rs:610: for dir in std::env::split_paths(&path_os) {
+io/dialog_probe.rs:60: let split = |list: &str| std::env::split_paths(list).filter(|p| !p.as_os_str().is_empty()).collect::<Vec<_>>();
+shell/tests.rs:216: dirs.extend(std::env::var_os("PATH").iter().flat_map(std::env::split_paths));
+terminal.rs:336: let path_os = std::env::var_os("PATH");
+terminal.rs:353: for p in std::env::split_paths(p_os) {
+terminal.rs:659: && !std::env::var_os("PATH").is_some_and(|p| p.is_empty())
+
+
+failures:
+    cli_resolve::tests::every_resolver_uses_resolve_in
+    cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement
+    cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands
+    cli_resolve::tests::hermetic_mode_writes_the_acknowledgement
+    cli_resolve::tests::hermetic_pty_env_is_stub_path_only
+    cli_resolve::tests::hermetic_resolver_census
+    cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags
+    cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case
+    cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host
+    cli_resolve::tests::version_warmer_resolves_on_the_calling_thread
+
+test result: FAILED. 0 passed; 10 failed; 0 ignored; 0 measured; 2965 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 50.64s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test cli_resolve::tests::stub_scripts_behave ... FAILED
+
+failures:
+
+---- cli_resolve::tests::stub_scripts_behave stdout ----
+
+thread 'cli_resolve::tests::stub_scripts_behave' (69798819) panicked at crates/designos-app/src/cli_resolve.rs:609:13:
+missing checked-in stub /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/claude
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    cli_resolve::tests::stub_scripts_behave
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2975 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+warning: static `RECORDING` is never used
+   --> crates/designos-app/src/widgets/mod.rs:246:12
+    |
+246 | pub static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic...
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.88s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test widgets::tests::record_hook_lists_every_name_of_the_pass ... FAILED
+
+failures:
+
+---- widgets::tests::record_hook_lists_every_name_of_the_pass stdout ----
+
+thread 'widgets::tests::record_hook_lists_every_name_of_the_pass' (69894840) panicked at crates/designos-app/src/widgets/mod.rs:357:9:
+assertion `left == right` failed: two calls must be listed and RecordDisabled call ignored
+  left: []
+ right: [("alpha", [[10.0 20.0] - [40.0 60.0]]), ("beta", [[50.0 60.0] - [120.0 140.0]])]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    widgets::tests::record_hook_lists_every_name_of_the_pass
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2978 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+warning: static `RECORDING` is never used
+   --> crates/designos-app/src/widgets/mod.rs:246:12
+    |
+246 | pub static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic...
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.69s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test shell::tests::agent_a11y::shell_new_uses_launch_defaults_for_its_own_mode ... FAILED
+
+failures:
+
+---- shell::tests::agent_a11y::shell_new_uses_launch_defaults_for_its_own_mode stdout ----
+
+thread 'shell::tests::agent_a11y::shell_new_uses_launch_defaults_for_its_own_mode' (69911163) panicked at crates/designos-app/src/shell/tests.rs:1786:9:
+Shell::new with screenshot: Some(..) must set screenshot_chrome = true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::agent_a11y::shell_new_uses_launch_defaults_for_its_own_mode
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2978 filtered out; finished in 0.24s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+warning: static `RECORDING` is never used
+   --> crates/designos-app/src/widgets/mod.rs:246:12
+    |
+246 | pub static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic...
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.33s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test canvas::vector::tests::vector_toolbar_uses_widgets_record ... FAILED
+
+failures:
+
+---- canvas::vector::tests::vector_toolbar_uses_widgets_record stdout ----
+
+thread 'canvas::vector::tests::vector_toolbar_uses_widgets_record' (69912430) panicked at crates/designos-app/src/canvas/vector.rs:2102:13:
+vector::toolbar must record `vtool:Move` via widgets::record, got: []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    canvas::vector::tests::vector_toolbar_uses_widgets_record
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2978 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -274,6 +274,13 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         'const _FAKE_MIC: &str = "agents-composer-mic";\n        let _ = self.send_to_agent(prompt, file_path);',
     ),
     (
+        "35b. composer add button drops the id the gate requires",
+        "Z04",
+        "agent_composer_toolbar.rs",
+        'Id::new("agents-composer-add-btn"), Sense::click());\n    if paint_icon_button(ui, &p, add, &add_resp, "agents-composer-add-btn", "Add"',
+        'Id::new("agents-composer-add-retired"), Sense::hover());\n    if paint_icon_button(ui, &p, add, &add_resp, "agents-composer-add-retired", "Add"',
+    ),
+    (
         '36. retired one-shot "claude -p" command back in terminal.rs',
         "Z01",
         "terminal.rs",

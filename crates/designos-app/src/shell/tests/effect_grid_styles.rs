@@ -481,3 +481,175 @@ fn styles_order_by_sort_position_group_by_folder_and_rename_folder_in_one_undo_s
     assert_eq!(s.app().doc.style_name("2:40"), "Shadows/shadow-sm");
     assert_eq!(s.app().doc.style_name("2:10"), "Shadows/shadow-lg");
 }
+
+#[test]
+fn deleting_a_style_past_mode_product_cap_keeps_binding_and_counts_layer_in_toast() {
+    use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+    let (mut s, welcome) = welcome_sim();
+    s.shell.app.create_style_from(welcome, StyleProperty::Effect);
+    for cid in ["c1", "c2", "c3", "c4"] {
+        let modes: Vec<VariableMode> = (0..9).map(|i| VariableMode { id: format!("{cid}_m{i}"), name: format!("{cid}_m{i}") }).collect();
+        s.shell.app.doc.variable_collections.insert(
+            cid.into(),
+            VariableCollection {
+                id: cid.into(),
+                name: cid.into(),
+                default_mode: format!("{cid}_m0"),
+                modes,
+                variables: if cid == "c1" { vec!["v_fx_col".into(), "v_fx_op".into()] } else { vec![] },
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+    }
+    s.shell.app.doc.variables.insert(
+        "v_fx_col".into(),
+        Variable {
+            id: "v_fx_col".into(),
+            name: "v_fx_col".into(),
+            collection: "c1".into(),
+            kind: VariableKind::Color,
+            values: [("c1_m0+c2_m0+c3_m0+c4_m0".to_string(), VariableValue::Color(Color::rgba(0, 0, 0, 128)))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    s.shell.app.doc.variables.insert(
+        "v_fx_op".into(),
+        Variable {
+            id: "v_fx_op".into(),
+            name: "v_fx_op".into(),
+            collection: "c1".into(),
+            kind: VariableKind::Number,
+            values: [("c1_m0+c2_m0+c3_m0+c4_m0".to_string(), VariableValue::Number(80.0)), ("c1_m0".to_string(), VariableValue::Number(80.0))]
+                .into_iter()
+                .collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    s.shell.app.doc.style_meta.get_mut("Effect style 1").unwrap().bindings.insert("effects/0/opacity".into(), "v_fx_op".into());
+    s.shell.app.doc.get_mut(welcome).unwrap().variables.bindings.insert("effects/0/color".into(), "v_fx_col".into());
+
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+    pick(&mut s, "effect-style-button", 4, 1);
+
+    assert_eq!(
+        s.app().doc.get(welcome).unwrap().variables.bindings.get("effects/0/opacity").map(String::as_str),
+        Some("v_fx_op"),
+        "layer past 4,096 mode combinations must keep its style binding"
+    );
+    let undo = if cfg!(target_os = "macos") { "Cmd+Z" } else { "Ctrl+Z" };
+    let toast = s.app().toast.as_ref().expect("deleting a style shows a toast");
+    assert_eq!(toast.text, format!("Style deleted · 1 layer matches it in this mode only · {undo} to undo"));
+}
+
+#[test]
+fn deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render() {
+    use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+    let (mut s, welcome) = welcome_sim();
+    s.shell.app.create_style_from(welcome, StyleProperty::Effect);
+    s.shell.app.doc.variable_collections.insert(
+        "c".into(),
+        VariableCollection {
+            id: "c".into(),
+            name: "Theme".into(),
+            modes: vec![
+                VariableMode { id: "light".into(), name: "Light".into() },
+                VariableMode { id: "dim".into(), name: "Dim".into() },
+                VariableMode { id: "warm".into(), name: "Warm".into() },
+                VariableMode { id: "dark".into(), name: "Dark".into() },
+            ],
+            default_mode: "light".into(),
+            variables: vec!["v_fx_col".into(), "v_fx_op".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    s.shell.app.doc.variables.insert(
+        "v_fx_col".into(),
+        Variable {
+            id: "v_fx_col".into(),
+            name: "v_fx_col".into(),
+            collection: "c".into(),
+            kind: VariableKind::Color,
+            values: [("dark".to_string(), VariableValue::Color(Color::rgba(0, 0, 0, 128)))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    s.shell.app.doc.variables.insert(
+        "v_fx_op".into(),
+        Variable {
+            id: "v_fx_op".into(),
+            name: "v_fx_op".into(),
+            collection: "c".into(),
+            kind: VariableKind::Number,
+            values: [
+                ("light".to_string(), VariableValue::Number(85.0)),
+                ("dim".to_string(), VariableValue::Alias("v_unresolved".into())),
+                ("warm".to_string(), VariableValue::Number(10.0)),
+                ("dark".to_string(), VariableValue::Number(5.0)),
+            ]
+            .into_iter()
+            .collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    s.shell.app.doc.style_meta.get_mut("Effect style 1").unwrap().bindings.insert("effects/0/opacity".into(), "v_fx_op".into());
+    s.shell.app.doc.get_mut(welcome).unwrap().variables.bindings.insert("effects/0/color".into(), "v_fx_col".into());
+    s.shell.app.doc.get_mut(welcome).unwrap().variables.modes.insert("c".into(), "dim".into());
+
+    let page = s.app().page;
+    let wb = s.app().doc.get(welcome).unwrap().local_bounds();
+    let region = designos_doc::Rect::new(wb.x - 16.0, wb.y - 16.0, wb.w + 32.0, wb.h + 32.0);
+    let before_render = designos_render::render_backdrop(&s.app().doc, page, &[], region, 1.0).expect("render layer region before delete");
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+    pick(&mut s, "effect-style-button", 4, 1);
+    let after_render = designos_render::render_backdrop(&s.app().doc, page, &[], region, 1.0).expect("render layer region after delete");
+
+    let differing_bytes = after_render.data().iter().zip(before_render.data()).filter(|(a, b)| a != b).count();
+    assert_eq!(differing_bytes, 0, "canvas render of the layer in the delete-time mode must be identical before and after delete");
+    assert_eq!(
+        s.app().doc.get(welcome).unwrap().variables.bindings.get("effects/0/opacity").map(String::as_str),
+        Some("v_fx_op"),
+        "unresolved delete-time style value must keep the layer's binding"
+    );
+}
+
+#[test]
+fn style_picker_deduplicates_interleaved_fallback_nodes_by_set() {
+    use crate::panels::style_picker;
+
+    let first = NodeId(10);
+    let second = NodeId(20);
+    let interleaved = vec![(first, "effects/0/opacity".to_string()), (second, "effects/0/opacity".to_string()), (first, "effects/0/opacity".to_string())];
+    assert_eq!(style_picker::fallback_layer_count(&interleaved), 2, "interleaved fallback pairs from two nodes must count as 2 unique layers");
+}

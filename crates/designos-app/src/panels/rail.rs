@@ -46,9 +46,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     widgets::record(ui, "rail-menu", mb);
     widgets::labelled(ui, r.id, egui::accesskit::Role::Button, "Main menu");
     let menu_open = app.ui.menu == Some(MenuKind::Main);
-    widgets::button_bg(&p, mb, &r, menu_open, theme::cr(theme::RADIUS_CONTROL));
-    let menu_fg = if r.hovered() || menu_open { theme::ICON } else { theme::ICON_SECONDARY };
-    icons::paint(&p, Icon::ListView, mb.center(), 18.0, menu_fg);
+    let menu_look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Icon, crate::widgets::kit::state_of(&r, menu_open, true));
+    crate::widgets::kit::paint_frame(&p, mb, theme::RADIUS_CONTROL, &menu_look);
+    mark_focus(ui, &p, r.id, mb, theme::RADIUS_CONTROL as f32);
+    icons::paint(&p, Icon::ListView, mb.center(), 18.0, menu_look.icon);
     let r = rail_tooltip(r, "Main menu");
     if r.clicked() {
         toggle(app, MenuKind::Main, mb);
@@ -72,14 +73,12 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             app.ui.rail == Some(*item)
                 || (*item == RailItem::File && (app.ui.menu == Some(MenuKind::FileMenu) || (app.ui.rail.is_none() && !app.ui.left_collapsed)))
         };
-        // Active item: 32x32 rounded tile behind the icon.
         let ic = ir.center();
-        if selected {
-            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
-        } else if resp.hovered() {
-            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-        }
-        let icon_col = if selected && *item == RailItem::Agents { theme::ICON_SELECTED } else { theme::ICON };
+        let tile = Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE));
+        let item_look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Tool, crate::widgets::kit::state_of(&resp, selected, true));
+        crate::widgets::kit::paint_frame(&p, tile, theme::RADIUS_CONTROL, &item_look);
+        mark_focus(ui, &p, resp.id, tile, theme::RADIUS_CONTROL as f32);
+        let icon_col = item_look.icon;
         match *item {
             RailItem::Agents => paint_agents_rail_star(&p, ic, icon_col),
             RailItem::Assets => paint_assets_rail_circle_plus(&p, ic, icon_col),
@@ -143,7 +142,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         }
     }
 
-    // Bottom: Figma Sync/Updates button with blue indicator dot.
+    // Bottom: updates and shortcuts.
     let br = Rect::from_min_size(
         Pos2::new(rect.left() + theme::INSET_FRAME, rect.bottom() - 8.0 - theme::RAIL_MENU_BUTTON_SIZE),
         Vec2::splat(theme::RAIL_MENU_BUTTON_SIZE),
@@ -160,7 +159,6 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     if help_resp.clicked() {
         crate::panels::menus::run(app, ui.ctx(), crate::panels::menus::Action::Shortcuts);
     }
-    p.circle_filled(Pos2::new(br.center().x + 6.0, br.center().y - 6.0), 2.5, egui::Color32::from_rgb(0x0D, 0x99, 0xFF));
 }
 
 fn rail_tooltip(resp: egui::Response, label: &str) -> egui::Response {
@@ -187,7 +185,13 @@ fn paint_tools_rail_box(p: &egui::Painter, c: Pos2, col: egui::Color32) {
     icons::paint(p, Icon::Tools, c, theme::RAIL_ICON_SIZE, col);
 }
 
-/// 1px #444 line inset from both edges of the rail.
+fn mark_focus(ui: &Ui, p: &egui::Painter, id: egui::Id, rect: Rect, radius: f32) {
+    if crate::widgets::kit::keyboard_focus(ui, id) {
+        crate::widgets::kit::focus_ring(p, rect, radius);
+    }
+}
+
+/// Hairline inset from both edges of the rail.
 fn separator(p: &egui::Painter, rect: Rect, y: f32, inner_w: f32) {
     widgets::hline(p, rect.left() + theme::INSET_FRAME, rect.left() + inner_w - theme::INSET_FRAME, y, theme::BORDER);
 }
@@ -385,5 +389,42 @@ mod tests {
             }),
             "divider between Tools and Variables at y={divider_y} must stay present, got rects: {rects:?}"
         );
+    }
+
+    fn collect_circles(shapes: &[egui::epaint::ClippedShape]) -> Vec<(Pos2, f32)> {
+        fn walk(shape: &Shape, out: &mut Vec<(Pos2, f32)>) {
+            match shape {
+                Shape::Circle(c) => out.push((c.center, c.radius)),
+                Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in shapes {
+            walk(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn help_button_paints_no_status_dot() {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        let mut app = App::new(Document::new("RailHelp"));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let rail_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::RAIL_WIDTH + theme::BORDER_WIDTH, 900.0));
+        let mut shapes = Vec::new();
+        for i in 0..2 {
+            let raw = RawInput {
+                screen_rect: Some(screen),
+                time: Some(i as f64 * 0.05),
+                events: vec![Event::PointerMoved(Pos2::new(700.0, 500.0))],
+                ..Default::default()
+            };
+            shapes = ctx.run_ui(raw, |ui| show(&mut app, ui, rail_rect)).shapes;
+        }
+        let help = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "rail-help".to_string())))).expect("rail-help");
+        let dots: Vec<_> = collect_circles(&shapes).into_iter().filter(|(c, _)| help.contains(*c)).collect();
+        assert!(dots.is_empty(), "help button paints a status dot at {dots:?}");
     }
 }

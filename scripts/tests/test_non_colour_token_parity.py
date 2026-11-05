@@ -68,7 +68,7 @@ class NonColourParityTest(unittest.TestCase):
 
     def test_title_token_is_not_matched_by_name(self):
         self.assertNotIn("typography.font-size-title", TOKEN_TO_RUST)
-        self.assertEqual(TOKEN_TO_RUST["typography.font-size-hero"], ["FONT_SIZE_TITLE"])
+        self.assertEqual(TOKEN_TO_RUST["typography.font-size-hero"], ["FONT_SIZE_TITLE", "FONT_SIZE_TEXT_XL"])
 
     def test_a_new_role_constant_without_a_token_or_a_reason_fails(self):
         src = SRC + "pub const SPACE_NEW: f32 = 20.0;\n"
@@ -78,8 +78,28 @@ class NonColourParityTest(unittest.TestCase):
 
     def test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive(self):
         guarded = {n for names in TOKEN_TO_RUST.values() for n in names}
-        for name in ("SPACE_FACT", "SPACE_REGION", "INSET_PANEL", "INSET_MODAL", "CONTROL_STANDARD", "CONTROL_ROW", "RADIUS_CONTROL", "FONT_SIZE_CAPTION"):
+        for name in ("SPACE_FACT", "SPACE_REGION", "INSET_PANEL", "INSET_MODAL", "CONTROL_STANDARD", "CONTROL_MD", "RADIUS_CONTROL", "FONT_SIZE_CAPTION"):
             self.assertIn(name, guarded)
+
+    def test_every_scale_constant_is_mapped_or_has_a_reason(self):
+        from non_colour_token_parity import RUST_ONLY
+
+        guarded = {n for names in TOKEN_TO_RUST.values() for n in names} | set(RUST_ONLY)
+        for name in (
+            "RADIUS_MARK", "RADIUS_SEGMENT", "RADIUS_CONTROL", "RADIUS_XL", "RADIUS_FRAME",
+            "CONTROL_XS", "CONTROL_SM", "CONTROL_MD",
+            "FONT_SIZE_TEXT_XS", "FONT_SIZE_TEXT_SM", "FONT_SIZE_TEXT_MD", "FONT_SIZE_TEXT_LG", "FONT_SIZE_TEXT_XL",
+        ):
+            self.assertIn(name, guarded)
+
+    def test_the_4px_radius_token_is_not_held_to_the_2px_mark(self):
+        # radius-xs is 4 in the store while RADIUS_MARK is the 2px mark radius: mapping them must fail.
+        wrong = dict(TOKEN_TO_RUST)
+        wrong["radius.radius-xs"] = ["RADIUS_MARK"]
+        r = check_non_colour_parity(THEME, TOKENS, wrong)
+        self.assertFalse(r["ok"])
+        self.assertIn("RADIUS_MARK (2) != radius.radius-xs (4)", r["drifts"])
+        self.assertNotIn("radius.radius-xs", TOKEN_TO_RUST)
 
     def test_a_drifted_ladder_rung_in_the_real_theme_fails(self):
         drifted = THEME.replace("pub const SPACE_BLOCK: f32 = 16.0;", "pub const SPACE_BLOCK: f32 = 20.0;")

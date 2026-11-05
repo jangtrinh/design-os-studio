@@ -9,11 +9,13 @@
 use crate::engine::Engine;
 use crate::tools::errors::{tool_output_schema_from_object, ErrorCode, ToolError};
 use crate::tools::fill_write::{validate_fill_color, write_fill, FillTarget};
+use crate::tools::text_remeasure::{resize_hug_text, BoundTextIndex, VariablesBefore};
 use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
-    apply_style_values, resolve_easeui_color, style_property, Color, Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect,
-    SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextAutoResize, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+    apply_style_values_with_fields, recorded_text_paragraph_fields, resolve_easeui_color, style_property, text_style_paragraph_fields_after_update, Color,
+    Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect, SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable,
+    VariableCollection, VariableKind, VariableMode, VariableValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -37,12 +39,40 @@ pub fn tool_descriptor() -> Value {
     });
     let coordinate = json!({ "type": "number", "minimum": -1000000, "maximum": 1000000 });
     let size = json!({ "type": "number", "minimum": 0, "maximum": 1000000 });
+    let connect_end = json!({
+        "anyOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$" },
+            {
+                "type": "object",
+                "required": ["point"],
+                "additionalProperties": false,
+                "properties": {
+                    "point": {
+                        "type": "array",
+                        "items": coordinate.clone(),
+                        "minItems": 2,
+                        "maxItems": 2
+                    }
+                }
+            }
+        ],
+        "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
+    });
+    let magnet_schema = json!({
+        "type": "string",
+        "enum": ["auto", "top", "right", "bottom", "left", "center"]
+    });
+    let cap_schema = json!({
+        "type": "string",
+        "enum": ["none", "arrow", "triangle", "circle", "diamond"]
+    });
     let mut op_properties = serde_json::Map::new();
     op_properties.insert(
         "op".into(),
         json!({
             "type": "string",
-            "enum": ["apply_spec", "insert", "create", "update", "move", "delete", "set_slot", "set_variables", "set_style", "set_in_progress"]
+            "enum": ["apply_spec", "insert", "create", "update", "move", "delete", "set_slot", "set_variables", "set_style", "set_in_progress", "connect"]
         }),
     );
     op_properties.insert("as".into(), json!({ "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }));
@@ -52,6 +82,14 @@ pub fn tool_descriptor() -> Value {
     op_properties.insert("node_id".into(), node_or_ref.clone());
     op_properties.insert("nodes".into(), json!({ "type": "array", "items": node_or_ref.clone(), "minItems": 1, "maxItems": 200 }));
     op_properties.insert("node_ids".into(), json!({ "type": "array", "items": node_or_ref, "minItems": 1, "maxItems": 200 }));
+    op_properties.insert("from".into(), connect_end.clone());
+    op_properties.insert("to".into(), connect_end);
+    op_properties.insert("from_magnet".into(), magnet_schema.clone());
+    op_properties.insert("to_magnet".into(), magnet_schema);
+    op_properties.insert("line".into(), json!({ "type": "string", "enum": ["elbowed", "straight", "curved"] }));
+    op_properties.insert("start_cap".into(), cap_schema.clone());
+    op_properties.insert("end_cap".into(), cap_schema);
+    op_properties.insert("label".into(), json!({ "type": "string", "maxLength": 10000 }));
     op_properties.insert("value".into(), json!({ "type": "boolean" }));
     op_properties.insert("in_progress".into(), json!({ "type": "boolean" }));
     op_properties.insert("agent".into(), json!({ "type": "string", "maxLength": 256 }));
@@ -111,6 +149,11 @@ pub fn tool_descriptor() -> Value {
             ]
         },
         {
+            "ops": [
+                { "op": "connect", "as": "ab", "from": "@a", "from_magnet": "right", "to": "@b", "to_magnet": "left", "line": "elbowed", "end_cap": "arrow", "label": "ok" }
+            ]
+        },
+        {
             "dry_run": true,
             "ops": [
                 { "op": "insert", "as": "preview", "parent": 1, "kind": "rectangle", "name": "PreviewBox", "width": 160, "height": 80 }
@@ -145,6 +188,7 @@ pub fn tool_descriptor() -> Value {
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 200,
+                    "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update).",
                     "items": op_item_schema
                 },
                 "dry_run": { "type": "boolean", "default": false },
@@ -166,13 +210,7 @@ pub fn tool_descriptor() -> Value {
             },
             "examples": examples
         },
-        "outputSchema": tool_output_schema_from_object(success_schema),
-        "annotations": {
-            "readOnlyHint": false,
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false
-        }
+        "outputSchema": tool_output_schema_from_object(success_schema)
     })
 }
 
@@ -416,6 +454,157 @@ struct SetInProgressOp {
     force: bool,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FreePointEnd {
+    point: [f32; 2],
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+enum ConnectEndInput {
+    Node(NodeRef),
+    Point(FreePointEnd),
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConnectOp {
+    #[allow(dead_code)]
+    op: String,
+    #[serde(rename = "as")]
+    alias: Option<String>,
+    #[serde(default, alias = "node_id")]
+    node: Option<NodeRef>,
+    #[serde(default)]
+    from: Option<ConnectEndInput>,
+    #[serde(default)]
+    to: Option<ConnectEndInput>,
+    #[serde(default)]
+    from_magnet: Option<String>,
+    #[serde(default)]
+    to_magnet: Option<String>,
+    #[serde(default)]
+    line: Option<String>,
+    #[serde(default)]
+    start_cap: Option<String>,
+    #[serde(default)]
+    end_cap: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+fn parse_magnet(s: &str, op_idx: usize, field: &str) -> Result<designos_doc::Magnet, ToolError> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "auto" => Ok(designos_doc::Magnet::Auto),
+        "top" => Ok(designos_doc::Magnet::Top),
+        "right" => Ok(designos_doc::Magnet::Right),
+        "bottom" => Ok(designos_doc::Magnet::Bottom),
+        "left" => Ok(designos_doc::Magnet::Left),
+        "center" => Ok(designos_doc::Magnet::Center),
+        other => Err(op_failed_error(
+            op_idx,
+            "connect",
+            ErrorCode::InvalidArguments,
+            &format!("/ops/{op_idx}/{field}"),
+            format!("invalid magnet '{other}' (expected auto, top, right, bottom, left, or center)"),
+        )),
+    }
+}
+
+fn parse_connector_line(s: &str, op_idx: usize) -> Result<designos_doc::ConnectorLine, ToolError> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "elbowed" => Ok(designos_doc::ConnectorLine::Elbowed),
+        "straight" => Ok(designos_doc::ConnectorLine::Straight),
+        "curved" => Ok(designos_doc::ConnectorLine::Curved),
+        other => Err(op_failed_error(
+            op_idx,
+            "connect",
+            ErrorCode::InvalidArguments,
+            &format!("/ops/{op_idx}/line"),
+            format!("invalid connector line '{other}' (expected elbowed, straight, or curved)"),
+        )),
+    }
+}
+
+fn parse_connector_cap(s: &str, op_idx: usize, field: &str) -> Result<designos_doc::ConnectorCap, ToolError> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "none" => Ok(designos_doc::ConnectorCap::None),
+        "arrow" => Ok(designos_doc::ConnectorCap::Arrow),
+        "triangle" => Ok(designos_doc::ConnectorCap::Triangle),
+        "circle" => Ok(designos_doc::ConnectorCap::Circle),
+        "diamond" => Ok(designos_doc::ConnectorCap::Diamond),
+        other => Err(op_failed_error(
+            op_idx,
+            "connect",
+            ErrorCode::InvalidArguments,
+            &format!("/ops/{op_idx}/{field}"),
+            format!("invalid connector cap '{other}' (expected none, arrow, triangle, circle, or diamond)"),
+        )),
+    }
+}
+
+/// What a `connect` update does to one end the connector already stores.
+enum ConnectEndChange {
+    /// The op does not name the end: it stays as stored.
+    Keep,
+    /// The op names a layer: the end attaches to it.
+    Attach(NodeId),
+    /// The op names a page-space point: the end becomes free there.
+    Free(designos_doc::Vec2),
+}
+
+impl ConnectEndChange {
+    /// The layer the end rests on once the op is applied. A kept end whose layer is gone is free at
+    /// its last point and names none.
+    fn attached_node(&self, doc: &Document, stored: designos_doc::ConnectorEnd) -> Option<NodeId> {
+        match self {
+            Self::Attach(id) => Some(*id),
+            Self::Keep => stored.node.filter(|id| doc.get(*id).is_some()),
+            Self::Free(_) => None,
+        }
+    }
+}
+
+fn validate_connect_end_pre_run(end: &ConnectEndInput, declared_as: &BTreeSet<String>, has_prev: bool, op_idx: usize, field: &str) -> Result<(), ToolError> {
+    match end {
+        ConnectEndInput::Node(nr) => validate_ref_pre_run(nr, declared_as, has_prev, op_idx, "connect", field),
+        ConnectEndInput::Point(p) => {
+            let [x, y] = p.point;
+            if !x.is_finite() || !y.is_finite() || !(-1_000_000.0..=1_000_000.0).contains(&x) || !(-1_000_000.0..=1_000_000.0).contains(&y) {
+                return Err(op_failed_error(
+                    op_idx,
+                    "connect",
+                    ErrorCode::ValueOutOfRange,
+                    &format!("/ops/{op_idx}/{field}/point"),
+                    "free endpoint coordinates must be finite numbers in -1000000..=1000000",
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn page_of_node(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut cur = Some(id);
+    let mut steps = 0usize;
+    let limit = doc.nodes.len();
+    while let Some(cid) = cur {
+        if steps >= limit {
+            return None;
+        }
+        steps += 1;
+        let n = doc.get(cid)?;
+        if matches!(n.kind, NodeKind::Page { .. }) {
+            return Some(cid);
+        }
+        cur = n.parent;
+    }
+    None
+}
+
 #[derive(Clone, Debug)]
 enum ParsedOp {
     ApplySpec(Box<ApplySpecOp>),
@@ -427,6 +616,7 @@ enum ParsedOp {
     SetStyle(SetStyleOp),
     SetSlot(SetSlotOp),
     SetInProgress(SetInProgressOp),
+    Connect(ConnectOp),
 }
 
 impl ParsedOp {
@@ -441,6 +631,7 @@ impl ParsedOp {
             Self::SetStyle(_) => "set_style",
             Self::SetSlot(_) => "set_slot",
             Self::SetInProgress(_) => "set_in_progress",
+            Self::Connect(_) => "connect",
         }
     }
 
@@ -455,6 +646,7 @@ impl ParsedOp {
             Self::SetStyle(o) => o.alias.as_deref(),
             Self::SetSlot(o) => o.alias.as_deref(),
             Self::SetInProgress(o) => o.alias.as_deref(),
+            Self::Connect(o) => o.alias.as_deref(),
         }
     }
 }
@@ -485,6 +677,89 @@ struct TouchedRootRecord {
     op: usize,
     node_id: NodeId,
     before_bounds: Rect,
+}
+
+fn flatten_batch_command(command: Command, out: &mut Vec<Command>) {
+    match command {
+        Command::Batch(commands) => {
+            for command in commands {
+                flatten_batch_command(command, out);
+            }
+        }
+        command => out.push(command),
+    }
+}
+
+fn slot_name_matches(candidate: &str, requested: &str) -> bool {
+    candidate == requested
+        || candidate.eq_ignore_ascii_case(requested)
+        || candidate.split('#').next() == Some(requested)
+        || candidate.split('#').next().is_some_and(|name| name.eq_ignore_ascii_case(requested))
+}
+
+/// Returns only the descendants owned by this instance's template. Nested instance
+/// subtrees belong to their own component and must not satisfy a slot lookup on the
+/// containing instance.
+fn direct_instance_descendants(doc: &Document, instance: NodeId) -> Vec<NodeId> {
+    let Some(root) = doc.get(instance) else {
+        return Vec::new();
+    };
+    let mut descendants = Vec::new();
+    let mut stack: Vec<NodeId> = root.children.iter().copied().rev().collect();
+    while let Some(id) = stack.pop() {
+        let Some(node) = doc.get(id) else {
+            continue;
+        };
+        descendants.push(id);
+        if !matches!(node.kind, NodeKind::Instance { .. }) {
+            stack.extend(node.children.iter().copied().rev());
+        }
+    }
+    descendants
+}
+
+fn slot_container_in_instance(doc: &Document, instance: NodeId, requested: &str) -> Option<NodeId> {
+    for node_id in direct_instance_descendants(doc, instance) {
+        let Some(node) = doc.get(node_id) else {
+            continue;
+        };
+        let binding_matches = node.component.bindings.get(&designos_doc::OverrideField::SlotContent).is_some_and(|name| slot_name_matches(name, requested));
+        let source_binding_matches = node
+            .component
+            .source
+            .and_then(|source| doc.get(source))
+            .and_then(|source| source.component.bindings.get(&designos_doc::OverrideField::SlotContent).filter(|name| slot_name_matches(name, requested)));
+        if (binding_matches || source_binding_matches.is_some()) && designos_doc::is_slot_container(doc, node.id) {
+            return Some(node.id);
+        }
+    }
+
+    // Older component documents may mark a slot with `is_slot` but omit the
+    // binding. Instance overrides can also rename the mirrored node while the
+    // source slot keeps its canonical name. Keep the name fallback after the
+    // explicit binding pass so a matching layer name cannot shadow a binding.
+    for node_id in direct_instance_descendants(doc, instance) {
+        let Some(node) = doc.get(node_id) else {
+            continue;
+        };
+        let source_name_matches = node.component.source.and_then(|source| doc.get(source)).is_some_and(|source| slot_name_matches(&source.name, requested));
+        if (slot_name_matches(&node.name, requested) || source_name_matches) && designos_doc::is_slot_container(doc, node.id) {
+            return Some(node.id);
+        }
+    }
+    None
+}
+
+fn slot_value_key(root: &designos_doc::Node, requested: &str) -> Option<String> {
+    root.component.values.keys().find(|name| slot_name_matches(name, requested)).cloned()
+}
+
+fn resolve_slot_container(doc: &Document, instance: NodeId, requested: &str) -> Option<NodeId> {
+    // Prefer the component binding/source metadata. A mirrored layer can be
+    // renamed by an override, while an unrelated layer can still have the
+    // requested slot's old display name.
+    slot_container_in_instance(doc, instance, requested)
+        .or_else(|| designos_doc::resolve_override_path(doc, instance, requested).ok().filter(|&id| designos_doc::is_slot_container(doc, id)))
 }
 
 fn batch_error(code: ErrorCode, failed_op: Option<usize>, op: Option<&str>, path: &str, message: impl Into<String>) -> ToolError {
@@ -771,6 +1046,58 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                 has_prev = true;
                 ParsedOp::SetInProgress(a)
             }
+            "connect" => {
+                let a: ConnectOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, false, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "connect", cause)
+                })?;
+                if a.node.is_none() {
+                    if a.from.is_none() {
+                        return Err(op_failed_error(
+                            idx,
+                            "connect",
+                            ErrorCode::MissingField,
+                            &format!("{op_path}/from"),
+                            "connect requires 'from' when creating a connector",
+                        ));
+                    }
+                    if a.to.is_none() {
+                        return Err(op_failed_error(
+                            idx,
+                            "connect",
+                            ErrorCode::MissingField,
+                            &format!("{op_path}/to"),
+                            "connect requires 'to' when creating a connector",
+                        ));
+                    }
+                }
+                if let Some(nr) = &a.node {
+                    validate_ref_pre_run(nr, &declared_as, has_prev, idx, "connect", "node")?;
+                }
+                if let Some(f) = &a.from {
+                    validate_connect_end_pre_run(f, &declared_as, has_prev, idx, "from")?;
+                }
+                if let Some(t) = &a.to {
+                    validate_connect_end_pre_run(t, &declared_as, has_prev, idx, "to")?;
+                }
+                if let Some(m) = &a.from_magnet {
+                    parse_magnet(m, idx, "from_magnet")?;
+                }
+                if let Some(m) = &a.to_magnet {
+                    parse_magnet(m, idx, "to_magnet")?;
+                }
+                if let Some(l) = &a.line {
+                    parse_connector_line(l, idx)?;
+                }
+                if let Some(c) = &a.start_cap {
+                    parse_connector_cap(c, idx, "start_cap")?;
+                }
+                if let Some(c) = &a.end_cap {
+                    parse_connector_cap(c, idx, "end_cap")?;
+                }
+                has_prev = true;
+                ParsedOp::Connect(a)
+            }
             other => {
                 return Err(batch_error(
                     ErrorCode::InvalidArguments,
@@ -779,7 +1106,17 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                     &format!("/ops/{idx}/op"),
                     format!("unsupported batch op '{other}'"),
                 )
-                .with_valid_options(vec!["apply_spec", "insert", "update", "move", "delete", "set_variables", "set_style", "set_slot"]));
+                .with_valid_options(vec![
+                    "apply_spec",
+                    "insert",
+                    "update",
+                    "move",
+                    "delete",
+                    "set_variables",
+                    "set_style",
+                    "set_slot",
+                    "connect",
+                ]));
             }
         };
 
@@ -996,6 +1333,27 @@ pub(crate) fn relayout_for_node(doc: &mut Document, id: NodeId) {
     if let Some(top) = top_container_under_page(doc, id) {
         doc.relayout_subtree(top);
         doc.flush_pending_relayout();
+    }
+}
+
+/// Ids of the nodes `cmds` replace with an `Update`.
+fn updated_node_ids(cmds: &[Command]) -> Vec<NodeId> {
+    cmds.iter()
+        .filter_map(|c| match c {
+            Command::Update { node } => Some(node.id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Re-lays out the top-level container of every node in `ids`, once per container and on whichever
+/// page it lives, and queues it for the pass at commit. A hug frame around a label whose size an
+/// op changed would otherwise keep its old size.
+fn relayout_containers_of(doc: &mut Document, ids: &[NodeId], relayout_targets: &mut Vec<NodeId>) {
+    let tops: BTreeSet<NodeId> = ids.iter().filter_map(|id| top_container_under_page(doc, *id)).collect();
+    for top in tops {
+        relayout_for_node(doc, top);
+        relayout_targets.push(top);
     }
 }
 
@@ -1259,7 +1617,7 @@ fn apply_set_style_op(
             Style::Effect(fx.clone())
         } else if let Some(grids) = &s_in.grids {
             Style::Grid(grids.clone())
-        } else if let Some(ex) = existing_style {
+        } else if let Some(ex) = existing_style.clone() {
             ex
         } else {
             return Err(op_failed_error(
@@ -1283,12 +1641,23 @@ fn apply_set_style_op(
         let name = s_in.name.clone().or_else(|| existing_meta.as_ref().map(|m| m.name.clone())).unwrap_or_else(|| key.clone());
         let description = s_in.description.clone().or_else(|| existing_meta.as_ref().map(|m| m.description.clone())).unwrap_or_default();
         let bindings = existing_meta.as_ref().map(|m| m.bindings.clone()).unwrap_or_default();
-        let (lib_key, sort_position) = match existing_meta {
-            Some(m) => (m.key, m.sort_position),
-            None => (None, None),
+        let (lib_key, sort_position, existing_fields) = match existing_meta.as_ref() {
+            Some(m) => (m.key.clone(), m.sort_position.clone(), m.text_paragraph_fields),
+            None => (None, None, None),
         };
+        let ownership = match (&existing_style, &style_val) {
+            // a text style this op creates owns every paragraph field
+            (None, Style::Text(_)) => Some(0b111),
+            // a stored one without metadata owns none until the op changes one
+            (Some(Style::Text(_)), Style::Text(_)) => recorded_text_paragraph_fields(existing_meta.as_ref()),
+            _ => existing_fields,
+        };
+        let paragraph_fields = text_style_paragraph_fields_after_update(styles.get(&key), &style_val, ownership);
         styles.insert(key.clone(), style_val);
-        style_meta.insert(key.clone(), StyleMeta { name, key: lib_key, description, property: prop, bindings, sort_position });
+        style_meta.insert(
+            key.clone(),
+            StyleMeta { name, key: lib_key, description, property: prop, bindings, sort_position, text_paragraph_fields: paragraph_fields },
+        );
     }
 
     for del_key in &op.delete {
@@ -1302,6 +1671,8 @@ fn apply_set_style_op(
     }
 
     let mut first_applied_node = None;
+    // Node -> index in `cmds` of the `Update` this op already built for it.
+    let mut pending_updates: BTreeMap<NodeId, usize> = BTreeMap::new();
     for (link_idx, link) in op.apply.iter().enumerate() {
         let node_id = resolve_node_ref(doc, alias_roots, prev_node, &link.node, op_idx, "set_style", &format!("apply/{link_idx}/node"))?;
         check_lease_guard(doc, owned_frames, node_id, op_idx, "set_style")?;
@@ -1341,22 +1712,48 @@ fn apply_set_style_op(
             designos_doc::detach_fill_paints(&mut updated);
         }
         updated.style_refs.insert(ref_slot.into(), resolved_key.clone());
-        apply_style_values(&mut updated, st, &resolved_key);
+        apply_style_values_with_fields(&mut updated, st, &resolved_key, style_meta.get(&resolved_key).and_then(|m| m.text_paragraph_fields));
         if prop == StyleProperty::Text {
-            if let NodeKind::Text(tp) = &updated.kind {
-                match tp.auto_resize {
-                    TextAutoResize::WidthAndHeight => {
-                        updated.size = designos_doc::text_measure::intrinsic_text_size(tp, None);
-                    }
-                    TextAutoResize::Height => {
-                        updated.size.y = designos_doc::text_measure::intrinsic_text_size(tp, Some(updated.size.x.max(20.0))).y;
-                    }
-                    TextAutoResize::None | TextAutoResize::Truncate => {}
-                }
-            }
+            resize_hug_text(doc, &mut updated);
         }
         if &updated != cur {
+            pending_updates.insert(node_id, cmds.len());
             cmds.push(Command::Update { node: Box::new(updated) });
+        }
+    }
+
+    // Every text linked to an upserted text style takes its new values. A node this op already
+    // rewrote (a style apply) is updated in place, so its earlier changes stay in the one `Update`.
+    for (key, style) in &styles {
+        let Style::Text(_) = style else { continue };
+        if doc.styles.get(key) == Some(style) || !doc.styles.contains_key(key) {
+            continue;
+        }
+        for nid in designos_doc::linked_style_nodes(doc, key) {
+            let pending = pending_updates.get(&nid).copied();
+            let base = match pending {
+                Some(i) => match &cmds[i] {
+                    Command::Update { node } => Some(node.as_ref()),
+                    _ => None,
+                },
+                None => doc.get(nid),
+            };
+            let Some(base) = base else { continue };
+            if !matches!(base.kind, NodeKind::Text(_)) || base.style_refs.get("text") != Some(key) {
+                // Not a text, or this op linked it to another text style.
+                continue;
+            }
+            let mut updated = base.clone();
+            apply_style_values_with_fields(&mut updated, style, key, style_meta.get(key).and_then(|m| m.text_paragraph_fields));
+            resize_hug_text(doc, &mut updated);
+            match pending {
+                Some(i) => cmds[i] = Command::Update { node: Box::new(updated) },
+                None if doc.get(nid) != Some(&updated) => {
+                    pending_updates.insert(nid, cmds.len());
+                    cmds.push(Command::Update { node: Box::new(updated) });
+                }
+                None => {}
+            }
         }
     }
 
@@ -1473,12 +1870,18 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
     let mut deleted_ids: Vec<NodeId> = Vec::new();
     let mut measured_with_fallback: Vec<u64> = Vec::new();
     let mut batch_warnings: Vec<designos_doc::SpecWarning> = Vec::new();
+    let mut batch_issues: Vec<designos_doc::SpecIssue> = Vec::new();
 
     let default_page = engine.resolve_default_page().ok();
+    let mut bound_text = BoundTextIndex::default();
 
     for (op_idx, op) in ops.iter().enumerate() {
         let op_name = op.op_name();
         let op_path = format!("/ops/{op_idx}");
+        if !matches!(op, ParsedOp::SetVariables(_)) {
+            // Any other op can add, rebind or delete text.
+            bound_text.invalidate();
+        }
 
         match op {
             ParsedOp::ApplySpec(a) => {
@@ -1497,7 +1900,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 }
                 let prev_children = pnode.children.clone();
                 let data_before = SpecDataSnapshot::of(&trial);
-                let report = trial.apply_spec_with_report(parent, &a.spec).map_err(|se| {
+                let report = trial.apply_spec_with_measure(parent, &a.spec, &[], Some(&designos_render::RenderTextMeasure)).map_err(|se| {
                     let cause = crate::tools::errors::from_spec_error(designos_doc::SpecError::from(se), &format!("{op_path}/spec"));
                     ToolError::batch_op_failed(op_idx, op_name, cause)
                 })?;
@@ -1609,10 +2012,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     build_created_node(&mut trial, parent, a.index, &a.kind, a.name.clone(), a.text.clone(), a.x, a.y, a.width, a.height)
                         .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
                 if let NodeKind::Text(tp) = &node.kind {
-                    if (a.width.is_none() || a.height.is_none())
-                        && designos_doc::text_measure::uses_fallback_font(tp)
-                        && !measured_with_fallback.contains(&id.0)
-                    {
+                    if (a.width.is_none() || a.height.is_none()) && crate::tools::text_fell_back(tp) && !measured_with_fallback.contains(&id.0) {
                         measured_with_fallback.push(id.0);
                     }
                 }
@@ -1777,6 +2177,8 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             }
             ParsedOp::SetVariables(a) => {
                 check_document_lease_guard(engine.owned_frames.as_deref(), op_idx, op_name)?;
+                let written: Vec<&str> = a.upsert_variables.iter().map(|v| v.id.as_str()).chain(a.delete_variables.iter().map(String::as_str)).collect();
+                let before_vars = VariablesBefore::capture(&trial, &written);
                 let (cmd_opt, count) = apply_set_variables_op(&trial, a, op_idx)?;
                 if let Some(cmd) = cmd_opt {
                     if recording_live {
@@ -1784,6 +2186,15 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         recorded_live_ops.extend(ops);
                     }
                     cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                    let extras = bound_text.remeasure_after(&trial, &before_vars);
+                    for extra in &extras {
+                        if recording_live {
+                            let ops =
+                                live_ops_for_command(&trial, extra).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                            recorded_live_ops.extend(ops);
+                        }
+                        extra.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                    }
                     if let Some(p) = default_page {
                         if let Some(pnode) = trial.get(p) {
                             let children = pnode.children.clone();
@@ -1793,7 +2204,9 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                             }
                         }
                     }
+                    relayout_containers_of(&mut trial, &updated_node_ids(&extras), &mut relayout_targets);
                     collected_cmds.push(cmd);
+                    collected_cmds.extend(extras);
                     changed.variables += count;
                 }
                 let root_node = default_page.unwrap_or(NodeId(1));
@@ -1802,6 +2215,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             }
             ParsedOp::SetStyle(a) => {
                 let (cmds, count, first_node) = apply_set_style_op(&trial, &alias_roots, prev_node, engine.owned_frames.as_deref(), a, op_idx)?;
+                let restyled = updated_node_ids(&cmds);
                 for cmd in cmds {
                     if recording_live {
                         let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
@@ -1814,6 +2228,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     relayout_for_node(&mut trial, nid);
                     relayout_targets.push(nid);
                 }
+                relayout_containers_of(&mut trial, &restyled, &mut relayout_targets);
                 changed.styles += count;
                 let root_node = first_node.or(default_page).unwrap_or(NodeId(1));
                 let before_bounds = node_page_bounds(&trial, root_node);
@@ -1846,22 +2261,225 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 let snapshots = engine.collect_library_snapshots(&spec_node);
                 let mut temp_doc = trial.clone();
                 let parent = cur_node.parent.or(default_page).unwrap_or(NodeId(1));
-                let (_cmd, built_id) = designos_doc::apply_spec_command(&mut temp_doc, parent, &spec_node, &snapshots).map_err(|se| {
-                    let cause = crate::tools::errors::from_spec_error(se, &format!("{op_path}/value"));
-                    ToolError::batch_op_failed(op_idx, op_name, cause)
-                })?;
-                for fid in &built_id.measured_with_fallback {
+                let (generated_cmd, built_report) =
+                    designos_doc::apply_spec_command_with(&mut temp_doc, parent, &spec_node, &snapshots, Some(&designos_render::RenderTextMeasure)).map_err(
+                        |se| {
+                            let cause = crate::tools::errors::from_spec_error(se, &format!("{op_path}/value"));
+                            ToolError::batch_op_failed(op_idx, op_name, cause)
+                        },
+                    )?;
+                // `apply_spec_command_with` validates/builds the fill and returns a command while
+                // restoring its input document. Materialize that command on the temporary copy so
+                // we can read the generated slot subtree, then replay every command except the
+                // temporary instance insertion against the real trial document.
+                generated_cmd.clone().apply(&mut temp_doc).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                let built_id = built_report.root_node_id;
+                for fid in &built_report.measured_with_fallback {
                     if !measured_with_fallback.contains(fid) {
                         measured_with_fallback.push(*fid);
                     }
                 }
+                for w in &built_report.warnings {
+                    if w.code != "TEXT_MEASURED_WITH_FALLBACK_FONT" || !batch_warnings.iter().any(|bw| bw.code == "TEXT_MEASURED_WITH_FALLBACK_FONT") {
+                        batch_warnings.push(w.clone());
+                    }
+                }
+
+                let target_slot = resolve_slot_container(&trial, id, &a.slot).ok_or_else(|| {
+                    op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::SlotContainerNotFound,
+                        &format!("{op_path}/slot"),
+                        format!("slot '{}' was not found on instance {}", a.slot, id.0),
+                    )
+                })?;
+                let built_slot = resolve_slot_container(&temp_doc, built_id, &a.slot).ok_or_else(|| {
+                    op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::InternalError,
+                        &format!("{op_path}/slot"),
+                        format!("validated slot '{}' disappeared from generated instance", a.slot),
+                    )
+                })?;
+
+                // The spec builder reports slot findings against the temporary instance. The
+                // generated slot roots keep their IDs when copied into the real instance, but
+                // the temporary instance and slot containers do not. Remap those two owners so
+                // the batch response points at nodes that exist after the operation.
+                for mut issue in built_report.issues.clone() {
+                    if issue.node_id == built_id.0 {
+                        issue.node_id = id.0;
+                    } else if issue.node_id == built_slot.0 {
+                        issue.node_id = target_slot.0;
+                    }
+                    batch_issues.push(issue);
+                }
+
+                let mut generated_parts = Vec::new();
+                flatten_batch_command(generated_cmd, &mut generated_parts);
+                for part in generated_parts {
+                    match &part {
+                        Command::Insert { nodes, .. } if nodes.first().is_some_and(|node| node.id == built_id) => {}
+                        _ => {
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &part).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            part.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(part);
+                        }
+                    }
+                }
+                let built_slot_children = temp_doc.get(built_slot).map(|node| node.children.clone()).unwrap_or_default();
+                let mut replacement_roots: Vec<(NodeId, Vec<designos_doc::Node>)> = Vec::with_capacity(built_slot_children.len());
+                for root in built_slot_children {
+                    let mut nodes = Vec::new();
+                    temp_doc.walk(root, |node, _| nodes.push(node.clone()));
+                    if let Some(first) = nodes.first_mut() {
+                        first.parent = Some(target_slot);
+                    }
+                    replacement_roots.push((root, nodes));
+                }
+
+                match &a.value {
+                    designos_doc::SlotFillSpec::Disabled(_) => {
+                        let mut slot = trial.get(target_slot).cloned().ok_or_else(|| {
+                            op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("slot node {} not found", target_slot.0))
+                        })?;
+                        slot.visible = false;
+                        slot.component.overrides.insert(designos_doc::OverrideField::Visible);
+                        if slot != *trial.get(target_slot).unwrap() {
+                            let cmd = Command::Update { node: Box::new(slot) };
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(cmd);
+                            changed.updated += 1;
+                        }
+                    }
+                    designos_doc::SlotFillSpec::Fill(_) => {
+                        let old_children = trial.get(target_slot).map(|node| node.children.clone()).unwrap_or_default();
+                        for old_child in old_children {
+                            let cmd = Command::Remove { id: old_child };
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(cmd);
+                            deleted_ids.push(old_child);
+                            changed.deleted += 1;
+                        }
+
+                        let mut slot = trial.get(target_slot).cloned().ok_or_else(|| {
+                            op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("slot node {} not found", target_slot.0))
+                        })?;
+                        slot.component.overrides.insert(designos_doc::OverrideField::SlotContent);
+                        // A fill undoes a hide set on this instance (`fill: false` or a Visible
+                        // override). A visibility that the main component or a Boolean property
+                        // gives the slot is kept.
+                        let hidden_here = !slot.visible && slot.component.overrides.contains(&designos_doc::OverrideField::Visible);
+                        if let Some(generated_slot) = temp_doc.get(built_slot).filter(|_| hidden_here) {
+                            slot.visible = generated_slot.visible;
+                            if generated_slot.component.overrides.contains(&designos_doc::OverrideField::Visible) {
+                                slot.component.overrides.insert(designos_doc::OverrideField::Visible);
+                            } else {
+                                slot.component.overrides.remove(&designos_doc::OverrideField::Visible);
+                            }
+                        }
+                        if slot != *trial.get(target_slot).unwrap() {
+                            let slot_cmd = Command::Update { node: Box::new(slot) };
+                            if recording_live {
+                                let ops = live_ops_for_command(&trial, &slot_cmd)
+                                    .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            slot_cmd
+                                .clone()
+                                .apply(&mut trial)
+                                .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(slot_cmd);
+                            changed.updated += 1;
+                        }
+
+                        for (index, (root, nodes)) in replacement_roots.into_iter().enumerate() {
+                            let cmd = Command::Insert { parent: target_slot, index, nodes };
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            let mut subtree_ids = BTreeSet::new();
+                            trial.walk(root, |node, _| {
+                                subtree_ids.insert(node.id);
+                            });
+                            let count = subtree_ids.len();
+                            if created_count + count > MAX_BATCH_CREATED_NODES {
+                                return Err(batch_error(
+                                    ErrorCode::BatchTooManyOps,
+                                    Some(op_idx),
+                                    Some(op_name),
+                                    &op_path,
+                                    format!("batch creates over {MAX_BATCH_CREATED_NODES} nodes"),
+                                ));
+                            }
+                            collected_cmds.push(cmd);
+                            created_root_ids.push(root.0);
+                            created_count += count;
+                            changed.inserted += count;
+                            all_created_ids.extend(subtree_ids.clone());
+                            created_roots.push(CreatedRootRecord { alias: None, root_id: root, created_ids: subtree_ids });
+                        }
+
+                        let generated_instance = temp_doc
+                            .get(built_id)
+                            .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, "generated instance disappeared"))?;
+                        let key = slot_value_key(generated_instance, &a.slot).ok_or_else(|| {
+                            op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, format!("generated slot value '{}' missing", a.slot))
+                        })?;
+                        let value = generated_instance
+                            .component
+                            .values
+                            .get(&key)
+                            .cloned()
+                            .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, "generated slot value missing"))?;
+                        let mut instance = trial
+                            .get(id)
+                            .cloned()
+                            .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("instance node {} not found", id.0)))?;
+                        instance.component.values.insert(key, value);
+                        if instance != *trial.get(id).unwrap() {
+                            let cmd = Command::Update { node: Box::new(instance) };
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(cmd);
+                            changed.updated += 1;
+                        }
+                    }
+                }
+
                 if let Some(alias) = &a.alias {
                     alias_roots.insert(alias.clone(), id);
                 }
                 prev_node = Some(id);
-                let _ = built_id;
                 let before_bounds = node_page_bounds(&trial, id);
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
+                relayout_for_node(&mut trial, target_slot);
+                relayout_for_node(&mut trial, id);
+                relayout_targets.push(target_slot);
+                relayout_targets.push(id);
             }
             ParsedOp::SetInProgress(a) => {
                 let flag = a.value.or(a.in_progress).unwrap_or(false);
@@ -1939,6 +2557,405 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     alias_roots.insert(alias.clone(), first_id);
                 }
                 prev_node = target_ids.first().copied();
+            }
+            ParsedOp::Connect(a) => {
+                trial.flush_pending_relayout();
+                if let Some(target_ref) = &a.node {
+                    let id = resolve_node_ref(&trial, &alias_roots, prev_node, target_ref, op_idx, op_name, "node")?;
+                    check_lease_guard(&trial, engine.owned_frames.as_deref(), id, op_idx, op_name)?;
+                    let cur_node = trial
+                        .get(id)
+                        .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", id.0)))?
+                        .clone();
+                    let NodeKind::Connector(mut props) = cur_node.kind.clone() else {
+                        return Err(op_failed_error(
+                            op_idx,
+                            op_name,
+                            ErrorCode::UnsupportedNodeKind,
+                            &format!("{op_path}/node"),
+                            format!("UNSUPPORTED_NODE_KIND: node {} is not a connector", id.0),
+                        ));
+                    };
+
+                    // An end the op does not name keeps what the connector stores. Only an end passed in is an
+                    // attach, so only that end has to be connectable: an existing attachment outlives its node
+                    // being hidden, locked or deleted.
+                    let from_change = match &a.from {
+                        None => ConnectEndChange::Keep,
+                        Some(ConnectEndInput::Node(r)) => {
+                            let fid = resolve_node_ref(&trial, &alias_roots, prev_node, r, op_idx, op_name, "from")?;
+                            if !designos_doc::connectable_node(&trial, fid) {
+                                return Err(op_failed_error(
+                                    op_idx,
+                                    op_name,
+                                    ErrorCode::UnsupportedNodeKind,
+                                    &format!("{op_path}/from"),
+                                    format!("UNSUPPORTED_NODE_KIND: node {} cannot be a connector endpoint", fid.0),
+                                ));
+                            }
+                            ConnectEndChange::Attach(fid)
+                        }
+                        Some(ConnectEndInput::Point(p)) => ConnectEndChange::Free(designos_doc::Vec2::new(p.point[0], p.point[1])),
+                    };
+
+                    let to_change = match &a.to {
+                        None => ConnectEndChange::Keep,
+                        Some(ConnectEndInput::Node(r)) => {
+                            let tid = resolve_node_ref(&trial, &alias_roots, prev_node, r, op_idx, op_name, "to")?;
+                            if !designos_doc::connectable_node(&trial, tid) {
+                                return Err(op_failed_error(
+                                    op_idx,
+                                    op_name,
+                                    ErrorCode::UnsupportedNodeKind,
+                                    &format!("{op_path}/to"),
+                                    format!("UNSUPPORTED_NODE_KIND: node {} cannot be a connector endpoint", tid.0),
+                                ));
+                            }
+                            ConnectEndChange::Attach(tid)
+                        }
+                        Some(ConnectEndInput::Point(p)) => ConnectEndChange::Free(designos_doc::Vec2::new(p.point[0], p.point[1])),
+                    };
+                    let keeps_both_ends = matches!((&from_change, &to_change), (ConnectEndChange::Keep, ConnectEndChange::Keep));
+                    let from_attached = from_change.attached_node(&trial, props.start);
+                    let to_attached = to_change.attached_node(&trial, props.end);
+
+                    if let (Some(fid), Some(tid)) = (from_attached, to_attached) {
+                        if fid == tid {
+                            return Err(op_failed_error(
+                                op_idx,
+                                op_name,
+                                ErrorCode::UnsupportedNodeKind,
+                                &op_path,
+                                format!("UNSUPPORTED_NODE_KIND: connector cannot connect node {} to itself", fid.0),
+                            ));
+                        }
+                    }
+
+                    let from_page = from_attached.and_then(|fid| page_of_node(&trial, fid));
+                    let to_page = to_attached.and_then(|tid| page_of_node(&trial, tid));
+                    if let (Some(pa), Some(pb), false) = (from_page, to_page, keeps_both_ends) {
+                        if pa != pb {
+                            return Err(op_failed_error(
+                                op_idx,
+                                op_name,
+                                ErrorCode::NodesOnDifferentPages,
+                                &op_path,
+                                format!(
+                                    "CONNECTOR_ENDS_ON_DIFFERENT_PAGES: connector ends {} (page {}) and {} (page {}) are on different pages",
+                                    from_attached.unwrap().0,
+                                    pa.0,
+                                    to_attached.unwrap().0,
+                                    pb.0
+                                ),
+                            ));
+                        }
+                    }
+
+                    let page = from_page
+                        .or(to_page)
+                        .or_else(|| page_of_node(&trial, id))
+                        .or(default_page)
+                        .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::PageNotFound, &op_path, "Document has no pages"))?;
+                    // The home is worked out again only when the op attaches or detaches an end.
+                    let home = match (keeps_both_ends, cur_node.parent) {
+                        (true, Some(parent)) => parent,
+                        _ => designos_doc::connector_home(&trial, from_attached, to_attached, page),
+                    };
+                    check_lease_guard(&trial, engine.owned_frames.as_deref(), home, op_idx, op_name)?;
+                    if let ConnectEndChange::Attach(fid) = from_change {
+                        check_lease_guard(&trial, engine.owned_frames.as_deref(), fid, op_idx, op_name)?;
+                    }
+                    if let ConnectEndChange::Attach(tid) = to_change {
+                        check_lease_guard(&trial, engine.owned_frames.as_deref(), tid, op_idx, op_name)?;
+                    }
+
+                    let home_inv = trial.world_transform(home).invert().unwrap_or(designos_doc::Affine::IDENTITY);
+                    let old_world = cur_node.parent.map(|p| trial.world_transform(p)).unwrap_or(designos_doc::Affine::IDENTITY);
+                    let rehomed = cur_node.parent != Some(home);
+                    let from_mag = match &a.from_magnet {
+                        Some(s) => parse_magnet(s, op_idx, "from_magnet")?,
+                        None => props.start.magnet,
+                    };
+                    let to_mag = match &a.to_magnet {
+                        Some(s) => parse_magnet(s, op_idx, "to_magnet")?,
+                        None => props.end.magnet,
+                    };
+                    let build_end = |change: &ConnectEndChange, stored: designos_doc::ConnectorEnd, magnet: designos_doc::Magnet| match change {
+                        ConnectEndChange::Attach(node) => designos_doc::ConnectorEnd { node: Some(*node), magnet, point: stored.point },
+                        ConnectEndChange::Free(page_point) => designos_doc::ConnectorEnd { node: None, magnet, point: home_inv.apply(*page_point) },
+                        ConnectEndChange::Keep => {
+                            // A kept end that still rests on a layer is re-derived from it; a free or dangling one
+                            // holds its last point, which changes space only when the connector changes container.
+                            let rests_on_layer = stored.node.is_some_and(|id| trial.get(id).is_some());
+                            let point = if rests_on_layer || !rehomed { stored.point } else { home_inv.apply(old_world.apply(stored.point)) };
+                            designos_doc::ConnectorEnd { magnet, point, ..stored }
+                        }
+                    };
+                    props.start = build_end(&from_change, props.start, from_mag);
+                    props.end = build_end(&to_change, props.end, to_mag);
+                    if let Some(l) = &a.line {
+                        props.line = parse_connector_line(l, op_idx)?;
+                    }
+                    if let Some(sc) = &a.start_cap {
+                        props.start_cap = parse_connector_cap(sc, op_idx, "start_cap")?;
+                    }
+                    if let Some(ec) = &a.end_cap {
+                        props.end_cap = parse_connector_cap(ec, op_idx, "end_cap")?;
+                    }
+                    if let Some(lbl) = &a.label {
+                        if lbl.is_empty() {
+                            props.label = None;
+                        } else {
+                            let mut tp = props
+                                .label
+                                .clone()
+                                .unwrap_or_else(|| designos_doc::board_text(14.0, designos_doc::TextAlignH::Center, designos_doc::TextAlignV::Center));
+                            tp.content = lbl.clone();
+                            props.label = Some(tp);
+                        }
+                    }
+
+                    let before_bounds = node_page_bounds(&trial, id);
+                    if cur_node.parent != Some(home) {
+                        let old_parent = cur_node.parent;
+                        let target_idx = trial.get(home).map(|p| p.children.iter().filter(|&&c| c != id).count()).unwrap_or(0);
+                        let reparent_cmd = Command::Reparent { id, parent: home, index: target_idx };
+                        if recording_live {
+                            let ops = live_ops_for_command(&trial, &reparent_cmd)
+                                .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                            recorded_live_ops.extend(ops);
+                        }
+                        reparent_cmd
+                            .clone()
+                            .apply(&mut trial)
+                            .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                        if let Some(op) = old_parent {
+                            relayout_for_node(&mut trial, op);
+                            relayout_targets.push(op);
+                        }
+                        relayout_for_node(&mut trial, home);
+                        relayout_targets.push(home);
+                        collected_cmds.push(reparent_cmd);
+                        changed.moved += 1;
+                    }
+
+                    let before_update = trial.get(id).unwrap().clone();
+                    let mut updated_node = before_update.clone();
+                    if let Some(name) = &a.name {
+                        updated_node.name = name.clone();
+                    }
+                    updated_node.layout_child.absolute = true;
+                    updated_node.kind = NodeKind::Connector(props);
+                    if let Some(slot) = trial.get_mut(id) {
+                        *slot = updated_node.clone();
+                    }
+                    if let Some(geom) = designos_doc::connector_geometry(&trial, id) {
+                        geom.apply(&mut updated_node);
+                    }
+                    if let Some(slot) = trial.get_mut(id) {
+                        *slot = before_update.clone();
+                    }
+                    if updated_node != before_update {
+                        let update_cmd = Command::Update { node: Box::new(updated_node) };
+                        if recording_live {
+                            let ops = live_ops_for_command(&trial, &update_cmd)
+                                .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                            recorded_live_ops.extend(ops);
+                        }
+                        update_cmd
+                            .clone()
+                            .apply(&mut trial)
+                            .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                        relayout_for_node(&mut trial, home);
+                        collected_cmds.push(update_cmd);
+                        relayout_targets.push(home);
+                        changed.updated += 1;
+                    }
+                    if let Some(alias) = &a.alias {
+                        alias_roots.insert(alias.clone(), id);
+                    }
+                    prev_node = Some(id);
+                    touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
+                } else {
+                    if created_count + 1 > MAX_BATCH_CREATED_NODES {
+                        return Err(batch_error(
+                            ErrorCode::BatchTooManyOps,
+                            Some(op_idx),
+                            Some(op_name),
+                            &op_path,
+                            format!("batch creates over {MAX_BATCH_CREATED_NODES} nodes"),
+                        ));
+                    }
+                    let from_in = a
+                        .from
+                        .as_ref()
+                        .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::MissingField, &format!("{op_path}/from"), "connect requires 'from'"))?;
+                    let to_in =
+                        a.to.as_ref()
+                            .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::MissingField, &format!("{op_path}/to"), "connect requires 'to'"))?;
+
+                    let (from_attached, from_free_page) = match from_in {
+                        ConnectEndInput::Node(r) => {
+                            let fid = resolve_node_ref(&trial, &alias_roots, prev_node, r, op_idx, op_name, "from")?;
+                            if !designos_doc::connectable_node(&trial, fid) {
+                                return Err(op_failed_error(
+                                    op_idx,
+                                    op_name,
+                                    ErrorCode::UnsupportedNodeKind,
+                                    &format!("{op_path}/from"),
+                                    format!("UNSUPPORTED_NODE_KIND: node {} cannot be a connector endpoint", fid.0),
+                                ));
+                            }
+                            (Some(fid), None)
+                        }
+                        ConnectEndInput::Point(p) => (None, Some(designos_doc::Vec2::new(p.point[0], p.point[1]))),
+                    };
+
+                    let (to_attached, to_free_page) = match to_in {
+                        ConnectEndInput::Node(r) => {
+                            let tid = resolve_node_ref(&trial, &alias_roots, prev_node, r, op_idx, op_name, "to")?;
+                            if !designos_doc::connectable_node(&trial, tid) {
+                                return Err(op_failed_error(
+                                    op_idx,
+                                    op_name,
+                                    ErrorCode::UnsupportedNodeKind,
+                                    &format!("{op_path}/to"),
+                                    format!("UNSUPPORTED_NODE_KIND: node {} cannot be a connector endpoint", tid.0),
+                                ));
+                            }
+                            (Some(tid), None)
+                        }
+                        ConnectEndInput::Point(p) => (None, Some(designos_doc::Vec2::new(p.point[0], p.point[1]))),
+                    };
+
+                    if let (Some(fid), Some(tid)) = (from_attached, to_attached) {
+                        if fid == tid {
+                            return Err(op_failed_error(
+                                op_idx,
+                                op_name,
+                                ErrorCode::UnsupportedNodeKind,
+                                &op_path,
+                                format!("UNSUPPORTED_NODE_KIND: connector cannot connect node {} to itself", fid.0),
+                            ));
+                        }
+                    }
+
+                    let from_page = from_attached.and_then(|fid| page_of_node(&trial, fid));
+                    let to_page = to_attached.and_then(|tid| page_of_node(&trial, tid));
+                    if let (Some(pa), Some(pb)) = (from_page, to_page) {
+                        if pa != pb {
+                            return Err(op_failed_error(
+                                op_idx,
+                                op_name,
+                                ErrorCode::NodesOnDifferentPages,
+                                &op_path,
+                                format!(
+                                    "CONNECTOR_ENDS_ON_DIFFERENT_PAGES: connector ends {} (page {}) and {} (page {}) are on different pages",
+                                    from_attached.unwrap().0,
+                                    pa.0,
+                                    to_attached.unwrap().0,
+                                    pb.0
+                                ),
+                            ));
+                        }
+                    }
+
+                    let page = from_page
+                        .or(to_page)
+                        .or(default_page)
+                        .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::PageNotFound, &op_path, "Document has no pages"))?;
+                    let home = designos_doc::connector_home(&trial, from_attached, to_attached, page);
+                    check_lease_guard(&trial, engine.owned_frames.as_deref(), home, op_idx, op_name)?;
+                    if let Some(fid) = from_attached {
+                        check_lease_guard(&trial, engine.owned_frames.as_deref(), fid, op_idx, op_name)?;
+                    }
+                    if let Some(tid) = to_attached {
+                        check_lease_guard(&trial, engine.owned_frames.as_deref(), tid, op_idx, op_name)?;
+                    }
+
+                    let home_inv = trial.world_transform(home).invert().unwrap_or(designos_doc::Affine::IDENTITY);
+                    let from_mag = match &a.from_magnet {
+                        Some(s) => parse_magnet(s, op_idx, "from_magnet")?,
+                        None => designos_doc::Magnet::Auto,
+                    };
+                    let to_mag = match &a.to_magnet {
+                        Some(s) => parse_magnet(s, op_idx, "to_magnet")?,
+                        None => designos_doc::Magnet::Auto,
+                    };
+                    let mut props = designos_doc::ConnectorProps {
+                        start: match from_attached {
+                            Some(fid) => designos_doc::ConnectorEnd::attached(fid, from_mag),
+                            None => designos_doc::ConnectorEnd {
+                                node: None,
+                                magnet: from_mag,
+                                point: home_inv.apply(from_free_page.unwrap_or(designos_doc::Vec2::ZERO)),
+                            },
+                        },
+                        end: match to_attached {
+                            Some(tid) => designos_doc::ConnectorEnd::attached(tid, to_mag),
+                            None => designos_doc::ConnectorEnd {
+                                node: None,
+                                magnet: to_mag,
+                                point: home_inv.apply(to_free_page.unwrap_or(designos_doc::Vec2::ZERO)),
+                            },
+                        },
+                        ..Default::default()
+                    };
+                    if let Some(l) = &a.line {
+                        props.line = parse_connector_line(l, op_idx)?;
+                    }
+                    if let Some(sc) = &a.start_cap {
+                        props.start_cap = parse_connector_cap(sc, op_idx, "start_cap")?;
+                    }
+                    if let Some(ec) = &a.end_cap {
+                        props.end_cap = parse_connector_cap(ec, op_idx, "end_cap")?;
+                    }
+                    if let Some(lbl) = &a.label {
+                        if !lbl.is_empty() {
+                            let mut tp = designos_doc::board_text(14.0, designos_doc::TextAlignH::Center, designos_doc::TextAlignV::Center);
+                            tp.content = lbl.clone();
+                            props.label = Some(tp);
+                        }
+                    }
+
+                    let id = trial.alloc_id();
+                    let mut node = designos_doc::Node::connector(id, props);
+                    if let Some(name) = &a.name {
+                        node.name = name.clone();
+                    }
+                    node.layout_child.absolute = true;
+                    node.parent = Some(home);
+                    trial.nodes.insert(id, node.clone());
+                    if let Some(geom) = designos_doc::connector_geometry(&trial, id) {
+                        geom.apply(&mut node);
+                    }
+                    trial.nodes.remove(&id);
+
+                    let target_idx = trial.get(home).map(|p| p.children.len()).unwrap_or(0);
+                    let cmd = Command::Insert { parent: home, index: target_idx, nodes: vec![node] };
+                    if recording_live {
+                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                        recorded_live_ops.extend(ops);
+                    }
+                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                    relayout_for_node(&mut trial, home);
+
+                    created_root_ids.push(id.0);
+                    created_count += 1;
+                    changed.inserted += 1;
+                    all_created_ids.insert(id);
+                    let mut set = BTreeSet::new();
+                    set.insert(id);
+                    if let Some(alias) = &a.alias {
+                        alias_roots.insert(alias.clone(), id);
+                    }
+                    prev_node = Some(id);
+                    created_roots.push(CreatedRootRecord { alias: a.alias.clone(), root_id: id, created_ids: set });
+                    collected_cmds.push(cmd);
+                    relayout_targets.push(home);
+                    let before_bounds = node_page_bounds(&trial, id);
+                    touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
+                }
             }
         }
     }
@@ -2058,7 +3075,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
         batch_args.lint,
         &baseline,
         engine.lint_env(),
-        &[],
+        &batch_issues,
         &mut reply,
     );
     Ok(reply)
@@ -2459,6 +3476,113 @@ mod tests {
         assert_eq!(engine.doc.nodes, pre_nodes);
         assert_eq!(engine.doc.variables, pre_vars);
         assert_eq!(engine.doc.variable_collections, pre_collections);
+    }
+
+    #[test]
+    fn set_slot_mutates_existing_instance_and_undoes_as_one_batch_step() {
+        let mut engine = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+        let page = engine.doc.pages[0];
+        let created =
+            engine.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "name": "Card1", "component": "Card"}})).unwrap();
+        let instance_id = created["root_node_id"].as_u64().unwrap();
+        let mut before_json: Value = serde_json::from_str(&engine.doc.to_json().unwrap()).unwrap();
+        let before_depth = engine.history.undo_depth();
+
+        let reply = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [{
+                        "op": "set_slot",
+                        "node": instance_id,
+                        "slot": "body",
+                        "fill": [{"kind": "frame", "name": "Body"}]
+                    }]
+                }),
+            )
+            .expect("set_slot should commit");
+
+        let body_id = designos_doc::resolve_override_path(&engine.doc, designos_doc::NodeId(instance_id), "body").unwrap();
+        let body = engine.doc.get(body_id).unwrap();
+        assert_eq!(body.children.len(), 1, "set_slot must populate the existing instance slot");
+        let child_id = body.children[0];
+        assert_eq!(engine.doc.get(child_id).unwrap().name, "Body");
+        assert!(reply["created"].as_array().unwrap().iter().any(|id| id.as_u64() == Some(child_id.0)));
+        assert_eq!(engine.history.undo_depth(), before_depth + 1, "set_slot must be one undo step");
+
+        engine.call("designos_undo", json!({})).unwrap();
+        let mut after_json: Value = serde_json::from_str(&engine.doc.to_json().unwrap()).unwrap();
+        before_json.as_object_mut().unwrap().remove("next_id");
+        after_json.as_object_mut().unwrap().remove("next_id");
+        assert_eq!(after_json, before_json, "undo must restore the pre-slot document content exactly");
+    }
+
+    #[test]
+    fn set_slot_prefers_bound_slot_over_same_named_ordinary_child() {
+        let mut engine = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+        let page = engine.doc.pages[0];
+        let created =
+            engine.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "name": "Card1", "component": "Card"}})).unwrap();
+        let instance_id = NodeId(created["root_node_id"].as_u64().unwrap());
+        let body_slot_id = designos_doc::resolve_override_path(&engine.doc, instance_id, "body").unwrap();
+
+        // A component override can rename the mirrored layer while its SlotContent binding
+        // remains canonical. An ordinary child may then reuse the old display name.
+        engine.doc.get_mut(body_slot_id).unwrap().name = "Body Container".into();
+        let distractor_id = engine.doc.alloc_id();
+        let mut distractor = designos_doc::Node::frame(distractor_id, designos_doc::Rect::new(0.0, 0.0, 20.0, 20.0));
+        distractor.name = "body".into();
+        engine.doc.insert(instance_id, distractor).unwrap();
+
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops": [{"op": "set_slot", "node": instance_id.0, "slot": "body", "fill": [{"kind": "frame", "name": "FilledBody"}]}]}),
+            )
+            .expect("set_slot should resolve the bound slot");
+
+        assert_eq!(engine.doc.get(body_slot_id).unwrap().children.len(), 1, "bound slot must receive the fill");
+        assert!(engine.doc.get(distractor_id).unwrap().children.is_empty(), "ordinary same-named child must remain untouched");
+    }
+
+    #[test]
+    fn set_slot_forwards_fill_issues_with_live_node_ids() {
+        let mut engine = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+        let page = engine.doc.pages[0];
+        let created =
+            engine.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "name": "Card1", "component": "Card"}})).unwrap();
+        let instance_id = created["root_node_id"].as_u64().unwrap();
+
+        let reply = engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops": [{"op": "set_slot", "node": instance_id, "slot": "body", "fill": [{"kind": "frame", "name": "AdhocBody"}]}]}),
+            )
+            .expect("set_slot should commit");
+        let body_id = designos_doc::resolve_override_path(&engine.doc, NodeId(instance_id), "body").unwrap();
+        let child_id = engine.doc.get(body_id).unwrap().children[0];
+        let issues = reply["issues"].as_array().expect("issues array");
+        let slot_issue = issues.iter().find(|issue| issue["rule"] == "slot-non-recommended").expect("slot warning must be returned");
+        assert_eq!(slot_issue["node_id"], child_id.0, "slot warning must point at the inserted live node");
+    }
+
+    #[test]
+    fn set_slot_disabled_is_idempotent_without_a_second_undo_step() {
+        let mut engine = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+        let page = engine.doc.pages[0];
+        let created =
+            engine.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "name": "Card1", "component": "Card"}})).unwrap();
+        let instance_id = created["root_node_id"].as_u64().unwrap();
+
+        engine
+            .call("designos_apply_batch", json!({"ops": [{"op": "set_slot", "node": instance_id, "slot": "footer", "fill": false}]}))
+            .expect("first disable should commit");
+        let depth_after_first = engine.history.undo_depth();
+        let second = engine
+            .call("designos_apply_batch", json!({"ops": [{"op": "set_slot", "node": instance_id, "slot": "footer", "fill": false}]}))
+            .expect("repeated disable should be a no-op");
+        assert_eq!(second["changed"], json!({"inserted": 0, "updated": 0, "moved": 0, "deleted": 0, "variables": 0, "styles": 0}));
+        assert_eq!(engine.history.undo_depth(), depth_after_first, "repeated disable must not add history");
     }
 
     #[test]
@@ -3635,5 +4759,797 @@ mod tests {
         assert_eq!(engine.doc.style_meta["2:202"].sort_position.as_deref(), Some("!~~p~oL"));
         assert_eq!(engine.doc.styles["2:202"], Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
         assert_eq!(engine.doc.style_meta["brand:new"].sort_position, None);
+    }
+
+    #[test]
+    fn mcp_connect_creates_homed_connector_between_batch_handles() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "board", "parent": page.0, "kind": "frame", "name": "Board", "x": 40.0, "y": 50.0, "width": 600.0, "height": 400.0 },
+                        { "op": "insert", "as": "a", "parent": "@board", "kind": "rectangle", "name": "Step A", "x": 20.0, "y": 40.0, "width": 100.0, "height": 60.0 },
+                        { "op": "insert", "as": "b", "parent": "@board", "kind": "rectangle", "name": "Step B", "x": 260.0, "y": 40.0, "width": 100.0, "height": 60.0 },
+                        {
+                            "op": "connect",
+                            "as": "ab",
+                            "from": "@a",
+                            "to": "$prev",
+                            "from_magnet": "right",
+                            "to_magnet": "left",
+                            "line": "elbowed",
+                            "start_cap": "circle",
+                            "end_cap": "arrow",
+                            "label": "Proceed"
+                        }
+                    ]
+                }),
+            )
+            .expect("batch with connect op should succeed");
+
+        let board_id = NodeId(res["name_to_id"]["board"].as_u64().unwrap());
+        let a_id = NodeId(res["name_to_id"]["a"].as_u64().unwrap());
+        let b_id = NodeId(res["name_to_id"]["b"].as_u64().unwrap());
+        let conn_id = NodeId(res["name_to_id"]["ab"].as_u64().unwrap());
+
+        let board = engine.doc.get(board_id).unwrap();
+        assert_eq!(board.children.last().copied(), Some(conn_id), "new connector must be inserted last (topmost) in connector_home");
+
+        let conn = engine.doc.get(conn_id).unwrap();
+        assert_eq!(conn.parent, Some(board_id), "connector home must be the enclosing frame, not the page");
+        assert!(conn.layout_child.absolute, "connector must have layout_child.absolute = true");
+        assert_eq!(conn.stroke.weight, 2.0);
+
+        let NodeKind::Connector(props) = &conn.kind else {
+            panic!("expected Connector node kind, got {:?}", conn.kind);
+        };
+        assert_eq!(props.start.node, Some(a_id));
+        assert_eq!(props.start.magnet, designos_doc::Magnet::Right);
+        assert_eq!(props.end.node, Some(b_id));
+        assert_eq!(props.end.magnet, designos_doc::Magnet::Left);
+        assert_eq!(props.line, designos_doc::ConnectorLine::Elbowed);
+        assert_eq!(props.start_cap, designos_doc::ConnectorCap::Circle);
+        assert_eq!(props.end_cap, designos_doc::ConnectorCap::Arrow);
+        assert_eq!(props.label.as_ref().map(|l| l.content.as_str()), Some("Proceed"));
+
+        let expected_geom = designos_doc::connector_geometry(&engine.doc, conn_id).expect("connector_geometry");
+        assert_eq!(conn.transform, expected_geom.transform, "stored transform must match connector_geometry right after connect");
+        assert_eq!(conn.size, expected_geom.size, "stored size must match connector_geometry right after connect");
+        assert_eq!(props.start.point, expected_geom.start_point);
+        assert_eq!(props.end.point, expected_geom.end_point);
+    }
+
+    #[test]
+    fn mcp_connect_rejects_cross_page_and_same_node() {
+        let mut engine = Engine::default();
+        let page1 = engine.resolve_default_page().unwrap();
+        let page2 = engine.doc.add_page("Page 2");
+
+        let a = engine
+            .call("designos_create_node", json!({ "parent_id": page1.0, "kind": "rectangle", "name": "A", "x": 0.0, "y": 0.0, "width": 80.0, "height": 50.0 }))
+            .unwrap()["node"]["id"]
+            .as_u64()
+            .unwrap();
+        let b = engine
+            .call(
+                "designos_create_node",
+                json!({ "parent_id": page1.0, "kind": "rectangle", "name": "B", "x": 200.0, "y": 0.0, "width": 80.0, "height": 50.0 }),
+            )
+            .unwrap()["node"]["id"]
+            .as_u64()
+            .unwrap();
+        let on_page2 = engine
+            .call(
+                "designos_create_node",
+                json!({ "parent_id": page2.0, "kind": "rectangle", "name": "OtherPageBox", "x": 0.0, "y": 0.0, "width": 80.0, "height": 50.0 }),
+            )
+            .unwrap()["node"]["id"]
+            .as_u64()
+            .unwrap();
+
+        // 1. Cross-page ends refused with CONNECTOR_ENDS_ON_DIFFERENT_PAGES.
+        let cross_err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": a, "to": on_page2 }] }))
+            .expect_err("cross-page connect must be refused");
+        assert!(cross_err.contains("CONNECTOR_ENDS_ON_DIFFERENT_PAGES"), "expected CONNECTOR_ENDS_ON_DIFFERENT_PAGES in error: {cross_err}");
+
+        // 2. Same node on both ends refused with UNSUPPORTED_NODE_KIND.
+        let same_err =
+            engine.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": a, "to": a }] })).expect_err("same-node connect must be refused");
+        let same_json = same_err.to_json_value();
+        assert_eq!(same_json["cause"]["code"], "UNSUPPORTED_NODE_KIND", "expected UNSUPPORTED_NODE_KIND cause: {same_json}");
+
+        // 3. Connector as an end refused with UNSUPPORTED_NODE_KIND.
+        let conn_res = engine.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "as": "c1", "from": a, "to": b }] })).expect("valid connect");
+        let c1 = conn_res["name_to_id"]["c1"].as_u64().unwrap();
+        let conn_end_err =
+            engine.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": c1, "to": b }] })).expect_err("connector as an end must be refused");
+        let conn_end_json = conn_end_err.to_json_value();
+        assert_eq!(conn_end_json["cause"]["code"], "UNSUPPORTED_NODE_KIND", "expected UNSUPPORTED_NODE_KIND cause: {conn_end_json}");
+
+        // 4. Hidden or locked node refused with UNSUPPORTED_NODE_KIND.
+        engine.doc.get_mut(NodeId(b)).unwrap().locked = true;
+        let locked_err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": a, "to": b }] }))
+            .expect_err("locked node as an end must be refused");
+        assert_eq!(locked_err.to_json_value()["cause"]["code"], "UNSUPPORTED_NODE_KIND");
+    }
+
+    #[test]
+    fn mcp_export_spec_warns_that_connectors_are_skipped() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+
+        let batch = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "container", "parent": page.0, "kind": "frame", "name": "Flow", "width": 500.0, "height": 300.0 },
+                        { "op": "insert", "as": "n1", "parent": "@container", "kind": "rectangle", "name": "Node 1", "x": 20.0, "y": 40.0, "width": 100.0, "height": 50.0 },
+                        { "op": "insert", "as": "n2", "parent": "@container", "kind": "rectangle", "name": "Node 2", "x": 240.0, "y": 40.0, "width": 100.0, "height": 50.0 },
+                        { "op": "connect", "from": "@n1", "to": "@n2" },
+                        { "op": "connect", "from": "@n2", "to": { "point": [420.0, 65.0] } }
+                    ]
+                }),
+            )
+            .expect("create container with two connectors");
+        let container_id = batch["name_to_id"]["container"].as_u64().unwrap();
+
+        let exported = engine.call("designos_export_spec", json!({ "node_id": container_id })).expect("export_spec");
+        let children = exported["spec"]["children"].as_array().expect("spec children");
+        assert_eq!(children.len(), 2, "both connectors must be skipped from exported children: {exported}");
+        assert!(children.iter().all(|c| c["kind"] != "connector"));
+
+        let warnings = exported["warnings"].as_array().expect("warnings array must be present when connectors are skipped");
+        assert!(!warnings.is_empty(), "warnings must not be empty");
+        let warning_text = serde_json::to_string(warnings).unwrap();
+        assert!(warning_text.contains('2'), "warning must name how many connectors were skipped (2): {warning_text}");
+    }
+
+    #[test]
+    fn mcp_connect_with_free_point_ends_converts_page_space_to_home_space() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "frame", "parent": page.0, "kind": "frame", "name": "Frame", "x": 100.0, "y": 200.0, "width": 400.0, "height": 300.0 },
+                        { "op": "insert", "as": "box", "parent": "@frame", "kind": "rectangle", "name": "Box", "x": 20.0, "y": 30.0, "width": 80.0, "height": 40.0 },
+                        { "op": "connect", "as": "half_free", "from": "@box", "to": { "point": [350.0, 250.0] } },
+                        { "op": "connect", "as": "both_free", "from": { "point": [10.0, 20.0] }, "to": { "point": [90.0, 20.0] }, "line": "straight" }
+                    ]
+                }),
+            )
+            .expect("connect with point ends");
+
+        let frame_id = NodeId(res["name_to_id"]["frame"].as_u64().unwrap());
+        let half_free_id = NodeId(res["name_to_id"]["half_free"].as_u64().unwrap());
+        let both_free_id = NodeId(res["name_to_id"]["both_free"].as_u64().unwrap());
+
+        let half_node = engine.doc.get(half_free_id).unwrap();
+        assert_eq!(half_node.parent, Some(frame_id), "one attached end homes in that end's enclosing frame");
+        let NodeKind::Connector(half_props) = &half_node.kind else { panic!("expected connector") };
+        assert_eq!(half_props.end.node, None);
+        // Page point (350, 250) inside frame at (100, 200) converts to local (250, 50).
+        assert_eq!(half_props.end.point, designos_doc::Vec2::new(250.0, 50.0));
+        let g1 = designos_doc::connector_geometry(&engine.doc, half_free_id).unwrap();
+        assert_eq!(half_node.transform, g1.transform);
+        assert_eq!(half_node.size, g1.size);
+
+        let free_node = engine.doc.get(both_free_id).unwrap();
+        assert_eq!(free_node.parent, Some(page), "two free ends home on the page");
+        let NodeKind::Connector(free_props) = &free_node.kind else { panic!("expected connector") };
+        assert_eq!(free_props.start.point, designos_doc::Vec2::new(10.0, 20.0));
+        assert_eq!(free_props.end.point, designos_doc::Vec2::new(90.0, 20.0));
+        let g2 = designos_doc::connector_geometry(&engine.doc, both_free_id).unwrap();
+        assert_eq!(free_node.transform, g2.transform);
+        assert_eq!(free_node.size, g2.size);
+    }
+
+    #[test]
+    fn mcp_connect_with_node_updates_existing_connector() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "a", "parent": page.0, "kind": "rectangle", "name": "A", "x": 0.0, "y": 0.0, "width": 80.0, "height": 50.0 },
+                        { "op": "insert", "as": "b", "parent": page.0, "kind": "rectangle", "name": "B", "x": 200.0, "y": 0.0, "width": 80.0, "height": 50.0 },
+                        { "op": "insert", "as": "c", "parent": page.0, "kind": "rectangle", "name": "C", "x": 0.0, "y": 200.0, "width": 80.0, "height": 50.0 },
+                        { "op": "connect", "as": "link", "from": "@a", "to": "@b" }
+                    ]
+                }),
+            )
+            .expect("initial connect");
+
+        let a_id = NodeId(res["name_to_id"]["a"].as_u64().unwrap());
+        let c_id = NodeId(res["name_to_id"]["c"].as_u64().unwrap());
+        let link_id = NodeId(res["name_to_id"]["link"].as_u64().unwrap());
+        let count_before = engine.doc.nodes.len();
+
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        {
+                            "op": "connect",
+                            "node": link_id.0,
+                            "from": a_id.0,
+                            "to": c_id.0,
+                            "from_magnet": "bottom",
+                            "to_magnet": "top",
+                            "line": "curved",
+                            "start_cap": "diamond",
+                            "end_cap": "triangle",
+                            "label": "Rerouted"
+                        }
+                    ]
+                }),
+            )
+            .expect("update existing connector via connect op");
+
+        assert_eq!(engine.doc.nodes.len(), count_before, "updating an existing connector must not allocate a new node");
+        let conn = engine.doc.get(link_id).unwrap();
+        let NodeKind::Connector(props) = &conn.kind else { panic!("expected connector") };
+        assert_eq!(props.start.node, Some(a_id));
+        assert_eq!(props.start.magnet, designos_doc::Magnet::Bottom);
+        assert_eq!(props.end.node, Some(c_id));
+        assert_eq!(props.end.magnet, designos_doc::Magnet::Top);
+        assert_eq!(props.line, designos_doc::ConnectorLine::Curved);
+        assert_eq!(props.start_cap, designos_doc::ConnectorCap::Diamond);
+        assert_eq!(props.end_cap, designos_doc::ConnectorCap::Triangle);
+        assert_eq!(props.label.as_ref().map(|l| l.content.as_str()), Some("Rerouted"));
+
+        let expected_geom = designos_doc::connector_geometry(&engine.doc, link_id).unwrap();
+        assert_eq!(conn.transform, expected_geom.transform);
+        assert_eq!(conn.size, expected_geom.size);
+    }
+
+    #[test]
+    fn mcp_connect_inside_auto_layout_frame_preserves_frame_size_and_siblings() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        {
+                            "op": "apply_spec",
+                            "as": "row",
+                            "parent": page.0,
+                            "spec": {
+                                "kind": "frame",
+                                "name": "AutoRow",
+                                "width_sizing": "hug",
+                                "height_sizing": "hug",
+                                "layout": { "direction": "row", "gap": 24.0, "padding": [16.0, 16.0, 16.0, 16.0] },
+                                "children": [
+                                    { "kind": "rectangle", "name": "Left", "width": 100.0, "height": 50.0 },
+                                    { "kind": "rectangle", "name": "Right", "width": 100.0, "height": 50.0 }
+                                ]
+                            }
+                        }
+                    ]
+                }),
+            )
+            .expect("setup auto-layout row");
+
+        let row_id = NodeId(setup["name_to_id"]["row"].as_u64().unwrap());
+        let left_id = NodeId(setup["name_to_id"]["row/Left"].as_u64().unwrap());
+        let right_id = NodeId(setup["name_to_id"]["row/Right"].as_u64().unwrap());
+
+        let row_size_before = engine.doc.get(row_id).unwrap().size;
+        let left_xf_before = engine.doc.get(left_id).unwrap().transform;
+        let right_xf_before = engine.doc.get(right_id).unwrap().transform;
+
+        let conn_res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "connect", "as": "edge", "from": left_id.0, "to": right_id.0 }
+                    ]
+                }),
+            )
+            .expect("connect inside auto-layout frame");
+
+        let edge_id = NodeId(conn_res["name_to_id"]["edge"].as_u64().unwrap());
+        let edge = engine.doc.get(edge_id).unwrap();
+        assert_eq!(edge.parent, Some(row_id));
+        assert!(edge.layout_child.absolute, "connector inside auto-layout frame must be absolute");
+
+        assert_eq!(engine.doc.get(row_id).unwrap().size, row_size_before, "auto-layout frame size must not change when connector is added");
+        assert_eq!(engine.doc.get(left_id).unwrap().transform, left_xf_before, "Left sibling position must not change");
+        assert_eq!(engine.doc.get(right_id).unwrap().transform, right_xf_before, "Right sibling position must not change");
+    }
+
+    #[test]
+    fn mcp_connect_single_undo_removes_connector_and_batch() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let pre_nodes = engine.doc.nodes.clone();
+        let pre_hash = batch_state_hash(&engine.doc, &[]);
+        let depth_before = engine.history.undo_depth();
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "a", "parent": page.0, "kind": "rectangle", "name": "A", "x": 10.0, "y": 10.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "b", "parent": page.0, "kind": "rectangle", "name": "B", "x": 180.0, "y": 10.0, "width": 80.0, "height": 40.0 },
+                        { "op": "connect", "as": "ab", "from": "@a", "to": "@b" }
+                    ]
+                }),
+            )
+            .expect("batch create + connect");
+
+        let a_id = NodeId(res["name_to_id"]["a"].as_u64().unwrap());
+        let b_id = NodeId(res["name_to_id"]["b"].as_u64().unwrap());
+        let conn_id = NodeId(res["name_to_id"]["ab"].as_u64().unwrap());
+        assert_eq!(engine.history.undo_depth(), depth_before + 1, "entire batch including connect must be a single undo step");
+
+        engine.call("designos_undo", json!({})).expect("single undo");
+        assert!(engine.doc.get(conn_id).is_none(), "one undo must remove the connector");
+        assert!(engine.doc.get(a_id).is_none(), "one undo must also remove the batch's earlier ops");
+        assert!(engine.doc.get(b_id).is_none(), "one undo must also remove the batch's earlier ops");
+        assert_eq!(engine.doc.nodes, pre_nodes);
+        assert_eq!(batch_state_hash(&engine.doc, &[]), pre_hash);
+    }
+
+    #[test]
+    fn mcp_connect_dry_run_mutates_nothing() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let a = engine
+            .call("designos_create_node", json!({ "parent_id": page.0, "kind": "rectangle", "name": "A", "x": 0.0, "y": 0.0, "width": 80.0, "height": 40.0 }))
+            .unwrap()["node"]["id"]
+            .as_u64()
+            .unwrap();
+        let b = engine
+            .call("designos_create_node", json!({ "parent_id": page.0, "kind": "rectangle", "name": "B", "x": 200.0, "y": 0.0, "width": 80.0, "height": 40.0 }))
+            .unwrap()["node"]["id"]
+            .as_u64()
+            .unwrap();
+
+        let pre_nodes = engine.doc.nodes.clone();
+        let pre_hash = batch_state_hash(&engine.doc, &[]);
+        let depth_before = engine.history.undo_depth();
+
+        let dry = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "dry_run": true,
+                    "ops": [
+                        { "op": "connect", "as": "preview_edge", "from": a, "to": b }
+                    ]
+                }),
+            )
+            .expect("dry_run connect");
+
+        assert_eq!(dry["dry_run"], true);
+        let would_be_id = dry["name_to_id"]["preview_edge"].as_u64().expect("dry_run returns would-be id");
+        assert!(would_be_id > b);
+        assert!(engine.doc.get(NodeId(would_be_id)).is_none(), "dry_run must not insert the connector");
+        assert_eq!(engine.doc.nodes, pre_nodes, "dry_run must leave document untouched");
+        assert_eq!(batch_state_hash(&engine.doc, &[]), pre_hash, "dry_run must leave document hash untouched");
+        assert_eq!(engine.history.undo_depth(), depth_before, "dry_run must not push an undo step");
+    }
+
+    #[test]
+    fn mcp_get_node_and_get_metadata_show_connector_ends_and_magnets() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "a", "parent": page.0, "kind": "rectangle", "name": "Source", "x": 10.0, "y": 20.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "b", "parent": page.0, "kind": "rectangle", "name": "Target", "x": 210.0, "y": 20.0, "width": 80.0, "height": 40.0 },
+                        { "op": "connect", "as": "edge", "from": "@a", "to": "@b", "from_magnet": "right", "to_magnet": "left" }
+                    ]
+                }),
+            )
+            .expect("connect two nodes");
+
+        let a_id = res["name_to_id"]["a"].as_u64().unwrap();
+        let b_id = res["name_to_id"]["b"].as_u64().unwrap();
+        let edge_id = res["name_to_id"]["edge"].as_u64().unwrap();
+
+        let got_node = engine.call("designos_get_node", json!({ "node_id": edge_id })).expect("get_node");
+        let c_json = &got_node["node"]["kind"]["Connector"];
+        assert_eq!(c_json["start"]["node"], a_id);
+        assert_eq!(c_json["start"]["magnet"], "Right");
+        assert_eq!(c_json["end"]["node"], b_id);
+        assert_eq!(c_json["end"]["magnet"], "Left");
+
+        let meta = engine.call("designos_get_metadata", json!({ "node_id": page.0 })).expect("get_metadata");
+        let xml = meta["xml"].as_str().expect("metadata xml");
+        let conn_line = xml.lines().find(|l| l.contains("<connector ") && l.contains(&format!("id=\"{edge_id}\""))).expect("connector line in metadata xml");
+        assert!(conn_line.contains(&format!("from=\"{a_id}\"")), "metadata xml must show connector start node: {conn_line}");
+        assert!(conn_line.contains("from_magnet=\"right\""), "metadata xml must show connector start magnet: {conn_line}");
+        assert!(conn_line.contains(&format!("to=\"{b_id}\"")), "metadata xml must show connector end node: {conn_line}");
+        assert!(conn_line.contains("to_magnet=\"left\""), "metadata xml must show connector end magnet: {conn_line}");
+    }
+
+    /// Two page-level rectangles joined by a connector; returns `(a, b, link)`.
+    fn page_connector_between_two_boxes(engine: &mut Engine, page: NodeId) -> (NodeId, NodeId, NodeId) {
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "a", "parent": page.0, "kind": "rectangle", "name": "A", "x": 0.0, "y": 0.0, "width": 80.0, "height": 50.0 },
+                        { "op": "insert", "as": "b", "parent": page.0, "kind": "rectangle", "name": "B", "x": 200.0, "y": 0.0, "width": 80.0, "height": 50.0 },
+                        { "op": "connect", "as": "link", "from": "@a", "to": "@b" }
+                    ]
+                }),
+            )
+            .expect("two boxes and a connector");
+        let id = |name: &str| NodeId(res["name_to_id"][name].as_u64().unwrap());
+        (id("a"), id("b"), id("link"))
+    }
+
+    fn connector_ends(engine: &Engine, id: NodeId) -> (designos_doc::ConnectorEnd, designos_doc::ConnectorEnd) {
+        let NodeKind::Connector(props) = &engine.doc.get(id).unwrap().kind else { panic!("expected connector") };
+        (props.start, props.end)
+    }
+
+    fn connector_label(engine: &Engine, id: NodeId) -> Option<String> {
+        let NodeKind::Connector(props) = &engine.doc.get(id).unwrap().kind else { panic!("expected connector") };
+        props.label.as_ref().map(|l| l.content.clone())
+    }
+
+    fn assert_connector_matches_its_geometry(engine: &Engine, id: NodeId) {
+        let node = engine.doc.get(id).unwrap();
+        let geom = designos_doc::connector_geometry(&engine.doc, id).expect("connector geometry");
+        assert_eq!(node.transform, geom.transform, "stored transform must match connector_geometry");
+        assert_eq!(node.size, geom.size, "stored size must match connector_geometry");
+        let (start, end) = connector_ends(engine, id);
+        assert_eq!(start.point, geom.start_point, "stored start point must match connector_geometry");
+        assert_eq!(end.point, geom.end_point, "stored end point must match connector_geometry");
+    }
+
+    fn label_only_update(engine: &mut Engine, link: NodeId) -> Result<Value, ToolError> {
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "label": "kept" }] }))
+    }
+
+    #[test]
+    fn mcp_connect_update_keeps_stored_ends_when_an_end_node_is_locked() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (a, b, link) = page_connector_between_two_boxes(&mut engine, page);
+        engine.doc.get_mut(b).unwrap().locked = true;
+        let ends_before = connector_ends(&engine, link);
+        let parent_before = engine.doc.get(link).unwrap().parent;
+
+        label_only_update(&mut engine, link).expect("an update that names no end must not re-check the stored ends");
+
+        assert_eq!(connector_ends(&engine, link), ends_before, "stored ends must stay as they are");
+        assert_eq!(connector_ends(&engine, link).1.node, Some(b));
+        assert_eq!(engine.doc.get(link).unwrap().parent, parent_before);
+        assert_eq!(connector_label(&engine, link).as_deref(), Some("kept"));
+
+        // Passing the locked node again is a new attach and is still refused.
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "to": b.0 }] }))
+            .expect_err("re-attaching a locked node must be refused");
+        assert_eq!(err.to_json_value()["cause"]["code"], "UNSUPPORTED_NODE_KIND");
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "from": a.0, "to": b.0 }] }))
+            .expect_err("re-attaching a locked node must be refused even when the other end is valid");
+        assert_eq!(err.to_json_value()["cause"]["code"], "UNSUPPORTED_NODE_KIND");
+    }
+
+    #[test]
+    fn mcp_connect_update_keeps_stored_ends_when_an_end_node_is_hidden() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (a, b, link) = page_connector_between_two_boxes(&mut engine, page);
+        engine.doc.get_mut(a).unwrap().visible = false;
+        let ends_before = connector_ends(&engine, link);
+
+        label_only_update(&mut engine, link).expect("an update that names no end must not re-check the stored ends");
+
+        assert_eq!(connector_ends(&engine, link), ends_before, "stored ends must stay as they are");
+        assert_eq!(connector_ends(&engine, link).0.node, Some(a));
+        assert_eq!(connector_ends(&engine, link).1.node, Some(b));
+        assert_eq!(connector_label(&engine, link).as_deref(), Some("kept"));
+
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "from": a.0 }] }))
+            .expect_err("re-attaching a hidden node must be refused");
+        assert_eq!(err.to_json_value()["cause"]["code"], "UNSUPPORTED_NODE_KIND");
+    }
+
+    #[test]
+    fn mcp_connect_update_keeps_stored_ends_when_an_end_node_is_deleted() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (a, b, link) = page_connector_between_two_boxes(&mut engine, page);
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": b.0 }] })).expect("delete the end node");
+        assert!(engine.doc.get(b).is_none());
+        let ends_before = connector_ends(&engine, link);
+        assert_eq!(ends_before.1.node, Some(b), "a deleted end node stays in the connector as a dangling id");
+
+        label_only_update(&mut engine, link).expect("an update that names no end must not re-check the stored ends");
+
+        assert_eq!(connector_ends(&engine, link), ends_before, "stored ends, dangling id and last point included, must stay as they are");
+        assert_eq!(connector_ends(&engine, link).0.node, Some(a));
+        assert_eq!(connector_label(&engine, link).as_deref(), Some("kept"));
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_connect_update_without_ends_leaves_the_connector_in_its_container() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "left", "parent": page.0, "kind": "frame", "name": "Left", "x": 0.0, "y": 0.0, "width": 300.0, "height": 200.0 },
+                        { "op": "insert", "as": "right", "parent": page.0, "kind": "frame", "name": "Right", "x": 500.0, "y": 0.0, "width": 300.0, "height": 200.0 },
+                        { "op": "insert", "as": "a", "parent": "@left", "kind": "rectangle", "name": "A", "x": 20.0, "y": 20.0, "width": 80.0, "height": 50.0 },
+                        { "op": "insert", "as": "b", "parent": "@right", "kind": "rectangle", "name": "B", "x": 20.0, "y": 20.0, "width": 80.0, "height": 50.0 },
+                        { "op": "connect", "as": "link", "from": "@a", "to": "@b" }
+                    ]
+                }),
+            )
+            .expect("two frames joined by a connector");
+        let b = NodeId(setup["name_to_id"]["b"].as_u64().unwrap());
+        let link = NodeId(setup["name_to_id"]["link"].as_u64().unwrap());
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(page), "a connector between two screens lives on the page");
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": b.0 }] })).expect("delete the end node");
+        let ends_before = connector_ends(&engine, link);
+
+        label_only_update(&mut engine, link).expect("label-only update");
+
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(page), "an update that attaches nothing must not re-home the connector");
+        assert_eq!(connector_ends(&engine, link), ends_before);
+        assert_eq!(connector_label(&engine, link).as_deref(), Some("kept"));
+    }
+
+    #[test]
+    fn mcp_connect_update_retargeting_both_ends_into_a_frame_rehomes_the_connector() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (_a, _b, link) = page_connector_between_two_boxes(&mut engine, page);
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(page));
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "panel", "parent": page.0, "kind": "frame", "name": "Panel", "x": 100.0, "y": 300.0, "width": 400.0, "height": 300.0 },
+                        { "op": "insert", "as": "x", "parent": "@panel", "kind": "rectangle", "name": "X", "x": 20.0, "y": 30.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "y", "parent": "@panel", "kind": "rectangle", "name": "Y", "x": 240.0, "y": 150.0, "width": 80.0, "height": 40.0 }
+                    ]
+                }),
+            )
+            .expect("frame with two boxes");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (panel, x, y) = (id("panel"), id("x"), id("y"));
+
+        engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "from": x.0, "to": y.0 }] }))
+            .expect("retarget both ends into the frame");
+
+        let conn = engine.doc.get(link).unwrap();
+        assert_eq!(conn.parent, Some(panel), "retargeting both ends into one frame must move the connector into it");
+        assert_eq!(engine.doc.get(panel).unwrap().children.last().copied(), Some(link), "the re-homed connector must be the topmost child");
+        assert!(!engine.doc.get(page).unwrap().children.contains(&link), "the connector must leave the page");
+        assert!(conn.layout_child.absolute, "a re-homed connector stays out of auto-layout flow");
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_connect_free_point_inside_a_rotated_frame_maps_back_to_the_page_point() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "frame", "parent": page.0, "kind": "frame", "name": "Tilted", "x": 100.0, "y": 200.0, "width": 400.0, "height": 300.0 },
+                        { "op": "insert", "as": "box", "parent": "@frame", "kind": "rectangle", "name": "Box", "x": 20.0, "y": 30.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "other", "parent": page.0, "kind": "rectangle", "name": "Other", "x": 900.0, "y": 0.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "far", "parent": page.0, "kind": "rectangle", "name": "Far", "x": 900.0, "y": 300.0, "width": 80.0, "height": 40.0 },
+                        { "op": "connect", "as": "moved", "from": "@other", "to": "@far" }
+                    ]
+                }),
+            )
+            .expect("setup");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (frame, boxed, moved) = (id("frame"), id("box"), id("moved"));
+        let rotated = designos_doc::Affine::translate(100.0, 200.0) * designos_doc::Affine::rotate(0.6);
+        engine.doc.get_mut(frame).unwrap().transform = rotated;
+        let page_point = designos_doc::Vec2::new(350.0, 250.0);
+        let world = engine.doc.world_transform(frame);
+
+        // Create path.
+        let created = engine
+            .call(
+                "designos_apply_batch",
+                json!({ "ops": [{ "op": "connect", "as": "made", "from": boxed.0, "to": { "point": [page_point.x, page_point.y] } }] }),
+            )
+            .expect("connect with a free end in a rotated frame");
+        let made = NodeId(created["name_to_id"]["made"].as_u64().unwrap());
+        assert_eq!(engine.doc.get(made).unwrap().parent, Some(frame));
+        let back = world.apply(connector_ends(&engine, made).1.point);
+        assert!((back.x - page_point.x).abs() < 0.01 && (back.y - page_point.y).abs() < 0.01, "created free end maps back to {page_point:?}, got {back:?}");
+
+        // Update path: the connector is re-homed into the rotated frame and its free end is converted.
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({ "ops": [{ "op": "connect", "node": moved.0, "from": boxed.0, "to": { "point": [page_point.x, page_point.y] } }] }),
+            )
+            .expect("retarget into a rotated frame");
+        assert_eq!(engine.doc.get(moved).unwrap().parent, Some(frame));
+        let back = world.apply(connector_ends(&engine, moved).1.point);
+        assert!((back.x - page_point.x).abs() < 0.01 && (back.y - page_point.y).abs() < 0.01, "updated free end maps back to {page_point:?}, got {back:?}");
+        assert_connector_matches_its_geometry(&engine, moved);
+    }
+
+    #[test]
+    fn mcp_connect_update_that_rehomes_keeps_a_free_end_at_its_page_point() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "frame", "parent": page.0, "kind": "frame", "name": "Tilted", "x": 100.0, "y": 200.0, "width": 400.0, "height": 300.0 },
+                        { "op": "insert", "as": "box", "parent": "@frame", "kind": "rectangle", "name": "Box", "x": 20.0, "y": 30.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "other", "parent": page.0, "kind": "rectangle", "name": "Other", "x": 900.0, "y": 0.0, "width": 80.0, "height": 40.0 },
+                        { "op": "connect", "as": "link", "from": "@other", "to": { "point": [350.0, 250.0] } }
+                    ]
+                }),
+            )
+            .expect("setup");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (frame, boxed, link) = (id("frame"), id("box"), id("link"));
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(page));
+        engine.doc.get_mut(frame).unwrap().transform = designos_doc::Affine::translate(100.0, 200.0) * designos_doc::Affine::rotate(0.6);
+
+        engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "from": boxed.0 }] }))
+            .expect("attach the start into the rotated frame, leaving the free end alone");
+
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(frame));
+        let end = connector_ends(&engine, link).1;
+        assert_eq!(end.node, None, "the free end stays free");
+        let back = engine.doc.world_transform(frame).apply(end.point);
+        assert!((back.x - 350.0).abs() < 0.01 && (back.y - 250.0).abs() < 0.01, "the free end must stay at its page point, got {back:?}");
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_moving_a_connected_node_in_a_later_batch_reroutes_the_connector() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (_a, b, link) = page_connector_between_two_boxes(&mut engine, page);
+        let transform_before = engine.doc.get(link).unwrap().transform;
+        let size_before = engine.doc.get(link).unwrap().size;
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": b.0, "x": 660.0 }] })).expect("move the end node");
+
+        let conn = engine.doc.get(link).unwrap();
+        assert!(conn.transform != transform_before || conn.size != size_before, "moving an end node must move or resize the connector");
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_connect_then_move_in_one_batch_leaves_the_connector_on_its_route_and_undoes_together() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "a", "parent": page.0, "kind": "rectangle", "name": "A", "x": 0.0, "y": 0.0, "width": 80.0, "height": 50.0 },
+                        { "op": "insert", "as": "b", "parent": page.0, "kind": "rectangle", "name": "B", "x": 200.0, "y": 0.0, "width": 80.0, "height": 50.0 }
+                    ]
+                }),
+            )
+            .expect("two boxes");
+        let a = NodeId(setup["name_to_id"]["a"].as_u64().unwrap());
+        let b = NodeId(setup["name_to_id"]["b"].as_u64().unwrap());
+        let pre_nodes = engine.doc.nodes.clone();
+        let depth_before = engine.history.undo_depth();
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "connect", "as": "link", "from": a.0, "to": b.0 },
+                        { "op": "update", "node": b.0, "x": 660.0 }
+                    ]
+                }),
+            )
+            .expect("connect then move in one batch");
+        let link = NodeId(res["name_to_id"]["link"].as_u64().unwrap());
+
+        assert_eq!(engine.history.undo_depth(), depth_before + 1, "connect, move and the re-route must be one undo step");
+        assert_eq!(engine.doc.get(b).unwrap().transform.translation().x, 660.0);
+        assert_connector_matches_its_geometry(&engine, link);
+
+        engine.call("designos_undo", json!({})).expect("single undo");
+        assert!(engine.doc.get(link).is_none(), "one undo must remove the connector");
+        assert_eq!(engine.doc.nodes, pre_nodes, "one undo must also put the moved node back");
+    }
+
+    #[test]
+    fn mcp_export_spec_of_a_connector_returns_no_spec_and_warns() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (_a, _b, link) = page_connector_between_two_boxes(&mut engine, page);
+
+        let exported = engine.call("designos_export_spec", json!({ "node_id": link.0 })).expect("export_spec of a connector");
+
+        assert!(exported["spec"].is_null(), "a connector must not be exported as a spec: {exported}");
+        assert_eq!(exported["node_id"], link.0);
+        let warnings = exported["warnings"].as_array().expect("warnings array");
+        assert_eq!(warnings.len(), 1, "{exported}");
+        assert_eq!(warnings[0]["code"], "CONNECTORS_SKIPPED");
+        assert_eq!(warnings[0]["skipped"], 1);
+    }
+
+    #[test]
+    fn mcp_export_spec_replies_validate_against_the_published_output_schema() {
+        let tool = crate::engine::tools().into_iter().find(|t| t["name"] == "designos_export_spec").expect("designos_export_spec is declared");
+        let validator = jsonschema::validator_for(&tool["outputSchema"]).expect("compile the export_spec output schema");
+
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (a, _b, link) = page_connector_between_two_boxes(&mut engine, page);
+        for (what, node) in [("a connector root", link), ("a layer root", a)] {
+            let reply = engine.call("designos_export_spec", json!({ "node_id": node.0 })).unwrap_or_else(|e| panic!("export_spec of {what}: {e:?}"));
+            if let Err(e) = validator.validate(&reply) {
+                panic!("the reply for {what} does not match the published output schema: {e}\n{reply}");
+            }
+        }
+    }
+
+    #[test]
+    fn mcp_export_spec_description_says_what_a_connector_root_returns() {
+        let tool = crate::engine::tools().into_iter().find(|t| t["name"] == "designos_export_spec").expect("designos_export_spec is declared");
+        let description = tool["description"].as_str().expect("description");
+        assert!(
+            description.contains("null spec") && description.contains("CONNECTORS_SKIPPED"),
+            "the description must say what a connector root returns: {description}"
+        );
+    }
+
+    #[test]
+    fn mcp_unknown_batch_op_lists_connect_among_the_valid_options() {
+        let mut engine = Engine::default();
+        let err = engine.call("designos_apply_batch", json!({ "ops": [{ "op": "conect" }] })).expect_err("unknown op must be refused");
+        let json = err.to_json_value();
+        let options = json["valid_options"].as_array().unwrap_or_else(|| panic!("valid_options expected: {json}"));
+        assert!(options.iter().any(|o| o == "connect"), "valid_options must list connect: {json}");
     }
 }

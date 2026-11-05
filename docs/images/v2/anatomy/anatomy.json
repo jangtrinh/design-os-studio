@@ -5,98 +5,98 @@
   1440,
   900
  ],
- "source": "DESIGN:OS Studio 0.6.1 --screenshot --gpu of the Untitled UI PRO v8.0 kit, \"Input field\" selected, zoom 17, 1440x900 at scale 2 (CPU render byte-identical); sha256:de72e87599c59d04045daec4f9d7f64f0e5ae30a6d30ea8b9fe24b4e2957212b",
+ "source": "DESIGN:OS Studio 0.7.5 (tag v0.7.5) --screenshot of the Untitled UI PRO v8.0 kit, \"Input field\" selected, zoom 17, 1440x900 at scale 2, --no-toast; sha256:d21f35d862efd4d2dd7ddd3127f9275383485ba1aa32e789e17acbfb73953f30",
  "scale": "source is 2880x1800 = 2x logical; every stroke vertex is rounded to 0.5 logical px (= 1 source px)",
  "layers": [
   {
    "id": "file",
    "file": "file.svg",
    "bbox": [
-    320.0,
+    315.5,
     139.5,
-    879.0,
-    583.5
+    883.0,
+    582.5
    ],
    "region": [
-    318,
+    310,
     52,
-    881,
+    889,
     848
    ],
    "anchor": [
-    1199.0,
-    431.2
+    1198.5,
+    430.8
    ],
    "anchor_side": "right (ink bbox edge)",
    "label": "The .fig document",
-   "bytes": 49312,
+   "bytes": 63502,
    "path_elements": 2,
-   "subpaths": 2168,
-   "shape_subpaths": 1121,
-   "text_bars": 1047
+   "subpaths": 2575,
+   "shape_subpaths": 1615,
+   "text_bars": 960
   },
   {
    "id": "canvas",
    "file": "canvas.svg",
    "bbox": [
-    298.0,
-    32.0,
-    901.0,
-    867.5
+    290.5,
+    32.5,
+    908.0,
+    866.0
    ],
    "region": [
-    298,
+    290,
     32,
-    901,
+    909,
     868
    ],
    "anchor": [
-    750,
+    744.5,
     900
    ],
    "anchor_side": "bottom",
    "label": "Canvas",
-   "bytes": 14220,
+   "bytes": 14438,
    "path_elements": 2,
-   "subpaths": 946,
-   "shape_subpaths": 913,
-   "text_bars": 33
+   "subpaths": 729,
+   "shape_subpaths": 695,
+   "text_bars": 34
   },
   {
    "id": "layers",
    "file": "layers.svg",
    "bbox": [
-    57.0,
-    32.0,
-    241.0,
-    867.5
+    49.5,
+    32.5,
+    240.5,
+    866.0
    ],
    "region": [
-    57,
+    49,
     32,
     241,
     868
    ],
    "anchor": [
-    177.5,
+    169.5,
     900
    ],
    "anchor_side": "bottom",
    "label": "Layers panel",
-   "bytes": 2735,
+   "bytes": 3519,
    "path_elements": 2,
-   "subpaths": 109,
-   "shape_subpaths": 87,
-   "text_bars": 22
+   "subpaths": 103,
+   "shape_subpaths": 79,
+   "text_bars": 24
   },
   {
    "id": "inspector",
    "file": "inspector.svg",
    "bbox": [
     1199.0,
-    32.0,
-    240.5,
-    867.5
+    32.5,
+    239.5,
+    866.0
    ],
    "region": [
     1199,
@@ -110,25 +110,25 @@
    ],
    "anchor_side": "right",
    "label": "Inspector",
-   "bytes": 5171,
+   "bytes": 8606,
    "path_elements": 2,
-   "subpaths": 144,
-   "shape_subpaths": 116,
-   "text_bars": 28
+   "subpaths": 222,
+   "shape_subpaths": 195,
+   "text_bars": 27
   },
   {
    "id": "rail",
    "file": "rail.svg",
    "bbox": [
-    5.5,
-    32.0,
-    51.5,
-    867.5
+    7.5,
+    32.5,
+    41.5,
+    866.0
    ],
    "region": [
     0,
     32,
-    57,
+    49,
     868
    ],
    "anchor": [
@@ -137,19 +137,19 @@
    ],
    "anchor_side": "left",
    "label": "Agents rail",
-   "bytes": 1503,
-   "path_elements": 2,
-   "subpaths": 44,
-   "shape_subpaths": 38,
-   "text_bars": 6
+   "bytes": 1749,
+   "path_elements": 1,
+   "subpaths": 39,
+   "shape_subpaths": 39,
+   "text_bars": 0
   },
   {
    "id": "chrome",
    "file": "chrome.svg",
    "bbox": [
-    0.0,
+    2.0,
     3.0,
-    1439.5,
+    1436.5,
     29.0
    ],
    "region": [
@@ -164,115 +164,116 @@
    ],
    "anchor_side": "top",
    "label": "Window chrome",
-   "bytes": 992,
+   "bytes": 1180,
    "path_elements": 2,
-   "subpaths": 24,
-   "shape_subpaths": 22,
+   "subpaths": 29,
+   "shape_subpaths": 27,
    "text_bars": 2
   }
  ],
  "splits": {
   "note": "measured from the render (source px, 2 px = 1 logical px); border lines belong to the panel whose edge they are",
-  "chrome_bottom_logical": 32,
+  "chrome_bottom_logical": 32.0,
   "chrome_bottom_src": "tab bar bottom border = rows 62-63",
-  "rail_right_logical": 57,
-  "rail_right_src": "rail border = cols 112-113",
-  "layers_right_logical": 298,
-  "layers_right_src": "left panel border = cols 594-595",
-  "inspector_left_logical": 1199,
+  "rail_right_logical": 49.0,
+  "rail_right_src": "rail border = cols 96-97",
+  "layers_right_logical": 290.0,
+  "layers_right_src": "left panel border = cols 578-579",
+  "inspector_left_logical": 1199.0,
   "inspector_left_src": "inspector border = cols 2398-2399",
-  "ruler_left_right_logical": 318,
-  "ruler_left_right_src": "vertical ruler right edge = cols 634-635",
-  "ruler_top_bottom_logical": 52,
+  "ruler_left_right_logical": 310.0,
+  "ruler_left_right_src": "vertical ruler right edge = cols 618-619",
+  "ruler_top_bottom_logical": 52.0,
   "ruler_top_bottom_src": "horizontal ruler bottom edge = rows 102-103",
   "toolbar_rect_logical": [
-   456,
-   835,
-   984,
-   899
+   463.0,
+   839.0,
+   977.0,
+   889.0
   ],
-  "toolbar_src": "dark pill 928..1952 x 1680..1778, soft shadow 917..1962 x 1675..1792",
+  "toolbar_src": "dark pill 928..1952 x 1680..1776",
   "size_pill_logical": [
-   716.5,
-   692.5,
-   781,
+   714.0,
+   703.0,
+   775.0,
    708.5
   ],
-  "canvas_vs_file": "inside the viewport interior a stroke is canvas when it sits on cyan overlay ink (selection box, handles, frame names, size pill) or in rulers/toolbar, else file"
+  "canvas_vs_file": "inside the viewport interior a stroke is canvas when it lies within 3 source px of the overlay cyan (selection box, handles, frame names, size pill) or in the tool bar, else file"
  },
  "gate": {
   "tolerance_px": 2,
   "recall_precision": {
    "file": {
-    "recall": 0.99989,
+    "recall": 1.0,
     "precision": 1.0,
-    "shifted_6px_dx_recall": 0.9149,
-    "shifted_6px_dx_precision": 0.9288,
-    "shifted_6px_dy_recall": 0.6706,
-    "shifted_6px_dy_precision": 0.6276
+    "shifted_6px_dx_recall": 0.88998,
+    "shifted_6px_dx_precision": 0.89519,
+    "shifted_6px_dy_recall": 0.49297,
+    "shifted_6px_dy_precision": 0.49476
    },
    "canvas": {
     "recall": 1.0,
     "precision": 1.0,
-    "shifted_6px_dx_recall": 0.6477,
-    "shifted_6px_dx_precision": 0.6407,
-    "shifted_6px_dy_recall": 0.4119,
-    "shifted_6px_dy_precision": 0.4042
+    "shifted_6px_dx_recall": 0.6078,
+    "shifted_6px_dx_precision": 0.6112,
+    "shifted_6px_dy_recall": 0.38398,
+    "shifted_6px_dy_precision": 0.38216
    },
    "layers": {
     "recall": 1.0,
     "precision": 1.0,
-    "shifted_6px_dx_recall": 0.6382,
-    "shifted_6px_dx_precision": 0.7216,
-    "shifted_6px_dy_recall": 0.3086,
-    "shifted_6px_dy_precision": 0.236
+    "shifted_6px_dx_recall": 0.66712,
+    "shifted_6px_dx_precision": 0.67397,
+    "shifted_6px_dy_recall": 0.32178,
+    "shifted_6px_dy_precision": 0.31982
    },
    "inspector": {
     "recall": 1.0,
     "precision": 1.0,
-    "shifted_6px_dx_recall": 0.7574,
-    "shifted_6px_dx_precision": 0.7878,
-    "shifted_6px_dy_recall": 0.2596,
-    "shifted_6px_dy_precision": 0.2252
+    "shifted_6px_dx_recall": 0.70692,
+    "shifted_6px_dx_precision": 0.72467,
+    "shifted_6px_dy_recall": 0.25059,
+    "shifted_6px_dy_precision": 0.25075
    },
    "rail": {
     "recall": 1.0,
     "precision": 1.0,
-    "shifted_6px_dx_recall": 0.2689,
-    "shifted_6px_dx_precision": 0.347,
-    "shifted_6px_dy_recall": 0.7002,
-    "shifted_6px_dy_precision": 0.6429
+    "shifted_6px_dx_recall": 0.23014,
+    "shifted_6px_dx_precision": 0.23088,
+    "shifted_6px_dy_recall": 0.74726,
+    "shifted_6px_dy_precision": 0.75626
    },
    "chrome": {
     "recall": 1.0,
     "precision": 1.0,
-    "shifted_6px_dx_recall": 0.9463,
-    "shifted_6px_dx_precision": 0.9479,
-    "shifted_6px_dy_recall": 0.0787,
-    "shifted_6px_dy_precision": 0.0814
+    "shifted_6px_dx_recall": 0.939,
+    "shifted_6px_dx_precision": 0.94397,
+    "shifted_6px_dy_recall": 0.15818,
+    "shifted_6px_dy_precision": 0.15603
    },
    "ALL": {
-    "recall": 0.99992,
+    "recall": 1.0,
     "precision": 1.0,
-    "shifted_6px_dx_recall": 0.8604,
-    "shifted_6px_dx_precision": 0.88,
-    "shifted_6px_dy_recall": 0.6045,
-    "shifted_6px_dy_precision": 0.5649
+    "shifted_6px_dx_recall": 0.83129,
+    "shifted_6px_dx_precision": 0.8368,
+    "shifted_6px_dy_recall": 0.44561,
+    "shifted_6px_dy_precision": 0.44722
    }
   },
   "source_check": {
-   "P_src": 0.971,
-   "R_src_strong15": 0.9708,
-   "R_src_text_zones_widened": 0.9952
+   "P_src": 0.99914,
+   "R_src_strong15": 0.84656,
+   "R_src_strong15_outside_text_zones": 0.96477,
+   "R_src_text_zones_widened": 0.98228
   },
-  "note": "recall/precision compare the rasterised SVG with the structure map the strokes were extracted from (as specified); source_check is the independent comparison with the render's own Sobel gradient"
+  "note": "recall/precision compare the rasterised SVG with the structure map the strokes were extracted from (text runs collapsed to their bars, as specified); source_check is the independent comparison with a Sobel gradient of the render: P_src = drawn shape px within 2 px of a gradient >= 6; R_src_strong15 = gradient >= 15 px within the tolerance of any drawn px; _outside_text_zones drops the boxes of the text runs; _text_zones_widened counts a text-zone px as covered (the run is drawn as a bar)"
  },
  "notes": [
-  "No Update control exists in this render: the tab bar holds Home, the file tab and + only (no ink right of source x=707)",
-  "Text runs are one bar each at the run's ink-weighted vertical centre; inline arrow glyphs that touch text (the arrows in Required, Icon leading, Icon swap, Colors) are absorbed into that run's bar",
-  "Avatar initial J and a few single-glyph shapes stay as outlines (a lone glyph is indistinguishable from an icon)",
-  "Tiny doc-matrix icons (flags, card logos, mail glyph) shrink to short bars or disappear: they are 4-8 logical px at the 17% document zoom",
-  "Rounded corners are polylines (Douglas-Peucker 0.8 source px = 0.4 logical px), not arcs; straight segments within 1 px of an axis are snapped to it"
+  "Text runs are one bar each at the run's skeleton-weighted centre line; a glyph or icon with no neighbour on its line stays an outline",
+  "The vertical ruler's rotated numbers are grouped along y and become vertical bars",
+  "Skeleton components under 3 px outside text runs are dropped; tiny doc-matrix icons shrink to short bars or disappear",
+  "Rounded corners are polylines (Douglas-Peucker 0.5 source px = 0.25 logical px; 0.8 in the document), not arcs; straight segments within 1 px of an axis are snapped to it",
+  "The document is traced with thin edges and tighter text rules (it is drawn at 17% zoom); filled icon interiors and low-contrast detail are not reproduced"
  ],
  "stroke_pixel_overlap_between_layers": 0
 }

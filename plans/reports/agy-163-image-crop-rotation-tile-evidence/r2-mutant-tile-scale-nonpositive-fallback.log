@@ -1,0 +1,32 @@
+# mutant (iii): tile scale <= 0 falls back to 1.0 again (designos-doc paint.rs clamp_tile_scale)
+HEAD ed7d1205
+## null control (unmutated)
+-- doc
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 744 filtered out; finished in 0.00s
+-- render
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.35s
+-- gpu
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.53s
+-- fig
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.06s
+## mutated
+-- doc
+test paint::tests::image_uv_map_draws_nothing_for_degenerate_input ... FAILED
+test paint::tests::tile_scale_clamps_into_range_and_non_finite_falls_back_to_native ... FAILED
+thread 'paint::tests::image_uv_map_draws_nothing_for_degenerate_input' (88651084) panicked at crates/designos-doc/src/paint.rs:950:9:
+thread 'paint::tests::tile_scale_clamps_into_range_and_non_finite_falls_back_to_native' (88651088) panicked at crates/designos-doc/src/paint.rs:905:9:
+test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 744 filtered out; finished in 0.00s
+-- render
+test tile_scale_zero_and_negative_render_at_the_minimum ... FAILED
+thread 'tile_scale_zero_and_negative_render_at_the_minimum' (88652950) panicked at crates/designos-render/tests/render.rs:964:9:
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.25s
+-- gpu
+test tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu ... FAILED
+thread 'tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu' (88654874) panicked at crates/designos-gpu/tests/fidelity.rs:892:9:
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.46s
+-- fig
+test rest_import_clamps_scaling_factor_into_the_tile_scale_range ... FAILED
+test fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value ... FAILED
+thread 'rest_import_clamps_scaling_factor_into_the_tile_scale_range' (88655383) panicked at crates/designos-fig/tests/fig_roundtrip.rs:5035:9:
+thread 'fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value' (88655382) panicked at crates/designos-fig/tests/fig_roundtrip.rs:5048:9:
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.03s

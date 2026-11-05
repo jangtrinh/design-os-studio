@@ -15,6 +15,7 @@ use egui::{Align2, Context, Event, Key, Pos2, Rect, Vec2};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+mod columns;
 mod toast_layout;
 
 /// The toast action that shows an exported file in its folder.
@@ -330,6 +331,8 @@ struct Shot {
     /// The capture cannot happen: the file did not open, or `--select` matched nothing. The window closes at once
     /// and writes no PNG.
     open_failed: bool,
+    /// --layout-json: output path for the deterministic `LayoutSnapshot` JSON.
+    layout_json: Option<PathBuf>,
     pub(crate) requests: u32,
     pub(crate) requested_at: Option<u32>,
     pub(crate) lost_frames: Vec<u32>,
@@ -342,25 +345,31 @@ struct Shot {
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
-/// keeps whatever is on screen (the run closes after 240).
-const SHOT_GPU_SETTLE_FRAMES: u32 = 180;
+/// keeps whatever is on screen (the run closes after `SHOT_CLOSE_FRAMES`). The refine of a
+/// big page is spread over frames (slices, geometry warm-up, chunks): the largest page of the
+/// Untitled UI kit at fit takes 205 of them, a page of a million-record file more.
+const SHOT_GPU_SETTLE_FRAMES: u32 = 600;
+
+/// Frames after which a `--screenshot` run closes, saved or not.
+const SHOT_CLOSE_FRAMES: u32 = SHOT_GPU_SETTLE_FRAMES + 60;
 
 /// Height of the custom top window title bar (`🟠 design:os studio`).
 pub const TOP_TITLE_BAR_HEIGHT: f32 = 28.0;
 
 #[allow(dead_code)]
 pub fn is_typing_in_agent_panel(app: &App, ctx: &Context) -> bool {
-    let agent_rail_open = !app.ui.left_collapsed && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+    let agent_rail_open = !app.ui.left_hidden() && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
     crate::agent_a11y::non_canvas_has_focus(ctx) || app.terminal.is_capturing_keyboard(agent_rail_open)
 }
 
 pub struct Shell {
-    app: App,
+    pub(crate) app: App,
     shot: Option<Shot>,
     title: String,
     paste_chord: crate::clipboard::PasteChord,
     /// Why a `--select` or `--edit-text` named nothing, when it did not.
     select_miss: Option<String>,
+    launch_had_panel_or_file: bool,
 }
 
 impl Shell {
@@ -371,9 +380,8 @@ impl Shell {
         }
         opts.home = opts.wants_home();
         let screenshot = opts.screenshot.is_some();
-        let panel_was_none = opts.panel.is_none();
-        let has_file = opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
+        let (menu_preset, size) = (opts.menu.clone(), opts.size);
         let mut shell = Self::build(&cc.egui_ctx, opts);
         if shell.app.ui.pages_height.is_none() {
             let settings_root = library.clone().unwrap_or_else(designos_library::Library::default_root);
@@ -381,10 +389,6 @@ impl Shell {
         }
         if let Some(miss) = shell.select_miss.as_ref().filter(|_| screenshot) {
             let _ = SELECT_MISS.set(miss.clone());
-        }
-        if !screenshot && panel_was_none && !has_file {
-            shell.app.ui.rail = Some(crate::app::RailItem::Agents);
-            shell.app.ui.left_collapsed = false;
         }
         if let Some(rs) = &cc.wgpu_render_state {
             if let Some(max) = canvas::gpu::init(rs) {
@@ -398,16 +402,58 @@ impl Shell {
         let start = canvas::gpu_default::decide(saved, gpu_flag, software);
         shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
-        shell.app.tabs.always_visible = true;
-        if shell.app.home.is_none() {
-            let mut tabs = std::mem::take(&mut shell.app.tabs);
-            tabs.sync_from_app(&shell.app);
-            shell.app.tabs = tabs;
+        shell.apply_launch_defaults(screenshot);
+        shell.open_project_tab_from_env(screenshot);
+        // Switching to the Project tab closes a menu that `--menu` opened during the build; open it again over the Project tab.
+        if let (Some(spec), true) = (menu_preset.as_deref(), shell.app.tabs.active_is_project() && shell.app.ui.menu.is_none()) {
+            let (w, h) = size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(w as f32, h as f32));
+            menus::preset_menu(&cc.egui_ctx, &mut shell.app, spec, screen);
         }
         shell
     }
 
+    /// A run with `DESIGNOS_PROJECT_TAB_SHOT` set starts on a Project tab (see `project_tab::shot`): screenshots and idle-CPU runs.
+    fn open_project_tab_from_env(&mut self, screenshot: bool) {
+        let Some(spec) = crate::tabs::project_tab::shot::ShotSpec::from_env(screenshot) else { return };
+        match spec {
+            Ok(spec) => {
+                if spec.home_trash {
+                    if let Some(h) = self.app.home.as_mut() {
+                        h.section = crate::home::Section::Trash;
+                        h.dirty = true;
+                    }
+                }
+                if !spec.project.is_empty() {
+                    let project = spec.project.clone();
+                    let mut tabs = std::mem::take(&mut self.app.tabs);
+                    tabs.open_project_tab(&mut self.app, &project, Some(spec));
+                    self.app.tabs = tabs;
+                }
+            }
+            Err(e) => self.app.show_toast(e, true),
+        }
+    }
+
+    pub fn apply_launch_defaults(&mut self, screenshot: bool) {
+        self.app.ui.screenshot_chrome = screenshot;
+        self.app.ui.rulers = true;
+        if !screenshot && !self.launch_had_panel_or_file {
+            self.app.ui.rail = Some(crate::app::RailItem::Agents);
+            self.app.ui.left_collapsed = false;
+        }
+        self.app.tabs.always_visible = true;
+        if self.app.home.is_none() {
+            let mut tabs = std::mem::take(&mut self.app.tabs);
+            tabs.sync_from_app(&self.app);
+            self.app.tabs = tabs;
+        }
+    }
+
     pub fn build(ctx: &Context, opts: Options) -> Self {
+        #[cfg(test)]
+        let _scoped_cli_dirs = opts.agent_cli_dir.as_deref().map(crate::cli_resolve::ScopedCliDirs::enter);
+        let launch_had_panel_or_file = opts.panel.is_some() || opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         theme::install_fonts(ctx);
         theme::apply(ctx);
         let mut app = App::new(match opts.fixture.as_deref() {
@@ -443,8 +489,45 @@ impl Shell {
         });
         // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
         // session directory once; bind the terminal to the id the tab bar keeps before any can start.
-        let session_id = app.tabs.active_session_id();
-        app.terminal.bind_session(&session_id);
+        #[cfg(test)]
+        if let Some(ref cli_dir) = opts.agent_cli_dir {
+            static GATE_CASE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let seq = GATE_CASE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let case_id = format!("gate-{}-{seq}", std::process::id());
+            let case_temp = std::env::temp_dir().join("designos-gate-cases").join(&case_id);
+            let settings_dir = case_temp.join("settings");
+            let fallback_lib_dir = case_temp.join("lib");
+            let _ = std::fs::create_dir_all(&settings_dir);
+            let _ = std::fs::create_dir_all(&fallback_lib_dir);
+            let lib_root = opts.library.clone().unwrap_or(fallback_lib_dir);
+            app.terminal.path_override = Some(cli_dir.as_os_str().to_os_string());
+            app.terminal.picker.settings_root_override = Some(settings_dir);
+            app.libs.set_root(lib_root.clone());
+            app.terminal.library_root = Some(lib_root.clone());
+            app.terminal.skills.set_library_root(lib_root);
+            crate::terminal::pin_installed_catalog_clis(
+                &mut app.terminal,
+                &[
+                    crate::terminal::AgentCliPreset::Claude,
+                    crate::terminal::AgentCliPreset::Codex,
+                    crate::terminal::AgentCliPreset::Antigravity,
+                    crate::terminal::AgentCliPreset::Grok,
+                    crate::terminal::AgentCliPreset::Gemini,
+                    crate::terminal::AgentCliPreset::OpenCode,
+                ],
+            );
+            app.terminal.picker.opencode_installed = Some(true);
+            app.terminal.picker.probe_started = true;
+            app.terminal.bind_session(&case_id);
+        } else {
+            let session_id = app.tabs.active_session_id();
+            app.terminal.bind_session(&session_id);
+        }
+        #[cfg(not(test))]
+        {
+            let session_id = app.tabs.active_session_id();
+            app.terminal.bind_session(&session_id);
+        }
         #[cfg(any(test, feature = "fixtures"))]
         {
             if !matches!(
@@ -469,10 +552,12 @@ impl Shell {
             app.attach_library(root);
             if let Some(lib) = &app.lib {
                 app.agent_presence.cursor_size = crate::agent_presence::AgentCursorSize::load(lib.root());
+                app.ui.hide_hover_highlight = crate::comments::settings::load_flag(lib.root(), "highlight_layers_on_hover") == Some(false);
             }
         }
         let mut shot_open_failed = false;
         if let Some(f) = &opts.file {
+            let nothing_allocated_yet = app.doc.peek_next_id() == app.load_next_id;
             if let Err(err) = app.try_open_path(f.clone()) {
                 if opts.screenshot.is_some() {
                     let reason = err.lines().next().unwrap_or(&err).trim().trim_end_matches('.');
@@ -480,6 +565,12 @@ impl Shell {
                     shot_open_failed = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
+            }
+            // A web capture is imported into the document on screen instead of replacing it, so `replace_document` did not
+            // record the watermark of what it made. The agent CLI loads the capture as the document and records the next id
+            // after that import, which is the same on every run: do the same, so `--select id:` agrees with it.
+            if nothing_allocated_yet && app.web_capture_report.is_some() {
+                app.load_next_id = app.doc.peek_next_id();
             }
         }
         if let Some(cap) = &opts.import_capture {
@@ -497,16 +588,21 @@ impl Shell {
                     app.open_import_path_dialog();
                 }
             }
+            #[cfg(test)]
+            if let (Some(fixed_now), Some(home)) = (opts.fixed_now, app.home.as_mut()) {
+                home.fixed_now = Some(fixed_now);
+            }
         }
         let mut select_miss = None;
         if opts.select.is_some() && !shot_open_failed {
-            match crate::select_target::resolve_flag(&mut app.doc, opts.select.as_deref()) {
+            match crate::select_target::resolve_flag(&mut app.doc, opts.select.as_deref(), app.load_next_id) {
                 Ok(Some(target)) => {
                     if let Some(note) = target.note(opts.select.as_deref().unwrap_or("").trim()) {
                         eprintln!("designos: {note}");
                     }
                     if let Some(id) = target.node {
                         if let Some(pg) = app.doc.page_of(id) {
+                            // The page on screen is expanded, as when it is opened by hand. The resolver never expands one.
                             app.doc.ensure_page_hydrated(pg);
                             app.page = pg;
                         }
@@ -614,24 +710,41 @@ impl Shell {
                 app.find.show_replace = true;
             }
         }
+        let screenshot_ask_risky = opts.screenshot_ask_risky();
+        let screenshot_mode =
+            if screenshot_ask_risky { crate::agent_permissions::AgentPermissionMode::AskRisky } else { crate::agent_permissions::AgentPermissionMode::Ask };
         match opts.panel.as_deref() {
-            Some("agents" | "agents-picker") => {
+            Some(panel @ ("agents" | "agents-picker")) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.open_for_agent_use(app.file_path.as_deref());
+                // `agents-picker` is the same New chat state with the composer pill's agent menu open.
+                if panel == "agents-picker" {
+                    app.terminal.runtime_dropdown_open = true;
+                }
+                if screenshot_ask_risky {
+                    app.terminal.permission_mode = screenshot_mode;
+                    app.terminal.seed_screenshot_cli_probes();
+                }
+            }
+            Some("agents-ask-risky") => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.open_for_agent_use(app.file_path.as_deref());
+                app.terminal.open_ask_risky_screenshot_fixture(app.file_path.as_deref());
             }
             Some("agents-chat") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
+                app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
                 app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
-                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
-                while std::time::Instant::now() < deadline {
-                    let _ = app.terminal.poll_live_agent_bridge();
-                    if app.terminal.active_composer().pending_send.is_none() {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(30));
-                }
+            }
+            Some("agents-chat:two-waiting") => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
+                app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
+                app.terminal.submit_chat_prompt("Also add a quarterly revenue sparkline", app.file_path.as_deref());
             }
             Some("agents-skills") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -651,8 +764,15 @@ impl Shell {
             Some("agent-permissions") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
-                app.terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+                app.terminal.permission_mode = screenshot_mode;
                 app.terminal.ensure_default_tab(app.file_path.as_deref());
+                if screenshot_ask_risky {
+                    app.terminal.permission_mode = screenshot_mode;
+                    if let Some(tab) = app.terminal.active_tab_mut() {
+                        tab.permission_mode = screenshot_mode;
+                    }
+                    app.terminal.seed_screenshot_cli_probes();
+                }
                 app.ui.permissions_modal_open = true;
             }
             Some(
@@ -661,7 +781,10 @@ impl Shell {
             ) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
-                app.terminal.open_approval_fixture(p, app.file_path.as_deref());
+                app.terminal.open_approval_fixture(p, app.file_path.as_deref(), screenshot_mode);
+                if screenshot_ask_risky {
+                    app.terminal.seed_screenshot_cli_probes();
+                }
             }
             Some(p @ ("agents-turn-card" | "agents-turn-card-collapsed" | "agents-turn-card-small")) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -695,10 +818,47 @@ impl Shell {
             }
             Some("interaction") => {
                 app.ui.right_tab = Some(crate::app::RightTab::Prototype);
-                if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
-                    app.selection = vec![add];
-                    app.proto.editing = Some((add, 0));
+                let selected_reacting = app.selection.first().copied().filter(|&id| app.doc.get(id).is_some_and(|n| !n.prototype.reactions.is_empty()));
+                let target = selected_reacting.or_else(|| {
+                    let mut first = None;
+                    app.doc.walk(app.page, |n, _| {
+                        if first.is_none() && n.id != app.page && !n.prototype.reactions.is_empty() {
+                            first = Some(n.id);
+                        }
+                    });
+                    first
+                });
+                if let Some(id) = target {
+                    app.selection = vec![id];
+                    app.proto.editing = Some((id, 0));
+                } else {
+                    app.proto.editing = None;
                 }
+            }
+            Some("comments") => {
+                app.tool = Tool::Comment;
+                let mut paint_rank = std::collections::BTreeMap::new();
+                app.doc.walk(app.page, |n, _| {
+                    if n.id != app.page {
+                        let next = paint_rank.len();
+                        paint_rank.entry(n.id).or_insert(next);
+                    }
+                });
+                let thread_id_key = |id: &str| {
+                    let split = id.rfind(|c: char| !c.is_ascii_digit()).map_or(0, |i| i + 1);
+                    let (prefix, digits) = id.split_at(split);
+                    (prefix.to_string(), digits.parse::<u64>().ok(), id.to_string())
+                };
+                app.comments.open = app
+                    .doc
+                    .comments
+                    .iter()
+                    .filter(|t| !t.resolved && crate::comments::model::thread_page(&app.doc, t) == app.page)
+                    .min_by_key(|t| {
+                        let rank = t.anchor.node.and_then(|nid| paint_rank.get(&nid).copied()).unwrap_or(usize::MAX);
+                        (rank, thread_id_key(&t.id))
+                    })
+                    .map(|t| t.id.clone());
             }
             Some("present-variables") => {}
             Some("libraries") => app.open_libraries(),
@@ -707,7 +867,10 @@ impl Shell {
                 app.plugins.install_form = panel == "plugin-install";
                 app.plugins.fresh = app.plugins.install_form;
             }
-            Some("version-history") => crate::history::preset::apply(&mut app, opts.library.clone()),
+            Some("version-history") => {
+                let hist_lib = opts.library.clone().or_else(|| app.libs.root.clone());
+                crate::history::preset::apply(&mut app, hist_lib);
+            }
             Some(p @ ("dev-annotate" | "dev-compare")) => crate::dev::preset::panel(&mut app, p),
             Some(panel @ ("variables" | "variables-floating")) => {
                 app.vars.full = panel == "variables";
@@ -747,6 +910,10 @@ impl Shell {
                 seq_capture = Some(MicroSeqCapture { slug: slug.to_string(), cur: 0, total, base_doc, hud, wait_frames: 0, no_caption: opts.no_caption });
             }
         }
+        if opts.layout_json.is_some() {
+            crate::layout_snapshot::RECORDING.store(true, Ordering::Relaxed);
+        }
+        let layout_json = opts.layout_json;
         let shot = opts.screenshot.map(|path| Shot {
             path,
             size: opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32)),
@@ -759,6 +926,7 @@ impl Shell {
             seq: seq_capture,
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
+            layout_json,
             requests: 0,
             requested_at: None,
             lost_frames: Vec::new(),
@@ -769,7 +937,7 @@ impl Shell {
             trace: std::env::var("DESIGNOS_SHOT_TRACE").is_ok_and(|v| v == "1"),
             images_seen: 0,
         });
-        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss }
+        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -882,6 +1050,23 @@ impl Shell {
                             disarm_screenshot_watchdog();
                         }
                     }
+                    if let Some(layout_path) = &shot.layout_json {
+                        if let Some(dir) = layout_path.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let mut snap = crate::layout_snapshot::capture(ctx, &self.app.ui.regions);
+                        if snap.case.is_empty() {
+                            snap.case = layout_path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().trim_end_matches(".layout").to_string();
+                        }
+                        match serde_json::to_string_pretty(&snap) {
+                            Ok(json) => {
+                                if let Err(e) = std::fs::write(layout_path, format!("{json}\n")) {
+                                    eprintln!("designos: cannot write {}: {e}", layout_path.display());
+                                }
+                            }
+                            Err(e) => eprintln!("designos: cannot serialize layout snapshot: {e}"),
+                        }
+                    }
                 }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 return;
@@ -915,8 +1100,8 @@ impl Shell {
         };
         shot.due = !shot.requested && (shot.lost_frames.len() as u32) < SHOT_MAX_REQUESTS && ((shot.frames >= 12 && sized) || shot.frames >= 60);
         let re_requests = shot.lost_frames.len() as u32;
-        let give_up_frame = 240 + SHOT_IMAGE_WAIT_FRAMES * re_requests;
-        if !shot.requested && shot.frames > give_up_frame {
+        let give_up_frame = SHOT_CLOSE_FRAMES + SHOT_IMAGE_WAIT_FRAMES * re_requests;
+        if !shot.requested && shot.frames > give_up_frame && shot.seq.is_none() {
             let reason = no_image_reason(shot);
             fail_shot(shot, reason);
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -926,7 +1111,7 @@ impl Shell {
     /// Sends the screenshot request that `drive_screenshot` found due, once this frame has drawn.
     /// A GPU canvas first shows the capped interactive frame; the full-quality frame of the at-rest
     /// view follows once the idle refine has run. Ask for that one, but never wait past the point
-    /// where the run would give up (`drive_screenshot`).
+    /// where the run would give up (`SHOT_CLOSE_FRAMES` in `drive_screenshot`).
     fn request_screenshot(&mut self, ctx: &Context) {
         let Some(shot) = &mut self.shot else { return };
         if !matches!(shot.outcome, ShotOutcome::Pending) {
@@ -971,7 +1156,8 @@ impl Shell {
     }
 
     fn handle_keys(&mut self, ctx: &Context) {
-        self.paste_chord.begin_frame(ctx.input(|i| i.modifiers.command));
+        let frame_modifiers = ctx.input(|i| i.modifiers);
+        self.paste_chord.begin_frame(frame_modifiers);
         if self.app.plugins.open
             || self.app.dialog.is_some()
             || self.app.history.save_modal.is_some()
@@ -983,14 +1169,14 @@ impl Shell {
         if self.app.canvas.text.is_none() && crate::agent_a11y::try_focus_shortcut(&mut self.app, ctx) {
             return;
         }
-        let agent_rail_open = !self.app.ui.left_collapsed && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+        let agent_rail_open = !self.app.ui.left_hidden() && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
         let capturing_terminal = self.app.terminal.is_capturing_keyboard(agent_rail_open);
         if capturing_terminal {
             self.handle_terminal_undo_keys(ctx);
             return;
         }
-        // A click on a text field gives it the focus only while the panel draws, after this runs: the keys
-        // that arrive in the same frame are the field's.
+        // A click on a text field or dropdown gives it the focus only while the panel draws, after this
+        // runs: the keys that arrive in the same frame are the widget's.
         let typing = crate::agent_a11y::non_canvas_has_focus(ctx) || crate::widgets::field_tab::press_lands_on_field(ctx);
         if self.app.vars.open {
             // The Variables view handles its own keys (and undo / redo).
@@ -1006,18 +1192,20 @@ impl Shell {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
-        for ev in events {
+        let mac = ctx.os().is_mac();
+        for (at, ev) in events.iter().enumerate() {
             // egui-winit emits `Event::Paste` only for a non-empty `text/plain` and never a V press for a paste chord;
             // a Figma copy can carry HTML alone, which only the V release reveals (see `PasteChord`).
-            if self.paste_chord.on_event(&ev) && !editing_text {
-                self.app.paste_from_system(None);
+            if let Some(modifiers) = self.paste_chord.on_event(ev) {
+                if !editing_text {
+                    self.route_system_paste(ctx, modifiers, None);
+                }
                 continue;
             }
             match ev {
                 Event::Copy if !editing_text => {
-                    if let Some(s) = self.app.copy_selection() {
-                        ctx.copy_text(s);
-                    }
+                    let held = crate::clipboard::chord_modifiers(&events[at + 1..], Key::C, frame_modifiers, mac);
+                    self.route_system_copy(ctx, held);
                 }
                 Event::Cut if !editing_text => {
                     if let Some(s) = self.app.cut_selection() {
@@ -1025,9 +1213,11 @@ impl Shell {
                     }
                 }
                 Event::Paste(s) if !editing_text => {
-                    self.app.paste_from_system(Some(&s));
+                    let held = crate::clipboard::chord_modifiers(&events[at + 1..], Key::V, frame_modifiers, mac);
+                    self.route_system_paste(ctx, held, Some(s.as_str()));
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => {
+                    let (key, modifiers) = (*key, *modifiers);
                     if self.try_typography_shortcut(key, modifiers) {
                         continue;
                     }
@@ -1038,6 +1228,24 @@ impl Shell {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn route_system_copy(&mut self, ctx: &Context, modifiers: egui::Modifiers) {
+        if modifiers.command && modifiers.alt {
+            self.app.copy_properties();
+        } else if let Some(s) = self.app.copy_selection() {
+            ctx.copy_text(s);
+        }
+    }
+
+    fn route_system_paste(&mut self, _ctx: &Context, modifiers: egui::Modifiers, text: Option<&str>) {
+        if modifiers.command && modifiers.alt && !modifiers.shift {
+            self.app.paste_properties();
+        } else if modifiers.command && modifiers.shift && !modifiers.alt {
+            self.app.paste_over_selection();
+        } else {
+            self.app.paste_from_system(text);
         }
     }
 
@@ -1091,6 +1299,10 @@ impl Shell {
         }
         let sel = app.selection.clone();
         if m.command && m.shift && matches!(key, Key::Period | Key::Comma) {
+            // An open text session sizes the selected text through its own key handler; applying it here too would step twice.
+            if app.canvas.text.is_some() {
+                return true;
+            }
             let delta = if m.alt { 10.0 } else { 1.0 } * if key == Key::Period { 1.0 } else { -1.0 };
             crate::panels::typography::set_style(app, &sel, |st| {
                 st.font_size = (st.font_size + delta).clamp(1.0, 1000.0);
@@ -1142,6 +1354,11 @@ impl Shell {
         false
     }
 
+    /// Pressing Escape with a nested selection clears the selection rather than climbing to the parent; to be confirmed against Figma.
+    fn escape_clears_selection() -> bool {
+        true
+    }
+
     fn key(&mut self, ctx: &Context, key: Key, m: egui::Modifiers) {
         let app = &mut self.app;
         let cmd = m.command;
@@ -1161,10 +1378,12 @@ impl Shell {
                 (Key::C, false, true) => Some(Action::CopyProperties),
                 (Key::V, false, true) => Some(Action::PasteProperties),
                 (Key::V, true, false) => Some(Action::PasteOverSelection),
-                (Key::R, true, _) => Some(Action::PasteToReplace),
+                (Key::R, true, false) => Some(Action::PasteToReplace),
+                (Key::R, true, true) => Some(Action::ResizeToFit),
                 (Key::G, false, false) => Some(Action::Group),
                 (Key::G, true, _) => Some(Action::Ungroup),
                 (Key::G, false, true) => Some(Action::FrameSelection),
+                (Key::M, false, alt) if if cfg!(target_os = "macos") { m.mac_cmd && m.ctrl && !alt } else { alt } => Some(Action::ToggleMask),
                 (Key::K, false, true) => Some(Action::CreateComponent),
                 (Key::B, false, true) => Some(Action::Detach),
                 (Key::K, true, false) => Some(Action::CombineVariants),
@@ -1178,12 +1397,7 @@ impl Shell {
                     None
                 }
                 (Key::A, true, false) => Some(Action::SelectInverse),
-                (Key::A, false, true) => {
-                    if app.select_matching_layers() == 0 {
-                        return menus::run(app, ctx, Action::SelectMatching);
-                    }
-                    None
-                }
+                (Key::A, false, true) => Some(Action::SelectMatching),
                 (Key::A, false, _) => Some(Action::SelectAll),
                 (Key::F, false, false) => Some(Action::Find),
                 (Key::Quote, false, _) => Some(Action::TogglePixelGrid),
@@ -1246,11 +1460,21 @@ impl Shell {
                     None
                 }
                 (Key::Tab, false, _) => {
-                    app.next_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let next = (app.tabs.active_idx + 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(next).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::Tab, true, _) => {
-                    app.prev_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let prev = (app.tabs.active_idx + app.tabs.entries.len() - 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(prev).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::T, false, false) => {
@@ -1265,7 +1489,21 @@ impl Shell {
                 }
                 _ => None,
             };
-            if let Some(a) = act {
+            // A Project tab has no design file: its placeholder document must never be saved or exported.
+            let blocked = |a: &Action| {
+                app.tabs.active_is_project()
+                    && matches!(
+                        a,
+                        Action::Save
+                            | Action::SaveAs
+                            | Action::SaveVersion
+                            | Action::Export
+                            | Action::ExportFig
+                            | Action::ExportSlidePdf
+                            | Action::ExportDeckPdf
+                    )
+            };
+            if let Some(a) = act.filter(|a| !blocked(a)) {
                 menus::run(app, ctx, a);
             }
             return;
@@ -1284,10 +1522,12 @@ impl Shell {
             return;
         }
         match key {
+            Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
-            // an open comment draft or thread takes the Escape itself (egui drops text focus on Escape,
-            // so the shortcut handler cannot tell that the key was meant for the text box)
-            Key::Escape if app.comments.captures_escape() => {}
+            // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
+            // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
+            // from focus that the key was meant for them)
+            Key::Escape if app.comments.captures_escape() || crate::widgets::menu::dropdown_menu_was_open(ctx) => {}
             Key::Escape => {
                 if !matches!(app.canvas.inter, canvas::Interaction::None) {
                     app.cancel_interaction();
@@ -1306,8 +1546,10 @@ impl Shell {
                     app.close_layer_filter();
                 } else if app.tool != Tool::Move {
                     app.tool = Tool::Move;
-                } else {
+                } else if Self::escape_clears_selection() {
                     app.clear_selection();
+                } else {
+                    app.select_parent();
                 }
             }
             Key::Enter => {
@@ -1344,7 +1586,7 @@ impl Shell {
                 }
                 if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
                     app.props.eyedropper_format = app.props.eyedropper_format.next();
-                } else if app.is_board() && !m.shift {
+                } else if app.wb_tools_enabled() && !m.shift {
                     crate::board::create::tab_next(app);
                 } else {
                     app.select_sibling(!m.shift);
@@ -1373,15 +1615,16 @@ impl Shell {
             Key::S if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Bottom)),
             Key::D if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Right)),
             // A board has no `</>` button and no Inspect panel, so it has no Dev Mode to switch.
-            Key::D if m.shift && !m.alt && !app.is_board() => app.set_dev_mode(!app.ui.dev_mode),
+            Key::D if m.shift && !m.alt && app.dev_mode_available() => app.set_dev_mode(!app.ui.dev_mode),
             Key::H if m.shift && !m.alt => app.flip_selection(true),
             Key::V if m.shift && !m.alt => app.flip_selection(false),
+            Key::X if m.shift && !m.alt => menus::run(app, ctx, Action::SwapFillAndStroke),
             Key::H | Key::V if m.shift && m.alt => menus::run(app, ctx, Action::Distribute),
             Key::H if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::HCenter)),
             Key::V if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::VCenter)),
             Key::OpenBracket if !m.shift && !m.alt => menus::run(app, ctx, Action::SendToBack),
             Key::CloseBracket if !m.shift && !m.alt => menus::run(app, ctx, Action::BringToFront),
-            Key::N if !m.alt && !app.is_board() => app.step_frame(!m.shift, true),
+            Key::N if !m.alt && app.frame_stepping_available() => app.step_frame(!m.shift, true),
             Key::Home if !m.alt => app.step_frame(false, false),
             Key::End if !m.alt => app.step_frame(true, false),
             Key::PageUp => app.step_page(false),
@@ -1414,7 +1657,7 @@ impl Shell {
             Key::Quote if m.shift => menus::run(app, ctx, Action::TogglePixelGrid),
             k => {
                 if !m.alt {
-                    let tool = if app.is_board() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
+                    let tool = if app.board_key_map() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
                     if let Some(t) = tool {
                         app.set_tool(t);
                     }
@@ -1428,7 +1671,10 @@ impl Shell {
     fn context_menu(&mut self, ui: &egui::Ui, canvas_rect: Rect) {
         let (clicked, pos, cmd) = ui.ctx().input(|i| (i.pointer.secondary_clicked(), i.pointer.interact_pos(), i.modifiers.command));
         let Some(pos) = pos.filter(|p| clicked && canvas_rect.contains(*p) && !self.app.vars.open) else { return };
-        if self.app.ui.rulers && !self.app.is_board() && (pos.x - canvas_rect.left() <= theme::RULER_SIZE || pos.y - canvas_rect.top() <= theme::RULER_SIZE) {
+        if self.app.ui.rulers
+            && self.app.ruler_strip_skips_canvas_menu()
+            && (pos.x - canvas_rect.left() <= theme::RULER_SIZE || pos.y - canvas_rect.top() <= theme::RULER_SIZE)
+        {
             return;
         }
         let app = &mut self.app;
@@ -1441,6 +1687,7 @@ impl Shell {
             let candidates = crate::canvas::hit::hit_all_under(&app.doc, app.page, page, idx);
             if !candidates.is_empty() {
                 app.ui.ctx_menu = None;
+                app.ui.ctx_menu_page = None;
                 app.ui.layer_picker = Some((pos, candidates));
                 return;
             }
@@ -1451,6 +1698,7 @@ impl Shell {
             None => app.clear_selection(),
         }
         app.ui.ctx_menu = Some(pos);
+        app.ui.ctx_menu_page = Some(page);
     }
 
     fn toast(&mut self, ui: &egui::Ui, screen: Rect) {
@@ -1484,43 +1732,66 @@ impl Shell {
         let Some(t) = &self.app.toast else { return };
         let (text, error, reveal, enter_path) = (t.text.clone(), t.error, t.reveal.clone(), t.enter_path);
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
-        let action_meta = if reveal.is_some() {
+        // The import summary ends with a "Details" hint. The button below is that action, so the message drops it.
+        let message_text = if details { without_details_hint(&text) } else { text.as_str() };
+        let details_slot = details.then_some(("toast-details", "Details"));
+        let second_slot = if reveal.is_some() {
             Some(("toast-reveal", REVEAL_LABEL))
         } else if enter_path {
             Some(("toast-enter-path", "Enter a path\u{2026}"))
         } else {
             None
         };
-        let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, action_meta.map(|(_, l)| l));
+        // The right-most action is the primary one; with two, Details sits to its left.
+        let (primary_meta, extra_meta) = match (details_slot, second_slot) {
+            (Some(d), Some(second)) => (Some(second), Some(d)),
+            (Some(d), None) => (Some(d), None),
+            (None, second) => (second, None),
+        };
+        let toast_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium);
+        let action_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let lay = toast_layout::layout(
+            ui.painter(),
+            message_text,
+            &toast_font,
+            &action_font,
+            screen,
+            primary_meta.map(|(_, label)| label),
+            extra_meta.map(|(_, label)| label),
+        );
         let (r, ctx) = (lay.rect, ui.ctx().clone());
-        // Only the "Details" link and the action take clicks, each as its own small Area. The body has no widget at all:
-        // any widget in the layer, even a hover-only one, hides the canvas and the cards below it from the pointer.
-        let details_clicked = details && toast_click_target(&ctx, "toast-details", r, "Details").clicked();
-        let action = lay.action.zip(action_meta).map(|((target, label), (id, text_lbl))| (toast_click_target(&ctx, id, target, text_lbl), target, label));
+        // Each action is its own small Area. The body has no widget, so the canvas under the toast still receives the pointer.
+        let primary = lay.action.zip(primary_meta).map(|((target, label), (id, name))| (toast_click_target(&ctx, id, target, name), target, label, id));
+        let extra = lay.extra.zip(extra_meta).map(|((target, label), (id, name))| (toast_click_target(&ctx, id, target, name), target, label, id));
         // Painted on its own top-most layer: the full-screen Variables view is an Area above the root layer and would
         // hide the toast. No fade-in: the toast has always appeared at full strength.
         let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("shell-toast")));
-        widgets::elevation_shadow(&p, r, theme::RADIUS_FRAME);
-        p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-        p.circle_filled(lay.dot, 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
+        crate::widgets::kit::toast_surface(&p, r);
+        let dot = if error { theme::DANGER } else { theme::ICON_BRAND_PRIMARY };
+        p.circle_filled(lay.dot, 4.0, dot);
         p.galley(lay.text_pos, lay.text, theme::TEXT);
-        let mut action_clicked = false;
-        if let Some((button, target, label)) = action {
-            if button.hovered() {
-                p.rect_filled(target, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+        let mut clicked: Option<&str> = None;
+        for (button, target, label, id) in primary.into_iter().chain(extra) {
+            let look = crate::widgets::kit::toast_action_look(crate::widgets::kit::state_of(&button, false, true));
+            crate::widgets::kit::paint_frame(&p, target, theme::RADIUS_CONTROL, &look);
+            if crate::widgets::kit::keyboard_focus(ui, button.id) {
+                crate::widgets::kit::focus_ring(&p, target, theme::RADIUS_CONTROL as f32);
             }
-            p.galley(Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0), label, theme::TEXT_BRAND);
-            action_clicked = button.clicked();
+            let pos = Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0);
+            p.galley(pos, label, look.text);
+            if button.clicked() {
+                clicked = Some(id);
+            }
         }
-        if details_clicked {
+        if clicked == Some("toast-details") {
             self.app.web_capture_report_open = !self.app.web_capture_report_open;
         }
-        if let (true, Some(file)) = (action_clicked, reveal) {
+        if let (Some("toast-reveal"), Some(file)) = (clicked, reveal) {
             if let Err(e) = (self.app.reveal_file)(&file) {
                 self.app.toast = None;
                 self.app.show_toast(e, true);
             }
-        } else if action_clicked && enter_path {
+        } else if clicked == Some("toast-enter-path") && enter_path {
             self.app.toast = None;
             self.app.open_import_path_dialog();
             ctx.request_repaint();
@@ -1538,7 +1809,7 @@ impl Shell {
         };
         // A floating sheet, not a dialog: while the agent's terminal holds the keyboard Esc is the terminal's key, so one
         // press never closes the sheet and interrupts the agent at once (`#923`).
-        let agent_rail_open = !self.app.ui.left_collapsed && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+        let agent_rail_open = !self.app.ui.left_hidden() && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
         if !self.app.terminal.is_capturing_keyboard(agent_rail_open) && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.app.web_capture_report_open = false;
             return;
@@ -1692,9 +1963,42 @@ impl Shell {
     }
 }
 
+fn srgb_channel(channel: u8) -> f32 {
+    let c = channel as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Top window title. Same rects and widget ids as the inline bar it replaced.
+fn title_bar(ui: &mut egui::Ui, ctx: &egui::Context, title_bar_rect: Rect) {
+    let tp = ui.painter_at(title_bar_rect);
+    tp.rect_filled(title_bar_rect, 0.0, theme::BG_PRIMARY);
+    tp.hline(title_bar_rect.x_range(), title_bar_rect.bottom() - 0.5, egui::Stroke::new(1.0, theme::BORDER));
+    let cy = title_bar_rect.center().y;
+    let x = title_bar_rect.left() + 76.0;
+    let font_bold = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    let font_reg = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular);
+    let w_design = widgets::text_width(&tp, "design", &font_bold);
+    let w_rest = widgets::text_width(&tp, ":os studio", &font_reg);
+    let brand_rect = Rect::from_min_size(Pos2::new(x, title_bar_rect.top() + 2.0), Vec2::new(22.0 + w_design + w_rest + 8.0, 24.0));
+    widgets::record(ui, "window-title-brand", brand_rect);
+    crate::icons::paint(&tp, Icon::Logo, Pos2::new(x + 8.0, cy), 14.0, theme::BG_BRAND);
+    let text_x = x + 19.0;
+    tp.text(Pos2::new(text_x, cy), Align2::LEFT_CENTER, "design", font_bold, theme::TEXT);
+    tp.text(Pos2::new(text_x + w_design, cy), Align2::LEFT_CENTER, ":os studio", font_reg, theme::TEXT_SECONDARY);
+    let drag_resp = ui.interact(title_bar_rect, ui.id().with("window-title-bar-drag"), egui::Sense::click_and_drag());
+    if drag_resp.drag_started() {
+        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+}
+
 impl eframe::App for Shell {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.17, 0.17, 0.17, 1.0]
+        let px = theme::BG.to_array();
+        [srgb_channel(px[0]), srgb_channel(px[1]), srgb_channel(px[2]), 1.0]
     }
 
     /// Tab belongs to the text session (it nests list items) or to sibling layer traversal on the
@@ -1835,7 +2139,8 @@ impl Shell {
         if self.app.ui.permissions_modal_open {
             let mut mode = self.app.terminal.permission_mode;
             let mut open = self.app.ui.permissions_modal_open;
-            let picked = crate::agent_approval_card::paint_permissions_modal(ctx, &mut open, &mut mode, None);
+            let lib_root = self.app.lib.as_ref().map(|l| l.root().to_path_buf());
+            let picked = crate::agent_approval_card::paint_permissions_modal(ctx, &mut open, &mut mode, lib_root.as_deref());
             self.app.ui.permissions_modal_open = open;
             if let Some(new_mode) = picked {
                 self.app.set_agent_permission_mode(new_mode);
@@ -1853,6 +2158,7 @@ impl Shell {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
+        let began = std::time::Instant::now();
         self.draw_window(ui);
         let ctx = ui.ctx().clone();
         // A paste that started during this frame (the key or the menu ran after the poll) waits for its clipboard
@@ -1862,6 +2168,10 @@ impl Shell {
         }
         self.app.repaint_if_dot_moved(&ctx);
         self.request_screenshot(&ctx);
+        widgets::finish_pass_records();
+        // the canvas starts its refine only after a frame that was light on work (a document
+        // that has just opened is not): tell it what this frame cost
+        self.app.canvas.gpu.note_frame_work(began.elapsed().as_secs_f32() * 1000.0);
     }
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {
@@ -1903,29 +2213,13 @@ impl Shell {
         if self.app.step_pending_relayout() {
             ctx.request_repaint();
         }
+        let mut regions = crate::app::ShellRegions::default();
         let window_full = ui.max_rect();
-        let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && self.app.proto.present.is_none();
+        let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && !self.app.ui.screenshot_chrome && self.app.proto.present.is_none();
         let after_title_rect = if show_title_bar {
             let title_bar_rect = Rect::from_min_max(window_full.min, Pos2::new(window_full.right(), window_full.top() + TOP_TITLE_BAR_HEIGHT));
-            let tp = ui.painter_at(title_bar_rect);
-            tp.rect_filled(title_bar_rect, 0.0, egui::Color32::from_rgb(0x18, 0x18, 0x1B));
-            tp.hline(title_bar_rect.x_range(), title_bar_rect.bottom() - 0.5, egui::Stroke::new(1.0, egui::Color32::from_rgb(0x27, 0x27, 0x2A)));
-            let cy = title_bar_rect.center().y;
-            let x = title_bar_rect.left() + 76.0;
-            let font_bold = theme::font_body_strong();
-            let font_reg = theme::font_body();
-            let w_design = widgets::text_width(&tp, "design", &font_bold);
-            let w_rest = widgets::text_width(&tp, ":os studio", &font_reg);
-            let brand_rect = Rect::from_min_size(Pos2::new(x, title_bar_rect.top() + 2.0), Vec2::new(22.0 + w_design + w_rest + 8.0, 24.0));
-            widgets::record(ui, "window-title-brand", brand_rect);
-            crate::icons::paint(&tp, Icon::Logo, Pos2::new(x + 8.0, cy), 14.0, theme::BG_BRAND);
-            let text_x = x + 19.0;
-            tp.text(Pos2::new(text_x, cy), Align2::LEFT_CENTER, "design", font_bold, theme::TEXT);
-            tp.text(Pos2::new(text_x + w_design, cy), Align2::LEFT_CENTER, ":os studio", font_reg, theme::TEXT_SECONDARY);
-            let drag_resp = ui.interact(title_bar_rect, ui.id().with("window-title-bar-drag"), egui::Sense::click_and_drag());
-            if drag_resp.drag_started() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
+            regions.title_bar = Some(title_bar_rect);
+            title_bar(ui, &ctx, title_bar_rect);
             Rect::from_min_max(Pos2::new(window_full.left(), title_bar_rect.bottom()), window_full.max)
         } else {
             window_full
@@ -1934,6 +2228,7 @@ impl Shell {
         let full = if show_tab_bar {
             let bar_rect =
                 Rect::from_min_max(after_title_rect.min, Pos2::new(after_title_rect.right(), after_title_rect.top() + crate::tabs::TOP_TAB_BAR_HEIGHT));
+            regions.tab_bar = Some(bar_rect);
             crate::tabs::show_top_tab_bar_ui(ui, bar_rect, &mut self.app);
             Rect::from_min_max(Pos2::new(after_title_rect.left(), bar_rect.bottom()), after_title_rect.max)
         } else {
@@ -1943,6 +2238,8 @@ impl Shell {
             after_title_rect
         };
         if self.app.home.is_some() {
+            regions.home = Some(full);
+            self.app.ui.regions = regions;
             if show_tab_bar {
                 let mut home_ui = ui.new_child(egui::UiBuilder::new().max_rect(full));
                 self.home_frame(&mut home_ui, &ctx);
@@ -1957,6 +2254,8 @@ impl Shell {
         self.app.history_tick();
         self.app.dev_tick(&ctx);
         if self.app.proto.present.is_some() {
+            regions.present = Some(full);
+            self.app.ui.regions = regions;
             crate::present::show(&mut self.app, ui);
             crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
@@ -1967,34 +2266,57 @@ impl Shell {
         }
 
         ui.painter().rect_filled(full, 0.0, theme::BG);
-        let board = self.app.is_board();
-        let right_w = if board { 0.0 } else { theme::RIGHT_PANEL_WIDTH + theme::BORDER_WIDTH };
-        let rail_w = theme::RAIL_WIDTH + theme::BORDER_WIDTH;
+        let board = self.app.board_chrome();
         let is_ai_panel = matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
-        let max_left_w = (full.width() - right_w - rail_w - 160.0).max(220.0);
-        let base_panel_w =
-            if is_ai_panel { self.app.ui.ai_panel_width.clamp(260.0, max_left_w) } else { self.app.ui.left_panel_width.clamp(200.0, max_left_w) };
-        let panel_w = base_panel_w + theme::BORDER_WIDTH;
-        let rail_rect = Rect::from_min_max(full.min, Pos2::new(full.left() + rail_w, full.bottom()));
+        let (kind, requested_left_w) =
+            if is_ai_panel { (columns::LeftKind::Ai, self.app.ui.ai_panel_width) } else { (columns::LeftKind::Tree, self.app.ui.left_panel_width) };
+        let cols = columns::columns(full.width(), board, kind, requested_left_w, self.app.ui.left_collapsed);
+        // Derived every frame from the window: widening the window brings the panel back, and the user's own choice is untouched.
+        self.app.ui.left_auto_collapsed = cols.left_auto_collapsed;
+        let left_hidden = self.app.ui.left_hidden();
+        let panel_w = cols.left_w + theme::BORDER_WIDTH;
+        let rail_rect = Rect::from_min_max(full.min, Pos2::new(full.left() + cols.rail_w, full.bottom()));
         let left_rect = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), Pos2::new(rail_rect.right() + panel_w, full.bottom()));
-        let right_rect = Rect::from_min_max(Pos2::new(full.right() - right_w, full.top()), full.max);
-        let canvas_left = if self.app.ui.left_collapsed { rail_rect.right() } else { left_rect.right() };
+        let right_rect = Rect::from_min_max(Pos2::new(full.right() - cols.right_w, full.top()), full.max);
+        let canvas_left = if left_hidden { rail_rect.right() } else { left_rect.right() };
         let deck = self.app.is_deck();
         let notes_h = if deck { 132.0_f32.min(full.height() * 0.28) } else { 0.0 };
         let canvas_rect = Rect::from_min_max(Pos2::new(canvas_left, full.top()), Pos2::new(right_rect.left(), full.bottom() - notes_h));
         let notes_rect = Rect::from_min_max(Pos2::new(canvas_left, canvas_rect.bottom()), Pos2::new(right_rect.left(), full.bottom()));
 
         let full_vars = self.app.vars.open && self.app.vars.full;
+        // A Project tab draws its own regions (rail, doc tree, reading column); the canvas workspace is not shown.
+        let project_active = !full_vars && self.app.tabs.active_is_project();
+        regions.rail = Some(rail_rect);
+        if full_vars {
+            let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
+            regions.variables_full = Some(content);
+        } else if project_active {
+            // No canvas, panels or inspector this frame.
+        } else {
+            if !left_hidden {
+                regions.left_panel = Some(left_rect);
+            }
+            regions.canvas = Some(canvas_rect);
+            if deck {
+                regions.notes = Some(notes_rect);
+            }
+            if !board && !cols.right_hidden {
+                regions.right_panel = Some(right_rect);
+            }
+        }
+        self.app.ui.regions = regions;
         crate::live_patch_apply::publish_live_context(&mut self.app);
         if let Some(ai_copy) = self.app.specs.last_ai_copy.take() {
             self.app.terminal.send_copy_for_ai(&ai_copy);
         }
         let win_focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
         self.app.terminal.set_window_focused(win_focused);
-        self.app.terminal.surface_visible = !self.app.ui.left_collapsed && is_ai_panel;
+        self.app.terminal.surface_visible = !left_hidden && is_ai_panel;
         // An agent that writes while no frame runs (Agents panel closed, no input) still reaches the canvas.
         self.app.terminal.live_patch.wake_on_writes(&ctx, &self.app.terminal.live_spec_path);
         self.app.terminal.overlay_owns_keyboard = crate::terminal::overlay_owns_keyboard(&self.app, &ctx);
+        self.app.terminal.modal_owns_keyboard = crate::terminal::modal_owns_keyboard(&self.app);
         let bridge_actions = self.app.terminal.poll_live_agent_bridge();
         if !bridge_actions.is_empty() {
             execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));
@@ -2010,6 +2332,10 @@ impl Shell {
             rail::show(&mut self.app, ui, rail_rect);
             let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
             crate::variables::view::show(&mut self.app, ui, content);
+        } else if project_active {
+            crate::tabs::show_active_project(&mut self.app, ui, full);
+            // The rail's main menu.
+            menus::show(&mut self.app, &ctx);
         } else {
             let specs_reader_open = false;
             if specs_reader_open {
@@ -2035,35 +2361,52 @@ impl Shell {
             }
             rail::show(&mut self.app, ui, rail_rect);
             if self.app.ui.left_collapsed {
-                let b = Rect::from_min_size(Pos2::new(canvas_rect.left() + 8.0, canvas_rect.top() + 8.0), Vec2::splat(theme::PANEL_ACTION_BUTTON));
+                let b = Rect::from_min_size(
+                    Pos2::new(canvas_rect.left() + theme::SPACE_INLINE, canvas_rect.top() + theme::SPACE_INLINE),
+                    Vec2::splat(theme::CONTROL_XS),
+                );
                 ui.painter().rect_filled(b, theme::cr(theme::RADIUS_CONTROL), theme::BG);
                 if widgets::icon_button(ui, b, "show-sidebar", Icon::Sidebar, false, "Show sidebar").clicked() {
                     self.app.ui.left_collapsed = false;
                 }
-            } else if deck {
-                let mode = Rect::from_min_size(left_rect.min, Vec2::new(left_rect.width(), 36.0));
-                crate::decks::ui::mode_bar(&mut self.app, ui, mode);
-                let body = Rect::from_min_max(Pos2::new(left_rect.left(), mode.bottom()), left_rect.max);
-                if self.app.decks.design_mode {
-                    left::show(&mut self.app, ui, body);
-                } else {
-                    crate::decks::ui::sidebar(&mut self.app, ui, body);
+            } else if !left_hidden {
+                // (A window too narrow for a panel shows neither the panel nor the reopen button: it returns with the window.)
+                let edge = left_rect.right();
+                let half = theme::DRAG_DIVIDER_HIT * 0.5;
+                // egui's rect hit test includes the far edge. A quarter pixel keeps the canvas side half open,
+                // [R - 12, R + 12), so a click exactly 12 px right of the edge is the canvas's.
+                const HALF_OPEN_FAR_EDGE: f32 = 0.25;
+                let mut band = Rect::from_min_max(Pos2::new(edge - half, left_rect.top()), Pos2::new(edge + half - HALF_OPEN_FAR_EDGE, left_rect.bottom()));
+                if self.app.ui.rulers {
+                    band.max.x = edge + theme::PAGES_SEPARATOR_HIT_HALF;
                 }
-            } else {
-                left::show(&mut self.app, ui, left_rect);
-            }
-            if !self.app.ui.left_collapsed {
-                let handle_rect =
-                    Rect::from_min_max(Pos2::new(left_rect.right() - 3.0, left_rect.top()), Pos2::new(left_rect.right() + 3.0, left_rect.bottom()));
+                widgets::record(ui, "left-panel-resize-band", band);
+                let band_resp = ui.interact(band, ui.id().with("left-panel-resize-band"), egui::Sense::drag());
+                if deck {
+                    let mode = Rect::from_min_size(left_rect.min, Vec2::new(left_rect.width(), 36.0));
+                    crate::decks::ui::mode_bar(&mut self.app, ui, mode);
+                    let body = Rect::from_min_max(Pos2::new(left_rect.left(), mode.bottom()), left_rect.max);
+                    if self.app.decks.design_mode {
+                        left::show(&mut self.app, ui, body);
+                    } else {
+                        crate::decks::ui::sidebar(&mut self.app, ui, body);
+                    }
+                } else {
+                    left::show(&mut self.app, ui, left_rect);
+                }
+                let handle_rect = Rect::from_min_max(
+                    Pos2::new(edge - theme::PAGES_SEPARATOR_HIT_HALF, left_rect.top()),
+                    Pos2::new(edge + theme::PAGES_SEPARATOR_HIT_HALF, left_rect.bottom()),
+                );
                 widgets::record(ui, "left-panel-resize-handle", handle_rect);
                 let drag_resp = ui.interact(handle_rect, ui.id().with("left-panel-resize-handle"), egui::Sense::drag());
-                if drag_resp.hovered() || drag_resp.dragged() {
+                if band_resp.hovered() || band_resp.dragged() || drag_resp.hovered() || drag_resp.dragged() {
                     ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                    ui.painter().vline(left_rect.right() - 0.5, left_rect.y_range(), egui::Stroke::new(2.0, theme::BG_BRAND));
+                    ui.painter().vline(edge - 0.5, left_rect.y_range(), egui::Stroke::new(2.0, theme::BG_BRAND));
                 }
-                if drag_resp.dragged() {
+                if band_resp.dragged() || drag_resp.dragged() {
                     if let Some(pointer) = ctx.input(|i| i.pointer.interact_pos()) {
-                        let new_w = (pointer.x - rail_rect.right()).clamp(200.0, max_left_w);
+                        let new_w = crate::widgets::clamp::clamp_within(pointer.x - rail_rect.right(), 200.0, cols.left_max_w);
                         if is_ai_panel {
                             self.app.ui.ai_panel_width = new_w.max(260.0);
                         } else {
@@ -2079,7 +2422,9 @@ impl Shell {
                     crate::board::canvas::zoom_pill(&mut self.app, ui, canvas_rect);
                 }
             } else {
-                if specs_reader_open {
+                if cols.right_hidden {
+                    // Too narrow for the inspector: it returns with the window.
+                } else if specs_reader_open {
                     crate::specs::show_right(&mut self.app, ui, right_rect);
                 } else {
                     right::show(&mut self.app, ui, right_rect);
@@ -2115,7 +2460,8 @@ impl Shell {
         if self.app.ui.permissions_modal_open {
             let mut mode = self.app.terminal.permission_mode;
             let mut open = self.app.ui.permissions_modal_open;
-            let picked = crate::agent_approval_card::paint_permissions_modal(&ctx, &mut open, &mut mode, None);
+            let lib_root = self.app.lib.as_ref().map(|l| l.root().to_path_buf());
+            let picked = crate::agent_approval_card::paint_permissions_modal(&ctx, &mut open, &mut mode, lib_root.as_deref());
             self.app.ui.permissions_modal_open = open;
             if let Some(new_mode) = picked {
                 self.app.set_agent_permission_mode(new_mode);
@@ -2212,6 +2558,9 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
             }
             crate::terminal::TerminalAction::CloseStoppedTurn { tab_id, turn_start_depth, run_id } => {
                 crate::agent_stop::close_stopped_turn_on_app(app, tab_id, turn_start_depth, run_id.as_deref());
+            }
+            crate::terminal::TerminalAction::SetAgentPermissionMode(mode) => {
+                app.set_agent_permission_mode(mode);
             }
             crate::terminal::TerminalAction::ClearInProgress { run_id, .. } => {
                 if !app.doc.clear_in_progress_for_run_or_agent(run_id.as_deref(), None).is_empty() {
@@ -3042,6 +3391,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
     };
 
     app.doc = base_doc.clone();
+    app.doc.renew_runtime_id();
     app.ui.rulers = true;
     app.ui.dev_mode = false;
     app.ui.right_tab = Some(crate::app::RightTab::Design);
@@ -3961,7 +4311,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
 fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect: Rect, hud: &MicroSeqHud, cur: usize, total: usize) {
     let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("micro-seq-hud")));
     let cursor_pos = hud.cursor_screen_override.unwrap_or_else(|| app.view.to_screen(canvas_rect.min, hud.cursor_page));
-    let accent = if hud.accent_orange { egui::Color32::from_rgb(0xE3, 0x63, 0x23) } else { egui::Color32::from_rgb(0x0D, 0x99, 0xFF) };
+    let accent = if hud.accent_orange { theme::BG_BRAND } else { theme::INFO };
 
     if let Some(start_page) = hud.drag_start_page {
         let start_pos = app.view.to_screen(canvas_rect.min, start_page);
@@ -3988,7 +4338,7 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
         Pos2::new(tip.x + 8.5, tip.y + 13.5),
         Pos2::new(tip.x + 15.0, tip.y + 13.5),
     ];
-    p.add(egui::Shape::convex_polygon(arrow.clone(), egui::Color32::from_rgb(0x11, 0x12, 0x16), egui::Stroke::new(2.0, egui::Color32::WHITE)));
+    p.add(egui::Shape::convex_polygon(arrow.clone(), theme::HUD_POINTER_FILL, egui::Stroke::new(2.0, theme::ICON_WHITE)));
 
     // Floating live metric pill near cursor
     if !hud.badge_text.is_empty() {
@@ -4005,10 +4355,9 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
             px = canvas_rect.left() + theme::SPACE_GROUP;
         }
         let pill_rect = Rect::from_min_size(Pos2::new(px, py), Vec2::new(pill_w, pill_h));
-        widgets::elevation_shadow(&p, pill_rect, 8);
-        p.rect_filled(pill_rect, 8.0, egui::Color32::from_rgba_unmultiplied(17, 18, 22, 242));
-        p.rect_stroke(pill_rect, 8.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Outside);
-        p.text(pill_rect.center(), Align2::CENTER_CENTER, &hud.badge_text, font, egui::Color32::WHITE);
+        p.rect_filled(pill_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_PRIMARY);
+        p.rect_stroke(pill_rect, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.5, accent), egui::StrokeKind::Outside);
+        p.text(pill_rect.center(), Align2::CENTER_CENTER, &hud.badge_text, font, theme::TEXT);
     }
 
     // Top-center HUD caption bar with keycap badge + progress bar
@@ -4020,22 +4369,15 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
         let bar_w = (kw + cw + 46.0).min(canvas_rect.width() - 24.0);
         let bar_h = 38.0;
         let bar_rect = Rect::from_center_size(Pos2::new(canvas_rect.center().x, canvas_rect.top() + theme::SPACE_REGION), Vec2::new(bar_w, bar_h));
-        widgets::elevation_shadow(&p, bar_rect, 10);
-        p.rect_filled(bar_rect, 10.0, egui::Color32::from_rgba_unmultiplied(17, 18, 22, 238));
-        p.rect_stroke(bar_rect, 10.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 36)), egui::StrokeKind::Outside);
+        p.rect_filled(bar_rect, theme::cr(theme::RADIUS_XL), theme::BG_PRIMARY);
+        p.rect_stroke(bar_rect, theme::cr(theme::RADIUS_XL), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Outside);
         let key_rect = Rect::from_min_size(
             Pos2::new(bar_rect.left() + theme::INSET_CONTROL + theme::INSET_SEGMENT, bar_rect.top() + theme::SPACE_INLINE - theme::BORDER_WIDTH),
             Vec2::new(kw, 24.0),
         );
-        p.rect_filled(key_rect, 6.0, accent);
-        p.text(key_rect.center(), Align2::CENTER_CENTER, &hud.keycap, font_key, egui::Color32::WHITE);
-        p.text(
-            Pos2::new(key_rect.right() + theme::SPACE_GROUP, bar_rect.center().y),
-            Align2::LEFT_CENTER,
-            &hud.caption,
-            font_cap,
-            egui::Color32::from_rgb(0xF4, 0xF4, 0xF6),
-        );
+        p.rect_filled(key_rect, theme::cr(theme::RADIUS_SEGMENT), accent);
+        p.text(key_rect.center(), Align2::CENTER_CENTER, &hud.keycap, font_key, theme::TEXT_ON_BRAND);
+        p.text(Pos2::new(key_rect.right() + theme::SPACE_GROUP, bar_rect.center().y), Align2::LEFT_CENTER, &hud.caption, font_cap, theme::TEXT);
         let prog = if total <= 1 { 1.0 } else { (cur as f32 + 1.0) / (total as f32) };
         let prog_rect = Rect::from_min_size(
             Pos2::new(bar_rect.left() + theme::SPACE_INLINE, bar_rect.bottom() - (theme::SPACE_ROW - theme::BORDER_WIDTH)),
@@ -4061,6 +4403,11 @@ fn toast_click_target(ctx: &Context, id: &str, rect: Rect, name: &str) -> egui::
             response.on_hover_cursor(egui::CursorIcon::PointingHand)
         })
         .inner
+}
+
+/// An import summary without its trailing `· Details` hint.
+fn without_details_hint(text: &str) -> &str {
+    text.strip_suffix("Details").map_or(text, |rest| rest.trim_end().trim_end_matches('\u{00b7}').trim_end())
 }
 
 /// The toolbar is centered on the window (not the canvas).

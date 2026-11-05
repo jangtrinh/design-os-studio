@@ -1,0 +1,18 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Checking designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-doc)
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-mcp)
+    Checking designos-diff v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-diff)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app)
+    Checking designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-fonts)
+    Checking designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-render)
+    Checking designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-svg)
+    Checking designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-export)
+    Checking designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-gpu)
+    Checking designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-webcapture)
+    Checking designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-fig)
+    Checking designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-library)
+    Checking designos-eval v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-eval)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 54.86s
+clippy_clean_rc=0

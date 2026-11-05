@@ -3,9 +3,9 @@
 use super::*;
 use designos_doc::{Node, Rect};
 
-struct Tmp(std::path::PathBuf);
+pub(super) struct Tmp(std::path::PathBuf);
 impl Tmp {
-    fn new(tag: &str) -> Self {
+    pub(super) fn new(tag: &str) -> Self {
         let p = std::env::temp_dir().join(format!("designos_history_{}_{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&p);
         Self(p)
@@ -18,7 +18,7 @@ impl Drop for Tmp {
 }
 
 /// An app with a library file open, holding `n` rectangles.
-fn app_with_file(t: &Tmp, rects: usize) -> App {
+pub(super) fn app_with_file(t: &Tmp, rects: usize) -> App {
     let mut app = App::new(Document::new("t"));
     app.attach_library(t.0.clone());
     app.new_library_file(None);
@@ -29,7 +29,7 @@ fn app_with_file(t: &Tmp, rects: usize) -> App {
     app
 }
 
-fn add_rect(app: &mut App) {
+pub(super) fn add_rect(app: &mut App) {
     let id = app.doc.alloc_id();
     let page = app.page;
     let cmd = designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))] };
@@ -173,6 +173,23 @@ fn save_view_and_restore_round_trip_with_one_undo() {
     assert_eq!(count(&app), 3);
 }
 
+#[test]
+fn viewing_a_version_and_leaving_it_restores_the_load_watermark() {
+    let t = Tmp::new("watermark");
+    let mut app = app_with_file(&t, 2);
+    let original = app.load_next_id;
+    assert!(app.save_named_version("two", ""));
+    let id = app.lib_file.as_ref().unwrap().id.clone();
+    let n = app.lib.as_ref().unwrap().list_versions(&id)[0].n;
+    let version_peek = app.lib.as_ref().unwrap().load_version(&id, n).unwrap().peek_next_id();
+    assert_ne!(version_peek, original, "the saved version's next id is not the watermark recorded when the file was opened");
+
+    app.view_version(n);
+    assert_eq!(app.load_next_id, version_peek, "the version on the canvas uses its own watermark");
+    app.exit_version_view();
+    assert_eq!(app.load_next_id, original, "leaving the version restores the live document's watermark");
+}
+
 fn add_rect_via_tx(app: &mut App) {
     let mut tx = crate::edit::Tx::new();
     let id = app.doc.alloc_id();
@@ -255,4 +272,21 @@ fn leaving_the_file_saves_a_closing_version_and_drops_the_view() {
     let list = lib.list_versions(&id);
     assert_eq!(list.len(), 2, "a closing auto version was added");
     assert_eq!(lib.load_file(&id).unwrap().get(app.page).map(|p| p.children.len()), Some(2), "the live document, not the viewed one, is on disk");
+}
+
+/// The `--panel version-history` preset saves nine versions at fixed ages. The library thins automatic versions to one per
+/// clock hour once they are an hour old, so two of them must never land in the same clock hour, whatever minute the
+/// capture runs in.
+#[test]
+fn the_version_history_preset_keeps_all_nine_versions_at_every_minute_of_the_hour() {
+    let t = Tmp::new("preset_every_minute");
+    let hour_ms = 3_600_000u64;
+    let hour_start = 1_790_000_000_000 / hour_ms * hour_ms;
+    for minute in 0..60u64 {
+        let mut app = App::new(Document::new("t"));
+        super::preset::apply_at(&mut app, Some(t.0.clone()), hour_start + minute * 60_000 + 30_000);
+        let file = app.lib_file.as_ref().expect("the preset opens a library file").id.clone();
+        let versions = app.lib.as_ref().expect("the preset attaches a library").list_versions(&file).len();
+        assert_eq!(versions, 9, "minute {minute} of the hour kept {versions} of 9 versions");
+    }
 }

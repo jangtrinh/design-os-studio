@@ -1,0 +1,28 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-fig)
+    Finished `release` profile [optimized] target(s) in 1.52s
+     Running tests/perf_probe.rs (out/cargo/release/deps/perf_probe-d760e07deef22ec9)
+
+running 1 test
+PROBE import_s=30.2
+PROBE largest_page=NodeId(88674) name="      ❖ Landing pages" nodes=67717
+PROBE nested_text_candidates=9774 top_instance_text_candidates=13
+PROBE sel=NodeId(695506) depth=7 matches=35 drag_start_ms=0.448 drag_frame_ms=0.0002 frame_sel=5
+PROBE sel=NodeId(704524) depth=10 matches=3 drag_start_ms=1.005 drag_frame_ms=0.0002 frame_sel=1
+PROBE sel=NodeId(712971) depth=9 matches=0 drag_start_ms=3.249 drag_frame_ms=0.0002 frame_sel=1
+PROBE sel=NodeId(722697) depth=8 matches=6 drag_start_ms=0.338 drag_frame_ms=0.0001 frame_sel=2
+PROBE sel=NodeId(730712) depth=8 matches=1 drag_start_ms=0.414 drag_frame_ms=0.0000 frame_sel=1
+PROBE sel=NodeId(738090) depth=10 matches=21 drag_start_ms=1.143 drag_frame_ms=0.0001 frame_sel=4
+PROBE sel=NodeId(745582) depth=9 matches=15 drag_start_ms=3.069 drag_frame_ms=0.0002 frame_sel=4
+PROBE sel=NodeId(753921) depth=12 matches=1 drag_start_ms=0.335 drag_frame_ms=0.0000 frame_sel=0
+PROBE sel=NodeId(764304) depth=3 matches=0 drag_start_ms=0.035 drag_frame_ms=0.0000 frame_sel=1
+PROBE sel=NodeId(764318) depth=6 matches=0 drag_start_ms=0.025 drag_frame_ms=0.0000 frame_sel=0
+PROBE sel=NodeId(764321) depth=6 matches=0 drag_start_ms=0.021 drag_frame_ms=0.0000 frame_sel=0
+PROBE sel=NodeId(764322) depth=4 matches=0 drag_start_ms=0.019 drag_frame_ms=0.0000 frame_sel=1
+PROBE SUMMARY drag_start_median_ms=0.414 drag_start_max_ms=3.249 drag_frame_median_ms=0.0001 drag_frame_max_ms=0.0002
+test perf_probe_landing_page_shift_marquee ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.88s
+

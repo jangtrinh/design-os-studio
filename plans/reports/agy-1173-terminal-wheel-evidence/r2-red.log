@@ -1,0 +1,44 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-terminal-wheel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-terminal-wheel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-terminal-wheel/crates/designos-mcp)
+   Compiling designos-app v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-terminal-wheel/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.14s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-06b791c67ad0ea21)
+
+running 9 tests
+test terminal::wheel_modes_tests::fast_wheel_steps_are_capped_per_frame ... ok
+test terminal::wheel_modes_tests::shift_wheel_in_alt_screen_with_mouse_writes_nothing ... ok
+test terminal::wheel_modes_tests::wheel_in_alt_screen_with_application_cursor_sends_ss3_cursor_keys ... ok
+test terminal::wheel_modes_tests::wheel_in_alt_screen_with_default_mouse_encoding_sends_x10_reports ... ok
+test terminal::wheel_modes_tests::wheel_in_alt_screen_with_sgr_mouse_sends_one_sgr_report_per_row ... ok
+test terminal::wheel_modes_tests::wheel_in_alt_screen_with_utf8_mouse_encoding_sends_utf8_coordinates ... ok
+test terminal::wheel_modes_tests::wheel_in_alt_screen_without_mouse_sends_cursor_keys ... ok
+test terminal::wheel_modes_tests::wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015 ... FAILED
+test terminal::wheel_modes_tests::wheel_on_main_screen_scrolls_studio_scrollback_even_with_mouse_reporting ... FAILED
+
+failures:
+
+---- terminal::wheel_modes_tests::wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015 stdout ----
+
+thread 'terminal::wheel_modes_tests::wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015' (14380654) panicked at crates/designos-app/src/terminal/wheel_modes_tests.rs:159:5:
+assertion `left == right` failed
+  left: WritePty([27, 91, 77, 96, 224, 175, 153, 224, 166, 129])
+ right: WritePty([27, 91, 77, 96, 223, 191, 223, 191])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- terminal::wheel_modes_tests::wheel_on_main_screen_scrolls_studio_scrollback_even_with_mouse_reporting stdout ----
+
+thread 'terminal::wheel_modes_tests::wheel_on_main_screen_scrolls_studio_scrollback_even_with_mouse_reporting' (14380657) panicked at crates/designos-app/src/terminal/wheel_modes_tests.rs:76:5:
+assertion `left == right` failed
+  left: 0
+ right: 3
+
+
+failures:
+    terminal::wheel_modes_tests::wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015
+    terminal::wheel_modes_tests::wheel_on_main_screen_scrolls_studio_scrollback_even_with_mouse_reporting
+
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 4551 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

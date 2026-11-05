@@ -472,12 +472,16 @@ fn resized_instance_without_derived_geometry_scales_geometry_to_fit_child_size()
             let icon = find_in_subtree(&doc, inst_none.id, name);
             assert_eq!(icon.size, Vec2::new(5.0, 2.5), "pad_large={pad_large} {name}");
             assert_eq!(icon.stroke.weight, 1.5, "pad_large={pad_large} {name}");
-            let sg = icon.stroke_geometry.as_ref().expect("scaled stroke_geometry must be present");
-            let (_, _, sx1, sy1) = paths_bbox(sg);
-            assert!(sx1 <= 5.75 + 1e-3 && sy1 <= 3.25 + 1e-3, "pad_large={pad_large} {name}: stroke_geometry max=({sx1}, {sy1}) exceeds 5x2.5 child");
+            assert!(
+                icon.stroke_geometry.is_none(),
+                "pad_large={pad_large} {name}: stale baked stroke_geometry is dropped so renderer strokes at stroke.weight"
+            );
             let NodeKind::Vector { paths, network } = &icon.kind else { panic!("expected Vector") };
-            let (_, _, px1, py1) = paths_bbox(paths);
-            assert!(px1 <= 5.75 + 1e-3 && py1 <= 3.25 + 1e-3, "pad_large={pad_large} {name}: paths max=({px1}, {py1}) exceeds 5x2.5 child");
+            let (px0, py0, px1, py1) = paths_bbox(paths);
+            assert!(
+                px0.abs() < 1e-3 && py0.abs() < 1e-3 && (px1 - 5.0).abs() < 1e-3 && (py1 - 2.5).abs() < 1e-3,
+                "pad_large={pad_large} {name}: paths ({px0}..{px1}, {py0}..{py1}) rebuilt from scaled network"
+            );
             let (nx0, ny0, nx1, ny1) = network_bbox(network.as_ref().unwrap());
             assert!(nx0.abs() < 1e-3 && ny0.abs() < 1e-3 && (nx1 - 5.0).abs() < 1e-3 && (ny1 - 2.5).abs() < 1e-3);
         }
@@ -487,17 +491,12 @@ fn resized_instance_without_derived_geometry_scales_geometry_to_fit_child_size()
         let icon = find_in_subtree(&doc, inst_size_only.id, "IconTop");
         assert_eq!(icon.size, Vec2::new(5.0, 2.5), "pad_large={pad_large}");
         assert_eq!(icon.stroke.weight, 1.5, "pad_large={pad_large}");
-        let sg = icon.stroke_geometry.as_ref().expect("stroke_geometry must be scaled when missing from derived entry");
-        let (_, _, sx1, sy1) = paths_bbox(sg);
-        assert!(
-            (sx1 - 5.375).abs() < 1e-3 && (sy1 - 2.875).abs() < 1e-3,
-            "pad_large={pad_large}: expected scaled stroke_geometry max (5.375, 2.875), got ({sx1}, {sy1})"
-        );
+        assert!(icon.stroke_geometry.is_none(), "pad_large={pad_large}: stale stroke_geometry is dropped when missing from derived entry");
         let NodeKind::Vector { paths, network } = &icon.kind else { panic!("expected Vector") };
-        let (_, _, px1, py1) = paths_bbox(paths);
+        let (px0, py0, px1, py1) = paths_bbox(paths);
         assert!(
-            (px1 - 5.375).abs() < 1e-3 && (py1 - 2.875).abs() < 1e-3,
-            "pad_large={pad_large}: expected scaled paths max (5.375, 2.875), got ({px1}, {py1})"
+            px0.abs() < 1e-3 && py0.abs() < 1e-3 && (px1 - 5.0).abs() < 1e-3 && (py1 - 2.5).abs() < 1e-3,
+            "pad_large={pad_large}: expected scaled centerline paths (0..5, 0..2.5), got ({px0}..{px1}, {py0}..{py1})"
         );
         let (nx0, ny0, nx1, ny1) = network_bbox(network.as_ref().unwrap());
         assert!(
@@ -519,16 +518,14 @@ fn nested_icon_instance_inside_resized_button_instance_scales_child_vectors() {
                 assert_eq!(icon.size, Vec2::new(5.0, 2.5), "pad_large={pad_large} {btn_name}/{icon_name}");
                 assert_eq!(icon.stroke.weight, 1.5, "pad_large={pad_large} {btn_name}/{icon_name}");
 
-                let sg = icon.stroke_geometry.as_ref().expect("nested icon stroke_geometry must be present");
-                let (_, _, sx1, sy1) = paths_bbox(sg);
-                assert!(
-                    sx1 <= 5.75 + 1e-3 && sy1 <= 3.25 + 1e-3,
-                    "pad_large={pad_large} {btn_name}/{icon_name}: stroke_geometry max=({sx1}, {sy1}) remained unscaled"
-                );
+                assert!(icon.stroke_geometry.is_none(), "pad_large={pad_large} {btn_name}/{icon_name}: stale baked stroke_geometry is dropped");
 
                 let NodeKind::Vector { paths, network } = &icon.kind else { panic!("expected Vector") };
-                let (_, _, px1, py1) = paths_bbox(paths);
-                assert!(px1 <= 5.75 + 1e-3 && py1 <= 3.25 + 1e-3, "pad_large={pad_large} {btn_name}/{icon_name}: paths max=({px1}, {py1}) remained unscaled");
+                let (px0, py0, px1, py1) = paths_bbox(paths);
+                assert!(
+                    px0.abs() < 1e-3 && py0.abs() < 1e-3 && (px1 - 5.0).abs() < 1e-3 && (py1 - 2.5).abs() < 1e-3,
+                    "pad_large={pad_large} {btn_name}/{icon_name}: paths ({px0}..{px1}, {py0}..{py1}) rebuilt from scaled network"
+                );
                 let (nx0, ny0, nx1, ny1) = network_bbox(network.as_ref().unwrap());
                 assert!(
                     nx0.abs() < 1e-3 && ny0.abs() < 1e-3 && (nx1 - 5.0).abs() < 1e-3 && (ny1 - 2.5).abs() < 1e-3,

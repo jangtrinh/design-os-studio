@@ -1,0 +1,10 @@
+I added the "Draft" frame, but I couldn't open other.designos, so I don't have its frame names.
+
+The Draft frame (node 2) is on Page 1 and unsaved. Opening a file replaces the current session, and the tool refused because of that unsaved frame. I didn't discard it, since that needs your explicit confirmation. You also asked me not to save yet.
+
+To get the frame names, you can either:
+1. Tell me to discard Draft and open other.designos, or
+2. Give me a path to save the current document, and I'll then open other.designos.
+
+I wrote this up in `answer.md`.
+claude exit 0

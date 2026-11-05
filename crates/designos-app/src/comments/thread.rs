@@ -7,12 +7,14 @@ use crate::home::time::relative;
 use crate::icons::Icon;
 use crate::theme;
 use crate::widgets::menu::{popup_menu, MenuItem, MenuResult};
-use crate::widgets::{self, hline};
+use crate::widgets::{self, hline, kit};
 use egui::{Align2, Area, Context, Id, LayerId, Order, Pos2, Rect, Vec2};
 
 const COMPOSER_W: f32 = 280.0;
 const AVATAR_GAP: f32 = 8.0;
 const ROW_GAP: f32 = 8.0;
+/// Where a message body starts below the top of its row, under the author line.
+const BODY_DY: f32 = 22.0;
 
 /// A popover that is on screen this frame.
 pub struct Shown {
@@ -44,7 +46,7 @@ pub fn show(app: &mut App, ctx: &Context, canvas: Rect) -> Option<Shown> {
 }
 
 fn pop_frame(p: &egui::Painter, rect: Rect) {
-    widgets::menu_panel(p, rect, theme::RADIUS_FRAME);
+    kit::popover_surface(p, rect);
 }
 
 // ------------------------------------------------------------------ composer
@@ -55,7 +57,7 @@ fn composer(app: &mut App, ctx: &Context, canvas: Rect) -> Option<Shown> {
     let tip = app.view.to_screen(canvas.min, model::pin_point(&app.doc, &c.anchor)?);
     let inner_w = COMPOSER_W - theme::COMMENT_PAD * 2.0;
     let box_h = ui::box_height(&measure_painter(ctx), &c.text, inner_w);
-    let h = theme::COMMENT_PAD * 2.0 + theme::COMMENT_AVATAR + ROW_GAP + box_h + ROW_GAP + theme::COMMENT_BTN_H;
+    let h = theme::COMMENT_PAD * 2.0 + theme::COMMENT_AVATAR + ROW_GAP + box_h + ROW_GAP + theme::CONTROL_XS;
     let rect = place(tip, Vec2::new(COMPOSER_W, h), canvas);
     let (post_key, esc) = ui::submit_keys(ctx);
     let mut text = std::mem::take(&mut app.comments.composer.as_mut()?.text);
@@ -80,11 +82,11 @@ fn composer(app: &mut App, ctx: &Context, canvas: Rect) -> Option<Shown> {
         ui::text_box(ui, box_r, Id::new("comment-composer-text"), &mut text, "Add a comment", fresh);
         widgets::record(ui, "comment-composer-box", box_r);
         y += box_h + ROW_GAP;
-        let bw = ui::button_width(&p, "Post").max(56.0);
-        let br = Rect::from_min_size(Pos2::new(rect.right() - theme::COMMENT_PAD - bw, y), Vec2::new(bw, theme::COMMENT_BTN_H));
-        p.text(Pos2::new(x, y + theme::COMMENT_BTN_H / 2.0), Align2::LEFT_CENTER, "Ctrl+Enter to post", theme::font_caption(), theme::TEXT_TERTIARY);
+        let bw = ui::kit_button_width(&p, "Post").max(56.0);
+        let br = Rect::from_min_size(Pos2::new(rect.right() - theme::COMMENT_PAD - bw, y), Vec2::new(bw, theme::CONTROL_XS));
+        p.text(Pos2::new(x, y + theme::CONTROL_XS / 2.0), Align2::LEFT_CENTER, "Ctrl+Enter to post", theme::font_caption(), theme::TEXT_TERTIARY);
         let enabled = !text.trim().is_empty();
-        if ui::button(ui, br, "composer-post", "Post", true, enabled).clicked() {
+        if kit::button(ui, br, "composer-post", "Post", kit::Hierarchy::Primary, kit::Size::Xs, enabled).clicked() {
             post = true;
         }
         widgets::record(ui, "comment-composer-post", br);
@@ -138,15 +140,15 @@ fn open_thread(app: &mut App, ctx: &Context, canvas: Rect, id: &str) -> Option<S
         if is_edit {
             edit_box_h = ui::box_height(&mp, editing.as_ref().map(|e| e.1.as_str()).unwrap_or(""), inner_w);
             galleys.push(None);
-            heights.push(theme::COMMENT_AVATAR + ROW_GAP + edit_box_h + ROW_GAP + theme::COMMENT_BTN_H + pad);
+            heights.push(theme::COMMENT_AVATAR + ROW_GAP + edit_box_h + ROW_GAP + theme::CONTROL_XS + pad);
         } else {
             let g = mp.layout(m.text.clone(), theme::font_body(), theme::TEXT, text_w);
-            heights.push(22.0 + g.size().y + pad);
+            heights.push(BODY_DY + g.size().y + pad);
             galleys.push(Some(g));
         }
     }
     let reply_box_h = ui::box_height(&mp, &app.comments.reply, inner_w);
-    let reply_h = pad + reply_box_h + ROW_GAP + theme::COMMENT_BTN_H + pad;
+    let reply_h = pad + reply_box_h + ROW_GAP + theme::CONTROL_XS + pad;
     let total = theme::COMMENT_HEADER_H + pad / 2.0 + heights.iter().sum::<f32>() + 1.0 + reply_h;
     let rect = place(tip, Vec2::new(w, total), canvas);
 
@@ -192,7 +194,8 @@ fn open_thread(app: &mut App, ctx: &Context, canvas: Rect, id: &str) -> Option<S
             let name_r = widgets::text_on_baseline(&p, nx, y + 12.0, &m.author, theme::font_body_strong(), theme::TEXT);
             let when = super::time::parse_rfc3339(&m.created).map(|t| relative(now, t)).unwrap_or_default();
             let stamp = if m.edited.is_some() { format!("{when} (edited)") } else { when };
-            let dots = Rect::from_min_size(Pos2::new(rect.right() - pad - theme::COMMENT_ICON_BTN, y), Vec2::splat(theme::COMMENT_ICON_BTN));
+            // The hit box ends where the message body starts, so it never covers the text under the author line.
+            let dots = Rect::from_min_size(Pos2::new(rect.right() - pad - theme::CONTROL_XS, y + BODY_DY - theme::CONTROL_XS), Vec2::splat(theme::CONTROL_XS));
             let avail = (dots.left() - 4.0 - (name_r.right() + 6.0)).max(0.0);
             let stamp = widgets::elide(&p, &stamp, &theme::font_caption(), avail);
             widgets::text_on_baseline(&p, name_r.right() + 6.0, y + 12.0, &stamp, theme::font_caption(), theme::TEXT_TERTIARY);
@@ -206,14 +209,14 @@ fn open_thread(app: &mut App, ctx: &Context, canvas: Rect, id: &str) -> Option<S
                     let br = Rect::from_min_size(Pos2::new(left, by), Vec2::new(inner_w, edit_box_h));
                     ui::text_box(ui, br, Id::new("comment-edit-text"), txt, "Edit comment", edit_fresh);
                     let sy = by + edit_box_h + ROW_GAP;
-                    let sw = ui::button_width(&p, "Save").max(56.0);
-                    let save_r = Rect::from_min_size(Pos2::new(rect.right() - pad - sw, sy), Vec2::new(sw, theme::COMMENT_BTN_H));
-                    let cw = ui::button_width(&p, "Cancel").max(56.0);
-                    let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - 4.0 - cw, sy), Vec2::new(cw, theme::COMMENT_BTN_H));
-                    if ui::button(ui, save_r, "edit-save", "Save", true, !txt.trim().is_empty()).clicked() {
+                    let sw = ui::kit_button_width(&p, "Save").max(56.0);
+                    let save_r = Rect::from_min_size(Pos2::new(rect.right() - pad - sw, sy), Vec2::new(sw, theme::CONTROL_XS));
+                    let cw = ui::kit_button_width(&p, "Cancel").max(56.0);
+                    let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - 4.0 - cw, sy), Vec2::new(cw, theme::CONTROL_XS));
+                    if kit::button(ui, save_r, "edit-save", "Save", kit::Hierarchy::Primary, kit::Size::Xs, !txt.trim().is_empty()).clicked() {
                         acts.push(Act::SaveEdit);
                     }
-                    if ui::button(ui, cancel_r, "edit-cancel", "Cancel", false, true).clicked() {
+                    if kit::button(ui, cancel_r, "edit-cancel", "Cancel", kit::Hierarchy::Secondary, kit::Size::Xs, true).clicked() {
                         acts.push(Act::CancelEdit);
                     }
                     if post_key {
@@ -221,7 +224,7 @@ fn open_thread(app: &mut App, ctx: &Context, canvas: Rect, id: &str) -> Option<S
                     }
                 }
             } else if let Some(g) = &galleys[i] {
-                p.galley(Pos2::new(nx, y + 22.0), g.clone(), theme::TEXT);
+                p.galley(Pos2::new(nx, y + BODY_DY), g.clone(), theme::TEXT);
             }
             y += row_h;
         }
@@ -234,11 +237,13 @@ fn open_thread(app: &mut App, ctx: &Context, canvas: Rect, id: &str) -> Option<S
         ui::text_box(ui, box_r, Id::new("comment-reply-text"), &mut reply, "Reply", reply_focus);
         widgets::record(ui, "comment-reply-box", box_r);
         y += reply_box_h + ROW_GAP;
-        let bw = ui::button_width(&p, "Post").max(56.0);
-        let br = Rect::from_min_size(Pos2::new(rect.right() - pad - bw, y), Vec2::new(bw, theme::COMMENT_BTN_H));
-        p.text(Pos2::new(left, y + theme::COMMENT_BTN_H / 2.0), Align2::LEFT_CENTER, "Ctrl+Enter to post", theme::font_caption(), theme::TEXT_TERTIARY);
+        let bw = ui::kit_button_width(&p, "Post").max(56.0);
+        let br = Rect::from_min_size(Pos2::new(rect.right() - pad - bw, y), Vec2::new(bw, theme::CONTROL_XS));
+        p.text(Pos2::new(left, y + theme::CONTROL_XS / 2.0), Align2::LEFT_CENTER, "Ctrl+Enter to post", theme::font_caption(), theme::TEXT_TERTIARY);
         let can_reply = !reply.trim().is_empty();
-        if ui::button(ui, br, "reply-post", "Reply", true, can_reply).clicked() || (post_key && edit_text.is_none() && can_reply) {
+        if kit::button(ui, br, "reply-post", "Reply", kit::Hierarchy::Primary, kit::Size::Xs, can_reply).clicked()
+            || (post_key && edit_text.is_none() && can_reply)
+        {
             acts.push(Act::Reply(reply.clone()));
         }
         widgets::record(ui, "comment-reply-post", br);

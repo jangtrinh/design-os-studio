@@ -472,6 +472,27 @@ fn fig_value(ty: &str, v: &Value, refs: &Refs) -> Option<Value> {
     }
 }
 
+/// The kiwi `VariableScope` enum spells the stroke colour scope `STROKE`; the document and
+/// REST payloads use `STROKE_COLOR`. Map it back at this boundary so a `.fig` round trip keeps
+/// the stored spelling, keeping order and listing the stroke colour scope once.
+fn rest_scopes_from_fig(scopes: Option<&Value>) -> Value {
+    let Some(list) = scopes.and_then(Value::as_array) else {
+        return scopes.cloned().unwrap_or(json!([]));
+    };
+    let mut mapped: Vec<Value> = Vec::with_capacity(list.len());
+    for scope in list {
+        let scope = match scope.as_str() {
+            Some(name) => json!(crate::variables_dtcg::normalize_scope_on_import(name)),
+            None => scope.clone(),
+        };
+        if scope == "STROKE_COLOR" && mapped.contains(&scope) {
+            continue;
+        }
+        mapped.push(scope);
+    }
+    Value::Array(mapped)
+}
+
 /// Builds a REST-shaped variables payload from the `VARIABLE_SET` and
 /// `VARIABLE` node changes of a `.fig` message (given as JSON).
 ///
@@ -540,7 +561,7 @@ pub(crate) fn from_fig_entries(entries: &[&Value]) -> Option<Value> {
             continue;
         }
         let mut v = json!({"id": id, "name": fstr(e, "name").unwrap_or("Variable"), "variableCollectionId": cid, "resolvedType": ty,
-                   "valuesByMode": by_mode, "scopes": e.get("variableScopes").cloned().unwrap_or(json!([])),
+                   "valuesByMode": by_mode, "scopes": rest_scopes_from_fig(e.get("variableScopes")),
                    "description": fstr(e, "description").unwrap_or(""), "hiddenFromPublishing": false});
         if let Some(k) = fstr(e, "key").filter(|k| !k.is_empty()) {
             v["key"] = k.into();
@@ -584,6 +605,21 @@ mod tests {
         assert_eq!(v.values["1:7"], VariableValue::Alias("VariableID:1:9".into()));
         assert!(from_fig_entries(&[]).is_none());
     }
+    #[test]
+    fn fig_stroke_scope_maps_to_rest_spelling_once_and_leaves_others_alone() {
+        let set = fig_set(5, "Theme", "K", None);
+        let var = |scopes: Value| {
+            json!({"type": "VARIABLE", "guid": {"sessionID": 1, "localID": 9}, "name": "edge", "variableResolvedType": "COLOR",
+                "variableSetID": {"guid": {"sessionID": 1, "localID": 5}}, "variableScopes": scopes})
+        };
+        let scopes_of = |scopes: Value| from_fig_entries(&[&set, &var(scopes)]).unwrap()["variables"]["VariableID:1:9"]["scopes"].clone();
+        assert_eq!(scopes_of(json!(["STROKE"])), json!(["STROKE_COLOR"]));
+        assert_eq!(scopes_of(json!(["ALL_FILLS", "STROKE", "STROKE_FLOAT"])), json!(["ALL_FILLS", "STROKE_COLOR", "STROKE_FLOAT"]));
+        assert_eq!(scopes_of(json!(["STROKE", "ALL_FILLS", "STROKE_COLOR"])), json!(["STROKE_COLOR", "ALL_FILLS"]));
+        assert_eq!(scopes_of(json!(["TEXT_FILL", "EFFECT_COLOR"])), json!(["TEXT_FILL", "EFFECT_COLOR"]));
+        assert_eq!(scopes_of(json!([])), json!([]));
+    }
+
     fn fig_set(local: u64, name: &str, key: &str, source_library: Option<&str>) -> Value {
         let mut set = json!({"type": "VARIABLE_SET", "guid": {"sessionID": 1, "localID": local}, "name": name, "key": key,
             "variableSetModes": [{"id": {"sessionID": 1, "localID": local + 100}, "name": "Mode 1"}]});

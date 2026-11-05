@@ -1,7 +1,7 @@
 //! Annotation callouts and status badges drawn over the canvas in Dev mode.
 
 use super::data;
-use super::sections::{status_color, status_pill};
+use super::sections::{status_color, status_pill, status_pill_width};
 use super::AnnotEdit;
 use crate::app::App;
 use crate::panels::inspect::page_aabb;
@@ -76,6 +76,8 @@ pub fn overlay(app: &mut App, ui: &Ui, rect: Rect) {
         return;
     }
     let p = ui.painter().with_clip_rect(rect);
+    // A top-level frame's status is already beside its name as the canvas label badge: its pill would show it twice.
+    let badge_nodes = crate::canvas::draw::status_badge_nodes(app, ui.ctx(), rect);
     let mut taken: Vec<Rect> = Vec::new();
     let mut select: Option<(NodeId, Option<usize>)> = None;
     let small = theme::font_canvas();
@@ -89,9 +91,9 @@ pub fn overlay(app: &mut App, ui: &Ui, rect: Rect) {
             continue;
         }
         let Some(n) = app.doc.get(id) else { continue };
-        if let Some(s) = n.dev.status {
+        if let Some(s) = n.dev.status.filter(|_| !badge_nodes.contains(&id)) {
             let at = Pos2::new(sr.left(), sr.top() - 24.0);
-            let w = text_width(&p, s.label(), &theme::font_canvas_medium()) + 26.0;
+            let w = status_pill_width(&p, s);
             let pill = Rect::from_min_size(at, Vec2::new(w, 20.0));
             if rect.intersects(pill) {
                 p.rect_filled(pill, theme::cr(10), theme::BG);

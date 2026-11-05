@@ -1,0 +1,17 @@
+=== Manual 1: --apply-spec with /tmp/no-marker ===
+Before hash:
+696498419d135377e53197baf34f8140c09b768dc45bdd637b21bcff534ae413  /tmp/r2-manual.qTlRQm/copy.designos
+designos: hermetic agent mode denied: --screenshot is required; DESIGNOS_AGENT_CLI_DIR (/tmp/no-marker) is missing .designos-hermetic; DESIGNOS_LIBRARY is unset; TMPDIR (/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/) is missing .designos-hermetic; HOME (/Users/jangtrinh) is missing .designos-hermetic
+Exit code: 2
+After hash:
+696498419d135377e53197baf34f8140c09b768dc45bdd637b21bcff534ae413  /tmp/r2-manual.qTlRQm/copy.designos
+
+=== Manual 2: --seed-library with /tmp/no-marker ===
+designos: hermetic agent mode denied: --screenshot is required; DESIGNOS_AGENT_CLI_DIR (/tmp/no-marker) is missing .designos-hermetic; DESIGNOS_LIBRARY is unset; TMPDIR (/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/) is missing .designos-hermetic; HOME (/Users/jangtrinh) is missing .designos-hermetic
+Exit code: 2
+Seed dir entries count: 0
+
+=== Manual 3: relative DESIGNOS_AGENT_CLI_DIR=stubs ===
+designos: hermetic agent mode denied: DESIGNOS_AGENT_CLI_DIR (stubs) must be an absolute path; DESIGNOS_LIBRARY is unset; TMPDIR (/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/) is missing .designos-hermetic; HOME (/Users/jangtrinh) is missing .designos-hermetic
+Exit code: 2
+Shot exists: no

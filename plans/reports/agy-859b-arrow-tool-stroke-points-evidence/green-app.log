@@ -1,0 +1,60 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-doc)
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-mcp)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-webcapture)
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-export)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-fig)
+   Compiling designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-library)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-gpu)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.15s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 38 tests
+test canvas::create::tests::shift_snaps_pen_points_to_45_degrees ... ok
+test canvas::create::tests::rect_drag_and_modifiers ... ok
+test canvas::tools::tests::drawing_tools_draw_even_over_nodes ... ok
+test canvas::tools::tests::arrow_tool_sits_in_shape_group_after_line ... ok
+test canvas::tools::tests::groups_cover_all_default_tools ... ok
+test canvas::tools::tests::move_tool_transitions ... ok
+test canvas::create::tests::line_drag_snaps_with_shift ... ok
+test canvas::tools::tests::pan_overrides_everything ... ok
+test canvas::tools::tests::shortcuts_map ... ok
+test canvas::tools::tests::shift_l_selects_arrow_tool ... ok
+test canvas::create::tests::pen_path_lines_and_curves ... ok
+test canvas::create::tests::decimate_drops_close_points_keeps_last ... ok
+test panels::menus::tests::query_matching_is_word_based ... ok
+test canvas::create::tests::container_lookup_prefers_deepest_frame ... ok
+test canvas::create::tests::container_lookup_follows_paint_order_in_reverse_z_frames ... ok
+test canvas::create::tests::pencil_turns_a_wobbly_circle_into_a_few_smooth_closed_anchors ... ok
+test canvas::create::tests::pencil_keeps_an_open_stroke_open_and_simplifies_a_straight_one ... ok
+test panels::stroke::tests::miter_angle_roundtrips ... ok
+test panels::menus::tests::palette_and_dropdowns_offer_the_arrow_tool ... ok
+test panels::menus::tests::picking_the_arrow_tool_remembers_arrow_for_the_group ... ok
+test panels::menus::tests::choosing_the_gpu_canvas_drops_the_software_explanation ... ok
+test panels::menus::tests::resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state ... ok
+test panels::menus::tests::preferences_says_why_the_gpu_canvas_is_off_for_a_software_renderer ... ok
+test canvas::tools::tests::asking_for_the_arrow_tool_selects_arrow ... ok
+test panels::menus::tests::edit_paste_is_not_greyed_out_before_anything_was_copied_in_studio ... ok
+test panels::menus::tests::offset_path_is_enabled_for_plain_shapes_only ... ok
+test panels::menus::tests::zoom_menu_lists_only_rows_with_a_real_action ... ok
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected ... ok
+test canvas::create::tests::container_at_with_index_and_unique_name_fast_on_large_page ... ok
+test panels::menus::tests::palette_is_394_tall_with_the_40_px_input_row ... ok
+test panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo ... ok
+test panels::stroke::tests::stroke_panel_hides_endpoint_controls_for_closed_paths ... ok
+test panels::stroke::tests::stroke_panel_mixed_open_selection_shows_mixed_and_applies_to_all_in_one_undo_step ... ok
+test panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step ... ok
+test canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render ... ok
+test panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 4232 filtered out; finished in 0.19s
+
+green_rc=0

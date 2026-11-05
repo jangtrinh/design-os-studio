@@ -1,0 +1,111 @@
+# gate: cargo test -p designos-app --bin designos --locked -- vector (head 8ac06082, fix applied)
+# head: 8ac06082b3733e5be7d6949fbf0cf2112feecbe3
+# vector.rs diff vs HEAD: 
+# cmd: cargo test -p designos-app --bin designos --locked -- vector
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.78s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 96 tests
+test canvas::vector::tests::bend_math_moves_the_point_exactly ... ok
+test canvas::vector::tests::a_point_under_the_pointer_keeps_the_scale_frame_from_taking_a_tangent_handle ... ok
+test canvas::vector::tests::a_tangent_handle_clear_of_every_scale_handle_is_still_grabbed ... ok
+test canvas::vector::tests::a_scale_handle_drawn_over_a_tangent_handle_wins_where_it_is_nearer ... ok
+test canvas::vector::tests::hit_priority_handle_then_vertex_then_segment ... ok
+test canvas::vector::tests::dragging_a_straight_segments_midpoint_moves_the_segment_when_its_end_points_are_selected ... ok
+test canvas::vector::tests::a_straight_segments_midpoint_is_not_taken_by_the_box_handles_of_its_end_points ... ok
+test canvas::vector::tests::arrow_keys_nudge_selected_vertices_and_leave_the_node_alone ... ok
+test canvas::vector::tests::a_curve_that_runs_through_a_scale_handle_keeps_its_gestures_where_it_is_closer ... ok
+test canvas::interact::tests::double_click_drills_down_nested_containers_then_enters_vector_edit ... ok
+test canvas::vector::tests::dragging_a_curve_that_runs_through_a_scale_handle_moves_the_segment ... ok
+test canvas::vector::tests::dragging_a_handle_mirrors_the_opposite_one_unless_alt ... ok
+test canvas::vector::tests::dragging_a_selected_corner_point_moves_the_whole_selection ... ok
+test canvas::vector::tests::bending_a_straight_segment_makes_it_pass_through_the_pointer ... ok
+test canvas::vector::tests::corner_radius_is_one_undo_step_and_rounds_the_derived_path ... ok
+test canvas::vector::tests::caps_mirroring_and_position_edit_the_selected_vertices ... ok
+test canvas::vector::tests::a_click_on_a_segment_adds_a_point_but_a_drag_moves_the_segment ... ok
+test canvas::vector::tests::adding_and_deleting_points_are_undoable ... ok
+test canvas::vector::tests::scale_handles_lie_outside_the_box_and_clear_of_its_points_under_any_node_transform ... ok
+test canvas::vector::tests::dragging_a_vertex_is_one_undo_step ... ok
+test canvas::vector::tests::join_split_and_simplify_commands ... ok
+test canvas::vector::tests::lasso_selects_what_it_encloses ... ok
+test canvas::vector::tests::marquee_selects_the_vertices_inside_and_shift_adds ... ok
+test canvas::vector::tests::pressing_a_scale_handle_that_covers_a_tangent_handle_scales_instead_of_bending ... ok
+test canvas::vector::tests::several_selected_vertices_move_together ... ok
+test canvas::vector::tests::midpoint_snap_cmd_click_toggle_and_delete_and_heal ... ok
+test canvas::vector::tests::shift_and_command_clicks_on_a_selected_corner_point_still_edit_that_point ... ok
+test canvas::vector::tests::the_bend_tool_pulls_handles_out_of_a_vertex_and_a_click_removes_them ... ok
+test canvas::vector::tests::shift_snaps_handles_to_45_degrees ... ok
+test canvas::vector::tests::scale_box_respects_shift_aspect_and_alt_center_and_scales_tangents ... ok
+test canvas::vector::tests::the_first_edit_turns_a_rectangle_into_a_vector_and_undo_restores_it ... ok
+test canvas::vector::tests::simplify_removes_nodes_in_one_step ... ok
+test canvas::vector::tests::the_last_segment_cannot_be_deleted_away ... ok
+test home::updater::tests::computes_nist_sha256_vectors_and_verifies_artifacts ... ok
+test canvas::vector::tests::the_paint_bucket_fills_and_unfills_an_area ... ok
+test canvas::vector::tests::vectors_and_basic_shapes_can_be_edited_frames_cannot ... ok
+test layout::tests::apply_constraints_scales_rotated_vector_geometry_and_reaches_deep_children ... ok
+test canvas::vector::tests::undo_while_editing_reloads_the_network ... ok
+test plugins::svg::tests::accepts_static_vectors_and_rejects_active_or_external_content ... ok
+test canvas::vector::tests::vector_toolbar_uses_widgets_record ... ok
+test canvas::vector::tests::shift_on_a_scale_handle_over_a_selected_point_keeps_the_aspect ... ok
+test canvas::vector::tests::pressing_a_scale_handle_without_dragging_keeps_the_selection ... ok
+test canvas::vector::tests::shift_scales_uniformly_even_when_the_pointer_crosses_the_anchor_on_one_axis ... ok
+test shell::tests::vector::an_open_pen_path_stays_open ... ok
+test shell::tests::pen_tool_creates_vector_path ... ok
+test shell::tests::vector::alt_drag_lassos_the_vertices_it_encloses ... ok
+test shell::tests::resized_shape_geometry::a_fill_vector_in_an_auto_layout_scales_with_its_slot ... ok
+test shell::tests::vector::alt_click_deletes_a_region ... ok
+test shell::tests::vector::double_clicking_a_rectangle_enters_vertex_editing ... ok
+test shell::tests::vector::double_clicking_inside_a_group_selects_the_child_before_editing_it ... ok
+test shell::tests::leave_prompt_edges::a_press_on_a_vector_segment_that_has_not_moved_adds_no_point_when_the_question_opens ... ok
+test shell::tests::vector::clicking_a_region_extracts_it_and_cuts_the_shapes_around_it ... ok
+test shell::tests::dev::selecting_instances_and_vectors_draws_the_dev_panel ... ok
+test shell::tests::enter_starts_vector_editing_and_drag_is_one_undo_step ... ok
+test shell::tests::vector::dragging_across_regions_merges_them_into_one_shape ... ok
+test shell::tests::vector::hovering_a_region_highlights_it ... ok
+test shell::tests::vector::ctrl_drag_bends_a_segment_in_one_undo_step ... ok
+test shell::tests::vector::marquee_selects_vertices_and_a_click_on_empty_space_clears ... ok
+test shell::tests::vector::dragging_a_selected_vertex_of_a_multi_point_selection_moves_the_whole_selection ... ok
+test shell::tests::vector::alt_shift_dragging_an_edge_scale_handle_across_the_centre_mirrors_only_the_dragged_axis ... ok
+test shell::tests::vector::flatten_a_single_vector_bakes_its_corner_radii ... ok
+test shell::tests::click_selection::eyedropper_shift_click_samples_deep_nested_token_and_vector_edit_exits_on_nested_sibling ... ok
+test shell::tests::vector::editing_a_child_of_a_boolean_group_in_place_then_flattening ... ok
+test shell::tests::vector::flatten_merges_a_boolean_group_into_one_vector ... ok
+test shell::tests::vector::join_closes_two_selected_endpoints_with_ctrl_j ... ok
+test shell::tests::vector::leaving_without_edits_keeps_the_shapes_and_switching_tools_commits ... ok
+test shell::tests::resized_shape_geometry::a_resized_vector_and_union_keep_their_geometry_through_a_fig_file ... ok
+test shell::tests::vector::outline_stroke_keeps_a_filled_shape_and_adds_the_outline_above ... ok
+test shell::tests::vector::the_shape_builder_fixture_hovers_the_lens ... ok
+test shell::tests::vector::shift_keeps_pen_segments_on_45_degree_steps ... ok
+test shell::tests::vector::simplify_path_from_the_menu_removes_nodes ... ok
+test shell::tests::vector::alt_shift_dragging_an_edge_scale_handle_scales_uniformly_about_the_centre ... ok
+test vecops::tests::flatten_of_single_paint_text_gives_one_vector ... ok
+test vecops::tests::flatten_of_two_paint_text_gives_two_vectors_in_a_group ... ok
+test vecops::tests::offset_path_inset_keeps_the_open_tail_of_a_vector ... ok
+test vecops::tests::outline_stroke_of_two_run_text_gives_one_vector_per_glyph_with_each_runs_fill ... ok
+test shell::tests::vector::the_vector_edit_fixture_shows_the_corner_radius_field ... ok
+test vecops::tests::text_to_vector_carries_over_fill_and_stroke_bindings ... ok
+test vecops::tests::text_to_vector_loads_unloaded_font_and_refuses_unavailable_font ... ok
+test vecops::tests::text_to_vector_preserves_gradient_style_links_and_merges_shared_paint_runs_without_leaking_bindings ... ok
+test shell::tests::vector::the_pencil_keeps_an_open_stroke_open ... ok
+test shell::tests::vector::outline_stroke_turns_the_stroke_into_a_filled_vector ... ok
+test shell::tests::vector::the_shape_builder_needs_overlapping_shapes_selected ... ok
+test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... ok
+test shell::tests::vector::the_pencil_smooths_a_wobbly_circle_into_a_closed_curve ... ok
+test shell::tests::vector::the_pen_closes_the_path_on_its_first_point ... ok
+test shell::tests::vector::scaling_selected_points_bounding_box_scales_only_selected_points ... ok
+test shell::tests::vector::the_paint_bucket_fills_and_unfills_an_enclosed_area ... ok
+test shell::tests::vector::the_vertex_inspector_offers_cap_and_handle_modes_and_commands ... ok
+test shell::tests::vector::the_vertex_inspector_edits_the_corner_radius_as_one_undo_step ... ok
+test shell::tests::vector::the_bend_tool_pulls_handles_out_of_a_vertex ... ok
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+test shell::tests::vector::vertices_move_with_the_arrow_keys_and_delete_removes_them ... ok
+test shell::tests::vector::shift_dragging_an_edge_scale_handle_past_the_anchor_mirrors_only_the_dragged_axis ... ok
+test shell::tests::vector::shift_dragging_edge_scale_handles_locks_the_aspect_ratio_and_undoes_in_one_step ... ok
+test shell::tests::vector::hovering_and_dragging_vector_scale_box_handles_reports_resize_cursors ... ok
+
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 4133 filtered out; finished in 11.11s
+
+vector_rc=0

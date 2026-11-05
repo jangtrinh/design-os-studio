@@ -29,6 +29,11 @@ fn style_deleted_toast(fallback_layers: usize) -> String {
     }
 }
 
+pub(crate) fn fallback_layer_count(fallbacks: &[(NodeId, String)]) -> usize {
+    let ids: std::collections::BTreeSet<NodeId> = fallbacks.iter().map(|(id, _)| *id).collect();
+    ids.len()
+}
+
 fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
     let Some(key) = linked_style(app, sel, prop) else { return };
     app.scrub_end();
@@ -39,11 +44,7 @@ fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
         app.props.style_rename = None;
     }
     let (op, fallback_layers) = match delete_style_with_fallbacks(&app.doc, &key) {
-        Ok((cmd, fallbacks)) => {
-            let mut ids: Vec<NodeId> = fallbacks.into_iter().map(|(id, _)| id).collect();
-            ids.dedup();
-            (Ok(cmd), ids.len())
-        }
+        Ok((cmd, fallbacks)) => (Ok(cmd), fallback_layer_count(&fallbacks)),
         Err(e) => (Err(e), 0),
     };
     if app.run_style_op(op) {
@@ -202,7 +203,7 @@ pub(crate) fn delete_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -
 
 static SCREENSHOT_HOVER_TIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-pub(super) fn set_screenshot_hover_tip(on: bool) {
+pub(crate) fn set_screenshot_hover_tip(on: bool) {
     SCREENSHOT_HOVER_TIP.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
@@ -214,7 +215,7 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
 }
 
 /// The "Style" button at `btn` and its menu while open; the menu's right edge sits at `menu_right`.
-pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: StyleProperty, btn: Rect, menu_right: f32) {
+pub(crate) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: StyleProperty, btn: Rect, menu_right: f32) {
     let open = app.props.style_menu == Some(prop);
     let key = button_key(prop);
     widgets::record(ui, key, btn);
@@ -241,7 +242,7 @@ pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
                 .fixed_pos(Pos2::new(pos.x + theme::MENU_PADDING, row_y + theme::MENU_PADDING))
                 .interactable(false)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    crate::widgets::kit::tooltip_frame().show(ui, |ui| {
                         ui.label(tip_text);
                     });
                 });

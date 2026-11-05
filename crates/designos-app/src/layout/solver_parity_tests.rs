@@ -572,9 +572,9 @@ fn grid_locked_children_place_after_pinned_ones_and_before_auto_ones() {
     // child order: auto, column-locked, row-locked, pinned
     let solved = solve_everywhere(two_fixed_columns(), v2(300.0, 300.0), &[kid(50.0, 20.0), column_locked, row_locked, pinned]);
     assert_eq!(solved.kids[3][..2], [0.0, 0.0], "pinned (0, 0)");
-    assert_eq!(solved.kids[1][..2], [0.0, 30.0], "column 0 locked: first free row below the pinned child");
     assert_eq!(solved.kids[2][..2], [110.0, 0.0], "row 0 locked: first free column in row 0");
-    assert_eq!(solved.kids[0][..2], [110.0, 30.0], "auto: first free cell in reading order");
+    assert_eq!(solved.kids[0][..2], [0.0, 30.0], "auto: first free cell after row 0");
+    assert_eq!(solved.kids[1][..2], [0.0, 60.0], "column 0 locked: next row in column 0 after the auto child");
 }
 
 #[test]

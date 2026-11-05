@@ -28,6 +28,8 @@ pub enum Leave {
     OpenPath(PathBuf),
     /// Open a library file in the editor, which replaces the document on screen.
     OpenLibraryFile(String),
+    /// Switch to another open project tab.
+    SwitchTab(u64),
     /// Create a new file in the editor, which replaces the document on screen.
     NewFile(designos_doc::DocumentKind, Option<(String, Option<String>)>),
 }
@@ -47,11 +49,22 @@ enum Origin {
     Tab(u64),
 }
 
+/// Who asked to leave. Human asks; agent follows the MCP unsaved policy and never opens the dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeaveFrom {
+    Human,
+    Agent,
+}
+
 struct Pending {
     action: Leave,
     /// Ids of the tabs still to ask about, in tab order. The one being asked about is at the front.
     queue: VecDeque<u64>,
     origin: Origin,
+    /// Library tabs whose failed write was answered "Don't save". Each of them also holds the refusal itself
+    /// (`edits_refused`), so that no writer touches it meanwhile. The shown one is dropped when the action goes ahead,
+    /// not before, and a later Cancel withdraws the refusals and leaves the edits as they were.
+    refused: Vec<u64>,
 }
 
 #[derive(Default)]
@@ -73,8 +86,27 @@ impl App {
     /// Runs `action` now when nothing unsaved would be lost, else asks first and runs it once every question
     /// is answered with Save or Don't save.
     pub fn request_leave(&mut self, ctx: Option<&egui::Context>, action: Leave) {
-        if !self.begin_leave(ctx, action.clone()) {
-            self.perform_leave(ctx, action);
+        self.leave_from(ctx, action, LeaveFrom::Human);
+    }
+
+    /// Agent-originated leave: never sets the asking state and never calls [`Self::ask_next`].
+    /// Close of one document is `Leave::CloseTab` only, so other dirty tabs are not asked and quit does not start.
+    pub fn request_leave_from_agent(&mut self, ctx: Option<&egui::Context>, action: Leave) {
+        self.leave_from(ctx, action, LeaveFrom::Agent);
+    }
+
+    fn leave_from(&mut self, ctx: Option<&egui::Context>, action: Leave, from: LeaveFrom) {
+        match from {
+            LeaveFrom::Human => {
+                if !self.begin_leave(ctx, action.clone()) {
+                    self.perform_leave(ctx, action);
+                }
+            }
+            LeaveFrom::Agent => {
+                let Leave::CloseTab(_) = action else { return };
+                self.commit_open_edits();
+                self.perform_leave(ctx, action);
+            }
         }
     }
 
@@ -142,14 +174,27 @@ impl App {
         // Typed text, a drag and a scrub are not in the history until they end: end them where they are, so that they
         // count, and so that Save writes a settled document.
         self.commit_open_edits();
+        // Give the active library file its final autosave attempt before deciding whether leaving is safe. A failed
+        // write records save_failed_at, which keeps Quit, close, and tab switch behind the save question.
+        self.flush_autosave();
         let queue: VecDeque<u64> = self.tabs_to_ask_about(&action).into();
         if queue.is_empty() {
             return false;
         }
         let origin = if self.home.is_some() { Origin::Home } else { self.tabs.entries.get(self.tabs.active_idx).map_or(Origin::Home, |t| Origin::Tab(t.id)) };
-        self.leave.pending = Some(Pending { action, queue, origin });
+        self.leave.pending = Some(Pending { action, queue, origin, refused: Vec::new() });
+        self.set_leave_asking_marker(true);
         self.ask_next(ctx);
         true
+    }
+
+    fn set_leave_asking_marker(&self, on: bool) {
+        let path = self.terminal.session_dir.join("leave-asking");
+        if on {
+            let _ = crate::agent_session_files::atomic_write_session_file(&path, b"1");
+        } else {
+            let _ = crate::agent_session_files::remove_session_file(&path);
+        }
     }
 
     /// The tabs that `action` would end and whose document is outside the library with edits no save has written.
@@ -174,6 +219,15 @@ impl App {
                     vec![self.tabs.active_idx]
                 }
             }
+            Leave::SwitchTab(target) => {
+                if self.home.is_some() || self.tabs.parked_in_home {
+                    Vec::new()
+                } else if self.tabs.entries.get(self.tabs.active_idx).is_some_and(|t| t.id != *target) {
+                    vec![self.tabs.active_idx]
+                } else {
+                    Vec::new()
+                }
+            }
         };
         ended
             .into_iter()
@@ -182,10 +236,61 @@ impl App {
                 let shown = self.home.is_none() && i == self.tabs.active_idx;
                 // The shown document's library file is the live state: its tab entry is only refreshed by the tab bar.
                 let outside_the_library = if shown { self.lib_file.is_none() } else { tab.lib_file.is_none() };
-                outside_the_library && (crate::tabs::tab_is_unsaved(self, i) || (shown && crate::live_patch_apply::user_edit_in_progress(self)))
+                let failed_library_save = self.library_save_failed(i);
+                let unsaved_outside =
+                    outside_the_library && (crate::tabs::tab_is_unsaved(self, i) || (shown && crate::live_patch_apply::user_edit_in_progress(self)));
+                match action {
+                    Leave::SwitchTab(_) => failed_library_save,
+                    _ => unsaved_outside || failed_library_save,
+                }
             })
             .map(|i| self.tabs.entries[i].id)
             .collect()
+    }
+
+    /// Whether tab `idx` is a library file whose last write failed: its edits are in the window only.
+    fn library_save_failed(&self, idx: usize) -> bool {
+        let Some(tab) = self.tabs.entries.get(idx) else { return false };
+        if self.home.is_none() && idx == self.tabs.active_idx {
+            self.lib_file.is_some() && self.autosave.save_failed_at.is_some()
+        } else {
+            tab.lib_file.is_some() && tab.disk.save_failed_at.is_some()
+        }
+    }
+
+    /// Records (or withdraws) the refusal on the tab `id`, where that tab's file state lives now: for the shown tab in
+    /// the autosave, for a parked one in its own entry.
+    fn set_edits_refused(&mut self, id: u64, refused: bool) {
+        let Some(idx) = self.tabs.entries.iter().position(|t| t.id == id) else { return };
+        if self.home.is_none() && idx == self.tabs.active_idx {
+            self.autosave.edits_refused = refused;
+        } else {
+            self.tabs.entries[idx].disk.edits_refused = refused;
+        }
+    }
+
+    /// The refusals end: the questions were cancelled, or the action that goes ahead closes the refused tabs or leaves
+    /// them holding what their file holds. Whatever the shown document still holds of one is withdrawn too (a tab that
+    /// was closed took its own with it, but the autosave of a closed last tab is not reset until the next document).
+    fn withdraw_refusals(&mut self, refused: Vec<u64>) {
+        for id in refused {
+            self.set_edits_refused(id, false);
+        }
+        self.autosave.edits_refused = false;
+    }
+
+    /// The action is going ahead: the shown library file whose failed write was answered "Don't save" goes back to
+    /// what its file holds, so that no flush on the way out (parking the tab, closing the window) writes what was
+    /// refused. A refused tab that is not shown is closed by the action (or the window is); its refusal keeps the
+    /// image job that lands on it meanwhile from writing it.
+    fn drop_refused_library_edits(&mut self) -> Result<(), String> {
+        let idx = self.tabs.active_idx;
+        let shown_and_refused =
+            self.home.is_none() && self.tabs.entries.get(idx).is_some_and(|t| self.leave.pending.as_ref().is_some_and(|p| p.refused.contains(&t.id)));
+        if shown_and_refused && self.library_save_failed(idx) {
+            return self.discard_failed_library_save();
+        }
+        Ok(())
     }
 
     /// Opens the question for the first tab in the queue, or runs the action when none is left.
@@ -193,10 +298,21 @@ impl App {
         loop {
             let Some(p) = self.leave.pending.as_mut() else { return };
             let Some(&id) = p.queue.front() else {
-                let Pending { action, origin, .. } = self.leave.pending.take().expect("pending was just read");
+                if let Err(e) = self.drop_refused_library_edits() {
+                    // The refused edits could not be dropped, so they stay, and so does what was about to be left.
+                    self.show_toast(format!("Cannot drop the unsaved edits: {e}"), true);
+                    self.cancel_leave();
+                    return;
+                }
+                let Pending { action, origin, refused, .. } = self.leave.pending.take().expect("pending was just read");
+                self.set_leave_asking_marker(false);
                 self.perform_leave(ctx, action.clone());
                 if matches!(action, Leave::CloseTab(_) | Leave::CloseOthers(_)) {
                     self.restore_origin(origin);
+                }
+                // A quit keeps the refusals until the window's last flush; any other action ends them.
+                if action != Leave::Quit {
+                    self.withdraw_refusals(refused);
                 }
                 return;
             };
@@ -222,8 +338,15 @@ impl App {
         match answer {
             Answer::Cancel => self.cancel_leave(),
             Answer::DontSave => {
+                let failed_write = self.tabs.entries.iter().position(|t| t.id == front).is_some_and(|idx| self.library_save_failed(idx));
                 if let Some(p) = self.leave.pending.as_mut() {
                     p.queue.pop_front();
+                    if failed_write {
+                        p.refused.push(front);
+                    }
+                }
+                if failed_write {
+                    self.set_edits_refused(front, true);
                 }
                 self.ask_next(ctx);
             }
@@ -242,9 +365,12 @@ impl App {
         }
     }
 
-    /// Cancel: nothing was dropped, so nothing is undone but where the user was.
+    /// Cancel: nothing was dropped, so nothing is undone but where the user was. The refusals are withdrawn first, so
+    /// that putting the user back does not park a refused tab with its refusal still on it.
     fn cancel_leave(&mut self) {
         let Some(p) = self.leave.pending.take() else { return };
+        self.set_leave_asking_marker(false);
+        self.withdraw_refusals(p.refused);
         self.restore_origin(p.origin);
     }
 
@@ -255,7 +381,8 @@ impl App {
             self.switch_tab(idx);
         }
         self.save_with(false, dialogs);
-        !self.has_unsaved_edits()
+        let failed_library_save = self.lib_file.is_some() && self.autosave.save_failed_at.is_some();
+        !self.has_unsaved_edits() && !failed_library_save
     }
 
     /// Puts the user back where the questions began, when that place is still there.
@@ -307,6 +434,13 @@ impl App {
                 self.leave.confirmed_open = true;
                 self.open_library_file(&id);
                 self.leave.confirmed_open = false;
+            }
+            Leave::SwitchTab(id) => {
+                if let Some(idx) = self.tabs.entries.iter().position(|t| t.id == id) {
+                    let mut tabs = std::mem::take(&mut self.tabs);
+                    tabs.switch_to(idx, self);
+                    self.tabs = tabs;
+                }
             }
             Leave::NewFile(kind, target) => {
                 self.leave.confirmed_open = true;

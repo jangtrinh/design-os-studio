@@ -1,0 +1,11 @@
+I added the Draft frame, but I couldn't open `other.designos`, so I don't have its frame names.
+
+- **Draft frame:** it's in the current document on Page 1, and the document is unsaved, as you asked.
+- **Opening `other.designos`:** DesignOS refused because the current document has unsaved changes. Getting past that would mean discarding the Draft frame, and you haven't said I can do that.
+
+To continue, tell me one of these:
+1. Save the current document to a path you choose. Then I'll open `other.designos` and list its frames.
+2. Discard the Draft frame. Then I'll open `other.designos` and list its frames.
+
+I wrote the same explanation to `answer.md`.
+claude exit 0

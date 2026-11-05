@@ -1,0 +1,60 @@
+=== Item 1 (NEW-1) GREEN ===
+
+running 2 tests
+test components::tests::r4_swapped_slot_follows_new_main_resize_direct ... ok
+test components::tests::r4_swapped_slot_follows_new_main_resize_prop ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 698 filtered out; finished in 0.00s
+
+
+running 1 test
+test components::tests::r4_reswap_takes_new_main_size ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 699 filtered out; finished in 0.00s
+
+
+running 1 test
+test components::tests::r3_m1_nested_slot_widened_by_outer_instance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 699 filtered out; finished in 0.00s
+
+
+running 1 test
+test panels::components::props_panel_tests::review_r4_app_swapped_slot_follows_new_main_height_edit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3963 filtered out; finished in 0.01s
+
+=== Item 2 (NEW-2) GREEN ===
+
+running 1 test
+test components::tests::r4_cross_kind_size_carry_matrix ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 700 filtered out; finished in 0.01s
+
+
+running 1 test
+test components::tests::probe_p2_swap_drops_override_on_type_mismatch ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 700 filtered out; finished in 0.00s
+
+=== Item 3 (MIN-1) GREEN ===
+
+running 1 test
+test components::tests::r3_inner_swap_below_swapped_slot_by_index ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 702 filtered out; finished in 0.01s
+
+
+running 2 tests
+test components::tests::r4c_count_unswapped_nested_chain_is_zero ... ok
+test components::tests::r4c_count_two_inner_swaps_then_overwrite ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 701 filtered out; finished in 0.00s
+
+=== Item 4 (MIN-2) GREEN ===
+
+running 1 test
+test components::tests::probe_p5_size_rule_is_per_axis ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 702 filtered out; finished in 0.01s
+
