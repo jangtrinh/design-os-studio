@@ -86,6 +86,8 @@ pub enum MergeError {
     DanglingReference(Vec<DanglingReference>),
     /// A generated merge command failed to apply against `main`.
     Apply { step: usize, reason: String },
+    /// The merged working tree would make a component hold an instance of itself.
+    InstanceCycle(String),
     /// Attempted to merge an archived or already-merged branch (`T10.3 §8.6`).
     BranchArchived(String),
 }
@@ -104,6 +106,7 @@ impl std::fmt::Display for MergeError {
             Self::Apply { step, reason } => {
                 write!(f, "merge command failed at step {step}: {reason}")
             }
+            Self::InstanceCycle(message) => write!(f, "{message}"),
             Self::BranchArchived(name) => {
                 write!(f, "branch '{name}' is archived or already merged")
             }
@@ -230,6 +233,13 @@ pub fn merge(base: &Document, main: &Document, branch: &Document, diff: &Diff3, 
     for (step, cmd) in commands.iter().enumerate() {
         let mut step_history = History::default();
         step_history.exec(&mut working, cmd.clone()).map_err(|reason| MergeError::Apply { step, reason: reason.to_string() })?;
+    }
+    if let Some((component, cycle_path)) = crate::components::first_new_self_holding_component_cycle(main, &remapped_branch, &working, &commands) {
+        let comp_name = crate::cycle_node_label(&working, component);
+        let path_text = cycle_path.join(" -> ");
+        return Err(MergeError::InstanceCycle(format!(
+            "INSTANCE_CYCLE: cannot merge branch because main component '{comp_name}' would hold an instance of itself (cycle path: {path_text})"
+        )));
     }
 
     // 6. Validate all references in the merged document (`T10.3 §2`, `§3.7`, `§8.1`, `§8.2`).
@@ -2413,5 +2423,115 @@ mod tests {
         assert!(history.undo(&mut main).unwrap());
         assert_eq!(main.pages, snapshot_before_merge.pages);
         assert_eq!(main.nodes, snapshot_before_merge.nodes);
+    }
+
+    #[test]
+    fn branch_merge_rejects_instance_cycle_created_by_add_then_move() {
+        let mut base = Document::new("branch-cycle");
+        let page = base.add_page("Page");
+        let comp_id = base.alloc_id();
+        let comp = Node::new(comp_id, NodeKind::Component(crate::FrameProps::default()));
+        base.insert(page, comp).unwrap();
+        let x_id = base.alloc_id();
+        base.insert(page, Node::frame(x_id, crate::Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+
+        let mut main = base.clone();
+        main.reparent(x_id, comp_id, 0).unwrap();
+
+        let mut branch = base.clone();
+        let inst_id = branch.alloc_id();
+        let inst = Node::new(inst_id, NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(comp_id), component_key: None });
+        branch.insert(x_id, inst).unwrap();
+
+        let result = merge_branch(&base, &main, &branch, &Resolution::default());
+        let err = result.expect_err("merge must reject the cycle formed after add then move");
+        let text = err.to_string();
+        assert!(text.contains("INSTANCE_CYCLE"), "named cycle error: {text}");
+        assert!(text.contains("Component -> Frame -> Component"), "error identifies cycle path: {text}");
+        assert!(!text.contains("(id "), "error omits internal ids: {text}");
+    }
+
+    #[test]
+    fn branch_merge_refuses_self_holding_cycle_with_component_name_and_path_without_partial_apply() {
+        let mut base = Document::new("branch-cycle-named");
+        let page = base.add_page("Page");
+        let comp_id = base.alloc_id();
+        let mut comp = Node::new(comp_id, NodeKind::Component(crate::FrameProps::default()));
+        comp.name = "B".into();
+        base.insert(page, comp).unwrap();
+        let x_id = base.alloc_id();
+        let mut x = Node::frame(x_id, crate::Rect::new(0.0, 0.0, 100.0, 100.0));
+        x.name = "X".into();
+        base.insert(page, x).unwrap();
+
+        // Case 1: main moves X into B; branch puts an instance of B into X and also adds an unrelated layer.
+        let mut main_a = base.clone();
+        main_a.reparent(x_id, comp_id, 0).unwrap();
+        let main_a_before = main_a.clone();
+
+        let mut branch_a = base.clone();
+        let inst_id = branch_a.alloc_id();
+        let mut inst = Node::new(inst_id, NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(comp_id), component_key: None });
+        inst.name = "B".into();
+        branch_a.insert(x_id, inst).unwrap();
+        let _extra = add_rect(&mut branch_a, page, "Unrelated", 200.0, 200.0);
+
+        let err_a = merge_branch(&base, &main_a, &branch_a, &Resolution::default()).expect_err("add-then-move cycle must be refused");
+        let msg_a = err_a.to_string();
+        assert!(msg_a.contains("INSTANCE_CYCLE"), "{msg_a}");
+        assert!(msg_a.contains("main component 'B'"), "{msg_a}");
+        assert!(msg_a.contains("B -> X -> B"), "{msg_a}");
+        assert_eq!(main_a.nodes, main_a_before.nodes, "whole merge is refused; main is not half-applied");
+
+        // Case 2: main puts an instance of B into X; branch moves X into B and adds an unrelated layer.
+        let mut main_b = base.clone();
+        let inst_main_id = main_b.alloc_id();
+        let mut inst_main = Node::new(inst_main_id, NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(comp_id), component_key: None });
+        inst_main.name = "B".into();
+        main_b.insert(x_id, inst_main).unwrap();
+        let main_b_before = main_b.clone();
+
+        let mut branch_b = base.clone();
+        branch_b.reparent(x_id, comp_id, 0).unwrap();
+        let _extra_b = add_rect(&mut branch_b, page, "Unrelated", 200.0, 200.0);
+
+        let err_b = merge_branch(&base, &main_b, &branch_b, &Resolution::default()).expect_err("move-then-add cycle must be refused");
+        let msg_b = err_b.to_string();
+        assert!(msg_b.contains("INSTANCE_CYCLE"), "{msg_b}");
+        assert!(msg_b.contains("main component 'B'"), "{msg_b}");
+        assert!(msg_b.contains("B -> X -> B"), "{msg_b}");
+        assert_eq!(main_b.nodes, main_b_before.nodes, "whole merge is refused; main is not half-applied");
+
+        // Case 3: base has an instance of B inside X; branch removes the instance and moves X into B (legal).
+        let base_with_inst = main_b.clone();
+        let main_c = base_with_inst.clone();
+        let mut branch_c = base_with_inst.clone();
+        branch_c.remove(inst_main_id).unwrap();
+        branch_c.reparent(x_id, comp_id, 0).unwrap();
+        let (merged_c, _) = merge_branch(&base_with_inst, &main_c, &branch_c, &Resolution::default()).expect("remove-then-move must succeed");
+        assert_eq!(merged_c.get(x_id).unwrap().parent, Some(comp_id));
+        assert!(merged_c.get(inst_main_id).is_none());
+    }
+
+    #[test]
+    fn merge_into_a_file_with_an_existing_cycle_still_applies_unrelated_changes() {
+        let mut base = Document::new("existing-cycle");
+        let page = base.add_page("Page");
+        let b = base.alloc_id();
+        let mut comp = Node::new(b, NodeKind::Component(crate::FrameProps::default()));
+        comp.name = "B".into();
+        base.insert(page, comp).unwrap();
+        let self_inst_id = base.alloc_id();
+        let mut self_inst = Node::new(self_inst_id, NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(b), component_key: None });
+        self_inst.name = "B self".into();
+        self_inst.component.source = Some(b);
+        base.insert(b, self_inst).unwrap();
+
+        let main = base.clone();
+        let mut branch = base.clone();
+        let rect_id = add_rect(&mut branch, page, "Unrelated", 300.0, 300.0);
+
+        let (merged, _) = merge_branch(&base, &main, &branch, &Resolution::default()).expect("existing cycle in file must not block an unrelated branch merge");
+        assert!(merged.get(rect_id).is_some(), "unrelated branch change must be applied");
     }
 }

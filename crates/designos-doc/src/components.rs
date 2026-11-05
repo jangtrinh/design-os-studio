@@ -673,6 +673,217 @@ pub fn cycle_node_label(doc: &Document, id: NodeId) -> String {
     doc.get(id).map(|n| if n.name.trim().is_empty() { n.kind.default_name().to_string() } else { n.name.clone() }).unwrap_or_else(|| "Layer".to_string())
 }
 
+fn container_labels_between(doc: &Document, ancestor: NodeId, leaf_parent: Option<NodeId>) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut cur = leaf_parent;
+    let mut guard = 0usize;
+    while let Some(pid) = cur {
+        if pid == ancestor || guard > doc.nodes.len() {
+            break;
+        }
+        chain.push(cycle_node_label(doc, pid));
+        cur = doc.get(pid).and_then(|p| p.parent);
+        guard += 1;
+    }
+    chain.reverse();
+    chain
+}
+
+fn component_chain_path(doc: &Document, start_comp: NodeId, goal_comp: NodeId) -> Option<Vec<String>> {
+    let edges_from = |m: NodeId| -> Vec<(NodeId, NodeId)> {
+        let mut out = Vec::new();
+        doc.walk(m, |n, _| {
+            if let Some(target) = instance_component(n) {
+                out.push((target, n.id));
+            }
+        });
+        out
+    };
+
+    let mut queue = std::collections::VecDeque::new();
+    let mut visited = BTreeSet::new();
+    let mut parent_edge: std::collections::BTreeMap<NodeId, (NodeId, NodeId)> = std::collections::BTreeMap::new();
+    queue.push_back(start_comp);
+    while let Some(cur) = queue.pop_front() {
+        for (target, inst_id) in edges_from(cur) {
+            if target == goal_comp {
+                let mut hops = vec![(cur, inst_id, target)];
+                let mut back = cur;
+                while back != start_comp {
+                    let &(prev_comp, prev_inst) = parent_edge.get(&back)?;
+                    hops.push((prev_comp, prev_inst, back));
+                    back = prev_comp;
+                }
+                hops.reverse();
+                let mut path = vec![cycle_node_label(doc, start_comp)];
+                for (from_comp, via_inst, to_comp) in hops {
+                    let inst_parent = doc.get(via_inst).and_then(|n| n.parent);
+                    path.extend(container_labels_between(doc, from_comp, inst_parent));
+                    path.push(cycle_node_label(doc, to_comp));
+                }
+                return Some(path);
+            }
+            if visited.insert(target) {
+                parent_edge.insert(target, (cur, inst_id));
+                queue.push_back(target);
+            }
+        }
+    }
+    None
+}
+
+/// If `comp` is a main component that holds an instance of itself (directly or through other
+/// main components), returns the human-readable cycle path starting and ending with `comp`'s label
+/// (for example `["B", "X", "B"]`).
+pub fn self_holding_cycle_path(doc: &Document, comp: NodeId) -> Option<Vec<String>> {
+    if !matches!(doc.get(comp).map(|n| &n.kind), Some(NodeKind::Component(_))) {
+        return None;
+    }
+    component_chain_path(doc, comp, comp)
+}
+
+/// Finds the first main component in `doc` (ordered by [`NodeId`]) that holds an instance of itself,
+/// returning `(component_id, cycle_path_labels)`.
+pub fn first_self_holding_component_cycle(doc: &Document) -> Option<(NodeId, Vec<String>)> {
+    let mut comps: Vec<NodeId> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).map(|n| n.id).collect();
+    comps.sort();
+    comps.into_iter().find_map(|id| self_holding_cycle_path(doc, id).map(|path| (id, path)))
+}
+
+fn collect_cycle_candidate_mains_from_command(main: &Document, working: &Document, cmd: &crate::Command, out: &mut BTreeSet<NodeId>) {
+    let add_enclosing_components = |doc: &Document, start: NodeId, set: &mut BTreeSet<NodeId>| {
+        let mut cur = Some(start);
+        let mut hops = 0usize;
+        let cap = doc.nodes.len() + 1;
+        while let Some(id) = cur {
+            if hops > cap {
+                break;
+            }
+            hops += 1;
+            let Some(n) = doc.get(id) else { break };
+            if matches!(n.kind, NodeKind::Component(_)) {
+                set.insert(id);
+            }
+            cur = n.parent;
+        }
+    };
+    let add_subtree_components_and_targets = |doc: &Document, root: NodeId, set: &mut BTreeSet<NodeId>| {
+        doc.walk(root, |n, _| {
+            if matches!(n.kind, NodeKind::Component(_)) {
+                set.insert(n.id);
+            }
+            if let Some(target) = instance_component(n) {
+                set.insert(target);
+            }
+        });
+    };
+
+    match cmd {
+        crate::Command::Insert { parent, nodes, .. } => {
+            add_enclosing_components(working, *parent, out);
+            for node in nodes {
+                let has_comp_or_inst = matches!(node.kind, NodeKind::Component(_) | NodeKind::Instance { .. })
+                    || working.get(node.id).is_some_and(|wn| matches!(wn.kind, NodeKind::Component(_) | NodeKind::Instance { .. }) || !wn.children.is_empty());
+                if has_comp_or_inst {
+                    add_enclosing_components(working, node.id, out);
+                    add_subtree_components_and_targets(working, node.id, out);
+                }
+            }
+        }
+        crate::Command::Reparent { id, parent, .. } => {
+            add_enclosing_components(working, *parent, out);
+            add_enclosing_components(working, *id, out);
+            add_subtree_components_and_targets(working, *id, out);
+        }
+        crate::Command::Update { node } => {
+            let prev = main.get(node.id);
+            let became_comp = matches!(node.kind, NodeKind::Component(_)) && !prev.is_some_and(|p| matches!(p.kind, NodeKind::Component(_)));
+            let new_target = instance_component(node);
+            let old_target = prev.and_then(instance_component);
+            let changed_inst_target = new_target.is_some() && new_target != old_target;
+            if became_comp || changed_inst_target {
+                add_enclosing_components(working, node.id, out);
+                if let Some(target) = new_target {
+                    out.insert(target);
+                }
+            }
+        }
+        crate::Command::Batch(cmds) => {
+            for sub in cmds {
+                collect_cycle_candidate_mains_from_command(main, working, sub, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Finds the first main component in `working` whose self-holding instance cycle was newly
+/// introduced by applying `commands` (that is, the component was not already self-holding in
+/// `main` or `branch`).
+pub fn first_new_self_holding_component_cycle(
+    main: &Document,
+    branch: &Document,
+    working: &Document,
+    commands: &[crate::Command],
+) -> Option<(NodeId, Vec<String>)> {
+    let mut candidates = BTreeSet::new();
+    for cmd in commands {
+        collect_cycle_candidate_mains_from_command(main, working, cmd, &mut candidates);
+    }
+    candidates.into_iter().find_map(|comp| {
+        let path = self_holding_cycle_path(working, comp)?;
+        if self_holding_cycle_path(main, comp).is_some() || self_holding_cycle_path(branch, comp).is_some() {
+            return None;
+        }
+        Some((comp, path))
+    })
+}
+
+/// If placing an instance of `component` under `at` (optionally through `extra_containers`) would
+/// make an enclosing main component hold an instance of itself, returns `(held_main, cycle_path_labels)`.
+pub fn held_main_cycle_path_at(doc: &Document, component: NodeId, at: NodeId, extra_containers: &[String]) -> Option<(NodeId, Vec<String>)> {
+    let held_main = held_main_at(doc, component, at)?;
+    let mut path = vec![cycle_node_label(doc, held_main)];
+    path.extend(container_labels_between(doc, held_main, Some(at)));
+    path.extend(extra_containers.iter().cloned());
+    if component == held_main {
+        path.push(cycle_node_label(doc, held_main));
+    } else if let Some(tail) = component_chain_path(doc, component, held_main) {
+        path.extend(tail);
+    } else {
+        path.push(cycle_node_label(doc, component));
+        path.push(cycle_node_label(doc, held_main));
+    }
+    Some((held_main, path))
+}
+
+/// If reparenting `ids` under `new_parent` would make an enclosing main component hold an instance
+/// of itself, returns `(held_main, cycle_path_labels)`.
+pub fn reparent_held_main_cycle_path(doc: &Document, ids: &[NodeId], new_parent: NodeId) -> Option<(NodeId, Vec<String>)> {
+    let held_main = reparent_held_main(doc, ids, new_parent)?;
+    for &root in ids {
+        let mut found = None;
+        doc.walk(root, |n, _| {
+            if found.is_some() {
+                return;
+            }
+            let Some(target) = instance_component(n) else { return };
+            if target == held_main || mains_held_through(doc, [target]).contains(&held_main) {
+                let mut extra = Vec::new();
+                if n.id != root {
+                    extra.push(cycle_node_label(doc, root));
+                    extra.extend(container_labels_between(doc, root, n.parent));
+                }
+                found = held_main_cycle_path_at(doc, target, new_parent, &extra);
+            }
+        });
+        if let Some(res) = found {
+            return Some(res);
+        }
+    }
+    Some((held_main, vec![cycle_node_label(doc, held_main), cycle_node_label(doc, new_parent), cycle_node_label(doc, held_main)]))
+}
+
 /// Whether an instance of `component` at `at` (the parent it goes under, or the instance it replaces) would make a
 /// main hold itself: `at` is, or sits in, `component` or a main that the content of `component` holds an instance of.
 /// Such a main mirrors itself without end.
@@ -1563,6 +1774,8 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
 fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen: &mut Vec<NodeId>) {
     let (Some(mut rn), Some(mut inode)) = (c.s.get(r).cloned(), c.s.get(i).cloned()) else { return };
     let slot_comp = instance_component(&rn);
+    let slot_constraints = rn.constraints;
+    let slot_layout_child = rn.layout_child;
     let values = c.s.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
 
     // --- which component should this instance show? ---
@@ -1608,6 +1821,47 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
 
     // --- node properties ---
     let mut n = inode.clone();
+    let is_nested_inst = !top && !swapped_here && matches!(inode.kind, NodeKind::Instance { .. });
+    let parent_delta = if is_nested_inst {
+        c.s.get(i)
+            .and_then(|node| node.parent)
+            .zip(c.s.get(r).and_then(|node| node.parent))
+            .map(|(ip, rp)| {
+                let Some(instance_parent) = c.s.get(ip) else { return (0.0, 0.0) };
+                let Some(main_parent) = c.s.get(rp) else { return (0.0, 0.0) };
+                (instance_parent.size.x - main_parent.size.x, instance_parent.size.y - main_parent.size.y)
+            })
+            .unwrap_or((0.0, 0.0))
+    } else {
+        (0.0, 0.0)
+    };
+    let parent_expanded = (parent_delta.0.abs() > 1e-4, parent_delta.1.abs() > 1e-4);
+    let parent_swapped = is_nested_inst
+        && c.s.get(i).and_then(|node| node.parent).is_some_and(|parent_id| {
+            let Some(parent) = c.s.get(parent_id) else { return false };
+            let Some(reference) = reference_of(&c.s, parent_id).and_then(|id| c.s.get(id)) else { return false };
+            let reference_component = if matches!(reference.kind, NodeKind::Component(_)) { Some(reference.id) } else { instance_component(reference) };
+            instance_component(parent) != reference_component
+        });
+    let eff_constraints = if inode.component.overrides.contains(&OverrideField::Layout) { inode.constraints } else { slot_constraints };
+    let eff_layout_child = if inode.component.overrides.contains(&OverrideField::Layout) { inode.layout_child } else { slot_layout_child };
+    let in_auto_layout_flow =
+        !eff_layout_child.absolute && inode.parent.and_then(|ip| c.s.get(ip)).and_then(|p| p.kind.frame_props()).is_some_and(|fp| fp.auto_layout.is_some());
+    let stretches_x = if in_auto_layout_flow { eff_layout_child.horizontal == Sizing::Fill } else { matches!(eff_constraints.horizontal, Constraint::Stretch) };
+    let stretches_y = if in_auto_layout_flow { eff_layout_child.vertical == Sizing::Fill } else { matches!(eff_constraints.vertical, Constraint::Stretch) };
+    // A nested Stretch (or auto-layout Fill) instance can have geometry derived from a resized
+    // enclosing instance without carrying an explicit Size override. Preserve that derived size
+    // while syncing the enclosing component; otherwise the main-side slot size below would snap it
+    // back before the child constraint pass runs.
+    let preserve_stretch_x = !top && !swapped_here && !parent_swapped && matches!(inode.kind, NodeKind::Instance { .. }) && parent_expanded.0 && stretches_x;
+    let preserve_stretch_y = !top && !swapped_here && !parent_swapped && matches!(inode.kind, NodeKind::Instance { .. }) && parent_expanded.1 && stretches_y;
+    let stretched_size_for_slot = |slot_size: Vec2| -> Vec2 {
+        if in_auto_layout_flow {
+            inode.size
+        } else {
+            Vec2::new((slot_size.x + parent_delta.0).max(1.0), (slot_size.y + parent_delta.1).max(1.0))
+        }
+    };
     if !top && instance_component(&inode) != slot_comp {
         if let Some(mut node_ref) = c.s.get(r).cloned() {
             let orig_slot_comp = slot_comp.and_then(|oc| c.s.get(oc));
@@ -1617,13 +1871,20 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
             if swapped_here {
                 node_ref.size = inode.size;
             } else {
+                let stretched = stretched_size_for_slot(node_ref.size);
                 let keep_x = orig_slot_comp.is_some_and(|oc| (node_ref.size.x - oc.size.x).abs() > 1e-4);
                 let keep_y = orig_slot_comp.is_some_and(|oc| (node_ref.size.y - oc.size.y).abs() > 1e-4);
-                if !keep_x {
+                if !keep_x && !preserve_stretch_x {
                     node_ref.size.x = rn.size.x;
                 }
-                if !keep_y {
+                if !keep_y && !preserve_stretch_y {
                     node_ref.size.y = rn.size.y;
+                }
+                if preserve_stretch_x {
+                    node_ref.size.x = stretched.x;
+                }
+                if preserve_stretch_y {
+                    node_ref.size.y = stretched.y;
                 }
             }
             for f in [
@@ -1645,6 +1906,15 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
         }
     } else {
         apply_reference(&rn, &mut n, top, &values);
+        if !n.component.overrides.contains(&OverrideField::Size) {
+            let stretched = stretched_size_for_slot(rn.size);
+            if preserve_stretch_x {
+                n.size.x = stretched.x;
+            }
+            if preserve_stretch_y {
+                n.size.y = stretched.y;
+            }
+        }
     }
     apply_bindings(&mut n, &values);
     c.update(n);
@@ -1722,7 +1992,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
             c.push(Command::Reparent { id: *id, parent: i, index: k });
         }
     }
-    if !top && instance_component(&inode) != slot_comp {
+    if !top && (instance_component(&inode) != slot_comp || preserve_stretch_x || preserve_stretch_y) {
         if let Some(slot_after) = c.s.get(i).map(|x| x.size).filter(|&sz| sz != rn.size) {
             let plan = crate::layout_constraints::plan_constraint_pass(&c.s, i, rn.size, slot_after, 8);
             for (cid, new_tf, new_sz) in plan {
@@ -6591,6 +6861,304 @@ mod tests {
         let s = d.get(si).unwrap();
         let bg = d.get(s.children[0]).unwrap();
         assert_eq!((s.size, bg.size), (Vec2::new(80.0, 48.0), Vec2::new(80.0, 48.0)), "an unresized swapped slot follows its new main's resize");
+    }
+
+    #[test]
+    fn nested_stretch_instance_keeps_resized_width_when_parent_syncs_unrelated_opacity() {
+        let mut d = Document::new("nested-stretch-sync");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![btn], false);
+
+        // Resize the Card instance. Its nested Stretch button is fitted to the
+        // widened instance by the same constraint pass used by the editor.
+        let mut card_instance = d.get(ci).unwrap().clone();
+        card_instance.size = Vec2::new(300.0, 100.0);
+        card_instance.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(card_instance) });
+        for (id, tf, size) in crate::layout_constraints::plan_constraint_pass(&d, ci, Vec2::new(100.0, 100.0), Vec2::new(300.0, 100.0), 8) {
+            let mut n = d.get(id).unwrap().clone();
+            crate::layout_constraints::apply_constrained_geometry(&mut n, tf, size);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        let widened = d.get(si).unwrap().size.x;
+        let bg = d.get(si).unwrap().children[0];
+        assert!(widened > 200.0, "fixture must widen the nested Stretch instance, got {widened}");
+        assert_eq!(d.get(bg).unwrap().size.x, widened);
+
+        // An unrelated edit to the Card main still triggers a full sync.
+        let mut card_main = d.get(card).unwrap().clone();
+        card_main.opacity = 0.5;
+        apply(&mut d, Command::Update { node: Box::new(card_main) });
+        let before_sync = d.nodes.clone();
+        let c = sync_instances(&mut d, card);
+        let mut history = History::default();
+        history.exec(&mut d, c).unwrap();
+
+        assert_eq!(d.get(ci).unwrap().opacity, 0.5);
+        assert_eq!(d.get(si).unwrap().size.x, widened, "sync must preserve the resized nested Stretch width");
+        assert_eq!(d.get(bg).unwrap().size.x, widened, "sync must preserve stretched child width inside nested Stretch instance");
+
+        // Undo of the sync restores the exact pre-sync state.
+        assert!(history.undo(&mut d).unwrap());
+        assert_eq!(d.nodes, before_sync);
+        assert!(history.redo(&mut d).unwrap());
+        assert_eq!(d.get(ci).unwrap().opacity, 0.5);
+        assert_eq!(d.get(si).unwrap().size.x, widened);
+        assert_eq!(d.get(bg).unwrap().size.x, widened);
+
+        // Repeating the same sync must be idempotent.
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+        assert_eq!(d.get(si).unwrap().size.x, widened);
+        assert_eq!(d.get(bg).unwrap().size.x, widened);
+    }
+
+    #[test]
+    fn nested_fixed_instance_takes_main_size_when_parent_syncs() {
+        let mut d = Document::new("nested-fixed-sync");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![btn], false);
+        let slot = d.get(card).unwrap().children[0];
+
+        // Configure the nested slot as Fixed (Constraint::Min) rather than Stretch.
+        for id in [slot, si] {
+            let mut n = d.get(id).unwrap().clone();
+            n.constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+
+        // Widen the Card instance and give the nested instance a transient non-overridden width.
+        let mut card_instance = d.get(ci).unwrap().clone();
+        card_instance.size = Vec2::new(300.0, 100.0);
+        card_instance.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(card_instance) });
+        let mut nested = d.get(si).unwrap().clone();
+        nested.size.x = 280.0;
+        apply(&mut d, Command::Update { node: Box::new(nested) });
+
+        // Syncing the Card main snaps the Fixed nested instance back to the main slot's width (80.0).
+        let before_sync = d.nodes.clone();
+        let c = sync_instances(&mut d, card);
+        let mut history = History::default();
+        history.exec(&mut d, c).unwrap();
+        assert_eq!(d.get(si).unwrap().size, Vec2::new(80.0, 40.0), "Fixed nested instance must take the main's size");
+
+        // Undoing the sync restores the pre-sync state.
+        assert!(history.undo(&mut d).unwrap());
+        assert_eq!(d.nodes, before_sync);
+    }
+
+    #[test]
+    fn fixed_nested_instance_with_a_leftover_stretch_constraint_follows_its_main() {
+        let mut d = Document::new("al-fixed-leftover-stretch");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![btn], false);
+        let slot = d.get(card).unwrap().children[0];
+
+        // Configure Card as an auto-layout container, and the nested slot as Fixed sizing
+        // with a leftover Stretch constraint.
+        for id in [card, ci] {
+            let mut n = d.get(id).unwrap().clone();
+            if let Some(fp) = n.kind.frame_props_mut() {
+                fp.auto_layout =
+                    Some(crate::AutoLayout { direction: crate::LayoutDirection::Horizontal, padding: [10.0, 10.0, 10.0, 10.0], ..Default::default() });
+            }
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        for id in [slot, si] {
+            let mut n = d.get(id).unwrap().clone();
+            n.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Min };
+            n.layout_child.horizontal = crate::Sizing::Fixed;
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+
+        // Widen the Card instance and relayout.
+        let mut card_instance = d.get(ci).unwrap().clone();
+        card_instance.size = Vec2::new(300.0, 100.0);
+        card_instance.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(card_instance) });
+        d.relayout_subtree(ci);
+        assert_eq!(d.get(si).unwrap().size.x, 80.0);
+
+        // Resize the Btn main from 80 to 120 and sync.
+        let mut btn_main = d.get(btn).unwrap().clone();
+        let old_sz = btn_main.size;
+        btn_main.size.x = 120.0;
+        let new_sz = btn_main.size;
+        apply(&mut d, Command::Update { node: Box::new(btn_main) });
+        for (cid, tf, sz) in crate::layout_constraints::plan_constraint_pass(&d, btn, old_sz, new_sz, 8) {
+            let mut k = d.get(cid).unwrap().clone();
+            crate::layout_constraints::apply_constrained_geometry(&mut k, tf, sz);
+            apply(&mut d, Command::Update { node: Box::new(k) });
+        }
+        let c = sync_instances(&mut d, btn);
+        apply(&mut d, c);
+
+        assert_eq!(d.get(slot).unwrap().size.x, 120.0);
+        assert_eq!(d.get(si).unwrap().size.x, 120.0, "Fixed child in auto-layout parent must follow its main despite leftover Stretch constraint");
+    }
+
+    #[test]
+    fn nested_stretch_instance_follows_main_slot_move_and_resize() {
+        let mut d = Document::new("nested-stretch-slot-move");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![btn], false);
+        let slot = d.get(card).unwrap().children[0];
+
+        // Widen the Card instance from 100 to 300.
+        let mut card_instance = d.get(ci).unwrap().clone();
+        card_instance.size = Vec2::new(300.0, 100.0);
+        card_instance.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(card_instance) });
+        for (id, tf, size) in crate::layout_constraints::plan_constraint_pass(&d, ci, Vec2::new(100.0, 100.0), Vec2::new(300.0, 100.0), 8) {
+            let mut n = d.get(id).unwrap().clone();
+            crate::layout_constraints::apply_constrained_geometry(&mut n, tf, size);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        assert_eq!(d.get(si).unwrap().size.x, 280.0);
+
+        // Move the slot in the Card main from x=10, w=80 to x=20, w=70 (keeping a 10 px right margin).
+        let mut slot_node = d.get(slot).unwrap().clone();
+        let old_sz = slot_node.size;
+        slot_node.transform.tx = 20.0;
+        slot_node.size.x = 70.0;
+        let new_sz = slot_node.size;
+        apply(&mut d, Command::Update { node: Box::new(slot_node) });
+        for (cid, tf, sz) in crate::layout_constraints::plan_constraint_pass(&d, slot, old_sz, new_sz, 8) {
+            let mut k = d.get(cid).unwrap().clone();
+            crate::layout_constraints::apply_constrained_geometry(&mut k, tf, sz);
+            apply(&mut d, Command::Update { node: Box::new(k) });
+        }
+
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+
+        let bg = d.get(si).unwrap().children[0];
+        assert_eq!(d.get(si).unwrap().transform.tx, 20.0);
+        assert_eq!(d.get(si).unwrap().size.x, 270.0, "nested Stretch width must follow the main slot's new margins");
+        assert_eq!(d.get(bg).unwrap().size.x, 270.0);
+    }
+
+    #[test]
+    fn nested_auto_layout_fill_instance_keeps_resized_width_when_parent_syncs() {
+        let mut d = Document::new("nested-al-fill-keeps-width");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![btn], false);
+        let slot = d.get(card).unwrap().children[0];
+
+        for id in [card, ci] {
+            let mut n = d.get(id).unwrap().clone();
+            if let Some(fp) = n.kind.frame_props_mut() {
+                fp.auto_layout =
+                    Some(crate::AutoLayout { direction: crate::LayoutDirection::Vertical, padding: [10.0, 10.0, 10.0, 10.0], ..Default::default() });
+            }
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        for id in [slot, si] {
+            let mut n = d.get(id).unwrap().clone();
+            n.constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
+            n.layout_child.horizontal = crate::Sizing::Fill;
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+
+        let mut card_instance = d.get(ci).unwrap().clone();
+        card_instance.size = Vec2::new(300.0, 100.0);
+        card_instance.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(card_instance) });
+        d.relayout_subtree(ci);
+        assert_eq!(d.get(si).unwrap().size.x, 280.0);
+
+        let mut card_main = d.get(card).unwrap().clone();
+        card_main.opacity = 0.75;
+        apply(&mut d, Command::Update { node: Box::new(card_main) });
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+
+        let bg_inst = d.get(si).unwrap().children[0];
+        assert_eq!(d.get(si).unwrap().size.x, 280.0, "auto-layout Fill child must keep its parent-given width after sync");
+        assert_eq!(d.get(bg_inst).unwrap().size.x, 280.0);
+    }
+
+    #[test]
+    fn nested_instance_under_swapped_parent_follows_new_main_slot_on_sync() {
+        let mut d = Document::new("nested-under-swapped-parent");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+
+        // CardA (width 100) holds slot (width 80, Stretch).
+        let (card_a, _ci_a, _) = card_with_btn_slot(&mut d, page, vec![btn], false);
+        // CardB (width 200) holds slot_b (width 160, Stretch).
+        let card_b = d.alloc_id();
+        let mut cb = Node::new(card_b, NodeKind::Component(FrameProps::default()));
+        cb.name = "CardB".into();
+        cb.size = Vec2::new(200.0, 100.0);
+        d.insert(page, cb).unwrap();
+        let c = create_instance(&mut d, btn, card_b, Vec2::new(20.0, 10.0));
+        apply(&mut d, c);
+        let slot_b = d.get(card_b).unwrap().children[0];
+        let mut sb = d.get(slot_b).unwrap().clone();
+        sb.size = Vec2::new(160.0, 40.0);
+        sb.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Min };
+        sb.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(sb) });
+
+        // Outer holds an instance of CardA (`inner_card`), which we swap to CardB in an outer instance.
+        let outer = d.alloc_id();
+        let mut om = Node::new(outer, NodeKind::Component(FrameProps::default()));
+        om.name = "Outer".into();
+        om.size = Vec2::new(220.0, 120.0);
+        d.insert(page, om).unwrap();
+        let c = create_instance(&mut d, card_a, outer, Vec2::new(10.0, 10.0));
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, outer, page, Vec2::new(300.0, 0.0));
+        apply(&mut d, c);
+        let outer_inst = *d.get(page).unwrap().children.last().unwrap();
+        let inner_card = d.get(outer_inst).unwrap().children[0];
+        let c = swap_instance(&mut d, inner_card, card_b);
+        apply(&mut d, c);
+        let inner_btn = d.get(inner_card).unwrap().children[0];
+        assert_eq!(d.get(inner_btn).unwrap().size.x, 160.0);
+
+        // Widen inner_card to 240 without running constraints on inner_btn (so inner_btn is still 160),
+        // then resize slot_b in CardB to 140 and sync Btn: because inner_card is swapped relative to
+        // Outer's slot (CardA), inner_btn must take CardB's slot width (140) rather than preserving 180.
+        let mut ic = d.get(inner_card).unwrap().clone();
+        ic.size.x = 240.0;
+        ic.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(ic) });
+        let mut sb2 = d.get(slot_b).unwrap().clone();
+        sb2.size.x = 140.0;
+        sb2.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(sb2) });
+        let c = sync_instances(&mut d, btn);
+        apply(&mut d, c);
+
+        assert_eq!(d.get(inner_btn).unwrap().size.x, 140.0);
+    }
+
+    #[test]
+    fn unresized_swapped_nested_stretch_slot_follows_new_main_width_change() {
+        let mut d = Document::new("unresized-swapped-stretch-width");
+        let page = d.add_page("P");
+        let ba = mkbtn_stretch(&mut d, page, "Btn/A", 0.0, 32.0);
+        let bb = mkbtn_stretch(&mut d, page, "Btn/B", 100.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![ba, bb], false);
+        let c = set_instance_prop(&mut d, ci, "Btn", Some(PropValue::Instance(bb)));
+        apply(&mut d, c);
+        resize_main_with_constraints(&mut d, bb, Vec2::new(120.0, 48.0));
+        for m in [bb, card] {
+            let c = sync_instances(&mut d, m);
+            apply(&mut d, c);
+        }
+        let s = d.get(si).unwrap();
+        let bg = d.get(s.children[0]).unwrap();
+        assert_eq!((s.size, bg.size), (Vec2::new(120.0, 48.0), Vec2::new(120.0, 48.0)));
     }
 
     #[test]

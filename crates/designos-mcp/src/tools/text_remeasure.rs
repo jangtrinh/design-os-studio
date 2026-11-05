@@ -22,7 +22,7 @@ pub(crate) fn resize_hug_text(doc: &Document, node: &mut Node) {
         let drawn = resolve_node(doc, node);
         let NodeKind::Text(drawn_tp) = &drawn.kind else { return };
         match mode {
-            TextAutoResize::WidthAndHeight => crate::tools::measure_text(drawn_tp, None),
+            TextAutoResize::WidthAndHeight => designos_doc::text_measure::measure_hug_text_with(drawn_tp, drawn.layout_child.max_w, crate::tools::measure_text),
             _ => Vec2::new(node.size.x, crate::tools::measure_text(drawn_tp, Some(node.size.x.max(20.0))).y),
         }
     };
