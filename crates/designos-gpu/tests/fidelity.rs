@@ -25,7 +25,7 @@ fn background_blur_without_a_visible_fill_leaves_backdrop_sharp() {
     let Some(mut g) = gpu() else { return };
     let mut t = T::new();
     t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), Color::BLACK);
-    t.add(None, |id| {
+    let pane = t.add(None, |id| {
         let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
         n.fills.clear();
         n.effects = vec![Effect::BackgroundBlur { radius: 8.0, visible: true }];
@@ -40,6 +40,24 @@ fn background_blur_without_a_visible_fill_leaves_backdrop_sharp() {
     let clear_gpu = c.gpu.pixel(25, 20).unwrap();
     assert_eq!([clear_cpu.red(), clear_cpu.green(), clear_cpu.blue(), clear_cpu.alpha()], [255, 255, 255, 255]);
     assert_eq!([clear_gpu.red(), clear_gpu.green(), clear_gpu.blue(), clear_gpu.alpha()], [255, 255, 255, 255]);
+
+    t.node(pane).fills = vec![Paint { opacity: 0.0, ..Paint::solid(Color::WHITE) }];
+    g.compiler.geom.clear();
+    let c_zero = compare(&mut g, "background_blur_zero_opacity_fill", &t.doc, t.page, Viewport::default(), (60, 40), 2);
+    let zero_cpu = c_zero.cpu.pixel(15, 20).unwrap();
+    let zero_gpu = c_zero.gpu.pixel(15, 20).unwrap();
+    assert!(zero_cpu.red() > 40 && zero_cpu.red() < 200, "CPU zero-opacity fill blurs backdrop: {zero_cpu:?}");
+    assert!(zero_gpu.red() > 40 && zero_gpu.red() < 200, "GPU zero-opacity fill blurs backdrop: {zero_gpu:?}");
+
+    t.node(pane).fills.clear();
+    t.node(pane).stroke.paints = vec![Paint::solid(Color::BLACK)];
+    t.node(pane).stroke.weight = 2.0;
+    g.compiler.geom.clear();
+    let c_stroke = compare(&mut g, "background_blur_stroke_only", &t.doc, t.page, Viewport::default(), (60, 40), 2);
+    let stroke_cpu = c_stroke.cpu.pixel(15, 20).unwrap();
+    let stroke_gpu = c_stroke.gpu.pixel(15, 20).unwrap();
+    assert!(stroke_cpu.red() > 40 && stroke_cpu.red() < 200, "CPU stroke-only layer blurs backdrop: {stroke_cpu:?}");
+    assert!(stroke_gpu.red() > 40 && stroke_gpu.red() < 200, "GPU stroke-only layer blurs backdrop: {stroke_gpu:?}");
 }
 
 #[test]

@@ -86,7 +86,7 @@ fn background_blur_on_translucent_node_itself() {
 fn background_blur_without_a_visible_fill_leaves_backdrop_sharp() {
     let mut t = T::new();
     t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), BLACK);
-    t.add(None, |id| {
+    let pane = t.add(None, |id| {
         let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
         n.fills.clear();
         n.effects = vec![Effect::BackgroundBlur { radius: 8.0, visible: true }];
@@ -95,4 +95,16 @@ fn background_blur_without_a_visible_fill_leaves_backdrop_sharp() {
     let pm = t.render(60, 40);
     assert_eq!(px(&pm, 15, 20), [0, 0, 0, 255], "a fill-less backdrop blur must not alter the backdrop");
     assert_eq!(px(&pm, 25, 20), WHITE, "the area outside the stripe remains unchanged");
+
+    t.node(pane).fills = vec![Paint { opacity: 0.0, ..Paint::solid(Color::WHITE) }];
+    let pm_zero_opacity_fill = t.render(60, 40);
+    let c_zero = px(&pm_zero_opacity_fill, 15, 20);
+    assert!(c_zero[0] > 40 && c_zero[0] < 200, "a visible fill with zero paint opacity still blurs the backdrop: {c_zero:?}");
+
+    t.node(pane).fills.clear();
+    t.node(pane).stroke.paints = vec![Paint::solid(BLACK)];
+    t.node(pane).stroke.weight = 2.0;
+    let pm_stroke_only = t.render(60, 40);
+    let c_stroke = px(&pm_stroke_only, 15, 20);
+    assert!(c_stroke[0] > 40 && c_stroke[0] < 200, "a stroke-only layer still blurs the backdrop: {c_stroke:?}");
 }
