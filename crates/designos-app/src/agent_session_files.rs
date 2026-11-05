@@ -13,6 +13,8 @@ mod no_follow;
 mod refusal;
 mod session_io;
 pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside, unavailable_path};
+#[cfg(unix)]
+pub(crate) use folder_owner::check_owner;
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step, with_set_aside_note};
 pub use session_io::{
     added_while_starting, atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file,

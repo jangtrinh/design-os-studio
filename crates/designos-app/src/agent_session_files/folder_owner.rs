@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 const OWNERSHIP_IGNORED_UID: u32 = 99;
 
 /// Accepts a folder whose owner is `own_uid`; `owner_uid` is the owner the folder reports.
-pub(super) fn check_owner(dir: &Path, owner_uid: u32, own_uid: u32) -> io::Result<()> {
+pub(crate) fn check_owner(dir: &Path, owner_uid: u32, own_uid: u32) -> io::Result<()> {
     if owner_uid == own_uid || (cfg!(target_os = "macos") && owner_uid == OWNERSHIP_IGNORED_UID) {
         return Ok(());
     }
