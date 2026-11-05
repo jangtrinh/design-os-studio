@@ -819,7 +819,7 @@ impl Engine {
                         self.record(vec![LiveOp::SetInProgress { node: *id, state: Some(ip) }]);
                     }
                 }
-                self.relayout(parent);
+                self.relayout(report.root_node_id);
                 let root_id = report.root_node_id;
                 let mut resp = json!({
                     "root_node_id": root_id,
@@ -1099,11 +1099,16 @@ impl Engine {
                     let fixed_count = fix_payload.get("fixed_count").and_then(Value::as_u64).unwrap_or(0);
                     let changes = fix_payload.get("changes").cloned().unwrap_or_else(|| json!([]));
                     if !cmds.is_empty() {
+                        let fixed_ids: Vec<NodeId> = cmds
+                            .iter()
+                            .filter_map(|c| match c {
+                                Command::Update { node } => Some(node.id),
+                                _ => None,
+                            })
+                            .collect();
                         self.exec(Command::Batch(cmds))?;
-                        for &r in &roots {
-                            if let Some(p) = self.doc.page_of(r) {
-                                self.relayout(p);
-                            }
+                        for id in fixed_ids {
+                            self.relayout(id);
                         }
                         self.settle_layout();
                     }
@@ -1240,7 +1245,8 @@ impl Engine {
                 let (cmd, report) =
                     designos_webcapture::import_capture_json(&self.doc, page, &raw_json, &opts).map_err(|e| format!("Failed to import web capture: {e}"))?;
                 self.exec(cmd)?;
-                self.relayout(page);
+                self.doc.relayout_subtree(report.root_node_id);
+                self.relayout(report.root_node_id);
                 Ok(json!({
                     "root_node_id": report.root_node_id.0,
                     "page_id": page.0,
@@ -1285,21 +1291,19 @@ impl Engine {
         }
     }
 
-    /// Re-solves auto layout under `root` and finishes what the pass had to defer. The editor
-    /// drains deferred layout a step per frame; this engine has no window, and its document is
-    /// read, saved and exported as is.
+    /// Re-solves auto layout for `root`, its parent, and their auto-layout ancestors, then finishes
+    /// what the pass had to defer. The editor drains deferred layout a step per frame; this engine
+    /// has no window, and its document is read, saved and exported as is.
     pub(crate) fn relayout(&mut self, root: NodeId) {
         let ep = self.doc.mutation_epoch();
-        self.doc.relayout_subtree(root);
-        self.doc.flush_pending_relayout();
+        crate::tools::batch::relayout_for_node(&mut self.doc, root);
         if self.doc.mutation_epoch() != ep && designos_doc::with_index(&self.doc, |idx| !idx.is_empty()) {
             let mut dirty = Vec::new();
             let mut removed = Vec::new();
             let touched = if self.doc.dirty_changes_since(ep, &mut dirty, &mut removed) { dirty } else { vec![root] };
             if !touched.is_empty() && !designos_doc::plan_reroute(&self.doc, &touched, None).updates.is_empty() {
                 let _ = self.reroute_in_last_step(&touched);
-                self.doc.relayout_subtree(root);
-                self.doc.flush_pending_relayout();
+                crate::tools::batch::relayout_for_nodes(&mut self.doc, &touched);
             }
         }
     }
@@ -1339,11 +1343,7 @@ impl Engine {
         touched.extend(self.layout_written_since(epoch_before, &anchors).into_iter().filter(|id| seen.insert(*id)));
         if self.reroute_in_last_step(&touched)? {
             let epoch = self.doc.mutation_epoch();
-            let tops: std::collections::BTreeSet<NodeId> =
-                anchors.iter().filter_map(|id| crate::tools::batch::top_container_under_page(&self.doc, *id)).collect();
-            for top in tops {
-                crate::tools::batch::relayout_for_node(&mut self.doc, top);
-            }
+            crate::tools::batch::relayout_for_nodes(&mut self.doc, &anchors);
             self.settle_layout();
             let written = self.layout_written_since(epoch, &anchors);
             if !written.is_empty() {
@@ -1511,9 +1511,7 @@ impl Engine {
         }
         crate::tools::fill_write::write_fill(&mut self.doc, &mut node, parent_id, FillTarget::NewLayer, a.fill.as_deref(), a.fills, &mut warnings)?;
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
-        if let Some(page_id) = self.doc.page_of(id) {
-            self.relayout(page_id);
-        }
+        self.relayout(id);
         let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
         if !measured_with_fallback.is_empty() {
             out["measured_with_fallback"] = json!(measured_with_fallback);
@@ -1550,9 +1548,7 @@ impl Engine {
         let baseline = crate::tools::issues::PreCallBaseline::capture(&self.doc, &[id], &self.session_options.issues, a.lint, self.lint_env());
         if changed {
             self.exec(Command::Update { node: Box::new(node) })?;
-            if let Some(page_id) = self.doc.page_of(id) {
-                self.relayout(page_id);
-            }
+            self.relayout(id);
         }
         let mut out = json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed});
         attach_warnings(&mut out, &warnings);
@@ -5517,5 +5513,66 @@ mod tests {
         for (id, was) in [a, b, flow_connector, page_connector].iter().zip(&before) {
             assert_eq!(engine.doc.get(*id).unwrap(), was, "node {} after undo", id.0);
         }
+    }
+
+    #[test]
+    fn mcp_fill_edit_on_one_frame_leaves_sibling_auto_layout_children_where_they_were() {
+        use designos_doc::{AutoLayout, FrameProps, LayoutAlign, LayoutDirection, Sizing};
+
+        let mut engine = Engine::new();
+        let page = engine.resolve_default_page().unwrap();
+
+        let screen = engine.doc.alloc_id();
+        let mut screen_node = Node::frame(screen, Rect::new(0.0, 0.0, 800.0, 600.0));
+        screen_node.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::default()
+            }),
+            ..FrameProps::default()
+        });
+        engine.doc.insert(page, screen_node).unwrap();
+
+        let sidebar = engine.doc.alloc_id();
+        let mut sidebar_node = Node::frame(sidebar, Rect::new(0.0, 0.0, 240.0, 600.0));
+        sidebar_node.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::default()
+            }),
+            ..FrameProps::default()
+        });
+        engine.doc.insert(screen, sidebar_node).unwrap();
+
+        let chat = engine.doc.alloc_id();
+        let mut chat_node = Node::frame(chat, Rect::new(240.0, 0.0, 560.0, 600.0));
+        chat_node.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                primary_align: LayoutAlign::End,
+                padding: [0.0, 32.0, 0.0, 32.0],
+                ..AutoLayout::default()
+            }),
+            ..FrameProps::default()
+        });
+        engine.doc.insert(screen, chat_node).unwrap();
+
+        let bubble = engine.doc.alloc_id();
+        // Stored at x = 80, y = 12; re-solving `chat` would move `bubble` to (256, 0).
+        engine.doc.insert(chat, Node::rectangle(bubble, Rect::new(80.0, 12.0, 272.0, 44.0))).unwrap();
+
+        engine.call("designos_update_node", json!({ "node_id": sidebar.0, "fill": "#112233" })).unwrap();
+        let after_update = engine.doc.get(bubble).unwrap().transform;
+        assert_eq!((after_update.tx, after_update.ty), (80.0, 12.0), "update_node on sibling frame must not re-solve chat's children");
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": sidebar.0, "fill": "#445566" }] })).unwrap();
+        let after_batch = engine.doc.get(bubble).unwrap().transform;
+        assert_eq!((after_batch.tx, after_batch.ty), (80.0, 12.0), "apply_batch update on sibling frame must not re-solve chat's children");
     }
 }

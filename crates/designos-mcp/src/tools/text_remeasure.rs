@@ -10,6 +10,26 @@ use designos_doc::{resolve_node, set_bound_property, Command, Document, Node, No
 const TEXT_BOX_KEYS: [&str; 10] =
     ["fontSize", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "listSpacing", "characters", "fontFamily", "fontStyle"];
 
+/// Bound properties on a node that the auto-layout solver reads directly.
+const LAYOUT_BOX_KEYS: [&str; 16] = [
+    "width",
+    "height",
+    "visible",
+    "itemSpacing",
+    "counterAxisSpacing",
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+    "strokeWeight",
+    "strokeTopWeight",
+    "strokeRightWeight",
+    "strokeBottomWeight",
+    "strokeLeftWeight",
+    "topLeftRadius",
+    "bottomRightRadius",
+];
+
 /// Sets the size of a hug text (`WidthAndHeight` or `Height`) to the renderer's measure of
 /// what `node` draws in `doc`. Other nodes and fixed-size text are left alone.
 pub(crate) fn resize_hug_text(doc: &Document, node: &mut Node) {
@@ -71,6 +91,49 @@ impl VariablesBefore {
             }
         }
         changed
+    }
+
+    /// Nodes whose layout-affecting variable bindings reference a variable changed in this op.
+    pub(crate) fn layout_bound_nodes(&self, doc: &Document) -> Vec<NodeId> {
+        let mut changed: HashSet<String> = HashSet::new();
+        for (id, before) in &self.0 {
+            let after = doc.variables.get(id);
+            if after == before.as_ref() {
+                continue;
+            }
+            let kind = after.or(before.as_ref()).map(|v| v.kind);
+            if matches!(kind, Some(VariableKind::Number | VariableKind::Boolean)) {
+                changed.insert(id.clone());
+            }
+        }
+        if changed.is_empty() {
+            return Vec::new();
+        }
+        let mut aliased_by: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (id, v) in &doc.variables {
+            for value in v.values.values() {
+                if let VariableValue::Alias(target) = value {
+                    aliased_by.entry(target.as_str()).or_default().push(id.as_str());
+                }
+            }
+        }
+        let mut stack: Vec<String> = changed.iter().cloned().collect();
+        while let Some(id) = stack.pop() {
+            for dependent in aliased_by.get(id.as_str()).into_iter().flatten() {
+                if changed.insert((*dependent).to_string()) {
+                    stack.push((*dependent).to_string());
+                }
+            }
+        }
+        doc.nodes
+            .values()
+            .filter(|n| {
+                n.variables.bindings.iter().any(|(k, v)| {
+                    (LAYOUT_BOX_KEYS.contains(&k.as_str()) || (k.starts_with("strokes/") && k.ends_with("/opacity"))) && changed.contains(v.as_str())
+                })
+            })
+            .map(|n| n.id)
+            .collect()
     }
 }
 

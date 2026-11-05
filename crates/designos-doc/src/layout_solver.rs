@@ -329,15 +329,16 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
             }
         }
         let sum_main: f32 = line.iter().enumerate().map(|(j, i)| mains[j] + ax.margin_main(&kids[*i].margin)).sum();
-        // CSS justify-content: the free space ignores the fixed gap; with no free space the items pack from the start.
+        // For Space* distribution modes, free space ignores the fixed gap and negative free space packs from the start;
+        // Center and End keep the signed offset so overflowing content stays centered or end-anchored.
         let free = main_avail - sum_main;
         let (start, gap) = match al.primary_align {
             LayoutAlign::SpaceBetween if k > 1.0 => (0.0, (free / (k - 1.0)).max(al.item_spacing.min(0.0))),
             LayoutAlign::SpaceAround if free > 0.0 => (free / k / 2.0, free / k),
             LayoutAlign::SpaceEvenly if free > 0.0 => (free / (k + 1.0), free / (k + 1.0)),
             LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly => (0.0, 0.0),
-            LayoutAlign::Center => (((main_avail - sum_main - al.item_spacing * (k - 1.0)) / 2.0).max(0.0), al.item_spacing),
-            LayoutAlign::End => ((main_avail - sum_main - al.item_spacing * (k - 1.0)).max(0.0), al.item_spacing),
+            LayoutAlign::Center => ((main_avail - sum_main - al.item_spacing * (k - 1.0)) / 2.0, al.item_spacing),
+            LayoutAlign::End => (main_avail - sum_main - al.item_spacing * (k - 1.0), al.item_spacing),
             _ => (0.0, al.item_spacing),
         };
         let mut cursor = pm_start + start;
@@ -561,6 +562,100 @@ mod tests {
                 assert_eq!(d.get(row).unwrap().size.y, line, "top margin {top}, relayout {pass}: line");
                 assert_eq!(d.get(cid).unwrap().size.y, 40.0, "top margin {top}, relayout {pass}: child");
             }
+        }
+    }
+
+    #[test]
+    fn end_aligned_overflow_places_first_child_at_negative_free_space() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let container_id = d.alloc_id();
+        let mut container = Node::frame(container_id, Rect::new(0.0, 0.0, 400.0, 782.0));
+        container.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                primary_align: LayoutAlign::End,
+                padding: [0.0, 24.0, 24.0, 24.0],
+                item_spacing: 32.0,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let container = d.insert(page, container).unwrap();
+        let c1_id = d.alloc_id();
+        let c1 = d.insert(container, Node::rectangle(c1_id, Rect::new(24.0, 0.0, 352.0, 888.1))).unwrap();
+        let c2_id = d.alloc_id();
+        let c2 = d.insert(container, Node::rectangle(c2_id, Rect::new(24.0, 0.0, 352.0, 20.0))).unwrap();
+        let c3_id = d.alloc_id();
+        let c3 = d.insert(container, Node::rectangle(c3_id, Rect::new(24.0, 0.0, 352.0, 306.0))).unwrap();
+
+        // Inner main height is 782 - 24 = 758; content + gaps = 888.1 + 20 + 306 + 64 = 1278.1;
+        // free space is 758 - 1278.1 = -520.1, so the last child sits flush with y = 758 - 306 = 452
+        // and the first child overflows at the start at y = -520.1.
+        d.relayout_subtree(container);
+        assert!((d.get(c1).unwrap().transform.ty - (-520.1)).abs() < 1e-3, "got {}", d.get(c1).unwrap().transform.ty);
+        assert!((d.get(c2).unwrap().transform.ty - 400.0).abs() < 1e-3, "got {}", d.get(c2).unwrap().transform.ty);
+        assert!((d.get(c3).unwrap().transform.ty - 452.0).abs() < 1e-3, "got {}", d.get(c3).unwrap().transform.ty);
+    }
+
+    #[test]
+    fn center_aligned_overflow_splits_negative_free_space_on_both_sides() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let container_id = d.alloc_id();
+        let mut container = Node::frame(container_id, Rect::new(0.0, 0.0, 200.0, 200.0));
+        container.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                primary_align: LayoutAlign::Center,
+                item_spacing: 20.0,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let container = d.insert(page, container).unwrap();
+        let c1_id = d.alloc_id();
+        let c1 = d.insert(container, Node::rectangle(c1_id, Rect::new(0.0, 0.0, 100.0, 150.0))).unwrap();
+        let c2_id = d.alloc_id();
+        let c2 = d.insert(container, Node::rectangle(c2_id, Rect::new(0.0, 0.0, 100.0, 150.0))).unwrap();
+
+        // Inner height is 200; content + gap = 320; free space is -120, split evenly as -60 on each side.
+        d.relayout_subtree(container);
+        assert!((d.get(c1).unwrap().transform.ty - (-60.0)).abs() < 1e-3, "got {}", d.get(c1).unwrap().transform.ty);
+        assert!((d.get(c2).unwrap().transform.ty - 110.0).abs() < 1e-3, "got {}", d.get(c2).unwrap().transform.ty);
+    }
+
+    #[test]
+    fn space_distribution_modes_keep_overflowing_content_anchored_at_start() {
+        for align in [LayoutAlign::SpaceBetween, LayoutAlign::SpaceAround, LayoutAlign::SpaceEvenly] {
+            let mut d = Document::new("t");
+            let page = d.add_page("p");
+            let container_id = d.alloc_id();
+            let mut container = Node::frame(container_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            container.kind = NodeKind::Frame(FrameProps {
+                auto_layout: Some(AutoLayout {
+                    direction: LayoutDirection::Vertical,
+                    primary_sizing: Sizing::Fixed,
+                    counter_sizing: Sizing::Fixed,
+                    primary_align: align,
+                    item_spacing: 10.0,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+            let container = d.insert(page, container).unwrap();
+            let c1_id = d.alloc_id();
+            let c1 = d.insert(container, Node::rectangle(c1_id, Rect::new(0.0, 0.0, 50.0, 80.0))).unwrap();
+            let c2_id = d.alloc_id();
+            let c2 = d.insert(container, Node::rectangle(c2_id, Rect::new(0.0, 0.0, 50.0, 80.0))).unwrap();
+
+            d.relayout_subtree(container);
+            assert_eq!(d.get(c1).unwrap().transform.ty, 0.0, "{align:?}: first child stays at start");
+            assert_eq!(d.get(c2).unwrap().transform.ty, 80.0, "{align:?}: gap collapses to 0 when overflowing");
         }
     }
 }

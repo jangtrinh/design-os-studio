@@ -717,9 +717,10 @@ impl Document {
                         message: Some("One or more text nodes were measured with a fallback font because the requested font_family is not loaded.".to_string()),
                     });
                 }
-                let relayout_root =
-                    if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { root_id };
-                self.relayout_subtree(relayout_root);
+                self.relayout_subtree(root_id);
+                if parent_has_al {
+                    self.relayout_seeds_upward(&[parent]);
+                }
                 self.flush_pending_relayout();
                 Ok(report)
             }

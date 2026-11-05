@@ -1330,10 +1330,19 @@ pub(crate) fn top_container_under_page(doc: &Document, id: NodeId) -> Option<Nod
 }
 
 pub(crate) fn relayout_for_node(doc: &mut Document, id: NodeId) {
-    if let Some(top) = top_container_under_page(doc, id) {
-        doc.relayout_subtree(top);
-        doc.flush_pending_relayout();
+    relayout_for_nodes(doc, &[id]);
+}
+
+pub(crate) fn relayout_for_nodes(doc: &mut Document, ids: &[NodeId]) {
+    let mut seeds = Vec::with_capacity(ids.len() * 2);
+    for &id in ids {
+        seeds.push(id);
+        if let Some(parent) = doc.get(id).and_then(|n| n.parent) {
+            seeds.push(parent);
+        }
     }
+    doc.relayout_seeds_upward(&seeds);
+    doc.flush_pending_relayout();
 }
 
 /// Ids of the nodes `cmds` replace with an `Update`.
@@ -1346,14 +1355,15 @@ fn updated_node_ids(cmds: &[Command]) -> Vec<NodeId> {
         .collect()
 }
 
-/// Re-lays out the top-level container of every node in `ids`, once per container and on whichever
-/// page it lives, and queues it for the pass at commit. A hug frame around a label whose size an
-/// op changed would otherwise keep its old size.
+/// Re-lays out the auto-layout containers of every node in `ids` and their auto-layout ancestors,
+/// and queues `ids` for the pass at commit. A hug frame around a label whose size an op changed
+/// would otherwise keep its old size.
 fn relayout_containers_of(doc: &mut Document, ids: &[NodeId], relayout_targets: &mut Vec<NodeId>) {
-    let tops: BTreeSet<NodeId> = ids.iter().filter_map(|id| top_container_under_page(doc, *id)).collect();
-    for top in tops {
-        relayout_for_node(doc, top);
-        relayout_targets.push(top);
+    relayout_for_nodes(doc, ids);
+    for &id in ids {
+        if !relayout_targets.contains(&id) {
+            relayout_targets.push(id);
+        }
     }
 }
 
@@ -2195,16 +2205,9 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         }
                         extra.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                     }
-                    if let Some(p) = default_page {
-                        if let Some(pnode) = trial.get(p) {
-                            let children = pnode.children.clone();
-                            for cid in children {
-                                relayout_for_node(&mut trial, cid);
-                                relayout_targets.push(cid);
-                            }
-                        }
-                    }
-                    relayout_containers_of(&mut trial, &updated_node_ids(&extras), &mut relayout_targets);
+                    let mut bound_nodes = before_vars.layout_bound_nodes(&trial);
+                    bound_nodes.extend(updated_node_ids(&extras));
+                    relayout_containers_of(&mut trial, &bound_nodes, &mut relayout_targets);
                     collected_cmds.push(cmd);
                     collected_cmds.extend(extras);
                     changed.variables += count;
@@ -3046,9 +3049,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 .history
                 .exec(&mut engine.doc, Command::Batch(collected_cmds))
                 .map_err(|e| batch_error(ErrorCode::InternalError, None, None, "", e.to_string()))?;
-            for target in &relayout_targets {
-                relayout_for_node(&mut engine.doc, *target);
-            }
+            relayout_for_nodes(&mut engine.doc, &relayout_targets);
             engine.settle_layout();
             engine.live_patch_label = Some(undo_label.clone());
         }
