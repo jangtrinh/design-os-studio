@@ -189,6 +189,114 @@ fn the_letterbox_and_the_area_outside_a_turned_crop_stay_transparent_when_the_pi
     }
 }
 
+#[test]
+fn fit_fill_renders_identical_pixels_across_all_image_adjustments() {
+    let mut doc = Document::new("t");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::TRANSPARENT };
+    doc.images.insert(
+        "gradient".into(),
+        png_bytes(16, 16, |x, y| [((x * 15 + 20) % 240) as u8, ((y * 13 + 40) % 230) as u8, (((x + y) * 11 + 60) % 220) as u8, 255]),
+    );
+    let id = doc.alloc_id();
+    let mut node = Node::rectangle(id, Rect::new(0.0, 0.0, 64.0, 32.0));
+    let make_paint = |adjust| Paint {
+        kind: PaintKind::Image { image_ref: "gradient".into(), scale_mode: ImageScaleMode::Fit, params: ImageParams { adjust, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    node.fills = vec![make_paint(ImageAdjust::default())];
+    doc.insert(page, node).unwrap();
+    let mut plain = Pixmap::new(64, 32).unwrap();
+    render_page(&doc, page, &Viewport::default(), &mut plain);
+
+    let cases = [
+        ("exposure", ImageAdjust { exposure: 0.45, ..Default::default() }),
+        ("contrast", ImageAdjust { contrast: 0.35, ..Default::default() }),
+        ("saturation", ImageAdjust { vibrance: 0.5, ..Default::default() }),
+        ("temperature", ImageAdjust { temperature: 0.4, ..Default::default() }),
+        ("tint", ImageAdjust { tint: -0.35, ..Default::default() }),
+        ("highlights", ImageAdjust { highlights: -0.4, ..Default::default() }),
+        ("shadows", ImageAdjust { shadows: 0.45, ..Default::default() }),
+        (
+            "all_seven",
+            ImageAdjust { exposure: 0.25, contrast: 0.2, vibrance: 0.3, temperature: 0.25, tint: -0.2, highlights: -0.25, shadows: 0.3, ..Default::default() },
+        ),
+    ];
+
+    for (label, adjust) in cases {
+        doc.get_mut(id).unwrap().fills = vec![make_paint(adjust)];
+        let mut adjusted = Pixmap::new(64, 32).unwrap();
+        render_page(&doc, page, &Viewport::default(), &mut adjusted);
+        let mut moved = false;
+        for y in 0..32 {
+            for x in (0..14).chain(50..64) {
+                assert_eq!(px(&adjusted, x, y), [0, 0, 0, 0], "{label}: letterbox at ({x}, {y}) must stay transparent");
+            }
+            if !(4..28).contains(&y) {
+                continue;
+            }
+            for x in 20..44 {
+                let sample = px(&plain, x, y);
+                let want = adjust_rgba(sample, &adjust);
+                let got = px(&adjusted, x, y);
+                for k in 0..4 {
+                    assert!(want[k].abs_diff(got[k]) <= 1, "{label}: ({x}, {y}) channel {k} got {got:?}, want {want:?}");
+                }
+                moved |= sample[..3] != got[..3];
+            }
+        }
+        assert!(moved, "{label}: adjustment must alter visible Fit pixels");
+    }
+}
+
+/// A 100x100 node at page x 99.8 whose only stroke is an outside outline of weight 8 on its right side, painted with
+/// a crop image whose frame leaves the unit square at the left corners but covers everything right of the node.
+fn crop_outline_render(width: u32, height: u32, viewport: &Viewport) -> Pixmap {
+    let mut doc = Document::new("t");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::TRANSPARENT };
+    doc.images.insert("flat".into(), png_bytes(16, 16, |_, _| [40, 160, 80, 255]));
+    let id = doc.alloc_id();
+    let mut node = Node::rectangle(id, Rect::new(99.8, 10.0, 100.0, 100.0));
+    node.fills.clear();
+    node.stroke.weight = 8.0;
+    node.stroke.align = StrokeAlign::Outside;
+    node.stroke.side_weights = Some([0.0, 8.0, 0.0, 0.0]);
+    // u = x / 200 - 0.25 and v = y / 200 + 0.25: the left edge of the node is outside the picture, the picture
+    // spans local x 50..250, and the stroke band right of the node sits well inside it.
+    let transform = Some([0.5, 0.0, -0.25, 0.0, 0.5, 0.25]);
+    node.stroke.paints = vec![Paint {
+        kind: PaintKind::Image { image_ref: "flat".into(), scale_mode: ImageScaleMode::Crop, params: ImageParams { transform, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    doc.insert(page, node).unwrap();
+    let mut pm = Pixmap::new(width, height).unwrap();
+    render_page(&doc, page, viewport, &mut pm);
+    pm
+}
+
+#[test]
+fn an_outline_of_a_crop_image_stroke_is_drawn_on_a_tile_that_misses_the_node_box() {
+    let whole = crop_outline_render(300, 120, &Viewport::default());
+    // The tile starts at page x 200, so the node box ends 0.2 px left of the tile's pixmap while the outline
+    // reaches 7.8 px into it.
+    let tile = crop_outline_render(40, 120, &Viewport { offset: Vec2::new(200.0, 0.0), zoom: 1.0, dpr: 1.0 });
+    for x in 1..7 {
+        for y in 12..108 {
+            assert_eq!(px(&whole, 200 + x, y), [40, 160, 80, 255], "the full page paints the outline at ({}, {y})", 200 + x);
+        }
+    }
+    for y in 0..120 {
+        for x in 0..40 {
+            assert_eq!(px(&tile, x, y), px(&whole, 200 + x, y), "tile pixel ({x}, {y}) is the same pixel of the full page");
+        }
+    }
+}
+
 /// One 256x256 tile in the middle of a 4032x3024 picture fitted into a 4032x4032 node at a device pixel ratio of 2.
 /// Run with `cargo test -p designos-render --release --test image_adjust_sampling -- --ignored --nocapture`.
 #[test]

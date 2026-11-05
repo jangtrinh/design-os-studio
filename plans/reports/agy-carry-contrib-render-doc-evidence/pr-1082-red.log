@@ -1,0 +1,76 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.97s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 1 test
+test component_cycle_tests::apply_spec_swap_refuses_a_held_main_without_mutating ... FAILED
+
+failures:
+
+---- component_cycle_tests::apply_spec_swap_refuses_a_held_main_without_mutating stdout ----
+
+thread 'component_cycle_tests::apply_spec_swap_refuses_a_held_main_without_mutating' (12368163) panicked at crates/designos-doc/src/component_cycle_tests.rs:183:57:
+called `Result::unwrap_err()` on an `Ok` value: ()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    component_cycle_tests::apply_spec_swap_refuses_a_held_main_without_mutating
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 790 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+EXIT_CODE_SWAP=101
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 1 test
+test component_cycle_tests::apply_spec_create_refuses_a_held_main_without_mutating ... FAILED
+
+failures:
+
+---- component_cycle_tests::apply_spec_create_refuses_a_held_main_without_mutating stdout ----
+
+thread 'component_cycle_tests::apply_spec_create_refuses_a_held_main_without_mutating' (12368184) panicked at crates/designos-doc/src/component_cycle_tests.rs:199:5:
+Failed to create instance
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    component_cycle_tests::apply_spec_create_refuses_a_held_main_without_mutating
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 790 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+EXIT_CODE_CREATE=101
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 1 test
+test live_patch::tests::replay_reparent_refuses_a_held_main_cycle ... FAILED
+
+failures:
+
+---- live_patch::tests::replay_reparent_refuses_a_held_main_cycle stdout ----
+
+thread 'live_patch::tests::replay_reparent_refuses_a_held_main_cycle' (12368203) panicked at crates/designos-doc/src/live_patch/tests.rs:25:5:
+assertion failed: report.skipped.iter().any(|s| s.contains("MOVE_CYCLE"))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    live_patch::tests::replay_reparent_refuses_a_held_main_cycle
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 790 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+EXIT_CODE_REPLAY=101

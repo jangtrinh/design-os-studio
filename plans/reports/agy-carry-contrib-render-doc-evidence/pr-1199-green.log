@@ -1,0 +1,84 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-doc)
+   Compiling designos-fonts v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-fonts)
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-render)
+   Compiling designos-svg v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-svg)
+   Compiling designos-webcapture v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-webcapture)
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.16s
+     Running tests/lint_contrast.rs (out/cargo/debug/deps/lint_contrast-8f65a648730e063f)
+
+running 11 tests
+test test_8_backdrop_variable_suggestion_scores_roles_and_drops_failing_candidate ... ok
+test test_6_wcag_aaa_mode_and_warning_severity_when_aa_passes ... ok
+test test_1_analytic_fast_path_solid_on_solid_does_not_call_backdrop ... ok
+test test_9_backdrop_variable_is_not_suggested_as_a_text_fix ... ok
+test test_7_suggest_passing_variable_pair_by_cie76_delta_e ... ok
+test test_10_white_on_white_with_adjacent_overlapping_icon_keeps_ratio_message ... ok
+test test_2_semi_transparent_sibling_uses_pixel_path ... ok
+test test_4_covering_sibling_emits_covered_by_message ... ok
+test overlay_on_image_within_0_05 ... ok
+test test_3_linear_gradient_backdrop_flags_failing_half ... ok
+test test_5_large_text_thresholds_24px_and_18_66px_bold ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling regex-automata v0.4.18
+   Compiling syn v3.0.9
+   Compiling serde_json v1.0.154
+   Compiling regex v1.13.1
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling thiserror v2.0.21
+   Compiling serde v1.0.229
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.22s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-5e18ef3f4975d72d)
+
+running 38 tests
+test lint::rect_tree::tests::empty_tree_answers_nothing ... ok
+test lint::pass_cache::tests::builds_each_type_once ... ok
+test lint::registry::tests::resolve_rule_agrees_with_a_scan_of_the_registry_for_every_name_in_any_case ... ok
+test lint::rules::contrast::behind::equivalence_tests::a_covering_layer_sized_by_a_variable_is_still_found ... ok
+test lint::rules::scale::tests::gap_15_on_4_step_scale_suggests_16 ... ok
+test lint::rules::scale::tests::default_radius_and_font_scales_include_32_and_22_steps_through_96 ... ok
+test lint::rules::scale::tests::ambiguous_text_styles_list_candidates_without_fix_in_hardcoded_value ... ok
+test lint::rules::scale::tests::colour_equal_to_primary_gets_bind ... ok
+test lint::config::tests::warn_alias_deserializes_as_warning ... ok
+test lint::rules::scale::tests::check_designs_and_linter_identical ... ok
+test lint::rules::scale::tests::automatic_fixer_does_not_snap_off_scale_values ... ok
+test lint::rules::scale::tests::mode_dependent_match_is_unsafe ... ok
+test lint::rules::scale::tests::empty_recommend_variables_ignore_or_contrast_ignore_does_not_suppress_hardcoded_value_properties ... ok
+test lint::rules::scale::tests::check_designs_ignore_keys_respect_rule_and_property_and_fixer_skips_ignored ... ok
+test lint::rules::scale::tests::type_scale_from_text_styles ... ok
+test lint::rules::scale::tests::two_tokens_same_colour_is_ambiguous ... ok
+test lint::rules::scale::tests::variables_define_the_scale ... ok
+test lint::rules::contrast::xpath::tests::matches_node_to_xpath_for_every_layer ... ok
+test lint::tests::presets_name_only_registered_rules ... ok
+test lint::tests::presets_select_expected_rule_sets ... ok
+test lint::tests::no_lint_env_records_skipped_text_rules ... ok
+test lint::tests::rule_id_aliases_resolve_both_ways ... ok
+test lint::rules::scale::tests::unscoped_number_variables_join_spacing_scale_and_fallback_reason_is_in_message ... ok
+test lint::tests::sibling_overlap_sweep_prune_caps_at_1000_pairs ... ok
+test lint::tests::fix_routes_through_command_batch_and_supports_undo ... ok
+test lint::rules::scale::tests::lint_fix_skips_inherited_instance_mirrors_and_binds_text_style_fills ... ok
+test query::tests::check_designs_ignored_hardcoded_fill_is_hidden_from_queries_like_from_the_linter ... ok
+test query::tests::clipped_text_query_matches_linter ... ok
+test query::tests::hardcoded_query_matches_linter_and_ignores_styled_fill_and_other_props ... ok
+test openpencil::tests::lint_and_fix_and_analyzers_work ... ok
+test query::tests::problem_and_sibling_predicates_respect_max_scanned_and_lint_only_candidate_node ... ok
+test query::tests::hardcoded_query_matches_linter ... ok
+test lint::progress_tests::a_single_slice_call_with_a_time_budget_still_scans_a_node ... ok
+test lint::rect_tree::tests::query_equals_testing_every_box ... ok
+test query::tests::single_node_linter_matches_the_one_shot_call_node_after_node ... ok
+test lint::progress_tests::calls_with_a_tiny_time_budget_resumed_by_cursor_reach_the_end_with_the_same_findings ... ok
+test lint::rules::contrast::behind::equivalence_tests::an_index_built_across_several_budgets_matches_the_one_built_at_once ... ok
+test lint::rules::contrast::behind::equivalence_tests::the_sibling_index_never_changes_what_is_found_around_a_text ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 750 filtered out; finished in 1.59s
+
