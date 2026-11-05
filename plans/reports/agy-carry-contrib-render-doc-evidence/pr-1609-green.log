@@ -1,0 +1,60 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-8d582945c9924391)
+
+running 19 tests
+test image_adjust::tests::a_degenerate_node_or_frame_cannot_be_turned ... ok
+test image_adjust::tests::a_fill_frame_at_90_degrees_turned_once_is_the_half_turn_fill_frame ... ok
+test image_adjust::tests::a_cropped_node_keeps_its_own_frame_until_it_is_turned ... ok
+test image_adjust::tests::a_quarter_turn_moves_the_picture_rigidly_about_the_node_centre ... ok
+test image_adjust::tests::a_turn_on_an_uncropped_frame_starts_from_the_identity_and_other_edits_pass_through ... ok
+test image_adjust::tests::entering_crop_keeps_a_frame_the_node_stored_and_asks_no_picture_size ... ok
+test image_adjust::tests::entering_crop_with_an_unknown_picture_invents_no_frame ... ok
+test image_adjust::tests::entering_crop_frames_each_node_by_its_own_size_and_angle ... ok
+test image_adjust::tests::four_quarter_turns_return_the_frame_and_the_two_directions_undo_each_other ... ok
+test image_adjust::tests::the_identity_crop_turned_clockwise_is_the_fill_rotation_of_90_degrees_on_a_square_node ... ok
+test image_adjust::tests::outside_crop_each_node_keeps_the_frame_and_the_angle_it_stored_and_a_turn_drops_the_frame ... ok
+test image_adjust::tests::a_fill_over_the_scratch_limit_is_drawn_unadjusted_and_counted ... ok
+test image_adjust::tests::fit_image_strokes_keep_the_letterbox_transparent_through_the_stroke_margin ... ok
+test image_adjust::tests::a_fit_fill_over_the_scratch_limit_is_drawn_unadjusted_with_its_letterbox_and_counted ... ok
+test image_adjust::tests::adjusted_quarter_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent ... ok
+test image_adjust::tests::unadjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent ... ok
+test image_adjust::tests::unadjusted_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent ... ok
+test image_adjust::tests::adjusted_fill_work_is_bounded_by_the_visible_region ... ok
+test image_adjust::tests::adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 68 filtered out; finished in 0.20s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.62s
+     Running tests/image_adjust_sampling.rs (out/cargo/debug/deps/image_adjust_sampling-475394cb55318f33)
+
+running 8 tests
+test time_one_tile_over_a_large_adjusted_fit_picture ... ignored, timing only
+test time_one_tile_over_a_large_adjusted_picture ... ignored, timing only
+test saturation_is_applied_to_the_blended_colour_at_a_coloured_edge ... ok
+test exposure_is_applied_to_the_blended_colour_at_a_black_and_white_edge ... ok
+test contrast_and_temperature_are_applied_to_the_blended_colour_at_an_edge ... ok
+test a_translucent_edge_is_adjusted_as_straight_colour_and_keeps_its_alpha ... ok
+test the_letterbox_and_the_area_outside_a_turned_crop_stay_transparent_when_the_picture_is_adjusted ... ok
+test fit_fill_renders_identical_pixels_across_all_image_adjustments ... ok
+
+test result: ok. 6 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/render.rs (out/cargo/debug/deps/render-3b11e6ba8d8ff332)
+
+running 1 test
+test image_fill_modes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 43 filtered out; finished in 0.00s
+

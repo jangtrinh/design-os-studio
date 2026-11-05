@@ -1,0 +1,51 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.93s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-5e18ef3f4975d72d)
+
+running 18 tests
+test component_cycle_tests::a_manual_swap_still_refuses_a_main_that_holds_the_main_it_sits_in ... ok
+test component_cycle_tests::moving_a_layer_under_a_main_it_holds_an_instance_of_is_flagged_and_other_moves_are_not ... ok
+test component_cycle_tests::a_stored_variant_value_that_would_make_a_main_hold_itself_is_left_alone_by_a_sync ... ok
+test component_cycle_tests::an_instance_swapped_to_the_main_it_sits_in_on_the_page_still_follows_that_main ... ok
+test component_cycle_tests::a_variant_switch_that_would_make_the_main_hold_itself_changes_nothing ... ok
+test component_cycle_tests::a_main_met_again_inside_its_own_mirror_keeps_the_subtree_it_has ... ok
+test component_cycle_tests::a_variant_switch_that_holds_nothing_still_switches ... ok
+test component_cycle_tests::an_instance_swap_property_set_to_the_main_it_sits_in_on_the_page_still_follows_that_main ... ok
+test component_cycle_tests::a_new_variant_value_that_would_make_a_main_hold_itself_is_still_refused_next_to_a_stored_one ... ok
+test component_cycle_tests::an_instance_swap_property_set_to_a_main_that_holds_the_main_it_sits_in_changes_nothing ... ok
+test component_cycle_tests::a_main_of_a_cyclic_pair_still_reaches_its_instances_outside_the_repeat ... ok
+test component_cycle_tests::a_property_edit_lands_when_the_stored_variant_value_selects_a_main_that_holds_itself ... ok
+test component_cycle_tests::edits_next_to_a_stored_refused_variant_value_leave_no_stray_writes ... ok
+test component_cycle_tests::apply_spec_create_refuses_a_held_main_without_mutating ... ok
+test component_cycle_tests::apply_spec_swap_refuses_a_held_main_without_mutating ... ok
+test component_cycle_tests::a_settled_cyclic_pair_survives_the_json_round_trip ... ok
+test component_cycle_tests::syncing_a_cyclic_pair_settles_instead_of_growing_without_end ... ok
+test component_cycle_tests::syncing_rings_and_tangles_of_mains_settles ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 774 filtered out; finished in 0.79s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-5e18ef3f4975d72d)
+
+running 1 test
+test live_patch::tests::replay_reparent_refuses_a_held_main_cycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 791 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-5e18ef3f4975d72d)
+
+running 1 test
+test branch_merge::tests::merge_rejects_move_that_makes_a_main_hold_itself ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 791 filtered out; finished in 0.00s
+

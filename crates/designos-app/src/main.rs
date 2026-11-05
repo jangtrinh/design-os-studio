@@ -85,6 +85,8 @@ mod live_sync_interaction_tests;
 mod live_sync_tests;
 #[cfg(target_os = "macos")]
 mod macos_menu;
+#[cfg(target_os = "macos")]
+mod macos_terminate;
 mod node_field_diff;
 mod ops;
 mod panels;
@@ -238,6 +240,9 @@ fn main() {
             {
                 if !macos_menu::install(&cc.egui_ctx) {
                     eprintln!("designos: the app menu has no Quit item to route through the window close");
+                }
+                if !macos_terminate::install(&cc.egui_ctx) {
+                    eprintln!("designos: the application delegate could not be wired to route terminate: through the window close");
                 }
             }
             Ok(Box::new(shell::Shell::new(cc, opts)))
