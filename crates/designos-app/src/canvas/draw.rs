@@ -92,6 +92,223 @@ fn dashed_quad(p: &Painter, corners: &[Pos2; 4], dash: f32, gap: f32, stroke: St
     }
 }
 
+/// A convex screen-space clip polygon for chrome painted above the document renderer.
+///
+/// Egui exposes rectangular painter clips only, while document clipping can use transformed
+/// or rounded frame silhouettes. Keep the rectangular AABB for the painter's coarse clip and
+/// clip overlay geometry against the polygon before submitting it.
+#[derive(Clone, Debug)]
+struct ChromeClip {
+    polygon: Vec<Pos2>,
+    aabb: ERect,
+}
+
+impl ChromeClip {
+    fn empty() -> Self {
+        Self { polygon: Vec::new(), aabb: ERect::NOTHING }
+    }
+
+    fn is_positive(&self) -> bool {
+        self.polygon.len() >= 3 && self.aabb.is_positive() && polygon_area2(&self.polygon).abs() > 0.001
+    }
+
+    fn contains(&self, point: Pos2) -> bool {
+        if self.polygon.len() < 3 {
+            return false;
+        }
+        let orientation = polygon_area2(&self.polygon).signum();
+        self.polygon.iter().zip(self.polygon.iter().cycle().skip(1)).all(|(&a, &b)| orientation * cross(a, b, point) >= -0.001)
+    }
+
+    fn contains_rect(&self, rect: ERect) -> bool {
+        [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()].into_iter().all(|point| self.contains(point))
+    }
+
+    fn clip_rect(&self, rect: ERect) -> ERect {
+        if self.polygon.len() < 3 {
+            return ERect::NOTHING;
+        }
+        let clipped = clip_convex_polygon(&rect_corners(rect), &self.polygon);
+        if clipped.len() < 3 {
+            return ERect::NOTHING;
+        }
+        polygon_aabb(&clipped)
+    }
+
+    fn clip_segment(&self, start: Pos2, end: Pos2) -> Option<(Pos2, Pos2)> {
+        if self.polygon.len() < 3 {
+            return None;
+        }
+        let orientation = polygon_area2(&self.polygon).signum();
+        let mut t0: f32 = 0.0;
+        let mut t1: f32 = 1.0;
+        for (&a, &b) in self.polygon.iter().zip(self.polygon.iter().cycle().skip(1)) {
+            let c0 = orientation * cross(a, b, start);
+            let c1 = orientation * cross(a, b, end);
+            if c0 < 0.0 && c1 < 0.0 {
+                return None;
+            }
+            if (c0 < 0.0) != (c1 < 0.0) {
+                let denom = c0 - c1;
+                if denom.abs() < f32::EPSILON {
+                    continue;
+                }
+                let t = (c0 / denom).clamp(0.0, 1.0);
+                if c0 < 0.0 {
+                    t0 = t0.max(t);
+                } else {
+                    t1 = t1.min(t);
+                }
+                if t0 > t1 {
+                    return None;
+                }
+            }
+        }
+        Some((start.lerp(end, t0), start.lerp(end, t1)))
+    }
+
+    fn clip_polygon(&self, polygon: &[Pos2]) -> Vec<Pos2> {
+        clip_convex_polygon(polygon, &self.polygon)
+    }
+}
+
+fn cross(a: Pos2, b: Pos2, p: Pos2) -> f32 {
+    (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+}
+
+fn polygon_area2(polygon: &[Pos2]) -> f32 {
+    polygon.iter().zip(polygon.iter().cycle().skip(1)).map(|(&a, &b)| a.x * b.y - b.x * a.y).sum()
+}
+
+fn rect_corners(rect: ERect) -> Vec<Pos2> {
+    vec![rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()]
+}
+
+fn polygon_aabb(polygon: &[Pos2]) -> ERect {
+    let mut bounds = ERect::NOTHING;
+    for &point in polygon {
+        bounds = bounds.union(ERect::from_min_max(point, point));
+    }
+    bounds
+}
+
+/// Sutherland-Hodgman clipping of a convex polygon against another convex polygon.
+fn clip_convex_polygon(subject: &[Pos2], clip: &[Pos2]) -> Vec<Pos2> {
+    if subject.len() < 3 || clip.len() < 3 {
+        return Vec::new();
+    }
+    let orientation = polygon_area2(clip).signum();
+    let mut output = subject.to_vec();
+    for (&a, &b) in clip.iter().zip(clip.iter().cycle().skip(1)) {
+        if output.is_empty() {
+            break;
+        }
+        let input = std::mem::take(&mut output);
+        let mut previous = *input.last().unwrap();
+        let mut previous_inside = orientation * cross(a, b, previous) >= -0.001;
+        for &current in &input {
+            let current_inside = orientation * cross(a, b, current) >= -0.001;
+            if current_inside != previous_inside {
+                let denom = cross(a, b, current) - cross(a, b, previous);
+                if denom.abs() >= f32::EPSILON {
+                    let t = (cross(a, b, previous) / denom).clamp(0.0, 1.0);
+                    output.push(previous.lerp(current, t));
+                }
+            }
+            if current_inside {
+                output.push(current);
+            }
+            previous = current;
+            previous_inside = current_inside;
+        }
+    }
+    output
+}
+
+fn rounded_rect_points(size: DV, radii: [f32; 4]) -> Vec<DV> {
+    let max_radius = (size.x.min(size.y) * 0.5).max(0.0);
+    let [tl, tr, br, bl] = radii.map(|r| r.max(0.0).min(max_radius));
+    if [tl, tr, br, bl].iter().all(|r| *r <= 0.0) {
+        return vec![DV::ZERO, DV::new(size.x, 0.0), size, DV::new(0.0, size.y)];
+    }
+    const SEGMENTS: usize = 6;
+    let corners = [
+        (tl, tl, std::f32::consts::PI, 1.5 * std::f32::consts::PI),
+        (size.x - tr, tr, 1.5 * std::f32::consts::PI, 2.0 * std::f32::consts::PI),
+        (size.x - br, size.y - br, 0.0, 0.5 * std::f32::consts::PI),
+        (bl, size.y - bl, 0.5 * std::f32::consts::PI, std::f32::consts::PI),
+    ];
+    let radii = [tl, tr, br, bl];
+    let mut points = Vec::with_capacity(SEGMENTS * 4 + 4);
+    for (i, &(cx, cy, start, end)) in corners.iter().enumerate() {
+        let radius = radii[i];
+        if radius <= 0.0 {
+            points.push(DV::new(cx, cy));
+            continue;
+        }
+        for step in 0..=SEGMENTS {
+            let t = step as f32 / SEGMENTS as f32;
+            let angle = start + (end - start) * t;
+            points.push(DV::new(cx + radius * angle.cos(), cy + radius * angle.sin()));
+        }
+    }
+    points
+}
+
+fn chrome_clip(app: &App, rect: ERect, id: NodeId) -> Option<ChromeClip> {
+    let mut parent = app.doc.get(id).and_then(|n| n.parent);
+    let mut polygon: Option<Vec<Pos2>> = None;
+    while let Some(parent_id) = parent {
+        let Some(parent_node) = app.doc.get(parent_id) else { break };
+        if parent_node.kind.frame_props().is_some_and(|fp| fp.clips_content) {
+            let world = super::fast_world_transform(&app.doc, parent_id);
+            let radii = if matches!(parent_node.kind, NodeKind::Section) { [0.0; 4] } else { parent_node.corner_radii };
+            let ancestor =
+                rounded_rect_points(parent_node.size, radii).into_iter().map(|point| app.view.to_screen(rect.min, world.apply(point))).collect::<Vec<_>>();
+            polygon = Some(match polygon {
+                Some(current) => clip_convex_polygon(&current, &ancestor),
+                None => ancestor,
+            });
+            if polygon.as_ref().is_some_and(|points| points.len() < 3) {
+                return Some(ChromeClip::empty());
+            }
+        }
+        parent = parent_node.parent;
+    }
+    polygon.map(|polygon| ChromeClip { aabb: polygon_aabb(&polygon).intersect(rect), polygon })
+}
+
+fn clipped_dashed_quad(p: &Painter, corners: &[Pos2; 4], dash: f32, gap: f32, stroke: Stroke, clip: Option<&ChromeClip>) {
+    for i in 0..4 {
+        let a = corners[i];
+        let b = corners[(i + 1) % 4];
+        let d = b - a;
+        let len = d.length();
+        if len < 0.5 {
+            continue;
+        }
+        let dir = d / len;
+        let step = (dash + gap).max(2.0);
+        let mut t = 0.0f32;
+        while t < len {
+            let start = a + dir * t;
+            let end = a + dir * (t + dash).min(len);
+            let segment = clip.and_then(|c| c.clip_segment(start, end)).or_else(|| clip.is_none().then_some((start, end)));
+            if let Some((start, end)) = segment {
+                p.line_segment([start, end], stroke);
+            }
+            t += step;
+        }
+    }
+}
+
+fn clipped_polygon(p: &Painter, points: &[Pos2], fill: Color32, clip: Option<&ChromeClip>) {
+    let points = clip.map_or_else(|| points.to_vec(), |c| c.clip_polygon(points));
+    if points.len() >= 3 {
+        p.add(egui::Shape::convex_polygon(points, fill, Stroke::NONE));
+    }
+}
+
 /// Draws a hollow vector diamond glyph (`◇`) for an Instance label.
 fn paint_instance_diamond(p: &Painter, center: Pos2, radius: f32, col: Color32) {
     let pts = vec![
@@ -431,51 +648,62 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
                 continue;
             }
         }
+        let clip = chrome_clip(app, rect, id);
+        if clip.as_ref().is_some_and(|c| !c.is_positive()) {
+            continue;
+        }
+        let chrome_p = clip.as_ref().map_or_else(|| p.clone(), |c| p.with_clip_rect(c.aabb));
         let corners =
             [world.apply(DV::ZERO), world.apply(DV::new(n.size.x, 0.0)), world.apply(DV::new(n.size.x, n.size.y)), world.apply(DV::new(0.0, n.size.y))]
                 .map(|c| app.view.to_screen(rect.min, c));
         if is_comp_set && !app.is_selected(id) {
-            dashed_quad(p, &corners, 6.0, 4.0, Stroke::new(1.25, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.85)));
+            clipped_dashed_quad(&chrome_p, &corners, 6.0, 4.0, Stroke::new(1.25, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.85)), clip.as_ref());
         }
         if is_slot {
             let show_placeholder = designos_doc::should_show_empty_slot_placeholder(&app.doc, id);
             if show_placeholder {
-                p.add(egui::Shape::convex_polygon(corners.to_vec(), FIGMA_COMPONENT_PURPLE.gamma_multiply(0.08), Stroke::NONE));
-                dashed_quad(p, &corners, 4.0, 3.0, Stroke::new(1.25, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.85)));
+                clipped_polygon(&chrome_p, &corners, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.08), clip.as_ref());
+                clipped_dashed_quad(&chrome_p, &corners, 4.0, 3.0, Stroke::new(1.25, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.85)), clip.as_ref());
                 if let Some(plus_r) = empty_slot_plus_button_rect(app, rect, id) {
-                    p.rect_filled(plus_r, theme::cr_pill(plus_r.height()), FIGMA_COMPONENT_PURPLE);
-                    crate::icons::paint(p, crate::icons::Icon::Plus, plus_r.center(), 12.0, Color32::WHITE);
+                    let plus_visible = clip.as_ref().is_none_or(|c| c.contains_rect(plus_r));
+                    if plus_visible {
+                        chrome_p.rect_filled(plus_r, theme::cr_pill(plus_r.height()), FIGMA_COMPONENT_PURPLE);
+                        crate::icons::paint(&chrome_p, crate::icons::Icon::Plus, plus_r.center(), 12.0, Color32::WHITE);
+                    }
                     let s_rect = ERect::from_two_pos(corners[0], corners[2]);
                     if s_rect.width() >= 64.0 && s_rect.height() >= 48.0 {
                         let font = theme::font_canvas_strong();
-                        p.text(
-                            Pos2::new(plus_r.center().x, plus_r.bottom() + theme::SPACE_INLINE),
-                            Align2::CENTER_CENTER,
-                            &n.name,
-                            font,
-                            FIGMA_COMPONENT_PURPLE,
-                        );
+                        let text_pos = Pos2::new(plus_r.center().x, plus_r.bottom() + theme::SPACE_INLINE);
+                        let text_w = crate::widgets::text_width(&chrome_p, &n.name, &font);
+                        let text_r = ERect::from_center_size(text_pos, EV::new(text_w, font.size + 4.0));
+                        if clip.as_ref().is_none_or(|c| c.contains_rect(text_r)) {
+                            chrome_p.text(text_pos, Align2::CENTER_CENTER, &n.name, font, FIGMA_COMPONENT_PURPLE);
+                        }
                     }
                 }
             } else if !n.children.is_empty() || app.is_selected(id) || app.hover == Some(id) || app.hover_layer == Some(id) {
-                dashed_quad(p, &corners, 4.0, 3.0, Stroke::new(1.0, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.75)));
+                clipped_dashed_quad(&chrome_p, &corners, 4.0, 3.0, Stroke::new(1.0, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.75)), clip.as_ref());
             }
             if app.is_selected(id) || app.hover == Some(id) || app.hover_layer == Some(id) {
                 let font = theme::font_canvas_strong();
-                let w = crate::widgets::text_width(p, "Slot", &font) + 8.0;
+                let w = crate::widgets::text_width(&chrome_p, "Slot", &font) + 8.0;
                 let pill = ERect::from_min_size(Pos2::new(corners[0].x, corners[0].y - 17.0), EV::new(w, 15.0));
-                p.rect_filled(pill, theme::cr(3), FIGMA_COMPONENT_PURPLE);
-                p.text(pill.center(), Align2::CENTER_CENTER, "Slot", font, Color32::WHITE);
+                if clip.as_ref().is_none_or(|c| c.contains_rect(pill)) {
+                    chrome_p.rect_filled(pill, theme::cr(3), FIGMA_COMPONENT_PURPLE);
+                    chrome_p.text(pill.center(), Align2::CENTER_CENTER, "Slot", font, Color32::WHITE);
+                }
             }
         }
         if is_slice {
             let col = if app.is_selected(id) || app.hover == Some(id) { Color32::from_rgb(0xF5, 0x9E, 0x0B) } else { FIGMA_SLICE_GREEN };
-            dashed_quad(p, &corners, 5.0, 3.0, Stroke::new(1.0, col));
+            clipped_dashed_quad(&chrome_p, &corners, 5.0, 3.0, Stroke::new(1.0, col), clip.as_ref());
             let font = theme::font_canvas_strong();
-            let w = crate::widgets::text_width(p, "Slice", &font) + 8.0;
+            let w = crate::widgets::text_width(&chrome_p, "Slice", &font) + 8.0;
             let pill = ERect::from_min_size(Pos2::new(corners[0].x, corners[0].y - 16.0), EV::new(w, 14.0));
-            p.rect_filled(pill, theme::cr(2), col);
-            p.text(pill.center(), Align2::CENTER_CENTER, "Slice", font, Color32::WHITE);
+            if clip.as_ref().is_none_or(|c| c.contains_rect(pill)) {
+                chrome_p.rect_filled(pill, theme::cr(2), col);
+                chrome_p.text(pill.center(), Align2::CENTER_CENTER, "Slice", font, Color32::WHITE);
+            }
         }
     }
 }
@@ -509,17 +737,25 @@ pub fn empty_slot_picker_overlay(app: &mut App, ui: &mut Ui, rect: ERect) {
                 continue;
             }
             let Some(plus_r) = empty_slot_plus_button_rect(app, rect, id) else { continue };
-            if !rect.intersects(plus_r) {
+            let clip = chrome_clip(app, rect, id);
+            let hit_r = clip.as_ref().map_or(plus_r, |c| c.clip_rect(plus_r));
+            if !hit_r.is_positive() {
                 continue;
             }
-            crate::widgets::record(ui, &format!("canvas-slot-plus:{}", id.0), plus_r);
-            let resp = ui.interact(plus_r, ui.id().with(("canvas-slot-plus", id)), if blocked { Sense::hover() } else { Sense::click() });
-            if resp.hovered() && !blocked {
+            crate::widgets::record(ui, &format!("canvas-slot-plus:{}", id.0), hit_r);
+            let resp = ui.interact(hit_r, ui.id().with(("canvas-slot-plus", id)), if blocked { Sense::hover() } else { Sense::click() });
+            let pointer_visible = ui.input(|i| i.pointer.hover_pos().is_some_and(|p| clip.as_ref().is_none_or(|c| c.contains(p))));
+            if resp.hovered() && pointer_visible && !blocked {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
             let ptr_clicked = !blocked
-                && ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary) && i.pointer.interact_pos().is_some_and(|p| plus_r.contains(p)));
-            if resp.clicked() || ptr_clicked {
+                && ui.input(|i| {
+                    i.pointer.button_released(egui::PointerButton::Primary)
+                        && i.pointer.interact_pos().is_some_and(|p| hit_r.contains(p) && clip.as_ref().is_none_or(|c| c.contains(p)))
+                });
+            let response_clicked =
+                resp.clicked() && ui.input(|i| i.pointer.interact_pos().is_some_and(|p| hit_r.contains(p) && clip.as_ref().is_none_or(|c| c.contains(p))));
+            if response_clicked || ptr_clicked {
                 clicked_slot = Some((id, plus_r));
             }
         }
@@ -1396,6 +1632,90 @@ fn draw_pen(app: &App, p: &Painter, rect: ERect, pts: &[create::PenPoint], point
 mod tests {
     use super::*;
     use designos_doc::Document;
+
+    #[test]
+    fn slot_chrome_stays_inside_a_clipping_ancestor() {
+        let mut doc = Document::new("slot-chrome-clip");
+        let page = doc.add_page("Page 1");
+        let clip_id = doc.alloc_id();
+        let mut clip = Node::frame(clip_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        clip.kind.frame_props_mut().unwrap().clips_content = true;
+        doc.insert(page, clip).unwrap();
+
+        let slot_id = doc.alloc_id();
+        let mut slot = Node::frame(slot_id, Rect::new(0.0, 0.0, 100.0, 120.0));
+        slot.component.is_slot = true;
+        doc.insert(clip_id, slot).unwrap();
+
+        let mut app = App::new(doc);
+        app.view = crate::app::View { offset: DV::ZERO, zoom: 1.0 };
+        app.canvas_rect = ERect::from_min_size(Pos2::ZERO, EV::new(160.0, 160.0));
+        app.canvas.dirty = true;
+        app.select_only(slot_id);
+        assert!(designos_doc::is_slot_container(&app.doc, slot_id));
+        assert_eq!(collect_page_chrome_nodes(&app.doc, app.page), vec![(slot_id, false, true, false)]);
+
+        let ctx = egui::Context::default();
+        let screen = app.canvas_rect;
+        crate::theme::install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            let p = ui.painter().with_clip_rect(screen);
+            draw_component_slot_and_slice_chrome(&app, &p, screen);
+        });
+        assert!(!out.shapes.is_empty(), "the synthetic slot must paint chrome");
+        let clip_max_y = out.shapes.iter().map(|s| s.clip_rect.max.y).fold(0.0, f32::max);
+        assert!(clip_max_y <= 100.01, "slot chrome clip extends to y={clip_max_y}, past the clipping frame");
+    }
+
+    #[test]
+    fn chrome_clip_follows_transformed_ancestor_shape() {
+        let mut doc = Document::new("rotated-slot-chrome-clip");
+        let page = doc.add_page("Page 1");
+        let clip_id = doc.alloc_id();
+        let mut clip = Node::frame(clip_id, Rect::new(20.0, 20.0, 100.0, 60.0));
+        clip.kind.frame_props_mut().unwrap().clips_content = true;
+        clip.transform = Affine { a: 0.866_025_4, b: 0.5, c: -0.5, d: 0.866_025_4, tx: 80.0, ty: 40.0 };
+        doc.insert(page, clip).unwrap();
+        let slot_id = doc.alloc_id();
+        let mut slot = Node::frame(slot_id, Rect::new(0.0, 0.0, 130.0, 80.0));
+        slot.component.is_slot = true;
+        doc.insert(clip_id, slot).unwrap();
+
+        let mut app = App::new(doc);
+        app.view = crate::app::View { offset: DV::ZERO, zoom: 1.0 };
+        let clip = chrome_clip(&app, ERect::from_min_size(Pos2::ZERO, EV::new(240.0, 240.0)), slot_id).unwrap();
+        assert!(clip.is_positive());
+        assert!(!clip.contains(clip.aabb.left_top()), "rotated clip must reject AABB corners outside its silhouette");
+        let clipped = clip.clip_segment(clip.aabb.left_top(), clip.aabb.right_bottom());
+        assert!(clipped.is_some(), "a diagonal crossing the transformed clip must retain its visible segment");
+        let (start, end) = clipped.unwrap();
+        assert!(clip.contains(start) && clip.contains(end));
+    }
+
+    #[test]
+    fn chrome_clip_rejects_rounded_corner_hit_regions() {
+        let mut doc = Document::new("rounded-slot-chrome-clip");
+        let page = doc.add_page("Page 1");
+        let clip_id = doc.alloc_id();
+        let mut clip_node = Node::frame(clip_id, Rect::new(20.0, 20.0, 100.0, 100.0));
+        clip_node.kind.frame_props_mut().unwrap().clips_content = true;
+        clip_node.corner_radii = [20.0; 4];
+        doc.insert(page, clip_node).unwrap();
+        let slot_id = doc.alloc_id();
+        let mut slot = Node::frame(slot_id, Rect::new(0.0, 0.0, 120.0, 120.0));
+        slot.component.is_slot = true;
+        doc.insert(clip_id, slot).unwrap();
+
+        let mut app = App::new(doc);
+        app.view = crate::app::View { offset: DV::ZERO, zoom: 1.0 };
+        let clip = chrome_clip(&app, ERect::from_min_size(Pos2::ZERO, EV::new(180.0, 180.0)), slot_id).unwrap();
+        assert!(clip.is_positive());
+        let partially_clipped_plus = ERect::from_min_size(Pos2::new(20.0, 20.0), EV::splat(22.0));
+        assert!(clip.clip_rect(partially_clipped_plus).is_positive());
+        assert!(!clip.contains(partially_clipped_plus.left_top()), "rounded corner must not accept an invisible plus-button corner");
+        assert!(clip.contains(partially_clipped_plus.center()));
+    }
 
     #[test]
     fn large_page_label_rects_hit_marquee_and_snap_under_5ms() {
