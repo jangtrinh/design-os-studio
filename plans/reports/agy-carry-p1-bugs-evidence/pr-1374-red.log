@@ -1,0 +1,27 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.59s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-ddcab0b658edb7be)
+
+running 1 test
+test variables_dtcg::tests::dtcg_export_case_insensitive_collection_names_keep_unique_files_and_round_trip ... FAILED
+
+failures:
+
+---- variables_dtcg::tests::dtcg_export_case_insensitive_collection_names_keep_unique_files_and_round_trip stdout ----
+
+thread 'variables_dtcg::tests::dtcg_export_case_insensitive_collection_names_keep_unique_files_and_round_trip' (14669806) panicked at crates/designos-fig/src/variables_dtcg.rs:4536:9:
+assertion `left == right` failed: DTCG files collide on case-insensitive filesystems: ["Brand.Style.tokens.json", "Brand.style (2).tokens.json", "brand.Style.tokens.json", "Color modes.Light.tokens.json", "Color modes.Dark.tokens.json", "Radius.Mode 1.tokens.json"]
+  left: 5
+ right: 6
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    variables_dtcg::tests::dtcg_export_case_insensitive_collection_names_keep_unique_files_and_round_trip
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-fig --lib`

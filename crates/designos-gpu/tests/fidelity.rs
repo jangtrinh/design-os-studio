@@ -99,6 +99,8 @@ fn background_blur_on_a_paintless_group_blurs_through_its_children() {
         "the stripe under the child must be blurred: CPU {cpu_before} -> {cpu_after}, GPU {gpu_before} -> {gpu_after}"
     );
     for (who, pm) in [("CPU", &blurred.cpu), ("GPU", &blurred.gpu)] {
+        let under_child = pm.pixel(15, 20).unwrap();
+        assert_eq!(under_child.alpha(), 255, "{who}: the translucent child over an opaque page must remain opaque: {under_child:?}");
         let outside = pm.pixel(55, 20).unwrap();
         assert_eq!([outside.red(), outside.green(), outside.blue(), outside.alpha()], [255, 255, 255, 255], "{who}: outside the group the page is untouched");
     }
