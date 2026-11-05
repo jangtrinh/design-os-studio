@@ -1641,7 +1641,7 @@ impl Ctx<'_> {
         if self.over_budget(1, self.program_cost(region) + backdrop) {
             return;
         }
-        let mask = self.reserving(0, backdrop, |c| c.sil_program(n, g, ts, region, 0.0, 0.0, 0.0, d::SilhouetteMode::Opaque));
+        let mask = self.reserving(0, backdrop, |c| c.sil_program(n, g, ts, region, 0.0, 0.0, 0.0, d::SilhouetteMode::BackdropBlur));
         self.push_backdrop(BackdropOp { kind: BackdropKind::Blur { sigma }, region, pad: padr, mask, clip, grid: self.grid });
     }
 

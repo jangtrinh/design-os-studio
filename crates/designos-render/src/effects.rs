@@ -212,7 +212,7 @@ pub fn background_blur(target: &mut sk::Pixmap, backdrop: Option<&sk::Pixmap>, c
     let Some(crop) = sk::IntRect::from_xywh(x0 - px0, y0 - py0, (x1 - x0) as u32, (y1 - y0) as u32) else { return };
     let Some(mut blurred) = sub.clone_rect(crop) else { return };
     let Some(mut mask) = sk::Pixmap::new(blurred.width(), blurred.height()) else { return };
-    sil(&mut mask, -(x0 as f32), -(y0 as f32), 0.0, d::SilhouetteMode::Opaque);
+    sil(&mut mask, -(x0 as f32), -(y0 as f32), 0.0, d::SilhouetteMode::BackdropBlur);
     composite(&mut blurred, 0, 0, &mask, sk::BlendMode::DestinationIn, None);
     composite(target, x0, y0, &mask, sk::BlendMode::DestinationOut, clip);
     composite(target, x0, y0, &blurred, sk::BlendMode::SourceOver, clip);
