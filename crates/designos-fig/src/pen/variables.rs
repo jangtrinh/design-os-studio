@@ -509,9 +509,12 @@ pub fn resolve_doc_var_bool(doc: &Document, var_ref: &str) -> Option<bool> {
     None
 }
 
-fn ordered_themes_entries(doc: &Document) -> Vec<(String, Vec<String>)> {
+/// Theme axes of the collections the file writes: a soft-deleted collection is a theme only while a variable written
+/// from it needs its modes.
+fn ordered_themes_entries(doc: &Document, written_ids: &[String]) -> Vec<(String, Vec<String>)> {
+    let needed: HashSet<&str> = written_ids.iter().filter_map(|id| doc.variables.get(id)).map(|v| v.collection.as_str()).collect();
     let mut out: Vec<(String, Vec<String>)> = Vec::new();
-    for coll in doc.variable_collections.values() {
+    for coll in doc.variable_collections.values().filter(|c| !c.is_soft_deleted() || needed.contains(c.id.as_str())) {
         let mut axis_map: Vec<(String, Vec<String>)> = Vec::new();
         for m in &coll.modes {
             let push_to = |axis_map: &mut Vec<(String, Vec<String>)>, axis: String, val: String| {
@@ -546,7 +549,8 @@ fn ordered_themes_entries(doc: &Document) -> Vec<(String, Vec<String>)> {
     out
 }
 
-fn ordered_variable_ids(doc: &Document) -> Vec<String> {
+/// Every variable in collection order, then any a collection leaves out.
+fn all_variable_ids_in_order(doc: &Document) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut ordered_ids: Vec<String> = Vec::new();
     for coll in doc.variable_collections.values() {
@@ -562,6 +566,45 @@ fn ordered_variable_ids(doc: &Document) -> Vec<String> {
         }
     }
     ordered_ids
+}
+
+/// The variables a `.pen` file gets, in order. Every live variable is written. The format has no deleted or hidden flag
+/// for a variable, so a soft-deleted one is written as an ordinary variable only while it is still needed: a layer or a
+/// style binds it, or a variable that is written aliases it. An unreferenced deleted variable is left out. The file keys
+/// variables by name, so a deleted variable whose name another written variable already holds is left out as well, and the
+/// bindings to it read that variable instead of overwriting its definition.
+fn ordered_variable_ids(doc: &Document) -> Vec<String> {
+    let all = all_variable_ids_in_order(doc);
+    let bound: HashSet<&str> = doc
+        .nodes
+        .values()
+        .flat_map(|n| n.variables.bindings.values())
+        .chain(doc.style_meta.values().flat_map(|m| m.bindings.values()))
+        .map(String::as_str)
+        .collect();
+    let mut keep: HashSet<&str> =
+        doc.variables.iter().filter(|(id, v)| !v.is_soft_deleted() || bound.contains(id.as_str())).map(|(id, _)| id.as_str()).collect();
+    let mut queue: Vec<&str> = keep.iter().copied().collect();
+    while let Some(id) = queue.pop() {
+        let Some(var) = doc.variables.get(id) else { continue };
+        for value in var.values.values() {
+            if let VariableValue::Alias(target) = value {
+                if let Some((target_id, _)) = doc.variables.get_key_value(target.as_str()) {
+                    if keep.insert(target_id.as_str()) {
+                        queue.push(target_id.as_str());
+                    }
+                }
+            }
+        }
+    }
+    let mut taken: HashSet<&str> =
+        all.iter().filter_map(|id| doc.variables.get(id)).filter(|v| !v.is_soft_deleted() && keep.contains(v.id.as_str())).map(|v| v.name.as_str()).collect();
+    all.into_iter()
+        .filter(|id| {
+            let Some(var) = doc.variables.get(id) else { return false };
+            keep.contains(id.as_str()) && (!var.is_soft_deleted() || taken.insert(var.name.as_str()))
+        })
+        .collect()
 }
 
 fn mode_key_sort_rank(doc: &Document, mode_key: &str) -> Vec<(usize, usize)> {
@@ -614,7 +657,8 @@ fn is_single_default_var(doc: &Document, var: &Variable) -> bool {
 }
 
 pub fn export_themes_and_variables(doc: &Document, root: &mut Map<String, Value>) {
-    let theme_entries = ordered_themes_entries(doc);
+    let written_ids = ordered_variable_ids(doc);
+    let theme_entries = ordered_themes_entries(doc, &written_ids);
     if !theme_entries.is_empty() {
         let mut themes = Map::new();
         for (axis, vals) in theme_entries {
@@ -623,9 +667,9 @@ pub fn export_themes_and_variables(doc: &Document, root: &mut Map<String, Value>
         root.insert("themes".into(), Value::Object(themes));
     }
 
-    if !doc.variables.is_empty() {
+    if !written_ids.is_empty() {
         let mut vars = Map::new();
-        for vid in ordered_variable_ids(doc) {
+        for vid in written_ids {
             let Some(var) = doc.variables.get(&vid) else { continue };
             let vtype = match var.kind {
                 VariableKind::Color => "color",
@@ -667,7 +711,8 @@ pub fn export_themes_and_variables(doc: &Document, root: &mut Map<String, Value>
 /// whose keys are emitted in exact `doc.variable_collections` and `col.variables` order rather
 /// than `BTreeMap` alphabetical order.
 pub fn splice_ordered_themes_and_variables(doc: &Document, mut pretty_json: String) -> String {
-    let theme_entries = ordered_themes_entries(doc);
+    let ordered_ids = ordered_variable_ids(doc);
+    let theme_entries = ordered_themes_entries(doc, &ordered_ids);
     if !theme_entries.is_empty() {
         let mut lines = Vec::new();
         lines.push("{\n".to_string());
@@ -682,8 +727,7 @@ pub fn splice_ordered_themes_and_variables(doc: &Document, mut pretty_json: Stri
         pretty_json = replace_top_level_field_value(&pretty_json, "themes", &replacement);
     }
 
-    if !doc.variables.is_empty() {
-        let ordered_ids = ordered_variable_ids(doc);
+    if !ordered_ids.is_empty() {
         let mut lines = Vec::new();
         lines.push("{\n".to_string());
         for (idx, vid) in ordered_ids.iter().enumerate() {
