@@ -297,7 +297,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <li><a href="#install">Install</a></li>
       <li><a href="#faq">FAQ</a></li>
     </ul>
-    <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos.dmg">Download for macOS</a>
+    <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.9/designos-0.7.9-macos.dmg">Download for macOS</a>
   </nav>
 </header>
 
@@ -309,7 +309,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <h1 id="title"><span class="sel sel-box" id="sel-box"><span class="own">Own</span> your design canvas.<span class="pill" id="sel-pill" aria-hidden="true" hidden></span></span></h1>
       <p class="sub">Open Figma files, paste from Figma desktop, and let a coding agent build on the same canvas.</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.9/designos-0.7.9-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
         <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
       </div>
       <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>
@@ -476,9 +476,20 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.8. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.9. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--079" id="new-in-v079" aria-labelledby="v079-h">
+          <h3 id="v079-h" class="new-ver">0.7.9</h3>
+          <ul class="new-bullets">
+            <li><strong>Images.</strong> Image fills gain Exposure, Contrast, Saturation, Temperature, Tint, Highlights and Shadows sliders with a Reset, the image fill picker gets rotate buttons and a tile scale slider, and switching Fill or Fit to Crop keeps the framing you see.</li>
+            <li><strong>Project tab.</strong> A project's Markdown docs open in a Project tab with a document tree, a reading page and an "On this page" outline, and read-only MCP tools let an agent list and read them.</li>
+            <li><strong>FigJam connectors.</strong> A board with 1,500 connectors pans and zooms in about 1.3 ms a frame instead of 630 ms, and connectors in a design file are kept through <code>.fig</code> and Figma REST JSON: they are saved as vectors and open again as live connectors.</li>
+            <li><strong>Shaders.</strong> Custom shader effects and fills are kept through <code>.fig</code>, REST and <code>.designos</code> files. Studio does not draw them yet; the inspector lists each one as "Shader (not rendered)".</li>
+            <li><strong>Text, styles and variables.</strong> Text strokes follow Inside and Outside alignment, a font weight set through a variable moves a variable font's weight axis, and edits that should detach a text style or a variable binding now do.</li>
+            <li><strong><code>.fig</code> files and fixes.</strong> Opening a file whose layers use variables it does not hold keeps those links and says how many are missing, and background blur on a layer with nothing visible no longer blurs what is behind it. Many fixes in this release were carried from pull requests by @NamAIEngineer.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--078" id="new-in-v078" aria-labelledby="v078-h">
           <h3 id="v078-h" class="new-ver">0.7.8</h3>
           <ul class="new-bullets">
@@ -648,26 +659,26 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <h2 id="install-h">Install.</h2>
       <div class="install">
         <div>
-          <h3>Download Studio 0.7.8</h3>
+          <h3>Download Studio 0.7.9</h3>
           <ul class="dl">
             <li>
               <span class="os">macOS</span>
               <span class="files">
-                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos.dmg">.dmg <small>138 MB</small></a>
-                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos-universal.tar.gz">.tar.gz <small>124 MB</small></a>
+                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.9/designos-0.7.9-macos.dmg">.dmg <small>143 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.9/designos-0.7.9-macos-universal.tar.gz">.tar.gz <small>129 MB</small></a>
               </span>
             </li>
             <li>
               <span class="os">Windows</span>
               <span class="files">
-                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-x86_64-pc-windows-msvc.zip">.zip <small>57 MB</small></a>
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.9/designos-0.7.9-x86_64-pc-windows-msvc.zip">.zip <small>60 MB</small></a>
               </span>
             </li>
             <li>
               <span class="os">Linux</span>
               <span class="files">
-                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos_0.7.8_amd64.deb">.deb <small>53 MB</small></a>
-                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>71 MB</small></a>
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.9/designos_0.7.9_amd64.deb">.deb <small>55 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.9/designos-0.7.9-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>74 MB</small></a>
               </span>
             </li>
           </ul>
@@ -739,7 +750,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
       </div>
       <div class="get__actions">
         <div class="cta">
-          <a class="btn btn-primary" id="get-download" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+          <a class="btn btn-primary" id="get-download" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.9/designos-0.7.9-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
           <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
         </div>
         <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>
