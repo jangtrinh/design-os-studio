@@ -287,3 +287,19 @@ fn re_attaching_a_connector_inside_a_wrap_frame_moves_no_layer() {
 
     assert_eq!(moved(&before, &geometry(&e.doc)).into_iter().filter(|id| *id != connector).collect::<Vec<_>>(), Vec::<u64>::new());
 }
+
+#[test]
+fn moving_a_connector_to_the_screen_that_holds_its_frame_moves_no_layer() {
+    let WrapScreen { mut e, row, a, b } = wrap_screen();
+    let screen = e.doc.get(row).unwrap().parent.unwrap();
+    let tail = *e.doc.get(screen).unwrap().children.last().unwrap();
+    let reply = e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": a.0, "to": b.0 }] })).unwrap();
+    let connector = NodeId(reply["created"][0].as_u64().unwrap());
+    assert_eq!(e.doc.get(connector).unwrap().parent, Some(row));
+    let before = geometry(&e.doc);
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": connector.0, "to": tail.0 }] })).unwrap();
+
+    assert_eq!(e.doc.get(connector).unwrap().parent, Some(screen), "the connector now sits in the frame both ends share");
+    assert_eq!(moved(&before, &geometry(&e.doc)).into_iter().filter(|id| *id != connector.0).collect::<Vec<_>>(), Vec::<u64>::new());
+}
