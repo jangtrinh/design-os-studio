@@ -123,7 +123,7 @@ fn normalized(st: &TerminalState, rel: &str) -> String {
         paths.push((canon.display().to_string(), "<SESSION>"));
     }
     paths.push((st.session_dir.display().to_string(), "<SESSION>"));
-    let untitled_workspace = crate::terminal::session_workspace_dir(None);
+    let untitled_workspace = crate::terminal::session_workspace_dir(None).expect("the untitled workspace");
     if let Ok(canon) = untitled_workspace.canonicalize() {
         paths.push((canon.display().to_string(), "<WORKSPACE>"));
     }

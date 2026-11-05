@@ -5051,7 +5051,9 @@ fn tab_designos_env_map(preset: AgentCliPreset, file_path: Option<&Path>, sessio
     if let Some(fp) = file_path {
         map.insert("DESIGNOS_FILE".into(), fp.to_string_lossy().into_owned());
     }
-    map.insert("DESIGNOS_WORKSPACE".into(), session_workspace_dir(file_path).to_string_lossy().into_owned());
+    // An untitled design whose private workspace cannot be made gets an empty folder: `designos-mcp` refuses to start without one, and
+    // a value inherited from the parent never reaches it. The cause is reported by `write_session_agent_files`.
+    map.insert("DESIGNOS_WORKSPACE".into(), session_workspace_dir(file_path).map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default());
 
     // 3. Per-tab session overlay.
     if let Some(sess) = session {
@@ -5355,7 +5357,9 @@ pub(crate) fn write_session_agent_files(job: &crate::agent_session_files::Snapsh
 /// before a later write can fail.
 fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJob, moved_aside: &mut Option<String>) -> std::io::Result<Option<String>> {
     let mcp_bin = designos_mcp_binary();
-    let workspace_dir = session_workspace_dir(job.file_path.as_deref());
+    // An untitled design whose private workspace cannot be made is given no `designos` server: `designos-mcp` serves the folder it is
+    // given and Studio never names another one in its place. Every other file is written, and the cause is returned last.
+    let workspace = session_workspace_dir(job.file_path.as_deref());
     let mcp_config_path = job.session_dir.join("mcp-config.json");
 
     // Ask mode: Claude's MCP config, hooks and skill go to a folder only Studio writes (made first, as the MCP config below
@@ -5384,9 +5388,11 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     // The server's environment holds ids and paths, and no document or page name: every CLI loads this config by itself,
     // and `designos-mcp` reads neither name (the tab's shell still has `DESIGNOS_DOC_NAME` and `DESIGNOS_TARGET_PAGE_NAME`).
     // `DESIGNOS_FILE` is the document's path on disk, which `designos-mcp` needs.
-    let mut mcp_config = serde_json::json!({
-        "mcpServers": {
-            "designos": {
+    let mut servers = serde_json::Map::new();
+    if let Ok(workspace_dir) = &workspace {
+        servers.insert(
+            "designos".into(),
+            serde_json::json!({
                 "command": mcp_bin.display().to_string(),
                 "args": ["--workspace", workspace_dir.display().to_string()],
                 "env": {
@@ -5403,9 +5409,10 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
                     "DESIGNOS_TARGET_PAGE_ID": job.current_page_id.to_string(),
                     "DESIGNOS_FILE": job.file_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default()
                 }
-            }
-        }
-    });
+            }),
+        );
+    }
+    let mut mcp_config = serde_json::json!({ "mcpServers": servers });
     if let (Some(custom), Some(root)) = (&custom_tools, mcp_config.as_object_mut()) {
         root.insert("designos".into(), custom.block.clone());
     }
@@ -5539,9 +5546,9 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())?;
     // The CLI whose tab is starting has had every one of its files checked above; another CLI's Gemini settings are not its concern.
     if exact.is_some() {
-        return Ok(set_aside_note);
+        return workspace.map(|_| set_aside_note);
     }
-    gemini_config.map(|()| None)
+    gemini_config.and(workspace.map(drop)).map(|()| None)
 }
 
 /// Shell command that appends one wrapped hook record to the events file of the hook folder (`agent_hook_outputs`, `#683` §3.1)
@@ -5690,27 +5697,71 @@ fn designos_mcp_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("designos-mcp"))
 }
 
-/// Folder `designos-mcp --workspace` serves: the open file's folder, else a Studio-owned
-/// temporary workspace. An untitled document must never inherit the process working directory:
-/// Finder can launch Studio with `/` (or another broad directory) as its cwd.
-pub(crate) fn session_workspace_dir(file_path: Option<&Path>) -> PathBuf {
-    file_path.and_then(|p| p.parent()).filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf()).unwrap_or_else(|| {
-        let dir = std::env::temp_dir().join("designos-workspaces").join(format!("studio-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        dir
-    })
+/// Folder name, under Studio's private root, of the workspaces of untitled designs.
+const UNTITLED_WORKSPACES_DIR_NAME: &str = "workspaces";
+
+/// Folder `designos-mcp --workspace` serves: the open file's folder, else a workspace of Studio's own in its private data folder
+/// (`<data dir>/designos/ap/workspaces/studio-<pid>`, owner-only). An untitled document must never inherit the process working
+/// directory (Finder can launch Studio with `/` as its cwd) nor a folder other users can write, such as the temporary folder; when the
+/// private folder cannot be made there is no workspace, and the error says why.
+pub(crate) fn session_workspace_dir(file_path: Option<&Path>) -> std::io::Result<PathBuf> {
+    session_workspace_dir_in(crate::agent_approval_channel::private_root().as_deref(), file_path)
+}
+
+/// [`session_workspace_dir`] with the private root `private_root` (`None` when the platform has none).
+fn session_workspace_dir_in(private_root: Option<&Path>, file_path: Option<&Path>) -> std::io::Result<PathBuf> {
+    if let Some(folder) = file_path.and_then(|p| p.parent()).filter(|p| !p.as_os_str().is_empty()) {
+        return Ok(folder.to_path_buf());
+    }
+    let root = private_root.ok_or_else(|| {
+        std::io::Error::other(
+            "no private workspace for this untitled design: Studio's user data folder is missing or inside a temporary folder, so its agents have no design tools",
+        )
+    })?;
+    let workspaces = root.join(UNTITLED_WORKSPACES_DIR_NAME);
+    let dir = workspaces.join(format!("studio-{}", std::process::id()));
+    // Each level is made and checked before the next one is made in it: a link at any level is refused before anything is made through it.
+    for level in [root, workspaces.as_path(), dir.as_path()] {
+        make_private_level(level).map_err(|e| {
+            let message =
+                format!("no private workspace for this untitled design: {} can't be made private ({e}), so its agents have no design tools", level.display());
+            std::io::Error::new(e.kind(), message)
+        })?;
+    }
+    Ok(dir)
+}
+
+/// Makes `level` (owner-only for every folder it creates) and requires it to be a real folder that only its owner can use.
+fn make_private_level(level: &Path) -> std::io::Result<()> {
+    crate::agent_approval_channel::create_private_dir_all(level)?;
+    crate::agent_approval_channel::require_private_dir(level)
 }
 
 #[cfg(test)]
 mod workspace_dir_tests {
-    use super::{session_workspace_dir, TerminalState};
-    use std::path::Path;
+    use super::{session_workspace_dir, session_workspace_dir_in, tab_designos_env_map, AgentCliPreset, TerminalState};
+    use crate::agent_approval_channel::{with_private_root_at, without_private_root};
+    use std::path::{Path, PathBuf};
+
+    /// A root of this test's own under the temp folder, which does not exist yet.
+    fn fresh_root(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("designos-workspace-dir-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::symlink_metadata(path).expect("metadata").permissions().mode() & 0o777
+    }
 
     #[test]
     fn untitled_workspace_is_studio_owned_and_not_process_cwd() {
-        let workspace = session_workspace_dir(None);
+        let workspace = session_workspace_dir(None).expect("untitled workspace");
         assert!(workspace.ends_with(format!("studio-{}", std::process::id())));
-        assert!(workspace.starts_with(std::env::temp_dir().join("designos-workspaces")));
+        assert!(workspace.starts_with(crate::agent_approval_channel::private_root().expect("private root")));
+        assert!(!workspace.starts_with(std::env::temp_dir().join("designos-workspaces")));
         assert!(workspace.is_dir());
         assert_ne!(workspace, std::env::current_dir().unwrap());
         assert_ne!(workspace, Path::new("/"));
@@ -5740,20 +5791,116 @@ mod workspace_dir_tests {
     #[test]
     fn file_backed_workspace_remains_the_file_parent() {
         let file = Path::new("/tmp/designos-sample/sample.designos");
-        assert_eq!(session_workspace_dir(Some(file)), Path::new("/tmp/designos-sample"));
+        assert_eq!(session_workspace_dir(Some(file)).expect("file folder"), Path::new("/tmp/designos-sample"));
+        // The open file's folder needs no private root.
+        assert_eq!(session_workspace_dir_in(None, Some(file)).expect("file folder"), Path::new("/tmp/designos-sample"));
+    }
+
+    #[test]
+    fn untitled_workspace_lies_in_the_private_root_and_is_owner_only() {
+        let root = fresh_root("owner-only");
+        let workspace = session_workspace_dir_in(Some(&root), None).expect("untitled workspace");
+        assert_eq!(workspace, root.join("workspaces").join(format!("studio-{}", std::process::id())));
+        assert!(workspace.is_dir());
+        assert!(!workspace.starts_with(std::env::temp_dir().join("designos-workspaces")));
+        #[cfg(unix)]
+        for level in [root.as_path(), root.join("workspaces").as_path(), workspace.as_path()] {
+            assert_eq!(mode_of(level), 0o700, "{}", level.display());
+        }
+
+        // The public function reads the private root in force, and a second call finds the folder as it was.
+        with_private_root_at(&root, || {
+            assert_eq!(session_workspace_dir(None).expect("untitled workspace"), workspace);
+        });
+        assert_eq!(session_workspace_dir_in(Some(&root), None).expect("untitled workspace again"), workspace);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_looser_workspaces_folder_is_tightened_not_trusted_as_it_is() {
+        let root = fresh_root("loose");
+        let workspaces = root.join("workspaces");
+        std::fs::create_dir_all(&workspaces).expect("workspaces");
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&workspaces, std::fs::Permissions::from_mode(0o777)).expect("loosen");
+        }
+        let workspace = session_workspace_dir_in(Some(&root), None).expect("untitled workspace");
+        assert_eq!(mode_of(&workspaces), 0o700);
+        assert_eq!(mode_of(&workspace), 0o700);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn untitled_workspace_is_refused_when_a_folder_above_it_is_a_link() {
+        use std::os::unix::fs::symlink;
+        let base = fresh_root("link");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).expect("link target");
+
+        // `workspaces` is a link to a folder somebody else made: nothing is made through it.
+        let root = base.join("root");
+        std::fs::create_dir_all(&root).expect("root");
+        symlink(&elsewhere, root.join("workspaces")).expect("link");
+        let refused = session_workspace_dir_in(Some(&root), None);
+        assert!(refused.is_err(), "a workspace was returned through a link: {refused:?}");
+        assert_eq!(std::fs::read_dir(&elsewhere).expect("target").count(), 0, "something was made through the link");
+
+        // The private root itself is a link.
+        let linked_root = base.join("linked-root");
+        symlink(&elsewhere, &linked_root).expect("link");
+        let refused = session_workspace_dir_in(Some(&linked_root), None);
+        assert!(refused.is_err(), "a workspace was returned through a linked root: {refused:?}");
+        assert_eq!(std::fs::read_dir(&elsewhere).expect("target").count(), 0, "something was made through the linked root");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn untitled_workspace_is_refused_without_a_private_root() {
+        assert!(session_workspace_dir_in(None, None).is_err());
+        without_private_root(|| assert!(session_workspace_dir(None).is_err()));
+    }
+
+    #[test]
+    fn untitled_session_without_a_workspace_gets_no_designos_server_and_says_why() {
+        without_private_root(|| {
+            let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+            let _ = std::fs::remove_dir_all(&st.session_dir);
+            std::fs::create_dir_all(&st.session_dir).expect("session dir");
+            let error = st.provision_session_agent_files(None).expect("the missing workspace is reported");
+            // The line a sync of this session shows the user (`files_not_updated_message` is what the writer thread reports).
+            let line = crate::agent_session_files::files_not_updated_message(&error);
+            assert!(line.starts_with("Couldn't update the agent files: no private workspace for this untitled design"), "{line}");
+
+            // Nothing names a folder for the server: no entry, no temporary or home folder in its place.
+            let raw = std::fs::read_to_string(st.session_dir.join("mcp-config.json")).expect("mcp-config.json");
+            let cfg: serde_json::Value = serde_json::from_str(&raw).expect("valid mcp-config.json");
+            assert!(cfg.pointer("/mcpServers/designos").is_none(), "{raw}");
+            assert!(!raw.contains("--workspace"), "{raw}");
+            // The rest of the session's files are still written.
+            assert!(st.session_dir.join("SKILL.md").is_file());
+            assert!(st.session_dir.join("AGENTS.md").is_file());
+
+            // Codex names the folder through the environment: an empty one makes `designos-mcp` refuse to start.
+            let env = tab_designos_env_map(AgentCliPreset::Codex, None, None);
+            assert_eq!(env.get("DESIGNOS_WORKSPACE").map(String::as_str), Some(""));
+            let _ = std::fs::remove_dir_all(&st.session_dir);
+        });
     }
 }
 
 /// Working directory of a spawned tab, never `/` (an app opened from Finder has no useful cwd).
 /// Agent CLIs start in the per-file session dir because that is where they discover the project
 /// config, skills and `AGENTS.md` Studio provisions; a shell tab opens in the file's folder.
-fn resolve_pty_cwd(preset: AgentCliPreset, session_dir: Option<&Path>, workspace: PathBuf) -> PathBuf {
+fn resolve_pty_cwd(preset: AgentCliPreset, session_dir: Option<&Path>, workspace: Option<PathBuf>) -> PathBuf {
     let is_agent = !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp);
-    match session_dir {
-        Some(dir) if is_agent => dir.to_path_buf(),
-        _ if workspace.parent().is_some() => workspace,
-        Some(dir) => dir.to_path_buf(),
-        None => std::env::temp_dir(),
+    match (session_dir, workspace) {
+        (Some(dir), _) if is_agent => dir.to_path_buf(),
+        (_, Some(workspace)) if workspace.parent().is_some() => workspace,
+        (Some(dir), _) => dir.to_path_buf(),
+        (None, _) => std::env::temp_dir(),
     }
 }
 
@@ -5825,7 +5972,7 @@ pub fn configure_pty_env_with_session_and_hermetic(
         cmd.env(k, v);
     }
     if cmd.get_cwd().is_none() {
-        cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
+        cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path).ok()));
     }
 
     if let Some(dir) = hermetic_dir {
@@ -8487,15 +8634,15 @@ mod tests {
         let files_folder = std::path::PathBuf::from("/Users/someone/designs");
         // Agent CLIs discover project config, skills and AGENTS.md from their cwd: the session dir.
         for preset in [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok] {
-            assert_eq!(resolve_pty_cwd(preset, Some(session), files_folder.clone()), session, "{preset:?}");
+            assert_eq!(resolve_pty_cwd(preset, Some(session), Some(files_folder.clone())), session, "{preset:?}");
         }
         // A shell tab opens in the file's folder.
-        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, Some(session), files_folder.clone()), files_folder);
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, Some(session), Some(files_folder.clone())), files_folder);
         // A bundle launched from Finder has cwd `/`: never use it.
         let root = std::path::PathBuf::from("/");
-        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, Some(session), root.clone()), session);
-        assert_eq!(resolve_pty_cwd(AgentCliPreset::Claude, None, root.clone()), std::env::temp_dir());
-        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, None, root), std::env::temp_dir());
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, Some(session), Some(root.clone())), session);
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Claude, None, Some(root.clone())), std::env::temp_dir());
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, None, Some(root)), std::env::temp_dir());
     }
 
     #[test]
@@ -9672,7 +9819,7 @@ mod tests {
         assert!(trusted_path.is_file());
 
         // Verify the Gemini PTY session resolves cwd to `session_dir` and configures `GEMINI_CLI_TRUSTED_FOLDERS_PATH`.
-        assert_eq!(resolve_pty_cwd(AgentCliPreset::Gemini, Some(&st.session_dir), PathBuf::from("/tmp")), st.session_dir);
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Gemini, Some(&st.session_dir), Some(PathBuf::from("/tmp"))), st.session_dir);
         let mut pty_cmd = CommandBuilder::new("gemini");
         configure_pty_env_with_session(&mut pty_cmd, AgentCliPreset::Gemini, None, Some(&st.session_env()));
         assert_eq!(pty_cmd.get_env("GEMINI_CLI_TRUSTED_FOLDERS_PATH"), Some(trusted_path.as_os_str()));

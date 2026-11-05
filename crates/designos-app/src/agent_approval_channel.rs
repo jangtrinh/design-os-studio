@@ -186,7 +186,7 @@ pub fn create_private_dir_all(path: &Path) -> io::Result<()> {
 }
 
 /// Requires `path` to be a real folder (not a link) that only its owner can use, tightening a looser mode.
-fn require_private_dir(path: &Path) -> io::Result<()> {
+pub(crate) fn require_private_dir(path: &Path) -> io::Result<()> {
     let meta = std::fs::symlink_metadata(path)?;
     if !meta.is_dir() {
         return Err(io::Error::other(format!("{} is not a folder", path.display())));
