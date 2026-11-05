@@ -326,6 +326,50 @@ fn board_dot_press_with_alt_still_starts_a_connector() {
     assert_eq!(ends(&s, cs[0]).0, Some(a));
 }
 
+/// Contrast between the line a connector draws and the card fill next to it, read from the CPU render.
+fn rendered_line_contrast(s: &Sim, c: NodeId) -> f64 {
+    let doc = &s.app().doc;
+    // the route is in the connector's parent space; the render is in page space
+    let local = designos_doc::connector_route(doc, c).expect("route").midpoint();
+    let parent = doc.get(c).and_then(|n| n.parent).expect("a connector has a parent");
+    let mid = doc.world_transform(parent).apply(local);
+    let mut pm = designos_render::tiny_skia::Pixmap::new(800, 520).unwrap();
+    let vp = designos_render::Viewport { offset: DV::ZERO, zoom: 1.0, dpr: 1.0 };
+    designos_render::render_page(doc, s.app().page, &vp, &mut pm);
+    let at = |x: f32, y: f32| {
+        let px = pm.pixel(x as u32, y as u32).expect("pixel inside the render").demultiply();
+        Color::rgb(px.red(), px.green(), px.blue())
+    };
+    let fill = at(mid.x, mid.y + 12.0);
+    (-3..=3)
+        .map(|dy| designos_doc::lint::rules::contrast::contrast_ratio(at(mid.x, mid.y + dy as f32), fill))
+        .fold(1.0, f64::max)
+}
+
+#[test]
+fn default_ink_stays_visible_in_a_card_faded_by_its_layer_opacity() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    // a white card at 40% layer opacity on the dark default page: the line and the fill fade together
+    let card = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(80.0, 80.0, 640.0, 360.0));
+            n.opacity = 0.4;
+            n
+        },
+        "Faded card",
+    );
+    let a = rectangle(&mut s, card, "Card A", 40.0, 100.0);
+    let b = rectangle(&mut s, card, "Card B", 420.0, 100.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(card));
+    let ratio = rendered_line_contrast(&s, c);
+    assert!(ratio >= 3.0, "the rendered line reaches 3:1 against the card pixel next to it, got {ratio:.2}:1");
+    assert_eq!(ink_of(&s, c), crate::board::color_of(crate::theme::BOARD_INK[0]), "the card's white fill is the surface, whatever its layer opacity");
+}
+
 #[test]
 fn connector_ink_tokens_match_the_document_defaults() {
     let mut doc = designos_doc::Document::new("Ink tokens");

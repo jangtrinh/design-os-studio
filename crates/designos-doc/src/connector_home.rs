@@ -104,8 +104,9 @@ pub fn connector_home(doc: &Document, a: Option<NodeId>, b: Option<NodeId>, page
 /// Contrast a connector needs against the surface it is drawn on.
 const CONNECTOR_INK_MIN_CONTRAST: f64 = 3.0;
 
-/// A fill must keep at least this much of its colour (colour alpha x paint opacity x layer
-/// opacity) to count as the surface behind a connector.
+/// A fill must keep at least this much of its colour (colour alpha x paint opacity) to count as
+/// the surface behind a connector. The layer opacity of the layer that holds the fill is not
+/// counted: the connector sits inside that layer, so it fades the line and the fill together.
 const SURFACE_MIN_ALPHA: f32 = 0.5;
 
 /// Default ink of a connector on a light surface: the ink [`Node::connector`] is created with.
@@ -117,7 +118,7 @@ fn connector_ink_on_light() -> Color {
 /// [`SURFACE_MIN_ALPHA`] of its colour. Images, gradients and faint fills are not a surface.
 fn opaque_solid_fill(n: &Node) -> Option<Color> {
     n.fills.iter().rev().filter(|p| p.visible).find_map(|p| match p.kind {
-        PaintKind::Solid(c) if c.a * p.opacity * n.opacity >= SURFACE_MIN_ALPHA => Some(c),
+        PaintKind::Solid(c) if c.a * p.opacity >= SURFACE_MIN_ALPHA => Some(c),
         _ => None,
     })
 }
@@ -450,11 +451,6 @@ mod tests {
         doc.get_mut(wrapper).expect("wrapper").fills = vec![faint_paint];
         assert_eq!(default_connector_ink(&doc, wrapper), dark, "a 20% paint is not a surface");
 
-        doc.get_mut(wrapper).expect("wrapper").fills = vec![Paint::solid(Color::BLACK)];
-        doc.get_mut(wrapper).expect("wrapper").opacity = 0.3;
-        assert_eq!(default_connector_ink(&doc, wrapper), dark, "a 30% layer is not a surface");
-        doc.get_mut(wrapper).expect("wrapper").opacity = 1.0;
-
         let mut hidden = Paint::solid(Color::BLACK);
         hidden.visible = false;
         doc.get_mut(wrapper).expect("wrapper").fills = vec![hidden];
@@ -471,6 +467,20 @@ mod tests {
         };
         doc.get_mut(wrapper).expect("wrapper").fills = vec![gradient];
         assert_eq!(default_connector_ink(&doc, wrapper), dark, "a gradient is not a solid surface");
+    }
+
+    #[test]
+    fn connector_ink_gives_a_dark_wrapper_faded_by_its_layer_opacity_the_light_ink() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (_, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![Paint::solid(Color::BLACK)];
+        doc.get_mut(wrapper).expect("wrapper").opacity = 0.3;
+        assert_eq!(
+            default_connector_ink(&doc, wrapper),
+            Color::WHITE,
+            "the connector sits inside the faded wrapper, so the wrapper's fill is the surface it is drawn on"
+        );
     }
 
     #[test]
