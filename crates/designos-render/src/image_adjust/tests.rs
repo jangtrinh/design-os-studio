@@ -389,3 +389,71 @@ fn a_fit_fill_over_the_scratch_limit_is_drawn_unadjusted_with_its_letterbox_and_
     assert_eq!(degraded.pixel(2, 4).unwrap().alpha(), 0, "and its letterbox stays transparent");
     assert!(unadjusted_fill_fallbacks() > counted, "the fallback leaves a count");
 }
+
+/// Renders a 24x8 node filled with `fill` on a transparent page: once within the scratch limit and once with the
+/// limit shrunk below the visible region. Returns both renders and how many fallbacks the second one counted.
+fn render_within_and_over_the_limit(fill: Paint) -> (sk::Pixmap, sk::Pixmap, u64) {
+    let mut doc = Document::new("t");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = designos_doc::NodeKind::Page { background: designos_doc::Color::TRANSPARENT };
+    doc.images.insert("flat".into(), flat_png(8, 8, [100, 100, 100, 255]));
+    let id = doc.alloc_id();
+    let mut node = Node::rectangle(id, Rect::new(0.0, 0.0, 24.0, 8.0));
+    node.fills = vec![fill];
+    doc.insert(page, node).expect("insert");
+    let render = || {
+        let mut pm = sk::Pixmap::new(24, 8).expect("target");
+        render_page(&doc, page, &Viewport::default(), &mut pm);
+        pm
+    };
+    let within = render();
+    let counted = unadjusted_fill_fallbacks();
+    TEST_MAX_PIXELS.with(|l| l.set(Some(4)));
+    let over = render();
+    TEST_MAX_PIXELS.with(|l| l.set(None));
+    (within, over, unadjusted_fill_fallbacks() - counted)
+}
+
+#[test]
+fn an_unadjusted_fit_fill_over_the_scratch_limit_keeps_its_letterbox_transparent() {
+    let (within, over, counted) = render_within_and_over_the_limit(image_paint("flat", ImageScaleMode::Fit, ImageParams::default()));
+    assert_eq!(within.pixel(2, 4).unwrap().alpha(), 0, "within the limit the letterbox is transparent");
+    for x in (0..8).chain(16..24) {
+        for y in 0..8 {
+            assert_eq!(over.pixel(x, y).unwrap().alpha(), 0, "over the limit the letterbox at ({x}, {y}) stays transparent");
+        }
+    }
+    assert_eq!(over.pixel(12, 4).unwrap().red(), 100, "over the limit the picture is still drawn");
+    assert!(counted > 0, "the fallback leaves a count");
+}
+
+#[test]
+fn an_unadjusted_turned_crop_over_the_scratch_limit_keeps_the_empty_sides_transparent() {
+    let turned = rotate_crop_transform(IDENTITY_CROP_TRANSFORM, Vec2::new(24.0, 8.0), true).expect("turns");
+    let fill = image_paint("flat", ImageScaleMode::Crop, ImageParams { transform: Some(turned), ..Default::default() });
+    let (within, over, counted) = render_within_and_over_the_limit(fill);
+    assert_eq!(within.pixel(2, 4).unwrap().alpha(), 0, "within the limit outside the turned picture is transparent");
+    // The picture spans x 8..16. Over the limit its edge blends with the transparent border, as it always has, so the
+    // two pixels that touch the picture are checked for being far from opaque; everything else is exactly transparent.
+    for y in 0..8 {
+        for x in (0..7).chain(17..24) {
+            assert_eq!(over.pixel(x, y).unwrap().alpha(), 0, "over the limit outside the turned picture at ({x}, {y}) stays transparent");
+        }
+        for x in [7, 16] {
+            let alpha = over.pixel(x, y).unwrap().alpha();
+            assert!(alpha < 32, "over the limit the pixel ({x}, {y}) beside the picture is not the picture's edge colour: alpha {alpha}");
+        }
+    }
+    assert_eq!(over.pixel(12, 4).unwrap().red(), 100, "over the limit the picture is still drawn");
+    assert!(counted > 0, "the fallback leaves a count");
+}
+
+#[test]
+fn an_unadjusted_fill_over_the_scratch_limit_is_unchanged() {
+    // The fallback count is process-wide and other tests move it, so only the pixels are compared here.
+    let (within, over, _) = render_within_and_over_the_limit(image_paint("flat", ImageScaleMode::Fill, ImageParams::default()));
+    for (x, y) in [(2, 4), (12, 4), (21, 1)] {
+        assert_eq!(over.pixel(x, y).unwrap().red(), 100, "a Fill covers ({x}, {y}) with the picture");
+        assert_eq!(over.pixel(x, y), within.pixel(x, y), "({x}, {y}) is what the unlimited render gives");
+    }
+}

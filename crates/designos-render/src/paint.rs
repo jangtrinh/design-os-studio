@@ -388,24 +388,32 @@ pub fn with_paint<R>(
                     (x1.ceil() as i32).min(target_dims.0 as i32),
                     (y1.ceil() as i32).min(target_dims.1 as i32),
                 );
-                if region.2 > region.0 && region.3 > region.1 {
-                    let source = crate::image_adjust::FillSource { src: (*img).as_ref(), spread, quality, pattern_ts: shader_ts, clear_outside_picture: true };
-                    let sampled = if adjustment_fallback {
-                        crate::image_adjust::sampled_fill_region_unadjusted_fallback(&source, ts, region)
-                    } else {
-                        crate::image_adjust::sampled_fill_region(&source, ts, region)
-                    };
-                    if let Some(scratch) = sampled {
-                        let inv = ts.invert()?;
-                        let from_scratch = sk::Transform::from_translate(region.0 as f32, region.1 as f32).post_concat(inv);
-                        paint.shader = sk::Pattern::new(scratch.as_ref(), sk::SpreadMode::Pad, sk::FilterQuality::Nearest, a, from_scratch);
-                        return Some(f(&paint));
-                    }
+                if region.2 <= region.0 || region.3 <= region.1 {
+                    return None;
                 }
-                // Allocation failure must still draw the picture. The direct shader
-                // may pad with an edge pixel, but it is preferable to dropping the fill;
-                // the fallback is counted for diagnostics.
+                let source = crate::image_adjust::FillSource { src: (*img).as_ref(), spread, quality, pattern_ts: shader_ts, clear_outside_picture: true };
+                let sampled = if adjustment_fallback {
+                    crate::image_adjust::sampled_fill_region_unadjusted_fallback(&source, ts, region)
+                } else {
+                    crate::image_adjust::sampled_fill_region(&source, ts, region)
+                };
+                if let Some(scratch) = sampled {
+                    let inv = ts.invert()?;
+                    let from_scratch = sk::Transform::from_translate(region.0 as f32, region.1 as f32).post_concat(inv);
+                    paint.shader = sk::Pattern::new(scratch.as_ref(), sk::SpreadMode::Pad, sk::FilterQuality::Nearest, a, from_scratch);
+                    return Some(f(&paint));
+                }
+                // The visible region is over budget or its scratch could not be allocated. A Fit letterbox
+                // or an out-of-bounds crop must still come out transparent, so sample the picture with a
+                // 1px transparent border: Pad then extends that border, not the picture's edge texel.
                 crate::image_adjust::note_unadjusted_fallback();
+                #[cfg(test)]
+                crate::image_adjust::note_fill_allocation(img.width() + 2, img.height() + 2);
+                let mut padded = sk::Pixmap::new(img.width() + 2, img.height() + 2)?;
+                padded.draw_pixmap(1, 1, (*img).as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
+                let pattern_ts = sk::Transform::from_translate(-1.0, -1.0).post_concat(shader_ts);
+                paint.shader = sk::Pattern::new(padded.as_ref(), spread, quality, a, pattern_ts);
+                return Some(f(&paint));
             }
             paint.shader = sk::Pattern::new((*img).as_ref(), spread, quality, a, shader_ts);
             Some(f(&paint))
