@@ -502,8 +502,14 @@ fn rest_scopes_from_fig(scopes: Option<&Value>) -> Value {
 /// `variableScopes` and `variableDataValues.entries: [{modeID, variableData}]`
 /// where `variableData.value` is `colorValue`, `floatValue`, `textValue`,
 /// `boolValue` or `alias`.
+#[cfg(test)]
 pub(crate) fn from_fig_entries(entries: &[&Value]) -> Option<Value> {
-    let active = |e: &Value| fstr(e, "phase") != Some("REMOVED") && fbool(e, "isSoftDeleted") != Some(true);
+    from_fig_entries_with_refs(entries, &std::collections::HashSet::new())
+}
+
+pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &std::collections::HashSet<String>) -> Option<Value> {
+    let not_removed = |e: &Value| fstr(e, "phase") != Some("REMOVED");
+    let active = |e: &Value| not_removed(e) && fbool(e, "isSoftDeleted") != Some(true);
     let mut refs = Refs { sets: BTreeMap::new(), vars: BTreeMap::new() };
     for e in entries.iter().copied().filter(|e| active(e)) {
         let (Some(key), Some(gid)) = (fstr(e, "key").filter(|k| !k.is_empty()), e.get("guid").and_then(guid)) else { continue };
@@ -512,14 +518,71 @@ pub(crate) fn from_fig_entries(entries: &[&Value]) -> Option<Value> {
             _ => refs.vars.insert(key, format!("VariableID:{gid}")),
         };
     }
+    for e in entries.iter().copied().filter(|e| not_removed(e) && !active(e)) {
+        let (Some(key), Some(gid)) = (fstr(e, "key").filter(|k| !k.is_empty()), e.get("guid").and_then(guid)) else { continue };
+        match fstr(e, "type") {
+            Some("VARIABLE_SET") => {
+                refs.sets.entry(key).or_insert_with(|| format!("VariableCollectionId:{gid}"));
+            }
+            _ => {
+                refs.vars.entry(key).or_insert_with(|| format!("VariableID:{gid}"));
+            }
+        }
+    }
+
+    let mut var_by_id: BTreeMap<String, &Value> = BTreeMap::new();
+    let mut keep_vars: std::collections::HashSet<String> = referenced_vars.clone();
+    for &e in entries.iter().filter(|e| not_removed(e) && fstr(e, "type") == Some("VARIABLE")) {
+        let Some(gid) = e.get("guid").and_then(guid) else { continue };
+        let id = format!("VariableID:{gid}");
+        if active(e) {
+            keep_vars.insert(id.clone());
+            var_by_id.insert(id, e);
+        } else {
+            var_by_id.entry(id).or_insert(e);
+        }
+    }
+    let mut queue: Vec<String> = keep_vars.iter().cloned().collect();
+    while let Some(vid) = queue.pop() {
+        let Some(&e) = var_by_id.get(&vid) else { continue };
+        let list = e.get("variableDataValues").map(|d| farr(d, "entries")).unwrap_or(&[]);
+        for ent in list {
+            let Some(alias) = ent.get("variableData").and_then(|d| d.get("value")).and_then(|x| x.get("alias")) else { continue };
+            let Some(target) = refs.var(alias) else { continue };
+            if keep_vars.insert(target.clone()) {
+                queue.push(target);
+            }
+        }
+    }
+
+    let mut keep_sets: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for &e in entries.iter().filter(|e| active(e) && fstr(e, "type") == Some("VARIABLE_SET")) {
+        if let Some(gid) = e.get("guid").and_then(guid) {
+            keep_sets.insert(format!("VariableCollectionId:{gid}"));
+        }
+    }
+    for vid in &keep_vars {
+        let Some(&e) = var_by_id.get(vid) else { continue };
+        let cid = e
+            .get("variableSetID")
+            .and_then(|s| refs.set(s))
+            .or_else(|| e.get("parentIndex").and_then(|p| p.get("guid")).and_then(guid).map(|g| format!("VariableCollectionId:{g}")));
+        if let Some(cid) = cid {
+            keep_sets.insert(cid);
+        }
+    }
+
     let mut colls = Map::new();
     let mut vars = Map::new();
-    for e in entries.iter().copied().filter(|e| active(e)) {
+    for e in entries.iter().copied().filter(|e| not_removed(e)) {
         if fstr(e, "type") != Some("VARIABLE_SET") {
             continue;
         }
         let Some(gid) = e.get("guid").and_then(guid) else { continue };
         let id = format!("VariableCollectionId:{gid}");
+        if !keep_sets.contains(&id) || (!active(e) && colls.contains_key(&id)) {
+            continue;
+        }
         let mut modes: Vec<(&str, Value)> = farr(e, "variableSetModes")
             .iter()
             .filter_map(|m| Some((fstr(m, "sortPosition").unwrap_or(""), json!({"modeId": guid(m.get("id")?)?, "name": fstr(m, "name").unwrap_or("Mode")}))))
@@ -536,11 +599,22 @@ pub(crate) fn from_fig_entries(entries: &[&Value]) -> Option<Value> {
         }
         colls.insert(id, c);
     }
-    let mut order: Vec<(&str, &Value)> =
-        entries.iter().filter(|e| active(e) && fstr(e, "type") == Some("VARIABLE")).map(|e| (fstr(e, "sortPosition").unwrap_or(""), *e)).collect();
+    let mut order: Vec<(&str, &Value)> = entries
+        .iter()
+        .filter(|e| {
+            not_removed(e)
+                && fstr(e, "type") == Some("VARIABLE")
+                && e.get("guid").and_then(guid).is_some_and(|gid| keep_vars.contains(&format!("VariableID:{gid}")))
+        })
+        .map(|e| (fstr(e, "sortPosition").unwrap_or(""), *e))
+        .collect();
     order.sort_by(|a, b| a.0.cmp(b.0));
     for (_, e) in order {
         let Some(gid) = e.get("guid").and_then(guid) else { continue };
+        let id = format!("VariableID:{gid}");
+        if !active(e) && vars.contains_key(&id) {
+            continue;
+        }
         let cid = e
             .get("variableSetID")
             .and_then(|s| refs.set(s))
@@ -554,9 +628,10 @@ pub(crate) fn from_fig_entries(entries: &[&Value]) -> Option<Value> {
             let Some(val) = data.get("value").and_then(|x| fig_value(ty, x, &refs)) else { continue };
             by_mode.insert(mode, val);
         }
-        let id = format!("VariableID:{gid}");
         if let Some(c) = colls.get_mut(&cid).and_then(|c| c.get_mut("variableIds")).and_then(Value::as_array_mut) {
-            c.push(json!(id));
+            if !vars.contains_key(&id) {
+                c.push(json!(id));
+            }
         } else {
             continue;
         }

@@ -412,7 +412,10 @@ fn entry_from_json(j: Value) -> Option<Entry> {
         std::borrow::Cow::Borrowed(_) => j,
         std::borrow::Cow::Owned(restored) => restored,
     };
-    if fstr(&j, "phase") == Some("REMOVED") || rest_import::fbool(&j, "isSoftDeleted") == Some(true) {
+    if fstr(&j, "phase") == Some("REMOVED") {
+        return None;
+    }
+    if rest_import::fbool(&j, "isSoftDeleted") == Some(true) && !matches!(fstr(&j, "type"), Some("VARIABLE" | "VARIABLE_SET")) {
         return None;
     }
     let id = j.get("guid").and_then(guid_str)?;
@@ -547,10 +550,18 @@ impl<'a> Lk<'a> {
             }
             match (fstr(j, "type"), key) {
                 (Some("VARIABLE"), Some(k)) => {
-                    lk.var_by_key.insert(k.to_string(), format!("VariableID:{}", e.id));
+                    if rest_import::fbool(j, "isSoftDeleted") == Some(true) {
+                        lk.var_by_key.entry(k.to_string()).or_insert_with(|| format!("VariableID:{}", e.id));
+                    } else {
+                        lk.var_by_key.insert(k.to_string(), format!("VariableID:{}", e.id));
+                    }
                 }
                 (Some("VARIABLE_SET"), Some(k)) => {
-                    lk.set_by_key.insert(k.to_string(), format!("VariableCollectionId:{}", e.id));
+                    if rest_import::fbool(j, "isSoftDeleted") == Some(true) {
+                        lk.set_by_key.entry(k.to_string()).or_insert_with(|| format!("VariableCollectionId:{}", e.id));
+                    } else {
+                        lk.set_by_key.insert(k.to_string(), format!("VariableCollectionId:{}", e.id));
+                    }
                 }
                 (_, Some(k)) if fstr(j, "styleType").is_some() => {
                     lk.style_by_key.insert(k.to_string(), e.id.clone());
@@ -748,10 +759,6 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
 
     let lk = Lk::new(&entries, blobs);
     let styles = style_table(&entries, &lk);
-    let variables = {
-        let var_entries: Vec<&Value> = entries.iter().map(|e| &e.json).filter(|j| matches!(fstr(j, "type"), Some("VARIABLE_SET" | "VARIABLE"))).collect();
-        crate::variables::from_fig_entries(&var_entries)
-    };
 
     let mut visited: HashSet<usize> = HashSet::with_capacity(entries.len());
     let pages: Vec<Value> = canvas_internal
@@ -773,6 +780,16 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         .filter_map(|(i, _)| build(&mut entries, &children, &lk, i, &mut visited, 0))
         .filter(|p| p.get("children").and_then(Value::as_array).is_some_and(|c| !c.is_empty()))
         .collect();
+
+    let variables = {
+        let mut referenced_vars = HashSet::new();
+        collect_variable_aliases(&styles, &mut referenced_vars);
+        for page in pages.iter().chain(library_pages.iter()) {
+            collect_node_referenced_variables(page, &mut referenced_vars);
+        }
+        let var_entries: Vec<&Value> = entries.iter().map(|e| &e.json).filter(|j| matches!(fstr(j, "type"), Some("VARIABLE_SET" | "VARIABLE"))).collect();
+        crate::variables::from_fig_entries_with_refs(&var_entries, &referenced_vars)
+    };
 
     let doc_plugin_data: Option<Value> = doc_idx.and_then(|d| {
         let pd_arr = entries[d].json.get("pluginData")?.as_array()?;
@@ -1368,8 +1385,55 @@ fn convert_grid_track_fields(m: &mut Map<String, Value>, nc: &Value) {
     copy(m, nc, "gridAutoTracks", "gridAutoTracks");
 }
 
+fn collect_variable_aliases(v: &Value, out: &mut HashSet<String>) {
+    match v {
+        Value::Object(m) => {
+            if m.get("type").and_then(Value::as_str) == Some("VARIABLE_ALIAS") {
+                if let Some(id) = m.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                    out.insert(id.to_string());
+                }
+            }
+            for child in m.values() {
+                collect_variable_aliases(child, out);
+            }
+        }
+        Value::Array(arr) => {
+            for item in arr {
+                collect_variable_aliases(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_node_referenced_variables(node: &Value, out: &mut HashSet<String>) {
+    let Some(m) = node.as_object() else { return };
+    for key in ["boundVariables", "interactions"] {
+        if let Some(v) = m.get(key) {
+            collect_variable_aliases(v, out);
+        }
+    }
+    if let Some(Value::Array(ovs)) = m.get("symbolOverrides") {
+        for ov in ovs {
+            if let Some(bv) = ov.get("boundVariables") {
+                collect_variable_aliases(bv, out);
+            }
+        }
+    }
+    if let Some(Value::Array(kids)) = m.get("children") {
+        for kid in kids {
+            collect_node_referenced_variables(kid, out);
+        }
+    }
+}
+
 fn build(entries: &mut [Entry], children: &HashMap<usize, Vec<usize>>, lk: &Lk, i: usize, visited: &mut HashSet<usize>, depth: usize) -> Option<Value> {
     if depth > 250 || !visited.insert(i) {
+        return None;
+    }
+    if matches!(fstr(&entries[i].json, "type"), Some("DOCUMENT" | "NONE" | "VARIABLE" | "VARIABLE_SET" | "VARIABLE_OVERRIDE"))
+        || fstr(&entries[i].json, "styleType").is_some()
+    {
         return None;
     }
     let node_json = std::mem::take(&mut entries[i].json);
