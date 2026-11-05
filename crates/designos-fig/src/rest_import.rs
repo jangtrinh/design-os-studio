@@ -461,15 +461,19 @@ fn apply_paint_style_links(n: &mut Node, set: &Value) {
 /// also carries stale baked effects.  REST overrides often omit `effects` for a
 /// style-only change, so retain the link and replace the copied list here.
 fn apply_effect_style_link(n: &mut Node, set: &Value, style_effects: Option<&[Effect]>) {
-    let linked = set.get("styles").and_then(|s| s.get("effect").or_else(|| s.get("effects"))).and_then(Value::as_str).filter(|s| !s.is_empty());
-    if let Some(sid) = linked {
-        n.style_refs.insert("effect".into(), sid.to_string());
+    let linked = set
+        .get("styles")
+        .and_then(|s| s.get("effect").or_else(|| s.get("effects")))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .or_else(|| n.style_refs.get("effect").cloned());
+    if let Some(sid) = &linked {
+        n.style_refs.insert("effect".into(), sid.clone());
     }
     if let Some(effects) = linked.and_then(|_| style_effects) {
-        if set.get("effects").is_none() {
-            n.effects = effects.to_vec();
-            n.component.overrides.remove(&OverrideField::Effects);
-        }
+        n.effects = effects.to_vec();
+        n.component.overrides.remove(&OverrideField::Effects);
     }
 }
 
@@ -3046,15 +3050,16 @@ impl<'a> Ctx<'a> {
                 self.resize_override_node(id, sz, has("fillGeometry"), has("strokeGeometry"), skip_geo, explicitly_sized);
             }
         }
-        let linked_effects = set
+        let effect_style_id = set
             .get("styles")
             .and_then(|s| s.get("effect").or_else(|| s.get("effects")))
             .and_then(Value::as_str)
-            .and_then(|sid| self.doc.styles.get(sid))
-            .and_then(|s| match s {
-                Style::Effect(effects) => Some(effects.clone()),
-                _ => None,
-            });
+            .map(str::to_owned)
+            .or_else(|| self.doc.get(id).and_then(|n| n.style_refs.get("effect")).cloned());
+        let linked_effects = effect_style_id.as_deref().and_then(|sid| self.doc.styles.get(sid)).and_then(|s| match s {
+            Style::Effect(effects) => Some(effects.clone()),
+            _ => None,
+        });
         let Some(n) = self.doc.get_mut(id) else { return Ok(swapped) };
         let is_vec_or_bool = matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_));
         if has("relativeTransform") {
