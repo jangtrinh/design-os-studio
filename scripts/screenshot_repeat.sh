@@ -151,10 +151,10 @@ env HOME="$tmp/home" TMPDIR="$tmp/tmp/" GEMINI_CLI_HOME="$tmp/home" CODEX_HOME="
   "$bin" "$spec_doc" --apply-spec "$spec_json" >/dev/null
 
 cases=(
-  "cpu|--fixture showcase --select none --size 1440x900"
-  "gpu|--fixture showcase --select none --size 1440x900 --gpu"
-  "menu|--fixture showcase --menu main --size 1440x900"
-  "panel|--fixture showcase --panel picker --size 1440x900"
+  "cpu|$spec_doc --select none --size 1440x900"
+  "gpu|$spec_doc --select none --size 1440x900 --gpu"
+  "menu|$spec_doc --menu main --size 1440x900"
+  "panel|$spec_doc --select Header --panel picker --size 1440x900"
   "apply-spec|$spec_doc --select none --size 1600x1000"
 )
 

@@ -996,6 +996,7 @@ impl Shell {
                 #[cfg(debug_assertions)]
                 if shot.drop_images > 0 {
                     shot.drop_images -= 1;
+                    shot.images_dropped += 1;
                     if let Some(id) = tag {
                         shot.in_flight.retain(|r| r.id != id);
                     }
@@ -1120,7 +1121,11 @@ impl Shell {
                         }
                     }
                 }
+                let trace = shot.trace;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                if trace {
+                    self.print_shot_trace(ctx, self.app.canvas.gpu.at_rest());
+                }
                 return;
             }
         }
