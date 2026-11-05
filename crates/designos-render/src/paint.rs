@@ -403,13 +403,32 @@ pub fn fill_paths(
     alpha: f32,
     clip: Option<&sk::Mask>,
 ) {
+    fill_paths_with_margin(env, target, paths, ts, size, paint, alpha, 0.0, clip);
+}
+
+/// Fills paths while reserving `margin` local units around the node for paints
+/// whose geometry extends beyond its fill box (for example an outside stroke).
+/// Adjusted image fills use this extent to build the scratch shader for a tile;
+/// without it, a stroke-only part in a neighbouring tile can be skipped.
+#[allow(clippy::too_many_arguments)]
+pub fn fill_paths_with_margin(
+    env: &PaintEnv,
+    target: &mut sk::Pixmap,
+    paths: &[(sk::Path, sk::FillRule)],
+    ts: sk::Transform,
+    size: Vec2,
+    paint: &d::Paint,
+    alpha: f32,
+    margin: f32,
+    clip: Option<&sk::Mask>,
+) {
     if let Some(mode) = custom_blend(paint.blend) {
         let normal = d::Paint { blend: d::BlendMode::Normal, ..paint.clone() };
-        draw_custom(target, mode, |l| fill_paths(env, l, paths, ts, size, &normal, alpha, clip));
+        draw_custom(target, mode, |l| fill_paths_with_margin(env, l, paths, ts, size, &normal, alpha, margin, clip));
         return;
     }
     let dims = (target.width(), target.height());
-    with_paint(env, paint, size, &ts, alpha, 0.0, dims, |sp| {
+    with_paint(env, paint, size, &ts, alpha, margin, dims, |sp| {
         for (path, rule) in paths {
             target.fill_path(path, sp, *rule, ts, clip);
         }

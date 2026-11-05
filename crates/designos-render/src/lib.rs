@@ -40,7 +40,7 @@ pub use outline::{
     dashed_rect_stroke_path, decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan,
     text_outlines, NodeShape, StrokeClip, StrokePlan, TextOutline,
 };
-use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
+use paint::{blend_mode, fill_paths, fill_paths_with_margin, stroke_paths, PaintEnv};
 pub use text::{
     available_families, font_features, font_generation, load_font_data, measure_text_box, register_font, resolve_font, text_geometry, text_runs, GlyphRun,
     GlyphSpan, LineGeom, RenderTextMeasure, ResolvedFont, RunLine, TextGeometry, TextRuns,
@@ -865,7 +865,7 @@ impl Renderer<'_> {
                 };
                 let stroke_clip = aligned_mask.as_ref().or(clip);
                 for p in strokes {
-                    fill_paths(&self.env, target, &plan.outline, ts, n.size, p, alpha, stroke_clip);
+                    fill_paths_with_margin(&self.env, target, &plan.outline, ts, n.size, p, alpha, n.stroke.weight, stroke_clip);
                 }
             }
         }
@@ -901,7 +901,8 @@ impl Renderer<'_> {
             };
             let cl = mask.as_ref().or(clip);
             for p in paints {
-                fill_paths(&self.env, target, sp, ts, n.size, p, alpha, cl);
+                let margin = n.stroke.side_weights.map(|s| s.into_iter().fold(n.stroke.weight, f32::max)).unwrap_or(n.stroke.weight);
+                fill_paths_with_margin(&self.env, target, sp, ts, n.size, p, alpha, margin, cl);
             }
             return;
         }
@@ -923,7 +924,8 @@ impl Renderer<'_> {
                 };
                 let cl = mask.as_ref().or(clip);
                 for p in paints {
-                    fill_paths(&self.env, target, &paths, ts, n.size, p, alpha, cl);
+                    let margin = n.stroke.side_weights.map(|s| s.into_iter().fold(n.stroke.weight, f32::max)).unwrap_or(n.stroke.weight);
+                    fill_paths_with_margin(&self.env, target, &paths, ts, n.size, p, alpha, margin, cl);
                 }
             }
             return;
@@ -955,7 +957,7 @@ impl Renderer<'_> {
             };
             let cl = mask.as_ref().or(clip);
             for p in paints {
-                fill_paths(&self.env, target, &plan.outline, ts, n.size, p, alpha, cl);
+                fill_paths_with_margin(&self.env, target, &plan.outline, ts, n.size, p, alpha, n.stroke.weight, cl);
             }
             return;
         }

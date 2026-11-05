@@ -197,6 +197,57 @@ fn indexed_render_page_matches_plain() {
     }
 }
 
+fn solid_png(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
+    let mut pm = Pixmap::new(w, h).unwrap();
+    for px in pm.data_mut().chunks_exact_mut(4) {
+        px.copy_from_slice(&rgba);
+    }
+    pm.encode_png().unwrap()
+}
+
+/// An adjusted image used as an outside, per-side stroke must still paint the
+/// neighbouring tile. The node is wholly in tile 0; its 8 px right stroke
+/// reaches tile 1. The adjusted-fill scratch used to be empty in tile 1, so
+/// `with_paint` returned before the stroke path ran.
+#[test]
+fn adjusted_image_outside_stroke_matches_full_render_across_tile_boundary() {
+    let mut doc = Document::new("adjusted-stroke");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+    doc.images.insert("solid".into(), solid_png(2, 2, [120, 120, 120, 255]));
+    let id = doc.alloc_id();
+    let image_paint = Paint {
+        kind: PaintKind::Image {
+            image_ref: "solid".into(),
+            scale_mode: ImageScaleMode::Fill,
+            params: ImageParams { adjust: ImageAdjust { exposure: 1.0, ..Default::default() }, ..Default::default() },
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    let mut node = Node::rectangle(id, Rect::new(150.0, 40.0, 100.0, 100.0));
+    node.stroke.paints = vec![image_paint];
+    node.stroke.align = StrokeAlign::Outside;
+    node.stroke.side_weights = Some([0.0, 8.0, 0.0, 0.0]);
+    doc.insert(page, node).unwrap();
+
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let mut full = Pixmap::new(2 * TILE_SIZE, TILE_SIZE).unwrap();
+    render_page(&doc, page, &vp, &mut full);
+    let boundary = full.pixel(256, 80).unwrap();
+    assert!(boundary.red() < 255 || boundary.green() < 255 || boundary.blue() < 255, "fixture must paint the stroke across the tile boundary: {boundary:?}");
+    let mut cache = TileCache::new();
+    let frame = cache.render_tiles(&doc, page, &vp, (2 * TILE_SIZE, TILE_SIZE), 1, TileBudget::unlimited());
+    assert_eq!(frame.pending(), 0);
+    let mut stitched = Pixmap::new(2 * TILE_SIZE, TILE_SIZE).unwrap();
+    for tile in &frame.tiles {
+        let (x, y) = tile.key.device_origin();
+        stitched.draw_pixmap(x, y, tile.pixmap.as_ref().as_ref(), &Default::default(), Default::default(), None);
+    }
+    assert_eq!(stitched.data(), full.data(), "tile 1 must retain the adjusted outside stroke");
+}
+
 #[test]
 fn edit_reredraws_only_affected_tiles_and_stays_exact() {
     let mut t = scene();
