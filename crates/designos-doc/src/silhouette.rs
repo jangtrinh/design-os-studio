@@ -9,8 +9,14 @@ use crate::{Node, NodeKind, Paint};
 pub enum SilhouetteMode {
     /// The shape's own alpha: the source of a shadow, glass or inner shadow.
     Alpha,
-    /// Fill-agnostic footprint at full alpha: noise, texture grain, glass and blur masks.
+    /// Fill-agnostic footprint at full alpha: noise, texture grain and glass masks. A node with
+    /// no shape of its own (a group) follows its children at their own alpha.
     Opaque,
+    /// The mask of a background blur: the same footprint as `Opaque`, except that a node with
+    /// no shape of its own (a group) takes the union of its children's opaque silhouettes. A
+    /// translucent child then blurs the backdrop behind it at full strength, so the pixels
+    /// under it stay as opaque as the backdrop was.
+    BackdropBlur,
     /// The mask that removes a drop shadow behind the node (show behind off).
     Knockout,
 }
@@ -24,14 +30,15 @@ impl SilhouetteMode {
     /// The coverage one run of text glyphs adds to a silhouette of this mode; `fills` are the
     /// fills of that run and `n` is the text node.
     ///
-    /// `Alpha` follows the most opaque visible fill. `Opaque` covers every glyph fully.
+    /// `Alpha` follows the most opaque visible fill. `Opaque` and `BackdropBlur` cover every
+    /// glyph fully.
     /// `Knockout` covers a glyph fully when the text paints anything (a fill that is not fully
     /// transparent, or a stroke) and adds nothing when it paints nothing. The glyph outline is
     /// the footprint in every mode; strokes are never drawn into it.
     pub fn text_run_alpha(self, n: &Node, fills: &[Paint]) -> f32 {
         match self {
             SilhouetteMode::Alpha => fills.iter().filter(|p| p.visible).map(Paint::silhouette_alpha).fold(0.0, f32::max),
-            SilhouetteMode::Opaque => 1.0,
+            SilhouetteMode::Opaque | SilhouetteMode::BackdropBlur => 1.0,
             SilhouetteMode::Knockout => {
                 if fills.iter().any(|p| paints_in(p, self)) || has_visible_strokes(n, self) {
                     1.0
@@ -73,13 +80,16 @@ pub enum SilhouetteSource {
 /// Decides the silhouette source of `n`.
 ///
 /// `shape_fillable` is `None` when the node has no geometry, otherwise whether fills apply to
-/// it (lines are not fillable). In `Opaque` mode a fillable shape counts even without a
-/// visible fill.
+/// it (lines are not fillable). In `Opaque` and `BackdropBlur` mode a fillable shape counts even
+/// without a visible fill.
 ///
 /// `Knockout` removes only what the node paints, so a fill or stroke whose paint is fully
-/// transparent counts as no paint there (`Alpha` and `Opaque` keep every visible paint). A
-/// fillable node left with no paint is [`SilhouetteSource::Nothing`] when it is a leaf, and
-/// follows [`FILLLESS_KNOCKOUT`] when it has children, instead of covering its rectangle.
+/// transparent counts as no paint there (`Alpha`, `Opaque` and `BackdropBlur` keep every visible
+/// paint). A fillable node left with no paint is [`SilhouetteSource::Nothing`] when it is a leaf,
+/// and follows [`FILLLESS_KNOCKOUT`] when it has children, instead of covering its rectangle.
+///
+/// A node with no shape of its own and with children (a group) takes its children at their own
+/// alpha in `Alpha` and `Opaque`, and as their opaque silhouettes in `BackdropBlur` and `Knockout`.
 ///
 /// When the node clips its content, the caller clips the children by the node's shape in both
 /// the silhouette and the knockout.
@@ -92,18 +102,18 @@ pub fn silhouette_source(n: &Node, shape_fillable: Option<bool>, mode: Silhouett
         if (fillable && has_visible_fills(n, mode)) || has_visible_strokes(n, mode) {
             return SilhouetteSource::OwnShape;
         }
-        if fillable && mode == SilhouetteMode::Opaque {
+        if fillable && matches!(mode, SilhouetteMode::Opaque | SilhouetteMode::BackdropBlur) {
             return SilhouetteSource::OwnShape;
         }
     }
     if has_children {
-        if mode == SilhouetteMode::Knockout {
-            match FILLLESS_KNOCKOUT {
+        match mode {
+            SilhouetteMode::BackdropBlur => SilhouetteSource::ChildrenOpaque,
+            SilhouetteMode::Knockout => match FILLLESS_KNOCKOUT {
                 FilllessKnockout::None => SilhouetteSource::Nothing,
                 FilllessKnockout::ChildrenOpaque => SilhouetteSource::ChildrenOpaque,
-            }
-        } else {
-            SilhouetteSource::Children
+            },
+            SilhouetteMode::Alpha | SilhouetteMode::Opaque => SilhouetteSource::Children,
         }
     } else {
         SilhouetteSource::Nothing
@@ -339,6 +349,41 @@ mod tests {
     }
 
     #[test]
+    fn group_mask_follows_children_alpha_except_for_a_backdrop_blur() {
+        let g = with_child(Node::new(NodeId(1), NodeKind::Group));
+        // grain, glass and texture masks keep the children at their own alpha
+        assert_eq!(silhouette_source(&g, None, SilhouetteMode::Opaque), SilhouetteSource::Children);
+        assert_eq!(silhouette_source(&g, None, SilhouetteMode::Alpha), SilhouetteSource::Children);
+        // a backdrop blur needs the children's footprint at full alpha
+        assert_eq!(silhouette_source(&g, None, SilhouetteMode::BackdropBlur), SilhouetteSource::ChildrenOpaque);
+        // a group without children has no footprint in any mode
+        let empty = Node::new(NodeId(1), NodeKind::Group);
+        assert_eq!(silhouette_source(&empty, None, SilhouetteMode::BackdropBlur), SilhouetteSource::Nothing);
+    }
+
+    #[test]
+    fn backdrop_blur_mask_matches_opaque_for_every_node_that_has_a_shape() {
+        let modes = [SilhouetteMode::Opaque, SilhouetteMode::BackdropBlur];
+        let same = |n: &Node, fillable: Option<bool>| {
+            let [a, b] = modes.map(|m| silhouette_source(n, fillable, m));
+            assert_eq!(a, b, "{:?}", n.kind);
+            a
+        };
+        // fill-less fillable shapes and frames keep their own footprint, children or not
+        assert_eq!(same(&bare(Node::rectangle(NodeId(1), rect())), Some(true)), SilhouetteSource::OwnShape);
+        assert_eq!(same(&with_child(bare(Node::frame(NodeId(1), rect()))), Some(true)), SilhouetteSource::OwnShape);
+        // filled, stroked, not fillable and glyph sources agree too
+        assert_eq!(same(&with_child(Node::frame(NodeId(1), rect())), Some(true)), SilhouetteSource::OwnShape);
+        assert_eq!(same(&stroked(bare(Node::rectangle(NodeId(1), rect()))), Some(false)), SilhouetteSource::OwnShape);
+        assert_eq!(same(&bare(Node::rectangle(NodeId(1), rect())), Some(false)), SilhouetteSource::Nothing);
+        assert_eq!(same(&Node::text(NodeId(1), rect(), "Hi", TextStyle::default()), None), SilhouetteSource::Text);
+        // a 0% fill and a fully transparent fill still count, unlike in a knockout
+        let mut pane = Node::rectangle(NodeId(1), rect());
+        pane.fills = vec![Paint::solid(Color::TRANSPARENT)];
+        assert_eq!(same(&pane, Some(true)), SilhouetteSource::OwnShape);
+    }
+
+    #[test]
     fn knockout_of_group_and_text_is_children_opaque_and_text() {
         let g = with_child(Node::new(NodeId(1), NodeKind::Group));
         assert_eq!(silhouette_source(&g, None, SilhouetteMode::Knockout), SilhouetteSource::ChildrenOpaque);
@@ -370,9 +415,12 @@ mod tests {
         assert_eq!(run_alpha(SilhouetteMode::Alpha, &[zero_opacity_paint(), half.clone()], None), 0.5);
         assert_eq!(run_alpha(SilhouetteMode::Alpha, &[hidden.clone()], None), 0.0);
         assert_eq!(run_alpha(SilhouetteMode::Alpha, &[], None), 0.0);
-        // Opaque: every glyph at full coverage
-        assert_eq!(run_alpha(SilhouetteMode::Opaque, &[], None), 1.0);
-        assert_eq!(run_alpha(SilhouetteMode::Opaque, &[zero_opacity_paint()], None), 1.0);
+        // Opaque and BackdropBlur: every glyph at full coverage
+        for mode in [SilhouetteMode::Opaque, SilhouetteMode::BackdropBlur] {
+            assert_eq!(run_alpha(mode, &[], None), 1.0);
+            assert_eq!(run_alpha(mode, &[zero_opacity_paint()], None), 1.0);
+            assert_eq!(run_alpha(mode, std::slice::from_ref(&half), None), 1.0);
+        }
     }
 
     #[test]
