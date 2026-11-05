@@ -331,12 +331,7 @@ impl<'a> ExportCtx<'a> {
                 }
             }
         }
-        let mut used_mode_guids: HashSet<(u32, u32)> = HashSet::new();
-        let mut next_mode_local: u32 = 1;
-        for id in doc.variable_collections.keys().chain(doc.variables.values().map(|v| &v.collection)) {
-            if cx.coll_guids.contains_key(id) {
-                continue;
-            }
+        for id in doc.variable_collections.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
                     bump_next_local(&mut cx.next_local, g.1);
@@ -344,15 +339,13 @@ impl<'a> ExportCtx<'a> {
                 }
             }
         }
-        for mode_id in doc.variable_collections.values().flat_map(|c| c.modes.iter().map(|m| &m.id)).chain(doc.variables.values().flat_map(|v| v.values.keys()))
-        {
-            if cx.mode_guids.contains_key(mode_id) {
-                continue;
-            }
-            if let Some(g) = parse_guid_pair(mode_id) {
-                if used_mode_guids.insert(g) {
-                    bump_next_local(&mut next_mode_local, g.1);
-                    cx.mode_guids.insert(mode_id.clone(), g);
+        for c in doc.variable_collections.values() {
+            for m in &c.modes {
+                if let Some(g) = parse_guid_pair(&m.id) {
+                    if cx.used_guids.insert(g) {
+                        bump_next_local(&mut cx.next_local, g.1);
+                        cx.mode_guids.insert(m.id.clone(), g);
+                    }
                 }
             }
         }
@@ -379,22 +372,18 @@ impl<'a> ExportCtx<'a> {
                 cx.node_guids.insert(id, g);
             }
         }
-        for id in doc.variable_collections.keys().chain(doc.variables.values().map(|v| &v.collection)) {
+        for id in doc.variable_collections.keys() {
             if !cx.coll_guids.contains_key(id) {
                 let g = cx.alloc_guid(3);
                 cx.coll_guids.insert(id.clone(), g);
             }
         }
-        for mode_id in doc.variable_collections.values().flat_map(|c| c.modes.iter().map(|m| &m.id)).chain(doc.variables.values().flat_map(|v| v.values.keys()))
-        {
-            if !cx.mode_guids.contains_key(mode_id) {
-                while used_mode_guids.contains(&(3, next_mode_local)) || (3, next_mode_local) == (u32::MAX, u32::MAX) {
-                    next_mode_local = next_mode_local.wrapping_add(1).max(1);
+        for c in doc.variable_collections.values() {
+            for m in &c.modes {
+                if !cx.mode_guids.contains_key(&m.id) {
+                    let g = cx.alloc_guid(3);
+                    cx.mode_guids.insert(m.id.clone(), g);
                 }
-                let g = (3, next_mode_local);
-                next_mode_local = next_mode_local.wrapping_add(1).max(1);
-                used_mode_guids.insert(g);
-                cx.mode_guids.insert(mode_id.clone(), g);
             }
         }
         for id in doc.variables.keys() {
@@ -654,35 +643,24 @@ fn collect_page_handoff(cx: &ExportCtx, page: NodeId) -> Vec<V> {
 }
 
 fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx: &mut usize) {
-    let mut emitted_colls: HashSet<String> = HashSet::new();
     for c in cx.doc.variable_collections.values() {
-        emitted_colls.insert(c.id.clone());
         let cguid = cx.coll_guids[&c.id];
         // Ensure default_mode sorts first so `variables::from_fig_entries` picks it as `defaultModeId`.
-        let mut ordered_modes: Vec<(String, String)> = Vec::with_capacity(c.modes.len());
-        let mut seen_modes: HashSet<String> = HashSet::new();
+        let mut ordered_modes: Vec<&VariableMode> = Vec::with_capacity(c.modes.len());
         if let Some(dm) = c.modes.iter().find(|m| m.id == c.default_mode) {
-            seen_modes.insert(dm.id.clone());
-            ordered_modes.push((dm.id.clone(), dm.name.clone()));
+            ordered_modes.push(dm);
         }
         for m in &c.modes {
-            if seen_modes.insert(m.id.clone()) {
-                ordered_modes.push((m.id.clone(), m.name.clone()));
-            }
-        }
-        for v in cx.doc.variables.values().filter(|v| v.collection == c.id) {
-            for mode_id in v.values.keys() {
-                if seen_modes.insert(mode_id.clone()) {
-                    ordered_modes.push((mode_id.clone(), mode_id.clone()));
-                }
+            if m.id != c.default_mode {
+                ordered_modes.push(m);
             }
         }
         let modes: Vec<V> = ordered_modes
             .iter()
             .enumerate()
-            .map(|(mi, (mid, mname))| {
-                let mguid = cx.mode_guids[mid];
-                msg(vec![("id", guid(mguid.0, mguid.1)), ("name", V::String(mname.clone())), ("sortPosition", V::String(pos_str(mi)))])
+            .map(|(mi, m)| {
+                let mguid = cx.mode_guids[&m.id];
+                msg(vec![("id", guid(mguid.0, mguid.1)), ("name", V::String(m.name.clone())), ("sortPosition", V::String(pos_str(mi)))])
             })
             .collect();
         let mut fields = vec![
@@ -699,36 +677,6 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(lib) = &c.source_library_key {
             fields.push(("sourceLibraryKey", V::String(lib.clone())));
         }
-        cx.changes.push(msg(fields));
-        *idx += 1;
-    }
-
-    for v in cx.doc.variables.values() {
-        if emitted_colls.contains(&v.collection) {
-            continue;
-        }
-        emitted_colls.insert(v.collection.clone());
-        let Some(cguid) = cx.resolve_coll_guid(&v.collection) else { continue };
-        let mut seen_modes: HashSet<String> = HashSet::new();
-        let mut modes: Vec<V> = Vec::new();
-        for ov in cx.doc.variables.values().filter(|ov| ov.collection == v.collection) {
-            for mode_id in ov.values.keys() {
-                if seen_modes.insert(mode_id.clone()) {
-                    if let Some(&mguid) = cx.mode_guids.get(mode_id) {
-                        let mi = modes.len();
-                        modes.push(msg(vec![("id", guid(mguid.0, mguid.1)), ("name", V::String(mode_id.clone())), ("sortPosition", V::String(pos_str(mi)))]));
-                    }
-                }
-            }
-        }
-        let fields = vec![
-            ("guid", guid(cguid.0, cguid.1)),
-            ("phase", en("CREATED")),
-            ("parentIndex", st(vec![("guid", guid(internal_guid.0, internal_guid.1)), ("position", V::String(pos_str(*idx)))])),
-            ("type", en("VARIABLE_SET")),
-            ("name", V::String("Collection".into())),
-            ("variableSetModes", V::Array(modes)),
-        ];
         cx.changes.push(msg(fields));
         *idx += 1;
     }
