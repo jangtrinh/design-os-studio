@@ -3,7 +3,10 @@
 
 use crate::variables::{export_variables_json, import_variables_json};
 use crate::FigError;
-use designos_doc::{CodeSyntax, CodeSyntaxPlatform, Color, Document, FigmaExtensions, Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+use designos_doc::{
+    CodeSyntax, CodeSyntaxPlatform, Color, Document, FigmaExtensions, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+    SOFT_DELETED_EXTENSION_KEY,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -209,15 +212,17 @@ pub fn collect_omitted_extensions(doc: &Document) -> Vec<SkippedVariable> {
 
 fn collect_omitted_extensions_excluding(doc: &Document, excluded_mode_keys: &[&str]) -> Vec<SkippedVariable> {
     let mut out = Vec::new();
+    // The soft-deleted marker is carried by `.fig` (as `isSoftDeleted`) and REST (as `deletedButReferenced`), and
+    // a token export leaves such entries out whole, so it is never an omitted key.
     for coll in doc.variable_collections.values() {
-        for k in coll.extensions.keys() {
+        for k in coll.extensions.keys().filter(|k| *k != SOFT_DELETED_EXTENSION_KEY) {
             out.push(SkippedVariable { path: coll.name.clone(), reason: format!("omitted collection extension '{k}' (count: 1)") });
         }
     }
     for v in doc.variables.values() {
         let coll_name = doc.variable_collections.get(&v.collection).map(|c| c.name.as_str()).unwrap_or("");
         let var_path = if coll_name.is_empty() { v.name.clone() } else { format!("{coll_name}/{}", v.name) };
-        for k in v.extensions.keys() {
+        for k in v.extensions.keys().filter(|k| *k != SOFT_DELETED_EXTENSION_KEY) {
             out.push(SkippedVariable { path: var_path.clone(), reason: format!("omitted variable extension '{k}' (count: 1)") });
         }
         let mut mode_key_counts: BTreeMap<&str, usize> = BTreeMap::new();
@@ -775,7 +780,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
     }
 
     let mut available_modes: Vec<String> = Vec::new();
-    for coll in doc.variable_collections.values() {
+    for coll in live_collections(doc) {
         for m in &coll.modes {
             if !available_modes.contains(&m.name) {
                 available_modes.push(m.name.clone());
@@ -788,7 +793,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
 
     let coll_group_names = compute_unique_dtcg_group_names(doc);
     let mut coll_prefixes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for coll in doc.variable_collections.values() {
+    for coll in live_collections(doc) {
         let vars = ordered_collection_variables(doc, coll);
         coll_prefixes.insert(coll.id.clone(), compute_group_prefixes(&vars));
     }
@@ -809,7 +814,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
     };
 
     if opts.collections.is_empty() {
-        for coll in doc.variable_collections.values() {
+        for coll in live_collections(doc) {
             if let Some((mid, mname)) = pick_mode_for_coll(coll) {
                 selected_order.push(coll.id.clone());
                 selected_modes.insert(coll.id.clone(), (mid, mname));
@@ -826,9 +831,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
             let chosen: &VariableCollection = if let Some(want_id) = filter.strip_prefix("id:") {
                 doc.variable_collections.get(want_id).ok_or_else(|| FigError::Export(format!("unknown collection '{filter}'")))?
             } else {
-                let matching: Vec<&VariableCollection> = doc
-                    .variable_collections
-                    .values()
+                let matching: Vec<&VariableCollection> = live_collections(doc)
                     .filter(|c| c.name == *filter || coll_group_names.get(&c.id).is_some_and(|g| g == filter) || sanitize_dtcg_segment(&c.name).0 == *filter)
                     .collect();
                 if matching.is_empty() {
@@ -1112,17 +1115,24 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
     Ok((bytes, report))
 }
 
+/// The collections an export writes: a soft-deleted collection is kept for the layers that still use its variables
+/// and is not a token group.
+fn live_collections(doc: &Document) -> impl Iterator<Item = &VariableCollection> {
+    doc.variable_collections.values().filter(|c| !c.is_soft_deleted())
+}
+
+/// The live variables of `coll` in display order, then any the list left out. A soft-deleted variable is not a token.
 fn ordered_collection_variables<'a>(doc: &'a Document, coll: &VariableCollection) -> Vec<&'a Variable> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
     for vid in &coll.variables {
-        if let Some(v) = doc.variables.get(vid) {
+        if let Some(v) = doc.variables.get(vid).filter(|v| !v.is_soft_deleted()) {
             if v.collection == coll.id && seen.insert(v.id.as_str()) {
                 out.push(v);
             }
         }
     }
-    for v in doc.variables.values() {
+    for v in doc.live_variables() {
         if v.collection == coll.id && seen.insert(v.id.as_str()) {
             out.push(v);
         }
@@ -1141,10 +1151,10 @@ fn sanitize_zip_stem(name: &str) -> String {
 
 fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
     let mut files = Vec::new();
-    let multi_coll = doc.variable_collections.len() > 1;
+    let multi_coll = live_collections(doc).count() > 1;
     let mut used_zip_names = BTreeSet::new();
 
-    for coll in doc.variable_collections.values() {
+    for coll in live_collections(doc) {
         let vars = ordered_collection_variables(doc, coll);
         let group_prefixes = compute_group_prefixes(&vars);
         let mut coll_files = Vec::new();
@@ -1332,7 +1342,7 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
 /// remaining duplicates receive ` (2)`, ` (3)`, … in collection id order.
 fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
     let mut by_base: BTreeMap<String, Vec<&VariableCollection>> = BTreeMap::new();
-    for coll in doc.variable_collections.values() {
+    for coll in live_collections(doc) {
         let (clean_coll, _) = sanitize_dtcg_segment(&coll.name);
         by_base.entry(clean_coll).or_default().push(coll);
     }
@@ -1381,12 +1391,12 @@ fn export_dtcg_inner(doc: &Document, color_format: ColorFormat) -> Result<Export
 
     // Precompute group prefixes per collection for `$root` handling
     let mut coll_prefixes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for coll in doc.variable_collections.values() {
+    for coll in live_collections(doc) {
         let vars = ordered_collection_variables(doc, coll);
         coll_prefixes.insert(coll.id.clone(), compute_group_prefixes(&vars));
     }
 
-    for coll in doc.variable_collections.values() {
+    for coll in live_collections(doc) {
         let vars = ordered_collection_variables(doc, coll);
         let group_prefixes = &coll_prefixes[&coll.id];
         let clean_coll_name = &coll_group_names[&coll.id];
@@ -1841,7 +1851,8 @@ fn merge_staged_into_doc(doc: &mut Document, mut staging: Document, replace: boo
     // Strip internal staging markers when `replace == true` wasn't taken above (also strip on replace path via assemble).
     // First pass: map staged variable ids -> destination variable ids.
     let mut by_collection_and_name: HashMap<(&str, &str), &str> = HashMap::new();
-    for v in doc.variables.values() {
+    // A token merges into the live variable of that name; a soft-deleted one does not hold the name.
+    for v in doc.live_variables() {
         by_collection_and_name.entry((v.collection.as_str(), v.name.as_str())).or_insert(v.id.as_str());
     }
     let mut var_id_map: HashMap<String, String> = HashMap::new();

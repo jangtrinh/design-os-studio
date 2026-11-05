@@ -1,0 +1,4 @@
+=== Case 7 before retry fix (DESIGNOS_SHOT_DROP_IMAGES=1) ===
+designos: screenshot was not captured
+exit_code=1
+png_exists=false

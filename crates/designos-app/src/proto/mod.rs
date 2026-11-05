@@ -427,7 +427,7 @@ pub fn action_of_index(doc: &Document, i: usize, prev: &Action, fallback_dest: N
         7 => Action::ChangeTo { dest },
         8 => default_set_variable(doc),
         9 => {
-            let coll = doc.variable_collections.values().next();
+            let coll = doc.variable_collections.values().find(|c| !c.is_soft_deleted());
             Action::SetVariableMode {
                 collection: coll.map(|c| c.id.clone()).unwrap_or_default(),
                 mode: coll.map(|c| c.default_mode.clone()).unwrap_or_default(),
@@ -440,7 +440,7 @@ pub fn action_of_index(doc: &Document, i: usize, prev: &Action, fallback_dest: N
 
 /// "Set variable" on the first variable, with a value that suits its type.
 pub fn default_set_variable(doc: &Document) -> Action {
-    let first = doc.variable_collections.values().flat_map(|c| c.variables.iter()).find_map(|id| doc.variables.get(id));
+    let first = doc.variable_collections.values().flat_map(|c| c.variables.iter()).find_map(|id| doc.variables.get(id).filter(|v| !v.is_soft_deleted()));
     match first {
         Some(v) => Action::SetVariable { variable: v.id.clone(), value: default_value_for(v.kind, v, doc) },
         None => Action::SetVariable { variable: String::new(), value: Expression::number(0.0) },
@@ -566,15 +566,16 @@ pub fn expression_text(doc: &Document, e: &Expression) -> String {
 
 /// Finds a variable id from a name as typed in an expression: exact name or id, else a unique
 /// case-insensitive name, else a unique last segment of a grouped name ("Cart/count" for count).
+/// A name belongs to a live variable: a soft-deleted one keeps resolving by its id, but does not take the name.
 pub fn find_variable(doc: &Document, name: &str) -> Option<String> {
     if doc.variables.contains_key(name) {
         return Some(name.to_string());
     }
     let by = |pred: &dyn Fn(&Variable) -> bool| {
-        let hits: Vec<&Variable> = doc.variables.values().filter(|v| pred(v)).collect();
+        let hits: Vec<&Variable> = doc.live_variables().filter(|v| pred(v)).collect();
         (hits.len() == 1).then(|| hits[0].id.clone())
     };
-    if let Some(id) = doc.variables.values().find(|v| v.name == name).map(|v| v.id.clone()) {
+    if let Some(id) = doc.live_variables().find(|v| v.name == name).map(|v| v.id.clone()) {
         return Some(id);
     }
     by(&|v| v.name.eq_ignore_ascii_case(name)).or_else(|| by(&|v| v.name.rsplit('/').next().is_some_and(|last| last.eq_ignore_ascii_case(name))))
@@ -932,6 +933,21 @@ mod tests {
         assert_eq!(variable_name(&d, &total), "Counter/total");
         assert_eq!(variable_name(&d, "x"), "(missing)");
         assert_eq!(variable_name(&d, ""), "(none)");
+    }
+
+    #[test]
+    fn a_soft_deleted_variable_does_not_take_a_name_but_still_resolves_by_id() {
+        let mut d = vars_doc();
+        let live = d.variables.values().find(|v| v.name == "Counter/total").unwrap().id.clone();
+        let mut gone = d.variables[&live].clone();
+        gone.id = "AAA-gone".into();
+        gone.extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+        d.variables.insert(gone.id.clone(), gone);
+        // The deleted twin sorts first and shares the name, so a lookup that did not skip it would be ambiguous or wrong.
+        assert_eq!(find_variable(&d, "Counter/total"), Some(live.clone()));
+        assert_eq!(find_variable(&d, "total"), Some(live.clone()));
+        assert_eq!(find_variable(&d, "AAA-gone").as_deref(), Some("AAA-gone"), "a stored reference by id still resolves");
+        assert!(matches!(default_set_variable(&d), Action::SetVariable { ref variable, .. } if variable != "AAA-gone"));
     }
 
     #[test]

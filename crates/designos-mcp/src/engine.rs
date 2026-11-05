@@ -486,7 +486,7 @@ impl Engine {
                 Ok(json!({"name":self.doc.name,"kind":self.doc.kind,
                     "active_page_id":self.resolve_default_page().ok().map(|p| p.0),
                     "pages":self.doc.pages.iter().filter_map(|id|self.doc.get(*id)).map(|n| summary(&self.doc, n)).collect::<Vec<_>>(),
-                    "node_count":self.doc.nodes.len(),"variable_count":self.doc.variables.len(),
+                    "node_count":self.doc.nodes.len(),"variable_count":self.doc.live_variables().count(),
                     "comment_count":self.doc.comments.len(),
                     "style_count":listed_styles.len(),
                     "in_progress_count":in_progress_nodes.len(),
@@ -556,12 +556,17 @@ impl Engine {
                             .bindings
                             .iter()
                             .map(|(property, variable)| {
-                                json!({
+                                let mut binding = json!({
                                     "property":property,"variable_id":variable,
                                     "mode_id":self.doc.variables.get(variable).and_then(|v|self.doc.variable_mode(n.id,&v.collection)),
                                     "value":self.doc.resolve_variable(n.id,variable),
                                     "code_syntax":self.doc.variables.get(variable).map(|v|&v.code_syntax)
-                                })
+                                });
+                                // The binding still resolves; the variable is not in `variables` below because it is deleted.
+                                if self.doc.variables.get(variable).is_some_and(|v| v.is_soft_deleted()) {
+                                    binding["deleted_but_referenced"] = json!(true);
+                                }
+                                binding
                             })
                             .collect::<Vec<_>>(),
                     )
@@ -569,11 +574,15 @@ impl Engine {
                     None
                 };
                 // `code_syntax` is skipped in the native format when empty; tools get a stable shape.
-                let mut variables = json!(self.doc.variables);
+                // Only live variables and collections are listed: a soft-deleted one stays in the document so bindings
+                // resolve, but it is not something to pick or bind.
+                let live_variables: std::collections::BTreeMap<_, _> = self.doc.variables.iter().filter(|(_, v)| !v.is_soft_deleted()).collect();
+                let live_collections: std::collections::BTreeMap<_, _> = self.doc.variable_collections.iter().filter(|(_, c)| !c.is_soft_deleted()).collect();
+                let mut variables = json!(live_variables);
                 for v in variables.as_object_mut().into_iter().flat_map(|m| m.values_mut()).filter_map(|v| v.as_object_mut()) {
                     v.entry("code_syntax").or_insert_with(|| json!({}));
                 }
-                Ok(json!({"variables":variables,"collections":self.doc.variable_collections,"effective_bindings":effective}))
+                Ok(json!({"variables":variables,"collections":live_collections,"effective_bindings":effective}))
             }
             "designos_generate_code" => {
                 let a: CodeArgs = parse(args)?;
@@ -2700,6 +2709,56 @@ mod tests {
         assert_eq!(e.doc.to_json().unwrap(), before);
     }
     #[test]
+    fn variable_listing_leaves_out_soft_deleted_variables_but_a_binding_to_one_still_resolves() {
+        use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+        let mut e = Engine::default();
+        let id = create(&mut e, "rectangle", "Box");
+        e.doc.variable_collections.insert(
+            "size".into(),
+            VariableCollection {
+                id: "size".into(),
+                name: "size".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }],
+                default_mode: "light".into(),
+                variables: vec!["live".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for (vid, width, deleted) in [("live", 10.0, false), ("gone", 240.0, true)] {
+            let mut v = Variable {
+                id: vid.into(),
+                name: vid.into(),
+                collection: "size".into(),
+                kind: VariableKind::Number,
+                values: [("light".to_string(), VariableValue::Number(width))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            };
+            if deleted {
+                v.extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), json!(true));
+            }
+            e.doc.variables.insert(vid.into(), v);
+        }
+        e.doc.get_mut(NodeId(id)).unwrap().variables.bindings.insert("width".into(), "gone".into());
+
+        assert_eq!(e.call("designos_get_document", json!({})).unwrap()["variable_count"], json!(1), "the document summary counts live variables");
+        let listed = e.call("designos_get_variables", json!({})).unwrap();
+        assert_eq!(listed["variables"].as_object().unwrap().keys().collect::<Vec<_>>(), ["live"], "{listed}");
+        assert_eq!(listed["collections"]["size"]["variables"], json!(["live"]));
+
+        let bound = e.call("designos_get_variables", json!({"node_id":id})).unwrap();
+        assert_eq!(bound["effective_bindings"][0]["value"], json!({"Number":240.0}), "the binding still resolves through the deleted variable");
+        assert_eq!(bound["effective_bindings"][0]["deleted_but_referenced"], json!(true));
+        assert!(bound["variables"].get("gone").is_none());
+    }
+    #[test]
     fn get_document_lists_shared_effect_and_grid_styles_and_nodes_carry_their_links() {
         use designos_doc::{Color, Effect, LayoutGrid, Style, StyleMeta, StyleProperty, Vec2};
         let mut e = Engine::default();
@@ -3057,6 +3116,67 @@ mod tests {
         assert!(e.doc.variable_collections.is_empty());
         assert!(e.doc.variables.is_empty());
         assert_eq!(e.history.undo_depth(), depth);
+    }
+
+    #[test]
+    fn binding_by_name_through_apply_spec_and_apply_batch_matches_live_variables_only() {
+        use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+        e.doc.variable_collections.insert(
+            "c_t".into(),
+            VariableCollection {
+                id: "c_t".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "m".into(), name: "Default".into() }],
+                default_mode: "m".into(),
+                variables: vec!["b_live".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        // The deleted twin sorts first, so a lookup that did not skip it would be ambiguous.
+        for (id, name, deleted) in [("a_gone", "Text/Muted", true), ("b_live", "Text/Muted", false), ("c_slate_gone", "Text/Slate", true)] {
+            let mut v = Variable {
+                id: id.into(),
+                name: name.into(),
+                collection: "c_t".into(),
+                kind: VariableKind::Color,
+                values: [("m".to_string(), VariableValue::Color(designos_doc::Color::rgb(0x66, 0x66, 0x66)))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            };
+            if deleted {
+                v.extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), json!(true));
+            }
+            e.doc.variables.insert(id.into(), v);
+        }
+        let fill_of = |e: &Engine, root: &Value| e.doc.get(NodeId(root["root_node_id"].as_u64().unwrap())).unwrap().variables.bindings.get("fills/0").cloned();
+
+        let by_name = e.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "rectangle", "fill": "var:Tokens/Text/Muted"}})).unwrap();
+        assert_eq!(fill_of(&e, &by_name).as_deref(), Some("b_live"));
+
+        let depth = e.history.undo_depth();
+        let err = e.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "rectangle", "fill": "var:Tokens/Text/Slate"}})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::UnknownVariable, "{err}");
+        assert!(err.valid_options.iter().all(|o| !o.contains("Slate")), "{:?}", err.valid_options);
+        let batch_err = e
+            .call("designos_apply_batch", json!({"ops": [{"op": "apply_spec", "parent_id": page.0, "spec": {"kind": "rectangle", "fill": "var:Text/Slate"}}]}))
+            .unwrap_err();
+        // The batch names the failed op and keeps the same unknown-name message the single call gives.
+        assert_eq!(batch_err.code, ErrorCode::BatchOpFailed, "{batch_err}");
+        assert!(batch_err.message.contains("Unknown variable 'Text/Slate'."), "{batch_err}");
+        assert_eq!(e.history.undo_depth(), depth, "a refused name changes nothing");
+
+        // An id still binds the deleted variable.
+        let by_id = e.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "rectangle", "fill": "var:id:c_slate_gone"}})).unwrap();
+        assert_eq!(fill_of(&e, &by_id).as_deref(), Some("c_slate_gone"));
     }
 
     #[test]

@@ -1330,6 +1330,7 @@ mod proto;
 mod proto_vars;
 mod relayout_budget;
 mod resized_shape_geometry;
+mod screenshot_capture;
 mod select_cli;
 mod select_cli_watermark;
 mod slot_canvas_edits;
