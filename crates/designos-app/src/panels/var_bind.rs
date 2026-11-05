@@ -48,21 +48,47 @@ fn picker_action_id() -> Id {
 
 /// After undo or redo: the picker shows what the document now holds, whatever paint type that is.
 pub(crate) fn adopt_picker_paint_after_history(app: &mut App) {
-    let Some(pk) = app.props.picker.as_mut() else { return };
-    if !pk.tx.ed.touched().is_empty() {
+    let Some(picker) = app.props.picker.as_ref() else { return };
+    if !picker.tx.ed.touched().is_empty() {
         return;
     }
-    let doc_paint = pk.ids.first().and_then(|id| app.doc.get(*id)).and_then(|n| match pk.target {
-        super::properties::PickTarget::Fill(pi) => n.fills.get(pi).cloned(),
-        super::properties::PickTarget::Stroke(pi) => n.stroke.paints.get(pi).cloned(),
-        _ => Some(pk.paint.clone()),
-    });
-    let Some(p) = doc_paint else {
-        app.props.picker = None;
-        app.props.eyedropper = None;
-        return;
-    };
-    pk.paint = p;
+    let target = picker.target;
+    let ids = picker.ids.clone();
+    let fallback = picker.paint.clone();
+    let doc_paint = ids
+        .first()
+        .and_then(|id| app.doc.get(*id))
+        .and_then(|n| match target {
+            super::properties::PickTarget::Fill(pi) => n.fills.get(pi).cloned(),
+            super::properties::PickTarget::Stroke(pi) => n.stroke.paints.get(pi).cloned(),
+            super::properties::PickTarget::TextFill => match &n.kind {
+                NodeKind::Text(t) => t.style.fills.iter().find(|p| p.visible).cloned(),
+                _ => None,
+            },
+            super::properties::PickTarget::PageBg => match n.kind {
+                NodeKind::Page { background } => Some(Paint::solid(background)),
+                _ => None,
+            },
+            super::properties::PickTarget::GridColor(i) => {
+                n.kind.frame_props().and_then(|fp| fp.grids.get(i)).map(|g| Paint::solid(super::layoutguide::color_of(g)))
+            }
+            super::properties::PickTarget::Shadow(i) => n.effects.get(i).and_then(|e| match e {
+                Effect::DropShadow { color, .. } | Effect::InnerShadow { color, .. } => Some(Paint::solid(*color)),
+                _ => None,
+            }),
+            super::properties::PickTarget::NoiseColor(i, second) => n.effects.get(i).and_then(|e| match e {
+                Effect::Noise(noise) => match (&noise.mode, second) {
+                    (NoiseMode::Mono { color }, false) | (NoiseMode::Duo { color, .. }, false) => Some(Paint::solid(*color)),
+                    (NoiseMode::Duo { secondary, .. }, true) => Some(Paint::solid(*secondary)),
+                    _ => None,
+                },
+                _ => None,
+            }),
+            super::properties::PickTarget::SelColor(_) => None,
+        })
+        .unwrap_or(fallback);
+    let Some(pk) = app.props.picker.as_mut() else { return };
+    pk.paint = doc_paint;
     let n_stops = crate::widgets::picker::stops_of(&pk.paint.kind).map(|s| s.len()).unwrap_or(1);
     pk.state.sel = pk.state.sel.min(n_stops.saturating_sub(1));
     pk.state.reset_stop_origins(&pk.paint);
