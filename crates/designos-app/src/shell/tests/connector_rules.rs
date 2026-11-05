@@ -190,6 +190,36 @@ fn default_ink_reads_the_nearest_opaque_ancestor_fill() {
     let ink = ink_of(&s, c);
     assert_eq!(ink, crate::board::color_of(crate::theme::BOARD_INK[0]), "the white screen above the wrapper is the surface");
     assert!(designos_doc::lint::rules::contrast::contrast_ratio(ink, Color::WHITE) >= 3.0);
+
+    // and the other way round: a dark screen above a fill-less wrapper gives white ink
+    let night_fill = Color::rgb(0x12, 0x12, 0x15);
+    let night = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(80.0, 480.0, 640.0, 360.0));
+            n.fills = vec![Paint::solid(night_fill)];
+            n
+        },
+        "Night screen",
+    );
+    let night_wrapper = add(
+        &mut s,
+        night,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(20.0, 20.0, 600.0, 320.0));
+            n.fills.clear();
+            n
+        },
+        "Night wrapper",
+    );
+    let a2 = rectangle(&mut s, night_wrapper, "Night card A", 40.0, 100.0);
+    let b2 = rectangle(&mut s, night_wrapper, "Night card B", 420.0, 100.0);
+    let c2 = connect_deep(&mut s, a2, b2);
+    assert_eq!(s.app().doc.get(c2).unwrap().parent, Some(night_wrapper));
+    let ink2 = ink_of(&s, c2);
+    assert_eq!(ink2, crate::board::color_of(crate::theme::BOARD_INK_ON_DARK), "the dark screen above the wrapper is the surface");
+    assert!(designos_doc::lint::rules::contrast::contrast_ratio(ink2, night_fill) >= 3.0);
 }
 
 #[test]
@@ -233,6 +263,67 @@ fn default_ink_on_the_dark_default_page_has_3_to_1() {
     let ink = ink_of(&s, c);
     assert_eq!(ink, crate::board::color_of(crate::theme::BOARD_INK_ON_DARK));
     assert!(designos_doc::lint::rules::contrast::contrast_ratio(ink, Color::rgb(0x5A, 0x5A, 0x5A)) >= 3.0);
+}
+
+fn dot_of(s: &Sim, id: NodeId, m: designos_doc::Magnet) -> Pos2 {
+    let (_, p) = crate::board::connect::dot_positions(s.app(), id).into_iter().find(|(k, _)| *k == m).unwrap();
+    s.screen(p.x, p.y)
+}
+
+#[test]
+fn board_dots_leave_a_selected_item_when_the_pointer_does() {
+    let mut s = board_sim();
+    let page = s.app().page;
+    let a = shape(&mut s, page, "A", 200.0, 200.0);
+    s.click(center(&s, a));
+    assert_eq!(s.app().selection, vec![a]);
+    assert_eq!(s.app().board.dots, Some(a), "the dots show while the pointer is over the item");
+    s.mv(s.screen(900.0, 600.0));
+    s.mv(s.screen(905.0, 600.0));
+    assert_eq!(s.app().board.dots, None, "a board shows the dots of the item under the pointer only, not of the selection");
+}
+
+#[test]
+fn board_connector_tool_hover_leaves_no_highlight() {
+    let mut s = board_sim();
+    let page = s.app().page;
+    let a = shape(&mut s, page, "A", 200.0, 200.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.mv(center(&s, a));
+    s.mv(center(&s, a) + egui::vec2(1.0, 0.0));
+    assert_eq!(s.app().hover, None, "the Connector tool in a board file draws no hover highlight");
+    assert_eq!(s.app().board.dots, Some(a), "the dots still show on the item under the pointer");
+}
+
+#[test]
+fn board_connector_drag_with_alt_still_attaches_both_ends() {
+    let mut s = board_sim();
+    let page = s.app().page;
+    let a = shape(&mut s, page, "A", 120.0, 200.0);
+    let b = shape(&mut s, page, "B", 560.0, 200.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.mods = Modifiers { alt: true, ..Modifiers::NONE };
+    s.drag(center(&s, a), center(&s, b));
+    s.mods = Modifiers::NONE;
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1);
+    assert_eq!(ends(&s, cs[0]), (Some(a), Some(b), Some(page)), "Alt does not free the ends in a board file");
+}
+
+#[test]
+fn board_dot_press_with_alt_still_starts_a_connector() {
+    let mut s = board_sim();
+    let page = s.app().page;
+    let a = shape(&mut s, page, "A", 120.0, 200.0);
+    let b = shape(&mut s, page, "B", 560.0, 200.0);
+    s.mv(center(&s, a));
+    s.mv(center(&s, a) + egui::vec2(1.0, 0.0));
+    s.mods = Modifiers { alt: true, ..Modifiers::NONE };
+    s.drag(dot_of(&s, a, designos_doc::Magnet::Right), center(&s, b));
+    s.mods = Modifiers::NONE;
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1, "pressing a dot with Alt held still drags a connector out");
+    assert_eq!(ends(&s, cs[0]).0, Some(a));
 }
 
 #[test]

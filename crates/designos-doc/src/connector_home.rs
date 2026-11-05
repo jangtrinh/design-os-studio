@@ -430,6 +430,12 @@ mod tests {
         assert_eq!(default_connector_ink(&doc, screen), ink);
         doc.get_mut(wrapper).expect("wrapper").fills = vec![Paint::solid(Color::BLACK)];
         assert_eq!(default_connector_ink(&doc, wrapper), Color::WHITE, "the nearest fill wins over the white screen above it");
+
+        // a dark screen above a fill-less wrapper on a light page: the ancestor, not the page, is the surface
+        set_page_background(&mut doc, page, Color::WHITE);
+        let (night, night_wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(night).expect("screen").fills = vec![Paint::solid(Color::BLACK)];
+        assert_eq!(default_connector_ink(&doc, night_wrapper), Color::WHITE);
     }
 
     #[test]
