@@ -3,9 +3,39 @@
 use crate::*;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::Deref;
 
+#[cfg(test)]
+mod scale_tests;
+
 const MAX_INDEXED_DOCS: usize = 4;
+
+/// Multiplicative hasher for dense integer ids; `NodeId` keys are trusted, so SipHash buys nothing.
+#[derive(Default)]
+struct IdHasher(u64);
+
+impl Hasher for IdHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        let x = i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        self.0 = x ^ (x >> 32);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+type IdSet = HashSet<NodeId, BuildHasherDefault<IdHasher>>;
 
 /// Inline-first small vector holding up to 4 items on the stack before spilling to a heap [`Vec`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,34 +68,38 @@ impl<T: Copy + Default + PartialEq + Ord> SmallVec<T> {
         }
     }
 
+    /// Inserts `value` unless present, keeping the list sorted.
+    ///
+    /// Appending a value above the current maximum (the order a rebuild visits ids in) is O(1);
+    /// anything else costs a binary search plus one shift, never a scan or a re-sort.
     pub fn push_unique(&mut self, value: T) {
-        if self.as_slice().contains(&value) {
-            return;
-        }
+        let slice = self.as_slice();
+        let pos = match slice.last() {
+            Some(last) if *last < value => slice.len(),
+            _ => match slice.binary_search(&value) {
+                Ok(_) => return,
+                Err(pos) => pos,
+            },
+        };
         if self.len < 4 {
-            self.inline[self.len] = value;
-            self.len += 1;
-            self.inline[..self.len].sort_unstable();
+            self.inline.copy_within(pos..self.len, pos + 1);
+            self.inline[pos] = value;
         } else {
             if self.len == 4 {
                 self.spill.extend_from_slice(&self.inline);
             }
-            self.spill.push(value);
-            self.len += 1;
-            self.spill.sort_unstable();
+            self.spill.insert(pos, value);
         }
+        self.len += 1;
     }
 
     pub fn remove_value(&mut self, value: T) {
+        let Ok(pos) = self.as_slice().binary_search(&value) else { return };
         if self.len <= 4 {
-            if let Some(pos) = self.inline[..self.len].iter().position(|x| *x == value) {
-                for i in pos..(self.len - 1) {
-                    self.inline[i] = self.inline[i + 1];
-                }
-                self.inline[self.len - 1] = T::default();
-                self.len -= 1;
-            }
-        } else if let Some(pos) = self.spill.iter().position(|x| *x == value) {
+            self.inline.copy_within(pos + 1..self.len, pos);
+            self.inline[self.len - 1] = T::default();
+            self.len -= 1;
+        } else {
             self.spill.remove(pos);
             self.len -= 1;
             if self.len == 4 {
@@ -238,6 +272,16 @@ impl ConnectorIndex {
         }
     }
 
+    /// Brings the lists in line with a connector's current parent and ends. A connector whose
+    /// entry did not change (a geometry-only edit) is already listed, so it is left alone.
+    fn reindex_connector(&mut self, id: NodeId, parent: Option<NodeId>, start: Option<NodeId>, end: Option<NodeId>) {
+        if self.connectors.get(&id) == Some(&ConnectorEntry { parent, start, end }) {
+            return;
+        }
+        self.unindex_connector(id);
+        self.insert_connector(id, parent, start, end);
+    }
+
     fn rebuild(&mut self, doc: &Document) {
         record_rebuild();
         self.derived_id = doc.derived_id();
@@ -246,6 +290,7 @@ impl ConnectorIndex {
         self.connectors.clear();
         self.by_end.clear();
         self.per_parent.clear();
+        // `doc.nodes` yields ids in ascending order, so every list is built by appending.
         for (&id, n) in &doc.nodes {
             if let NodeKind::Connector(c) = &n.kind {
                 self.insert_connector(id, n.parent, c.start.node, c.end.node);
@@ -282,30 +327,37 @@ impl ConnectorIndex {
             self.unindex_connector(id);
         }
         let mut extra = Vec::new();
+        // Ids already queued: the dirty ones plus every descendant collected so far. Built on the
+        // first subtree walk only, so a plain geometry edit never builds the set.
+        let mut queued: Option<IdSet> = None;
         for &id in &dirty {
-            self.unindex_connector(id);
-            if let Some(n) = doc.get(id) {
-                if let NodeKind::Connector(c) = &n.kind {
-                    self.insert_connector(id, n.parent, c.start.node, c.end.node);
-                } else if delta > 0 && !matches!(n.kind, NodeKind::Page { .. }) && !n.children.is_empty() {
-                    let mut stack = n.children.clone();
-                    while let Some(cid) = stack.pop() {
-                        if !dirty.contains(&cid) && !extra.contains(&cid) {
-                            extra.push(cid);
-                        }
-                        if let Some(cn) = doc.get(cid) {
-                            stack.extend(cn.children.iter().copied());
+            match doc.get(id) {
+                Some(n) => {
+                    if let NodeKind::Connector(c) = &n.kind {
+                        self.reindex_connector(id, n.parent, c.start.node, c.end.node);
+                        continue;
+                    }
+                    self.unindex_connector(id);
+                    if delta > 0 && !matches!(n.kind, NodeKind::Page { .. }) && !n.children.is_empty() {
+                        let queued = queued.get_or_insert_with(|| dirty.iter().copied().collect());
+                        let mut stack = n.children.clone();
+                        while let Some(cid) = stack.pop() {
+                            if queued.insert(cid) {
+                                extra.push(cid);
+                            }
+                            if let Some(cn) = doc.get(cid) {
+                                stack.extend(cn.children.iter().copied());
+                            }
                         }
                     }
                 }
+                None => self.unindex_connector(id),
             }
         }
         for id in extra {
-            self.unindex_connector(id);
-            if let Some(n) = doc.get(id) {
-                if let NodeKind::Connector(c) = &n.kind {
-                    self.insert_connector(id, n.parent, c.start.node, c.end.node);
-                }
+            match doc.get(id) {
+                Some(Node { kind: NodeKind::Connector(c), parent, .. }) => self.reindex_connector(id, *parent, c.start.node, c.end.node),
+                _ => self.unindex_connector(id),
             }
         }
         self.epoch = doc.mutation_epoch();
