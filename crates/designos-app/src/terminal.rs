@@ -5703,7 +5703,7 @@ pub(crate) fn session_workspace_dir(file_path: Option<&Path>) -> PathBuf {
 
 #[cfg(test)]
 mod workspace_dir_tests {
-    use super::{TerminalState, session_workspace_dir};
+    use super::{session_workspace_dir, TerminalState};
     use std::path::Path;
 
     #[test]
@@ -5724,10 +5724,7 @@ mod workspace_dir_tests {
         st.provision_session_agent_files(None);
         let raw = std::fs::read_to_string(st.session_dir.join("mcp-config.json")).expect("mcp-config.json");
         let cfg: serde_json::Value = serde_json::from_str(&raw).expect("valid mcp-config.json");
-        let args = cfg
-            .pointer("/mcpServers/designos/args")
-            .and_then(serde_json::Value::as_array)
-            .expect("designos args");
+        let args = cfg.pointer("/mcpServers/designos/args").and_then(serde_json::Value::as_array).expect("designos args");
         assert_eq!(args[0].as_str(), Some("--workspace"));
         let mcp_workspace = Path::new(args[1].as_str().expect("workspace arg"));
         assert_eq!(mcp_workspace, workspace);
