@@ -2,6 +2,66 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.9] - 2026-11-05
+
+A feature release from `main`: image adjustments, a Project tab for docs, faster FigJam connectors that now survive `.fig` files, and a large set of fixes carried from @NamAIEngineer.
+
+### Added
+- **Images and effects.**
+  - Image fills get Exposure, Contrast, Saturation, Temperature, Tint, Highlights and Shadows sliders with a Reset, and the image fill picker gets rotate buttons and a tile scale slider. Switching Fill or Fit to Crop keeps the framing you see (#163, PR #1595).
+  - Custom shader effects and fills survive `.fig`, REST and `.designos` round trips. Studio does not draw them: the inspector lists each one as "Shader (not rendered)" with a visibility toggle and a remove button (#39, PR #1602). A `.designos` file that holds a shader cannot be opened by an older Studio.
+- **Project docs.**
+  - A new `designos-docs` crate reads and writes a project's Markdown docs and its `docs/docs-manifest.json`. Markdown Studio did not edit is written back byte for byte, a write refuses when the file changed on disk, and edits made outside Studio are reported within a second (#1523, PR #1571).
+  - A Project tab with a document tree, a reading page and an "On this page" outline (#1524, PR #1617).
+  - Read-only MCP tools let an agent list and read project documents; write tools and live co-editing come later (#1528, PR #1617).
+- **FigJam connectors.**
+  - Connector routes are cached and hit tests skip far connectors. On a board with 1,500 connectors, pan and zoom went from about 630 ms to 1.3 ms a frame, and dragging a node with 150 attached connectors from about 205 ms to 5 ms (release build, Apple M4 Max) (#1223, PR #1606).
+  - In a design file, `.fig` and REST export write each connector as a vector (a group with a label chip when it has a label) with its arrowheads and a marker, and open brings it back as a live connector linked to both ends. Vectors without the marker stay vectors. Board files keep their connector records and the connector fields Studio does not model (#1599, PR #1614).
+
+### Fixed
+- **Gradient picker and inspector.**
+  - With a gradient picker open, Delete and Backspace remove the selected stop instead of the layer, and a gradient keeps its last two stops; carried from PR #1514 by @NamAIEngineer (#1434, PR #1612).
+  - With a picker open, Cmd+Z undoes the right step, and after an undo or redo the open fill or stroke picker takes the document's paint, so the next edit cannot bring an undone gradient back; carried from PR #1521 by @NamAIEngineer (#1434, PR #1612).
+  - Mixed values are read from every selected layer, not the first 128; carried from PR #1558 by @NamAIEngineer (#1539, PR #1612).
+- **Styles and variables.**
+  - K-scale on a text layer detaches its linked text style; carried from PR #1507 by @NamAIEngineer (#1432, PR #1616).
+  - Applying a stroke or effect style, pasting properties, and removing or reordering fills, strokes and effects no longer leave stale variable bindings; carried from PRs #1510, #1511, #1509 and #1513 by @NamAIEngineer (#1434, PR #1616).
+  - Applying or publishing a text style without paragraph spacing or indent keeps the layer's own values instead of resetting them to 0; carried from PR #1393 by @NamAIEngineer (#1279, PR #1616).
+  - A font weight set through a variable binding, the inspector, a spec, MCP or an importer moves a variable font's `wght` axis too, so the text draws at the new weight; carried from PR #1414 by @NamAIEngineer (#891, PR #1616).
+- **Text.**
+  - Typing after a bold, italic, underline or strikethrough toggle at a collapsed caret detaches the linked text style; carried from PR #1497 by @NamAIEngineer (#1428, PR #1616).
+  - Consecutive different text style shortcuts in one text session undo as separate steps; carried from PR #1496 by @NamAIEngineer (#1430, PR #1616).
+  - The text size shortcuts change the size once per press during a text session, not twice; carried from PR #1493 by @NamAIEngineer (#1429, PR #1616).
+  - Text fields in the app start their text at the requested inset, not at the field edge; carried from PR #1423 by @NamAIEngineer (#1389, PR #1616).
+  - Text strokes follow stroke alignment, Inside and Outside, on the CPU and GPU canvas, per style run. Outline stroke and Flatten match the live text; carried from PR #1607 by @NamAIEngineer (#1504, PR #1613).
+  - Undo during an IME composition no longer brings the composition back as typed text; carried from PR #1133 by @NamAIEngineer (#1038, PR #1620).
+- **Layout and layers.**
+  - A group's bounds ignore hidden children when it is refit after an edit, so an edit inside a group keeps the box Resize to fit gave it; carried from PR #1596 by @NamAIEngineer (#1503, PR #1611).
+  - Dropping several layers at once keeps their order; carried from PR #1079 by @NamAIEngineer (#938, PR #1620).
+- **Effects.** Background blur on a layer with no visible fill or stroke no longer blurs what is behind it, as in Figma; carried from PR #1371 by @NamAIEngineer (#1328, PR #1624).
+- **`.fig` and REST import and export.**
+  - Saving to `.fig` keeps an instance's text style relink or detach; carried from PR #1383 by @NamAIEngineer (#1347, PR #1622).
+  - DTCG import resolves aliases for duplicate manifest groups in token-file order and warns about the duplicate; carried from PR #1373 by @NamAIEngineer (#1326, PR #1622).
+  - After an instance swap, nested instance layers take the new component's name unless they have their own name override; carried from PR #1418 by @NamAIEngineer (#1330, PR #1622).
+  - Opening a file whose layers or styles use variables the file does not hold keeps those links and says in the open toast how many variables are missing; carried from PR #1512 by @NamAIEngineer (#1434, PR #1622).
+  - SVG import names a `<text>` layer after its `id`, like other elements; carried from PR #1077 by @NamAIEngineer (#773, PR #1620).
+- **Export.**
+  - A Compose grid that hugs its width keeps that width; carried from PR #1584 by @NamAIEngineer (#1565, PR #1619).
+  - CSS and Tailwind write the resolved stroke width when it is bound to a variable, and Tailwind keeps a bound zero-width stroke; carried from PR #1570 by @NamAIEngineer (#1552, PR #1619).
+  - An export error toast names the path that was tried; carried from PR #1156 by @NamAIEngineer (#1152, PR #1620).
+  - Export Frame as `.spec.json` refuses a link at the destination; carried from PR #1149 by @NamAIEngineer (#1073, PR #1620).
+- **App.**
+  - After a failed library save, Quit, closing, switching tabs and replacing ask first, "Don't Save" leaves the file on disk unchanged, and a reload from disk no longer overwrites unsaved library edits; carried from PR #1198 by @NamAIEngineer (#979, PR #1620).
+  - `--select id:` after `--import-capture` no longer calls a captured layer an expanded instance, and the message for ids that exist only in the session is clearer; carried from PR #1364 by @NamAIEngineer (#1340, PR #1620).
+
+### Known issues
+- Colour pickers for text, shadow, page, grid and noise can still bring back an undone colour on the next edit (#1618).
+- Outline stroke of an Outside text stroke paints a darker band where a chain of more than 128 touching glyphs is split (#1621).
+- Image adjustments are not applied in SVG and PDF exports.
+- An older Studio does not list a project's deleted doc pages in the trash, and Empty trash erases them.
+- Not yet checked by opening a `.fig` with exported connectors in Figma itself (#1599).
+- The two issues listed for 0.7.8, text strokes ignoring alignment (#1504) and group bounds counting hidden children (#1503), are fixed in this release (see Fixed). The known issues listed for 0.7.5 still apply. The Windows test suite stays advisory; releases are verified on macOS (#1158).
+
 ## [0.7.8] - 2026-11-04
 
 A feature release from `main`: arrowheads and the Arrow tool, image crop and rotation, more glass and noise settings, corner and aspect controls in the inspector, and `.fig` round-trip fixes.

@@ -1,0 +1,90 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.98s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dfda951cafec2dfd)
+
+running 34 tests
+test io::tests::clone_budget_notice_keeps_user_facing_8m_limit ... ok
+test io::tests::empty_doc_gets_a_page ... ok
+test io::tests::errors_are_readable ... ok
+test io::tests::an_import_warning_is_returned_for_pen_files_and_for_pen_text_in_a_json_file ... ok
+test io::tests::json_falls_back_to_native ... ok
+test io::tests::documents_without_a_warning_open_with_the_plain_toast ... ok
+test io::tests::only_the_native_extension_is_the_native_format ... ok
+test io::tests::cyclic_file_loads_into_a_consistent_tree ... ok
+test io::tests::file_with_a_node_id_at_u64_max_opens_and_new_ids_stay_distinct ... ok
+test io::tests::load_path_resolves_relative_pen_library_imports_and_images_via_base_dir ... ok
+test io::tests::native_roundtrip ... ok
+test io::tests::pen_clone_budget_warning_reaches_the_caller_and_the_toast_text ... ignored, allocates the full 2M-node clone budget; run with --ignored
+test io::tests::opening_a_finite_rest_json_builds_no_native_json_text ... ok
+test io::tests::opening_rest_file_with_missing_variable_bindings_surfaces_warning ... ok
+test io::tests::opening_a_rest_json_with_overflowing_numbers_replaces_them_and_tells_the_user_once ... ok
+test io::tests::opening_rest_json_with_overflow_neutralizes_in_place_without_running_migrate_text ... ok
+test io::tests::fig_roundtrip ... ok
+test io::tests::svg_loads_as_a_document_named_after_the_file ... ok
+test io::tests::clean_native_open_has_no_warning_and_writes_no_backup_on_save ... ok
+test io::tests::web_capture_json_opens_via_open_any_and_load_path ... ok
+test io::tests::extended_attribute_survives_atomic_save ... ok
+test io::tests::saving_to_a_path_builds_one_json_text_and_reports_the_replaced_numbers ... ok
+test io::tests::failed_save_leaves_original_intact ... ok
+test io::tests::truly_unwritable_0444_file_is_refused ... ok
+test io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast ... ok
+test io::tests::hot_reload_surfaces_non_finite_warning_even_when_repaired_hash_matches_saved_hash ... ok
+test io::tests::acl_granting_write_on_0444_file_allows_save_and_survives ... ok
+test io::tests::saving_repaired_document_never_overwrites_existing_bak_files ... ok
+test io::tests::user_file_named_target_dot_tmp_survives_save ... ok
+test io::tests::malformed_native_open_reports_what_was_repaired_and_backs_up_original_bytes_on_save ... ok
+test io::tests::switching_documents_preserves_flush_autosave_non_finite_notice ... ok
+test io::tests::counted_save_neutralizes_open_document_and_saved_hash_matches_disk ... ok
+test io::tests::importing_several_files_names_each_one_that_had_numbers_replaced ... ok
+test io::tests::non_finite_numbers_notice_shown_once_per_file_on_open_import_and_save ... ok
+
+test result: ok. 33 passed; 0 failed; 1 ignored; 0 measured; 4427 filtered out; finished in 0.97s
+
+IO_TESTS_EXIT_CODE=0
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.75s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dfda951cafec2dfd)
+
+running 5 tests
+test agent_approval_channel::tests::the_channel_name_is_short_stable_and_per_session ... ok
+test agent_approval_channel::tests::a_root_inside_the_session_folder_gets_no_channel ... ok
+test agent_approval_channel::tests::a_link_in_place_of_the_root_is_refused ... ok
+test agent_approval_channel::tests::prepared_folders_are_owner_only_even_when_they_existed_with_a_looser_mode ... ok
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4456 filtered out; finished in 0.01s
+
+APPROVAL_TESTS_EXIT_CODE=0
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.86s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dfda951cafec2dfd)
+
+running 12 tests
+test shell::tests::close_human_dirty::close_save_into_unwritable_directory_is_not_path_required ... ok
+test shell::tests::close_human_dirty::closing_an_already_closed_tab_is_not_retryable ... ok
+test shell::tests::close_human_dirty::human_edit_then_agent_fail_keeps_the_tab_and_the_file ... ok
+test shell::tests::close_human_dirty::a_stale_success_answer_does_not_close_or_save_for_a_new_process ... ok
+test shell::tests::close_human_dirty::human_edit_then_agent_save_writes_the_edit_and_closes ... ok
+test shell::tests::close_human_dirty::apply_spec_after_a_refused_close_reaches_the_canvas ... ok
+test shell::tests::close_human_dirty::human_edit_then_agent_discard_closes_and_leaves_the_file ... ok
+test shell::tests::close_human_dirty::titled_read_only_file_close_save_is_not_path_required ... ok
+test shell::tests::close_human_dirty::untitled_close_save_without_path_is_path_required ... ok
+test shell::tests::close_human_dirty::library_file_read_only_close_save_is_invalid_arguments_not_path_required ... ok
+test shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required ... ok
+test shell::tests::close_human_dirty::stale_queued_close_does_not_close_a_tab_the_user_switched_back_to ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 3.09s
+
+CLOSE_HUMAN_DIRTY_EXIT_CODE=0
