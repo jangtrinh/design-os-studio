@@ -19,7 +19,7 @@ fn matrix(tx: f64, ty: f64) -> Value {
 }
 
 /// Sizes and transforms for the label and two dots of the button, and an outline for each dot: both name blob 3 of the
-/// file.
+/// file, one filled non-zero and one even-odd.
 fn derived_data() -> Value {
     json!([
         {"guidPath": {"guids": [guid(LABEL.0, LABEL.1)]}, "size": {"x": 90.0, "y": 20.0}, "transform": matrix(10.0, 14.0)},
@@ -33,7 +33,7 @@ fn derived_data() -> Value {
             "guidPath": {"guids": [guid(SECOND_DOT.0, SECOND_DOT.1)]},
             "size": {"x": 6.0, "y": 6.0},
             "transform": matrix(20.0, 4.0),
-            "strokeGeometry": [{"windingRule": "NONZERO", "commandsBlob": WANTED_BLOB}]
+            "strokeGeometry": [{"windingRule": "ODD", "commandsBlob": WANTED_BLOB}]
         }
     ])
 }
@@ -96,6 +96,8 @@ fn a_deferred_instance_keeps_its_derived_data_through_a_save() {
     let in_saved = blob_of(&kept[1], &|i| saved_blob(&saved, i));
     assert_eq!(in_saved, in_original, "the outline is the one the file stated, wherever the saved table keeps it");
     assert_eq!(kept[1]["strokeGeometry"][0]["commandsBlob"], kept[2]["strokeGeometry"][0]["commandsBlob"], "an outline that two entries share is stored once");
+    assert_eq!(kept[1]["strokeGeometry"][0]["windingRule"], "NONZERO");
+    assert_eq!(kept[2]["strokeGeometry"][0]["windingRule"], "ODD", "each entry keeps its own winding rule");
 
     let without = fixture_with(json!({}), text_and_stroke_overrides(), dots(), blobs());
     assert_ne!(reopened_label_size(&fig), reopened_label_size(&without), "the derived data changes what a reader shows");
@@ -165,4 +167,17 @@ fn opening_another_page_keeps_the_derived_data_of_instances_on_pages_still_unope
     assert_eq!(saved_derived(&saved, INSTANCE).len(), 3, "the instance on the unopened page keeps its derived data");
     assert!(saved_derived(&saved, (1, 60)).is_empty(), "the instance on the opened page is written from its children");
     assert!(children_written_under(&saved, (1, 60)) > 0);
+}
+
+#[test]
+fn a_deferred_instance_pointed_at_another_component_gets_no_derived_data() {
+    let fig = derived_fixture(Vec::new());
+    let mut live = import_fig(&fig).expect("import");
+    let other = live.nodes.values().find(|n| n.name == "Type=Simple 03, Breakpoint=Desktop").map(|n| n.id).expect("another component");
+    let instance = variant_button(&live);
+    let NodeKind::Instance { component, .. } = &mut live.get_mut(instance).expect("instance").kind else { panic!("instance") };
+    *component = Some(other);
+
+    let saved = export_fig(&live).expect("export");
+    assert!(saved_derived(&saved, INSTANCE).is_empty(), "derived data computed for one component is not written under another");
 }

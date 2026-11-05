@@ -583,10 +583,8 @@ pub struct PendingDerivedEntry {
 /// The derived data of an instance on a page that is not loaded, and what it was computed from.
 #[derive(Clone, Debug)]
 pub struct PendingDerived {
-    /// The main component the data was computed for.
-    pub main: NodeId,
-    /// A fingerprint of that main component, and of the mains inside it, as they were when the file was opened. The loader
-    /// and the format writer share its definition; the document does not interpret it.
+    /// A fingerprint of the main component the data was computed for, and of the mains inside it, as they were when the
+    /// file was opened. The loader and the format writer share its definition; the document does not interpret it.
     pub fingerprint: u64,
     pub entries: Vec<PendingDerivedEntry>,
 }

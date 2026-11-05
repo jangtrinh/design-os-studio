@@ -3813,7 +3813,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             })
             .filter(|e| e.size.is_some() || e.transform.is_some() || !e.fill.is_empty() || !e.stroke.is_empty())
             .collect();
-        (!entries.is_empty()).then_some(designos_doc::PendingDerived { main, fingerprint, entries })
+        (!entries.is_empty()).then_some(designos_doc::PendingDerived { fingerprint, entries })
     }
 }
 

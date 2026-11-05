@@ -56,16 +56,84 @@ fn entry(cx: &mut ExportCtx<'_>, e: &PendingDerivedEntry) -> Option<V> {
 }
 
 /// The `derivedSymbolData` entries of the instance `inst_id` (of the main component `main`) as the file stated them, or
-/// `None` to write none: the instance has children (its page is loaded), the loader holds none, it is an instance of
-/// another main than the data was computed for, or that main (or one inside it) was edited since the file was opened.
+/// `None` to write none: the instance has children (its page is loaded), the loader holds none, or the main it is an
+/// instance of (or one inside it) is not the main, with the content, the data was computed for.
 pub(super) fn pending_derived_symbol_data(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: NodeId) -> Option<Vec<V>> {
     if !cx.doc.get(inst_id)?.children.is_empty() {
         return None;
     }
     let held = cx.doc.pending_instance_derived(inst_id)?;
-    if held.main != main || cx.fingerprints.of_main(cx.doc, main) != held.fingerprint {
+    // The fingerprint names the main it was taken from, so an instance pointed at another main does not match.
+    if cx.fingerprints.of_main(cx.doc, main) != held.fingerprint {
         return None;
     }
     let entries: Vec<V> = held.entries.iter().filter_map(|e| entry(cx, e)).collect();
     (!entries.is_empty()).then_some(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::component_fingerprint::Fingerprints;
+    use crate::testkit::figma_like_schema;
+    use std::sync::{Arc, Mutex};
+
+    /// Answers one fixed record for every instance, the way a loader with unloaded pages would.
+    #[derive(Debug)]
+    struct Fixed(PendingDerived);
+
+    impl PageHydrator for Fixed {
+        fn hydrate_page(&mut self, _doc: &mut Document, _page: NodeId) -> bool {
+            false
+        }
+        fn hydrate_all(&mut self, _doc: &mut Document) -> bool {
+            false
+        }
+        fn is_hydrated(&self, _page: NodeId) -> bool {
+            false
+        }
+        fn pending_instance_derived(&self, _instance: NodeId) -> Option<PendingDerived> {
+            Some(self.0.clone())
+        }
+    }
+
+    /// A document with a main component and an instance of it whose loader holds one entry of derived data, taken from the
+    /// main as it is now.
+    fn document_with_pending_instance() -> (Document, NodeId, NodeId) {
+        let mut doc = Document::new("derived");
+        let page = doc.add_page("Page");
+        let main_id = doc.alloc_id();
+        let mut main = Node::new(main_id, NodeKind::Component(FrameProps::default()));
+        main.source_id = Some("1:10".into());
+        doc.insert(page, main).unwrap();
+        let inst_id = doc.alloc_id();
+        let inst = Node::new(inst_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(main_id), component_key: None });
+        doc.insert(page, inst).unwrap();
+        let entry = PendingDerivedEntry { path: vec!["1:11".into()], size: Some([9.0, 8.0]), ..Default::default() };
+        let held = PendingDerived { fingerprint: Fingerprints::default().of_main(&doc, main_id), entries: vec![entry] };
+        doc.page_hydrator = Some(Arc::new(Mutex::new(Fixed(held))));
+        (doc, main_id, inst_id)
+    }
+
+    fn write(doc: &Document, main: NodeId, inst: NodeId) -> Option<Vec<V>> {
+        let schema = figma_like_schema();
+        let mut cx = ExportCtx::new(doc, &schema);
+        pending_derived_symbol_data(&mut cx, inst, main)
+    }
+
+    #[test]
+    fn derived_data_is_written_while_the_main_is_as_the_data_was_computed_for() {
+        let (doc, main, inst) = document_with_pending_instance();
+        let entries = write(&doc, main, inst).expect("entries");
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].get("size").is_some());
+    }
+
+    #[test]
+    fn an_instance_that_has_children_is_read_from_them() {
+        let (mut doc, main, inst) = document_with_pending_instance();
+        let child_id = doc.alloc_id();
+        doc.insert(inst, Node::rectangle(child_id, Rect::new(0.0, 0.0, 4.0, 4.0))).unwrap();
+        assert!(write(&doc, main, inst).is_none());
+    }
 }
