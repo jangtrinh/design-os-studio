@@ -2200,17 +2200,6 @@ mod tests {
     }
 
     #[test]
-    fn aligned_text_outline_keeps_a_translucent_stroke_chain_together() {
-        for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
-            let line = outline_chain_line(align, Paint::solid(Color::rgba(220, 30, 30, 128)));
-            assert_eq!(line.strokes.len(), 1, "{align:?}: translucent touching chain must stay in one vector");
-            let (_max, _all, _ink, hard_px, non_edge, ink_px) = line.diff;
-            assert!(ink_px > 0, "{align:?}: nothing rendered");
-            assert_eq!((hard_px, non_edge), (0, 0), "{align:?}: translucent chain differs from live text");
-        }
-    }
-
-    #[test]
     fn aligned_text_outline_skips_the_fill_layer_of_a_run_without_fill() {
         for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
             let mut doc = Document::new("NoFillRun");

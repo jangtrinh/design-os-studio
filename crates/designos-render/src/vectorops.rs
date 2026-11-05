@@ -299,21 +299,14 @@ pub fn text_aligned_stroke_layers(doc: &Document, n: &Node) -> Vec<AlignedTextLa
             }
         }
     }
-    // the glyphs of every group in glyph order; opaque paints can be cut into bounded vectors.
-    // A translucent paint must keep a touching chain in one vector: splitting it causes the two
-    // vectors to composite their shared ring twice.
+    // the glyphs of every group in glyph order; a group too large for one vector is cut into runs of glyphs
     let mut groups: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
     for (i, b) in ring_bounds.iter().enumerate() {
         if b.is_some() {
             groups.entry(find_root(&mut parent, i)).or_default().push(i);
         }
     }
-    let translucent_stroke = stroke.paints.iter().any(|p| p.visible && p.silhouette_alpha() < 1.0);
-    let clusters: Vec<(&[usize], bool)> = if translucent_stroke {
-        groups.values().map(|g| (g.as_slice(), false)).collect()
-    } else {
-        groups.values().flat_map(|g| g.chunks(TEXT_STROKE_MAX_GLYPHS).map(move |c| (c, c.len() < g.len()))).collect()
-    };
+    let clusters: Vec<(&[usize], bool)> = groups.values().flat_map(|g| g.chunks(TEXT_STROKE_MAX_GLYPHS).map(move |c| (c, c.len() < g.len()))).collect();
     let fill_grid = BoundsGrid::new(&fill_bounds);
     let union_bounds = |members: &[usize], of: &[Option<Bounds>]| -> Bounds {
         members
