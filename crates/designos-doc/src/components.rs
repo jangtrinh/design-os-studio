@@ -1608,10 +1608,42 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
 
     // --- node properties ---
     let mut n = inode.clone();
+    let parent_expanded =
+        c.s.get(i)
+            .and_then(|node| node.parent)
+            .zip(c.s.get(r).and_then(|node| node.parent))
+            .map(|(ip, rp)| {
+                let Some(instance_parent) = c.s.get(ip) else { return (false, false) };
+                let Some(main_parent) = c.s.get(rp) else { return (false, false) };
+                ((instance_parent.size.x - main_parent.size.x).abs() > 1e-4, (instance_parent.size.y - main_parent.size.y).abs() > 1e-4)
+            })
+            .unwrap_or((false, false));
+    let parent_swapped = c.s.get(i).and_then(|node| node.parent).is_some_and(|parent_id| {
+        let Some(parent) = c.s.get(parent_id) else { return false };
+        let Some(reference) = reference_of(&c.s, parent_id).and_then(|id| c.s.get(id)) else { return false };
+        let reference_component = if matches!(reference.kind, NodeKind::Component(_)) { Some(reference.id) } else { instance_component(reference) };
+        instance_component(parent) != reference_component
+    });
+    let preserve_stretch_x = !top
+        && !swapped_here
+        && !parent_swapped
+        && matches!(inode.kind, NodeKind::Instance { .. })
+        && parent_expanded.0
+        && matches!(inode.constraints.horizontal, Constraint::Stretch);
+    let preserve_stretch_y = !top
+        && !swapped_here
+        && !parent_swapped
+        && matches!(inode.kind, NodeKind::Instance { .. })
+        && parent_expanded.1
+        && matches!(inode.constraints.vertical, Constraint::Stretch);
     if !top && instance_component(&inode) != slot_comp {
         if let Some(mut node_ref) = c.s.get(r).cloned() {
             let orig_slot_comp = slot_comp.and_then(|oc| c.s.get(oc));
             let slot_ov = orig_slot_comp.map(|oc| record_override(oc, &node_ref)).unwrap_or_default();
+            // A nested Stretch instance can have geometry derived from a resized enclosing
+            // instance without carrying an explicit Size override. Preserve that derived size
+            // while syncing the enclosing component; otherwise the main-side slot size below
+            // would snap it back before the child constraint pass runs.
             // The sync that swaps keeps what swap_main decided per axis. Later syncs keep an axis only where the main's
             // own slot was resized away from the component it shows there; elsewhere they follow the slot's new main.
             if swapped_here {
@@ -1619,11 +1651,17 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
             } else {
                 let keep_x = orig_slot_comp.is_some_and(|oc| (node_ref.size.x - oc.size.x).abs() > 1e-4);
                 let keep_y = orig_slot_comp.is_some_and(|oc| (node_ref.size.y - oc.size.y).abs() > 1e-4);
-                if !keep_x {
+                if !keep_x && !preserve_stretch_x {
                     node_ref.size.x = rn.size.x;
                 }
-                if !keep_y {
+                if !keep_y && !preserve_stretch_y {
                     node_ref.size.y = rn.size.y;
+                }
+                if preserve_stretch_x {
+                    node_ref.size.x = inode.size.x;
+                }
+                if preserve_stretch_y {
+                    node_ref.size.y = inode.size.y;
                 }
             }
             for f in [
@@ -1644,7 +1682,14 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
             apply_reference(&rn, &mut n, top, &values);
         }
     } else {
-        apply_reference(&rn, &mut n, top, &values);
+        let mut effective_rn = rn.clone();
+        if preserve_stretch_x {
+            effective_rn.size.x = inode.size.x;
+        }
+        if preserve_stretch_y {
+            effective_rn.size.y = inode.size.y;
+        }
+        apply_reference(&effective_rn, &mut n, top, &values);
     }
     apply_bindings(&mut n, &values);
     c.update(n);
@@ -6591,6 +6636,41 @@ mod tests {
         let s = d.get(si).unwrap();
         let bg = d.get(s.children[0]).unwrap();
         assert_eq!((s.size, bg.size), (Vec2::new(80.0, 48.0), Vec2::new(80.0, 48.0)), "an unresized swapped slot follows its new main's resize");
+    }
+
+    #[test]
+    fn nested_stretch_instance_keeps_resized_width_when_parent_syncs_unrelated_opacity() {
+        let mut d = Document::new("nested-stretch-sync");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![btn], false);
+
+        // Resize the Card instance. Its nested Stretch button is fitted to the
+        // widened instance by the same constraint pass used by the editor.
+        let mut card_instance = d.get(ci).unwrap().clone();
+        card_instance.size = Vec2::new(300.0, 100.0);
+        card_instance.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(card_instance) });
+        for (id, tf, size) in crate::layout_constraints::plan_constraint_pass(&d, ci, Vec2::new(100.0, 100.0), Vec2::new(300.0, 100.0), 8) {
+            let mut n = d.get(id).unwrap().clone();
+            crate::layout_constraints::apply_constrained_geometry(&mut n, tf, size);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        let widened = d.get(si).unwrap().size.x;
+        assert!(widened > 200.0, "fixture must widen the nested Stretch instance, got {widened}");
+
+        // An unrelated edit to the Card main still triggers a full sync.
+        let mut card_main = d.get(card).unwrap().clone();
+        card_main.opacity = 0.5;
+        apply(&mut d, Command::Update { node: Box::new(card_main) });
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+
+        assert_eq!(d.get(si).unwrap().size.x, widened, "sync must preserve the resized nested Stretch width");
+        // Repeating the same sync must be idempotent.
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+        assert_eq!(d.get(si).unwrap().size.x, widened);
     }
 
     #[test]
