@@ -86,6 +86,8 @@ pub enum MergeError {
     DanglingReference(Vec<DanglingReference>),
     /// A generated merge command failed to apply against `main`.
     Apply { step: usize, reason: String },
+    /// The merged working tree would make a component hold an instance of itself.
+    InstanceCycle(String),
     /// Attempted to merge an archived or already-merged branch (`T10.3 §8.6`).
     BranchArchived(String),
 }
@@ -104,6 +106,7 @@ impl std::fmt::Display for MergeError {
             Self::Apply { step, reason } => {
                 write!(f, "merge command failed at step {step}: {reason}")
             }
+            Self::InstanceCycle(message) => write!(f, "{message}"),
             Self::BranchArchived(name) => {
                 write!(f, "branch '{name}' is archived or already merged")
             }
@@ -228,8 +231,27 @@ pub fn merge(base: &Document, main: &Document, branch: &Document, diff: &Diff3, 
     // any invalid intermediate operation is caught with its step index (`T10.3 §4`).
     let mut working = main.clone();
     for (step, cmd) in commands.iter().enumerate() {
+        if let Command::Reparent { id, parent, .. } = cmd {
+            if crate::components::reparent_would_hold_itself(&working, &[*id], *parent) {
+                let held = crate::components::mains_held_by(&working, &[*id]);
+                let component = held.first().map(|id| id.0.to_string()).unwrap_or_else(|| "unknown".into());
+                return Err(MergeError::InstanceCycle(format!(
+                    "INSTANCE_CYCLE: moving layer {} into component {} would make it hold an instance of itself",
+                    id.0, component
+                )));
+            }
+        }
         let mut step_history = History::default();
         step_history.exec(&mut working, cmd.clone()).map_err(|reason| MergeError::Apply { step, reason: reason.to_string() })?;
+        if let Some(component) = working
+            .nodes
+            .values()
+            .filter(|n| matches!(n.kind, NodeKind::Component(_)))
+            .map(|n| n.id)
+            .find(|id| crate::components::mains_held_by(&working, &[*id]).contains(id))
+        {
+            return Err(MergeError::InstanceCycle(format!("INSTANCE_CYCLE: merge step {step} makes component {} hold an instance of itself", component.0)));
+        }
     }
 
     // 6. Validate all references in the merged document (`T10.3 §2`, `§3.7`, `§8.1`, `§8.2`).
@@ -2413,5 +2435,30 @@ mod tests {
         assert!(history.undo(&mut main).unwrap());
         assert_eq!(main.pages, snapshot_before_merge.pages);
         assert_eq!(main.nodes, snapshot_before_merge.nodes);
+    }
+
+    #[test]
+    fn branch_merge_rejects_instance_cycle_created_by_add_then_move() {
+        let mut base = Document::new("branch-cycle");
+        let page = base.add_page("Page");
+        let comp_id = base.alloc_id();
+        let comp = Node::new(comp_id, NodeKind::Component(crate::FrameProps::default()));
+        base.insert(page, comp).unwrap();
+        let x_id = base.alloc_id();
+        base.insert(page, Node::frame(x_id, crate::Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+
+        let mut main = base.clone();
+        main.reparent(x_id, comp_id, 0).unwrap();
+
+        let mut branch = base.clone();
+        let inst_id = branch.alloc_id();
+        let inst = Node::new(inst_id, NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(comp_id), component_key: None });
+        branch.insert(x_id, inst).unwrap();
+
+        let result = merge_branch(&base, &main, &branch, &Resolution::default());
+        let err = result.expect_err("merge must reject the cycle formed after add then move");
+        let text = err.to_string();
+        assert!(text.contains("INSTANCE_CYCLE"), "named cycle error: {text}");
+        assert!(text.contains(&comp_id.0.to_string()), "error identifies component: {text}");
     }
 }
