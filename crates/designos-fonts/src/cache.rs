@@ -452,13 +452,51 @@ fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing
         }
         file.sync_all()?;
         drop(file);
-        std::fs::rename(&tmp, target)
+        retry_replace(|| std::fs::rename(&tmp, target))
     })();
     if res.is_err() {
         let _ = std::fs::remove_file(&tmp);
         return res;
     }
     sync_dir(dir)
+}
+
+/// Replacing an open file is eventually consistent on Windows: antivirus, indexers, or another
+/// save can briefly keep a sharing handle while `MoveFileEx` is asked to replace the target.
+/// Retry only the documented transient errors, and keep the retry bounded so real permission
+/// failures still reach the caller promptly. The sleeps are 2, 4, 8, 16, 32, 64, and 128 ms.
+fn retry_replace<F>(mut replace: F) -> std::io::Result<()>
+where
+    F: FnMut() -> std::io::Result<()>,
+{
+    const MAX_ATTEMPTS: usize = 8;
+    let mut delay = std::time::Duration::from_millis(2);
+    for attempt in 0..MAX_ATTEMPTS {
+        match replace() {
+            Ok(()) => return Ok(()),
+            Err(err) if attempt + 1 < MAX_ATTEMPTS && is_windows_replace_retryable(&err) => {
+                std::thread::sleep(delay);
+                delay *= 2;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("the bounded replace loop always returns")
+}
+
+#[cfg(all(windows, not(test)))]
+fn is_windows_replace_retryable(err: &std::io::Error) -> bool {
+    matches!(err.raw_os_error(), Some(5 | 32)) // ERROR_ACCESS_DENIED / ERROR_SHARING_VIOLATION
+}
+
+#[cfg(test)]
+fn is_windows_replace_retryable(err: &std::io::Error) -> bool {
+    matches!(err.raw_os_error(), Some(5 | 32))
+}
+
+#[cfg(not(any(windows, test)))]
+fn is_windows_replace_retryable(_: &std::io::Error) -> bool {
+    false
 }
 
 /// Makes the rename itself durable. Platforms that cannot open or sync a directory are skipped.
@@ -480,6 +518,24 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     const CARLITO: &str = include_str!("../tests/fixtures/fontsource_carlito.json");
+
+    #[test]
+    fn replace_retries_transient_windows_lock_before_success() {
+        use std::io::Error;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let attempts = AtomicUsize::new(0);
+        retry_replace(|| {
+            let attempt = attempts.fetch_add(1, Ordering::Relaxed);
+            if attempt < 2 {
+                Err(Error::from_raw_os_error(5))
+            } else {
+                Ok(())
+            }
+        })
+        .expect("a transient Windows replace lock should be retried");
+        assert_eq!(attempts.load(Ordering::Relaxed), 3);
+    }
 
     struct Mock {
         routes: HashMap<String, Vec<u8>>,
