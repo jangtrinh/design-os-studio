@@ -457,22 +457,6 @@ fn apply_paint_style_links(n: &mut Node, set: &Value) {
     }
 }
 
-/// A style link on an instance is authoritative even when the override payload
-/// also carries stale baked effects.  REST overrides often omit `effects` for a
-/// style-only change, so retain the link and replace the copied list here.
-fn apply_effect_style_link(n: &mut Node, set: &Value, style_effects: Option<&[Effect]>) {
-    let linked = set.get("styles").and_then(|s| s.get("effect").or_else(|| s.get("effects"))).and_then(Value::as_str).filter(|s| !s.is_empty());
-    if let Some(sid) = linked {
-        n.style_refs.insert("effect".into(), sid.to_string());
-    }
-    if let Some(effects) = linked.and_then(|_| style_effects) {
-        if set.get("effects").is_none() {
-            n.effects = effects.to_vec();
-            n.component.overrides.remove(&OverrideField::Effects);
-        }
-    }
-}
-
 /// Applies the (possibly partial) REST `TypeStyle` fields in `v` onto `ts`.
 pub(crate) fn apply_type_style(ts: &mut TextStyle, v: &Value) {
     if let Some(f) = fstr(v, "fontFamily") {
@@ -3046,15 +3030,6 @@ impl<'a> Ctx<'a> {
                 self.resize_override_node(id, sz, has("fillGeometry"), has("strokeGeometry"), skip_geo, explicitly_sized);
             }
         }
-        let linked_effects = set
-            .get("styles")
-            .and_then(|s| s.get("effect").or_else(|| s.get("effects")))
-            .and_then(Value::as_str)
-            .and_then(|sid| self.doc.styles.get(sid))
-            .and_then(|s| match s {
-                Style::Effect(effects) => Some(effects.clone()),
-                _ => None,
-            });
         let Some(n) = self.doc.get_mut(id) else { return Ok(swapped) };
         let is_vec_or_bool = matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_));
         if has("relativeTransform") {
@@ -3499,7 +3474,6 @@ impl<'a> Ctx<'a> {
             };
         }
         apply_paint_style_links(n, set);
-        apply_effect_style_link(n, set, linked_effects.as_deref());
         apply_text_style_link(n, set);
         if let NodeKind::Text(t) = &mut n.kind {
             if let Some(ar) = fbool(set, "autoRename") {
@@ -5122,16 +5096,5 @@ mod grid_sizing_tests {
                 GridTrack::Flex(1.0),
             ]
         );
-    }
-
-    #[test]
-    fn effect_style_link_replaces_stale_instance_effects() {
-        let mut node = Node::rectangle(NodeId(1), Rect::new(0.0, 0.0, 10.0, 10.0));
-        let style_effect = Effect::LayerBlur { radius: 12.0, visible: true };
-        node.effects = vec![Effect::LayerBlur { radius: 2.0, visible: true }];
-        let set = serde_json::json!({"styles": {"effect": "fx"}});
-        apply_effect_style_link(&mut node, &set, Some(std::slice::from_ref(&style_effect)));
-        assert_eq!(node.effects, vec![style_effect]);
-        assert_eq!(node.style_refs.get("effect").map(String::as_str), Some("fx"));
     }
 }
