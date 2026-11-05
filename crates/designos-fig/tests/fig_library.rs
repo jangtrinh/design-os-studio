@@ -5,7 +5,7 @@
 //! Hand-written; nothing here comes from a real file.
 
 use designos_doc::*;
-use designos_fig::import_fig_node_changes;
+use designos_fig::{decode_fig_to_json, export_fig, import_fig, import_fig_node_changes};
 use serde_json::{json, Value};
 
 fn g(s: u64, l: u64) -> Value {
@@ -689,6 +689,39 @@ fn instance_text_style_link_override_survives_main_edit() {
     assert_eq!(doc.style_name(doc.get(relink_id).unwrap().style_refs.get("text").expect("sm link")), "Text sm/Semibold");
     assert_eq!(doc.get(external_id).unwrap().style_refs.get("text").map(String::as_str), Some("key:EXT_SM"));
     assert!(!doc.get(detach_id).unwrap().style_refs.contains_key("text"), "null styleIdForText clears the link");
+
+    // A save/reopen must carry the link decision in symbolOverrides. Font metrics
+    // alone are not enough: import uses styleIdForText to relink or detach.
+    let exported = export_fig(&doc).expect("export instance text style overrides");
+    let wire = decode_fig_to_json(&exported).expect("decode exported overrides");
+    let changes = wire["message"]["nodeChanges"].as_array().expect("nodeChanges");
+    let override_for = |instance: &str| {
+        let node = changes.iter().find(|n| n["name"] == instance).expect("instance node");
+        node["symbolData"]["symbolOverrides"]
+            .as_array()
+            .expect("symbolOverrides")
+            .iter()
+            .find(|ov| ov["guidPath"]["guids"].as_array().is_some_and(|path| path.len() == 1 && path[0]["sessionID"] == 5 && path[0]["localID"] == 2))
+            .expect("text override")
+    };
+    assert_eq!(
+        override_for("Relink")["styleIdForText"]["guid"],
+        json!({"sessionID": 8, "localID": 2}),
+        "local relink must be written into the instance override"
+    );
+    assert_eq!(override_for("External")["styleIdForText"], json!({"assetRef": {"key": "EXT_SM"}}), "library relink must remain an asset reference");
+    assert_eq!(
+        override_for("Detach")["styleIdForText"]["guid"],
+        json!({"sessionID": u32::MAX, "localID": u32::MAX}),
+        "detach must use Figma's null GUID sentinel"
+    );
+    let reopened = import_fig(&exported).expect("reopen exported instance text styles");
+    let reopened_relink = child(&reopened, find(&reopened, "Relink"), "Label");
+    assert_eq!(reopened.style_name(reopened_relink.style_refs.get("text").expect("relinked style survives reopen")), "Text sm/Semibold");
+    let reopened_external = child(&reopened, find(&reopened, "External"), "Label");
+    assert_eq!(reopened_external.style_refs.get("text").map(String::as_str), Some("key:EXT_SM"));
+    let reopened_detach = child(&reopened, find(&reopened, "Detach"), "Label");
+    assert!(!reopened_detach.style_refs.contains_key("text"), "detach survives reopen");
 
     let xl = doc.style_meta.iter().find(|(_, m)| m.name == "Text xl/Regular").expect("xl style").0.clone();
     doc.get_mut(master_id).unwrap().style_refs.insert("text".into(), xl);

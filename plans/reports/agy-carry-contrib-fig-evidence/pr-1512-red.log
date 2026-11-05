@@ -1,0 +1,29 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 45.04s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dfda951cafec2dfd)
+
+running 1 test
+test io::tests::opening_rest_file_with_missing_variable_bindings_surfaces_warning ... FAILED
+
+failures:
+
+---- io::tests::opening_rest_file_with_missing_variable_bindings_surfaces_warning stdout ----
+
+thread 'io::tests::opening_rest_file_with_missing_variable_bindings_surfaces_warning' (10474947) panicked at crates/designos-app/src/io.rs:1322:9:
+assertion `left == right` failed
+  left: None
+ right: Some("1 gradient-stop variable binding is waiting for the file's variables payload.")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    io::tests::opening_rest_file_with_missing_variable_bindings_surfaces_warning
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4460 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+EXIT_CODE=101
