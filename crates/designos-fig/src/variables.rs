@@ -659,7 +659,7 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
         }
         let mut v = json!({"id": id, "name": fstr(e, "name").unwrap_or("Variable"), "variableCollectionId": cid, "resolvedType": ty,
                    "valuesByMode": by_mode, "scopes": rest_scopes_from_fig(e.get("variableScopes")),
-                   "description": fstr(e, "description").unwrap_or(""), "hiddenFromPublishing": false});
+                   "description": fstr(e, "description").unwrap_or(""), "hiddenFromPublishing": fbool(e, "isPublishable") == Some(false)});
         if !active(e) {
             v[REST_DELETED_FLAG] = true.into();
         }

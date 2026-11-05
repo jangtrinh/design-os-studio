@@ -249,3 +249,48 @@ fn token_import_merges_into_the_live_variable_not_the_deleted_one_of_the_same_na
     assert_eq!(color_of("VariableID:1:20"), "#112233", "the live variable takes the new value");
     assert_eq!(color_of("VariableID:1:19"), "#999999", "the soft-deleted variable keeps the value its layers use");
 }
+
+#[test]
+fn a_variable_hidden_from_publishing_stays_hidden_through_a_fig_round_trip() {
+    let grey = rgba(0.6, 0.6, 0.6);
+    let mut nodes = document_and_page();
+    nodes.extend([
+        variable_set(SET, "Colors", MODE, json!({})),
+        color_var((1, 20), SET, MODE, "Text/Primary", &white(), json!({"isPublishable": true})),
+        color_var((1, 21), SET, MODE, "Internal/Grey", &grey, json!({"isPublishable": false})),
+        color_var((1, 22), SET, MODE, "Old/Grey", &grey, json!({"isPublishable": false, "isSoftDeleted": true})),
+        color_var((1, 23), SET, MODE, "Old/White", &white(), json!({"isPublishable": true, "isSoftDeleted": true})),
+        fig_node((3, 1), (0, 1), "FRAME", "Banner", json!({"fillPaints": [solid(&grey, Some((1, 22))), solid(&white(), Some((1, 23)))]})),
+    ]);
+    let original = import_fig_node_changes(&Value::Array(nodes), "Publish").unwrap();
+    let hidden = |doc: &Document| -> Vec<(String, bool)> { doc.variables.values().map(|v| (v.name.clone(), v.hidden_from_publishing)).collect() };
+    let expected =
+        vec![("Internal/Grey".to_string(), true), ("Old/Grey".to_string(), true), ("Old/White".to_string(), false), ("Text/Primary".to_string(), false)];
+    let mut before = hidden(&original);
+    before.sort();
+    assert_eq!(before, expected, "the file's publish switch is imported, deleted variables included");
+
+    let saved = export_fig(&original).unwrap();
+    let written: Vec<(String, Option<bool>)> = {
+        let mut w: Vec<_> = node_changes(&saved)
+            .iter()
+            .filter(|c| c["type"] == "VARIABLE")
+            .map(|c| (c["name"].as_str().unwrap_or("").to_string(), c.get("isPublishable").and_then(Value::as_bool)))
+            .collect();
+        w.sort();
+        w
+    };
+    assert_eq!(
+        written,
+        vec![
+            ("Internal/Grey".to_string(), Some(false)),
+            ("Old/Grey".to_string(), Some(false)),
+            ("Old/White".to_string(), None),
+            ("Text/Primary".to_string(), None)
+        ],
+        "a hidden variable writes the switch off; the others write nothing"
+    );
+    let mut after = hidden(&import_fig(&saved).unwrap());
+    after.sort();
+    assert_eq!(after, expected, "the switch survives a save and reopen");
+}

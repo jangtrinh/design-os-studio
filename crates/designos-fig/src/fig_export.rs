@@ -749,6 +749,10 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(k) = &v.key {
             fields.push(("key", V::String(k.clone())));
         }
+        // The file's own publish switch: only a variable hidden from publishing writes it.
+        if v.hidden_from_publishing {
+            fields.push(("isPublishable", V::Bool(false)));
+        }
         // A deleted variable the file still uses stays in the file as deleted; it must not come back as a live one.
         if v.is_soft_deleted() {
             fields.push(("isSoftDeleted", V::Bool(true)));
