@@ -75,7 +75,8 @@ fn a_soft_deleted_variable_does_not_overwrite_the_live_variable_that_holds_its_n
     live.name = "Text/Muted".into();
     live.values = [(doc.variable_collections.values().next().unwrap().default_mode.clone(), VariableValue::Color(Color::from_hex("#666666").unwrap()))].into();
     let collection = live.collection.clone();
-    doc.variable_collections.get_mut(&collection).unwrap().variables.push("live-muted".into());
+    // Listed before the deleted variable: written in that order, the later one would replace the earlier.
+    doc.variable_collections.get_mut(&collection).unwrap().variables.insert(0, "live-muted".into());
     doc.variables.insert("live-muted".into(), live);
 
     let written = written_variables(&doc);

@@ -438,6 +438,7 @@ fn a_deleted_library_variable_is_not_chosen_by_name() {
         .apply_spec_with_libraries(page, &spec(serde_json::json!({ "kind": "rectangle", "fill": "var:Brand/Old" })), std::slice::from_ref(&brand))
         .unwrap_err();
     assert_eq!(err.code, "UNKNOWN_VARIABLE", "{err:?}");
+    assert_eq!(err.message, "Unknown variable 'Brand/Old'.", "the same message as for any unknown name");
     let ok = doc
         .apply_spec_with_libraries(page, &spec(serde_json::json!({ "kind": "rectangle", "fill": "var:Brand/Accent" })), std::slice::from_ref(&brand))
         .unwrap();

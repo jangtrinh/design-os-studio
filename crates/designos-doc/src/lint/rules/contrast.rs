@@ -808,6 +808,7 @@ mod tests {
         let (mut doc, _) = grey_text_on_white();
         // The text colour now matches only a deleted variable, so no live variable names the collection.
         doc.variables.get_mut("grey").unwrap().values.insert("m".into(), VariableValue::Color(hex("#778899")));
+        doc.variables.get_mut("slate").unwrap().values.insert("m".into(), VariableValue::Color(hex("#777777")));
         let findings = contrast_findings(&doc);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].suggested_fix.is_none(), "{:?}", findings[0].suggested_fix);
