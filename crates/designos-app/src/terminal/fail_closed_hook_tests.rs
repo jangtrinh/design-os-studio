@@ -56,9 +56,7 @@ fn without_a_private_data_folder_no_cli_gets_a_hook_in_ask_or_in_skip_mode() {
     without_private_root(|| {
         for mode in [PermissionMode::Ask, PermissionMode::AskRisky, PermissionMode::Skip] {
             let mut st = tab_state_in(mode);
-            // The untitled design has no workspace either: the agent files are all written and the missing workspace is what is reported.
-            let error = st.reset_agent_run(None).unwrap_or_else(|| panic!("{mode:?}: the missing workspace is reported"));
-            assert!(error.to_string().contains("no private workspace"), "{mode:?}: {error}");
+            assert!(st.reset_agent_run(None).is_none(), "{mode:?}: the agent files are written");
 
             let installed = installed_in_session(&st.session_dir);
             assert!(installed.is_empty(), "{mode:?}: a hook is installed in the session folder, where an agent can write: {installed:#?}");

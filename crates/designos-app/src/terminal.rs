@@ -1548,7 +1548,8 @@ pub struct TerminalState {
     session_closed: bool,
     /// Pauses the retry of a snapshot write that failed (`#690` edge case 5).
     write_backoff: crate::agent_session_files::WriteBackoff,
-    /// What the last provisioning moved out of the way of Grok or Antigravity, as a sentence for the Spawned line (`None` when nothing).
+    /// What the last provisioning has to tell the user about the start, as sentences for the Spawned line (`None` when nothing): what it
+    /// moved out of the way of Grok or Antigravity, and the `designos` server it left out of an untitled design that has no workspace.
     set_aside_note: Option<String>,
     /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
     pub viewport_size: (u16, u16),
@@ -3028,7 +3029,23 @@ impl TerminalState {
         self.clear_tab_closed_mark();
         self.write_backoff.clear();
         self.last_synced_key = None;
-        let job = crate::agent_session_files::SnapshotJob {
+        let job = self.provisioning_job(file_path, exact);
+        match write_session_agent_files(&job) {
+            Ok(note) => {
+                self.set_aside_note = note;
+                None
+            }
+            Err(e) => Some(e),
+        }
+    }
+
+    /// The job that writes the session's agent files when an agent is about to start: no canvas, this run's id and permission mode.
+    fn provisioning_job(
+        &self,
+        file_path: Option<&Path>,
+        exact: Option<crate::agent_session_files::ExactProjectConfig>,
+    ) -> crate::agent_session_files::SnapshotJob {
+        crate::agent_session_files::SnapshotJob {
             session_dir: self.session_dir.clone(),
             session_id: self.session_id.clone(),
             key: (0, 0, 0),
@@ -3050,13 +3067,6 @@ impl TerminalState {
             ask_risky: self.permission_mode.auto_allows_safe_tiers(),
             unread_probe: None,
             exact_project_config: exact,
-        };
-        match write_session_agent_files(&job) {
-            Ok(note) => {
-                self.set_aside_note = note;
-                None
-            }
-            Err(e) => Some(e),
         }
     }
 
@@ -5344,7 +5354,8 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
 /// Writes `mcp-config.json`, `hooks.json`, `SKILL.md`, `AGENTS.md`, and runtime-specific plugin/hook
 /// files for `job` into `job.session_dir` (`#690` §6). When a tab of Grok or Antigravity is starting in Ask mode (`exact_project_config`),
 /// what the CLI loads from the folder is made exactly Studio's first, and a sentence on what was moved aside comes back. A failure
-/// after entries were moved carries that sentence too, so the line about it names both.
+/// after entries were moved carries that sentence too, so the line about it names both. An untitled design that has no private workspace
+/// gets no `designos` server; that is not a failed write, so a sentence on it comes back the same way.
 pub(crate) fn write_session_agent_files(job: &crate::agent_session_files::SnapshotJob) -> std::io::Result<Option<String>> {
     let mut moved_aside = None;
     write_session_agent_files_noting(job, &mut moved_aside).map_err(|e| match moved_aside {
@@ -5358,8 +5369,15 @@ pub(crate) fn write_session_agent_files(job: &crate::agent_session_files::Snapsh
 fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJob, moved_aside: &mut Option<String>) -> std::io::Result<Option<String>> {
     let mcp_bin = designos_mcp_binary();
     // An untitled design whose private workspace cannot be made is given no `designos` server: `designos-mcp` serves the folder it is
-    // given and Studio never names another one in its place. Every other file is written, and the cause is returned last.
+    // given and Studio never names another one in its place. The agent still starts and every file is written, so this is told in a
+    // note for the start line and in the log, not as an error.
     let workspace = session_workspace_dir(job.file_path.as_deref());
+    let workspace_note = workspace.as_ref().err().map(|e| {
+        // Every sync of the design writes the files again, so the log says it once.
+        static LOGGED: std::sync::Once = std::sync::Once::new();
+        LOGGED.call_once(|| eprintln!("design:os studio: no designos server for this untitled design's agents: {e}"));
+        format!("No design tools in this session: {e}.")
+    });
     let mcp_config_path = job.session_dir.join("mcp-config.json");
 
     // Ask mode: Claude's MCP config, hooks and skill go to a folder only Studio writes (made first, as the MCP config below
@@ -5545,10 +5563,19 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     atomic_write_session_file(&job.session_dir.join("AGENTS.md"), skill_md.as_bytes())?;
     atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())?;
     // The CLI whose tab is starting has had every one of its files checked above; another CLI's Gemini settings are not its concern.
+    let note = join_notes(set_aside_note, workspace_note);
     if exact.is_some() {
-        return workspace.map(|_| set_aside_note);
+        return Ok(note);
     }
-    gemini_config.and(workspace.map(drop)).map(|()| None)
+    gemini_config.map(|()| note)
+}
+
+/// The sentences of `first` and `second` as one note.
+fn join_notes(first: Option<String>, second: Option<String>) -> Option<String> {
+    match (first, second) {
+        (Some(first), Some(second)) => Some(format!("{first} {second}")),
+        (first, second) => first.or(second),
+    }
 }
 
 /// Shell command that appends one wrapped hook record to the events file of the hook folder (`agent_hook_outputs`, `#683` §3.1)
@@ -5714,17 +5741,14 @@ fn session_workspace_dir_in(private_root: Option<&Path>, file_path: Option<&Path
         return Ok(folder.to_path_buf());
     }
     let root = private_root.ok_or_else(|| {
-        std::io::Error::other(
-            "no private workspace for this untitled design: Studio's user data folder is missing or inside a temporary folder, so its agents have no design tools",
-        )
+        std::io::Error::other("no private workspace for this untitled design: Studio's user data folder is missing or inside a temporary folder")
     })?;
     let workspaces = root.join(UNTITLED_WORKSPACES_DIR_NAME);
     let dir = workspaces.join(format!("studio-{}", std::process::id()));
     // Each level is made and checked before the next one is made in it: a link at any level is refused before anything is made through it.
     for level in [root, workspaces.as_path(), dir.as_path()] {
         make_private_level(level).map_err(|e| {
-            let message =
-                format!("no private workspace for this untitled design: {} can't be made private ({e}), so its agents have no design tools", level.display());
+            let message = format!("no private workspace for this untitled design: {} can't be made private ({e})", level.display());
             std::io::Error::new(e.kind(), message)
         })?;
     }
@@ -5739,8 +5763,11 @@ fn make_private_level(level: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod workspace_dir_tests {
-    use super::{session_workspace_dir, session_workspace_dir_in, tab_designos_env_map, AgentCliPreset, TerminalState};
+    use super::{
+        session_workspace_dir, session_workspace_dir_in, tab_designos_env_map, write_session_agent_files_for_job, AgentCliPreset, PermissionMode, TerminalState,
+    };
     use crate::agent_approval_channel::{with_private_root_at, without_private_root};
+    use crate::agent_session_files::test_support::tab_state_in;
     use std::path::{Path, PathBuf};
 
     /// A root of this test's own under the temp folder, which does not exist yet.
@@ -5818,7 +5845,7 @@ mod workspace_dir_tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_looser_workspaces_folder_is_tightened_not_trusted_as_it_is() {
+    fn a_looser_workspaces_folder_is_tightened_to_owner_only() {
         let root = fresh_root("loose");
         let workspaces = root.join("workspaces");
         std::fs::create_dir_all(&workspaces).expect("workspaces");
@@ -5863,30 +5890,80 @@ mod workspace_dir_tests {
         without_private_root(|| assert!(session_workspace_dir(None).is_err()));
     }
 
-    #[test]
-    fn untitled_session_without_a_workspace_gets_no_designos_server_and_says_why() {
-        without_private_root(|| {
-            let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
-            let _ = std::fs::remove_dir_all(&st.session_dir);
-            std::fs::create_dir_all(&st.session_dir).expect("session dir");
-            let error = st.provision_session_agent_files(None).expect("the missing workspace is reported");
-            // The line a sync of this session shows the user (`files_not_updated_message` is what the writer thread reports).
-            let line = crate::agent_session_files::files_not_updated_message(&error);
-            assert!(line.starts_with("Couldn't update the agent files: no private workspace for this untitled design"), "{line}");
+    /// Whether the config file `rel` of a session names the `designos` server; `None` when the file is not there.
+    fn names_designos_server(session_dir: &Path, rel: &str) -> Option<bool> {
+        let text = std::fs::read_to_string(session_dir.join(rel)).ok()?;
+        Some(if rel.ends_with(".toml") {
+            text.contains("mcp_servers.designos")
+        } else {
+            serde_json::from_str::<serde_json::Value>(&text).expect("a JSON config").pointer("/mcpServers/designos").is_some()
+        })
+    }
 
-            // Nothing names a folder for the server: no entry, no temporary or home folder in its place.
-            let raw = std::fs::read_to_string(st.session_dir.join("mcp-config.json")).expect("mcp-config.json");
-            let cfg: serde_json::Value = serde_json::from_str(&raw).expect("valid mcp-config.json");
-            assert!(cfg.pointer("/mcpServers/designos").is_none(), "{raw}");
-            assert!(!raw.contains("--workspace"), "{raw}");
-            // The rest of the session's files are still written.
-            assert!(st.session_dir.join("SKILL.md").is_file());
-            assert!(st.session_dir.join("AGENTS.md").is_file());
+    const CONFIG_FILES: [&str; 4] = ["mcp-config.json", ".grok/config.toml", ".gemini/settings.json", ".agents/plugins/designos/mcp_config.json"];
+
+    #[test]
+    fn every_agent_starts_without_the_designos_server_when_the_untitled_workspace_cannot_be_made() {
+        let titled_dir = fresh_root("titled");
+        std::fs::create_dir_all(&titled_dir).expect("folder of a design file");
+        let file = titled_dir.join("a.designos");
+        let mut problems = Vec::new();
+        without_private_root(|| {
+            for mode in [PermissionMode::Ask, PermissionMode::Skip] {
+                for preset in [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini] {
+                    let case = format!("{preset:?} in {mode:?}");
+                    let mut st = tab_state_in(mode);
+                    if let Err(e) = st.spawn_tab_with_registration(preset, None, Some("true"), None, false, None, false, mode) {
+                        problems.push(format!("{case}: the tab does not start: {e}"));
+                        continue;
+                    }
+
+                    // What the user is shown names the cause, and says nothing about files that were in fact written.
+                    let status = st.status_msg.clone().unwrap_or_default();
+                    if !status.starts_with("Spawned") || !status.contains("no private workspace for this untitled design") || status.contains("Couldn't") {
+                        problems.push(format!("{case}: the status does not name the cause of the missing server: {status}"));
+                    }
+
+                    // No config names the server, and the rest of the session's files are written.
+                    let found: Vec<(&str, bool)> =
+                        CONFIG_FILES.iter().filter_map(|rel| names_designos_server(&st.session_dir, rel).map(|named| (*rel, named))).collect();
+                    if !found.iter().any(|(rel, _)| *rel == "mcp-config.json")
+                        || found.iter().any(|(_, named)| *named)
+                        || !st.session_dir.join("SKILL.md").is_file()
+                    {
+                        problems.push(format!("{case}: configs are wrong: {found:?}"));
+                    }
+
+                    // A design with a file has its server, and its start says nothing about a workspace.
+                    let mut titled = tab_state_in(mode);
+                    if let Err(e) = titled.spawn_tab_with_registration(preset, Some(&file), Some("true"), None, false, None, false, mode) {
+                        problems.push(format!("{case}, titled: the tab does not start: {e}"));
+                    } else if names_designos_server(&titled.session_dir, "mcp-config.json") != Some(true)
+                        || titled.status_msg.clone().unwrap_or_default().contains("workspace")
+                    {
+                        problems.push(format!("{case}, titled: lost its server or names a workspace: {:?}", titled.status_msg));
+                    }
+                }
+            }
 
             // Codex names the folder through the environment: an empty one makes `designos-mcp` refuse to start.
             let env = tab_designos_env_map(AgentCliPreset::Codex, None, None);
-            assert_eq!(env.get("DESIGNOS_WORKSPACE").map(String::as_str), Some(""));
-            let _ = std::fs::remove_dir_all(&st.session_dir);
+            if env.get("DESIGNOS_WORKSPACE").map(String::as_str) != Some("") {
+                problems.push(format!("Codex gets a workspace: {:?}", env.get("DESIGNOS_WORKSPACE")));
+            }
+        });
+        let _ = std::fs::remove_dir_all(&titled_dir);
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// The writer thread reports a failed write as "Couldn't update the agent files" and retries it; a missing workspace is not one.
+    #[test]
+    fn a_missing_workspace_is_not_a_failed_write_of_the_agent_files() {
+        without_private_root(|| {
+            let st = tab_state_in(PermissionMode::Ask);
+            let job = st.provisioning_job(None, None);
+            write_session_agent_files_for_job(&job).expect("every file is written, so the sync is not marked failed");
+            assert!(names_designos_server(&st.session_dir, "mcp-config.json") == Some(false));
         });
     }
 }
