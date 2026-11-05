@@ -23,7 +23,7 @@ impl App {
 
     /// Whether whiteboard connector magnet dots and hover target tracking are active.
     pub fn wb_connectors_enabled(&self) -> bool {
-        self.is_board()
+        matches!(self.doc.kind, designos_doc::DocumentKind::Design | designos_doc::DocumentKind::Board)
     }
 
     /// Whether newly created sections use whiteboard fill and border defaults.
@@ -87,7 +87,7 @@ mod tests {
             assert_eq!(app.wb_tools_enabled(), wb_expected, "{kind:?}: wb_tools_enabled");
             assert_eq!(app.board_key_map(), wb_expected, "{kind:?}: board_key_map");
             assert_eq!(app.wb_contextual_bar_enabled(), wb_expected, "{kind:?}: wb_contextual_bar_enabled");
-            assert_eq!(app.wb_connectors_enabled(), wb_expected, "{kind:?}: wb_connectors_enabled");
+            assert_eq!(app.wb_connectors_enabled(), matches!(kind, DocumentKind::Board | DocumentKind::Design), "{kind:?}: wb_connectors_enabled");
             assert_eq!(app.wb_section_defaults(), wb_expected, "{kind:?}: wb_section_defaults");
             assert_eq!(app.wb_text_defaults(), wb_expected, "{kind:?}: wb_text_defaults");
             assert_eq!(app.wb_dotted_background(), wb_expected, "{kind:?}: wb_dotted_background");

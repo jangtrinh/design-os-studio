@@ -127,7 +127,7 @@ fn entered_ancestors(app: &App) -> Vec<NodeId> {
 }
 
 /// Containers that may be descended into on click (ancestors of the selection).
-fn entered(app: &App) -> Vec<NodeId> {
+pub(crate) fn entered(app: &App) -> Vec<NodeId> {
     entered_ancestors(app)
 }
 
@@ -759,14 +759,14 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
     if app.canvas.vedit.is_some() && !mid && !inp.space && vector::press(app, rect, pos, inp.mods) {
         return;
     }
+    let over_handle = handle_hit(app, rect, pos);
     // board: a magnet dot starts a connector
-    if app.wb_connectors_enabled() && !mid && !inp.space && matches!(app.tool, Tool::Move | Tool::Connector) {
+    if over_handle.is_none() && app.wb_connectors_enabled() && !mid && !inp.space && !inp.mods.alt && matches!(app.tool, Tool::Move | Tool::Connector) {
         if let Some((node, magnet)) = crate::board::connect::dot_hit(app, rect, pos) {
             crate::board::connect::start(app, Some((node, magnet)), page);
             return;
         }
     }
-    let over_handle = handle_hit(app, rect, pos);
     let over_corner = matches!(over_handle, Some(HandleHit::Resize(h)) if h.is_corner());
     if !over_corner && !mid && !inp.space && matches!(app.tool, Tool::Move) {
         if let [sel_id] = app.selection.as_slice() {
@@ -821,10 +821,11 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         PressAction::Build => builder::press(app, page, inp.mods.alt),
         PressAction::PenPoint => pen_press(app, rect, pos, page, inp.mods),
         PressAction::Connect => {
-            let from = hit_under(app, page, true)
-                .filter(|id| app.doc.get(*id).is_some_and(|n| crate::board::connectable(&n.kind)))
-                .map(|id| (id, designos_doc::Magnet::Auto));
-            crate::board::connect::start(app, from, page);
+            if app.wb_connectors_enabled() {
+                let deep = inp.mods.command || inp.mods.ctrl;
+                let from = (!inp.mods.alt).then(|| crate::board::connect::drop_target(app, page, deep, &[])).flatten();
+                crate::board::connect::start(app, from, page);
+            }
         }
         PressAction::TextCreate => text_press(app, page),
         PressAction::Nothing => {
@@ -1101,7 +1102,7 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         }
         Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_) => follow_pointer(app, &mut inter, pos, cur, inp),
         Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
-        Interaction::Connect(c) => crate::board::connect::drag(app, c, cur),
+        Interaction::Connect(c) => crate::board::connect::drag(app, c, cur, inp.mods),
         Interaction::Marquee { start, cur: c, base, matching } => {
             if inp.space {
                 let delta = sub(cur, *c);
@@ -1616,7 +1617,12 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             }
         }
         Interaction::Guide(g) => rulers::release(app, g),
-        Interaction::Connect(c) => crate::board::connect::release(app, c),
+        Interaction::Connect(mut c) => {
+            if let Some(page) = cur {
+                crate::board::connect::drag(app, &mut c, page, inp.mods);
+            }
+            crate::board::connect::release(app, c);
+        }
         Interaction::Move(mut m) => {
             if release_move(app, &mut m, cur, inp.space) {
                 app.run_tx(m.tx);
@@ -2501,20 +2507,14 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
         return;
     }
 
-    // board: magnet dots follow the pointer only on board documents
-    let over_dot = if app.wb_connectors_enabled() {
-        let board_page = (hovered && app.canvas.text.is_none()).then(|| inp.pos.map(|p| app.view.to_page(rect.min, p))).flatten();
-        crate::board::connect::update_hover(app, board_page);
-        hovered && inp.pos.is_some_and(|p| crate::board::connect::dot_hit(app, rect, p).is_some())
-    } else {
-        false
-    };
-
     if hovered && app.canvas.text.is_none() {
         let page = inp.pos.map(|p| app.view.to_page(rect.min, p));
         if inp.z_down {
             app.hover = None;
             app.canvas.last_hover_query = None;
+            if app.wb_connectors_enabled() {
+                crate::board::connect::update_hover(app, None);
+            }
             cursor = if inp.mods.alt { egui::CursorIcon::ZoomOut } else { egui::CursorIcon::ZoomIn };
             app.canvas.cursor = Some(cursor);
             return;
@@ -2554,6 +2554,24 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
                     app.canvas.last_hover_query = None;
                 }
             }
+            Tool::Connector => {
+                cursor = egui::CursorIcon::Crosshair;
+                if inp.space {
+                    app.hover = None;
+                    app.canvas.last_hover_query = None;
+                    cursor = egui::CursorIcon::Grab;
+                } else if let Some(pos) = inp.pos {
+                    let query_key = (pos, app.canvas.tiles.rev(), inp.mods.command, inp.mods.shift, app.view.zoom, selection_hover_hash(&app.selection));
+                    if app.canvas.dirty || app.canvas.last_hover_query != Some(query_key) {
+                        let deep = inp.mods.command || inp.mods.ctrl;
+                        app.hover = label_hit(app, ctx, rect, pos).or_else(|| page.and_then(|p| hit_under(app, p, deep)));
+                        app.canvas.last_hover_query = Some(query_key);
+                    }
+                } else {
+                    app.hover = None;
+                    app.canvas.last_hover_query = None;
+                }
+            }
             Tool::Hand => {
                 app.hover = None;
                 app.canvas.last_hover_query = None;
@@ -2575,6 +2593,12 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
             app.hover = None;
             app.canvas.last_hover_query = None;
         }
+        let over_dot = if app.wb_connectors_enabled() {
+            crate::board::connect::update_hover(app, page);
+            inp.pos.is_some_and(|p| handle_hit(app, rect, p).is_none() && crate::board::connect::dot_hit(app, rect, p).is_some())
+        } else {
+            false
+        };
         if over_dot {
             cursor = egui::CursorIcon::Crosshair;
         }
@@ -2582,9 +2606,15 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
     } else if app.canvas.text.is_some() {
         app.canvas.cursor = Some(egui::CursorIcon::Text);
         app.canvas.last_hover_query = None;
+        if app.wb_connectors_enabled() {
+            crate::board::connect::update_hover(app, None);
+        }
     } else if !hovered {
         app.hover = None;
         app.canvas.last_hover_query = None;
+        if app.wb_connectors_enabled() {
+            crate::board::connect::update_hover(app, None);
+        }
     }
 
     let show_redlines = inp.mods.alt || app.ui.dev_mode || app.dev.show_redlines;

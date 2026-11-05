@@ -1250,6 +1250,7 @@ impl Shell {
             Key::H if m.shift && !m.alt => app.flip_selection(true),
             Key::V if m.shift && !m.alt => app.flip_selection(false),
             Key::X if m.shift && !m.alt => menus::run(app, ctx, Action::SwapFillAndStroke),
+            Key::X if !m.shift && !m.alt && app.wb_connectors_enabled() => app.set_tool(Tool::Connector),
             Key::H | Key::V if m.shift && m.alt => menus::run(app, ctx, Action::Distribute),
             Key::H if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::HCenter)),
             Key::V if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::VCenter)),
@@ -1890,6 +1891,25 @@ impl Shell {
             crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
         }
+        let prev_tool = self.app.tool;
+        let prev_group_pick = self.app.group_pick;
+        let x_pressed = ctx.input(|i| {
+            i.events.iter().any(|e| {
+                matches!(
+                    e,
+                    Event::Key { key: Key::X, pressed: true, modifiers, .. }
+                        if !modifiers.shift && !modifiers.alt && !modifiers.command && !modifiers.ctrl
+                )
+            })
+        });
+        let al_align_before = self
+            .app
+            .selection
+            .first()
+            .and_then(|&id| self.app.doc.get(id))
+            .and_then(|n| n.kind.frame_props())
+            .and_then(|f| f.auto_layout.as_ref())
+            .map(|al| al.primary_align);
         self.handle_keys(&ctx);
         if !self.app.plugins.open {
             self.handle_drops(&ctx);
@@ -2058,11 +2078,28 @@ impl Shell {
                     crate::specs::show_right(&mut self.app, ui, right_rect);
                 } else {
                     right::show(&mut self.app, ui, right_rect);
+                    if x_pressed {
+                        let al_align_after = self
+                            .app
+                            .selection
+                            .first()
+                            .and_then(|&id| self.app.doc.get(id))
+                            .and_then(|n| n.kind.frame_props())
+                            .and_then(|f| f.auto_layout.as_ref())
+                            .map(|al| al.primary_align);
+                        if al_align_before != al_align_after {
+                            self.app.tool = prev_tool;
+                            self.app.group_pick = prev_group_pick;
+                        }
+                    }
                 }
                 if !specs_reader_open {
                     let tb_rect = if deck { canvas_rect } else { canvas_rect_for_toolbar(full) };
                     toolbar::show(&mut self.app, ui, tb_rect);
                 }
+            }
+            if let Some(msg) = crate::board::connect::take_detach_toast() {
+                self.app.show_toast(msg, false);
             }
             if !specs_reader_open {
                 crate::history::banner::show(&mut self.app, ui, canvas_rect);

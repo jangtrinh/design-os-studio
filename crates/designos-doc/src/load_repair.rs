@@ -143,6 +143,7 @@ impl Document {
         let mut stack = vec![(root, 0usize)];
         while let Some((id, depth)) = stack.pop() {
             let Some(node) = self.nodes.get_mut(&id) else { continue };
+            let parent_is_auto_layout = node.kind.frame_props().is_some_and(|fp| fp.auto_layout.is_some());
             let listed = std::mem::take(&mut node.children);
             let mut kept = Vec::with_capacity(listed.len());
             for child in listed {
@@ -160,6 +161,9 @@ impl Document {
                     if c.parent != Some(id) {
                         c.parent = Some(id);
                         report.parents_rebuilt += 1;
+                    }
+                    if parent_is_auto_layout && matches!(c.kind, crate::NodeKind::Connector(_)) {
+                        c.layout_child.absolute = true;
                     }
                 }
             }

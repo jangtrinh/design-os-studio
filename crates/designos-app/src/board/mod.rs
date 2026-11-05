@@ -14,7 +14,7 @@ pub mod preview;
 pub mod toolbar;
 
 use crate::app::App;
-use designos_doc::{Color, DocumentKind, NodeId, NodeKind, ShapeKind};
+use designos_doc::{Color, DocumentKind, NodeId, ShapeKind};
 
 /// Which popover of the bottom toolbar is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,9 +183,4 @@ impl App {
     pub fn is_board(&self) -> bool {
         self.doc.kind == DocumentKind::Board
     }
-}
-
-/// Kinds a connector can attach to.
-pub fn connectable(kind: &NodeKind) -> bool {
-    matches!(kind, NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } | NodeKind::Text(_))
 }
