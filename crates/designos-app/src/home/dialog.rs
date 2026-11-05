@@ -299,8 +299,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                 .id(id)
                 .font(font.clone())
                 .text_color(theme::TEXT)
-                .frame(egui::Frame::NONE)
-                .margin(egui::Margin::symmetric(10, 0))
+                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(10, 0)))
                 .vertical_align(egui::Align::Center)
                 .min_size(r.size())
                 .desired_width(r.width());

@@ -930,6 +930,10 @@ impl Shell {
         }
         let sel = app.selection.clone();
         if m.command && m.shift && matches!(key, Key::Period | Key::Comma) {
+            // An open text session sizes the selected text through its own key handler; applying it here too would step twice.
+            if app.canvas.text.is_some() {
+                return true;
+            }
             let delta = if m.alt { 10.0 } else { 1.0 } * if key == Key::Period { 1.0 } else { -1.0 };
             crate::panels::typography::set_style(app, &sel, |st| {
                 st.font_size = (st.font_size + delta).clamp(1.0, 1000.0);
@@ -1087,11 +1091,21 @@ impl Shell {
                     None
                 }
                 (Key::Tab, false, _) => {
-                    app.next_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let next = (app.tabs.active_idx + 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(next).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::Tab, true, _) => {
-                    app.prev_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let prev = (app.tabs.active_idx + app.tabs.entries.len() - 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(prev).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::T, false, false) => {
@@ -1139,6 +1153,7 @@ impl Shell {
             return;
         }
         match key {
+            Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
             // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
             // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
@@ -3003,6 +3018,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
     };
 
     app.doc = base_doc.clone();
+    app.doc.renew_runtime_id();
     app.ui.rulers = true;
     app.ui.dev_mode = false;
     app.ui.right_tab = Some(crate::app::RightTab::Design);

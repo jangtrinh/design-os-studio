@@ -1,0 +1,13 @@
+P1 registry <-> Rust symbols: PASS  78 records, 66 distinct symbols resolve, 3 records report-only (new-in-*, not blocking until the owning spec)
+    report: 2 record(s) with rust_status=new-in-D: Bar/Contextual, Navigation/TitleBar
+    report: 1 record(s) with rust_status=new-in-K: Card/Library
+P2 painted code (colour and spacing ratchets): PASS  2 ratchet scripts run
+P3 theme names <-> store <-> records (colours): PASS  188 theme.rs colour names (32 mapped, 21 shared-key, 68 pending, 67 exempt); 54 records with colours checked
+P4 tiers and composition: PASS  78 records, 232 composition edges
+P5 states: PASS  39 records compared with kit-states.json
+P6 flow screens <-> records: PASS  16 flow screens, 16 flow ids in records
+P7 absences (pinned sites): PASS  ns1 5 sites, ns2 0 sites, ns4 9 sites, ns5 62 sites
+P9 shipped names (the design store holds no kit role name): PASS  10 store-set files, 0 kit roles, 0 UTILITY_* hits
+    kit role scan NOT RUN (no token contract: pass --contract or set DESIGN_OS_TOKEN_CONTRACT)
+RESULT: PASS (P1, P2, P3, P4, P5, P6, P7, P9)
+EXIT_CODE=0

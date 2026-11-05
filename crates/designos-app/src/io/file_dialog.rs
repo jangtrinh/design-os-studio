@@ -217,10 +217,7 @@ impl App {
             None => self.show_toast(NO_FALLBACK_FOLDER, true),
             Some(dir) => match write_new_in(&dir, file_name, bytes) {
                 Ok(path) => self.show_toast_with_reveal(format!("No save dialog. Saved to {}", path.display()), path),
-                Err(e) => {
-                    let tried = dir.join(designos_export::sanitize_file_name(file_name));
-                    self.show_export_write_error(true, &tried, &e);
-                }
+                Err(e) => self.show_export_write_error(true, &e.path, &e.error),
             },
         }
     }

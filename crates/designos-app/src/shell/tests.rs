@@ -1,7 +1,7 @@
 //! End-to-end UI tests: drive the whole window with synthetic egui input.
 
 use super::*;
-use designos_doc::{Color, NodeId, NodeKind, Paint, Vec2 as DV};
+use designos_doc::{BlendMode, Color, GradientStop, NodeId, NodeKind, Paint, PaintKind, Vec2 as DV};
 use egui::{Modifiers, PointerButton, RawInput};
 
 fn no_system_clipboard() -> Option<String> {
@@ -607,6 +607,102 @@ fn color_swatch_opens_picker_without_panic() {
     s.frame(vec![]);
     s.key(Key::Escape);
     assert!(s.app().props.picker.is_none());
+}
+
+#[test]
+fn gradient_picker_delete_removes_stop_without_deleting_layer() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint {
+                kind: PaintKind::LinearGradient {
+                    handles: [DV::new(0.0, 0.5), DV::new(1.0, 0.5), DV::new(0.0, 1.0)],
+                    stops: vec![
+                        GradientStop { pos: 0.0, color: Color::BLACK },
+                        GradientStop { pos: 0.5, color: Color::rgb(128, 128, 128) },
+                        GradientStop { pos: 1.0, color: Color::WHITE },
+                    ],
+                },
+                opacity: 1.0,
+                visible: true,
+                blend: BlendMode::Normal,
+            }];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some(), "gradient picker should be open");
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_some(), "{key:?} in the picker must not delete the layer");
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected surviving gradient fill")
+        };
+        assert_eq!(stops.len(), 2, "{key:?} should remove one selected gradient stop");
+        s.key(Key::Escape);
+        assert!(s.app().props.picker.is_none(), "closing the picker should commit the stop deletion");
+        s.cmd_key(Key::Z);
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected gradient after undo")
+        };
+        assert_eq!(stops.len(), 3, "undo should restore the deleted stop in one step");
+    }
+}
+
+#[test]
+fn delete_still_removes_layers_without_a_picker_and_on_a_solid_fill() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_none());
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_none(), "{key:?} with no picker must delete the layer");
+    }
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint::solid(Color::BLACK)];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some(), "solid picker should be open");
+        let solid = s.app().props.picker.as_ref().is_some_and(|pk| !crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient());
+        assert!(solid, "the open picker must be a solid fill");
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_none(), "{key:?} in a solid picker must delete the layer");
+    }
+}
+
+#[test]
+fn gradient_picker_keeps_the_last_two_stops() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint {
+                kind: PaintKind::LinearGradient {
+                    handles: [DV::new(0.0, 0.5), DV::new(1.0, 0.5), DV::new(0.0, 1.0)],
+                    stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+                },
+                opacity: 1.0,
+                visible: true,
+                blend: BlendMode::Normal,
+            }];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some());
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_some(), "{key:?} must not delete the layer when the gradient cannot lose a stop");
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected surviving gradient fill")
+        };
+        assert_eq!(stops.len(), 2, "{key:?} must not remove a stop from a two-stop gradient");
+    }
 }
 
 #[test]

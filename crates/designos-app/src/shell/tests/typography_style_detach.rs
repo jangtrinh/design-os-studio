@@ -19,6 +19,26 @@ impl Sim {
         self.key(key);
         self.mods = Modifiers::NONE;
     }
+
+    fn cmd_alt_key(&mut self, key: Key) {
+        let is_mac = self.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+        self.mods = Modifiers { alt: true, ctrl: !is_mac, shift: false, mac_cmd: is_mac, command: true };
+        self.key(key);
+        self.mods = Modifiers::NONE;
+    }
+
+    fn cmd_alt_shift_key(&mut self, key: Key) {
+        let is_mac = self.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+        self.mods = Modifiers { alt: true, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        self.key(key);
+        self.mods = Modifiers::NONE;
+    }
+
+    fn alt_key(&mut self, key: Key) {
+        self.mods = Modifiers { alt: true, ..Modifiers::NONE };
+        self.key(key);
+        self.mods = Modifiers::NONE;
+    }
 }
 
 fn link_of(s: &Sim, id: NodeId) -> Option<String> {
@@ -800,4 +820,91 @@ fn set_style_fill_change_in_session_keeps_linked_text_style() {
     assert_eq!(text_of(&s, id).style.fills, vec![red]);
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "fill change via set_style in a session must keep the text style link");
     assert!(s.app().canvas.text.as_ref().unwrap().log.can_undo(), "fill change in a session records a session undo step");
+}
+
+#[test]
+fn cmd_shift_period_in_a_text_session_changes_font_size_once() {
+    let (mut s, id) = linked_sim();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+    s.cmd_shift_key(Key::Period);
+
+    assert_eq!(text_of(&s, id).style.font_size, 17.0, "one Cmd+Shift+. event must be owned by exactly one text-session handler");
+}
+
+#[test]
+fn cmd_shift_comma_in_a_text_session_changes_font_size_once() {
+    let (mut s, id) = linked_sim();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+    s.cmd_shift_key(Key::Comma);
+
+    assert_eq!(text_of(&s, id).style.font_size, 15.0, "one Cmd+Shift+, event must be owned by exactly one text-session handler");
+}
+
+/// Opens a text session on the linked label and lets the frame settle.
+fn linked_session_sim() -> (Sim, NodeId) {
+    let (mut s, id) = linked_sim();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    (s, id)
+}
+
+#[test]
+fn cmd_alt_l_in_a_text_session_aligns_the_text_left() {
+    let (mut s, id) = linked_session_sim();
+    crate::canvas::textsession::base_style(&mut s.shell.app, |st| st.align_h = TextAlignH::Right);
+    assert_eq!(text_of(&s, id).style.align_h, TextAlignH::Right);
+
+    s.cmd_alt_key(Key::L);
+
+    assert_eq!(text_of(&s, id).style.align_h, TextAlignH::Left, "the alignment chord must reach the open text session");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "alignment is not style-owned, so the link stays");
+}
+
+#[test]
+fn alt_arrow_up_in_a_text_session_steps_the_line_height_once() {
+    let (mut s, id) = linked_session_sim();
+    assert_eq!(text_of(&s, id).style.line_height, LineHeight::Pixels(24.0));
+
+    s.alt_key(Key::ArrowUp);
+
+    assert_eq!(text_of(&s, id).style.line_height, LineHeight::Pixels(25.0), "one Alt+Up chord steps the line height by one pixel");
+}
+
+#[test]
+fn alt_arrow_right_in_a_text_session_steps_the_letter_spacing_once() {
+    let (mut s, id) = linked_session_sim();
+    assert_eq!(text_of(&s, id).style.letter_spacing, 0.0);
+
+    s.alt_key(Key::ArrowRight);
+
+    assert_eq!(text_of(&s, id).style.letter_spacing, 0.5, "one Alt+Right chord steps the letter spacing by half a pixel");
+}
+
+#[test]
+fn cmd_alt_shift_period_in_a_text_session_steps_the_size_by_ten_once() {
+    let (mut s, id) = linked_session_sim();
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+
+    s.cmd_alt_shift_key(Key::Period);
+
+    assert_eq!(text_of(&s, id).style.font_size, 26.0, "one Cmd+Alt+Shift+. chord steps the size by ten, once");
+}
+
+#[test]
+fn cmd_alt_shift_comma_in_a_text_session_steps_the_size_down_by_ten_once() {
+    let (mut s, id) = linked_session_sim();
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+
+    s.cmd_alt_shift_key(Key::Comma);
+
+    assert_eq!(text_of(&s, id).style.font_size, 6.0, "one Cmd+Alt+Shift+, chord steps the size down by ten, once");
 }

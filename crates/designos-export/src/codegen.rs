@@ -938,6 +938,30 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
             }
         }
     }
+    // Stroke widths are emitted by `border` before variable application. Replace only the
+    // width token so style, color, outline offset, and other stroke behavior stay intact.
+    if let Some(v) = b("strokeWeight", Fallback::Px) {
+        for prop in ["border", "border-top", "outline", "-webkit-text-stroke-width"] {
+            let pre = format!("{prop}: ");
+            if let Some(l) = lines.iter_mut().find(|l| l.starts_with(&pre)) {
+                let body = l[pre.len()..].trim_end_matches(';');
+                if prop == "-webkit-text-stroke-width" {
+                    *l = format!("{prop}: {v};");
+                } else if let Some((_, rest)) = body.split_once(' ') {
+                    *l = format!("{prop}: {v} {rest};");
+                }
+            }
+        }
+        if n.stroke.align == StrokeAlign::Center && has_decl(lines, "outline-offset") {
+            set_decl(lines, "outline-offset", format!("calc(-0.5 * {v})"));
+        }
+    }
+    let side_widths = [("strokeTopWeight", 0usize), ("strokeRightWeight", 1), ("strokeBottomWeight", 2), ("strokeLeftWeight", 3)];
+    if has_decl(lines, "border-width") && side_widths.iter().any(|(key, _)| bound(doc, n, key).is_some()) {
+        let stored = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
+        let vals: Vec<String> = side_widths.iter().map(|(key, i)| b(key, Fallback::Px).unwrap_or_else(|| format!("{}px", num(stored[*i])))).collect();
+        set_decl(lines, "border-width", css_box(&vals));
+    }
     for (key, prop, fmt) in [
         ("width", "width", Fallback::Px),
         ("height", "height", Fallback::Px),
