@@ -5761,7 +5761,7 @@ fn make_private_level(level: &Path) -> std::io::Result<()> {
     crate::agent_approval_channel::require_private_dir(level)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod workspace_dir_tests {
     use super::{
         session_workspace_dir, session_workspace_dir_in, tab_designos_env_map, write_session_agent_files_for_job, AgentCliPreset, PermissionMode, TerminalState,
