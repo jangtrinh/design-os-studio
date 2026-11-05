@@ -174,32 +174,14 @@ fn keep_out_of_flow(board: bool, n: &mut Node) {
     }
 }
 
+/// Ink of a new connector homed in `home`: the colour picked in the board toolbar in a board file;
+/// in a design file the dark ink, or white where that ink would fall below 3:1 against the surface
+/// behind the connector (see [`designos_doc::default_connector_ink`]).
 fn default_connector_ink(app: &App, home: NodeId) -> Color {
-    if app.is_board() {
-        return app.board.ink;
-    }
-    let surface = app
-        .doc
-        .get(home)
-        .and_then(|n| match &n.kind {
-            NodeKind::Page { background } => Some(*background),
-            _ => n.fills.iter().find(|p| p.visible).and_then(|p| match p.kind {
-                PaintKind::Solid(c) => Some(c),
-                _ => None,
-            }),
-        })
-        .or_else(|| {
-            app.doc.get(app.page).and_then(|n| match &n.kind {
-                NodeKind::Page { background } => Some(*background),
-                _ => None,
-            })
-        })
-        .unwrap_or(Color::rgb(0x5A, 0x5A, 0x5A));
-    let dark = super::color_of(theme::BOARD_INK[0]);
-    if designos_doc::lint::rules::contrast::contrast_ratio(dark, surface) >= 3.0 {
-        dark
+    if app.wb_board_targeting() {
+        app.board.ink
     } else {
-        super::color_of(theme::BOARD_INK_ON_DARK)
+        designos_doc::default_connector_ink(&app.doc, home)
     }
 }
 

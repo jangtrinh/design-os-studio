@@ -147,3 +147,102 @@ fn board_connector_stays_on_the_page_when_one_of_its_shapes_is_regrouped() {
     assert_eq!(s.app().doc.get(b).unwrap().parent, Some(g));
     assert_eq!(s.app().doc.get(c).unwrap().parent, Some(page), "a commit does not move a board connector into the section");
 }
+
+fn rectangle(s: &mut Sim, parent: NodeId, name: &str, x: f32, y: f32) -> NodeId {
+    add(s, parent, |id| Node::rectangle(id, DRect::new(x, y, 120.0, 80.0)), name)
+}
+
+fn ink_of(s: &Sim, c: NodeId) -> Color {
+    match &s.app().doc.get(c).unwrap().stroke.paints[0].kind {
+        PaintKind::Solid(col) => *col,
+        k => panic!("expected a solid stroke, got {k:?}"),
+    }
+}
+
+/// Draws a connector with the Connector tool; Cmd picks the deepest layer under each end.
+fn connect_deep(s: &mut Sim, a: NodeId, b: NodeId) -> NodeId {
+    s.shell.app.set_tool(Tool::Connector);
+    s.mods = Modifiers::COMMAND;
+    s.drag(center(s, a), center(s, b));
+    s.mods = Modifiers::NONE;
+    *connectors(s).last().expect("the drag made a connector")
+}
+
+#[test]
+fn default_ink_reads_the_nearest_opaque_ancestor_fill() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let screen = add(&mut s, page, |id| Node::frame(id, DRect::new(80.0, 80.0, 640.0, 360.0)), "Screen");
+    let wrapper = add(
+        &mut s,
+        screen,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(20.0, 20.0, 600.0, 320.0));
+            n.fills.clear();
+            n
+        },
+        "Wrapper",
+    );
+    let a = rectangle(&mut s, wrapper, "Card A", 40.0, 100.0);
+    let b = rectangle(&mut s, wrapper, "Card B", 420.0, 100.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(wrapper), "the connector is homed in the fill-less wrapper");
+    let ink = ink_of(&s, c);
+    assert_eq!(ink, crate::board::color_of(crate::theme::BOARD_INK[0]), "the white screen above the wrapper is the surface");
+    assert!(designos_doc::lint::rules::contrast::contrast_ratio(ink, Color::WHITE) >= 3.0);
+}
+
+#[test]
+fn default_ink_on_a_light_page_is_dark() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let light = Color::rgb(0xF5, 0xF5, 0xF5);
+    s.shell.app.doc.get_mut(page).unwrap().kind = NodeKind::Page { background: light };
+    // a band that is only a 10% tint is not a surface: the page behind it is
+    let band = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(80.0, 80.0, 640.0, 240.0));
+            let mut tint = Paint::solid(Color::BLACK);
+            tint.opacity = 0.1;
+            n.fills = vec![tint];
+            n
+        },
+        "Band",
+    );
+    let a = rectangle(&mut s, band, "Card A", 40.0, 60.0);
+    let b = rectangle(&mut s, band, "Card B", 420.0, 60.0);
+    let c = connect_deep(&mut s, a, b);
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(band));
+    let ink = ink_of(&s, c);
+    assert_eq!(ink, crate::board::color_of(crate::theme::BOARD_INK[0]));
+    assert!(designos_doc::lint::rules::contrast::contrast_ratio(ink, light) >= 3.0);
+}
+
+#[test]
+fn default_ink_on_the_dark_default_page_has_3_to_1() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(120.0, 180.0, 160.0, 100.0)), "Frame A");
+    let b = add(&mut s, page, |id| Node::frame(id, DRect::new(520.0, 180.0, 160.0, 100.0)), "Frame B");
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(center(&s, a), center(&s, b));
+    let c = connectors(&s)[0];
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(page));
+    let ink = ink_of(&s, c);
+    assert_eq!(ink, crate::board::color_of(crate::theme::BOARD_INK_ON_DARK));
+    assert!(designos_doc::lint::rules::contrast::contrast_ratio(ink, Color::rgb(0x5A, 0x5A, 0x5A)) >= 3.0);
+}
+
+#[test]
+fn connector_ink_tokens_match_the_document_defaults() {
+    let mut doc = designos_doc::Document::new("Ink tokens");
+    let page = doc.add_page("Page 1");
+    let on_dark_page = designos_doc::default_connector_ink(&doc, page);
+    assert_eq!(on_dark_page, crate::board::color_of(crate::theme::BOARD_INK_ON_DARK));
+    if let Some(n) = doc.get_mut(page) {
+        n.kind = NodeKind::Page { background: Color::WHITE };
+    }
+    assert_eq!(designos_doc::default_connector_ink(&doc, page), crate::board::color_of(crate::theme::BOARD_INK[0]));
+}
