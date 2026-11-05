@@ -176,3 +176,112 @@ During the full `cargo test -p designos-app --bin designos --locked` run under d
 - None.
 
 Status: DONE
+
+---
+
+## r2 — Review Follow-Up, Contributor PR #1186 Point-by-Point Audit & Full #1173 Verification
+
+### r2.1 What Could Not Be Verified
+
+1. **Pre-existing Clippy `-D warnings` failures in two unrelated files on `origin/main` (`f566f16de`):**
+   - Running `cargo clippy --workspace --all-targets --locked -- -D warnings` exits with code `101` (`plans/reports/agy-1173-terminal-wheel-evidence/r2-clippy.log:151`) due to `3` pre-existing warnings introduced on `origin/main` in files outside this PR's scope:
+     - `clippy::needless_return` at `crates/designos-app/src/agent_permissions.rs:1176:9` (`r2-clippy.log:121-133`)
+     - `clippy::needless_return` at `crates/designos-app/src/agent_permissions.rs:1194:9` (`r2-clippy.log:135-145`)
+     - `clippy::type_complexity` at `crates/designos-app/src/shell/tests/inspector_var_binds.rs:1182:21` (`r2-clippy.log:149-158`)
+   - Neither `crates/designos-app/src/terminal.rs` nor `crates/designos-app/src/terminal/wheel_modes_tests.rs` emits any clippy warning. Running `cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::needless-return -A clippy::type-complexity` (and the CI command `cargo clippy --workspace --all-targets --locked` from `.github/workflows/ci.yml:179` / `.github/workflows/pr-gate.yml:50`) passes with exit code `0` (`r2-clippy.log:152-171`, `CLIPPY_SCOPED_EXIT=0`).
+2. **Interactive live-network agent CLI turn (`claude` / `codex` / `grok` / `gemini` / `agy`):**
+   - Per the brief's hard constraint (`Never run brv, claude, codex, gemini, grok, or agy`), live remote-API agent CLI binaries were not invoked during testing. Instead, `render_vt100_viewport` was exercised against a live `portable-pty` tab (`crates/designos-app/src/terminal/wheel_modes_tests.rs:68-115`), `Sim` GUI integration tests (`crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:159-462`), and 1440 headless `--screenshot` captures on an APFS clone of the Untitled UI PRO VARIABLES v8.0 kit (`plans/reports/agy-1173-terminal-wheel-evidence/agents-panel-1440-expanded.png`, `plans/reports/agy-1173-terminal-wheel-evidence/agents-panel-1440-collapsed.png`).
+
+---
+
+### r2.2 Issue #1173 Point-by-Point Verification Table
+
+| #1173 Requirement | Implementation Location | Verification Test / Visual Capture | Status |
+|---|---|---|---|
+| **1. Terminal mouse wheel in full-screen agent CLIs (`?1049h` alternate screen)** forwards wheel reports in active mouse encoding (`Sgr` `?1006h`, `Default`/X10, `Utf8` `?1005h` with `2015` coordinate clamp) or cursor keys (`\x1b[A`/`\x1b[B` normal, `\x1bOA`/`\x1bOB` `?1h` application cursor) when mouse reporting is off, capped at `MAX_WHEEL_STEPS_PER_FRAME = 10` | `crates/designos-app/src/terminal.rs:6500-6524`, `crates/designos-app/src/terminal.rs:6968-7044` | `terminal::wheel_modes_tests` (`9/9` pass in `plans/reports/agy-1173-terminal-wheel-evidence/r2-green.log:9-20`): `wheel_in_alt_screen_with_sgr_mouse_sends_one_sgr_report_per_row` (`r2-green.log:14`), `wheel_in_alt_screen_with_default_mouse_encoding_sends_x10_reports` (`r2-green.log:13`), `wheel_in_alt_screen_with_utf8_mouse_encoding_sends_utf8_coordinates` (`r2-green.log:15`), `wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015` (`r2-green.log:16`), `wheel_in_alt_screen_without_mouse_sends_cursor_keys` (`r2-green.log:17`), `wheel_in_alt_screen_with_application_cursor_sends_ss3_cursor_keys` (`r2-green.log:12`), `fast_wheel_steps_are_capped_per_frame` (`r2-green.log:11`), `shift_wheel_in_alt_screen_with_mouse_writes_nothing` (`r2-green.log:10`) | **PASS** |
+| **2. Main-screen terminal mouse wheel** always scrolls Studio's 5,000-line scrollback buffer through `render_vt100_viewport` (even when a CLI leaves mouse reporting enabled) and never leaks mouse reports to the shell PTY | `crates/designos-app/src/terminal.rs:6502-6524`, `crates/designos-app/src/terminal.rs:6995-7001` | `terminal::wheel_modes_tests::wheel_on_main_screen_scrolls_studio_scrollback_even_with_mouse_reporting` (`crates/designos-app/src/terminal/wheel_modes_tests.rs:68-115`, `r2-green.log:18`) and `shell::tests::agent_turn_card_scroll::ac01_wheel_over_terminal_scrolls_scrollback_with_82_row_expanded_card` (`crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:159-169`, `r2-agent-turn-card-scroll.log:11`) | **PASS** |
+| **3. Expanded "changed layers" card scrolls independently** when an agent turn modifies many layers (e.g., 82 layers) and the user clicks `Show all`, with clipped row list (`panels::clipped`), smooth wheel scrolling (`panels::wheel_scroll`), scrollbar thumb (`panels::scrollbar`), row selection on click after scroll, and AccessKit row-count label (`"82 changed layers"`) | `crates/designos-app/src/agent_turn_card.rs:367-453` | `shell::tests::agent_turn_card_scroll::ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible` (`r2-agent-turn-card-scroll.log:12`), `edge_clicking_row_after_scrolling_selects_correct_layer` (`r2-agent-turn-card-scroll.log:15`), `a11y_list_region_announces_row_count_when_rows_off_screen` (`r2-agent-turn-card-scroll.log:10`), and 1440 capture `plans/reports/agy-1173-terminal-wheel-evidence/agents-panel-1440-expanded.png` | **PASS** |
+| **4. Review card footer (`Show all` / `Show less`, `Revert`, `Keep`) and terminal viewport remain reachable** after a large agent edit: card reserve is capped at 50% of panel height while preserving at least 8 terminal rows (`min_term_h = (panel_h * 0.5).max(theme::LINE_BODY * 8.0)`), and footer controls stay pinned inside the bottom of the card | `crates/designos-app/src/panels/left.rs:15-16, 52-59, 69-81`, `crates/designos-app/src/agent_turn_card.rs:205-215, 373-388, 454-521` | `shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts` (`panel_h ∈ {400, 900, 2000}` × `rows ∈ {5, 82, 300}`, `r2-agent-turn-card-scroll.log:18`), `ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap` (`r2-agent-turn-card-scroll.log:13`), `ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout` (`r2-agent-turn-card-scroll.log:14`), `turn_card_revert_and_keep_are_control_xs_secondary_buttons` (`r2-agent-turn-card-scroll.log:19`), and 1440 captures `agents-panel-1440-collapsed.png` & `agents-panel-1440-expanded.png` | **PASS** |
+
+---
+
+### r2.3 Part 1 — Review Findings Addressed & Red/Green Evidence
+
+Both minor test findings from `plans/reports/review-1173-terminal-wheel-grok.md` were addressed in `crates/designos-app/src/terminal/wheel_modes_tests.rs` (and issue numbers were removed from comments in `crates/designos-app/src/terminal.rs:6501, 6969, 6972` and `crates/designos-app/src/terminal/wheel_modes_tests.rs:1-2`):
+
+1. **UTF-8 (`?1005h`) coordinate coverage above column 250 and at/above the `2015` clamp (`crates/designos-app/src/terminal/wheel_modes_tests.rs:163-180`):**
+   - Added `wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015` testing:
+     - 0-based `(r0=4, c0=299)` -> 1-based `col=300` (`32 + 300 = 332 = U+014C` -> `[0xc5, 0x8c]`), `row=5` (`37 = 0x25`).
+     - 0-based `(r0=2014, c0=2014)` -> 1-based `col=2015, row=2015` (`32 + 2015 = 2047 = U+07FF` -> `[0xdf, 0xbf]`).
+     - 0-based `(r0=2400, c0=3000)` -> 1-based `col=3001, row=2401`, clamped by `col.min(2015)` and `row.min(2015)` at `crates/designos-app/src/terminal.rs:7023-7026` to `[0xdf, 0xbf, 0xdf, 0xbf]` for both wheel up (`button=64` -> `96`) and wheel down (`button=65` -> `97`).
+2. **Main-screen scrollback driven through the real `render_vt100_viewport` wheel path (`crates/designos-app/src/terminal/wheel_modes_tests.rs:10-115`):**
+   - Updated `wheel_on_main_screen_scrolls_studio_scrollback_even_with_mouse_reporting` to spawn a quiet stub tab in `TerminalState` (`spawn_quiet_tab_state`, lines `10-22`), warm up the viewport widget rect in `egui::Context` (`warmup_viewport`, lines `33-43`), populate 60 history lines with SGR mouse reporting active on the main screen (`\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h`), and dispatch `Event::MouseWheel` through `render_vt100_viewport` (`send_viewport_wheel`, lines `45-66`).
+   - Verified that wheel up advances `parser.screen().scrollback()` to `up_rows` (`>= 3`), clears `tab.restore_scrollback` from `7` to `0`, and writes `0` bytes to the PTY; and wheel down reduces `parser.screen().scrollback()` to `(up_rows + down_rows)` while still writing `0` bytes to the PTY.
+3. **Red -> Green Verification (`plans/reports/agy-1173-terminal-wheel-evidence/r2-red.log` & `r2-green.log`):**
+   - **RED (`r2-red.log:17-44`):** With `pg.set_scrollback(next_sb)` at `crates/designos-app/src/terminal.rs:6514` and `.min(2015)` at `crates/designos-app/src/terminal.rs:7023,7026` temporarily faulted out:
+     - `wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015` failed (`r2-red.log:17, 23-29`): `left: WritePty([27, 91, 77, 96, 224, 175, 153, 224, 166, 129])` vs `right: WritePty([27, 91, 77, 96, 223, 191, 223, 191])`.
+     - `wheel_on_main_screen_scrolls_studio_scrollback_even_with_mouse_reporting` failed (`r2-red.log:18, 31-36`): `left: 0` vs `right: 3`.
+   - **GREEN (`r2-green.log:9-20`):** With production code restored, all `9/9` tests in `terminal::wheel_modes_tests` pass (`test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 4551 filtered out; finished in 0.08s`, `r2-green.log:20`).
+
+---
+
+### r2.4 Part 2 — Contributor PR #1186 Point-by-Point Audit (`SKIP` with Evidence)
+
+Contributor PR `#1186` by `@NamAIEngineer` (`fix(agents): keep changed-layer review footer reachable`, head `5c865a542`, 9 commits `1119c3c21..5c865a542` against `release/v0.7.0`) was fetched (`refs/remotes/contrib/pr-1186`) and audited point-by-point against `origin/main` (`f566f16de`), which already merged `#1276` (`ca1ef6f16`, `fix(agents): scroll expanded changed-layers card in Agents panel (#1173)`).
+
+| PR #1186 Point (`1119c3c21..5c865a542`) | What PR #1186 Did | What `origin/main` (`#1276`, `ca1ef6f16`) Already Has | Verdict & Evidence |
+|---|---|---|---|
+| **1. Cap expanded card height & preserve terminal height** | Added `MAX_VISIBLE_ROWS: usize = 8` in `agent_turn_card.rs` (`compute_turn_card_height` capped at 8 rows) and changed `panels/left.rs` from `.min(inner.height() * 0.5)` to `.min(inner.height())` (which would allow the card to consume >50% of a 400 px panel and violate `AC-03`). | `crates/designos-app/src/panels/left.rs:15-16, 52-59` (`agent_card_reserve`) and `crates/designos-app/src/agent_turn_card.rs:205-215` cap the card reserve at `50%` of panel height (`PANEL_CARD_CAP_RATIO = 0.5`) while guaranteeing at least `8` terminal rows (`min_term_h = (panel_h * 0.5).max(theme::LINE_BODY * 8.0)`). | **SKIP (already covered & superseded on `main`)** — Verified across `panel_h ∈ {400, 900, 2000}` × `rows ∈ {5, 82, 300}` by `shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts` (`crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:202-238`, `r2-agent-turn-card-scroll.log:18`). |
+| **2. Scrollable changed-layer list inside expanded card** | Stored an integer row-slice index `start: usize` stepped by `±1` row per wheel frame via `expanded_layer_window`, without a scrollbar thumb or `Show less` action. | `crates/designos-app/src/agent_turn_card.rs:389-453` uses smooth pixel scrolling via `panels::wheel_scroll`, `panels::clipped`, and `panels::scrollbar`, plus adds `Show less` (`TurnCardAction::Collapse`, lines `374-388, 454-476, 551-555`) and AccessKit list region announcement (`"{row_count} changed layers"`, lines `449-452`). | **SKIP (already covered & superseded on `main`)** — Verified by `ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible` (`r2-agent-turn-card-scroll.log:12`), `ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap` (`r2-agent-turn-card-scroll.log:13`), `ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout` (`r2-agent-turn-card-scroll.log:14`), `edge_clicking_row_after_scrolling_selects_correct_layer` (`r2-agent-turn-card-scroll.log:15`), and `a11y_list_region_announces_row_count_when_rows_off_screen` (`r2-agent-turn-card-scroll.log:10`). |
+| **3. Keep footer (`Show all`/`Show less`, `Revert`, `Keep`) reachable at bottom of card** | Anchored `buttons_top` and `show_all` at the bottom of `inner` below the 8-row slice. | `crates/designos-app/src/agent_turn_card.rs:373-388, 454-521` anchors `buttons_top = inner.bottom() - ACTION_H` and `toggle_top = buttons_top - ACTION_GAP - ROW_H` from the bottom of the clamped `card_rect` upward, keeping header and footer pinned while `list_rect` scrolls between them. | **SKIP (already covered on `main`)** — Verified by `ac02` (`r2-agent-turn-card-scroll.log:12`), `ac03` (`r2-agent-turn-card-scroll.log:18`), and 1440 captures `agents-panel-1440-collapsed.png` & `agents-panel-1440-expanded.png`. |
+| **4. Per-tab and per-turn scroll state isolation (`5c865a542`)** | Scoped scroll state by `(tab_id, turn_id)` so two tabs with matching `turn.id` do not share scroll offset. | `#1276` already carried and credited `@NamAIEngineer`'s per-tab scroll scoping in `crates/designos-app/src/agent_turn_card.rs:20-86` (`TabScrollScope { instance_id, tab_idx, tab_id }` and `TurnScrollEntry { turn_id, created_at, scroll, pin_bottom }`). | **SKIP (already carried in `#1276` on `main`)** — Verified by `edge_scroll_state_isolated_per_tab_and_turn` (`crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:299-355`, `r2-agent-turn-card-scroll.log:20`) and `edge_new_turn_while_scrolled_resets_to_top_without_panic` (`r2-agent-turn-card-scroll.log:16`). |
+
+---
+
+### r2.5 1440 Visual Captures on APFS Clone of Untitled UI Kit
+
+- **Idle check:** `HIDIdleTime = 15079s >= 300s`.
+- **Kit clone:** APFS-cloned `/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` to `out/evidence/untitled-clone.fig`, captured 1440x900 screenshots with `--no-toast --panel agents-turn-card` and `--no-toast --panel agents-turn-card-collapsed`, cropped strictly to the left rail + Agents panel (`448 x 900`, containing zero canvas or ruler pixels), inspected both images with `read_file`, and deleted `out/evidence/`:
+  - `plans/reports/agy-1173-terminal-wheel-evidence/agents-panel-1440-collapsed.png` (`448 x 900`): Shows 27 terminal rows (`[54]..[79]` + prompt), composer, and collapsed `Claude Code changed layers 82` card (`Row 01`..`Row 05`, `Show all`, `Revert`, `Keep`).
+  - `plans/reports/agy-1173-terminal-wheel-evidence/agents-panel-1440-expanded.png` (`448 x 900`): Shows 18 terminal rows (`[54]..[70]` + prompt), composer, and expanded `Claude Code changed layers 82` card capped at <= 50% panel height, scrolled to the bottom (`Row 73`..`Row 82`) with scrollbar thumb, pinned `Show less`, and pinned `Revert` + `Keep` buttons.
+
+---
+
+### r2.6 Mandatory Gates & Exit Codes
+
+| Gate | Command | Exit Code & Evidence Citation |
+|---|---|---|
+| **Rustfmt** | `cargo fmt --all -- --check` | **Exit `0`** (`plans/reports/agy-1173-terminal-wheel-evidence/r2-gates.log:1`, `FMT_EXIT=0`) |
+| **Clippy (strict `-D warnings`)** | `cargo clippy --workspace --all-targets --locked -- -D warnings` | **Exit `101` on `3` pre-existing `origin/main` warnings** in `agent_permissions.rs:1176,1194` and `inspector_var_binds.rs:1182` (`r2-clippy.log:121-151`, `CLIPPY_EXIT=101`); **Exit `0`** with `-A clippy::needless-return -A clippy::type-complexity` and on CI's `cargo clippy --workspace --all-targets --locked` (`r2-clippy.log:152-171`, `CLIPPY_SCOPED_EXIT=0`; `0` warnings in `terminal.rs` / `wheel_modes_tests.rs`) |
+| **App binary tests (`designos`)** | `cargo test -p designos-app --bin designos --locked` | **Full parallel run:** `4521 passed; 23 failed; 16 ignored` (`r2-bin-designos-tests.log:4729`, `BIN_DESIGNOS_EXIT=101`; the `23` failures occurred only when `TEST_HOME` was placed under `/tmp`, which `agent_permissions::path_is_agent_temp` at `crates/designos-app/src/agent_permissions.rs:1217-1226` rejects as `"no private auto-allow log"`). **Rerun with `TEST_HOME` in repo-sibling directory (`$(dirname "$PWD")/dos-h.XXXXXX`) and short `TMPDIR` (`/tmp/dos-t.XXXXXX`):** `wheel_modes_tests` `9/9` pass (`r2-bin-designos-rerun.log:20`), `agent_turn_card_scroll` `11/11` pass (`r2-bin-designos-rerun.log:43`), `agent_permissions::tests` `47/47` pass (`r2-bin-designos-rerun.log:103`), `agent_turn_ledger::tests` `28/28` pass (`r2-bin-designos-rerun.log:143`), `terminal::ask_mode_tests` `25/25` pass (`r2-bin-designos-rerun.log:180`), **Exit `0`** (`r2-bin-designos-rerun.log:182`, `RERUN_EXIT=0`; `4,544 / 4,544` runnable tests pass) |
+| **Workspace library tests** | `cargo test --workspace --locked --lib` | **Exit `0`** (`plans/reports/agy-1173-terminal-wheel-evidence/r2-workspace-lib-tests.log:1885`, `WORKSPACE_LIB_EXIT=0`: `13 + 816 + 7 + 1 + 178 + 159 + 30 + 5 + 38 + 377 + 82 + 2 + 8 = 1,716 passed; 0 failed; 3 ignored`) |
+| **Zero Fake UI Gate** | `python3 scripts/zero_fake_ui_gate.py` | **Exit `0`** (`r2-gates.log:23-25`, `Gate Verdict: PASS (17/17 invariants satisfied)`, `ZERO_FAKE_UI_EXIT=0`) |
+| **Spacing Relationships Gate** | `python3 -B scripts/check_spacing_relationships.py` | **Exit `0`** (`r2-gates.log:26-29`, `PASS: no count rose above the baseline`, `SPACING_EXIT=0`) |
+| **DS Ontology Parity Gate** | `python3 -B scripts/check_ds_ontology_parity.py` | **Exit `0`** (`r2-gates.log:30-42`, `RESULT: PASS (P1, P2, P3, P4, P5, P6, P7, P9)`, `ONTOLOGY_EXIT=0`) |
+
+---
+
+### r2.7 Skills Loaded & Changes Made
+
+- **`es:dev` / `es:feature-dev`:** Synced branch with `origin/main` (`4c509ffa9`), audited contributor PR `#1186` point-by-point against `origin/main` (`#1276`), wrote red-then-green tests for both Grok review findings, and verified all gates.
+- **`es:rust` & `es:rust-gpu-canvas`:** Spawned `/bin/sleep 5` directly via `portable_pty::CommandBuilder` in `spawn_quiet_tab_state` (`crates/designos-app/src/terminal/wheel_modes_tests.rs:12-13`) so login-shell prompt bytes cannot race `tab.restore_scrollback` on the background PTY reader thread during `render_vt100_viewport` wheel tests; added `wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015` (`wheel_modes_tests.rs:163-180`).
+- **`es:designer`:** Ran `find-design-context.sh . --target crates/designos-app/src/agent_turn_card.rs`, verified `check_spacing_relationships.py` and `check_ds_ontology_parity.py` pass without regressions, and inspected 1440 cropped Agents panel captures (`agents-panel-1440-collapsed.png`, `agents-panel-1440-expanded.png`).
+- **`es:astra-work` & `es:fable-thinking`:** Diagnosed two test surprises via falsification:
+  1. `egui 0.35.0` smooths `Event::MouseWheel` deltas across frames (`smooth_scroll_delta.y ≈ dy / 3` on a single 60 Hz frame) and requires a warmup frame after `theme::install_fonts(&ctx)` before hit-testing `vp_resp.hovered()`, solved by `warmup_viewport` and capturing `up_rows` / `down_rows` from `ui.input(|i| i.smooth_scroll_delta.y)` (`wheel_modes_tests.rs:33-66`).
+  2. `agent_permissions::path_is_agent_temp` (`crates/designos-app/src/agent_permissions.rs:1217-1226`) rejects `HOME` paths inside `/tmp`, `/var/tmp`, or `$TMPDIR`; placing `TEST_HOME` in the repo sibling directory (`$(dirname "$PWD")/dos-h.XXXXXX`) resolved all 23 `no private auto-allow log` failures (`r2-bin-designos-rerun.log:53-182`).
+
+---
+
+### r2.8 Epistemic Ledger, Weakest Link & Closure
+
+- **`FACT`:** `wheel_in_alt_screen_with_utf8_mouse_encoding_clamps_coordinates_at_2015` exercises 1-based column `300` (`> 250`), boundary `(2015, 2015)`, and clamped `(3001, 2401)` -> `[0xdf, 0xbf]` (`crates/designos-app/src/terminal/wheel_modes_tests.rs:163-180`, `r2-red.log:23-29`, `r2-green.log:16`).
+- **`FACT`:** `wheel_on_main_screen_scrolls_studio_scrollback_even_with_mouse_reporting` drives scrolling through `render_vt100_viewport` with `Event::MouseWheel` (`crates/designos-app/src/terminal/wheel_modes_tests.rs:68-115`, `r2-red.log:31-36`, `r2-green.log:18`).
+- **`FACT`:** Every point in contributor PR `#1186` (`1119c3c21..5c865a542`) is already covered and superseded on `origin/main` by `#1276` (`ca1ef6f16`), verified by `11/11` passing tests in `shell::tests::agent_turn_card_scroll` (`r2-agent-turn-card-scroll.log:10-22`).
+- **`INFERENCE`:** Because both `#1276` (merged on `main`) and `#1337` (merged with `origin/main` at `4c509ffa9`) satisfy all four points of issue `#1173`, PR `#1337` can close `#1173`.
+- **`ASSUMPTION`:** None.
+- **Weakest Link:** The `3` pre-existing clippy warnings on `origin/main` (`crates/designos-app/src/agent_permissions.rs:1176,1194` and `crates/designos-app/src/shell/tests/inspector_var_binds.rs:1182`) cause `cargo clippy --workspace --all-targets --locked -- -D warnings` to exit `101` until cleaned up on `main` (CI's `.github/workflows/ci.yml:179` and `.github/workflows/pr-gate.yml:50` run without `-D warnings` and pass).
+
+- **Status:** DONE
+- **Summary:** Addressed both review findings in `crates/designos-app/src/terminal/wheel_modes_tests.rs` with red-then-green evidence (`r2-red.log`, `r2-green.log`), verified point-by-point that contributor PR `#1186` by `@NamAIEngineer` is already covered on `origin/main` by `#1276` (`SKIP` with evidence), captured and cropped 1440 Agents panel screenshots on an APFS clone of the Untitled UI kit, and verified all test and design gates.
+- **Concerns:** `origin/main` (`f566f16de`) has `3` pre-existing clippy warnings in `crates/designos-app/src/agent_permissions.rs:1176,1194` (`needless_return`) and `crates/designos-app/src/shell/tests/inspector_var_binds.rs:1182` (`type_complexity`) outside this PR's file scope.
+

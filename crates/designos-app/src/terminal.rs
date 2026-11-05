@@ -6498,7 +6498,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         }
 
         // Mouse wheel: main screen always scrolls Studio's 5,000-line scrollback; alternate screen (`?1049h`)
-        // forwards mouse wheel reports in the active mouse encoding or cursor keys when mouse reporting is off (`#1173`).
+        // forwards mouse wheel reports in the active mouse encoding or cursor keys when mouse reporting is off.
         if vp_resp.hovered() {
             let delta_rows = wheel_delta_rows(ui.input(|i| i.smooth_scroll_delta.y));
             if delta_rows != 0 {
@@ -6966,10 +6966,10 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
 }
 
 /// Maximum wheel reports or cursor-key steps emitted in a single UI frame so a fast trackpad flick
-/// cannot flood the child PTY stdin buffer (`#1173`).
+/// cannot flood the child PTY stdin buffer.
 const MAX_WHEEL_STEPS_PER_FRAME: usize = 10;
 
-/// Outcome of a mouse-wheel event over the terminal viewport (`#1173`).
+/// Outcome of a mouse-wheel event over the terminal viewport.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WheelAction {
     /// Scroll Studio's own 5,000-line scrollback buffer by signed row count (`> 0` up into history, `< 0` down).
