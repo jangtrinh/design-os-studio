@@ -293,7 +293,9 @@ pub fn publishable_assets(doc: &Document) -> Vec<(String, LibraryAssetKind, Stri
     for k in doc.styles.keys().filter(|k| doc.is_table_style(k) && !imported.contains(k.as_str())) {
         out.push((format!("style:{k}"), LibraryAssetKind::Style, doc.style_name(k).to_string()));
     }
-    for (id, c) in doc.variable_collections.iter().filter(|(id, _)| !imported.contains(id.as_str())) {
+    // A soft-deleted collection or variable is not published as an asset (a variable's `is_publishable` says so);
+    // `snapshot` still carries one that a published component binds to, so the component renders as it does here.
+    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted()) {
         out.push((format!("col:{id}"), LibraryAssetKind::VariableCollection, c.name.clone()));
     }
     for (id, v) in doc.variables.iter().filter(|(id, v)| !imported.contains(id.as_str()) && v.is_publishable()) {
@@ -1473,6 +1475,24 @@ mod tests {
         assert!(a.iter().any(|(k, _, _)| k == "var:v2"));
         assert!(a.iter().any(|(k, _, _)| k == "col:c1"));
         assert_eq!(a, publishable_assets(&d));
+    }
+
+    #[test]
+    fn soft_deleted_variables_and_collections_are_not_published_but_a_bound_one_travels() {
+        let mut d = lib_doc();
+        let mark = |ext: &mut FigmaExtensions| {
+            ext.insert(SOFT_DELETED_EXTENSION_KEY.into(), serde_json::Value::Bool(true));
+        };
+        mark(&mut d.variables.get_mut("v1").unwrap().extensions);
+        mark(&mut d.variable_collections.get_mut("c1").unwrap().extensions);
+        let keys: Vec<String> = publishable_assets(&d).into_iter().map(|a| a.0).collect();
+        assert!(!keys.contains(&"var:v1".to_string()) && !keys.contains(&"col:c1".to_string()), "soft-deleted assets are not listed: {keys:?}");
+        assert!(keys.contains(&"var:v2".to_string()) && keys.contains(&"col:c2".to_string()), "live assets still are: {keys:?}");
+
+        // v2 aliases the soft-deleted v1, and the Button binds v2: the snapshot keeps what the component needs.
+        let snap = snapshot(&d, "L1", "Lib", 1);
+        assert!(snap.variables.contains_key("v1") && snap.variables["v1"].is_soft_deleted());
+        assert!(snap.variable_collections["c1"].is_soft_deleted());
     }
 
     #[test]

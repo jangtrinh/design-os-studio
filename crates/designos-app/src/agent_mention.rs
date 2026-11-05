@@ -414,8 +414,8 @@ impl MentionSearchJob {
             );
         }
 
-        // 2. Variables
-        for (var_key, var) in &doc.variables {
+        // 2. Variables. A soft-deleted variable still resolves for the layers bound to it, but it is not offered.
+        for (var_key, var) in doc.variables.iter().filter(|(_, v)| !v.is_soft_deleted()) {
             let Some(tier) = match_name_tier(&var.name, &self.query_lower) else { continue };
             let col_name = doc.variable_collections.get(&var.collection).map(|c| c.name.as_str()).unwrap_or("Variables");
             let id = if var.id.is_empty() { var_key.clone() } else { var.id.clone() };
@@ -747,6 +747,20 @@ mod tests {
         assert!(results.iter().any(|c| c.category == MentionCategory::Components && c.id == comp_id.0.to_string()));
         assert!(results.iter().any(|c| c.category == MentionCategory::Variables && c.id == var_id));
         assert!(results.iter().any(|c| c.category == MentionCategory::Styles && c.id == style_key));
+    }
+
+    #[test]
+    fn search_does_not_offer_a_soft_deleted_variable() {
+        let (mut doc, page1, _, _, var_id, _) = sample_five_kind_doc();
+        let mut gone = doc.variables[&var_id].clone();
+        gone.id = "var-showcase-gone".to_string();
+        gone.name = "Color/Showcase deleted".to_string();
+        gone.extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.to_string(), true.into());
+        doc.variables.insert(gone.id.clone(), gone);
+
+        let variables: Vec<MentionCandidate> =
+            search_document(&doc, page1, "showcase").into_iter().filter(|c| c.category == MentionCategory::Variables).collect();
+        assert_eq!(variables.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), [var_id.as_str()], "only the live variable is offered");
     }
 
     #[test]

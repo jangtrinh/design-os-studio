@@ -677,6 +677,10 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(lib) = &c.source_library_key {
             fields.push(("sourceLibraryKey", V::String(lib.clone())));
         }
+        // A collection the file deleted but kept for the variables still in use is written back as deleted.
+        if c.is_soft_deleted() {
+            fields.push(("isSoftDeleted", V::Bool(true)));
+        }
         cx.changes.push(msg(fields));
         *idx += 1;
     }
@@ -745,6 +749,14 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(k) = &v.key {
             fields.push(("key", V::String(k.clone())));
         }
+        // The file's own publish switch: only a variable hidden from publishing writes it.
+        if v.hidden_from_publishing {
+            fields.push(("isPublishable", V::Bool(false)));
+        }
+        // A deleted variable the file still uses stays in the file as deleted; it must not come back as a live one.
+        if v.is_soft_deleted() {
+            fields.push(("isSoftDeleted", V::Bool(true)));
+        }
         cx.changes.push(msg(fields));
         *idx += 1;
     }
@@ -766,6 +778,28 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
 ///   a key never ends in the smallest character and Figma can always insert between any two keys.
 fn generated_style_sort_position(max_existing: &str, ordinal: usize) -> String {
     format!("{max_existing}{ordinal:06}")
+}
+
+fn style_paints_for_export(doc: &Document, paints: &[Paint], bindings: &BTreeMap<String, String>) -> Vec<Paint> {
+    if !paints.is_empty() {
+        return paints.to_vec();
+    }
+    let Some(var_id) = bindings
+        .get("fills/0")
+        .or_else(|| bindings.get("fills/0/color"))
+        .or_else(|| bindings.get("fills"))
+        .or_else(|| bindings.iter().find(|(k, _)| k.starts_with("fills/")).map(|(_, v)| v))
+    else {
+        return Vec::new();
+    };
+    let color = doc
+        .resolve_variable(NodeId(0), var_id)
+        .and_then(|val| match val {
+            VariableValue::Color(c) => Some(c),
+            _ => None,
+        })
+        .unwrap_or(Color::BLACK);
+    vec![Paint::solid(color)]
 }
 
 fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx: &mut usize) {
@@ -821,16 +855,20 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         }
         match &style {
             Style::Fill(paints) => {
-                fields
-                    .push(("fillPaints", V::Array(paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect())));
+                let export_paints = style_paints_for_export(cx.doc, paints, bindings);
+                fields.push((
+                    "fillPaints",
+                    V::Array(export_paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect()),
+                ));
             }
             Style::Text(ts) => {
                 append_shared_text_style_fields(&mut fields, ts);
                 // The paints of the style are the text colour a layer takes from it; a style without paints writes no field.
-                if !ts.fills.is_empty() {
+                let export_paints = style_paints_for_export(cx.doc, &ts.fills, bindings);
+                if !export_paints.is_empty() {
                     fields.push((
                         "fillPaints",
-                        V::Array(ts.fills.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect()),
+                        V::Array(export_paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect()),
                     ));
                 }
                 let var_entries = encode_var_entries_from_bindings(cx, bindings);
@@ -1434,7 +1472,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // Geometry blobs.
     if !matches!(node.kind, NodeKind::Text(_)) {
         let fill_paths = node.fill_geometry.as_ref().or(match &node.kind {
-            NodeKind::Vector { paths, .. } if !paths.is_empty() => Some(paths),
+            NodeKind::Vector { paths, .. } if !paths.is_empty() && node.stroke_geometry.as_ref() != Some(paths) => Some(paths),
             _ => None,
         });
         if let Some(paths) = fill_paths {
@@ -1865,6 +1903,182 @@ fn encode_node_mode_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     mode_entries
 }
 
+fn node_fills(node: &Node) -> &[Paint] {
+    match &node.kind {
+        NodeKind::Text(t) => &t.style.fills,
+        _ => &node.fills,
+    }
+}
+
+fn node_paints_for_prefix<'a>(node: &'a Node, prefix: &str) -> &'a [Paint] {
+    if prefix.starts_with("strokes") {
+        &node.stroke.paints
+    } else {
+        node_fills(node)
+    }
+}
+
+fn has_prefix_binding(node: &Node, prefix: &str) -> bool {
+    node.variables.bindings.keys().any(|k| k == prefix || k.starts_with(prefix))
+}
+
+fn paint_bindings_match(doc: &Document, n: &Node, sn: &Node, prefix: &str) -> bool {
+    let n_iter = n.variables.bindings.iter().filter(|(k, _)| *k == prefix || k.starts_with(prefix));
+    let s_iter = sn.variables.bindings.iter().filter(|(k, _)| *k == prefix || k.starts_with(prefix));
+    if !n_iter.eq(s_iter) {
+        return false;
+    }
+    let count = node_paints_for_prefix(n, prefix).len().max(node_paints_for_prefix(sn, prefix).len());
+    for i in 0..count {
+        let key = format!("{prefix}{i}");
+        if doc.effective_binding(n.id, &key) != doc.effective_binding(sn.id, &key) {
+            return false;
+        }
+        let op_key = format!("{prefix}{i}/opacity");
+        if doc.effective_binding(n.id, &op_key) != doc.effective_binding(sn.id, &op_key) {
+            return false;
+        }
+    }
+    true
+}
+
+fn gradient_matches_with_bindings(
+    doc: &Document,
+    n: &Node,
+    sn: &Node,
+    prefix: &str,
+    i: usize,
+    (h1, s1): (&[Vec2; 3], &[GradientStop]),
+    (h2, s2): (&[Vec2; 3], &[GradientStop]),
+) -> bool {
+    if h1 != h2 || s1.len() != s2.len() {
+        return false;
+    }
+    for (j, (st1, st2)) in s1.iter().zip(s2.iter()).enumerate() {
+        if (st1.pos - st2.pos).abs() > 1e-5 {
+            return false;
+        }
+        let stop_key = format!("{prefix}{i}/stops/{j}");
+        let stop_bound = doc.effective_binding(n.id, &stop_key).is_some() && doc.effective_binding(n.id, &stop_key) == doc.effective_binding(sn.id, &stop_key);
+        if !stop_bound && st1.color != st2.color {
+            return false;
+        }
+    }
+    true
+}
+
+fn paints_match_with_bindings(doc: &Document, n: &Node, sn: &Node, prefix: &str) -> bool {
+    let p_n = node_paints_for_prefix(n, prefix);
+    let p_s = node_paints_for_prefix(sn, prefix);
+    if p_n.len() != p_s.len() {
+        return false;
+    }
+    for (i, (a, b)) in p_n.iter().zip(p_s.iter()).enumerate() {
+        if a.visible != b.visible || a.blend != b.blend {
+            return false;
+        }
+        let op_key = format!("{prefix}{i}/opacity");
+        let op_bound = doc.effective_binding(n.id, &op_key).is_some() && doc.effective_binding(n.id, &op_key) == doc.effective_binding(sn.id, &op_key);
+        if !op_bound && (a.opacity - b.opacity).abs() > 1e-5 {
+            return false;
+        }
+        let color_key = format!("{prefix}{i}");
+        let color_key_alt = format!("{prefix}{i}/color");
+        let color_bound = (doc.effective_binding(n.id, &color_key).is_some()
+            && doc.effective_binding(n.id, &color_key) == doc.effective_binding(sn.id, &color_key))
+            || (doc.effective_binding(n.id, &color_key_alt).is_some()
+                && doc.effective_binding(n.id, &color_key_alt) == doc.effective_binding(sn.id, &color_key_alt));
+        match (&a.kind, &b.kind) {
+            (PaintKind::Solid(_), PaintKind::Solid(_)) if color_bound => {}
+            (PaintKind::LinearGradient { handles: h1, stops: s1 }, PaintKind::LinearGradient { handles: h2, stops: s2 })
+            | (PaintKind::RadialGradient { handles: h1, stops: s1 }, PaintKind::RadialGradient { handles: h2, stops: s2 })
+            | (PaintKind::AngularGradient { handles: h1, stops: s1 }, PaintKind::AngularGradient { handles: h2, stops: s2 })
+            | (PaintKind::DiamondGradient { handles: h1, stops: s1 }, PaintKind::DiamondGradient { handles: h2, stops: s2 }) => {
+                if std::mem::discriminant(&a.kind) != std::mem::discriminant(&b.kind)
+                    || !gradient_matches_with_bindings(doc, n, sn, prefix, i, (h1, s1), (h2, s2))
+                {
+                    return false;
+                }
+            }
+            _ => {
+                if a.kind != b.kind {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+fn fills_differ_from_source(doc: &Document, n: &Node, src: Option<&Node>) -> bool {
+    let Some(sn) = src else {
+        return n.component.overrides.contains(&OverrideField::Fills)
+            || (matches!(n.kind, NodeKind::Text(_)) && n.component.overrides.contains(&OverrideField::TextStyle))
+            || has_prefix_binding(n, "fills/");
+    };
+    if n.style_refs.get("fill") != sn.style_refs.get("fill") {
+        return true;
+    }
+    if !paint_bindings_match(doc, n, sn, "fills/") {
+        return true;
+    }
+    !paints_match_with_bindings(doc, n, sn, "fills/")
+}
+
+fn strokes_differ_from_source(doc: &Document, n: &Node, src: Option<&Node>) -> bool {
+    let Some(sn) = src else {
+        return n.component.overrides.contains(&OverrideField::Stroke) || has_prefix_binding(n, "strokes/");
+    };
+    if n.style_refs.get("stroke") != sn.style_refs.get("stroke") {
+        return true;
+    }
+    if !paint_bindings_match(doc, n, sn, "strokes/") {
+        return true;
+    }
+    if !paints_match_with_bindings(doc, n, sn, "strokes/") {
+        return true;
+    }
+    if n.component.overrides.contains(&OverrideField::Stroke) {
+        let s1 = &n.stroke;
+        let s2 = &sn.stroke;
+        if (s1.weight - s2.weight).abs() > 1e-5
+            || s1.align != s2.align
+            || s1.cap != s2.cap
+            || s1.join != s2.join
+            || s1.dashes != s2.dashes
+            || (s1.miter_limit - s2.miter_limit).abs() > 1e-5
+            || s1.side_weights != s2.side_weights
+            || n.stroke_geometry != sn.stroke_geometry
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn overridden_node_bindings(n: &Node, src: Option<&Node>) -> BTreeMap<String, String> {
+    let Some(sn) = src else {
+        return n.variables.bindings.clone();
+    };
+    let mut diff: BTreeMap<String, String> =
+        n.variables.bindings.iter().filter(|(k, v)| sn.variables.bindings.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    if diff.contains_key("fontStyle") || diff.contains_key("fontWeight") {
+        for key in ["fontStyle", "fontWeight"] {
+            if let Some(v) = n.variables.bindings.get(key) {
+                diff.entry(key.to_string()).or_insert_with(|| v.clone());
+            }
+        }
+    }
+    diff
+}
+
+fn overridden_node_modes(n: &Node, src: Option<&Node>) -> BTreeMap<String, String> {
+    let Some(sn) = src else {
+        return n.variables.modes.clone();
+    };
+    n.variables.modes.iter().filter(|(k, v)| sn.variables.modes.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
 fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
     let mut out = Vec::new();
     let Some(inst) = cx.doc.get(inst_id) else { return out };
@@ -1887,22 +2101,58 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
             path.push(step_g);
         }
 
+        let src_node = if own {
+            n.component
+                .source
+                .or(match n.kind {
+                    NodeKind::Instance { component, .. } => component,
+                    _ => None,
+                })
+                .and_then(|s| cx.doc.get(s))
+        } else {
+            n.component.source.and_then(|s| cx.doc.get(s))
+        };
+
         // Swapped, as far as the file can tell: both this instance and the one it mirrors in the main have a component,
         // and they are not the same. A main-side instance with none is a gap, not a swap to write.
         let nested_comp_differs = !own
-            && match (&n.kind, n.component.source.and_then(|s| cx.doc.get(s)).map(|sn| &sn.kind)) {
+            && match (&n.kind, src_node.map(|sn| &sn.kind)) {
                 (NodeKind::Instance { component: Some(c), .. }, Some(NodeKind::Instance { component: Some(sc), .. })) => c != sc,
                 _ => false,
             };
-        let has_nested_prop_ov =
-            !own && !n.component.values.is_empty() && n.component.source.and_then(|s| cx.doc.get(s)).is_none_or(|sn| sn.component.values != n.component.values);
+        let has_nested_prop_ov = !own && !n.component.values.is_empty() && src_node.is_none_or(|sn| sn.component.values != n.component.values);
+
+        // A swapped nested instance inherits its shell paints and variable bindings from the component it was swapped to.
+        let inherited_src = if nested_comp_differs {
+            match n.kind {
+                NodeKind::Instance { component: Some(c), .. } => cx.doc.get(c).or(src_node),
+                _ => src_node,
+            }
+        } else {
+            src_node
+        };
+
+        let fill_differs = fills_differ_from_source(cx.doc, n, inherited_src);
+        let stroke_differs = strokes_differ_from_source(cx.doc, n, inherited_src);
+        let has_fill_var = !own && (has_prefix_binding(n, "fills/") || inherited_src.is_some_and(|sn| has_prefix_binding(sn, "fills/"))) && fill_differs;
+        let has_stroke_var =
+            !own && (has_prefix_binding(n, "strokes/") || inherited_src.is_some_and(|sn| has_prefix_binding(sn, "strokes/"))) && stroke_differs;
+        let ve = if own { Vec::new() } else { encode_var_entries_from_bindings(cx, &overridden_node_bindings(n, inherited_src)) };
+        let me = if own {
+            Vec::new()
+        } else {
+            let modes = overridden_node_modes(n, inherited_src);
+            encode_node_mode_entries(cx, &NodeVariables { bindings: BTreeMap::new(), modes })
+        };
 
         // The instance's own bindings, override level and detached id are fields of its node change already, so
         // only a flagged field makes an entry for it; they are left out of it below.
         if !n.component.overrides.is_empty()
             || (!own
-                && (!n.variables.bindings.is_empty()
-                    || !n.variables.modes.is_empty()
+                && (has_fill_var
+                    || has_stroke_var
+                    || !ve.is_empty()
+                    || !me.is_empty()
                     || n.component.override_level.is_some()
                     || n.component.detached_symbol_id.is_some()
                     || nested_comp_differs
@@ -1944,18 +2194,15 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::Transform) {
                 ov.push(("transform", encode_matrix(&n.transform)));
             }
-            // A bound paint of a nested node is written whether or not it is flagged; the instance's own is not, or
-            // the reader would flag a paint the instance only inherits.
-            let has_fill_var = !own && n.variables.bindings.keys().any(|k| k.starts_with("fills/"));
-            if ovs.contains(&OverrideField::Fills) || has_fill_var {
-                let fills_slice = match &n.kind {
-                    NodeKind::Text(t) => &t.style.fills,
-                    _ => &n.fills,
-                };
+            // A paint the file records as an override is written as it is, even when it equals the main's paint:
+            // the record is what keeps the node from following a later change of the main. Only a paint the node
+            // merely inherits (no flag) is left out when it matches what the main component supplies.
+            let text_fill_flagged = matches!(n.kind, NodeKind::Text(_)) && ovs.contains(&OverrideField::TextStyle);
+            if ovs.contains(&OverrideField::Fills) || (text_fill_flagged && fill_differs) || has_fill_var {
+                let fills_slice = node_fills(n);
                 let fps: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &n.variables.bindings)).collect();
                 ov.push(("fillPaints", V::Array(fps)));
             }
-            let has_stroke_var = !own && n.variables.bindings.keys().any(|k| k.starts_with("strokes/"));
             if ovs.contains(&OverrideField::Stroke) || has_stroke_var {
                 let sps: Vec<V> =
                     n.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &n.variables.bindings)).collect();
@@ -2030,13 +2277,22 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
                     ov.push(("rectangleBottomLeftCornerRadius", fl(r[3])));
                 }
             }
-            if ovs.contains(&OverrideField::Characters) {
-                if let NodeKind::Text(tp) = &n.kind {
-                    ov.push(("textData", msg(vec![("characters", V::String(tp.content.clone()))])));
+            if let NodeKind::Text(tp) = &n.kind {
+                let src_tp = src_node.and_then(|sn| match &sn.kind {
+                    NodeKind::Text(stp) => Some(stp),
+                    _ => None,
+                });
+                let runs_differ = !tp.runs.is_empty() && (ovs.contains(&OverrideField::TextStyle) || src_tp.is_none_or(|stp| stp.runs != tp.runs));
+                let lists_differ = (tp.has_lists() || tp.direction != TextDirection::Auto)
+                    && (ovs.contains(&OverrideField::Characters)
+                        || ovs.contains(&OverrideField::TextStyle)
+                        || src_tp.is_none_or(|stp| stp.lists != tp.lists || stp.direction != tp.direction));
+                // Only a node that overrides its characters records them: a record that names the characters pins the
+                // text, and a node with a style-only override must keep following its main component's text.
+                if ovs.contains(&OverrideField::Characters) {
+                    ov.push(("textData", encode_text_data(tp, runs_differ, lists_differ)));
                 }
-            }
-            if ovs.contains(&OverrideField::TextStyle) {
-                if let NodeKind::Text(tp) = &n.kind {
+                if ovs.contains(&OverrideField::TextStyle) {
                     // Figma applies an instance text-style relink/detach from the
                     // override record. The ordinary node style reference is not
                     // consulted while replaying symbolOverrides, so preserve the
@@ -2045,6 +2301,7 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
                         ov.push(("styleIdForText", style_override));
                     }
                     append_text_style_fields(&mut ov, &tp.style);
+                    append_paragraph_fields(&mut ov, tp);
                 }
             }
             if ovs.contains(&OverrideField::Layout) {
@@ -2185,11 +2442,9 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::SlotContent) {
                 carried.push(("slotContent", serde_json::Value::Bool(true)));
             }
-            let ve = if own { Vec::new() } else { encode_node_var_entries(cx, &n.variables) };
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));
             }
-            let me = if own { Vec::new() } else { encode_node_mode_entries(cx, &n.variables) };
             if !me.is_empty() {
                 ov.push(("variableModeBySetMap", msg(vec![("entries", V::Array(me))])));
             }
@@ -2897,31 +3152,7 @@ fn append_shared_text_style_fields(fields: &mut Vec<(&'static str, V)>, ts: &Tex
     fields.retain(|(key, _)| *key != "textAlignHorizontal" && *key != "textAlignVertical");
 }
 
-fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
-    append_text_style_fields(fields, &tp.style);
-    fields.push(("autoRename", V::Bool(tp.auto_rename)));
-    fields.push(("textDecorationSkipInk", V::Bool(tp.decoration_skip_ink)));
-    match tp.text_wrap {
-        TextWrap::Auto => {}
-        TextWrap::Balance => fields.push(("textWrapStyle", en("BALANCE"))),
-        TextWrap::Pretty => fields.push(("textWrapStyle", en("PRETTY"))),
-    }
-    fields.push((
-        "textAutoResize",
-        en(match tp.auto_resize {
-            TextAutoResize::None => "NONE",
-            TextAutoResize::WidthAndHeight => "WIDTH_AND_HEIGHT",
-            TextAutoResize::Height => "HEIGHT",
-            // Figma has no `TRUNCATE` resize mode: a truncating text is fixed in size and says so in `textTruncation`.
-            TextAutoResize::Truncate => "NONE",
-        }),
-    ));
-    if tp.auto_resize == TextAutoResize::Truncate {
-        fields.push(("textTruncation", en("ENDING")));
-    }
-    if let Some(m) = tp.max_lines {
-        fields.push(("maxLines", V::Int(i32::try_from(m).unwrap_or(i32::MAX))));
-    }
+fn append_paragraph_fields(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
     if tp.paragraph.indent != 0.0 {
         fields.push(("paragraphIndent", fl(tp.paragraph.indent)));
     }
@@ -2937,9 +3168,11 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
     if tp.paragraph.leading_trim == LeadingTrim::CapHeight {
         fields.push(("leadingTrim", en("CAP_HEIGHT")));
     }
+}
 
+fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool) -> V {
     let mut td = vec![("characters", V::String(tp.content.clone()))];
-    if !tp.runs.is_empty() {
+    if include_runs && !tp.runs.is_empty() {
         let offs = utf16_to_byte_offsets(&tp.content);
         let mut char_ids = vec![0u32; offs.len().saturating_sub(1)];
         let mut table = Vec::new();
@@ -2992,7 +3225,7 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
         td.push(("characterStyleIDs", V::Array(char_ids.into_iter().map(V::Uint).collect())));
         td.push(("styleOverrideTable", V::Array(table)));
     }
-    if tp.has_lists() || tp.direction != TextDirection::Auto {
+    if include_lines && (tp.has_lists() || tp.direction != TextDirection::Auto) {
         let dir = match tp.direction {
             TextDirection::Auto => "AUTO",
             TextDirection::Ltr => "LTR",
@@ -3014,7 +3247,36 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
             td.push(("lines", V::Array(lines)));
         }
     }
-    fields.push(("textData", msg(td)));
+    msg(td)
+}
+
+fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
+    append_text_style_fields(fields, &tp.style);
+    fields.push(("autoRename", V::Bool(tp.auto_rename)));
+    fields.push(("textDecorationSkipInk", V::Bool(tp.decoration_skip_ink)));
+    match tp.text_wrap {
+        TextWrap::Auto => {}
+        TextWrap::Balance => fields.push(("textWrapStyle", en("BALANCE"))),
+        TextWrap::Pretty => fields.push(("textWrapStyle", en("PRETTY"))),
+    }
+    fields.push((
+        "textAutoResize",
+        en(match tp.auto_resize {
+            TextAutoResize::None => "NONE",
+            TextAutoResize::WidthAndHeight => "WIDTH_AND_HEIGHT",
+            TextAutoResize::Height => "HEIGHT",
+            // Figma has no `TRUNCATE` resize mode: a truncating text is fixed in size and says so in `textTruncation`.
+            TextAutoResize::Truncate => "NONE",
+        }),
+    ));
+    if tp.auto_resize == TextAutoResize::Truncate {
+        fields.push(("textTruncation", en("ENDING")));
+    }
+    if let Some(m) = tp.max_lines {
+        fields.push(("maxLines", V::Int(i32::try_from(m).unwrap_or(i32::MAX))));
+    }
+    append_paragraph_fields(fields, tp);
+    fields.push(("textData", encode_text_data(tp, true, true)));
 }
 
 fn blend_name(b: BlendMode) -> &'static str {
