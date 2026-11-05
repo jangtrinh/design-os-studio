@@ -545,6 +545,28 @@ fn parse_connector_cap(s: &str, op_idx: usize, field: &str) -> Result<designos_d
     }
 }
 
+/// What a `connect` update does to one end the connector already stores.
+enum ConnectEndChange {
+    /// The op does not name the end: it stays as stored.
+    Keep,
+    /// The op names a layer: the end attaches to it.
+    Attach(NodeId),
+    /// The op names a page-space point: the end becomes free there.
+    Free(designos_doc::Vec2),
+}
+
+impl ConnectEndChange {
+    /// The layer the end rests on once the op is applied. A kept end whose layer is gone is free at
+    /// its last point and names none.
+    fn attached_node(&self, doc: &Document, stored: designos_doc::ConnectorEnd) -> Option<NodeId> {
+        match self {
+            Self::Attach(id) => Some(*id),
+            Self::Keep => stored.node.filter(|id| doc.get(*id).is_some()),
+            Self::Free(_) => None,
+        }
+    }
+}
+
 fn validate_connect_end_pre_run(end: &ConnectEndInput, declared_as: &BTreeSet<String>, has_prev: bool, op_idx: usize, field: &str) -> Result<(), ToolError> {
     match end {
         ConnectEndInput::Node(nr) => validate_ref_pre_run(nr, declared_as, has_prev, op_idx, "connect", field),
@@ -1083,7 +1105,17 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                     &format!("/ops/{idx}/op"),
                     format!("unsupported batch op '{other}'"),
                 )
-                .with_valid_options(vec!["apply_spec", "insert", "update", "move", "delete", "set_variables", "set_style", "set_slot"]));
+                .with_valid_options(vec![
+                    "apply_spec",
+                    "insert",
+                    "update",
+                    "move",
+                    "delete",
+                    "set_variables",
+                    "set_style",
+                    "set_slot",
+                    "connect",
+                ]));
             }
         };
 
@@ -2533,7 +2565,11 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         ));
                     };
 
-                    let (from_attached, from_free_page) = match &a.from {
+                    // An end the op does not name keeps what the connector stores. Only an end passed in is an
+                    // attach, so only that end has to be connectable: an existing attachment outlives its node
+                    // being hidden, locked or deleted.
+                    let from_change = match &a.from {
+                        None => ConnectEndChange::Keep,
                         Some(ConnectEndInput::Node(r)) => {
                             let fid = resolve_node_ref(&trial, &alias_roots, prev_node, r, op_idx, op_name, "from")?;
                             if !designos_doc::connectable_node(&trial, fid) {
@@ -2545,30 +2581,13 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                                     format!("UNSUPPORTED_NODE_KIND: node {} cannot be a connector endpoint", fid.0),
                                 ));
                             }
-                            (Some(fid), None)
+                            ConnectEndChange::Attach(fid)
                         }
-                        Some(ConnectEndInput::Point(p)) => (None, Some(designos_doc::Vec2::new(p.point[0], p.point[1]))),
-                        None => match props.start.node {
-                            Some(fid) => {
-                                if !designos_doc::connectable_node(&trial, fid) {
-                                    return Err(op_failed_error(
-                                        op_idx,
-                                        op_name,
-                                        ErrorCode::UnsupportedNodeKind,
-                                        &format!("{op_path}/from"),
-                                        format!("UNSUPPORTED_NODE_KIND: node {} cannot be a connector endpoint", fid.0),
-                                    ));
-                                }
-                                (Some(fid), None)
-                            }
-                            None => {
-                                let old_wt = cur_node.parent.map(|p| trial.world_transform(p)).unwrap_or(designos_doc::Affine::IDENTITY);
-                                (None, Some(old_wt.apply(props.start.point)))
-                            }
-                        },
+                        Some(ConnectEndInput::Point(p)) => ConnectEndChange::Free(designos_doc::Vec2::new(p.point[0], p.point[1])),
                     };
 
-                    let (to_attached, to_free_page) = match &a.to {
+                    let to_change = match &a.to {
+                        None => ConnectEndChange::Keep,
                         Some(ConnectEndInput::Node(r)) => {
                             let tid = resolve_node_ref(&trial, &alias_roots, prev_node, r, op_idx, op_name, "to")?;
                             if !designos_doc::connectable_node(&trial, tid) {
@@ -2580,28 +2599,13 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                                     format!("UNSUPPORTED_NODE_KIND: node {} cannot be a connector endpoint", tid.0),
                                 ));
                             }
-                            (Some(tid), None)
+                            ConnectEndChange::Attach(tid)
                         }
-                        Some(ConnectEndInput::Point(p)) => (None, Some(designos_doc::Vec2::new(p.point[0], p.point[1]))),
-                        None => match props.end.node {
-                            Some(tid) => {
-                                if !designos_doc::connectable_node(&trial, tid) {
-                                    return Err(op_failed_error(
-                                        op_idx,
-                                        op_name,
-                                        ErrorCode::UnsupportedNodeKind,
-                                        &format!("{op_path}/to"),
-                                        format!("UNSUPPORTED_NODE_KIND: node {} cannot be a connector endpoint", tid.0),
-                                    ));
-                                }
-                                (Some(tid), None)
-                            }
-                            None => {
-                                let old_wt = cur_node.parent.map(|p| trial.world_transform(p)).unwrap_or(designos_doc::Affine::IDENTITY);
-                                (None, Some(old_wt.apply(props.end.point)))
-                            }
-                        },
+                        Some(ConnectEndInput::Point(p)) => ConnectEndChange::Free(designos_doc::Vec2::new(p.point[0], p.point[1])),
                     };
+                    let keeps_both_ends = matches!((&from_change, &to_change), (ConnectEndChange::Keep, ConnectEndChange::Keep));
+                    let from_attached = from_change.attached_node(&trial, props.start);
+                    let to_attached = to_change.attached_node(&trial, props.end);
 
                     if let (Some(fid), Some(tid)) = (from_attached, to_attached) {
                         if fid == tid {
@@ -2617,7 +2621,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
 
                     let from_page = from_attached.and_then(|fid| page_of_node(&trial, fid));
                     let to_page = to_attached.and_then(|tid| page_of_node(&trial, tid));
-                    if let (Some(pa), Some(pb)) = (from_page, to_page) {
+                    if let (Some(pa), Some(pb), false) = (from_page, to_page, keeps_both_ends) {
                         if pa != pb {
                             return Err(op_failed_error(
                                 op_idx,
@@ -2640,16 +2644,22 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         .or_else(|| page_of_node(&trial, id))
                         .or(default_page)
                         .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::PageNotFound, &op_path, "Document has no pages"))?;
-                    let home = designos_doc::connector_home(&trial, from_attached, to_attached, page);
+                    // The home is worked out again only when the op attaches or detaches an end.
+                    let home = match (keeps_both_ends, cur_node.parent) {
+                        (true, Some(parent)) => parent,
+                        _ => designos_doc::connector_home(&trial, from_attached, to_attached, page),
+                    };
                     check_lease_guard(&trial, engine.owned_frames.as_deref(), home, op_idx, op_name)?;
-                    if let Some(fid) = from_attached {
+                    if let ConnectEndChange::Attach(fid) = from_change {
                         check_lease_guard(&trial, engine.owned_frames.as_deref(), fid, op_idx, op_name)?;
                     }
-                    if let Some(tid) = to_attached {
+                    if let ConnectEndChange::Attach(tid) = to_change {
                         check_lease_guard(&trial, engine.owned_frames.as_deref(), tid, op_idx, op_name)?;
                     }
 
                     let home_inv = trial.world_transform(home).invert().unwrap_or(designos_doc::Affine::IDENTITY);
+                    let old_world = cur_node.parent.map(|p| trial.world_transform(p)).unwrap_or(designos_doc::Affine::IDENTITY);
+                    let rehomed = cur_node.parent != Some(home);
                     let from_mag = match &a.from_magnet {
                         Some(s) => parse_magnet(s, op_idx, "from_magnet")?,
                         None => props.start.magnet,
@@ -2658,20 +2668,19 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         Some(s) => parse_magnet(s, op_idx, "to_magnet")?,
                         None => props.end.magnet,
                     };
-                    props.start = match from_attached {
-                        Some(fid) => designos_doc::ConnectorEnd { node: Some(fid), magnet: from_mag, point: props.start.point },
-                        None => designos_doc::ConnectorEnd {
-                            node: None,
-                            magnet: from_mag,
-                            point: home_inv.apply(from_free_page.unwrap_or(designos_doc::Vec2::ZERO)),
-                        },
-                    };
-                    props.end = match to_attached {
-                        Some(tid) => designos_doc::ConnectorEnd { node: Some(tid), magnet: to_mag, point: props.end.point },
-                        None => {
-                            designos_doc::ConnectorEnd { node: None, magnet: to_mag, point: home_inv.apply(to_free_page.unwrap_or(designos_doc::Vec2::ZERO)) }
+                    let build_end = |change: &ConnectEndChange, stored: designos_doc::ConnectorEnd, magnet: designos_doc::Magnet| match change {
+                        ConnectEndChange::Attach(node) => designos_doc::ConnectorEnd { node: Some(*node), magnet, point: stored.point },
+                        ConnectEndChange::Free(page_point) => designos_doc::ConnectorEnd { node: None, magnet, point: home_inv.apply(*page_point) },
+                        ConnectEndChange::Keep => {
+                            // A kept end that still rests on a layer is re-derived from it; a free or dangling one
+                            // holds its last point, which changes space only when the connector changes container.
+                            let rests_on_layer = stored.node.is_some_and(|id| trial.get(id).is_some());
+                            let point = if rests_on_layer || !rehomed { stored.point } else { home_inv.apply(old_world.apply(stored.point)) };
+                            designos_doc::ConnectorEnd { magnet, point, ..stored }
                         }
                     };
+                    props.start = build_end(&from_change, props.start, from_mag);
+                    props.end = build_end(&to_change, props.end, to_mag);
                     if let Some(l) = &a.line {
                         props.line = parse_connector_line(l, op_idx)?;
                     }
@@ -5166,5 +5175,343 @@ mod tests {
         assert!(conn_line.contains("from_magnet=\"right\""), "metadata xml must show connector start magnet: {conn_line}");
         assert!(conn_line.contains(&format!("to=\"{b_id}\"")), "metadata xml must show connector end node: {conn_line}");
         assert!(conn_line.contains("to_magnet=\"left\""), "metadata xml must show connector end magnet: {conn_line}");
+    }
+
+    /// Two page-level rectangles joined by a connector; returns `(a, b, link)`.
+    fn page_connector_between_two_boxes(engine: &mut Engine, page: NodeId) -> (NodeId, NodeId, NodeId) {
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "a", "parent": page.0, "kind": "rectangle", "name": "A", "x": 0.0, "y": 0.0, "width": 80.0, "height": 50.0 },
+                        { "op": "insert", "as": "b", "parent": page.0, "kind": "rectangle", "name": "B", "x": 200.0, "y": 0.0, "width": 80.0, "height": 50.0 },
+                        { "op": "connect", "as": "link", "from": "@a", "to": "@b" }
+                    ]
+                }),
+            )
+            .expect("two boxes and a connector");
+        let id = |name: &str| NodeId(res["name_to_id"][name].as_u64().unwrap());
+        (id("a"), id("b"), id("link"))
+    }
+
+    fn connector_ends(engine: &Engine, id: NodeId) -> (designos_doc::ConnectorEnd, designos_doc::ConnectorEnd) {
+        let NodeKind::Connector(props) = &engine.doc.get(id).unwrap().kind else { panic!("expected connector") };
+        (props.start, props.end)
+    }
+
+    fn connector_label(engine: &Engine, id: NodeId) -> Option<String> {
+        let NodeKind::Connector(props) = &engine.doc.get(id).unwrap().kind else { panic!("expected connector") };
+        props.label.as_ref().map(|l| l.content.clone())
+    }
+
+    fn assert_connector_matches_its_geometry(engine: &Engine, id: NodeId) {
+        let node = engine.doc.get(id).unwrap();
+        let geom = designos_doc::connector_geometry(&engine.doc, id).expect("connector geometry");
+        assert_eq!(node.transform, geom.transform, "stored transform must match connector_geometry");
+        assert_eq!(node.size, geom.size, "stored size must match connector_geometry");
+        let (start, end) = connector_ends(engine, id);
+        assert_eq!(start.point, geom.start_point, "stored start point must match connector_geometry");
+        assert_eq!(end.point, geom.end_point, "stored end point must match connector_geometry");
+    }
+
+    fn label_only_update(engine: &mut Engine, link: NodeId) -> Result<Value, ToolError> {
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "label": "kept" }] }))
+    }
+
+    #[test]
+    fn mcp_connect_update_keeps_stored_ends_when_an_end_node_is_locked() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (a, b, link) = page_connector_between_two_boxes(&mut engine, page);
+        engine.doc.get_mut(b).unwrap().locked = true;
+        let ends_before = connector_ends(&engine, link);
+        let parent_before = engine.doc.get(link).unwrap().parent;
+
+        label_only_update(&mut engine, link).expect("an update that names no end must not re-check the stored ends");
+
+        assert_eq!(connector_ends(&engine, link), ends_before, "stored ends must stay as they are");
+        assert_eq!(connector_ends(&engine, link).1.node, Some(b));
+        assert_eq!(engine.doc.get(link).unwrap().parent, parent_before);
+        assert_eq!(connector_label(&engine, link).as_deref(), Some("kept"));
+
+        // Passing the locked node again is a new attach and is still refused.
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "to": b.0 }] }))
+            .expect_err("re-attaching a locked node must be refused");
+        assert_eq!(err.to_json_value()["cause"]["code"], "UNSUPPORTED_NODE_KIND");
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "from": a.0, "to": b.0 }] }))
+            .expect_err("re-attaching a locked node must be refused even when the other end is valid");
+        assert_eq!(err.to_json_value()["cause"]["code"], "UNSUPPORTED_NODE_KIND");
+    }
+
+    #[test]
+    fn mcp_connect_update_keeps_stored_ends_when_an_end_node_is_hidden() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (a, b, link) = page_connector_between_two_boxes(&mut engine, page);
+        engine.doc.get_mut(a).unwrap().visible = false;
+        let ends_before = connector_ends(&engine, link);
+
+        label_only_update(&mut engine, link).expect("an update that names no end must not re-check the stored ends");
+
+        assert_eq!(connector_ends(&engine, link), ends_before, "stored ends must stay as they are");
+        assert_eq!(connector_ends(&engine, link).0.node, Some(a));
+        assert_eq!(connector_ends(&engine, link).1.node, Some(b));
+        assert_eq!(connector_label(&engine, link).as_deref(), Some("kept"));
+
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "from": a.0 }] }))
+            .expect_err("re-attaching a hidden node must be refused");
+        assert_eq!(err.to_json_value()["cause"]["code"], "UNSUPPORTED_NODE_KIND");
+    }
+
+    #[test]
+    fn mcp_connect_update_keeps_stored_ends_when_an_end_node_is_deleted() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (a, b, link) = page_connector_between_two_boxes(&mut engine, page);
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": b.0 }] })).expect("delete the end node");
+        assert!(engine.doc.get(b).is_none());
+        let ends_before = connector_ends(&engine, link);
+        assert_eq!(ends_before.1.node, Some(b), "a deleted end node stays in the connector as a dangling id");
+
+        label_only_update(&mut engine, link).expect("an update that names no end must not re-check the stored ends");
+
+        assert_eq!(connector_ends(&engine, link), ends_before, "stored ends, dangling id and last point included, must stay as they are");
+        assert_eq!(connector_ends(&engine, link).0.node, Some(a));
+        assert_eq!(connector_label(&engine, link).as_deref(), Some("kept"));
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_connect_update_without_ends_leaves_the_connector_in_its_container() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "left", "parent": page.0, "kind": "frame", "name": "Left", "x": 0.0, "y": 0.0, "width": 300.0, "height": 200.0 },
+                        { "op": "insert", "as": "right", "parent": page.0, "kind": "frame", "name": "Right", "x": 500.0, "y": 0.0, "width": 300.0, "height": 200.0 },
+                        { "op": "insert", "as": "a", "parent": "@left", "kind": "rectangle", "name": "A", "x": 20.0, "y": 20.0, "width": 80.0, "height": 50.0 },
+                        { "op": "insert", "as": "b", "parent": "@right", "kind": "rectangle", "name": "B", "x": 20.0, "y": 20.0, "width": 80.0, "height": 50.0 },
+                        { "op": "connect", "as": "link", "from": "@a", "to": "@b" }
+                    ]
+                }),
+            )
+            .expect("two frames joined by a connector");
+        let b = NodeId(setup["name_to_id"]["b"].as_u64().unwrap());
+        let link = NodeId(setup["name_to_id"]["link"].as_u64().unwrap());
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(page), "a connector between two screens lives on the page");
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": b.0 }] })).expect("delete the end node");
+        let ends_before = connector_ends(&engine, link);
+
+        label_only_update(&mut engine, link).expect("label-only update");
+
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(page), "an update that attaches nothing must not re-home the connector");
+        assert_eq!(connector_ends(&engine, link), ends_before);
+        assert_eq!(connector_label(&engine, link).as_deref(), Some("kept"));
+    }
+
+    #[test]
+    fn mcp_connect_update_retargeting_both_ends_into_a_frame_rehomes_the_connector() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (_a, _b, link) = page_connector_between_two_boxes(&mut engine, page);
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(page));
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "panel", "parent": page.0, "kind": "frame", "name": "Panel", "x": 100.0, "y": 300.0, "width": 400.0, "height": 300.0 },
+                        { "op": "insert", "as": "x", "parent": "@panel", "kind": "rectangle", "name": "X", "x": 20.0, "y": 30.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "y", "parent": "@panel", "kind": "rectangle", "name": "Y", "x": 240.0, "y": 150.0, "width": 80.0, "height": 40.0 }
+                    ]
+                }),
+            )
+            .expect("frame with two boxes");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (panel, x, y) = (id("panel"), id("x"), id("y"));
+
+        engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "from": x.0, "to": y.0 }] }))
+            .expect("retarget both ends into the frame");
+
+        let conn = engine.doc.get(link).unwrap();
+        assert_eq!(conn.parent, Some(panel), "retargeting both ends into one frame must move the connector into it");
+        assert_eq!(engine.doc.get(panel).unwrap().children.last().copied(), Some(link), "the re-homed connector must be the topmost child");
+        assert!(!engine.doc.get(page).unwrap().children.contains(&link), "the connector must leave the page");
+        assert!(conn.layout_child.absolute, "a re-homed connector stays out of auto-layout flow");
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_connect_free_point_inside_a_rotated_frame_maps_back_to_the_page_point() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "frame", "parent": page.0, "kind": "frame", "name": "Tilted", "x": 100.0, "y": 200.0, "width": 400.0, "height": 300.0 },
+                        { "op": "insert", "as": "box", "parent": "@frame", "kind": "rectangle", "name": "Box", "x": 20.0, "y": 30.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "other", "parent": page.0, "kind": "rectangle", "name": "Other", "x": 900.0, "y": 0.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "far", "parent": page.0, "kind": "rectangle", "name": "Far", "x": 900.0, "y": 300.0, "width": 80.0, "height": 40.0 },
+                        { "op": "connect", "as": "moved", "from": "@other", "to": "@far" }
+                    ]
+                }),
+            )
+            .expect("setup");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (frame, boxed, moved) = (id("frame"), id("box"), id("moved"));
+        let rotated = designos_doc::Affine::translate(100.0, 200.0) * designos_doc::Affine::rotate(0.6);
+        engine.doc.get_mut(frame).unwrap().transform = rotated;
+        let page_point = designos_doc::Vec2::new(350.0, 250.0);
+        let world = engine.doc.world_transform(frame);
+
+        // Create path.
+        let created = engine
+            .call(
+                "designos_apply_batch",
+                json!({ "ops": [{ "op": "connect", "as": "made", "from": boxed.0, "to": { "point": [page_point.x, page_point.y] } }] }),
+            )
+            .expect("connect with a free end in a rotated frame");
+        let made = NodeId(created["name_to_id"]["made"].as_u64().unwrap());
+        assert_eq!(engine.doc.get(made).unwrap().parent, Some(frame));
+        let back = world.apply(connector_ends(&engine, made).1.point);
+        assert!((back.x - page_point.x).abs() < 0.01 && (back.y - page_point.y).abs() < 0.01, "created free end maps back to {page_point:?}, got {back:?}");
+
+        // Update path: the connector is re-homed into the rotated frame and its free end is converted.
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({ "ops": [{ "op": "connect", "node": moved.0, "from": boxed.0, "to": { "point": [page_point.x, page_point.y] } }] }),
+            )
+            .expect("retarget into a rotated frame");
+        assert_eq!(engine.doc.get(moved).unwrap().parent, Some(frame));
+        let back = world.apply(connector_ends(&engine, moved).1.point);
+        assert!((back.x - page_point.x).abs() < 0.01 && (back.y - page_point.y).abs() < 0.01, "updated free end maps back to {page_point:?}, got {back:?}");
+        assert_connector_matches_its_geometry(&engine, moved);
+    }
+
+    #[test]
+    fn mcp_connect_update_that_rehomes_keeps_a_free_end_at_its_page_point() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "frame", "parent": page.0, "kind": "frame", "name": "Tilted", "x": 100.0, "y": 200.0, "width": 400.0, "height": 300.0 },
+                        { "op": "insert", "as": "box", "parent": "@frame", "kind": "rectangle", "name": "Box", "x": 20.0, "y": 30.0, "width": 80.0, "height": 40.0 },
+                        { "op": "insert", "as": "other", "parent": page.0, "kind": "rectangle", "name": "Other", "x": 900.0, "y": 0.0, "width": 80.0, "height": 40.0 },
+                        { "op": "connect", "as": "link", "from": "@other", "to": { "point": [350.0, 250.0] } }
+                    ]
+                }),
+            )
+            .expect("setup");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (frame, boxed, link) = (id("frame"), id("box"), id("link"));
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(page));
+        engine.doc.get_mut(frame).unwrap().transform = designos_doc::Affine::translate(100.0, 200.0) * designos_doc::Affine::rotate(0.6);
+
+        engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": link.0, "from": boxed.0 }] }))
+            .expect("attach the start into the rotated frame, leaving the free end alone");
+
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(frame));
+        let end = connector_ends(&engine, link).1;
+        assert_eq!(end.node, None, "the free end stays free");
+        let back = engine.doc.world_transform(frame).apply(end.point);
+        assert!((back.x - 350.0).abs() < 0.01 && (back.y - 250.0).abs() < 0.01, "the free end must stay at its page point, got {back:?}");
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_moving_a_connected_node_in_a_later_batch_reroutes_the_connector() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (_a, b, link) = page_connector_between_two_boxes(&mut engine, page);
+        let transform_before = engine.doc.get(link).unwrap().transform;
+        let size_before = engine.doc.get(link).unwrap().size;
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": b.0, "x": 660.0 }] })).expect("move the end node");
+
+        let conn = engine.doc.get(link).unwrap();
+        assert!(conn.transform != transform_before || conn.size != size_before, "moving an end node must move or resize the connector");
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_connect_then_move_in_one_batch_leaves_the_connector_on_its_route_and_undoes_together() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "insert", "as": "a", "parent": page.0, "kind": "rectangle", "name": "A", "x": 0.0, "y": 0.0, "width": 80.0, "height": 50.0 },
+                        { "op": "insert", "as": "b", "parent": page.0, "kind": "rectangle", "name": "B", "x": 200.0, "y": 0.0, "width": 80.0, "height": 50.0 }
+                    ]
+                }),
+            )
+            .expect("two boxes");
+        let a = NodeId(setup["name_to_id"]["a"].as_u64().unwrap());
+        let b = NodeId(setup["name_to_id"]["b"].as_u64().unwrap());
+        let pre_nodes = engine.doc.nodes.clone();
+        let depth_before = engine.history.undo_depth();
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "connect", "as": "link", "from": a.0, "to": b.0 },
+                        { "op": "update", "node": b.0, "x": 660.0 }
+                    ]
+                }),
+            )
+            .expect("connect then move in one batch");
+        let link = NodeId(res["name_to_id"]["link"].as_u64().unwrap());
+
+        assert_eq!(engine.history.undo_depth(), depth_before + 1, "connect, move and the re-route must be one undo step");
+        assert_eq!(engine.doc.get(b).unwrap().transform.translation().x, 660.0);
+        assert_connector_matches_its_geometry(&engine, link);
+
+        engine.call("designos_undo", json!({})).expect("single undo");
+        assert!(engine.doc.get(link).is_none(), "one undo must remove the connector");
+        assert_eq!(engine.doc.nodes, pre_nodes, "one undo must also put the moved node back");
+    }
+
+    #[test]
+    fn mcp_export_spec_of_a_connector_returns_no_spec_and_warns() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (_a, _b, link) = page_connector_between_two_boxes(&mut engine, page);
+
+        let exported = engine.call("designos_export_spec", json!({ "node_id": link.0 })).expect("export_spec of a connector");
+
+        assert!(exported["spec"].is_null(), "a connector must not be exported as a spec: {exported}");
+        assert_eq!(exported["node_id"], link.0);
+        let warnings = exported["warnings"].as_array().expect("warnings array");
+        assert_eq!(warnings.len(), 1, "{exported}");
+        assert_eq!(warnings[0]["code"], "CONNECTORS_SKIPPED");
+        assert_eq!(warnings[0]["skipped"], 1);
+    }
+
+    #[test]
+    fn mcp_unknown_batch_op_lists_connect_among_the_valid_options() {
+        let mut engine = Engine::default();
+        let err = engine.call("designos_apply_batch", json!({ "ops": [{ "op": "conect" }] })).expect_err("unknown op must be refused");
+        let json = err.to_json_value();
+        let options = json["valid_options"].as_array().unwrap_or_else(|| panic!("valid_options expected: {json}"));
+        assert!(options.iter().any(|o| o == "connect"), "valid_options must list connect: {json}");
     }
 }

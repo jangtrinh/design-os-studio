@@ -847,8 +847,14 @@ impl Engine {
             }
             "designos_export_spec" => {
                 let a: NodeArgs = parse(args)?;
-                let mut spec = self.doc.export_spec(NodeId(a.node_id)).map_err(|e| ToolError::new(ErrorCode::NodeNotFound, "/node_id", e))?;
-                let skipped = strip_connectors_from_spec(&mut spec);
+                // A connector asked for by id is skipped like one met inside a subtree: no spec, one warning.
+                let (spec, skipped) = if matches!(self.doc.get(NodeId(a.node_id)).map(|n| &n.kind), Some(NodeKind::Connector(_))) {
+                    (None, 1)
+                } else {
+                    let mut spec = self.doc.export_spec(NodeId(a.node_id)).map_err(|e| ToolError::new(ErrorCode::NodeNotFound, "/node_id", e))?;
+                    let skipped = strip_connectors_from_spec(&mut spec);
+                    (Some(spec), skipped)
+                };
                 let mut out = json!({"node_id": a.node_id, "spec": spec});
                 if skipped > 0 {
                     out["warnings"] = json!([{
