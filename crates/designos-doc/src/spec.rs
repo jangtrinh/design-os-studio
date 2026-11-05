@@ -1383,10 +1383,26 @@ impl Document {
                     tp.style.align_v = TextAlignV::Center;
                 }
                 let needs_measure = spec.width.is_none() || spec.height.is_none();
-                if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") {
+                // A hug-width text with max_width is still a wrapping text box.  Keeping the
+                // default WidthAndHeight mode measures its intrinsic one-line width, then the
+                // layout solver clamps the box without ever recomputing the line height.
+                let hug_max_width =
+                    spec.width.is_none() && spec.max_width.is_some() && spec.width_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
+                if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") || hug_max_width {
                     tp.auto_resize = TextAutoResize::Height;
                     if spec.height.is_none() {
-                        n.size.y = ctx.text_size(tp, Some(n.size.x.max(20.0))).y;
+                        let wrap_width = if hug_max_width {
+                            let intrinsic = ctx.text_size(tp, None);
+                            n.size.x = intrinsic.x;
+                            intrinsic.x.min(spec.max_width.unwrap_or(intrinsic.x)).max(1.0)
+                        } else {
+                            n.size.x.max(20.0)
+                        };
+                        let measured = ctx.text_size(tp, Some(wrap_width));
+                        n.size.y = measured.y;
+                        if hug_max_width {
+                            n.size.x = n.size.x.min(wrap_width);
+                        }
                     }
                 } else {
                     let sz = ctx.text_size(tp, None);
@@ -2009,6 +2025,33 @@ pub fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hug_text_max_width_wraps_and_grows_height() {
+        struct Measure;
+        impl crate::text_measure::TextMeasure for Measure {
+            fn measure(&self, _tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
+                match wrap_width {
+                    None => Vec2::new(500.0, 17.0),
+                    Some(w) => Vec2::new(w, 85.0),
+                }
+            }
+        }
+        let mut doc = Document::new("hug-max-width");
+        let page = doc.add_page("Page");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "text",
+            "name": "Paragraph",
+            "text": "A long paragraph that must wrap",
+            "font_size": 14,
+            "width_sizing": "hug",
+            "max_width": 200
+        }))
+        .unwrap();
+        let report = doc.apply_spec_with_measure(page, &spec, &[], Some(&Measure)).unwrap();
+        let node = doc.get(report.root_node_id).unwrap();
+        assert_eq!(node.size, Vec2::new(200.0, 85.0));
+    }
 
     #[test]
     fn apply_and_export_easeui_spec_with_autolayout_and_comments() {
