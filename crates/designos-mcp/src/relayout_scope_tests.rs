@@ -275,12 +275,28 @@ fn a_batch_width_edit_re_solves_its_own_row_and_leaves_the_children_of_a_sibling
     assert_eq!(bubble_at(&e, bubble), (80.0, 12.0));
 }
 
+/// Puts every layer in `stored` back to the geometry it had. A step that solves the frames around it while
+/// it runs (the first `connect` of a test, on code that re-solves) leaves the fixture as stored again for
+/// the edit under test.
+fn restore_geometry(e: &mut Engine, stored: &Geometry) {
+    for (id, [x, y, w, h]) in stored {
+        if let Some(n) = e.doc.get_mut(NodeId(*id)) {
+            n.transform.tx = *x;
+            n.transform.ty = *y;
+            n.size.x = *w;
+            n.size.y = *h;
+        }
+    }
+}
+
 #[test]
 fn re_attaching_a_connector_inside_a_wrap_frame_moves_no_layer() {
     let WrapScreen { mut e, row, a, b } = wrap_screen();
     let c = e.doc.get(row).unwrap().children[2];
+    let stored = geometry(&e.doc);
     let reply = e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": a.0, "to": b.0 }] })).unwrap();
     let connector = reply["created"][0].as_u64().unwrap();
+    restore_geometry(&mut e, &stored);
     let before = geometry(&e.doc);
 
     e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": connector, "to": c.0, "label": "onward" }] })).unwrap();
@@ -293,9 +309,11 @@ fn moving_a_connector_to_the_screen_that_holds_its_frame_moves_no_layer() {
     let WrapScreen { mut e, row, a, b } = wrap_screen();
     let screen = e.doc.get(row).unwrap().parent.unwrap();
     let tail = *e.doc.get(screen).unwrap().children.last().unwrap();
+    let stored = geometry(&e.doc);
     let reply = e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": a.0, "to": b.0 }] })).unwrap();
     let connector = NodeId(reply["created"][0].as_u64().unwrap());
     assert_eq!(e.doc.get(connector).unwrap().parent, Some(row));
+    restore_geometry(&mut e, &stored);
     let before = geometry(&e.doc);
 
     e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "node": connector.0, "to": tail.0 }] })).unwrap();
