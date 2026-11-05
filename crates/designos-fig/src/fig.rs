@@ -1844,6 +1844,9 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             if !ov.is_empty() {
                 m.insert("_overrides".into(), Value::Array(ov));
             }
+            if let Some(kept) = keep_symbol_overrides(sd, lk) {
+                m.insert("_keptOverrides".into(), Value::String(kept));
+            }
             let derived = override_entries(nc, nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData"))), lk, true);
             if !derived.is_empty() {
                 m.insert("_derived".into(), Value::Array(derived));
@@ -2726,6 +2729,43 @@ fn resolve_override_grid_anchor(
 /// Override entries of `instance`. Cell anchors in them resolve against the grid they sit in: for a
 /// child one step below the instance that is the instance's own tracks, deeper down it is the tracks
 /// an entry restates for the parent.
+/// The override entries of an instance exactly as the file states them, as compact JSON text, with the two kinds of
+/// reference that only mean something inside this file's tables: the bytes of every geometry blob the entries name
+/// (by blob index) and the name of every component property they assign (by definition id). A writer that carries
+/// the entries over without loading the instance re-adds those to its own tables. Kept only for files large enough to
+/// defer pages, where an instance on an unloaded page keeps nothing else of what the file said about it.
+fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<String> {
+    if !lk.large_file {
+        return None;
+    }
+    let sd = sd?;
+    let entries = sd.get("symbolOverrides")?.as_array().filter(|a| !a.is_empty())?;
+    let mut blobs = Map::new();
+    let mut props = Map::new();
+    for e in entries {
+        for key in ["fillGeometry", "strokeGeometry"] {
+            for g in rest_import::farr(e, key) {
+                let Some(idx) = g.get("commandsBlob").and_then(Value::as_u64) else { continue };
+                if let Some(bytes) = usize::try_from(idx).ok().and_then(|i| lk.blobs.get(i)) {
+                    blobs.entry(idx.to_string()).or_insert_with(|| Value::String(kiwi::hex(bytes)));
+                }
+            }
+        }
+        for a in rest_import::farr(e, "componentPropAssignments") {
+            let Some(def) = a.get("defID").and_then(guid_str) else { continue };
+            if let Some((key, _)) = lk.prop_defs.get(&def) {
+                props.entry(def).or_insert_with(|| Value::String(key.split('#').next().unwrap_or(key).to_string()));
+            }
+        }
+    }
+    // Written piece by piece: the entries are the bulk of it and are not copied.
+    let main = serde_json::to_string(&sd.get("symbolID").and_then(guid_str)).ok()?;
+    let entries = serde_json::to_string(entries).ok()?;
+    let blobs = serde_json::to_string(&blobs).ok()?;
+    let props = serde_json::to_string(&props).ok()?;
+    Some(format!("{{\"main\":{main},\"entries\":{entries},\"blobs\":{blobs},\"props\":{props}}}"))
+}
+
 fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
     let Some(raw) = list.and_then(Value::as_array) else { return Vec::new() };
     let carried: Vec<std::borrow::Cow<'_, Value>> = raw.iter().map(with_field_carriers).collect();

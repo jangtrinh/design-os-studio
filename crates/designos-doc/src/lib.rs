@@ -544,6 +544,12 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn take_last_error(&mut self) -> Option<String> {
         None
     }
+    /// What the file stated for `instance` (its override entries) while the instance's page has not been loaded:
+    /// the loader's own record, as text only the loader's format reader can interpret. `None` once the page is loaded,
+    /// or when the file stated nothing for it. Read-only: nothing is taken, loaded or marked.
+    fn pending_instance_overrides(&self, _instance: NodeId) -> Option<String> {
+        None
+    }
 }
 
 mod serde_images {
@@ -734,6 +740,15 @@ impl Document {
             self.mark_tree_full_dirty();
         }
         changed
+    }
+
+    /// The override entries the file stated for `instance` while its page has not been loaded (see
+    /// [`PageHydrator::pending_instance_overrides`]). Read-only: a writer reads it to carry the entries over without
+    /// loading the page, and the document's page loader is left exactly as it was.
+    pub fn pending_instance_overrides(&self, instance: NodeId) -> Option<String> {
+        let h = self.page_hydrator.as_ref()?;
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.pending_instance_overrides(instance)
     }
 
     /// Number of instances skipped by deferred page hydration due to hitting the clone budget.

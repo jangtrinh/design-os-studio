@@ -680,6 +680,9 @@ struct Overrides {
     set: Vec<OverrideEntry>,
     derived: Vec<OverrideEntry>,
     fast_derived: Vec<crate::fig::FastDerivedEntry>,
+    /// The entries of `symbolOverrides` as the file states them (`_keptOverrides`, text only a `.fig` writer reads).
+    /// Present only for files large enough to defer pages; it goes with the instance's overrides once they are applied.
+    kept: Option<Box<str>>,
 }
 
 #[derive(Debug)]
@@ -1152,7 +1155,12 @@ impl<'a> Ctx<'a> {
                 }
             }
             let fast_derived = fstr(&v, "id").and_then(|sid| self.fast_derived_map.as_deref_mut().and_then(|m| m.remove(sid))).unwrap_or_default();
-            let ov = Overrides { set: take_override_entries(v.get_mut("_overrides")), derived: take_override_entries(v.get_mut("_derived")), fast_derived };
+            let kept = match v.get_mut("_keptOverrides").map(std::mem::take) {
+                Some(Value::String(t)) if !t.is_empty() => Some(t.into_boxed_str()),
+                _ => None,
+            };
+            let ov =
+                Overrides { set: take_override_entries(v.get_mut("_overrides")), derived: take_override_entries(v.get_mut("_derived")), fast_derived, kept };
             if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() {
                 self.overrides.insert(id, ov);
             }
@@ -1260,7 +1268,8 @@ impl<'a> Ctx<'a> {
                 }
             }
             let fast_derived = fstr(v, "id").and_then(|sid| self.fast_derived_map.as_deref_mut().and_then(|m| m.remove(sid))).unwrap_or_default();
-            let ov = Overrides { set: parse_override_entries(v.get("_overrides")), derived: parse_override_entries(v.get("_derived")), fast_derived };
+            let kept = v.get("_keptOverrides").and_then(Value::as_str).filter(|t| !t.is_empty()).map(Box::from);
+            let ov = Overrides { set: parse_override_entries(v.get("_overrides")), derived: parse_override_entries(v.get("_derived")), fast_derived, kept };
             if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() {
                 self.overrides.insert(id, ov);
             }
@@ -3748,6 +3757,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn take_last_error(&mut self) -> Option<String> {
         self.last_error.take()
+    }
+
+    fn pending_instance_overrides(&self, instance: NodeId) -> Option<String> {
+        self.overrides.get(&instance)?.kept.as_deref().map(String::from)
     }
 }
 

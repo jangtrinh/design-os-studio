@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, HashSet};
 
 mod carrier;
 mod grid;
+mod kept_overrides;
 pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
 
 /// Plugin id under which Studio keeps node data that has no field in Figma's NodeChange schema. It travels
@@ -203,15 +204,11 @@ fn validate_shader_refs(doc: &Document, schema: &crate::kiwi::Schema) -> Result<
 
 /// Serializes `doc` into a `.fig` binary archive (ZIP containing `canvas.fig`,
 /// `meta.json`, and `images/<hash>`).
+///
+/// `doc` is only read. An instance on a page the document's page loader has not opened yet has no children to read
+/// its overrides from, so it is written with the override entries the file stated for it; no page is opened and the
+/// loader is left as it was.
 pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
-    let mut hydrated;
-    let doc = if doc.page_hydrator.is_some() {
-        hydrated = doc.clone();
-        hydrated.hydrate_all_pages();
-        &hydrated
-    } else {
-        doc
-    };
     let schema = export_schema();
     validate_shader_refs(doc, schema)?;
     let root = schema.find("Message").ok_or_else(|| FigError::Format("missing Message in schema".into()))?;
@@ -246,6 +243,8 @@ struct ExportCtx<'a> {
     used_guids: HashSet<(u32, u32)>,
     next_local: u32,
     node_guids: BTreeMap<NodeId, (u32, u32)>,
+    /// `node_guids` the other way round, built the first time a guid has to be resolved to a node.
+    nodes_by_guid: Option<BTreeMap<(u32, u32), NodeId>>,
     coll_guids: BTreeMap<String, (u32, u32)>,
     mode_guids: BTreeMap<String, (u32, u32)>,
     var_guids: BTreeMap<String, (u32, u32)>,
@@ -312,6 +311,7 @@ impl<'a> ExportCtx<'a> {
             used_guids: used,
             next_local: 1,
             node_guids: BTreeMap::new(),
+            nodes_by_guid: None,
             coll_guids: BTreeMap::new(),
             mode_guids: BTreeMap::new(),
             var_guids: BTreeMap::new(),
@@ -463,6 +463,11 @@ impl<'a> ExportCtx<'a> {
                 return g;
             }
         }
+    }
+
+    /// The node written with `g` as its guid.
+    fn node_with_guid(&mut self, g: (u32, u32)) -> Option<NodeId> {
+        self.nodes_by_guid.get_or_insert_with(|| self.node_guids.iter().map(|(&id, &guid)| (guid, id)).collect()).get(&g).copied()
     }
 
     fn add_blob(&mut self, bytes: Vec<u8>) -> u32 {
@@ -1528,7 +1533,10 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             if let Some(comp_id) = component.and_then(|c| cx.node_guids.get(&c).copied()) {
                 sd.push(("symbolID", guid(comp_id.0, comp_id.1)));
             }
-            let sym_overrides = collect_instance_overrides(cx, id);
+            // An instance whose page is not loaded has no children to read overrides from: the entries the file stated
+            // for it are written as they were. Any other instance is read from its children.
+            let kept = component.and_then(|main| kept_overrides::pending_symbol_overrides(cx, id, main));
+            let sym_overrides = kept.unwrap_or_else(|| collect_instance_overrides(cx, id));
             if !sym_overrides.is_empty() {
                 sd.push(("symbolOverrides", V::Array(sym_overrides)));
             }
