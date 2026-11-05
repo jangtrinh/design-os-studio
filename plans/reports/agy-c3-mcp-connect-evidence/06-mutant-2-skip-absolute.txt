@@ -1,0 +1,46 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-doc)
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-mcp)
+   Compiling designos-fonts v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-fonts)
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-render)
+   Compiling designos-docs v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-docs)
+   Compiling designos-svg v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-svg)
+   Compiling designos-export v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-export)
+   Compiling designos-webcapture v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-webcapture)
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-fig)
+   Compiling designos-library v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.54s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5b9db1a7285515c4)
+
+running 7 tests
+test tools::batch::tests::mcp_connect_dry_run_mutates_nothing ... ok
+test tools::batch::tests::mcp_connect_with_free_point_ends_converts_page_space_to_home_space ... ok
+test tools::batch::tests::mcp_connect_single_undo_removes_connector_and_batch ... ok
+test tools::batch::tests::mcp_connect_creates_homed_connector_between_batch_handles ... FAILED
+test tools::batch::tests::mcp_connect_with_node_updates_existing_connector ... ok
+test tools::batch::tests::mcp_connect_rejects_cross_page_and_same_node ... ok
+test tools::batch::tests::mcp_connect_inside_auto_layout_frame_preserves_frame_size_and_siblings ... FAILED
+
+failures:
+
+---- tools::batch::tests::mcp_connect_creates_homed_connector_between_batch_handles stdout ----
+
+thread 'tools::batch::tests::mcp_connect_creates_homed_connector_between_batch_handles' (11458290) panicked at crates/designos-mcp/src/tools/batch.rs:4781:9:
+connector must have layout_child.absolute = true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tools::batch::tests::mcp_connect_inside_auto_layout_frame_preserves_frame_size_and_siblings stdout ----
+
+thread 'tools::batch::tests::mcp_connect_inside_auto_layout_frame_preserves_frame_size_and_siblings' (11458292) panicked at crates/designos-mcp/src/tools/batch.rs:5054:9:
+connector inside auto-layout frame must be absolute
+
+
+failures:
+    tools::batch::tests::mcp_connect_creates_homed_connector_between_batch_handles
+    tools::batch::tests::mcp_connect_inside_auto_layout_frame_preserves_frame_size_and_siblings
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 379 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`

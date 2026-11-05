@@ -223,6 +223,75 @@ fn non_empty_trimmed(s: Option<&str>) -> Option<String> {
     s.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
+fn strip_connectors_from_spec(spec: &mut NodeSpec) -> usize {
+    let mut skipped = 0usize;
+    let before = spec.children.len();
+    spec.children.retain(|c| !c.kind.eq_ignore_ascii_case("connector"));
+    skipped += before - spec.children.len();
+    for child in &mut spec.children {
+        skipped += strip_connectors_from_spec(child);
+    }
+    for slot_fill in spec.slots.values_mut() {
+        if let designos_doc::SlotFillSpec::Fill(list) = slot_fill {
+            let slot_before = list.len();
+            list.retain(|c| !c.kind.eq_ignore_ascii_case("connector"));
+            skipped += slot_before - list.len();
+            for child in list {
+                skipped += strip_connectors_from_spec(child);
+            }
+        }
+    }
+    skipped
+}
+
+fn enrich_metadata_xml_connectors(doc: &Document, xml: &str) -> String {
+    if !xml.contains("<connector ") {
+        return xml.to_string();
+    }
+    let mut out = String::with_capacity(xml.len() + 64);
+    for (idx, line) in xml.lines().enumerate() {
+        if idx > 0 {
+            out.push('\n');
+        }
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("<connector id=\"") {
+            if let Some((id_str, _)) = rest.split_once('"') {
+                if let Ok(raw_id) = id_str.parse::<u64>() {
+                    if let Some(NodeKind::Connector(cp)) = doc.get(NodeId(raw_id)).map(|n| &n.kind) {
+                        let from_attr = match cp.start.node {
+                            Some(fid) => format!("from=\"{}\"", fid.0),
+                            None => format!("from_point=\"{},{}\"", designos_export::fmt_f32_2(cp.start.point.x), designos_export::fmt_f32_2(cp.start.point.y)),
+                        };
+                        let to_attr = match cp.end.node {
+                            Some(tid) => format!("to=\"{}\"", tid.0),
+                            None => format!("to_point=\"{},{}\"", designos_export::fmt_f32_2(cp.end.point.x), designos_export::fmt_f32_2(cp.end.point.y)),
+                        };
+                        let from_mag = format!("{:?}", cp.start.magnet).to_ascii_lowercase();
+                        let to_mag = format!("{:?}", cp.end.magnet).to_ascii_lowercase();
+                        let extra = format!(" {from_attr} from_magnet=\"{from_mag}\" {to_attr} to_magnet=\"{to_mag}\"");
+                        if let Some(prefix) = line.strip_suffix("/>") {
+                            out.push_str(prefix);
+                            out.push_str(&extra);
+                            out.push_str("/>");
+                            continue;
+                        } else if let Some(prefix) = line.strip_suffix('>') {
+                            out.push_str(prefix);
+                            out.push_str(&extra);
+                            out.push('>');
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        out.push_str(line);
+    }
+    if xml.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
 fn read_session_json_field(env_file_var: &str, session_rel: &str, pointer: &str) -> Option<String> {
     let path = std::env::var_os(env_file_var).map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).or_else(|| {
         std::env::var_os("DESIGNOS_SESSION_DIR").map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).map(|d| d.join(session_rel))
@@ -778,8 +847,17 @@ impl Engine {
             }
             "designos_export_spec" => {
                 let a: NodeArgs = parse(args)?;
-                let spec = self.doc.export_spec(NodeId(a.node_id)).map_err(|e| ToolError::new(ErrorCode::NodeNotFound, "/node_id", e))?;
-                Ok(json!({"node_id": a.node_id, "spec": spec}))
+                let mut spec = self.doc.export_spec(NodeId(a.node_id)).map_err(|e| ToolError::new(ErrorCode::NodeNotFound, "/node_id", e))?;
+                let skipped = strip_connectors_from_spec(&mut spec);
+                let mut out = json!({"node_id": a.node_id, "spec": spec});
+                if skipped > 0 {
+                    out["warnings"] = json!([{
+                        "code": "CONNECTORS_SKIPPED",
+                        "skipped": skipped,
+                        "message": format!("Skipped {skipped} connector node(s); connectors are not exported in declarative specs.")
+                    }]);
+                }
+                Ok(out)
             }
             "designos_set_dev_status" => {
                 let a: SetDevStatusArgs = parse(args)?;
@@ -943,7 +1021,14 @@ impl Engine {
                 self.settle_layout();
                 crate::tools::query::execute_query_xpath(&self.doc, self.resolve_default_page().ok(), self.lint_env(), args)
             }
-            "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args).map_err(ToolError::from),
+            "designos_get_metadata" | "get_metadata" => {
+                let mut res = crate::tools::metadata::call_get_metadata(self, args).map_err(ToolError::from)?;
+                if let Some(xml) = res.get("xml").and_then(Value::as_str) {
+                    let enriched = enrich_metadata_xml_connectors(&self.doc, xml);
+                    res["xml"] = Value::String(enriched);
+                }
+                Ok(res)
+            }
             "designos_lint" | "check_design" | "designos_lint_fix" => {
                 let a: LintArgs = parse(args)?;
                 if (a.page_id.is_some() && (a.node_ids.is_some() || a.node_id.is_some())) || (a.node_id.is_some() && a.node_ids.is_some()) {
@@ -2336,7 +2421,8 @@ pub fn tools() -> Vec<Value> {
         vec!["node_id"],
         json!({
             "node_id": {"type": "integer"},
-            "spec": {"type": "object"}
+            "spec": {"type": "object"},
+            "warnings": {"type": "array"}
         }),
         &["node_id", "spec"],
     );

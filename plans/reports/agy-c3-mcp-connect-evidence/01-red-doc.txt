@@ -1,0 +1,91 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.42s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 9 tests
+test connector_home::tests::connectable_node_rejects_hidden_or_locked_nodes ... FAILED
+test connector_home::tests::connector_home_picks_nearest_common_frame_or_section_or_page ... FAILED
+test connector_home::tests::connectable_node_allows_top_level_component_set_component_and_instance_but_rejects_their_descendants ... FAILED
+test connector_home::tests::connector_home_handles_single_attached_end_both_free_and_cross_page_fallback ... FAILED
+test connector_home::tests::connector_home_climbs_past_group_and_boolean_op ... FAILED
+test connector_home::tests::connector_home_climbs_out_of_component_component_set_and_instance ... FAILED
+test connector_home::tests::connector_home_is_strictly_above_both_ends_so_an_end_is_never_its_own_home ... FAILED
+test connector_home::tests::connectable_node_rejects_missing_id_and_accepts_standard_shapes ... FAILED
+test connector_home::tests::connectable_node_rejects_page_connector_and_unknown_kinds ... FAILED
+
+failures:
+
+---- connector_home::tests::connectable_node_rejects_hidden_or_locked_nodes stdout ----
+
+thread 'connector_home::tests::connectable_node_rejects_hidden_or_locked_nodes' (11384443) panicked at crates/designos-doc/src/connector_home.rs:158:9:
+visible unlocked node must be connectable
+
+---- connector_home::tests::connector_home_picks_nearest_common_frame_or_section_or_page stdout ----
+
+thread 'connector_home::tests::connector_home_picks_nearest_common_frame_or_section_or_page' (11384450) panicked at crates/designos-doc/src/connector_home.rs:174:9:
+assertion `left == right` failed
+  left: NodeId(1)
+ right: NodeId(3)
+
+---- connector_home::tests::connectable_node_allows_top_level_component_set_component_and_instance_but_rejects_their_descendants stdout ----
+
+thread 'connector_home::tests::connectable_node_allows_top_level_component_set_component_and_instance_but_rejects_their_descendants' (11384442) panicked at crates/designos-doc/src/connector_home.rs:137:9:
+top-level Component is connectable
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- connector_home::tests::connector_home_handles_single_attached_end_both_free_and_cross_page_fallback stdout ----
+
+thread 'connector_home::tests::connector_home_handles_single_attached_end_both_free_and_cross_page_fallback' (11384448) panicked at crates/designos-doc/src/connector_home.rs:247:9:
+assertion `left == right` failed
+  left: NodeId(1)
+ right: NodeId(2)
+
+---- connector_home::tests::connector_home_climbs_past_group_and_boolean_op stdout ----
+
+thread 'connector_home::tests::connector_home_climbs_past_group_and_boolean_op' (11384447) panicked at crates/designos-doc/src/connector_home.rs:206:9:
+assertion `left == right` failed: climbs past Group to enclosing Frame
+  left: NodeId(1)
+ right: NodeId(2)
+
+---- connector_home::tests::connector_home_climbs_out_of_component_component_set_and_instance stdout ----
+
+thread 'connector_home::tests::connector_home_climbs_out_of_component_component_set_and_instance' (11384446) panicked at crates/designos-doc/src/connector_home.rs:230:9:
+assertion `left == right` failed: climbs out of Component
+  left: NodeId(1)
+ right: NodeId(2)
+
+---- connector_home::tests::connector_home_is_strictly_above_both_ends_so_an_end_is_never_its_own_home stdout ----
+
+thread 'connector_home::tests::connector_home_is_strictly_above_both_ends_so_an_end_is_never_its_own_home' (11384449) panicked at crates/designos-doc/src/connector_home.rs:188:9:
+assertion `left == right` failed
+  left: NodeId(1)
+ right: NodeId(2)
+
+---- connector_home::tests::connectable_node_rejects_missing_id_and_accepts_standard_shapes stdout ----
+
+thread 'connector_home::tests::connectable_node_rejects_missing_id_and_accepts_standard_shapes' (11384444) panicked at crates/designos-doc/src/connector_home.rs:100:9:
+visible unlocked rectangle on page is connectable
+
+---- connector_home::tests::connectable_node_rejects_page_connector_and_unknown_kinds stdout ----
+
+thread 'connector_home::tests::connectable_node_rejects_page_connector_and_unknown_kinds' (11384445) panicked at crates/designos-doc/src/connector_home.rs:116:9:
+rectangle baseline must be connectable
+
+
+failures:
+    connector_home::tests::connectable_node_allows_top_level_component_set_component_and_instance_but_rejects_their_descendants
+    connector_home::tests::connectable_node_rejects_hidden_or_locked_nodes
+    connector_home::tests::connectable_node_rejects_missing_id_and_accepts_standard_shapes
+    connector_home::tests::connectable_node_rejects_page_connector_and_unknown_kinds
+    connector_home::tests::connector_home_climbs_out_of_component_component_set_and_instance
+    connector_home::tests::connector_home_climbs_past_group_and_boolean_op
+    connector_home::tests::connector_home_handles_single_attached_end_both_free_and_cross_page_fallback
+    connector_home::tests::connector_home_is_strictly_above_both_ends_so_an_end_is_never_its_own_home
+    connector_home::tests::connector_home_picks_nearest_common_frame_or_section_or_page
+
+test result: FAILED. 0 passed; 9 failed; 0 ignored; 0 measured; 792 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

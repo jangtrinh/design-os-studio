@@ -1380,6 +1380,21 @@
           ]
         },
         {
+          "ops": [
+            {
+              "as": "ab",
+              "end_cap": "arrow",
+              "from": "@a",
+              "from_magnet": "right",
+              "label": "ok",
+              "line": "elbowed",
+              "op": "connect",
+              "to": "@b",
+              "to_magnet": "left"
+            }
+          ]
+        },
+        {
           "dry_run": true,
           "ops": [
             {
@@ -1427,6 +1442,7 @@
           "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
         },
         "ops": {
+          "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update).",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -1456,6 +1472,16 @@
                 },
                 "type": "array"
               },
+              "end_cap": {
+                "enum": [
+                  "none",
+                  "arrow",
+                  "triangle",
+                  "circle",
+                  "diamond"
+                ],
+                "type": "string"
+              },
               "fill": {
                 "maxLength": 1024
               },
@@ -1468,6 +1494,49 @@
               "force": {
                 "default": false,
                 "type": "boolean"
+              },
+              "from": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "point": {
+                        "items": {
+                          "maximum": 1000000,
+                          "minimum": -1000000,
+                          "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "point"
+                    ],
+                    "type": "object"
+                  }
+                ],
+                "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
+              },
+              "from_magnet": {
+                "enum": [
+                  "auto",
+                  "top",
+                  "right",
+                  "bottom",
+                  "left",
+                  "center"
+                ],
+                "type": "string"
               },
               "height": {
                 "maximum": 1000000,
@@ -1487,6 +1556,18 @@
                   "rectangle",
                   "ellipse",
                   "text"
+                ],
+                "type": "string"
+              },
+              "label": {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              "line": {
+                "enum": [
+                  "elbowed",
+                  "straight",
+                  "curved"
                 ],
                 "type": "string"
               },
@@ -1567,7 +1648,8 @@
                   "set_slot",
                   "set_variables",
                   "set_style",
-                  "set_in_progress"
+                  "set_in_progress",
+                  "connect"
                 ],
                 "type": "string"
               },
@@ -1620,12 +1702,65 @@
                 "minimum": 60,
                 "type": "integer"
               },
+              "start_cap": {
+                "enum": [
+                  "none",
+                  "arrow",
+                  "triangle",
+                  "circle",
+                  "diamond"
+                ],
+                "type": "string"
+              },
               "status": {
                 "maxLength": 512,
                 "type": "string"
               },
               "text": {
                 "maxLength": 100000,
+                "type": "string"
+              },
+              "to": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "point": {
+                        "items": {
+                          "maximum": 1000000,
+                          "minimum": -1000000,
+                          "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "point"
+                    ],
+                    "type": "object"
+                  }
+                ],
+                "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
+              },
+              "to_magnet": {
+                "enum": [
+                  "auto",
+                  "top",
+                  "right",
+                  "bottom",
+                  "left",
+                  "center"
+                ],
                 "type": "string"
               },
               "upsert": {
