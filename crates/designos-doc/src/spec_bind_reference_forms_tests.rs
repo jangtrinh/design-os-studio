@@ -347,3 +347,111 @@ fn ambiguous_valid_options_resolve_back() {
         assert!(err.corrected_example.is_some());
     }
 }
+
+fn mark_soft_deleted(doc: &mut Document, var_id: &str) {
+    doc.variables.get_mut(var_id).unwrap().extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+}
+
+/// A live `Text/Muted`, a deleted twin of it that sorts first, and a deleted `Text/Slate` nothing else has.
+fn doc_with_deleted_muted_and_slate() -> Document {
+    let mut doc = Document::new("Deleted names");
+    doc.add_page("Page 1");
+    let grey = |n: u8| VariableValue::Color(Color::rgb(n, n, n));
+    add_variable(&mut doc, "c_t", "Tokens", "a_gone", "Text/Muted", VariableKind::Color, grey(0x99));
+    add_variable(&mut doc, "c_t", "Tokens", "b_live", "Text/Muted", VariableKind::Color, grey(0x66));
+    add_variable(&mut doc, "c_t", "Tokens", "c_slate_gone", "Text/Slate", VariableKind::Color, grey(0x33));
+    mark_soft_deleted(&mut doc, "a_gone");
+    mark_soft_deleted(&mut doc, "c_slate_gone");
+    doc
+}
+
+fn bound_fill(doc: &Document, spec_json: serde_json::Value) -> Result<Option<String>, Box<SpecBindError>> {
+    let page = doc.pages[0];
+    let mut work = doc.clone();
+    let report = work.apply_spec_with_report(page, &spec(spec_json)).map_err(Box::new)?;
+    Ok(work.get(report.root_node_id).unwrap().variables.bindings.get("fills/0").cloned())
+}
+
+#[test]
+fn binding_by_name_picks_the_live_variable_when_a_deleted_twin_shares_the_name() {
+    let doc = doc_with_deleted_muted_and_slate();
+    for path in ["var:Tokens/Text/Muted", "var:c_t/Text/Muted", "var:Text/Muted"] {
+        let bound = bound_fill(&doc, serde_json::json!({ "kind": "rectangle", "fill": path })).unwrap_or_else(|e| panic!("{path}: {e:?}"));
+        assert_eq!(bound.as_deref(), Some("b_live"), "{path}: the live variable, not the deleted twin, and no ambiguity");
+    }
+}
+
+#[test]
+fn a_deleted_only_name_is_an_unknown_variable_like_any_other_unknown_name() {
+    let doc = doc_with_deleted_muted_and_slate();
+    let deleted = bound_fill(&doc, serde_json::json!({ "kind": "rectangle", "fill": "var:Tokens/Text/Slate" })).unwrap_err();
+    let unknown = bound_fill(&doc, serde_json::json!({ "kind": "rectangle", "fill": "var:Tokens/Text/Nope" })).unwrap_err();
+    assert_eq!((deleted.code.as_str(), unknown.code.as_str()), ("UNKNOWN_VARIABLE", "UNKNOWN_VARIABLE"));
+    assert_eq!(deleted.message, "Unknown variable 'Tokens/Text/Slate'.");
+    assert_eq!(unknown.message, "Unknown variable 'Tokens/Text/Nope'.");
+    for options in [&deleted.valid_options, &unknown.valid_options] {
+        assert!(options.iter().all(|o| !o.contains("Slate") && !o.contains("c_slate_gone")), "a deleted name is not suggested: {options:?}");
+    }
+    let unqualified = bound_fill(&doc, serde_json::json!({ "kind": "rectangle", "fill": "var:Text/Slate" })).unwrap_err();
+    assert_eq!(unqualified.code, "UNKNOWN_VARIABLE");
+}
+
+#[test]
+fn an_explicit_id_still_binds_a_deleted_variable_and_an_export_round_trips() {
+    let mut doc = doc_with_deleted_muted_and_slate();
+    let page = doc.pages[0];
+    let report = doc.apply_spec_with_report(page, &spec(serde_json::json!({ "kind": "rectangle", "fill": "var:id:c_slate_gone" }))).unwrap();
+    let node = doc.get(report.root_node_id).unwrap();
+    assert_eq!(node.variables.bindings.get("fills/0").map(String::as_str), Some("c_slate_gone"), "an existing binding keeps resolving by id");
+    assert_eq!(doc.resolve_variable(report.root_node_id, "c_slate_gone"), Some(VariableValue::Color(Color::rgb(0x33, 0x33, 0x33))));
+
+    // The exported spec names the deleted variable by id, and that reference applies again.
+    let exported = doc.export_spec(report.root_node_id).unwrap();
+    let reference = serde_json::to_value(&exported).unwrap()["fill"].clone();
+    assert_eq!(reference, serde_json::json!("var:id:c_slate_gone"));
+    let again = doc.apply_spec_with_report(page, &spec(serde_json::json!({ "kind": "rectangle", "fill": reference }))).unwrap();
+    assert_eq!(doc.get(again.root_node_id).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("c_slate_gone"));
+
+    // The deleted twin of a live name exports by id as well, never as the live variable's name.
+    let twin = doc.apply_spec_with_report(page, &spec(serde_json::json!({ "kind": "rectangle", "fill": "var:id:a_gone" }))).unwrap();
+    let exported = doc.export_spec(twin.root_node_id).unwrap();
+    assert_eq!(serde_json::to_value(&exported).unwrap()["fill"], serde_json::json!("var:id:a_gone"));
+}
+
+#[test]
+fn a_deleted_library_variable_is_not_chosen_by_name() {
+    let brand = library_with("brand", |lib| {
+        add_variable(lib, "coll_brand", "Brand", "var_accent", "Accent", VariableKind::Color, VariableValue::Color(Color::rgb(0x12, 0x34, 0x56)));
+    });
+    // A deleted variable travelled with a published component: it is in the snapshot but is not an asset.
+    let mut brand = brand;
+    let mut gone = brand.variables["var_accent"].clone();
+    gone.id = "var_old".into();
+    gone.name = "Old".into();
+    gone.extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+    brand.variables.insert("var_old".into(), gone);
+    let mut doc = fixtures::tokens_doc();
+    enable(&mut doc, &brand);
+    let page = doc.pages[0];
+
+    let err = doc
+        .apply_spec_with_libraries(page, &spec(serde_json::json!({ "kind": "rectangle", "fill": "var:Brand/Old" })), std::slice::from_ref(&brand))
+        .unwrap_err();
+    assert_eq!(err.code, "UNKNOWN_VARIABLE", "{err:?}");
+    assert_eq!(err.message, "Unknown variable 'Brand/Old'.", "the same message as for any unknown name");
+    let ok = doc
+        .apply_spec_with_libraries(page, &spec(serde_json::json!({ "kind": "rectangle", "fill": "var:Brand/Accent" })), std::slice::from_ref(&brand))
+        .unwrap();
+    assert_eq!(doc.get(ok.root_node_id).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("brand/var_accent"));
+}
+
+#[test]
+fn a_deleted_collection_is_not_chosen_by_name_in_a_mode_map() {
+    let mut doc = doc_with_deleted_muted_and_slate();
+    doc.variable_collections.get_mut("c_t").unwrap().extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+    let modes = BTreeMap::from([("Tokens".to_string(), "Default".to_string())]);
+    let err = resolve_mode_map(&doc, &modes, "/mode").unwrap_err();
+    assert_eq!(err.code, "UNKNOWN_VARIABLE_MODE");
+    doc.variable_collections.get_mut("c_t").unwrap().extensions.clear();
+    assert_eq!(resolve_mode_map(&doc, &modes, "/mode").unwrap().get("c_t").map(String::as_str), Some("m1"));
+}

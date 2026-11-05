@@ -159,7 +159,9 @@ fn collect_variable_steps(doc: &Document, store: &VariableStore, kind: ScaleKind
     let mut by_step: HashMap<i64, Vec<(String, String, String)>> = HashMap::new();
     let mut var_count = 0usize;
 
-    for v in doc.variables.values() {
+    // The scale and the variable a fix would bind come from live variables only: a soft-deleted variable still resolves
+    // for the layers bound to it, but it adds no step and is never offered.
+    for v in doc.live_variables() {
         if let Some(lib_id) = variable_library_id(doc, v) {
             if enabled_library_name(doc, lib_id).is_none() {
                 continue;
@@ -1275,6 +1277,82 @@ mod tests {
                 mode_extensions: Default::default(),
             },
         );
+    }
+
+    fn soft_delete(doc: &mut Document, var_id: &str) {
+        doc.variables.get_mut(var_id).unwrap().extensions.insert(crate::SOFT_DELETED_EXTENSION_KEY.into(), serde_json::Value::Bool(true));
+    }
+
+    fn row_with_gap(doc: &mut Document, page: NodeId, gap: f32) -> NodeId {
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 80.0));
+        frame.name = "Row".into();
+        frame.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: gap, ..Default::default() }),
+            ..Default::default()
+        });
+        doc.insert(page, frame).unwrap()
+    }
+
+    #[test]
+    fn a_soft_deleted_variable_adds_no_step_and_is_never_the_variable_a_fix_binds() {
+        let (mut doc, page) = new_doc();
+        for (i, step) in [4.0, 8.0, 12.0, 16.0, 24.0].into_iter().enumerate() {
+            add_number_var(&mut doc, "spacing", "Spacing", &format!("sp_{i}"), &format!("Spacing/{}", step as i64), step, &["GAP"]);
+        }
+        // A deleted variable at 20 would put 20 on the scale; a deleted twin of 16 would make 16 hold two variables.
+        add_number_var(&mut doc, "spacing", "Spacing", "gone_20", "Spacing/20", 20.0, &["GAP"]);
+        add_number_var(&mut doc, "spacing", "Spacing", "gone_16", "Spacing/16 old", 16.0, &["GAP"]);
+        soft_delete(&mut doc, "gone_20");
+        soft_delete(&mut doc, "gone_16");
+        let cfg = LintConfig::from_rule_list(&["off-scale".into()]).unwrap();
+
+        let off = row_with_gap(&mut doc, page, 20.0);
+        let report = lint(&doc, &cfg, &NoLintEnv);
+        assert_eq!(report.findings.len(), 1, "20 is off the live scale: {:?}", report.findings.iter().map(|f| &f.message).collect::<Vec<_>>());
+        assert_eq!(report.findings[0].nearest, Some(json!([16, 24])));
+        doc.remove(off).unwrap();
+
+        row_with_gap(&mut doc, page, 15.0);
+        let report = lint(&doc, &cfg, &NoLintEnv);
+        let fix = report.findings[0].suggested_fix.as_ref().expect("a fix");
+        assert_eq!(fix.kind, "bind", "16 holds one live variable, so the fix binds it");
+        assert_eq!(fix.to, json!("var:Spacing/16"), "{fix:?}");
+    }
+
+    #[test]
+    fn lint_fix_binds_the_live_variable_and_never_a_soft_deleted_twin() {
+        let (mut doc, page) = new_doc();
+        let coral = Color::rgb(0xFF, 0x6F, 0x61);
+        add_color_var(&mut doc, "brand", "Brand", "gone_coral", "Coral old", &[("default", coral)]);
+        add_color_var(&mut doc, "brand", "Brand", "live_coral", "Coral", &[("default", coral)]);
+        soft_delete(&mut doc, "gone_coral");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 60.0));
+        frame.fills = vec![Paint::solid(coral)];
+        doc.insert(page, frame).unwrap();
+
+        crate::lint::lint_fix_document(&mut doc, Some(page), Some(&["hardcoded-value".into()]));
+        assert_eq!(
+            doc.get(fid).unwrap().variables.bindings.get("fills/0").map(String::as_str),
+            Some("live_coral"),
+            "with the deleted twin out of the candidates the match is unique and the fix binds the live variable"
+        );
+    }
+
+    #[test]
+    fn a_layer_bound_to_a_soft_deleted_spacing_variable_resolves_and_raises_no_finding() {
+        let (mut doc, page) = new_doc();
+        for (i, step) in [4.0, 8.0, 12.0, 16.0, 24.0].into_iter().enumerate() {
+            add_number_var(&mut doc, "spacing", "Spacing", &format!("sp_{i}"), &format!("Spacing/{}", step as i64), step, &["GAP"]);
+        }
+        add_number_var(&mut doc, "spacing", "Spacing", "gone_20", "Spacing/20", 20.0, &["GAP"]);
+        soft_delete(&mut doc, "gone_20");
+        let row = row_with_gap(&mut doc, page, 20.0);
+        doc.get_mut(row).unwrap().variables.bindings.insert("itemSpacing".into(), "gone_20".into());
+        let cfg = LintConfig::from_rule_list(&["off-scale".into()]).unwrap();
+        assert!(lint(&doc, &cfg, &NoLintEnv).findings.is_empty(), "a binding to a deleted variable is not a hard-coded value");
+        assert_eq!(doc.resolve_variable(row, "gone_20"), Some(VariableValue::Number(20.0)));
     }
 
     #[test]
