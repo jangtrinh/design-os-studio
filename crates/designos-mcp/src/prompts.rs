@@ -193,7 +193,9 @@ pub fn generate_design_system_rules(doc: &Document, opts: &RulesOptions) -> Resu
     let mut resolved_collections: Vec<ResolvedCollection<'_>> = Vec::new();
     let mut seen_col_ids = BTreeSet::new();
 
-    for col in doc.variable_collections.values() {
+    // A soft-deleted collection or variable keeps resolving for the layers bound to it (`all_vars` above), but it is
+    // not a token to recommend.
+    for col in doc.variable_collections.values().filter(|c| !c.is_soft_deleted()) {
         seen_col_ids.insert(col.id.clone());
         let origin = collection_origin(doc, col);
         sources_set.insert(origin.clone());
@@ -203,8 +205,7 @@ pub fn generate_design_system_rules(doc: &Document, opts: &RulesOptions) -> Resu
 
     // Also handle any orphan variables whose collection is missing from `variable_collections`.
     let orphan_vars: Vec<&Variable> = doc
-        .variables
-        .values()
+        .live_variables()
         .filter(|v| !seen_col_ids.contains(&v.collection))
         .filter(|v| !(matches!(opts.scope, RulesScope::Page(_)) && v.hidden_from_publishing))
         .collect();
@@ -420,7 +421,7 @@ fn collect_collection_variables<'a>(col: &VariableCollection, vars_map: &'a BTre
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
     for var_id in &col.variables {
-        if let Some(v) = vars_map.get(var_id) {
+        if let Some(v) = vars_map.get(var_id).filter(|v| !v.is_soft_deleted()) {
             if v.collection == col.id {
                 seen.insert(v.id.clone());
                 if !(matches!(scope, RulesScope::Page(_)) && v.hidden_from_publishing) {
@@ -429,7 +430,7 @@ fn collect_collection_variables<'a>(col: &VariableCollection, vars_map: &'a BTre
             }
         }
     }
-    for v in vars_map.values() {
+    for v in vars_map.values().filter(|v| !v.is_soft_deleted()) {
         if v.collection == col.id && seen.insert(v.id.clone()) && !(matches!(scope, RulesScope::Page(_)) && v.hidden_from_publishing) {
             out.push(v);
         }
@@ -534,7 +535,7 @@ fn resolve_alias_value(
 
 fn derive_spacing_scale(doc: &Document, scope: RulesScope, all_vars: &BTreeMap<String, &Variable>) -> Vec<String> {
     let mut values_milli = BTreeSet::new();
-    for var in doc.variables.values() {
+    for var in doc.live_variables() {
         if matches!(scope, RulesScope::Page(_)) && var.hidden_from_publishing {
             continue;
         }
@@ -1199,6 +1200,41 @@ mod tests {
         assert!(out.content.contains("`LeadingSlot` (slot): recommended components [`Icon/Check`]"), "{}", out.content);
         assert!(out.content.contains("- Spacing scale: 8px, 16px"), "{}", out.content);
         assert!(out.content.contains("- Type scale: 24px"), "{}", out.content);
+    }
+
+    #[test]
+    fn soft_deleted_variables_are_not_recommended_as_tokens() {
+        let mut doc = build_tokens_fixture();
+        let live_count = doc.variables.len();
+        let mut gone_blue = doc.variables["v_blue"].clone();
+        gone_blue.id = "v_gone".into();
+        gone_blue.name = "color/gone/900".into();
+        gone_blue.code_syntax = BTreeMap::new();
+        gone_blue.extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), serde_json::Value::Bool(true));
+        // One the collection's list names, one it does not, one whose collection is missing, and a spacing token.
+        let mut gone_listed = gone_blue.clone();
+        gone_listed.id = "v_gone_listed".into();
+        gone_listed.name = "color/gone/listed".into();
+        let mut gone_orphan = gone_blue.clone();
+        gone_orphan.id = "v_gone_orphan".into();
+        gone_orphan.name = "color/gone/orphan".into();
+        gone_orphan.collection = "col_missing".into();
+        let mut gone_space = gone_blue.clone();
+        gone_space.id = "v_gone_space".into();
+        gone_space.name = "space/gone".into();
+        gone_space.kind = VariableKind::Number;
+        gone_space.values = [("light".to_string(), VariableValue::Number(777.0))].into();
+        doc.variable_collections.get_mut("col_local").unwrap().variables.push("v_gone_listed".into());
+        for v in [gone_blue, gone_listed, gone_orphan, gone_space] {
+            doc.variables.insert(v.id.clone(), v);
+        }
+        assert_eq!(doc.variables.len(), live_count + 4);
+
+        let out = generate_design_system_rules(&doc, &RulesOptions::default()).unwrap();
+        for gone in ["color/gone/900", "color/gone/listed", "color/gone/orphan", "space/gone", "777px"] {
+            assert!(!out.content.contains(gone), "`{gone}` must not be recommended:\n{}", out.content);
+        }
+        assert!(out.content.contains("`color/blue/500`") && out.content.contains("→ color/blue/500 (#1E88E5)"), "live tokens and aliases are unchanged");
     }
 
     #[test]
