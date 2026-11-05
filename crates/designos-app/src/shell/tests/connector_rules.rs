@@ -246,3 +246,54 @@ fn connector_ink_tokens_match_the_document_defaults() {
     }
     assert_eq!(designos_doc::default_connector_ink(&doc, page), crate::board::color_of(crate::theme::BOARD_INK[0]));
 }
+
+fn deck_sim() -> Sim {
+    let mut s = Sim::new();
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, crate::panels::menus::Action::NewDeck);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(s.app().is_deck());
+    s
+}
+
+#[test]
+fn deck_files_offer_no_connector_and_x_does_nothing() {
+    let mut s = deck_sim();
+    assert!(crate::panels::menus::palette_entries(s.app(), "connector").is_empty(), "the command palette lists no Connector in a deck");
+
+    let chevron = s.rect_of("tool-chevron-2");
+    s.click(chevron.center());
+    assert_eq!(s.app().ui.menu, Some(crate::app::MenuKind::ToolGroup(2)));
+    // Rectangle, Line, Arrow, Ellipse, Polygon, Star, Image
+    let rows = 7.0;
+    let menu = s.rect_of("menu-level-0");
+    assert_eq!(menu.height(), crate::theme::MENU_PADDING * 2.0 + rows * crate::theme::MENU_ITEM_HEIGHT, "the shape dropdown has no Connector row");
+
+    s.key(Key::Escape);
+    s.key(Key::X);
+    assert_eq!(s.app().tool, Tool::Move, "X does nothing in a deck");
+}
+
+#[test]
+fn a_remembered_connector_pick_does_not_follow_into_a_deck_file() {
+    let mut s = deck_sim();
+    let connector_row = crate::canvas::tools::GROUPS[2].iter().position(|t| *t == Tool::Connector).expect("the shape group lists Connector");
+    s.shell.app.group_pick[2] = connector_row;
+    s.frame(vec![]);
+    // the button sits left of its chevron
+    let chevron = s.rect_of("tool-chevron-2");
+    s.click(Pos2::new(chevron.left() - crate::theme::TOOL_CHEVRON_GAP - crate::theme::TOOL_BUTTON / 2.0, chevron.center().y));
+    assert_eq!(s.app().tool, Tool::Rectangle, "the shape button falls back to the first tool a deck offers");
+}
+
+#[test]
+fn design_files_offer_connector_in_the_shape_dropdown_and_the_palette() {
+    let mut s = design_sim();
+    assert!(crate::panels::menus::palette_entries(s.app(), "connector").iter().any(|(label, shortcut)| label == "Connector" && shortcut == "X"));
+    let chevron = s.rect_of("tool-chevron-2");
+    s.click(chevron.center());
+    let rows = 8.0;
+    let menu = s.rect_of("menu-level-0");
+    assert_eq!(menu.height(), crate::theme::MENU_PADDING * 2.0 + rows * crate::theme::MENU_ITEM_HEIGHT);
+}

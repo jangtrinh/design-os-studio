@@ -115,6 +115,8 @@ const SHAPE_GROUP: usize = 2;
 /// Rows of that dropdown.
 const ROW_RECTANGLE: usize = 0;
 const ROW_ELLIPSE: usize = 4;
+/// A deck's dropdown has no Connector row, so Ellipse sits one row higher.
+const ROW_ELLIPSE_IN_DECK: usize = ROW_ELLIPSE - 1;
 
 fn chevron_center(s: &Sim) -> Pos2 {
     s.rect_of(&format!("tool-chevron-{SHAPE_GROUP}")).center()
@@ -313,7 +315,7 @@ fn the_dropdown_opens_against_its_chevron_in_a_deck() {
     s.frame(vec![]);
     assert_menu_hangs_off_the_chevron(&s);
     // And a row of it can be picked.
-    s.click(row_center(&s, ROW_ELLIPSE));
+    s.click(row_center(&s, ROW_ELLIPSE_IN_DECK));
     assert_picked_ellipse(&s);
 }
 
