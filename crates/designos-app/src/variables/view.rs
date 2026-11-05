@@ -136,11 +136,16 @@ fn in_group(folder: &str, group: Option<&str>) -> bool {
     }
 }
 
+/// The variables the panel lists for a collection, in display order. A soft-deleted variable stays in the store so
+/// layers bound to it resolve, but it is not one of the collection's variables, whatever its list says.
+fn listed_variables<'a>(view: &'a VariableStore, coll: &'a VariableCollection) -> impl Iterator<Item = &'a Variable> {
+    coll.variables.iter().filter_map(|id| view.variables.get(id)).filter(|v| !v.is_soft_deleted())
+}
+
 /// Group paths of a collection in tree order with their depth.
 pub fn group_paths(view: &VariableStore, coll: &VariableCollection) -> Vec<(String, usize)> {
     let mut paths: Vec<String> = Vec::new();
-    for id in &coll.variables {
-        let Some(v) = view.variables.get(id) else { continue };
+    for v in listed_variables(view, coll) {
         let mut acc = String::new();
         for seg in folder_of(&v.name).split('/').filter(|s| !s.is_empty()) {
             if !acc.is_empty() {
@@ -164,7 +169,7 @@ pub fn group_paths(view: &VariableStore, coll: &VariableCollection) -> Vec<(Stri
 }
 
 fn count_in(view: &VariableStore, coll: &VariableCollection, group: Option<&str>) -> usize {
-    coll.variables.iter().filter_map(|id| view.variables.get(id)).filter(|v| in_group(folder_of(&v.name), group)).count()
+    listed_variables(view, coll).filter(|v| in_group(folder_of(&v.name), group)).count()
 }
 
 fn kind_hidden(app: &App, k: VariableKind) -> bool {
@@ -200,8 +205,8 @@ fn build_rows(app: &App, ctx: &Context, view: &VariableStore, coll: &VariableCol
     let group = app.vars.group.as_deref();
     let scope_idx = ctx.data(|d| d.get_temp::<usize>(Id::new("vars-scope-filter"))).unwrap_or(0);
     let mut folders: Vec<(String, Vec<String>)> = Vec::new();
-    for id in &coll.variables {
-        let Some(v) = view.variables.get(id) else { continue };
+    for v in listed_variables(view, coll) {
+        let id = &v.id;
         let folder = folder_of(&v.name);
         if !in_group(folder, group) || kind_hidden(app, v.kind) || !matches_scope_filter(v, scope_idx) || (!q.is_empty() && !v.name.to_lowercase().contains(&q))
         {
@@ -258,7 +263,7 @@ pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {
     let floating = !app.vars.full;
     let g = Geom { panel: if floating { floating_rect(app, screen) } else { content }, floating, sidebar: !app.vars.sidebar_hidden };
     let view = VariableStore::from_doc(&app.doc);
-    if !app.vars.collection.as_ref().is_some_and(|c| view.collections.contains_key(c)) {
+    if !app.vars.collection.as_ref().is_some_and(|c| view.collections.get(c).is_some_and(|c| !c.is_soft_deleted())) {
         app.vars.collection = library::first_collection(&view);
         app.vars.group = None;
     }
@@ -525,7 +530,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
             let count = p.text(
                 Pos2::new(row.right() - theme::INSET_CONTROL, row.center().y),
                 Align2::RIGHT_CENTER,
-                c.variables.len().to_string(),
+                listed_variables(fr.view, c).count().to_string(),
                 theme::font_body(),
                 theme::TEXT_SECONDARY,
             );
@@ -1713,8 +1718,7 @@ fn run_alias_picker(app: &mut App, ctx: &Context, fr: &mut Frame) {
         .work
         .collections
         .values()
-        .flat_map(|c| c.variables.iter())
-        .filter_map(|id| fr.work.variables.get(id))
+        .flat_map(|c| listed_variables(&fr.work, c))
         .filter(|t| fr.work.can_alias(&var.id, &t.id))
         .map(|t| store_item(&fr.work, t))
         .collect();
@@ -1792,6 +1796,37 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    fn soft_delete(store: &mut VariableStore, id: &str) {
+        store.variables.get_mut(id).unwrap().extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+    }
+
+    #[test]
+    fn the_panel_does_not_list_a_soft_deleted_variable_even_when_its_collection_names_it() {
+        let mut store = VariableStore::default();
+        let coll = store.add_collection("Theme");
+        let live = store.add_variable(&coll, "Group/Live", VariableKind::Color).unwrap();
+        let gone = store.add_variable(&coll, "Other/Gone", VariableKind::Color).unwrap();
+        soft_delete(&mut store, &gone);
+        let c = &store.collections[&coll];
+        assert!(c.variables.contains(&gone), "precondition: the list still names the deleted variable");
+        assert_eq!(listed_variables(&store, c).map(|v| v.id.clone()).collect::<Vec<_>>(), [live]);
+        assert_eq!(group_paths(&store, c), vec![("Group".to_string(), 0)], "a deleted variable adds no group");
+        assert_eq!((count_in(&store, c, None), count_in(&store, c, Some("Other"))), (1, 0));
+    }
+
+    #[test]
+    fn a_soft_deleted_collection_is_not_listed_or_opened() {
+        let mut store = VariableStore::default();
+        let kept = store.add_collection("Theme");
+        let retired = store.add_collection("Retired");
+        store.collections.get_mut(&retired).unwrap().extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+        let (own, from_library) = library::split_collections(&store);
+        assert_eq!((own, from_library), (vec![kept.clone()], vec![]));
+        assert_eq!(library::first_collection(&store), Some(kept));
+        store.collections.remove(&store.collections.keys().find(|k| **k != retired).cloned().unwrap());
+        assert_eq!(library::first_collection(&store), None, "a file with only a deleted collection has nothing to open");
+    }
 
     #[test]
     fn scope_filter_matches_variable_scopes() {

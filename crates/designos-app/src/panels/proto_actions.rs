@@ -179,7 +179,7 @@ fn add_row_indented(ui: &mut Ui, pane: &mut Pane, rec: &str, label: &str) -> boo
 
 /// A starting condition: "<first boolean variable>" else "<first number> > 0", else "true".
 fn default_condition(doc: &Document) -> Expression {
-    let all = || doc.variable_collections.values().flat_map(|c| c.variables.iter()).filter_map(|id| doc.variables.get(id));
+    let all = || doc.variable_collections.values().flat_map(|c| c.variables.iter()).filter_map(|id| doc.variables.get(id)).filter(|v| !v.is_soft_deleted());
     if let Some(v) = all().find(|v| v.kind == VariableKind::Boolean) {
         return Expression::var(v.id.clone());
     }
@@ -194,9 +194,9 @@ fn default_condition(doc: &Document) -> Expression {
 /// "Collection / name" labels of every variable, in collection order, with their ids.
 fn variable_options(doc: &Document) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for c in doc.variable_collections.values() {
+    for c in doc.variable_collections.values().filter(|c| !c.is_soft_deleted()) {
         for id in &c.variables {
-            if let Some(v) = doc.variables.get(id) {
+            if let Some(v) = doc.variables.get(id).filter(|v| !v.is_soft_deleted()) {
                 out.push((id.clone(), format!("{} / {}", c.name, v.name)));
             }
         }
@@ -263,7 +263,7 @@ fn insert_variable_picker(app: &mut App, ui: &mut Ui, pane: &mut Pane, k: &str, 
 }
 
 fn set_mode_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, k: &str, collection: &mut String, mode: &mut String) {
-    let colls: Vec<(String, String)> = app.doc.variable_collections.values().map(|c| (c.id.clone(), c.name.clone())).collect();
+    let colls: Vec<(String, String)> = app.doc.variable_collections.values().filter(|c| !c.is_soft_deleted()).map(|c| (c.id.clone(), c.name.clone())).collect();
     let c = label_ctl(ui, pane, "Collection");
     record(ui, &format!("proto-pop-coll-{k}"), c);
     if colls.is_empty() {

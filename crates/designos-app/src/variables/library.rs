@@ -16,7 +16,9 @@ pub const HEADING: &str = "From library";
 
 /// Collection ids in sidebar order: the file's own collections first, then the library ones.
 pub fn split_collections(view: &VariableStore) -> (Vec<String>, Vec<String>) {
-    view.collections.iter().map(|(id, c)| (id.clone(), c.is_library())).fold((vec![], vec![]), |(mut own, mut lib), (id, is_lib)| {
+    // A soft-deleted collection stays in the store for the variables layers still use; it is not listed.
+    let live = view.collections.iter().filter(|(_, c)| !c.is_soft_deleted());
+    live.map(|(id, c)| (id.clone(), c.is_library())).fold((vec![], vec![]), |(mut own, mut lib), (id, is_lib)| {
         if is_lib { &mut lib } else { &mut own }.push(id);
         (own, lib)
     })
@@ -30,7 +32,8 @@ pub fn first_collection(view: &VariableStore) -> Option<String> {
 /// [`first_collection`] for a bare collection map, e.g. the document's own. Map order is string
 /// order, so it is not the order in which Figma created the collections: `…:1:10` precedes `…:1:2`.
 pub fn first_collection_of(collections: &BTreeMap<String, VariableCollection>) -> Option<String> {
-    collections.iter().find(|(_, c)| !c.is_library()).or_else(|| collections.iter().next()).map(|(id, _)| id.clone())
+    let mut live = collections.iter().filter(|(_, c)| !c.is_soft_deleted());
+    live.clone().find(|(_, c)| !c.is_library()).or_else(|| live.next()).map(|(id, _)| id.clone())
 }
 
 /// What an import of variables did.
