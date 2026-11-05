@@ -845,9 +845,10 @@ impl Ctx<'_> {
             return false;
         }
         (!matches!(n.kind, NodeKind::Unknown { .. })
-            && n.effects
-                .iter()
-                .any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible)))
+            && n.effects.iter().any(|e| {
+                (matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) && n.background_blur_has_surface())
+                    || matches!(e, Effect::Glass(g) if g.visible)
+            }))
             || (draws_children(n) && n.children.iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c))))
     }
 
@@ -1118,7 +1119,7 @@ impl Ctx<'_> {
                             self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha);
                         }
                     }
-                    Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
+                    Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 && n.background_blur_has_surface() => {
                         self.background_blur(n, &g, ts, clip, inner_bb, scale, *radius);
                     }
                     Effect::Glass(gl) if gl.visible => self.glass(n, &g, ts, clip, inner_bb, scale, gl),
@@ -1240,9 +1241,21 @@ impl Ctx<'_> {
                 self.fill_with(&t.mesh, ts, n.size, p, alpha, clip);
             }
             if has_strokes {
-                if let Some(sm) = g.text_stroke(i, n) {
+                if let Some((sm, how)) = g.text_stroke(i, n) {
+                    let sclip = match how {
+                        StrokeClip::None => clip,
+                        StrokeClip::Inside | StrokeClip::Outside if (self.zoom_lod() && n.stroke.weight * ts_scale(&ts) <= 1.25) || self.prog_cap_hit(48) => {
+                            clip
+                        }
+                        StrokeClip::Inside | StrokeClip::Outside => {
+                            let b = sm.bounds;
+                            let roi = IRect::outward(xform_bounds(&ts, b.0, b.1, b.2 - b.0, b.3 - b.1)).grow(1);
+                            let Some(c) = self.mask_clip(&t.mesh, ts, clip, how == StrokeClip::Outside, roi, Degrade::Keep) else { continue };
+                            c
+                        }
+                    };
                     for p in visible_strokes(n) {
-                        self.fill_with(&sm, ts, n.size, p, alpha, clip);
+                        self.fill_with(&sm, ts, n.size, p, alpha, sclip);
                     }
                 }
             }

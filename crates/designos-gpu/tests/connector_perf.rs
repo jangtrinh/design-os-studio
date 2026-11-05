@@ -21,6 +21,16 @@ fn percentiles_us(mut samples_us: Vec<f64>) -> (f64, f64) {
     (p50, p95)
 }
 
+/// Prints every per-sample time (in call order) when `CONNECTOR_PERF_SAMPLES` is set, so a single
+/// outlier such as a cold first call stays visible next to the p50/p95 summary.
+fn trace_samples(label: &str, samples_us: &[f64]) {
+    if std::env::var_os("CONNECTOR_PERF_SAMPLES").is_none() {
+        return;
+    }
+    let ms: Vec<String> = samples_us.iter().map(|us| format!("{:.3}", us / 1_000.0)).collect();
+    eprintln!("samples {label} (ms, call order): [{}]", ms.join(", "));
+}
+
 type AnchorPair = ((Option<Rect>, Magnet, Vec2), (Option<Rect>, Magnet, Vec2));
 
 fn seeded_elbow_endpoints(count: usize) -> Vec<AnchorPair> {
@@ -223,6 +233,7 @@ fn perf_scene_whiteboard_2000_budgets() {
     let (hits_after_pan, misses_after_pan) = route_cache_stats();
     let pan_hits = hits_after_pan - hits_before_pan;
     let pan_misses = misses_after_pan - misses_before_pan;
+    trace_samples("2 pan/zoom", &pan_samples_us);
     let (pan_p50_us, pan_p95_us) = percentiles_us(pan_samples_us);
 
     // 3. Dragging 1 node with 4 attached connectors
@@ -239,6 +250,7 @@ fn perf_scene_whiteboard_2000_budgets() {
         drag4_max_misses = drag4_max_misses.max(m1 - m0);
         drag4_samples_us.push(us);
     }
+    trace_samples("3 drag 4 conn", &drag4_samples_us);
     let (drag4_p50_us, drag4_p95_us) = percentiles_us(drag4_samples_us);
 
     // 4. Move 1 node with 50 connectors on the 2,000-node board (via plan_reroute)
@@ -261,6 +273,7 @@ fn perf_scene_whiteboard_2000_budgets() {
         drag50_max_misses = drag50_max_misses.max(m1 - m0);
         drag50_samples_us.push(us);
     }
+    trace_samples("4 move 50 conn", &drag50_samples_us);
     let (drag50_p50_us, drag50_p95_us) = percentiles_us(drag50_samples_us);
 
     // 5. Move 1 node with 150 connectors: visible-only during drag + rest at commit
@@ -297,6 +310,8 @@ fn perf_scene_whiteboard_2000_budgets() {
         drag150_vis_samples_us.push(vis_us);
         drag150_commit_samples_us.push(commit_us);
     }
+    trace_samples("5a move 150 conn visible", &drag150_vis_samples_us);
+    trace_samples("5b move 150 conn commit", &drag150_commit_samples_us);
     let (drag150_vis_p50_us, drag150_vis_p95_us) = percentiles_us(drag150_vis_samples_us);
     let (drag150_p50_us, drag150_p95_us) = percentiles_us(drag150_commit_samples_us);
 
@@ -316,6 +331,7 @@ fn perf_scene_whiteboard_2000_budgets() {
         drag80_max_misses = drag80_max_misses.max(m1 - m0);
         drag80_samples_us.push(us);
     }
+    trace_samples("6 multi-drag 80 conn", &drag80_samples_us);
     let (drag80_p50_us, drag80_p95_us) = percentiles_us(drag80_samples_us);
 
     // Remove the temporary drag test connectors so the page has the exact 1,500 fixture connectors for hover/marquee
@@ -395,6 +411,7 @@ fn perf_scene_whiteboard_2000_budgets() {
         assert!(plan.updates.is_empty());
         frame1000_samples_us.push(us);
     }
+    trace_samples("9 move frame 1000 internal", &frame1000_samples_us);
     let (frame1000_p50_us, frame1000_p95_us) = percentiles_us(frame1000_samples_us);
 
     // 10. Index refresh after 1 node edit

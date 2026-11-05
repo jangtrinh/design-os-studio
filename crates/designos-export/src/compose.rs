@@ -420,6 +420,11 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             grid_h = n.size.y;
         }
         sz.h = Dim::Fixed(grid_h);
+        // `LazyVerticalGrid` measures at the parent's maximum width, so a hugging grid exports the
+        // width the solver gave it, as `web_sizes` does.
+        if sz.w == Dim::Hug {
+            sz.w = Dim::Fixed(n.size.x);
+        }
     }
     size_mods(doc, n, &sz, parent, &mut mods);
     style_mods(doc, n, &mut mods);
@@ -444,7 +449,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             for k in &behind {
                 emit(doc, k.id, me, depth + 1, o);
             }
-            let mut grid_mods = vec![".fillMaxSize()".to_string()];
+            let mut grid_mods: Vec<String> = fill_frame_mod(&sz).map(String::from).into_iter().collect();
             padding_mods(doc, n, al, &mut grid_mods);
             args.extend(modifier_arg(o, Parent { al: None, root: false }, &grid_mods));
         } else {

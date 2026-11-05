@@ -930,6 +930,10 @@ impl Shell {
         }
         let sel = app.selection.clone();
         if m.command && m.shift && matches!(key, Key::Period | Key::Comma) {
+            // An open text session sizes the selected text through its own key handler; applying it here too would step twice.
+            if app.canvas.text.is_some() {
+                return true;
+            }
             let delta = if m.alt { 10.0 } else { 1.0 } * if key == Key::Period { 1.0 } else { -1.0 };
             crate::panels::typography::set_style(app, &sel, |st| {
                 st.font_size = (st.font_size + delta).clamp(1.0, 1000.0);
@@ -1087,11 +1091,21 @@ impl Shell {
                     None
                 }
                 (Key::Tab, false, _) => {
-                    app.next_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let next = (app.tabs.active_idx + 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(next).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::Tab, true, _) => {
-                    app.prev_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let prev = (app.tabs.active_idx + app.tabs.entries.len() - 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(prev).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::T, false, false) => {

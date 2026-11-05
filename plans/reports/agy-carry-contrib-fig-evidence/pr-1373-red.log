@@ -1,0 +1,26 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.40s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-6e3c420bf8f84616)
+
+running 1 test
+test variables_dtcg::tests::duplicate_manifest_group_alias_is_deterministic_and_warned ... FAILED
+
+failures:
+
+---- variables_dtcg::tests::duplicate_manifest_group_alias_is_deterministic_and_warned stdout ----
+
+thread 'variables_dtcg::tests::duplicate_manifest_group_alias_is_deterministic_and_warned' (10278598) panicked at crates/designos-fig/src/variables_dtcg.rs:4735:13:
+missing duplicate-group warning: []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    variables_dtcg::tests::duplicate_manifest_group_alias_is_deterministic_and_warned
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 156 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-fig --lib`
+EXIT_CODE=101

@@ -252,7 +252,7 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, key: &str, t: &TextStyle, f
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("field-rect", format!("{:?}", "se-weight"))), val_r));
             let names: Vec<String> = typography::WEIGHTS.iter().map(|w| w.0.to_string()).collect();
             if let Some(i) = dropdown(ui, val_r, "se-weight", typography::weight_name(t.font_weight), &names) {
-                set(app, &|ts| ts.font_weight = typography::WEIGHTS[i].1);
+                set(app, &|ts| ts.set_font_weight(typography::WEIGHTS[i].1));
             }
             super::var_bind::style_hover_button(app, ui, rc, key, "fontWeight", VariableKind::Number);
         }

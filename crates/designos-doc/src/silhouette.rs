@@ -125,10 +125,33 @@ fn has_visible_strokes(n: &Node, mode: SilhouetteMode) -> bool {
     (n.stroke.weight > 0.0 || n.stroke.side_weights.is_some()) && n.stroke.paints.iter().any(|p| paints_in(p, mode))
 }
 
+impl Node {
+    /// Whether a background blur on this node has a painted surface to blur behind. The CPU renderer
+    /// and the GPU compiler both ask this, so the two cannot disagree.
+    ///
+    /// A node whose silhouette is its own shape or its own glyphs blurs only while it paints
+    /// something: a visible fill (on text, one on the base style or on any run) or a visible stroke.
+    /// A node with no shape of its own (a group) takes its silhouette from its children, and a board
+    /// item is painted through its lowered body, so for those the node's own paint says nothing and
+    /// the effect stays.
+    pub fn background_blur_has_surface(&self) -> bool {
+        let own_silhouette = !matches!(self.kind, NodeKind::Page { .. } | NodeKind::Group | NodeKind::Unknown { .. }) && !self.kind.is_board_item();
+        if !own_silhouette {
+            return true;
+        }
+        let mode = SilhouetteMode::Opaque;
+        let filled = match &self.kind {
+            NodeKind::Text(t) => std::iter::once(&t.style).chain(t.runs.iter().map(|r| &r.style)).any(|s| s.fills.iter().any(|p| paints_in(p, mode))),
+            _ => has_visible_fills(self, mode),
+        };
+        filled || has_visible_strokes(self, mode)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BooleanOp, Color, NodeId, Paint, Rect, TextStyle};
+    use crate::{BooleanOp, Color, NodeId, Paint, Rect, TextRun, TextStyle};
 
     fn rect() -> Rect {
         Rect::new(0.0, 0.0, 10.0, 10.0)
@@ -379,5 +402,50 @@ mod tests {
         assert_eq!(run_alpha(mode, &[zero_opacity_paint()], Some(Paint::solid(Color::BLACK))), 1.0);
         // a stroke that paints nothing does not count
         assert_eq!(run_alpha(mode, &[], Some(zero_opacity_paint())), 0.0);
+    }
+
+    #[test]
+    fn background_blur_surface_rule_by_node_kind() {
+        let at = |n: &Node| n.background_blur_has_surface();
+        // a node that is its own silhouette blurs only while it paints something
+        assert!(at(&Node::rectangle(NodeId(1), rect())));
+        assert!(!at(&bare(Node::rectangle(NodeId(1), rect()))));
+        assert!(!at(&bare(Node::frame(NodeId(1), rect()))));
+        assert!(!at(&with_child(bare(Node::frame(NodeId(1), rect())))));
+        let mut hidden = Node::rectangle(NodeId(1), rect());
+        hidden.fills[0].visible = false;
+        assert!(!at(&hidden));
+        let mut zero_opacity = bare(Node::rectangle(NodeId(1), rect()));
+        zero_opacity.fills = vec![Paint { opacity: 0.0, ..Paint::solid(Color::WHITE) }];
+        assert!(at(&zero_opacity));
+        let mut stroke_only = stroked(bare(Node::rectangle(NodeId(1), rect())));
+        assert!(at(&stroke_only));
+        stroke_only.stroke.weight = 0.0;
+        assert!(!at(&stroke_only));
+        stroke_only.stroke.side_weights = Some([1.0, 0.0, 0.0, 0.0]);
+        assert!(at(&stroke_only));
+
+        // a node without a shape of its own takes its silhouette from its children (group) or its
+        // lowered body (board item): its own paint says nothing, the effect stays
+        assert!(at(&Node::new(NodeId(1), NodeKind::Group)));
+        assert!(at(&with_child(Node::new(NodeId(1), NodeKind::Group))));
+        assert!(at(&Node::new(NodeId(1), NodeKind::Sticky(Default::default()))));
+    }
+
+    #[test]
+    fn background_blur_surface_on_text_counts_a_visible_run_fill() {
+        let text = |base: Vec<Paint>, run: Option<Vec<Paint>>| {
+            let style = TextStyle { fills: base, ..Default::default() };
+            let mut n = Node::text(NodeId(1), rect(), "ab", style.clone());
+            let NodeKind::Text(tp) = &mut n.kind else { unreachable!() };
+            tp.runs = run.map(|fills| TextRun { start: 0, end: 1, style: TextStyle { fills, ..style } }).into_iter().collect();
+            n
+        };
+        let ink = vec![Paint::solid(Color::WHITE)];
+        let hidden_ink = vec![Paint { visible: false, ..Paint::solid(Color::WHITE) }];
+        assert!(text(ink.clone(), None).background_blur_has_surface());
+        assert!(!text(Vec::new(), None).background_blur_has_surface());
+        assert!(!text(Vec::new(), Some(hidden_ink)).background_blur_has_surface());
+        assert!(text(Vec::new(), Some(ink)).background_blur_has_surface());
     }
 }

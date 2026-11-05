@@ -792,7 +792,7 @@ fn apply_descendant_overrides(
                     tp.style.font_size = fs.max(1.0);
                 }
                 if let Some(fw) = fw_opt {
-                    tp.style.font_weight = fw;
+                    tp.style.set_font_weight(fw);
                 }
                 if let Some(it) = italic_opt {
                     tp.style.italic = it;

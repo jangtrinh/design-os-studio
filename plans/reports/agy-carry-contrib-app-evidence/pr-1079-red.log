@@ -1,0 +1,41 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.64s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 5 tests
+
+thread 'ops::tests::move_to_parent_keeps_multi_selection_sibling_order' (5602686) panicked at crates/designos-app/src/ops.rs:2861:9:
+assertion `left == right` failed
+  left: [NodeId(3), NodeId(4), NodeId(2)]
+ right: [NodeId(4), NodeId(2), NodeId(3)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'ops::tests::move_to_parent_keeps_block_order_at_each_same_parent_drop_position' (5602685) panicked at crates/designos-app/src/ops.rs:2894:9:
+assertion `left == right` failed
+  left: [NodeId(4), NodeId(3), NodeId(2)]
+ right: [NodeId(3), NodeId(4), NodeId(2)]
+
+thread 'ops::tests::move_to_parent_keeps_order_when_drop_is_before_or_after_selected_block' (5602687) panicked at crates/designos-app/src/ops.rs:2920:9:
+assertion `left == right` failed
+  left: [NodeId(4), NodeId(3), NodeId(2), NodeId(5)]
+ right: [NodeId(3), NodeId(4), NodeId(2), NodeId(5)]
+test ops::tests::move_to_parent_keeps_order_when_drop_is_before_or_after_selected_block ... FAILED
+test ops::tests::move_to_parent_keeps_multi_selection_sibling_order ... FAILED
+test ops::tests::move_to_parent_keeps_block_order_at_each_same_parent_drop_position ... FAILED
+test ops::tests::move_to_parent_keeps_world_position ... ok
+test shell::tests::slot_canvas_edits::a_refused_move_to_parent_does_not_mark_the_slot_as_changed ... ok
+
+failures:
+
+failures:
+    ops::tests::move_to_parent_keeps_block_order_at_each_same_parent_drop_position
+    ops::tests::move_to_parent_keeps_multi_selection_sibling_order
+    ops::tests::move_to_parent_keeps_order_when_drop_is_before_or_after_selected_block
+
+test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 4383 filtered out; finished in 0.47s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

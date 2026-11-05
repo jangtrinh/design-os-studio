@@ -1,0 +1,3 @@
+COMMIT e63cf9a3049fd18d991c039ff1fa3b714b32c261 files: ['crates/designos-gpu/src/compile.rs', 'crates/designos-gpu/tests/fidelity.rs', 'crates/designos-render/src/lib.rs', 'crates/designos-render/tests/backdrop.rs']
+COMMIT 8a5cee82191e614f2d7fa7c4787602aac926527d files: ['crates/designos-render/tests/render.rs']
+SAFETY_SCREEN_HITS=0

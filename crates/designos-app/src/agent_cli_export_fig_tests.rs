@@ -195,6 +195,21 @@ fn a_symlink_to_a_missing_target_is_never_written_through() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn frame_spec_export_never_follows_a_symlink() {
+    let s = Scratch::new("spec-symlink");
+    let victim = s.path("agent-controlled.json");
+    std::fs::write(&victim, KEEP).unwrap();
+    let link = s.path("frame.spec.json");
+    std::os::unix::fs::symlink(&victim, &link).unwrap();
+
+    let err = crate::cli_export_write::write_json_export(&link, "{\"name\":\"Frame\"}").unwrap_err();
+    assert!(err.contains("symbolic link"), "{err}");
+    assert_eq!(std::fs::read(&victim).unwrap(), KEEP);
+    assert_eq!(std::fs::read_link(&link).unwrap(), victim);
+}
+
 /// The command checks the target before it starts, and the writer checks again at the moment it writes: a path can
 /// change in between, so each check has to hold on its own.
 #[test]
@@ -241,4 +256,22 @@ fn a_refused_target_stops_the_command_before_it_changes_the_document() {
     assert!(crate::run_agent_cli(&opts).is_err());
     assert_eq!(crate::io::load_path(&doc).unwrap().nodes.len(), nodes_before, "the spec was not applied");
     assert_eq!(std::fs::read(&victim).unwrap(), KEEP);
+}
+
+#[cfg(unix)]
+#[test]
+fn export_active_frame_to_spec_never_follows_a_symlink() {
+    let s = Scratch::new("frame_spec_app");
+    let existing = s.path("victim.json");
+    std::fs::write(&existing, KEEP).unwrap();
+    let link = s.path("page-1.spec.json");
+    std::os::unix::fs::symlink(&existing, &link).unwrap();
+
+    let mut doc = designos_doc::Document::new("Card");
+    doc.add_page("Page 1");
+    let mut app = crate::app::App::new(doc);
+    app.export_active_frame_to_spec_in(&s.0);
+
+    assert!(app.toast.as_ref().is_some_and(|t| t.error && t.text.contains("symbolic link")));
+    assert_eq!(std::fs::read(&existing).unwrap(), KEEP);
 }

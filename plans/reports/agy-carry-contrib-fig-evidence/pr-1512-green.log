@@ -1,0 +1,31 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.82s
+     Running tests/rest_import.rs (out/cargo/debug/deps/rest_import-faca6412db69c645)
+
+running 3 tests
+test rest_import_keeps_bindings_to_variables_missing_from_file ... ok
+test rest_import_keeps_bindings_to_variables_present_in_file ... ok
+test rest_import_bindings_resolve_after_separate_variables_import ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+REST_IMPORT_EXIT_CODE=0
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-fig)
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-mcp)
+   Compiling designos-library v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-library)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.66s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dfda951cafec2dfd)
+
+running 1 test
+test io::tests::opening_rest_file_with_missing_variable_bindings_surfaces_warning ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4460 filtered out; finished in 0.01s
+
+EXIT_CODE=0

@@ -159,9 +159,11 @@ impl App {
         }
     }
 
-    /// Stores the live document as an automatic version unless nothing changed since the last one.
+    /// Stores the live document as an automatic version unless nothing changed since the last one, or the user
+    /// answered "Don't save" for this file's edits: a version could be restored onto the file, which is what that
+    /// answer kept from happening.
     pub fn save_auto_version(&mut self) -> Option<FileVersion> {
-        if self.history.viewing.is_some() {
+        if self.history.viewing.is_some() || self.autosave.edits_refused {
             return None;
         }
         let (lib, lf) = (self.lib.clone()?, self.lib_file.clone()?);

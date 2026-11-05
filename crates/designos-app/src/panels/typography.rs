@@ -230,7 +230,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         if let Some(i) = dropdown_items(ui, wt_r, "font-weight", cur, &items, wt_r.width()) {
             if i < WEIGHTS.len() {
                 let w = WEIGHTS[i].1;
-                set_style(app, sel, |s| s.font_weight = w);
+                set_style(app, sel, |s| s.set_font_weight(w));
             } else {
                 var_bind::open_picker(app, sel, &["fontStyle"], VariableKind::String, wt_r);
             }
@@ -461,11 +461,10 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
         field::field_bg(ui, search, qid);
         let te = egui::TextEdit::singleline(&mut q)
             .id(qid)
-            .frame(egui::Frame::NONE)
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 0)))
             .hint_text("Search fonts")
             .font(theme::font_body())
             .text_color(theme::TEXT)
-            .margin(egui::Margin::symmetric(8, 0))
             .vertical_align(egui::Align::Center)
             .desired_width(search.width());
         let resp = ui.put(search, te);

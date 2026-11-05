@@ -1,0 +1,60 @@
+=== PR #1584 Red Test on Base HEAD (b83673d682d24fa341b5c897617c6eafeb3572d2) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-export/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.91s
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-86b419bebdf9a27f)
+
+running 1 test
+test compose_hugged_grid_axis_does_not_fill_parent_when_wrapped_for_out_of_flow_child ... FAILED
+
+failures:
+
+---- compose_hugged_grid_axis_does_not_fill_parent_when_wrapped_for_out_of_flow_child stdout ----
+
+thread 'compose_hugged_grid_axis_does_not_fill_parent_when_wrapped_for_out_of_flow_child' (6328418) panicked at crates/designos-export/tests/grid_native_fixtures.rs:2199:5:
+hugged-width grid should not stretch to parent width in Compose:
+Box(modifier = Modifier.height(100.dp)) {
+    LazyVerticalGrid(
+        columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(96.dp, 128.dp).map { it.roundToPx() } },
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        userScrollEnabled = false
+    ) {
+        item {
+            Box(Modifier.height(60.dp), contentAlignment = Alignment.TopStart) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 96.dp, height = 60.dp)
+                        .background(Color(0xFF3582FF))
+                )
+            }
+        }
+        item {
+            Box(Modifier.height(60.dp), contentAlignment = Alignment.TopStart) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 128.dp, height = 60.dp)
+                        .background(Color(0xFF3582FF))
+                )
+            }
+        }
+    }
+    Box(
+        modifier = Modifier
+            .offset(x = 208.dp, y = 8.dp)
+            .size(24.dp)
+            .background(Color(0xFF3582FF))
+    )
+}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    compose_hugged_grid_axis_does_not_fill_parent_when_wrapped_for_out_of_flow_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-export --test grid_native_fixtures`
