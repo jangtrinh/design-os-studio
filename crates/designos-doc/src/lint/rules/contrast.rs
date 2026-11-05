@@ -395,7 +395,8 @@ fn find_fill_collection<'a>(doc: &'a Document, node: &Node, bound_var_id: Option
         return None;
     }
     let target = match_color?;
-    for v in doc.variables.values() {
+    // Only a live variable names the collection to suggest from; a bound variable above resolves whether or not it is deleted.
+    for v in doc.live_variables() {
         if v.kind == VariableKind::Color {
             if let Some(c) = resolve_color_variable_at(doc, node.id, &v.id) {
                 if same_rgb(c, target) {
@@ -422,7 +423,7 @@ fn best_passing_fg_in_collection<'a>(
     required: f64,
 ) -> Option<(f64, &'a str)> {
     let mut best: Option<(f64, &'a str)> = None;
-    for v in doc.variables.values() {
+    for v in doc.live_variables() {
         if v.kind != VariableKind::Color || v.collection != collection || bound_var_id == Some(v.id.as_str()) {
             continue;
         }
@@ -463,7 +464,7 @@ fn best_passing_bg_in_collection<'a>(
     required: f64,
 ) -> Option<(f64, &'a str)> {
     let mut best: Option<(f64, &'a str)> = None;
-    for v in doc.variables.values() {
+    for v in doc.live_variables() {
         if v.kind != VariableKind::Color || v.collection != collection || bound_var_id == Some(v.id.as_str()) {
             continue;
         }
@@ -712,4 +713,113 @@ pub fn evaluate_contrast(ctx: &NodeEvalCtx<'_>, bounds: &SubtreeBounds, out: &mu
     }
 
     used_pixel_path
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lint::{lint, LintConfig, NoLintEnv};
+    use crate::{
+        Color, Document, Node, NodeId, NodeKind, Paint, Rect, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+        SOFT_DELETED_EXTENSION_KEY,
+    };
+
+    fn hex(h: &str) -> Color {
+        Color::from_hex(h).unwrap()
+    }
+
+    fn colour_variable(id: &str, name: &str, colour: Color, soft_deleted: bool) -> Variable {
+        let mut v = Variable {
+            id: id.into(),
+            name: name.into(),
+            collection: "c".into(),
+            kind: VariableKind::Color,
+            values: [("m".to_string(), VariableValue::Color(colour))].into_iter().collect(),
+            description: String::new(),
+            scopes: Vec::new(),
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        };
+        if soft_deleted {
+            v.extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+        }
+        v
+    }
+
+    /// White card with grey (#777777, 4.48:1: just below AA) text, and a collection of text colours: the live `Text/Grey`
+    /// the text colour comes from, the live and much darker `Text/Dark`, and a deleted `Text/Slate` (#666666) that is
+    /// closer to the current colour than `Text/Dark` and passes.
+    fn grey_text_on_white() -> (Document, NodeId) {
+        let mut doc = Document::new("Contrast");
+        let page = doc.add_page("Page 1");
+        let card_id = doc.alloc_id();
+        let mut card = Node::frame(card_id, Rect::new(0.0, 0.0, 200.0, 80.0));
+        card.fills = vec![Paint::solid(Color::WHITE)];
+        let card = doc.insert(page, card).unwrap();
+        let text_id = doc.alloc_id();
+        let mut text = Node::text(text_id, Rect::new(8.0, 8.0, 120.0, 20.0), "Quiet note", TextStyle::default());
+        if let NodeKind::Text(tp) = &mut text.kind {
+            tp.style.fills = vec![Paint::solid(hex("#777777"))];
+        }
+        let text = doc.insert(card, text).unwrap();
+        doc.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "Colors".into(),
+                modes: vec![VariableMode { id: "m".into(), name: "Default".into() }],
+                default_mode: "m".into(),
+                variables: vec!["grey".into(), "dark".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for v in [
+            colour_variable("grey", "Text/Grey", hex("#777777"), false),
+            colour_variable("dark", "Text/Dark", hex("#1A1A1A"), false),
+            colour_variable("slate", "Text/Slate", hex("#666666"), true),
+            colour_variable("ink", "Text/Ink", hex("#111111"), true),
+        ] {
+            doc.variables.insert(v.id.clone(), v);
+        }
+        (doc, text)
+    }
+
+    fn contrast_findings(doc: &Document) -> Vec<crate::lint::Finding> {
+        let cfg = LintConfig::from_rule_list(&["contrast".into()]).unwrap();
+        lint(doc, &cfg, &NoLintEnv).findings.into_iter().filter(|f| f.rule == "contrast").collect()
+    }
+
+    #[test]
+    fn a_soft_deleted_variable_is_never_the_suggested_passing_colour() {
+        let (doc, _) = grey_text_on_white();
+        let findings = contrast_findings(&doc);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        let fix = findings[0].suggested_fix.as_ref().expect("a live variable passes, so there is a suggestion");
+        assert_eq!(fix.to, serde_json::json!("var:Text/Dark"), "the closer passing colour is deleted, so the live one is offered: {fix:?}");
+        assert!(!findings[0].message.contains("Slate"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn a_deleted_variable_alone_does_not_name_the_collection_to_suggest_from() {
+        let (mut doc, _) = grey_text_on_white();
+        // The text colour now matches only a deleted variable, so no live variable names the collection.
+        doc.variables.get_mut("grey").unwrap().values.insert("m".into(), VariableValue::Color(hex("#778899")));
+        let findings = contrast_findings(&doc);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].suggested_fix.is_none(), "{:?}", findings[0].suggested_fix);
+    }
+
+    #[test]
+    fn a_layer_bound_to_a_soft_deleted_colour_resolves_and_raises_no_false_finding() {
+        let (mut doc, text) = grey_text_on_white();
+        assert_eq!(contrast_findings(&doc).len(), 1, "precondition: the grey text fails");
+        // The binding resolves through the deleted variable to a dark colour that passes.
+        doc.get_mut(text).unwrap().variables.bindings.insert("fills/0".into(), "ink".into());
+        assert!(contrast_findings(&doc).is_empty(), "{:?}", contrast_findings(&doc));
+        assert_eq!(doc.resolve_variable(text, "ink"), Some(VariableValue::Color(hex("#111111"))));
+    }
 }
