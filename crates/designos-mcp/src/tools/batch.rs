@@ -5507,6 +5507,32 @@ mod tests {
     }
 
     #[test]
+    fn mcp_export_spec_replies_validate_against_the_published_output_schema() {
+        let tool = crate::engine::tools().into_iter().find(|t| t["name"] == "designos_export_spec").expect("designos_export_spec is declared");
+        let validator = jsonschema::validator_for(&tool["outputSchema"]).expect("compile the export_spec output schema");
+
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let (a, _b, link) = page_connector_between_two_boxes(&mut engine, page);
+        for (what, node) in [("a connector root", link), ("a layer root", a)] {
+            let reply = engine.call("designos_export_spec", json!({ "node_id": node.0 })).unwrap_or_else(|e| panic!("export_spec of {what}: {e:?}"));
+            if let Err(e) = validator.validate(&reply) {
+                panic!("the reply for {what} does not match the published output schema: {e}\n{reply}");
+            }
+        }
+    }
+
+    #[test]
+    fn mcp_export_spec_description_says_what_a_connector_root_returns() {
+        let tool = crate::engine::tools().into_iter().find(|t| t["name"] == "designos_export_spec").expect("designos_export_spec is declared");
+        let description = tool["description"].as_str().expect("description");
+        assert!(
+            description.contains("null spec") && description.contains("CONNECTORS_SKIPPED"),
+            "the description must say what a connector root returns: {description}"
+        );
+    }
+
+    #[test]
     fn mcp_unknown_batch_op_lists_connect_among_the_valid_options() {
         let mut engine = Engine::default();
         let err = engine.call("designos_apply_batch", json!({ "ops": [{ "op": "conect" }] })).expect_err("unknown op must be refused");

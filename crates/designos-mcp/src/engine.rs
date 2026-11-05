@@ -2422,12 +2422,12 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "export_spec",
-        "Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree.",
+        "Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree. A connector root has no spec: it returns a null spec with a CONNECTORS_SKIPPED warning.",
         json!({"node_id":id}),
         vec!["node_id"],
         json!({
             "node_id": {"type": "integer"},
-            "spec": {"type": "object"},
+            "spec": {"type": ["object", "null"]},
             "warnings": {"type": "array"}
         }),
         &["node_id", "spec"],

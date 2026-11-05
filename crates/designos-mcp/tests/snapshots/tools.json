@@ -767,7 +767,7 @@
   },
   {
     "name": "designos_export_spec",
-    "description": "Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree.",
+    "description": "Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree. A connector root has no spec: it returns a null spec with a CONNECTORS_SKIPPED warning.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
