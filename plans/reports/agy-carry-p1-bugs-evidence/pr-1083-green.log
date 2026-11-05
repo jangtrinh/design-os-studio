@@ -1,0 +1,38 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-doc)
+   Compiling designos-mcp v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-mcp)
+   Compiling designos-app v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app)
+   Compiling designos-diff v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-diff)
+   Compiling designos-fonts v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-fonts)
+   Compiling designos-render v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-render)
+   Compiling designos-docs v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-docs)
+   Compiling designos-svg v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-svg)
+   Compiling designos-export v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-export)
+   Compiling designos-gpu v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-webcapture)
+   Compiling designos-fig v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-fig)
+   Compiling designos-library v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.51s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-5386e4f5180611ab)
+
+running 1 test
+test io::file_dialog_flow_tests::the_deb_declares_x11_keyboard_runtime_dependency ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4553 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-mcp)
+   Compiling designos-app v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.20s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-5386e4f5180611ab)
+
+running 2 tests
+test startup_error_tests::unrelated_startup_error_is_unchanged ... ok
+test startup_error_tests::no_gpu_error_names_linux_recovery ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4552 filtered out; finished in 0.00s
+

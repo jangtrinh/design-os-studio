@@ -1344,18 +1344,21 @@ fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
     let mut by_base: BTreeMap<String, Vec<&VariableCollection>> = BTreeMap::new();
     for coll in live_collections(doc) {
         let (clean_coll, _) = sanitize_dtcg_segment(&coll.name);
-        by_base.entry(clean_coll).or_default().push(coll);
+        // Group names become file-name stems. Treat them case-insensitively so
+        // exports remain distinct on macOS's default case-insensitive volume.
+        by_base.entry(clean_coll.to_ascii_lowercase()).or_default().push(coll);
     }
 
     let mut used_groups: HashSet<String> = HashSet::new();
     let mut coll_group_names: BTreeMap<String, String> = BTreeMap::new();
     let mut winners: HashSet<String> = HashSet::new();
 
-    for (base, colls) in &by_base {
+    for colls in by_base.values() {
         let winner = colls.iter().find(|c| !c.is_library()).copied().unwrap_or(colls[0]);
+        let base = sanitize_dtcg_segment(&winner.name).0;
         let mut candidate = base.clone();
         let mut counter = 2usize;
-        while !used_groups.insert(candidate.clone()) {
+        while !used_groups.insert(candidate.to_ascii_lowercase()) {
             candidate = format!("{base} ({counter})");
             counter += 1;
         }
@@ -1363,7 +1366,9 @@ fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
         winners.insert(winner.id.clone());
     }
 
-    for (base, colls) in &by_base {
+    for colls in by_base.values() {
+        let winner = colls.iter().find(|c| !c.is_library()).copied().unwrap_or(colls[0]);
+        let base = sanitize_dtcg_segment(&winner.name).0;
         let mut counter = 2usize;
         for coll in colls {
             if winners.contains(&coll.id) {
@@ -1371,7 +1376,7 @@ fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
             }
             let mut candidate = format!("{base} ({counter})");
             counter += 1;
-            while !used_groups.insert(candidate.clone()) {
+            while !used_groups.insert(candidate.to_ascii_lowercase()) {
                 candidate = format!("{base} ({counter})");
                 counter += 1;
             }
@@ -1401,6 +1406,7 @@ fn export_dtcg_inner(doc: &Document, color_format: ColorFormat) -> Result<Export
         let group_prefixes = &coll_prefixes[&coll.id];
         let clean_coll_name = &coll_group_names[&coll.id];
         let mut mode_entries = Vec::new();
+        let mut used_mode_filenames = HashSet::new();
 
         for mode in &coll.modes {
             let mut coll_group = Map::new();
@@ -1516,7 +1522,13 @@ fn export_dtcg_inner(doc: &Document, color_format: ColorFormat) -> Result<Export
             file_root.insert(clean_coll_name.clone(), Value::Object(coll_group));
 
             let (clean_mode_file, _) = sanitize_dtcg_segment(&mode.name);
-            let file_name = format!("{clean_coll_name}.{clean_mode_file}.tokens.json");
+            let mode_stem = format!("{clean_coll_name}.{clean_mode_file}");
+            let mut file_name = format!("{mode_stem}.tokens.json");
+            let mut counter = 2usize;
+            while !used_mode_filenames.insert(file_name.to_ascii_lowercase()) {
+                file_name = format!("{mode_stem} ({counter}).tokens.json");
+                counter += 1;
+            }
             let bytes = serde_json::to_vec_pretty(&Value::Object(file_root))?;
             files.push((file_name.clone(), bytes));
 
@@ -4522,6 +4534,78 @@ mod tests {
         let c_nl = m_nl["collections"].as_array().unwrap();
         assert_eq!(c_nl.iter().find(|c| c["id"] == "VariableCollectionId:10:1").unwrap()["group"], "_Primitives");
         assert_eq!(c_nl.iter().find(|c| c["id"] == "VariableCollectionId:20:2").unwrap()["group"], "_Primitives (2)");
+    }
+
+    #[test]
+    fn dtcg_export_case_insensitive_collection_names_keep_unique_files_and_round_trip() {
+        let mut doc = make_1140_fixture_doc();
+        doc.variable_collections.get_mut("VariableCollectionId:10:1").unwrap().name = "Brand".into();
+        doc.variable_collections.get_mut("VariableCollectionId:20:2").unwrap().name = "brand".into();
+        doc.variable_collections.get_mut("VariableCollectionId:10:1").unwrap().modes.push(VariableMode { id: "10:m2".into(), name: "style".into() });
+
+        let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        let token_files: Vec<(String, Vec<u8>)> = bundle.files.iter().filter(|(name, _)| name.ends_with(".tokens.json")).cloned().collect();
+        let folded: BTreeSet<String> = token_files.iter().map(|(name, _)| name.to_ascii_lowercase()).collect();
+        assert_eq!(
+            folded.len(),
+            token_files.len(),
+            "DTCG files collide on case-insensitive filesystems: {:?}",
+            token_files.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
+
+        let manifest: Value = serde_json::from_slice(&bundle.files.iter().find(|(name, _)| name == "tokens.manifest.json").unwrap().1).unwrap();
+        let emitted: BTreeSet<&str> = bundle.files.iter().map(|(name, _)| name.as_str()).collect();
+        for mode in manifest["collections"].as_array().unwrap().iter().flat_map(|c| c["modes"].as_array().unwrap()) {
+            assert!(emitted.contains(mode["file"].as_str().unwrap()), "manifest references missing file: {mode:?}");
+        }
+
+        let export_dir = std::env::temp_dir().join(format!("designos-dtcg-case-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&export_dir);
+        std::fs::create_dir_all(&export_dir).expect("create temp export dir");
+        for (name, bytes) in &bundle.files {
+            std::fs::write(export_dir.join(name), bytes).expect("write exported DTCG file");
+        }
+        let mut on_disk: Vec<(String, Vec<u8>)> = std::fs::read_dir(&export_dir)
+            .expect("read export dir")
+            .map(|entry| {
+                let entry = entry.expect("dir entry");
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let bytes = std::fs::read(entry.path()).expect("read exported file");
+                (name, bytes)
+            })
+            .collect();
+        let _ = std::fs::remove_dir_all(&export_dir);
+        assert_eq!(on_disk.len(), bundle.files.len(), "every exported DTCG file must survive on disk without overwriting another");
+        on_disk.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let manifest_bytes = on_disk.iter().find(|(name, _)| name == "tokens.manifest.json").unwrap().1.clone();
+        let additional = on_disk.into_iter().filter(|(name, _)| name != "tokens.manifest.json").collect();
+        let mut imported = Document::new("casefold-roundtrip");
+        let report = import_variables_bytes(
+            &mut imported,
+            &manifest_bytes,
+            Some("tokens.manifest.json"),
+            VariablesFormat::Dtcg,
+            ImportVariablesOptions { additional_files: additional, ..Default::default() },
+        )
+        .unwrap();
+        assert!(report.skipped.is_empty(), "round-trip skipped tokens: {:?}", report.skipped);
+        assert!(imported.variable_collections.contains_key("VariableCollectionId:10:1"));
+        assert!(imported.variable_collections.contains_key("VariableCollectionId:20:2"));
+        assert!(imported.variables.values().any(|v| v.collection == "VariableCollectionId:10:1"));
+        assert!(imported.variables.values().any(|v| v.collection == "VariableCollectionId:20:2"));
+        let local_gray = imported
+            .variables
+            .values()
+            .find(|v| v.collection == "VariableCollectionId:10:1" && v.name == "Colors/Gray (dark mode)/950")
+            .expect("local Brand token must survive round-trip");
+        let library_gray = imported
+            .variables
+            .values()
+            .find(|v| v.collection == "VariableCollectionId:20:2" && v.name == "Colors/Gray (dark mode)/950")
+            .expect("library brand token must survive round-trip");
+        assert!(matches!(local_gray.values.get("10:m1"), Some(VariableValue::Color(c)) if (c.r - 18.0 / 255.0).abs() < f32::EPSILON));
+        assert!(matches!(library_gray.values.get("20:m1"), Some(VariableValue::Color(c)) if (c.r - 10.0 / 255.0).abs() < f32::EPSILON));
     }
 
     #[test]
