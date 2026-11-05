@@ -11,6 +11,7 @@ use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::simplify::SimplifyShape;
 use i_overlay::float::single::SingleFloatOverlay;
+use rayon::prelude::*;
 use tiny_skia as sk;
 use tiny_skia::PathSegment;
 
@@ -79,15 +80,38 @@ pub fn text_flatten_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
     out
 }
 
-/// Outlines a text node for Outline stroke: one [`TextVectorRun`] per shaped glyph (plus any list
-/// markers and underline / strikethrough bars), in node-local coordinates (`FillRule::NonZero`).
-pub fn text_glyph_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
+/// Outlines a text node for Flatten when its stroke is `Inside` or `Outside`: one [`TextVectorRun`] per
+/// style of the shaped text (the base style and one per text run), never merged by fill. The canvas
+/// clips such a stroke to the outline of each style on its own, so a vector per style keeps that clip.
+pub fn text_style_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
     let resolved = d::resolve_node(doc, n);
     let NodeKind::Text(tp) = &resolved.kind else {
         return Vec::new();
     };
-    let go = crate::text::glyph_outlines(tp, resolved.size);
+    let tl = crate::text::layout(tp, resolved.size);
     let mut out = Vec::new();
+    for (style_idx, (opt_path, style)) in tl.paths.iter().zip(tl.styles.iter()).enumerate() {
+        let Some(sk_path) = opt_path.as_ref() else { continue };
+        let d_path = sk_to_doc(sk_path, d::FillRule::NonZero);
+        if d_path.cmds.is_empty() {
+            continue;
+        }
+        let uses_base = style_idx == 0 || style.fills == tp.style.fills;
+        out.push(TextVectorRun { name: n.name.clone(), path: d_path, fills: style.fills.clone(), uses_base_fill: uses_base });
+    }
+    out
+}
+
+/// A shaped glyph (or list marker, underline or strikethrough bar) with its outline, its style index and its run.
+struct GlyphOutline {
+    style: usize,
+    path: sk::Path,
+    run: TextVectorRun,
+}
+
+fn glyph_outlines_of(tp: &d::TextProps, size: Vec2) -> Vec<GlyphOutline> {
+    let go = crate::text::glyph_outlines(tp, size);
+    let mut out = Vec::with_capacity(go.glyphs.len());
     for g in go.glyphs {
         let d_path = sk_to_doc(&g.path, d::FillRule::NonZero);
         if d_path.cmds.is_empty() {
@@ -96,9 +120,258 @@ pub fn text_glyph_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
         let fills = go.styles.get(g.style).map(|s| s.fills.clone()).unwrap_or_default();
         let uses_base = g.style == 0 || fills == tp.style.fills;
         let name = if g.text.trim().is_empty() { "Vector".to_string() } else { g.text };
-        out.push(TextVectorRun { name, path: d_path, fills, uses_base_fill: uses_base });
+        out.push(GlyphOutline { style: g.style, path: g.path, run: TextVectorRun { name, path: d_path, fills, uses_base_fill: uses_base } });
     }
     out
+}
+
+/// Outlines a text node for Outline stroke: one [`TextVectorRun`] per shaped glyph (plus any list
+/// markers and underline / strikethrough bars), in node-local coordinates (`FillRule::NonZero`).
+pub fn text_glyph_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
+    let resolved = d::resolve_node(doc, n);
+    let NodeKind::Text(tp) = &resolved.kind else {
+        return Vec::new();
+    };
+    glyph_outlines_of(tp, resolved.size).into_iter().map(|g| g.run).collect()
+}
+
+/// One layer of a text node whose `Inside` or `Outside` stroke is baked, in paint order.
+#[derive(Clone, Debug)]
+pub enum AlignedTextLayer {
+    /// The fill geometry of one glyph (or list marker, underline or strikethrough bar).
+    Fill(TextVectorRun),
+    /// The stroke of one glyph or of several whose strokes touch, as fill geometry, in node-local coordinates (`FillRule::EvenOdd`).
+    Stroke { name: String, paths: Vec<d::Path> },
+}
+
+/// Stroker precision, flattening tolerance and curve-fit tolerance of a baked text stroke, the longest polygon
+/// edge handed to the fit, and the mean width under which a hole stays a line path. All in node units.
+const TEXT_STROKE_RES_SCALE: f32 = 4.0;
+const TEXT_STROKE_FLAT_TOL: f32 = 0.02;
+const TEXT_STROKE_FIT_TOL: f32 = 0.04;
+const TEXT_STROKE_FIT_GAP: f64 = 0.25;
+const TEXT_STROKE_THIN_HOLE: f64 = 1.0;
+/// The most glyphs one stroke vector spans. A thick stroke makes the rings of a whole paragraph touch, and one
+/// vector for all of it would cost what a single baked run did.
+const TEXT_STROKE_MAX_GLYPHS: usize = 128;
+
+type Bounds = [f64; 4];
+
+fn contours_bounds(shapes: &Shapes) -> Option<Bounds> {
+    let mut pts = shapes.iter().flatten().flatten();
+    let first = pts.next()?;
+    let mut b = [first[0], first[1], first[0], first[1]];
+    for p in pts {
+        b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])];
+    }
+    Some(b)
+}
+
+fn bounds_overlap(a: &Bounds, b: &Bounds) -> bool {
+    a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3]
+}
+
+/// Uniform grid over glyph bounds: finds the glyphs near a stroke ring without a pass over all of them.
+struct BoundsGrid {
+    cell: f64,
+    cells: std::collections::HashMap<(i32, i32), Vec<u32>>,
+}
+
+impl BoundsGrid {
+    fn new(bounds: &[Option<Bounds>]) -> Self {
+        let mut extents: Vec<f64> = bounds.iter().flatten().map(|b| (b[2] - b[0]).max(b[3] - b[1])).collect();
+        extents.sort_by(f64::total_cmp);
+        let cell = extents.get(extents.len() / 2).copied().unwrap_or(1.0).max(1.0);
+        let mut grid = BoundsGrid { cell, cells: Default::default() };
+        for (i, b) in bounds.iter().enumerate() {
+            let Some(b) = b else { continue };
+            let (x0, y0, x1, y1) = grid.span(b);
+            for cy in y0..=y1 {
+                for cx in x0..=x1 {
+                    grid.cells.entry((cx, cy)).or_default().push(i as u32);
+                }
+            }
+        }
+        grid
+    }
+
+    fn span(&self, b: &Bounds) -> (i32, i32, i32, i32) {
+        let c = |v: f64| (v / self.cell).floor() as i32;
+        (c(b[0]), c(b[1]), c(b[2]), c(b[3]))
+    }
+
+    /// Indices whose bounds share a cell with `b`, each once.
+    fn near(&self, b: &Bounds) -> Vec<u32> {
+        let (x0, y0, x1, y1) = self.span(b);
+        let mut out = Vec::new();
+        for cy in y0..=y1 {
+            for cx in x0..=x1 {
+                if let Some(v) = self.cells.get(&(cx, cy)) {
+                    out.extend_from_slice(v);
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
+fn find_root(parent: &mut [u32], mut i: usize) -> usize {
+    while parent[i] as usize != i {
+        parent[i] = parent[parent[i] as usize];
+        i = parent[i] as usize;
+    }
+    i
+}
+
+/// A name for the stroke vector of several glyphs: the text they spell, without decoration labels.
+fn stroke_layer_name(glyphs: &[GlyphOutline], members: &[usize]) -> String {
+    const MAX_CHARS: usize = 24;
+    let mut spelled = String::new();
+    for &i in members {
+        let name = glyphs[i].run.name.as_str();
+        if !matches!(name, "Vector" | "Underline" | "Strikethrough") {
+            spelled.push_str(name);
+        }
+    }
+    let spelled = spelled.trim();
+    let label = if spelled.is_empty() {
+        "Vector".to_string()
+    } else if spelled.chars().count() > MAX_CHARS {
+        format!("{}...", spelled.chars().take(MAX_CHARS).collect::<String>())
+    } else {
+        spelled.to_string()
+    };
+    format!("{label} stroke")
+}
+
+/// Outlines a text node for Outline stroke when its stroke is `Inside` or `Outside`: the fill of every glyph (and
+/// list marker, underline or strikethrough bar) and the stroke as fill geometry, in the order the canvas paints
+/// them: the fills of one style, then the strokes of that style, style by style.
+///
+/// The canvas cuts the stroke of a style against the union of the outlines of that style. The baked stroke is cut
+/// the same way, so it renders as the canvas does. Glyphs whose stroke rings touch share one stroke vector (a word,
+/// as a rule): two vectors over the same edge would both be anti-aliased there and show a stronger edge than the
+/// canvas draws. Glyphs apart from the others get a vector of their own. A thick stroke can chain the rings of a
+/// whole paragraph together; such a chain is cut into vectors of at most [`TEXT_STROKE_MAX_GLYPHS`] glyphs, each
+/// still cut against the glyphs of its neighbours, so every vector stays small. The rings of the two glyphs on
+/// either side of a cut overlap outside every fill and both vectors paint that overlap, so a translucent
+/// `Outside` stroke shows a darker band there. Leaving the overlap to the earlier vector only would trade the band
+/// for an anti-aliased seam through the stroke, which an opaque paint shows too. A style without a fill emits no
+/// fill layer; its strokes remain. Empty for a `Center` stroke, no weight, or a non-text node.
+pub fn text_aligned_stroke_layers(doc: &Document, n: &Node) -> Vec<AlignedTextLayer> {
+    let resolved = d::resolve_node(doc, n);
+    let NodeKind::Text(tp) = &resolved.kind else {
+        return Vec::new();
+    };
+    let stroke = &resolved.stroke;
+    if stroke.weight <= 0.0 || stroke.align == d::StrokeAlign::Center {
+        return Vec::new();
+    }
+    let glyphs = glyph_outlines_of(tp, resolved.size);
+    let st = crate::outline::node_stroke_style(&resolved, stroke.weight * 2.0);
+    let rule = if stroke.align == d::StrokeAlign::Inside { OverlayRule::Intersect } else { OverlayRule::Difference };
+    // the filled polygon and the stroke ring of every glyph
+    let geometry: Vec<(Shapes, Shapes)> = glyphs
+        .par_iter()
+        .map(|g| {
+            let fill = flatten(&g.path, TEXT_STROKE_FLAT_TOL).simplify_shape(FillRule::NonZero);
+            let ring = match crate::outline::stroke_outline(&g.path, &st, TEXT_STROKE_RES_SCALE) {
+                Some(o) => flatten(&o, TEXT_STROKE_FLAT_TOL).simplify_shape(FillRule::NonZero),
+                None => Vec::new(),
+            };
+            (fill, ring)
+        })
+        .collect();
+    let ring_bounds: Vec<Option<Bounds>> = geometry.iter().map(|(_, ring)| contours_bounds(ring)).collect();
+    let fill_bounds: Vec<Option<Bounds>> = geometry.iter().map(|(fill, _)| contours_bounds(fill)).collect();
+    // glyphs of one style whose rings touch go together
+    let ring_grid = BoundsGrid::new(&ring_bounds);
+    let mut parent: Vec<u32> = (0..glyphs.len() as u32).collect();
+    for (i, b) in ring_bounds.iter().enumerate() {
+        let Some(b) = b else { continue };
+        for j in ring_grid.near(b) {
+            let j = j as usize;
+            if j > i && glyphs[j].style == glyphs[i].style && ring_bounds[j].is_some_and(|o| bounds_overlap(b, &o)) {
+                let (ri, rj) = (find_root(&mut parent, i), find_root(&mut parent, j));
+                parent[ri.max(rj)] = ri.min(rj) as u32;
+            }
+        }
+    }
+    // the glyphs of every group in glyph order; a group too large for one vector is cut into runs of glyphs
+    let mut groups: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
+    for (i, b) in ring_bounds.iter().enumerate() {
+        if b.is_some() {
+            groups.entry(find_root(&mut parent, i)).or_default().push(i);
+        }
+    }
+    let clusters: Vec<(&[usize], bool)> = groups.values().flat_map(|g| g.chunks(TEXT_STROKE_MAX_GLYPHS).map(move |c| (c, c.len() < g.len()))).collect();
+    let fill_grid = BoundsGrid::new(&fill_bounds);
+    let union_bounds = |members: &[usize], of: &[Option<Bounds>]| -> Bounds {
+        members
+            .iter()
+            .filter_map(|&i| of[i])
+            .fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |u, b| [u[0].min(b[0]), u[1].min(b[1]), u[2].max(b[2]), u[3].max(b[3])])
+    };
+    // the glyphs of `members`' style, not among them, whose bounds in `of` overlap `reach`
+    let others = |members: &[usize], grid: &BoundsGrid, of: &[Option<Bounds>], reach: &Bounds| -> Vec<usize> {
+        let style = glyphs[members[0]].style;
+        let near = grid.near(reach).into_iter().map(|j| j as usize);
+        near.filter(|j| glyphs[*j].style == style && members.binary_search(j).is_err() && of[*j].is_some_and(|b| bounds_overlap(&b, reach))).collect()
+    };
+    // the stroke of a cluster: its glyphs' rings joined, cut against the union of their outlines. Glyphs beyond the
+    // cluster matter only when it is a run cut from a larger group: an Inside stroke takes in the rings of those that
+    // reach into the cluster's outlines, an Outside stroke is cut against the outlines of those that its rings reach.
+    let cluster_strokes: Vec<Option<(String, Vec<d::Path>)>> = clusters
+        .par_iter()
+        .map(|&(members, partial)| {
+            let mut rings: Vec<&Shapes> = members.iter().map(|&i| &geometry[i].1).collect();
+            let mut fills: Vec<&Shapes> = members.iter().map(|&i| &geometry[i].0).collect();
+            if partial && stroke.align == d::StrokeAlign::Inside {
+                let reach = union_bounds(members, &fill_bounds);
+                rings.extend(others(members, &ring_grid, &ring_bounds, &reach).into_iter().map(|j| &geometry[j].1));
+            } else if partial {
+                let reach = union_bounds(members, &ring_bounds);
+                fills.extend(others(members, &fill_grid, &fill_bounds, &reach).into_iter().map(|j| &geometry[j].0));
+            }
+            let joined: Shapes;
+            let ring: &Shapes = if let [only] = rings.as_slice() {
+                only
+            } else {
+                joined = rings.iter().flat_map(|r| r.iter().flatten().cloned()).collect::<Vec<_>>().simplify_shape(FillRule::NonZero);
+                &joined
+            };
+            let clip: Shapes = fills.iter().flat_map(|f| f.iter().cloned()).collect();
+            let clipped = ring.overlay(&clip, rule, FillRule::NonZero);
+            let paths = text_stroke_shapes_to_paths(&clipped, TEXT_STROKE_FIT_TOL, TEXT_STROKE_FIT_GAP, TEXT_STROKE_THIN_HOLE);
+            (!paths.is_empty()).then(|| (stroke_layer_name(&glyphs, members), paths))
+        })
+        .collect();
+    let mut strokes: Vec<Option<(String, Vec<d::Path>)>> = vec![None; glyphs.len()];
+    for ((members, _), baked) in clusters.iter().zip(cluster_strokes) {
+        strokes[members[0]] = baked;
+    }
+    let mut order: Vec<usize> = (0..glyphs.len()).collect();
+    order.sort_by_key(|&i| glyphs[i].style);
+    let mut layers = Vec::with_capacity(glyphs.len() * 2);
+    let mut start = 0;
+    while start < order.len() {
+        let style = glyphs[order[start]].style;
+        let end = start + order[start..].iter().take_while(|&&i| glyphs[i].style == style).count();
+        for &i in &order[start..end] {
+            if !glyphs[i].run.fills.is_empty() {
+                layers.push(AlignedTextLayer::Fill(glyphs[i].run.clone()));
+            }
+        }
+        for &i in &order[start..end] {
+            if let Some((name, paths)) = strokes[i].take() {
+                layers.push(AlignedTextLayer::Stroke { name, paths });
+            }
+        }
+        start = end;
+    }
+    layers
 }
 
 /// Geometry of a shape or text node in its own coordinate space as document paths
@@ -203,6 +476,55 @@ pub fn shapes_to_paths(shapes: &Shapes, fit_tol: f32) -> Vec<d::Path> {
         let p = fit_polygons(&contours, d::FillRule::EvenOdd, fit_tol);
         if !p.cmds.is_empty() {
             paths.push(p);
+        }
+    }
+    paths
+}
+
+/// One contour as a closed line path.
+fn contour_to_lines(c: &[Pt], cmds: &mut Vec<d::PathCmd>) {
+    let Some(first) = c.first() else { return };
+    cmds.push(d::PathCmd::MoveTo(Vec2::new(first[0] as f32, first[1] as f32)));
+    for p in &c[1..] {
+        cmds.push(d::PathCmd::LineTo(Vec2::new(p[0] as f32, p[1] as f32)));
+    }
+    cmds.push(d::PathCmd::Close);
+}
+
+/// [`shapes_to_paths`] for the polygons of a baked text stroke. A hole narrower than `thin_hole` on average (a
+/// hairline slit left between two strokes) stays a line path: a curve fit moves its two sides by a share of its
+/// width that shows. Every other contour has its edges cut into pieces of at most `max_gap` first. The fit gauges
+/// its error at the polygon's vertices, so a long straight edge between two far vertices can come out bent (0.2
+/// units on a glyph stem, measured).
+fn text_stroke_shapes_to_paths(shapes: &Shapes, fit_tol: f32, max_gap: f64, thin_hole: f64) -> Vec<d::Path> {
+    let mut paths = Vec::new();
+    for sh in shapes {
+        let mut cmds: Vec<d::PathCmd> = Vec::new();
+        let mut fitted: Vec<Vec<Vec2>> = Vec::new();
+        for (ci, c) in sh.iter().enumerate() {
+            let perimeter: f64 = (0..c.len()).map(|i| (c[(i + 1) % c.len()][0] - c[i][0]).hypot(c[(i + 1) % c.len()][1] - c[i][1])).sum();
+            if perimeter <= 0.0 {
+                continue;
+            }
+            if ci > 0 && 2.0 * contour_area(c).abs() / perimeter < thin_hole {
+                contour_to_lines(c, &mut cmds);
+                continue;
+            }
+            let mut dense = Vec::with_capacity(c.len());
+            for i in 0..c.len() {
+                let (p, q) = (c[i], c[(i + 1) % c.len()]);
+                dense.push(Vec2::new(p[0] as f32, p[1] as f32));
+                let pieces = ((q[0] - p[0]).hypot(q[1] - p[1]) / max_gap).ceil() as usize;
+                for k in 1..pieces {
+                    let t = k as f64 / pieces as f64;
+                    dense.push(Vec2::new((p[0] + (q[0] - p[0]) * t) as f32, (p[1] + (q[1] - p[1]) * t) as f32));
+                }
+            }
+            fitted.push(dense);
+        }
+        cmds.extend(fit_polygons(&fitted, d::FillRule::EvenOdd, fit_tol).cmds);
+        if !cmds.is_empty() {
+            paths.push(d::Path { cmds, fill_rule: d::FillRule::EvenOdd });
         }
     }
     paths

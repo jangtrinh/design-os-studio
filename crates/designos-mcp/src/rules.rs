@@ -281,7 +281,7 @@ pub fn generate_rules_pack_with_inputs(
     render_nodespec_schema_section(&mut out, schemas, &active_names);
 
     // 4. Per-call issues block (E15-12) and structured error/retry rules (E15-5) (§3.1)
-    render_issues_and_errors_section(&mut out, &active_names, has_write_tools);
+    render_issues_and_errors_section(&mut out, has_write_tools);
 
     // 5. Design quality & anti-generic rules (§3.3)
     let quality_body = strip_leading_html_comment(design_quality_md).trim();
@@ -461,13 +461,17 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
     let opt_str = if opt.is_empty() { String::new() } else { format!(" (optional: {})", opt.join(", ")) };
     // `TOOL_DISABLED` applies to every tool and is described once in the error-recovery section.
     let errors = tool_error_codes(name).iter().copied().filter(|code| *code != "`TOOL_DISABLED`").collect::<Vec<_>>().join(", ");
-    let example = tool_worked_example(name);
+    // Every argument of the listing is optional and the Args line names them: a `{}` example would only cost budget.
+    let example = (name != "designos_docs_list").then(|| tool_worked_example(name));
 
     out.push_str(&format!("### `{name}`\n"));
     out.push_str(&format!("- **Purpose:** {}\n", purpose_summary(desc)));
     out.push_str(&format!("- **Args:** required: {req_str}{opt_str}\n"));
     out.push_str(&format!("- **Errors:** {errors}\n"));
-    out.push_str(&format!("- **Example:** `{example}`\n\n"));
+    match example {
+        Some(example) => out.push_str(&format!("- **Example:** `{example}`\n\n")),
+        None => out.push('\n'),
+    }
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
@@ -581,6 +585,10 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_new_document" => &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
         "designos_get_metadata" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_libraries" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
+        "designos_docs_list" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`CURSOR_STALE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"],
+        "designos_docs_read" => {
+            &["`INVALID_ARGUMENTS`", "`MISSING_FIELD`", "`VALUE_OUT_OF_RANGE`", "`CURSOR_STALE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
+        }
         "designos_get_screenshot" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_search_design_system" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_design_context" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TOOL_DISABLED`"],
@@ -595,6 +603,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_get_document" => r#"{}"#,
         "designos_get_metadata" => r#"{"node_id":1,"depth":3}"#,
         "designos_get_libraries" => r#"{}"#,
+        "designos_docs_read" => r#"{"page":"spec/checkout.md"}"#,
         "designos_list_nodes" => r#"{"parent_id":1,"limit":50}"#,
         "designos_get_node" => r#"{"node_id":2}"#,
         "designos_get_screenshot" => r#"{"node_id":2,"scale":2.0}"#,
@@ -638,9 +647,8 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
 
 fn render_nodespec_schema_section(out: &mut String, schemas: &SpecSchemas, active_tools: &BTreeSet<String>) {
     out.push_str("## `NodeSpec` Reference\n\n");
-    if active_tools.contains("designos_apply_spec") {
-        out.push_str("Used by `designos_apply_spec` / `designos_export_spec`.\n\n");
-    } else {
+    // With `designos_apply_spec` on, the schema's own first line already says which tools use the spec.
+    if !active_tools.contains("designos_apply_spec") {
         out.push_str("Declarative spec for `$DESIGNOS_LIVE_SPEC`.\n\n");
     }
 
@@ -719,19 +727,13 @@ fn summarize_schema_type(prop: &Value) -> String {
     "object".to_string()
 }
 
-fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<String>, has_write_tools: bool) {
+fn render_issues_and_errors_section(out: &mut String, has_write_tools: bool) {
     out.push_str("## Per-Call `issues` Block & Error Recovery\n\n");
     if has_write_tools {
-        out.push_str(
-            "- **Per-call `issues`:** Mutating replies attach `issues: {total, new_in_this_call, truncated, items}`. Resolve `new_in_this_call > 0` first.\n",
-        );
-        if active_tools.contains("designos_configure_session") {
-            out.push_str("- **Session lint:** `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false`.\n");
-        }
+        out.push_str("- **Per-call `issues`:** Writes attach `issues`. Fix `new_in_this_call > 0` first.\n");
     }
     out.push_str(
-        "- **Structured errors:** `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.\n\
-         - **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
+        "- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error too. `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
     );
 }
 

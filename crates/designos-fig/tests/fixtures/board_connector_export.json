@@ -1,0 +1,190 @@
+{
+  "fig": {
+    "autoRename": true,
+    "blendMode": "PASS_THROUGH",
+    "connectorEnd": {
+      "endpointNodeID": {
+        "localID": 3,
+        "sessionID": 1
+      },
+      "magnet": "LEFT",
+      "position": {
+        "x": 320.0,
+        "y": 225.0
+      }
+    },
+    "connectorEndCap": "ARROW_EQUILATERAL",
+    "connectorLineStyle": "ELBOWED",
+    "connectorStart": {
+      "endpointNodeID": {
+        "localID": 2,
+        "sessionID": 1
+      },
+      "magnet": "RIGHT",
+      "position": {
+        "x": 160.0,
+        "y": 100.0
+      }
+    },
+    "connectorStartCap": "CIRCLE_FILLED",
+    "fillPaints": [],
+    "fontName": {
+      "family": "Inter",
+      "postscript": "",
+      "style": "Regular"
+    },
+    "fontSize": 12.0,
+    "guid": {
+      "localID": 4,
+      "sessionID": 1
+    },
+    "horizontalConstraint": "MIN",
+    "letterSpacing": {
+      "units": "PIXELS",
+      "value": 0.0
+    },
+    "lineHeight": {
+      "units": "RAW",
+      "value": 1.0
+    },
+    "locked": false,
+    "miterLimit": 4.0,
+    "name": "Board Flow",
+    "opacity": 1.0,
+    "parentIndex": {
+      "guid": {
+        "localID": 1,
+        "sessionID": 1
+      },
+      "position": "!000002"
+    },
+    "phase": "CREATED",
+    "size": {
+      "x": 195.19998,
+      "y": 160.20001
+    },
+    "strokeAlign": "CENTER",
+    "strokeCap": "ROUND",
+    "strokeJoin": "ROUND",
+    "strokePaints": [
+      {
+        "blendMode": "NORMAL",
+        "color": {
+          "a": 1.0,
+          "b": 0.11764706,
+          "g": 0.11764706,
+          "r": 0.11764706
+        },
+        "opacity": 1.0,
+        "type": "SOLID",
+        "visible": true
+      }
+    ],
+    "strokeWeight": 2.0,
+    "textAlignHorizontal": "LEFT",
+    "textAlignVertical": "TOP",
+    "textAutoResize": "NONE",
+    "textCase": "ORIGINAL",
+    "textData": {
+      "characters": "approves"
+    },
+    "textDecoration": "NONE",
+    "textDecorationSkipInk": true,
+    "transform": {
+      "m00": 1.0,
+      "m01": 0.0,
+      "m02": 142.4,
+      "m10": 0.0,
+      "m11": 1.0,
+      "m12": 82.4
+    },
+    "type": "CONNECTOR",
+    "verticalConstraint": "MIN",
+    "visible": true
+  },
+  "rest": {
+    "absoluteBoundingBox": {
+      "height": 160.20001,
+      "width": 195.19998,
+      "x": 142.4,
+      "y": 82.4
+    },
+    "blendMode": "PASS_THROUGH",
+    "characters": "approves",
+    "connectorEnd": {
+      "endpointNodeId": "9000:3",
+      "magnet": "LEFT",
+      "position": {
+        "x": 320.0,
+        "y": 225.0
+      }
+    },
+    "connectorEndStrokeCap": "TRIANGLE_FILLED",
+    "connectorLineType": "ELBOWED",
+    "connectorStart": {
+      "endpointNodeId": "9000:2",
+      "magnet": "RIGHT",
+      "position": {
+        "x": 160.0,
+        "y": 100.0
+      }
+    },
+    "connectorStartStrokeCap": "CIRCLE_FILLED",
+    "constraints": {
+      "horizontal": "LEFT",
+      "vertical": "TOP"
+    },
+    "effects": [],
+    "fills": [],
+    "id": "9000:4",
+    "layoutSizingHorizontal": "FIXED",
+    "layoutSizingVertical": "FIXED",
+    "name": "Board Flow",
+    "opacity": 1.0,
+    "relativeTransform": [
+      [
+        1.0,
+        0.0,
+        142.4
+      ],
+      [
+        0.0,
+        1.0,
+        82.4
+      ]
+    ],
+    "size": {
+      "x": 195.19998,
+      "y": 160.20001
+    },
+    "strokeAlign": "CENTER",
+    "strokeCap": "ROUND",
+    "strokeJoin": "ROUND",
+    "strokeMiterAngle": 28.955023,
+    "strokeMiterLimit": 4.0,
+    "strokeWeight": 2.0,
+    "strokes": [
+      {
+        "blendMode": "NORMAL",
+        "color": {
+          "a": 1.0,
+          "b": 0.11764706,
+          "g": 0.11764706,
+          "r": 0.11764706
+        },
+        "opacity": 1.0,
+        "type": "SOLID",
+        "visible": true
+      }
+    ],
+    "style": {
+      "fontFamily": "Inter",
+      "fontSize": 12.0,
+      "fontWeight": 400,
+      "textAlignHorizontal": "LEFT",
+      "textAlignVertical": "TOP"
+    },
+    "type": "CONNECTOR",
+    "visible": true
+  }
+}

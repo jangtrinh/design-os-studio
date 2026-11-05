@@ -1,0 +1,15 @@
+Idle CPU, release build (target/release/designos), Project tab open on spec/payment-methods.md of the Checkout fixture library.
+Method: CLAUDE.md section 4, cumulative process CPU time `ps -p <pid> -o time=` (10 ms resolution). 12 s to open, load the docs and pass the 250 ms idle refine, then two 20 s windows.
+Launch: DESIGNOS_PROJECT_TAB_SHOT="project=<id>;page=spec/payment-methods.md" designos --library <fixture-lib>
+
+Project tab open (pid 91190)
+  before     : 0:00.19
+  after 20 s : 0:00.20
+  after 40 s : 0:00.21
+
+Baseline, Home screen, no project tab (pid 92994), same method
+  before     : 0:00.17
+  after 20 s : 0:00.18
+  after 40 s : 0:00.18
+
+Reading: the Project tab adds at most one 10 ms tick per 20 s window (<= 0.05 %); the Home baseline shows the same single tick in its first window. Not the CLAUDE.md 0.000 s on the nose: ps cannot resolve below 10 ms, so "0 %" is proven to within one tick, not exactly.

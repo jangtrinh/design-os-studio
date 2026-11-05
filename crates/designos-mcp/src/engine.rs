@@ -202,6 +202,8 @@ pub const DISPATCHED: &[&str] = &[
     "designos_redo",
     "designos_apply_batch",
     "designos_configure_session",
+    "designos_docs_list",
+    "designos_docs_read",
 ];
 
 /// Non-prefixed compatibility aliases accepted by [`Engine::call`].
@@ -1104,6 +1106,8 @@ impl Engine {
                 Ok(res)
             }
             "designos_configure_session" => self.session_options.apply_patch(args).map_err(ToolError::from),
+            "designos_docs_list" => crate::tools::docs::docs_list(&crate::tools::library_source::resolve_library_root(), self.file_path.as_deref(), args),
+            "designos_docs_read" => crate::tools::docs::docs_read(&crate::tools::library_source::resolve_library_root(), self.file_path.as_deref(), args),
             "designos_import_web_capture" | "import_web_capture" => {
                 let a: ImportWebCaptureArgs = parse(args)?;
                 let page = a
@@ -2531,6 +2535,7 @@ pub fn tools() -> Vec<Value> {
     out.push(crate::tools::design_context::tool_descriptor());
     out.push(crate::tools::session_options::tool_descriptor());
     out.push(crate::tools::bootstrap::tool_definition());
+    out.extend(crate::tools::docs_descriptors::tool_descriptors());
     for tool in &mut out {
         crate::risk::stamp_tool_json(tool);
     }

@@ -1,0 +1,54 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 28.22s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 41 tests
+test shell::tests::leave_prompt::a_press_that_has_not_become_a_drag_is_not_made_into_an_edit_by_the_question ... ok
+test shell::tests::leave_prompt::an_edit_in_progress_counts_as_unsaved ... ok
+test shell::tests::leave_prompt::dont_save_closes_the_tab_and_drops_the_edits ... ok
+test shell::tests::leave_prompt::normal_run_still_asks_before_closing_a_dirty_document ... ok
+test shell::tests::leave_prompt::closing_a_tab_with_unsaved_edits_asks_and_leaves_the_tab_open ... ok
+test shell::tests::leave_prompt::a_property_scrub_in_progress_is_ended_as_one_undo_step_before_the_question ... ok
+test shell::tests::leave_prompt::an_open_question_asks_for_no_repaint ... ok
+test shell::tests::leave_prompt::a_document_with_nothing_unsaved_never_asks ... ok
+test shell::tests::leave_prompt::a_close_request_while_a_question_is_open_changes_nothing ... ok
+test shell::tests::leave_prompt::a_drag_in_progress_is_ended_where_it_is_as_one_undo_step_before_the_question_and_save_writes_it ... ok
+test shell::tests::leave_prompt::an_open_text_session_is_committed_and_counted ... ok
+test shell::tests::leave_prompt::quitting_from_home_asks_about_the_parked_tabs_and_cancel_leaves_home_as_it_was ... ok
+test shell::tests::leave_prompt::closing_the_other_tabs_asks_for_each_unsaved_one_in_tab_order ... ok
+test shell::tests::leave_prompt::a_library_file_never_asks ... ok
+test shell::tests::leave_prompt::quitting_asks_cancels_the_close_and_lets_it_through_once_answered ... ok
+test shell::tests::leave_prompt_edges::a_dragged_sticky_has_no_text_session_open_when_the_question_opens ... ok
+designos: warn: file dialog unavailable: no file dialog backend available (xdg-desktop-portal or zenity)
+test shell::tests::leave_prompt::quitting_asks_once_per_unsaved_document_in_tab_order_and_cancel_stops_the_quit ... ok
+test shell::tests::leave_prompt::save_on_an_untitled_document_opens_the_save_dialog_and_cancelling_it_cancels_the_close ... ok
+test shell::tests::leave_prompt::save_writes_the_file_then_closes_the_tab ... ok
+test shell::tests::leave_prompt::enter_means_save_and_the_action_goes_on ... ok
+test shell::tests::leave_prompt::screenshot_run_closes_without_leave_questions_when_dirty ... ok
+test shell::tests::leave_prompt::a_new_file_or_a_library_file_opened_over_unsaved_edits_asks_first ... ok
+test shell::tests::leave_prompt::cancel_escape_and_a_click_outside_leave_everything_as_it_was ... ok
+test shell::tests::leave_prompt_edges::a_file_dropped_while_a_question_is_open_is_ignored_and_the_pending_action_stays ... ok
+test shell::tests::leave_prompt_edges::a_press_on_an_auto_layout_bar_that_has_not_moved_opens_no_inline_editor_behind_the_question ... ok
+test shell::tests::leave_prompt_edges::a_failed_debounced_library_save_asks_before_quit ... ok
+test shell::tests::leave_prompt_edges::a_press_on_a_vector_segment_that_has_not_moved_adds_no_point_when_the_question_opens ... ok
+test shell::tests::leave_prompt_edges::a_window_close_while_presenting_leaves_the_present_view_and_asks_over_the_editor ... ok
+test shell::tests::leave_prompt_edges::a_failed_library_save_asks_before_switching_tabs ... ok
+test shell::tests::leave_prompt_edges::another_leave_request_while_a_question_is_open_is_ignored_and_the_pending_action_stays ... ok
+test shell::tests::leave_prompt::opening_a_file_over_unsaved_edits_asks_and_each_answer_does_what_it_says ... ok
+test shell::tests::leave_prompt_edges::a_failed_library_flush_asks_before_quit ... ok
+test shell::tests::leave_prompt_edges::a_failed_library_save_that_is_undone_does_not_prompt ... ok
+test shell::tests::leave_prompt_edges::ending_a_viewport_gesture_for_the_question_leaves_the_render_revision_alone_and_a_drag_bumps_it ... ok
+test shell::tests::leave_prompt_edges::quitting_while_presenting_a_clean_tab_asks_about_the_other_tabs_over_the_editor ... ok
+test shell::tests::leave_prompt::reopening_an_open_file_from_home_asks_and_each_answer_does_what_it_says ... ok
+test shell::tests::leave_prompt_edges::opening_a_file_over_a_flagged_document_leaves_the_new_one_without_a_dot ... ok
+test shell::tests::leave_prompt_edges::an_open_request_while_a_question_is_open_is_ignored_and_the_pending_action_stays ... ok
+test shell::tests::leave_prompt_edges::the_tab_menus_close_other_tabs_asks_for_each_unsaved_tab_and_closes_nothing_before_the_answer ... ok
+test shell::tests::leave_prompt_edges::speaker_notes_typed_in_a_new_deck_are_asked_about_when_its_tab_closes_and_save_writes_them ... ok
+test shell::tests::leave_prompt_edges::speaker_notes_typed_in_a_new_deck_are_asked_about_when_the_window_closes ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 4355 filtered out; finished in 13.31s
+

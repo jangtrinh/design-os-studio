@@ -1077,7 +1077,7 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "connectorEnd",
     "connectorLineType",
     "connectorLineStyle",
-    "connectorType",
+    "studioConnector",
     "connectorStartStrokeCap",
     "connectorEndStrokeCap",
     "connectorStartCap",
@@ -1273,6 +1273,20 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
     if orig_ty == "BRUSH" && !has_brush_type {
         meta.insert("brushType".into(), Value::String("STRETCH".into()));
     }
+    for (ep_key, mag_key, rp_key) in
+        [("connectorStart", "connectorStartMagnet", "connectorStartRelativePosition"), ("connectorEnd", "connectorEndMagnet", "connectorEndRelativePosition")]
+    {
+        if let Some(ep) = nc.get(ep_key) {
+            if let Some(m) = fstr(ep, "magnet").filter(|m| matches!(*m, "NONE" | "AUTO_HORIZONTAL" | "EDGE" | "ABSOLUTE")) {
+                meta.insert(mag_key.into(), Value::String(m.to_string()));
+            }
+            if let Some(rp) = ep.get("relativePosition").filter(|v| v.is_object()) {
+                if let Ok(s) = serde_json::to_string(&clean_json_floats(rp)) {
+                    meta.insert(rp_key.into(), Value::String(s));
+                }
+            }
+        }
+    }
     (!meta.is_empty()).then_some(Value::Object(meta))
 }
 
@@ -1465,6 +1479,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     copy(&mut m, nc, "name", "name");
     copy(&mut m, nc, "componentKey", "componentKey");
+    copy(&mut m, nc, "studioConnector", "studioConnector");
     // A symbol or state group indexed by its publish `key` (see `Lk::new`) keeps that key the way
     // `componentKey` is kept, so export writes it back. An explicit `componentKey` wins.
     if !m.contains_key("componentKey") && matches!(ty, "COMPONENT" | "COMPONENT_SET") {
@@ -1800,7 +1815,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             if let Some(e) = nc.get("connectorEnd") {
                 m.insert("connectorEnd".into(), conv_ep(e));
             }
-            if let Some(lt) = fstr(nc, "connectorLineType").or_else(|| fstr(nc, "connectorLineStyle")).or_else(|| fstr(nc, "connectorType")) {
+            if let Some(lt) = fstr(nc, "connectorLineType").or_else(|| fstr(nc, "connectorLineStyle")) {
                 m.insert("connectorLineType".into(), lt.into());
             }
             if let Some(sc) = nc.get("connectorStartStrokeCap").or_else(|| nc.get("connectorStartCap")) {

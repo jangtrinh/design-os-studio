@@ -13,6 +13,9 @@ use std::collections::HashSet;
 /// shape drawable. Instances become `<include>` of the component's layout; bound variables become
 /// `@color/name` / `@dimen/name`. Text is escaped for an XML attribute and for Android resources.
 pub fn android_xml_for(doc: &Document, node: NodeId) -> String {
+    if doc.get(node).is_some_and(|n| matches!(n.kind, NodeKind::Connector(_))) {
+        return String::new();
+    }
     let mut cx = Cx { doc, out: Out::new("    "), drawables: Vec::new(), used: HashSet::new() };
     cx.emit(node, Parent::root(), 0, None);
     let mut text = format!("<!-- res/layout/{}.xml -->\n{}", snake(&doc.get(node).map(|n| n.name.clone()).unwrap_or_default()), cx.out.finish());
@@ -320,7 +323,7 @@ impl Cx<'_> {
     fn emit(&mut self, id: NodeId, parent: Parent<'_>, depth: usize, slot: Option<Slot>) {
         let doc = self.doc;
         let Some(n) = doc.get(id) else { return };
-        if !n.visible {
+        if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
             return;
         }
         let sz = sizes(n, parent);

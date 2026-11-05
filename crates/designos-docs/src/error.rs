@@ -37,6 +37,24 @@ pub enum DocsError {
     #[error("{0}")]
     Manifest(ManifestError),
 
+    /// A page or manifest larger than the size the store reads. Nothing was read.
+    #[error("{path} is over the {limit} byte limit; fix: split the page")]
+    TooLarge { path: String, limit: u64 },
+
+    /// The path leads, through a symlink, to a place outside the docs folder. Nothing was read or written.
+    #[error("{path} resolves to a place outside the docs folder, so it was not touched; fix: remove the symlink, or replace it with a real file inside the docs folder")]
+    OutsideDocs { path: String },
+
+    /// A page or manifest with more than one hard link. A hard link to a file outside the docs folder looks like an
+    /// ordinary file inside it, so the store cannot tell it from one and does not read it.
+    #[error("{path} has more than one hard link, so it may be another name for a file outside the docs folder and was not read; fix: replace it with a copy of the file (a hard link cannot be told apart from the file it points to)")]
+    HardLinked { path: String },
+
+    /// The page was replaced (an atomic save) every time it was opened, so no read could be matched to one file. The page is
+    /// fine; reading it again works. Nothing was read.
+    #[error("{path} changed while it was read; fix: read it again")]
+    ChangedDuringRead { path: String },
+
     #[error("block {index} does not exist; the page has {len} blocks; fix: read the page again and use an index below {len}")]
     BlockIndex { index: usize, len: usize },
 

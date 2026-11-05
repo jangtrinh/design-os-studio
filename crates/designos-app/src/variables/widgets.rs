@@ -271,8 +271,7 @@ pub fn picker(
             .hint_text(egui::RichText::new("Search").color(theme::TEXT_PLACEHOLDER))
             .font(theme::font_body())
             .text_color(theme::TEXT)
-            .frame(egui::Frame::NONE)
-            .margin(egui::Margin::symmetric(4, 0))
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 0)))
             .vertical_align(egui::Align::Center)
             .desired_width(sr.width());
         let out = ui.put(sr, te);
