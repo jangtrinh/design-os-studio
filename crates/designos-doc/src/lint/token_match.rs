@@ -156,7 +156,8 @@ impl Index {
         let mut by_num: HashMap<i64, Vec<Entry>> = HashMap::new();
         let mut styles: Vec<StyleEntry> = Vec::new();
 
-        for v in doc.variables.values() {
+        // A soft-deleted variable still resolves for the layers bound to it, but it is never a token to suggest.
+        for v in doc.live_variables() {
             if let Some(lib_id) = variable_library_id(doc, v) {
                 if enabled_library_name(doc, lib_id).is_none() {
                     continue; // Disabled library: never suggest even if previously imported.
@@ -786,4 +787,64 @@ pub fn library_style_is_current(doc: &Document, snap: &LibrarySnapshot, id: Node
     let n: &Node = &resolved;
     let property = snap.style_meta.get(raw_style).map(|m| m.property).unwrap_or_else(|| default_style_property(s));
     style_matches_node(doc, n, s, property)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Rect, VariableMode, SOFT_DELETED_EXTENSION_KEY};
+
+    fn color_variable(id: &str, name: &str, color: Color, soft_deleted: bool) -> Variable {
+        let mut v = Variable {
+            id: id.into(),
+            name: name.into(),
+            collection: "c".into(),
+            kind: VariableKind::Color,
+            values: [("m".to_string(), VariableValue::Color(color))].into(),
+            description: String::new(),
+            scopes: Vec::new(),
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        };
+        if soft_deleted {
+            v.extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), serde_json::Value::Bool(true));
+        }
+        v
+    }
+
+    #[test]
+    fn a_soft_deleted_variable_is_never_suggested_as_a_token() {
+        let (red, blue) = (Color::rgb(220, 30, 30), Color::rgb(30, 30, 220));
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        let rect = d.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "m".into(), name: "Default".into() }],
+                default_mode: "m".into(),
+                variables: vec!["live".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert("live".into(), color_variable("live", "Brand/Red", red, false));
+        d.variables.insert("gone-same".into(), color_variable("gone-same", "Old/Red", red, true));
+        d.variables.insert("gone-only".into(), color_variable("gone-only", "Old/Blue", blue, true));
+
+        let index = Index::new(&d);
+        let node = d.get(rect).unwrap();
+        match index.find(&d, node, "fills/0", &red) {
+            Match::One(e) => assert_eq!(e.var.id, "live", "the live variable is the only candidate"),
+            other => panic!("expected the live variable alone, got {other:?}"),
+        }
+        assert!(matches!(index.find(&d, node, "fills/0", &blue), Match::None), "a colour only a soft-deleted variable holds has no token");
+    }
 }

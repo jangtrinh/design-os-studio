@@ -269,10 +269,14 @@ struct IndexedVar {
 
 impl SpecBindIndex {
     /// Builds the lookup index in a single pass over `doc.variable_collections`, `doc.variables`, and `doc.styles`.
+    ///
+    /// Only live variables and collections are indexed: a name never selects a soft-deleted one, even when it is the only
+    /// match, so a reference by name to it is an unknown name. An explicit `var:id:` reference does not go through the
+    /// index and still resolves, which keeps existing bindings to a deleted variable working.
     pub fn build(doc: &Document) -> Self {
         let mut collections: Vec<IndexedCollection> = Vec::with_capacity(doc.variable_collections.len());
         let mut coll_order: HashMap<&str, (usize, &str)> = HashMap::with_capacity(doc.variable_collections.len());
-        for (cid, coll) in &doc.variable_collections {
+        for (cid, coll) in doc.variable_collections.iter().filter(|(_, c)| !c.is_soft_deleted()) {
             if cid != EASEUI_DEPRECATED_COLLECTION_ID {
                 let idx = collections.len();
                 coll_order.insert(cid.as_str(), (idx, coll.name.as_str()));
@@ -291,7 +295,7 @@ impl SpecBindIndex {
         }
 
         let mut all_vars: Vec<IndexedVar> = Vec::with_capacity(doc.variables.len());
-        for (vid, var) in &doc.variables {
+        for (vid, var) in doc.variables.iter().filter(|(_, v)| !v.is_soft_deleted()) {
             let Some(&(c_idx, c_name)) = coll_order.get(var.collection.as_str()) else {
                 continue;
             };
@@ -741,7 +745,7 @@ pub fn resolve_variable_ref_of_kind(
         if !doc.library.enabled.iter().any(|l| l.id == snap.library_id) {
             continue;
         }
-        for (cid, coll) in &snap.variable_collections {
+        for (cid, coll) in snap.variable_collections.iter().filter(|(_, c)| !c.is_soft_deleted()) {
             let id_match = body.strip_prefix(cid.as_str()).and_then(|r| r.strip_prefix('/')).is_some_and(|rem| !rem.is_empty());
             let name_match = body.strip_prefix(coll.name.as_str()).and_then(|r| r.strip_prefix('/')).is_some_and(|rem| !rem.is_empty());
             for len in [id_match.then_some(cid.len()), name_match.then_some(coll.name.len())].into_iter().flatten() {
@@ -765,7 +769,7 @@ pub fn resolve_variable_ref_of_kind(
                 }
             }
         }
-        for (vid, var) in &snap.variables {
+        for (vid, var) in snap.variables.iter().filter(|(_, v)| !v.is_soft_deleted()) {
             let Some(coll) = snap.variable_collections.get(&var.collection) else {
                 continue;
             };
@@ -780,7 +784,7 @@ pub fn resolve_variable_ref_of_kind(
         let rem = &body[prefix_len + 1..];
         for (s_idx, cid, cname) in &lib_candidate_colls {
             let snap = &libraries[*s_idx];
-            for (vid, var) in &snap.variables {
+            for (vid, var) in snap.variables.iter().filter(|(_, v)| !v.is_soft_deleted()) {
                 if var.collection == *cid && var.name == rem {
                     lib_step1.push((*s_idx, vid.clone(), cname.clone()));
                 }
@@ -1073,13 +1077,14 @@ pub fn resolve_mode_map(doc: &Document, mode_spec: &BTreeMap<String, String>, sp
         let Some(coll) = doc
             .variable_collections
             .values()
+            .filter(|c| !c.is_soft_deleted())
             .find(|c| c.id != EASEUI_DEPRECATED_COLLECTION_ID && c.name == *coll_name)
-            .or_else(|| doc.variable_collections.values().find(|c| c.name == *coll_name))
+            .or_else(|| doc.variable_collections.values().filter(|c| !c.is_soft_deleted()).find(|c| c.name == *coll_name))
         else {
             let valid_options: Vec<String> = doc
                 .variable_collections
                 .values()
-                .filter(|c| c.id != EASEUI_DEPRECATED_COLLECTION_ID)
+                .filter(|c| c.id != EASEUI_DEPRECATED_COLLECTION_ID && !c.is_soft_deleted())
                 .flat_map(|c| c.modes.iter().map(move |m| format!("{}:{}", c.name, m.name)))
                 .take(20)
                 .collect();

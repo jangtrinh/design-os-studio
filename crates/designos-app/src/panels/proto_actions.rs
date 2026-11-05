@@ -179,7 +179,7 @@ fn add_row_indented(ui: &mut Ui, pane: &mut Pane, rec: &str, label: &str) -> boo
 
 /// A starting condition: "<first boolean variable>" else "<first number> > 0", else "true".
 fn default_condition(doc: &Document) -> Expression {
-    let all = || doc.variable_collections.values().flat_map(|c| c.variables.iter()).filter_map(|id| doc.variables.get(id));
+    let all = || doc.variable_collections.values().flat_map(|c| c.variables.iter()).filter_map(|id| doc.variables.get(id)).filter(|v| !v.is_soft_deleted());
     if let Some(v) = all().find(|v| v.kind == VariableKind::Boolean) {
         return Expression::var(v.id.clone());
     }
@@ -194,9 +194,9 @@ fn default_condition(doc: &Document) -> Expression {
 /// "Collection / name" labels of every variable, in collection order, with their ids.
 fn variable_options(doc: &Document) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for c in doc.variable_collections.values() {
+    for c in doc.variable_collections.values().filter(|c| !c.is_soft_deleted()) {
         for id in &c.variables {
-            if let Some(v) = doc.variables.get(id) {
+            if let Some(v) = doc.variables.get(id).filter(|v| !v.is_soft_deleted()) {
                 out.push((id.clone(), format!("{} / {}", c.name, v.name)));
             }
         }
@@ -263,7 +263,7 @@ fn insert_variable_picker(app: &mut App, ui: &mut Ui, pane: &mut Pane, k: &str, 
 }
 
 fn set_mode_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, k: &str, collection: &mut String, mode: &mut String) {
-    let colls: Vec<(String, String)> = app.doc.variable_collections.values().map(|c| (c.id.clone(), c.name.clone())).collect();
+    let colls: Vec<(String, String)> = app.doc.variable_collections.values().filter(|c| !c.is_soft_deleted()).map(|c| (c.id.clone(), c.name.clone())).collect();
     let c = label_ctl(ui, pane, "Collection");
     record(ui, &format!("proto-pop-coll-{k}"), c);
     if colls.is_empty() {
@@ -412,5 +412,71 @@ pub(super) fn expression_field(app: &mut App, ui: &mut Ui, pane: &mut Pane, key:
             ui.data_mut(|d| d.insert_temp(did, text));
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn variable(id: &str, name: &str, kind: VariableKind, soft_deleted: bool) -> Variable {
+        let mut v = Variable {
+            id: id.into(),
+            name: name.into(),
+            collection: "c".into(),
+            kind,
+            values: Default::default(),
+            description: String::new(),
+            scopes: Vec::new(),
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        };
+        if soft_deleted {
+            v.extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+        }
+        v
+    }
+
+    /// One live collection whose list names a live number and a deleted boolean, and a deleted collection.
+    fn doc_with_deleted_entries() -> Document {
+        let mut d = Document::new("Prototype");
+        let collection = |id: &str, name: &str, variables: &[&str], soft_deleted: bool| {
+            let mut c = VariableCollection {
+                id: id.into(),
+                name: name.into(),
+                modes: vec![VariableMode { id: "m".into(), name: "Default".into() }],
+                default_mode: "m".into(),
+                variables: variables.iter().map(|v| v.to_string()).collect(),
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            };
+            if soft_deleted {
+                c.extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+            }
+            c
+        };
+        d.variable_collections.insert("c".into(), collection("c", "State", &["gone-flag", "count"], false));
+        d.variable_collections.insert("retired".into(), collection("retired", "Retired", &["old"], true));
+        for v in [
+            variable("gone-flag", "flag", VariableKind::Boolean, true),
+            variable("count", "count", VariableKind::Number, false),
+            variable("old", "old", VariableKind::Number, true),
+        ] {
+            d.variables.insert(v.id.clone(), v);
+        }
+        d
+    }
+
+    #[test]
+    fn variable_options_and_the_default_condition_skip_deleted_variables() {
+        let d = doc_with_deleted_entries();
+        assert_eq!(variable_options(&d), vec![("count".to_string(), "State / count".to_string())]);
+        // The first boolean is a deleted one, so the starting condition falls back to the live number.
+        let condition = proto::expression_text(&d, &default_condition(&d));
+        assert!(condition.contains("count") && !condition.contains("flag"), "{condition}");
     }
 }

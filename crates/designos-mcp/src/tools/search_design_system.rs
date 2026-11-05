@@ -260,9 +260,10 @@ impl SearchIndex {
             items.push(build_style_item(style_key, &name, style, meta, prop, doc, snapshots, None, &imported_local_keys, true, local_origin.clone()));
         }
 
-        // 3. Local variables (excluding imported library copies).
+        // 3. Local variables (excluding imported library copies). A soft-deleted variable still resolves for the
+        // layers bound to it, but it is not offered.
         for (var_id, var) in &doc.variables {
-            if imported_local_keys.contains(var_id.as_str()) || imported_local_keys.contains(var.collection.as_str()) {
+            if var.is_soft_deleted() || imported_local_keys.contains(var_id.as_str()) || imported_local_keys.contains(var.collection.as_str()) {
                 continue;
             }
             if doc.variable_collections.get(&var.collection).is_some_and(|c| c.is_library()) {
@@ -347,7 +348,7 @@ impl SearchIndex {
             // 4c. Library variables (hidden_from_publishing variables are excluded per §8.5).
             let has_var_assets = snap.assets.iter().any(|a| a.kind == LibraryAssetKind::Variable);
             for (var_id, var) in &snap.variables {
-                if var.hidden_from_publishing {
+                if var.hidden_from_publishing || var.is_soft_deleted() {
                     continue;
                 }
                 if has_var_assets && !snap.assets.iter().any(|a| a.kind == LibraryAssetKind::Variable && strip_prefix_or_self(&a.key, "var:") == var_id) {
@@ -1072,7 +1073,7 @@ fn var_matches_candidate_path(candidate_path: &str, var: &Variable, collections:
 fn count_system_var_path_matches(candidate_path: &str, doc: &Document, snapshots: &[LibrarySnapshot], imported_local_keys: &BTreeSet<&str>) -> usize {
     let mut count = 0usize;
     for (vid, v) in &doc.variables {
-        if imported_local_keys.contains(vid.as_str()) || imported_local_keys.contains(v.collection.as_str()) {
+        if v.is_soft_deleted() || imported_local_keys.contains(vid.as_str()) || imported_local_keys.contains(v.collection.as_str()) {
             continue;
         }
         if doc.variable_collections.get(&v.collection).is_some_and(|c| c.is_library()) {
@@ -1085,7 +1086,7 @@ fn count_system_var_path_matches(candidate_path: &str, doc: &Document, snapshots
     for snap in snapshots {
         let has_var_assets = snap.assets.iter().any(|a| a.kind == LibraryAssetKind::Variable);
         for (vid, v) in &snap.variables {
-            if v.hidden_from_publishing {
+            if v.hidden_from_publishing || v.is_soft_deleted() {
                 continue;
             }
             if has_var_assets && !snap.assets.iter().any(|a| a.kind == LibraryAssetKind::Variable && strip_prefix_or_self(&a.key, "var:") == vid) {
@@ -1146,7 +1147,7 @@ fn is_unambiguous_var_path(path: &str, target: &Variable, variables: &BTreeMap<S
         return false;
     }
     let remainder = &path[best_len + 1..];
-    let matches_in_coll = variables.values().filter(|v| v.collection == target.collection && v.name == remainder).count();
+    let matches_in_coll = variables.values().filter(|v| v.collection == target.collection && !v.is_soft_deleted() && v.name == remainder).count();
     matches_in_coll == 1
 }
 
@@ -1894,6 +1895,64 @@ mod tests {
 
             let _ = std::fs::remove_dir_all(&root);
         }
+    }
+
+    #[test]
+    fn soft_deleted_variables_are_not_offered_and_do_not_make_a_name_ambiguous() {
+        clear_snapshot_cache();
+        clear_search_index_cache();
+        let root = make_temp_dir("var_soft_deleted");
+        let mut doc = Document::new("Tokens");
+        doc.add_page("Page 1");
+        doc.variable_collections.insert(
+            "c_colors".into(),
+            VariableCollection {
+                extensions: Default::default(),
+                id: "c_colors".into(),
+                name: "Colors".into(),
+                modes: vec![VariableMode { id: "m_light".into(), name: "Light".into() }],
+                default_mode: "m_light".into(),
+                variables: vec!["v_muted".into()],
+                key: None,
+                source_library_key: None,
+            },
+        );
+        let color_variable = |id: &str, name: &str, hex: &str, soft_deleted: bool| {
+            let mut v = Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+                id: id.into(),
+                name: name.into(),
+                collection: "c_colors".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("m_light".into(), VariableValue::Color(Color::from_hex(hex).unwrap()))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+            };
+            if soft_deleted {
+                v.extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), json!(true));
+            }
+            v
+        };
+        for v in [
+            color_variable("v_muted", "text-muted", "#667085", false),
+            color_variable("v_muted_gone", "text-muted", "#98A2B3", true),
+            color_variable("v_slate_gone", "text-slate", "#344054", true),
+        ] {
+            doc.variables.insert(v.id.clone(), v);
+        }
+
+        let muted = search_design_system_at(&doc, json!({"query": "text-muted", "kinds": ["variable"]}), &root).unwrap();
+        let hits = muted["results"].as_array().unwrap();
+        assert_eq!(hits.len(), 1, "the deleted twin is not offered: {muted}");
+        assert_eq!(hits[0]["example"], json!({"fill": "var:Colors/text-muted"}), "the name is not ambiguous, so the short reference is offered");
+        let slate = search_design_system_at(&doc, json!({"query": "text-slate", "kinds": ["variable"]}), &root).unwrap();
+        assert!(slate["results"].as_array().unwrap().is_empty(), "a deleted variable alone is not offered: {slate}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

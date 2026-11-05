@@ -222,13 +222,9 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
                     app.show_toast("Copied design:os Code Connect snippet to clipboard", false);
                 }
                 2 => {
-                    let mut css = String::from("@theme {\n");
-                    for v in app.doc.variables.values() {
-                        css.push_str(&format!("  --{}: /* {:?} */;\n", v.name.replace(['/', ' '], "-").to_lowercase(), v.kind));
-                    }
-                    css.push_str("}\n");
+                    let (css, count) = tailwind_theme_tokens(&app.doc);
                     ui.ctx().copy_text(css);
-                    app.show_toast(format!("Exported {} Tailwind v4 tokens to clipboard", app.doc.variables.len()), false);
+                    app.show_toast(format!("Exported {count} Tailwind v4 tokens to clipboard"), false);
                 }
                 _ => {
                     let small_targets = app
@@ -356,6 +352,19 @@ fn show_frame_presets_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
     }
 }
 
+/// The Tailwind v4 `@theme` block for the live variables of `doc` and how many it lists. A soft-deleted variable
+/// stays in the document for the layers bound to it, but it is not a token to copy.
+fn tailwind_theme_tokens(doc: &designos_doc::Document) -> (String, usize) {
+    let mut css = String::from("@theme {\n");
+    let mut count = 0;
+    for v in doc.live_variables() {
+        css.push_str(&format!("  --{}: /* {:?} */;\n", v.name.replace(['/', ' '], "-").to_lowercase(), v.kind));
+        count += 1;
+    }
+    css.push_str("}\n");
+    (css, count)
+}
+
 /// One catalogue row: the name (elided to leave room for the size label) and the size. Returns whether it was clicked.
 fn frame_preset_row(ui: &mut Ui, p: &egui::Painter, row: Rect, preset: &FramePreset) -> bool {
     let resp = ui.interact(row, ui.id().with(("frame-preset", preset.name)), Sense::click());
@@ -378,6 +387,38 @@ mod tests {
     use super::*;
     use designos_doc::Document;
     use egui::{Pos2, Rect, Vec2};
+
+    #[test]
+    fn tailwind_tokens_leave_out_soft_deleted_variables() {
+        use designos_doc::{Variable, VariableKind};
+        let variable = |id: &str, name: &str, deleted: bool| {
+            let mut v = Variable {
+                id: id.into(),
+                name: name.into(),
+                collection: "c".into(),
+                kind: VariableKind::Number,
+                values: Default::default(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            };
+            if deleted {
+                v.extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+            }
+            v
+        };
+        let mut d = Document::new("Tokens");
+        for v in [variable("a", "Space/Large", false), variable("b", "Space/Old", true)] {
+            d.variables.insert(v.id.clone(), v);
+        }
+        let (css, count) = tailwind_theme_tokens(&d);
+        assert_eq!(count, 1);
+        assert!(css.contains("--space-large") && !css.contains("space-old"), "{css}");
+    }
 
     #[test]
     fn dev_mode_plugins_tab_and_share_avatar_help_execute_real_logic() {

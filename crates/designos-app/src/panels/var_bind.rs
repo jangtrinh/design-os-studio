@@ -213,8 +213,8 @@ fn pass_scope_census(app: &mut App, ctx: &Context) -> ScopeCensus {
     let mut c = ScopeCensus { pass_nr, local_vars_len, enabled_len, ..Default::default() };
     #[cfg(test)]
     let mut visits = 0usize;
-    for coll in app.doc.variable_collections.values() {
-        for v in coll.variables.iter().filter_map(|id| app.doc.variables.get(id)) {
+    for coll in app.doc.variable_collections.values().filter(|c| !c.is_soft_deleted()) {
+        for v in coll.variables.iter().filter_map(|id| app.doc.variables.get(id)).filter(|v| !v.is_soft_deleted()) {
             #[cfg(test)]
             {
                 visits += 1;
@@ -678,9 +678,9 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         (node.variables.bindings.get(&key0).cloned(), node.kind.clone(), key0.clone())
     };
     let mut items = Vec::new();
-    for c in app.doc.variable_collections.values() {
+    for c in app.doc.variable_collections.values().filter(|c| !c.is_soft_deleted()) {
         for vid in &c.variables {
-            let Some(v) = app.doc.variables.get(vid) else { continue };
+            let Some(v) = app.doc.variables.get(vid).filter(|v| !v.is_soft_deleted()) else { continue };
             if v.kind == bp.kind && scope_allows(&v.scopes, &scope_key, &kind_node) {
                 items.push(pick_item(&app.doc, v));
             }
@@ -773,7 +773,7 @@ pub(super) fn mode_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Node
         return;
     }
     let Some(first) = sel.first().copied() else { return };
-    let colls: Vec<VariableCollection> = app.doc.variable_collections.values().cloned().collect();
+    let colls: Vec<VariableCollection> = app.doc.variable_collections.values().filter(|c| !c.is_soft_deleted()).cloned().collect();
     for c in colls {
         let explicit = app.doc.get(first).and_then(|n| n.variables.modes.get(&c.id)).cloned();
         let effective = app.doc.variable_mode(first, &c.id).unwrap_or_default();
