@@ -461,29 +461,6 @@ fn compare_non_bless_case(
     virtualized: &[String],
 ) -> Result<crate::layout_snapshot::CompareReport, String> {
     require_blessed_cases_file(cases_file)?;
-    if snap.case == "d-menu-shape" && crate::canvas::tools::GROUPS[2].contains(&crate::canvas::tools::Tool::Connector) {
-        let raw = std::fs::read_to_string(baseline_path).map_err(|e| format!("missing layout baseline file: {} ({e})", baseline_path.display()))?;
-        let mut base: crate::layout_snapshot::LayoutSnapshot =
-            serde_json::from_str(&raw).map_err(|e| format!("invalid layout baseline {}: {e}", baseline_path.display()))?;
-        if base.overlays.first().is_some_and(|o| (o.rect[3] - 240.0).abs() < 0.5) {
-            let dy = crate::theme::MENU_ITEM_HEIGHT;
-            for ov in &mut base.overlays {
-                if ov.name == "overlay:Foreground/0" {
-                    ov.rect[1] -= dy;
-                    ov.rect[3] += dy;
-                }
-            }
-            for (name, w) in &mut base.named {
-                if name == "menu-level-0" {
-                    w.rect[1] -= dy;
-                    w.rect[3] += dy;
-                } else if name.starts_with("menu-row-0-") || (name.starts_with("menu-check-0-") && w.rect[3] > 0.0) {
-                    w.rect[1] -= dy;
-                }
-            }
-        }
-        return crate::layout_snapshot::compare(&base, snap, allow_entries, virtualized);
-    }
     crate::layout_snapshot::load_and_compare_baseline(baseline_path, snap, allow_entries, virtualized)
 }
 

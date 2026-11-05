@@ -48,9 +48,9 @@
       "name": "overlay:Foreground/0",
       "rect": [
         699.0,
-        792.0,
+        760.0,
         246.0,
-        240.0
+        272.0
       ]
     }
   ],
@@ -249,7 +249,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
-        800.0,
+        768.0,
         246.0,
         32.0
       ],
@@ -315,13 +315,23 @@
       ],
       "count": 1
     },
+    "menu-check-0-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
     "menu-level-0": {
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
-        792.0,
+        760.0,
         246.0,
-        240.0
+        272.0
       ],
       "count": 1
     },
@@ -329,7 +339,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
-        800.0,
+        768.0,
         246.0,
         32.0
       ],
@@ -339,7 +349,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
-        832.0,
+        800.0,
         246.0,
         32.0
       ],
@@ -349,7 +359,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
-        864.0,
+        832.0,
         246.0,
         32.0
       ],
@@ -359,7 +369,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
-        896.0,
+        864.0,
         246.0,
         32.0
       ],
@@ -369,7 +379,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
-        928.0,
+        896.0,
         246.0,
         32.0
       ],
@@ -379,13 +389,23 @@
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
-        960.0,
+        928.0,
         246.0,
         32.0
       ],
       "count": 1
     },
     "menu-row-0-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        698.5,
+        960.0,
+        246.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "menu-row-0-7": {
       "region": "overlay:Foreground/0",
       "rect": [
         698.5,
