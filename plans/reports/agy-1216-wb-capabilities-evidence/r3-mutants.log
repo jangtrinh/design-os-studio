@@ -1,0 +1,51 @@
+=== 0a. Null control: dotted_background (unmodified head) ===
+$ cargo test -p designos-app --bin designos --locked dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+running 1 test
+test shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 1.15s
+exit_code=0
+
+=== 0b. Null control: frame_stepping (unmodified head) ===
+$ cargo test -p designos-app --bin designos --locked frame_stepping_shortcut_steps_top_level_frames_only_when_available
+running 1 test
+test shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 0.79s
+exit_code=0
+
+=== 1. Mutant tiles.rs:123 `if !app.wb_dotted_background()` -> `if true` ===
+$ cargo test -p designos-app --bin designos --locked dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+running 1 test
+test shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas ... FAILED
+failures:
+thread 'shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas' (57710393) panicked at crates/designos-app/src/shell/tests/board.rs:1051:5:
+no rect filled with the page colour and covering the canvas is painted after the board dots: fill Some(3) dots 2
+failures:
+    shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 0.20s
+exit_code=101
+
+=== 2. Mutant tiles.rs:123 `if !app.wb_dotted_background()` -> `if false` ===
+$ cargo test -p designos-app --bin designos --locked dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+running 1 test
+test shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas ... FAILED
+failures:
+thread 'shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas' (57722257) panicked at crates/designos-app/src/shell/tests/board.rs:1058:5:
+design canvas paints a rect filled with the page colour covering the canvas
+failures:
+    shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 1.82s
+exit_code=101
+
+=== 3. Mutant shell.rs:1156 `app.step_frame(!m.shift, true)` -> `app.select_all_layers()` ===
+$ cargo test -p designos-app --bin designos --locked frame_stepping_shortcut_steps_top_level_frames_only_when_available
+running 1 test
+test shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available ... FAILED
+failures:
+thread 'shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available' (57731855) panicked at crates/designos-app/src/shell/tests/board.rs:1069:5:
+assertion `left == right` failed: N selects exactly one node when frame stepping is available: [NodeId(30), NodeId(26), NodeId(4), NodeId(11), NodeId(15)]
+failures:
+    shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 0.41s
+exit_code=101
+
+restored tiles.rs and shell.rs

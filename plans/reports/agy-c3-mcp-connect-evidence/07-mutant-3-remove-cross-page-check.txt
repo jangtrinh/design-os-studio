@@ -1,0 +1,25 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.22s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5b9db1a7285515c4)
+
+running 1 test
+test tools::batch::tests::mcp_connect_rejects_cross_page_and_same_node ... FAILED
+
+failures:
+
+---- tools::batch::tests::mcp_connect_rejects_cross_page_and_same_node stdout ----
+
+thread 'tools::batch::tests::mcp_connect_rejects_cross_page_and_same_node' (11471221) panicked at crates/designos-mcp/src/tools/batch.rs:4830:14:
+cross-page connect must be refused: Object {"changed": Object {"deleted": Number(0), "inserted": Number(1), "moved": Number(0), "styles": Number(0), "updated": Number(0), "variables": Number(0)}, "created": Array [Number(6)], "created_count": Number(1), "dry_run": Bool(false), "issues": Array [], "issues_total": Number(0), "issues_truncated": Bool(false), "name_to_id": Object {"Connector": Number(6)}, "touched_bounds": Object {"height": Number(72.19999694824219), "width": Number(145.1999969482422), "x": Number(-35.599998474121094), "y": Number(-29.599998474121094)}, "touched_roots": Array [Object {"bounds": Object {"height": Number(72.19999694824219), "width": Number(145.1999969482422), "x": Number(-35.599998474121094), "y": Number(-29.599998474121094)}, "node_id": Number(6), "op": Number(0)}], "undo_label": String("Agent: designos-mcp")}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tools::batch::tests::mcp_connect_rejects_cross_page_and_same_node
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 385 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`

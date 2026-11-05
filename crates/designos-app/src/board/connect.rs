@@ -42,7 +42,7 @@ pub fn dot_hit(app: &App, rect: egui::Rect, pos: egui::Pos2) -> Option<(NodeId, 
 
 /// Keeps `board.dots` on the node under the pointer (or the one whose dots the pointer is reaching for).
 pub fn update_hover(app: &mut App, page: Option<Vec2>) {
-    if !app.is_board() || !matches!(app.tool, crate::canvas::tools::Tool::Move | crate::canvas::tools::Tool::Connector) {
+    if !app.wb_connectors_enabled() || !matches!(app.tool, crate::canvas::tools::Tool::Move | crate::canvas::tools::Tool::Connector) {
         app.board.dots = None;
         return;
     }
@@ -155,7 +155,7 @@ pub fn release(app: &mut App, c: ConnectDrag) {
 /// touched node (or anything inside it) follow it, and a touched connector carries its free ends
 /// along with its own move. Every change goes through `ed`, so it is part of the same undo step.
 pub fn reroute_touched(doc: &mut Document, ed: &mut Edit) {
-    if doc.kind != DocumentKind::Board {
+    if ed.before_nodes().is_empty() || with_index(doc, |idx| idx.is_empty()) {
         return;
     }
     let touched = ed.touched();
@@ -178,34 +178,117 @@ pub fn reroute_touched(doc: &mut Document, ed: &mut Edit) {
             }
         }
     }
-    let mut ids = connectors_attached_to_tree(doc, &touched);
-    ids.extend(touched.iter().copied().filter(|t| matches!(doc.get(*t).map(|n| &n.kind), Some(NodeKind::Connector(_)))));
-    ids.sort();
-    ids.dedup();
-    for cid in ids {
-        let Some(g) = connector_geometry(doc, cid) else { continue };
-        let changed = doc.get(cid).is_some_and(|n| {
-            let mut probe = n.clone();
-            g.apply(&mut probe);
-            probe != *n
-        });
-        if changed {
-            if let Some(n) = ed.node(doc, cid) {
-                g.apply(n);
-            }
+    let plan = plan_reroute(doc, &touched, ed.reroute_viewport);
+    for (cid, g) in plan.updates {
+        if let Some(n) = ed.node(doc, cid) {
+            g.apply(n);
         }
     }
 }
 
-/// Connectors with an end on one of `nodes` or on a node inside one of them.
-fn connectors_attached_to_tree(doc: &Document, nodes: &[NodeId]) -> Vec<NodeId> {
-    let mut all = nodes.to_vec();
-    for n in nodes {
-        if doc.get(*n).is_some_and(|k| !k.children.is_empty()) {
-            doc.walk(*n, |k, _| all.push(k.id));
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn design_doc_with_connector() -> (Document, History, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("design_connectors");
+        assert_eq!(doc.kind, DocumentKind::Design);
+        let page = doc.add_page("Page 1");
+        let a = doc.alloc_id();
+        doc.insert(page, Node::frame(a, Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(page, Node::frame(b, Rect::new(300.0, 0.0, 120.0, 80.0))).unwrap();
+        let c = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(c, props)).unwrap();
+        sync_connector(&mut doc, c);
+        (doc, History::default(), a, b, c)
     }
-    all.sort();
-    all.dedup();
-    connectors_attached_to(doc, &all)
+
+    #[test]
+    fn reroute_runs_in_a_design_file() {
+        let (mut doc, mut hist, _a, b, c) = design_doc_with_connector();
+        let before = doc.get(c).unwrap().transform;
+
+        let mut tx = Tx::new();
+        tx.ed.node(&mut doc, b).unwrap().transform.tx += 140.0;
+        tx.ed.node(&mut doc, b).unwrap().transform.ty -= 90.0;
+        assert!(tx.commit(&mut doc, &mut hist).unwrap());
+
+        let expected = connector_geometry(&doc, c).unwrap();
+        assert_ne!(doc.get(c).unwrap().transform, before);
+        assert_eq!(doc.get(c).unwrap().transform, expected.transform);
+        assert_eq!(doc.get(c).unwrap().size, expected.size);
+    }
+
+    #[test]
+    fn locked_connector_still_reroutes() {
+        let (mut doc, mut hist, _a, b, c) = design_doc_with_connector();
+        doc.get_mut(c).unwrap().locked = true;
+        let before = doc.get(c).unwrap().transform;
+
+        let mut tx = Tx::new();
+        tx.ed.node(&mut doc, b).unwrap().transform.tx += 160.0;
+        tx.ed.node(&mut doc, b).unwrap().transform.ty -= 60.0;
+        assert!(tx.commit(&mut doc, &mut hist).unwrap());
+
+        let expected = connector_geometry(&doc, c).unwrap();
+        assert!(doc.get(c).unwrap().locked);
+        assert_ne!(doc.get(c).unwrap().transform, before);
+        assert_eq!(doc.get(c).unwrap().transform, expected.transform);
+    }
+
+    #[test]
+    fn deleting_a_target_leaves_a_free_end_and_undo_reattaches() {
+        let (mut doc, mut hist, _a, b, c) = design_doc_with_connector();
+        let last_end_pt = match &doc.get(c).unwrap().kind {
+            NodeKind::Connector(cp) => cp.end.point,
+            _ => unreachable!(),
+        };
+
+        let mut tx = Tx::new();
+        tx.cmd(&mut doc, Command::Remove { id: b }).unwrap();
+        assert!(tx.commit(&mut doc, &mut hist).unwrap());
+
+        assert!(doc.get(b).is_none());
+        let cp = match &doc.get(c).unwrap().kind {
+            NodeKind::Connector(cp) => cp,
+            _ => unreachable!(),
+        };
+        assert_eq!(cp.end.node, Some(b));
+        assert_eq!(cp.end.point, last_end_pt);
+        assert_eq!(connector_route(&doc, c).unwrap().end(), last_end_pt);
+
+        assert!(hist.undo(&mut doc).unwrap());
+        assert!(doc.get(b).is_some());
+        doc.get_mut(b).unwrap().transform.ty -= 100.0;
+        reroute_attached(&mut doc, &[b]);
+        assert_ne!(connector_route(&doc, c).unwrap().end(), last_end_pt);
+    }
+
+    #[test]
+    fn studio_move_of_end_node_undoes_in_one_step() {
+        let (mut doc, mut hist, _a, b, c) = design_doc_with_connector();
+        let orig_b_tx = doc.get(b).unwrap().transform;
+        let orig_c_geom = connector_geometry(&doc, c).unwrap();
+
+        let mut tx = Tx::new();
+        tx.ed.node(&mut doc, b).unwrap().transform.tx += 180.0;
+        tx.ed.node(&mut doc, b).unwrap().transform.ty -= 70.0;
+        assert!(tx.commit(&mut doc, &mut hist).unwrap());
+        assert_eq!(hist.undo_depth(), 1);
+        assert_ne!(doc.get(c).unwrap().transform, orig_c_geom.transform);
+
+        assert!(hist.undo(&mut doc).unwrap());
+        assert_eq!(hist.undo_depth(), 0);
+        assert_eq!(doc.get(b).unwrap().transform, orig_b_tx);
+        assert_eq!(doc.get(c).unwrap().transform, orig_c_geom.transform);
+        assert_eq!(doc.get(c).unwrap().size, orig_c_geom.size);
+        let cp = match &doc.get(c).unwrap().kind {
+            NodeKind::Connector(cp) => cp,
+            _ => unreachable!(),
+        };
+        assert_eq!(cp.start.point, orig_c_geom.start_point);
+        assert_eq!(cp.end.point, orig_c_geom.end_point);
+    }
 }

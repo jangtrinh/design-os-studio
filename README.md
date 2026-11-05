@@ -169,7 +169,17 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.8. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.9. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v079"></a>
+### 0.7.9
+
+- **Images.** Image fills gain Exposure, Contrast, Saturation, Temperature, Tint, Highlights and Shadows sliders with a Reset, the image fill picker gets rotate buttons and a tile scale slider, and switching Fill or Fit to Crop keeps the framing you see.
+- **Project tab.** A project's Markdown docs open in a Project tab with a document tree, a reading page and an "On this page" outline, and read-only MCP tools let an agent list and read them.
+- **FigJam connectors.** A board with 1,500 connectors pans and zooms in about 1.3 ms a frame instead of 630 ms, and connectors in a design file are kept through `.fig` and Figma REST JSON: they are saved as vectors and open again as live connectors.
+- **Shaders.** Custom shader effects and fills are kept through `.fig`, REST and `.designos` files. Studio does not draw them yet; the inspector lists each one as "Shader (not rendered)".
+- **Text, styles and variables.** Text strokes follow Inside and Outside alignment, a font weight set through a variable moves a variable font's weight axis, and edits that should detach a text style or a variable binding now do.
+- **`.fig` files and fixes.** Opening a file whose layers use variables it does not hold keeps those links and says how many are missing, and background blur on a layer with nothing visible no longer blurs what is behind it. Many fixes in this release were carried from pull requests by @NamAIEngineer.
 
 <a id="new-in-v078"></a>
 ### 0.7.8
@@ -545,7 +555,7 @@ Once installed, your agent loads `skills/design-os-studio/SKILL.md` when your re
 | `designos_reply_comment` | mutating | modify | `text`, `thread_id` | Append a reply message to an existing canvas comment thread and optionally mark it resolved/unresolved. Supports undo. |
 | `designos_resolve_comment` | mutating | modify | `thread_id` | Mark a canvas comment thread resolved (default true) or unresolved (false). Supports undo. |
 | `designos_apply_spec` | mutating | additive | `spec` | Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN). Content added to, removed from or moved in an instance slot is kept when the main component changes.  Examples: 1) Token-bound frame with auto-layout: {"parent_id":1,"spec":{"kind":"frame","name":"Hero","layout":{"direction":"column","gap":16,"padding":[24,24,24,24]},"fill":"var:Color/Surface","children":[{"kind":"text","name":"Title","text":"Welcome"}]}} 2) Component instance with variant and overrides: {"parent_id":1,"spec":{"kind":"instance","name":"PrimaryCTA","component":"Button","variant":{"Size":"lg","State":"default"},"overrides":[{"path":"Label","text":"Continue"}]}} 3) Component instance with filled slots: {"parent_id":1,"spec":{"kind":"instance","name":"SettingsCard","component":"Card","slots":{"header":[{"kind":"instance","component":"CardHeader"}],"body":[{"kind":"instance","component":"FormRow"}],"footer":false}}} |
-| `designos_export_spec` | read-only | read | `node_id` | Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree. |
+| `designos_export_spec` | read-only | read | `node_id` | Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree. A connector root has no spec: it returns a null spec with a CONNECTORS_SKIPPED warning. |
 | `designos_set_dev_status` | mutating | modify | `node_id` | Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer annotation. Supports undo. |
 | `designos_export_fig_file` | mutating | destructive | `output_path` | Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate chunks) inside the workspace. |
 | `designos_query_xpath` | read-only | read | `selector` | Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor pagination, compact rows, and solver-backed linter predicates (has-problem, is-bound, has-hardcoded, @problems, @inProgress).  Examples: 1) Truncated text: {"selector":"//TEXT[has-problem('text-truncated')]"} 2) Hard-coded fills inside a frame: {"selector":"//FRAME[@name='Card']//*[has-hardcoded('fills/0')]"} 3) Layers an agent is working on: {"selector":"//*[@inProgress]"} |

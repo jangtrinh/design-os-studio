@@ -845,9 +845,10 @@ impl Ctx<'_> {
             return false;
         }
         (!matches!(n.kind, NodeKind::Unknown { .. })
-            && n.effects
-                .iter()
-                .any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible)))
+            && n.effects.iter().any(|e| {
+                (matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) && n.background_blur_has_surface())
+                    || matches!(e, Effect::Glass(g) if g.visible)
+            }))
             || (draws_children(n) && n.children.iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c))))
     }
 
@@ -1118,7 +1119,7 @@ impl Ctx<'_> {
                             self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha);
                         }
                     }
-                    Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
+                    Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 && n.background_blur_has_surface() => {
                         self.background_blur(n, &g, ts, clip, inner_bb, scale, *radius);
                     }
                     Effect::Glass(gl) if gl.visible => self.glass(n, &g, ts, clip, inner_bb, scale, gl),

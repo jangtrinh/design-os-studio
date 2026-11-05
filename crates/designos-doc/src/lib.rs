@@ -26,6 +26,8 @@ mod comments;
 #[cfg(test)]
 mod component_cycle_tests;
 mod components;
+mod connector_home;
+mod connector_index;
 mod connector_route_cache;
 mod dev;
 pub mod diff;
@@ -92,6 +94,8 @@ pub use changelog_features::*;
 pub use color_space::*;
 pub use comments::*;
 pub use components::*;
+pub use connector_home::*;
+pub use connector_index::*;
 pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
 #[cfg(any(test, feature = "fixtures"))]
 pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
@@ -154,6 +158,22 @@ const DIRTY_RING_CAP: usize = 512;
 const REMOVED_RING_CAP: usize = 64;
 
 static NEXT_DOC_RUNTIME_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static NEXT_DOC_DERIVED_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+#[derive(Debug)]
+struct DerivedId(u64);
+
+impl Default for DerivedId {
+    fn default() -> Self {
+        Self(NEXT_DOC_DERIVED_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
+impl Clone for DerivedId {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
 
 #[derive(Clone, Debug)]
 struct DirtyLog {
@@ -254,6 +274,9 @@ pub struct Document {
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
+    /// Fresh per-instance and per-clone identifier used to key derived caches.
+    #[serde(skip)]
+    derived_id: DerivedId,
 }
 
 /// Default staleness threshold for [`InProgress`] flags in minutes (`agent.in_progress_stale_minutes`, E15-7 §3.3).
@@ -647,6 +670,7 @@ impl Document {
             pending_relayout: self.pending_relayout.clone(),
             layout_epoch: self.layout_epoch,
             page_hydrator: self.page_hydrator.clone(),
+            derived_id: DerivedId::default(),
         }
     }
 
@@ -907,6 +931,11 @@ impl Document {
     #[inline]
     pub fn runtime_id(&self) -> u64 {
         self.dirty.runtime_id
+    }
+
+    #[inline]
+    pub fn derived_id(&self) -> u64 {
+        self.derived_id.0
     }
 
     /// Gives this document an id of its own, for a clone that is opened as a file of its own (a duplicated tab):

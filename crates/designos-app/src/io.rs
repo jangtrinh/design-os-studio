@@ -224,6 +224,9 @@ fn load_path_importing_pen_with_mode(
             if report.instances_left_unexpanded > 0 {
                 warning = Some(clone_budget_notice(report.instances_left_unexpanded));
             }
+            if report.missing_variable_bindings > 0 {
+                append_import_warning(&mut warning, missing_variable_bindings_notice(report.missing_variable_bindings));
+            }
             d
         }
         "pen" => {
@@ -257,10 +260,10 @@ fn load_path_importing_pen_with_mode(
                         }
                         if report.instances_left_unexpanded > 0 {
                             let budget_msg = clone_budget_notice(report.instances_left_unexpanded);
-                            warning = Some(match warning {
-                                Some(prev) => format!("{prev} {budget_msg}"),
-                                None => budget_msg,
-                            });
+                            append_import_warning(&mut warning, budget_msg);
+                        }
+                        if report.missing_variable_bindings > 0 {
+                            append_import_warning(&mut warning, missing_variable_bindings_notice(report.missing_variable_bindings));
                         }
                         d
                     }
@@ -310,6 +313,23 @@ fn load_path_importing_pen_with_mode(
 /// because expanding them would exceed [`designos_fig::MAX_IMPORT_CLONES`].
 pub fn clone_budget_notice(unexpanded: usize) -> String {
     format!("This file has more nested component copies than Studio can expand (limit 8,000,000). {unexpanded} instances are shown empty.")
+}
+
+/// Formats the warning shown when `missing` variables that layers or styles are bound to are not in the opened
+/// file. The links stay attached, so importing the variables later resolves them.
+pub fn missing_variable_bindings_notice(missing: usize) -> String {
+    if missing == 1 {
+        "1 variable used in this file is missing; its link is kept and resolves when the variable is imported.".to_string()
+    } else {
+        format!("{missing} variables used in this file are missing; their links are kept and resolve when the variables are imported.")
+    }
+}
+
+fn append_import_warning(warning: &mut Option<String>, message: String) {
+    *warning = Some(match warning.take() {
+        Some(previous) => format!("{previous} {message}"),
+        None => message,
+    });
 }
 
 /// Toast text after a successful open; carries the import warning so it reaches the user.
@@ -1302,6 +1322,72 @@ mod tests {
     fn clone_budget_notice_keeps_user_facing_8m_limit() {
         assert_eq!(designos_fig::MAX_IMPORT_CLONES, 8_000_000);
         assert_eq!(clone_budget_notice(5), "This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty.");
+    }
+
+    #[test]
+    fn missing_variables_notice_counts_the_variables_in_plain_words() {
+        assert_eq!(
+            missing_variable_bindings_notice(1),
+            "1 variable used in this file is missing; its link is kept and resolves when the variable is imported."
+        );
+        assert_eq!(
+            missing_variable_bindings_notice(3),
+            "3 variables used in this file are missing; their links are kept and resolve when the variables are imported."
+        );
+    }
+
+    #[test]
+    fn opening_rest_file_with_a_gradient_stop_bound_to_a_missing_variable_shows_the_notice() {
+        let p = tmp("missing_variable_gradient.json");
+        std::fs::write(
+            &p,
+            r#"{"name":"MissingVariable","document":{"type":"DOCUMENT","children":[{"type":"CANVAS","name":"P","children":[
+                {"id":"1:1","type":"RECTANGLE","name":"Gradient","absoluteBoundingBox":{"x":0,"y":0,"width":40,"height":40},
+                 "fills":[{"type":"GRADIENT_LINEAR","gradientHandlePositions":[{"x":0,"y":0.5},{"x":1,"y":0.5},{"x":0,"y":1}],
+                 "gradientStops":[{"position":0,"color":{"r":1,"g":0,"b":0,"a":1},"boundVariables":{"color":{"type":"VARIABLE_ALIAS","id":"VariableID:9:9"}}}]}]}
+            ]}]}}"#,
+        )
+        .unwrap();
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert!(!doc.pages.is_empty());
+        assert_eq!(warning.as_deref(), Some(missing_variable_bindings_notice(1).as_str()));
+    }
+
+    #[test]
+    fn opening_rest_file_with_a_solid_fill_bound_to_a_missing_variable_shows_the_notice_in_the_toast() {
+        let p = tmp("missing_variable_solid.json");
+        std::fs::write(
+            &p,
+            r#"{"name":"MissingVariable","document":{"type":"DOCUMENT","children":[{"type":"CANVAS","name":"P","children":[
+                {"id":"1:1","type":"RECTANGLE","name":"Solid","absoluteBoundingBox":{"x":0,"y":0,"width":40,"height":40},
+                 "fills":[{"type":"SOLID","color":{"r":1,"g":0,"b":0,"a":1},"boundVariables":{"color":{"type":"VARIABLE_ALIAS","id":"VariableID:9:9"}}}]},
+                {"id":"1:2","type":"RECTANGLE","name":"Other","absoluteBoundingBox":{"x":50,"y":0,"width":40,"height":40},
+                 "fills":[{"type":"SOLID","color":{"r":1,"g":0,"b":0,"a":1},"boundVariables":{"color":{"type":"VARIABLE_ALIAS","id":"VariableID:9:9"}}}]}
+            ]}]}}"#,
+        )
+        .unwrap();
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(warning.as_deref(), Some("1 variable used in this file is missing; its link is kept and resolves when the variable is imported."));
+        let toast = opened_toast_text(&doc.name, warning.as_deref());
+        assert!(toast.contains("1 variable used in this file is missing"), "{toast}");
+    }
+
+    #[test]
+    fn opening_fig_file_with_bindings_to_missing_variables_shows_the_notice() {
+        let mut d = Document::new("FigMissing");
+        let page = d.add_page("Page 1");
+        for (i, var) in ["VariableID:9:9", "VariableID:9:10"].into_iter().enumerate() {
+            let id = d.alloc_id();
+            let rect = d.insert(page, Node::rectangle(id, Rect::new(10.0 * i as f32, 0.0, 40.0, 40.0))).unwrap();
+            d.get_mut(rect).unwrap().variables.bindings.insert("fills/0".into(), var.into());
+        }
+        let p = save_path(&d, &tmp("missing_variables.fig")).unwrap();
+        let (back, warning) = load_path_with_warning(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert!(!back.pages.is_empty());
+        assert_eq!(warning.as_deref(), Some("2 variables used in this file are missing; their links are kept and resolve when the variables are imported."));
     }
 
     #[test]

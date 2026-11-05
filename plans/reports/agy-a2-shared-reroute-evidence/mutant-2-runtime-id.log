@@ -1,0 +1,28 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.94s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 1 test
+test connector_index::tests::index_is_not_shared_between_a_document_and_its_clone ... FAILED
+
+failures:
+
+---- connector_index::tests::index_is_not_shared_between_a_document_and_its_clone stdout ----
+
+thread 'connector_index::tests::index_is_not_shared_between_a_document_and_its_clone' (1874763) panicked at crates/designos-doc/src/connector_index.rs:734:9:
+assertion `left == right` failed
+  left: []
+ right: [NodeId(5)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    connector_index::tests::index_is_not_shared_between_a_document_and_its_clone
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 789 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+EXIT=101
