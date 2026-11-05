@@ -471,6 +471,13 @@ fn the_deb_recommends_a_dialog_backend() {
 }
 
 #[test]
+fn the_deb_declares_x11_keyboard_runtime_dependency() {
+    let package = repo_file("scripts/package.sh");
+    let depends = package.lines().find(|l| l.starts_with("Depends:")).expect("a Debian Depends line");
+    assert!(depends.split(',').any(|dep| dep.trim() == "libxkbcommon-x11-0"), "{depends}");
+}
+
+#[test]
 fn the_linux_install_docs_say_what_the_file_dialog_needs() {
     let install = repo_file("docs/install.md");
     let linux = install.split("## 3. Linux").nth(1).and_then(|rest| rest.split("\n## 4.").next()).expect("a Linux section");

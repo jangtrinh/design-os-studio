@@ -1,0 +1,51 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-mcp)
+   Compiling designos-app v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 34.92s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-5386e4f5180611ab)
+
+running 2 tests
+test terminal::workspace_dir_tests::file_backed_workspace_remains_the_file_parent ... ok
+test terminal::workspace_dir_tests::untitled_workspace_is_studio_owned_and_not_process_cwd ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4554 filtered out; finished in 0.09s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-mcp)
+   Compiling designos-app v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.75s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-5386e4f5180611ab)
+
+running 25 tests
+test terminal::ask_mode_tests::a_tab_started_without_a_prepared_command_asks ... ok
+test terminal::ask_mode_tests::bind_session_to_a_different_id_clears_grants_and_the_next_call_asks ... ok
+test terminal::ask_mode_tests::a_session_dir_change_clears_grants_and_the_next_call_asks ... ok
+test terminal::ask_mode_tests::golden::unix_paths_are_normalized_as_before ... ok
+test terminal::ask_mode_tests::golden::windows_paths_are_normalized_in_every_spelling_they_are_written_in ... ok
+test terminal::ask_mode_tests::bind_session_on_a_library_file_with_a_held_lock_clears_grants_and_keeps_the_dir ... ok
+test terminal::ask_mode_tests::shutdown_clears_grants_and_the_next_call_asks ... ok
+test terminal::ask_mode_tests::ask_risky_keeps_turn_marks_and_auto_allows_only_safe_tool_names ... ok
+test terminal::ask_mode_tests::the_scanner_flags_every_auto_approve_shape_and_ignores_inert_ones ... ok
+test terminal::ask_mode_tests::closing_the_last_tab_clears_grants_and_the_next_call_asks ... ok
+test terminal::ask_mode_tests::antigravity_ask_launches_without_the_skip_flag_and_its_plugin_config_trusts_nothing ... ok
+test terminal::ask_mode_tests::golden::gemini_launch_and_config_match_the_golden_and_never_trust_the_server ... ok
+test terminal::ask_mode_tests::golden::antigravity_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::golden::grok_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::golden::claude_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::golden::codex_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::claude_ask_launches_without_the_skip_flag_and_writes_no_allow_rule ... ok
+test terminal::ask_mode_tests::codex_ask_launches_without_the_bypass_flag_and_sets_no_approval_override ... ok
+test terminal::ask_mode_tests::gemini_launches_in_the_mode_asked_for_and_never_trusts_the_server ... ok
+test terminal::ask_mode_tests::grok_ask_launches_without_always_approve_and_writes_no_permission_rule ... ok
+test terminal::ask_mode_tests::auto_allow_rows_from_a_background_tab_stay_on_that_tab ... ok
+test terminal::ask_mode_tests::the_private_plugin_skill_has_a_fixed_frontmatter_and_names_neither_the_file_nor_its_page ... ok
+test terminal::ask_mode_tests::gemini_settings_stay_untrusted_when_the_mode_changes_under_a_running_tab ... ok
+test terminal::ask_mode_tests::closing_one_of_several_tabs_does_not_clear_grants ... ok
+test terminal::ask_mode_tests::what_each_cli_loads_by_itself_is_the_same_whatever_the_document_and_page_are_named ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 4531 filtered out; finished in 3.83s
+
