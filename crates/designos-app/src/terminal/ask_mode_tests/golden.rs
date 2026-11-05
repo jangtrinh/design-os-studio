@@ -123,6 +123,11 @@ fn normalized(st: &TerminalState, rel: &str) -> String {
         paths.push((canon.display().to_string(), "<SESSION>"));
     }
     paths.push((st.session_dir.display().to_string(), "<SESSION>"));
+    let untitled_workspace = crate::terminal::session_workspace_dir(None);
+    if let Ok(canon) = untitled_workspace.canonicalize() {
+        paths.push((canon.display().to_string(), "<WORKSPACE>"));
+    }
+    paths.push((untitled_workspace.display().to_string(), "<WORKSPACE>"));
     if let Ok(cwd) = std::env::current_dir() {
         paths.push((cwd.display().to_string(), "<WORKSPACE>"));
     }

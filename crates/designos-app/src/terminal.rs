@@ -5693,7 +5693,7 @@ fn designos_mcp_binary() -> PathBuf {
 /// Folder `designos-mcp --workspace` serves: the open file's folder, else a Studio-owned
 /// temporary workspace. An untitled document must never inherit the process working directory:
 /// Finder can launch Studio with `/` (or another broad directory) as its cwd.
-fn session_workspace_dir(file_path: Option<&Path>) -> PathBuf {
+pub(crate) fn session_workspace_dir(file_path: Option<&Path>) -> PathBuf {
     file_path.and_then(|p| p.parent()).filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf()).unwrap_or_else(|| {
         let dir = std::env::temp_dir().join("designos-workspaces").join(format!("studio-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -5703,7 +5703,7 @@ fn session_workspace_dir(file_path: Option<&Path>) -> PathBuf {
 
 #[cfg(test)]
 mod workspace_dir_tests {
-    use super::session_workspace_dir;
+    use super::{TerminalState, session_workspace_dir};
     use std::path::Path;
 
     #[test]
@@ -5714,12 +5714,36 @@ mod workspace_dir_tests {
         assert!(workspace.is_dir());
         assert_ne!(workspace, std::env::current_dir().unwrap());
         assert_ne!(workspace, Path::new("/"));
+        if let Some(home) = std::env::var_os("HOME") {
+            assert_ne!(workspace, Path::new(&home));
+        }
+
+        let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+        std::fs::create_dir_all(&st.session_dir).expect("session dir");
+        st.provision_session_agent_files(None);
+        let raw = std::fs::read_to_string(st.session_dir.join("mcp-config.json")).expect("mcp-config.json");
+        let cfg: serde_json::Value = serde_json::from_str(&raw).expect("valid mcp-config.json");
+        let args = cfg
+            .pointer("/mcpServers/designos/args")
+            .and_then(serde_json::Value::as_array)
+            .expect("designos args");
+        assert_eq!(args[0].as_str(), Some("--workspace"));
+        let mcp_workspace = Path::new(args[1].as_str().expect("workspace arg"));
+        assert_eq!(mcp_workspace, workspace);
+        assert_ne!(mcp_workspace, Path::new("/"));
+        if let Some(home) = std::env::var_os("HOME") {
+            assert_ne!(mcp_workspace, Path::new(&home));
+        }
+        crate::agent_approval_channel::remove_channel(&st.session_dir);
+        crate::agent_permissions::remove_auto_allow_log(&st.session_dir);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
     }
 
     #[test]
     fn file_backed_workspace_remains_the_file_parent() {
-        let file = Path::new("/tmp/designos-1074/sample.designos");
-        assert_eq!(session_workspace_dir(Some(file)), Path::new("/tmp/designos-1074"));
+        let file = Path::new("/tmp/designos-sample/sample.designos");
+        assert_eq!(session_workspace_dir(Some(file)), Path::new("/tmp/designos-sample"));
     }
 }
 
