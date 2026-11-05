@@ -124,10 +124,13 @@ struct ShotFrameGuard;
 impl ShotFrameGuard {
     fn enter() -> Self {
         SHOT_IN_FRAME.store(true, Ordering::SeqCst);
-        if SHOT_WATCHDOG_START.get().is_some() {
-            if let Ok(mut w) = SHOT_WATCHDOG.lock() {
-                w.begin_frame();
+        let _ = SHOT_WATCHDOG_START.get_or_init(std::time::Instant::now);
+        if let Ok(mut w) = SHOT_WATCHDOG.lock() {
+            #[cfg(test)]
+            {
+                w.done = false;
             }
+            w.begin_frame();
         }
         Self
     }
@@ -168,14 +171,6 @@ pub fn spawn_screenshot_watchdog() {
     });
 }
 
-fn beat_screenshot_watchdog() {
-    if let Some(start) = SHOT_WATCHDOG_START.get() {
-        if let Ok(mut w) = SHOT_WATCHDOG.lock() {
-            w.arm(start.elapsed());
-        }
-    }
-}
-
 pub fn disarm_screenshot_watchdog() {
     if SHOT_WATCHDOG_START.get().is_some() {
         if let Ok(mut w) = SHOT_WATCHDOG.lock() {
@@ -184,14 +179,29 @@ pub fn disarm_screenshot_watchdog() {
     }
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static TEST_SURFACE_STATUS: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 pub fn record_surface_status(status: impl Into<String>) {
+    let status = status.into();
+    #[cfg(test)]
+    TEST_SURFACE_STATUS.with(|slot| *slot.borrow_mut() = Some(status.clone()));
     if let Ok(mut slot) = LAST_SURFACE_STATUS.lock() {
-        *slot = Some(status.into());
+        *slot = Some(status);
     }
 }
 
 fn take_surface_status() -> Option<String> {
-    LAST_SURFACE_STATUS.lock().ok().and_then(|mut s| s.take())
+    #[cfg(test)]
+    {
+        TEST_SURFACE_STATUS.with(|slot| slot.borrow_mut().take())
+    }
+    #[cfg(not(test))]
+    {
+        LAST_SURFACE_STATUS.lock().ok().and_then(|mut s| s.take())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -309,6 +319,13 @@ struct MicroSeqCapture {
     no_caption: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ShotRequest {
+    id: u64,
+    at_rest: bool,
+    last_try: bool,
+}
+
 struct Shot {
     path: PathBuf,
     size: (u32, u32),
@@ -325,6 +342,9 @@ struct Shot {
     captured_at_rest: bool,
     /// The request came after `SHOT_GPU_SETTLE_FRAMES`: its image is kept whatever it shows.
     last_try: bool,
+    next_req: u64,
+    accept_from: u64,
+    in_flight: Vec<ShotRequest>,
     seq: Option<MicroSeqCapture>,
     /// --no-toast: transient toasts are never painted into the capture.
     no_toast: bool,
@@ -342,6 +362,7 @@ struct Shot {
     pub(crate) outcome: ShotOutcome,
     trace: bool,
     images_seen: u32,
+    pub(crate) images_dropped: u32,
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
@@ -925,6 +946,9 @@ impl Shell {
             due: false,
             captured_at_rest: true,
             last_try: false,
+            next_req: 0,
+            accept_from: 0,
+            in_flight: Vec::new(),
             seq: seq_capture,
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
@@ -938,6 +962,7 @@ impl Shell {
             outcome: ShotOutcome::Pending,
             trace: std::env::var("DESIGNOS_SHOT_TRACE").is_ok_and(|v| v == "1"),
             images_seen: 0,
+            images_dropped: 0,
         });
         #[cfg(target_os = "macos")]
         crate::macos_terminate::sync(ctx, &app);
@@ -946,19 +971,13 @@ impl Shell {
 
     fn drive_screenshot(&mut self, ctx: &Context) {
         let Some(shot) = &mut self.shot else { return };
-        beat_screenshot_watchdog();
         if !matches!(shot.outcome, ShotOutcome::Pending) {
             return;
         }
         shot.frames += 1;
-        let prev_surface_status = take_surface_status();
-        // Frame 1 paints before `eframe`'s `post_rendering` calls `window.set_visible(true)`, so its
-        // surface status reflects the still-hidden window rather than a visible capture attempt.
-        if shot.frames != 2 {
-            if let Some(status) = prev_surface_status {
-                shot.last_surface_status = Some(status);
-            }
-        }
+        // `egui-wgpu` reports a surface status only when the previous frame could not draw; a later frame
+        // that draws leaves none, resetting the status seen during the failed attempts.
+        shot.last_surface_status = take_surface_status().filter(|_| shot.requested || !shot.lost_frames.is_empty());
         ctx.request_repaint();
         if shot.frames == 1 {
             // `scale` physical pixels per egui point (1 by default, so the PNG matches the requested size).
@@ -972,19 +991,42 @@ impl Shell {
         }
         let events = ctx.input(|i| i.events.clone());
         for ev in events {
-            if let Event::Screenshot { image, .. } = ev {
+            if let Event::Screenshot { image, user_data, .. } = ev {
+                let tag = user_data.data.as_ref().and_then(|d| d.downcast_ref::<u64>()).copied();
                 #[cfg(debug_assertions)]
                 if shot.drop_images > 0 {
                     shot.drop_images -= 1;
+                    if let Some(id) = tag {
+                        shot.in_flight.retain(|r| r.id != id);
+                    }
                     continue;
                 }
+                let (req_at_rest, req_last_try) = if let Some(id) = tag {
+                    let matched = if id < shot.accept_from {
+                        None
+                    } else if let Some(pos) = shot.in_flight.iter().position(|r| r.id == id) {
+                        Some(shot.in_flight.remove(pos))
+                    } else {
+                        None
+                    };
+                    let Some(req) = matched else {
+                        shot.images_dropped += 1;
+                        continue;
+                    };
+                    (req.at_rest, req.last_try)
+                } else {
+                    (shot.captured_at_rest, shot.last_try)
+                };
                 shot.images_seen += 1;
-                if !shot.captured_at_rest {
-                    if !shot.last_try {
+                if !req_at_rest {
+                    if !req_last_try {
                         // Captured from a capped frame: ask again for the at-rest one.
-                        shot.requested = false;
-                        shot.requested_at = None;
-                        shot.requests = shot.requests.saturating_sub(1);
+                        shot.images_dropped += 1;
+                        if tag.is_none_or(|id| shot.requested && id + 1 == shot.next_req) {
+                            shot.requested = false;
+                            shot.requested_at = None;
+                            shot.requests = shot.requests.saturating_sub(1);
+                        }
                         return;
                     }
                     eprintln!("designos: the GPU view did not settle in {SHOT_GPU_SETTLE_FRAMES} frames, saving the interactive frame");
@@ -1025,10 +1067,14 @@ impl Shell {
                         shot.requested_at = None;
                         shot.requests = 0;
                         shot.lost_frames.clear();
+                        shot.accept_from = shot.next_req;
+                        shot.in_flight.clear();
                         seq.wait_frames = 2;
                         shot.frames = 12;
                         return;
                     } else {
+                        shot.accept_from = shot.next_req;
+                        shot.in_flight.clear();
                         SHOT_OK.store(true, Ordering::SeqCst);
                         shot.outcome = ShotOutcome::Written;
                         disarm_screenshot_watchdog();
@@ -1036,6 +1082,8 @@ impl Shell {
                         return;
                     }
                 } else {
+                    shot.accept_from = shot.next_req;
+                    shot.in_flight.clear();
                     if let Some(dir) = shot.path.parent() {
                         let _ = std::fs::create_dir_all(dir);
                     }
@@ -1103,9 +1151,7 @@ impl Shell {
             (r.width() - shot.size.0 as f32).abs() < 1.5 && (r.height() - shot.size.1 as f32).abs() < 1.5
         };
         shot.due = !shot.requested && (shot.lost_frames.len() as u32) < SHOT_MAX_REQUESTS && ((shot.frames >= 12 && sized) || shot.frames >= 60);
-        let re_requests = shot.lost_frames.len() as u32;
-        let give_up_frame = SHOT_CLOSE_FRAMES + SHOT_IMAGE_WAIT_FRAMES * re_requests;
-        if !shot.requested && shot.frames > give_up_frame && shot.seq.is_none() {
+        if !shot.requested && shot.frames > SHOT_CLOSE_FRAMES && shot.seq.is_none() {
             let reason = no_image_reason(shot);
             fail_shot(shot, reason);
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1122,9 +1168,12 @@ impl Shell {
             return;
         }
         let at_rest = self.app.canvas.gpu.at_rest();
+        // The window captures a later frame than the one that asked: if any of the frames
+        // until the image arrives was capped, so may be any image currently in flight.
+        for req in &mut shot.in_flight {
+            req.at_rest &= at_rest;
+        }
         if shot.requested {
-            // The window captures a later frame than the one that asked: if any of the frames
-            // until the image arrives was capped, so may be the image.
             shot.captured_at_rest &= at_rest;
             if shot.trace {
                 self.print_shot_trace(ctx, at_rest);
@@ -1137,12 +1186,16 @@ impl Shell {
             }
             return;
         }
+        let last_try = shot.frames >= SHOT_GPU_SETTLE_FRAMES;
+        let id = shot.next_req;
+        shot.next_req += 1;
         shot.requested = true;
         shot.requested_at = Some(shot.frames);
         shot.requests += 1;
         shot.captured_at_rest = at_rest;
-        shot.last_try = shot.frames >= SHOT_GPU_SETTLE_FRAMES;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+        shot.last_try = last_try;
+        shot.in_flight.push(ShotRequest { id, at_rest, last_try });
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(id)));
         if shot.trace {
             self.print_shot_trace(ctx, at_rest);
         }
@@ -1154,8 +1207,8 @@ impl Shell {
         let sized = (r.width() - shot.size.0 as f32).abs() < 1.5 && (r.height() - shot.size.1 as f32).abs() < 1.5;
         let visible = ctx.input(|i| i.viewport().visible()).unwrap_or(true);
         eprintln!(
-            "designos: shot trace: frame={} sized={} at_rest={} requested={} visible={} images_seen={}",
-            shot.frames, sized, at_rest, shot.requested, visible, shot.images_seen
+            "designos: shot trace: frame={} sized={} at_rest={} requested={} visible={} images_seen={} images_dropped={}",
+            shot.frames, sized, at_rest, shot.requested, visible, shot.images_seen, shot.images_dropped
         );
     }
 

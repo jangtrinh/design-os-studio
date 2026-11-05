@@ -1,10 +1,10 @@
 # DEV Report · #1141 (P0, US-17): `designos --screenshot` sometimes exits 1 with "screenshot was not captured"
 
-- **Branch:** `jangtrinh/agy-1141-screenshot-capture` (based on `origin/release/v0.6.4` / `6f0c3bb2`)
+- **Branch:** `jangtrinh/carry-1141-screenshot-capture-main` (based on `origin/main` / `8dfaee93`)
 - **Commits:**
-  1. `d575ddf2`: `test(screenshot): add debug DESIGNOS_SHOT_DROP_IMAGES fault hook`
-  2. `4f766ace`: `test(screenshot): add red unit tests for capture retry, outcome, viewport, and watchdog`
-  3. `HEAD`: `fix(screenshot): re-request lost captures, add frame watchdog, and report failure reasons (#1141)`
+  1. `818b6249`: `fix(screenshot): re-request lost captures, add frame watchdog, and report failure reasons (#1141)`
+  2. `37eb0da2`: `test(screenshot): add round 2 failing tests for frame watchdog, write failure, and exit contract`
+  3. `8948e6eb`: `fix(screenshot): guard watchdog during frames, stop on write failure, and pin exit contract (#1141)`
 
 ---
 
@@ -14,60 +14,59 @@
    - Deferred by explicit controller instruction on 2026-10-28 (`"run NO screenshot binary, loop, window or load generator until I send 'screen free' (the case 8 load half stays PENDING; keep the idle 250 result you already have, with its log)"`).
    - The `mode=idle` 250-run suite completed before the deferral and passed 250/250 (`summary: mode=idle total=250 passed=250 failed=0 unexplained=0`, logged in [`case8.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/case8.log)).
 2. **AC-04 real `#1126` layout-gate capture script execution**
-   - The `#1126` layout-gate capture script lives on a `main`-based branch and does not exist in our `6f0c3bb2` base.
-   - Per Controller Ruling 2, AC-04 was verified via the unit test `shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix` asserting that every failure path outputs the exact `designos: screenshot was not captured: <reason>` prefix and exits with code `1`. The controller will run the real script against this build on `main` later.
+   - Per Controller Ruling 2, AC-04 was verified via the unit test `shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix` asserting that every failure path outputs the exact `designos: screenshot was not captured: <reason>` prefix and exits with code `1`.
 
 ---
 
-## 2. Spec-to-HEAD Drift Table (`origin/main@205c72ef` vs Base `6f0c3bb2`)
+## 2. Spec-to-HEAD Drift Table (`origin/main@205c72ef` vs Base `8dfaee93`)
 
-| Symbol / Anchor | Spec (`origin/main@205c72ef`) | Base (`6f0c3bb2`) | Post-Fix (`HEAD`) |
+| Symbol / Anchor | Spec (`origin/main@205c72ef`) | Base (`8dfaee93`) | Post-Fix (`HEAD`) |
 |---|---|---|---|
-| `SHOT_OK` | `crates/designos-app/src/shell.rs:23` | `crates/designos-app/src/shell.rs:23` (unchanged) | `crates/designos-app/src/shell.rs:23` |
-| `Shot` struct | `crates/designos-app/src/shell.rs:50-69` | `crates/designos-app/src/shell.rs:53-73` (+3 lines) | `crates/designos-app/src/shell.rs:259-292` |
-| `SHOT_GPU_SETTLE_FRAMES` | `crates/designos-app/src/shell.rs:73` | `crates/designos-app/src/shell.rs:77` (+4 lines) | `crates/designos-app/src/shell.rs:296` |
-| `Shot` init in `Shell::build` | `crates/designos-app/src/shell.rs:394-405` | `crates/designos-app/src/shell.rs:414-426` (+20 lines) | `crates/designos-app/src/shell.rs:629-650` |
-| `Shell::drive_screenshot` | `crates/designos-app/src/shell.rs:409-486` | `crates/designos-app/src/shell.rs:430-507` (+21 lines) | `crates/designos-app/src/shell.rs:654-796` |
-| — Frame 1 `set_pixels_per_point` + `InnerSize` | `shell.rs:413-419` | `shell.rs:434-440` | `shell.rs:670-676` |
-| — Capped GPU frame re-request (`!captured_at_rest && !last_try`) | `shell.rs:423-427` | `shell.rs:444-449` | `shell.rs:688-697` |
-| — `RgbaImage::from_raw` | `shell.rs:433` | `shell.rs:454` | `shell.rs:700` (via `image_to_rgba` at `shell.rs:201-204`) |
-| — Lanczos3 resize | `shell.rs:435` | `shell.rs:456` | `shell.rs:709` |
-| — Micro-sequence (`shot.seq`) | `shell.rs:436-457` | `shell.rs:457-478` | `shell.rs:710-740` |
-| — PNG write error `cannot write` | `shell.rs:464` | `shell.rs:485` | `shell.rs:715, 752` |
-| — `ViewportCommand::Close` after image | `shell.rs:468` | `shell.rs:489` | `shell.rs:738, 758` |
-| — `due` calculation | `shell.rs:478-482` | `shell.rs:499-503` | `shell.rs:788` |
-| — Give-up frame close | `shell.rs:483-485` | `shell.rs:504-506` | `shell.rs:789-795` |
-| `Shell::request_screenshot` | `crates/designos-app/src/shell.rs:492-508` | `crates/designos-app/src/shell.rs:513-529` (+21 lines) | `crates/designos-app/src/shell.rs:802-832` |
-| `request_screenshot` call in `draw` | `crates/designos-app/src/shell.rs:1364` | `crates/designos-app/src/shell.rs:1411` (+47 lines) | `crates/designos-app/src/shell.rs:1726` |
-| `drive_screenshot` call in `draw_window` | `crates/designos-app/src/shell.rs:1378` | `crates/designos-app/src/shell.rs:1425` (+47 lines) | `crates/designos-app/src/shell.rs:1740` |
-| `main.rs` screenshot viewport setup | `crates/designos-app/src/main.rs:150-167` | `crates/designos-app/src/main.rs:163-180` (+13 lines) | `crates/designos-app/src/main.rs:163-185` (`shell::screenshot_viewport` at `shell.rs:206-214`) |
-| `main.rs` post-run exit check | `crates/designos-app/src/main.rs:187-190` | `crates/designos-app/src/main.rs:205-208` (+18 lines) | `crates/designos-app/src/main.rs:208-221` |
+| `SHOT_OK` | `crates/designos-app/src/shell.rs:23` | `crates/designos-app/src/shell.rs:25` | `crates/designos-app/src/shell.rs:25` |
+| `Shot` struct | `crates/designos-app/src/shell.rs:50-69` | `crates/designos-app/src/shell.rs:265-285` | `crates/designos-app/src/shell.rs:329-366` |
+| `SHOT_GPU_SETTLE_FRAMES` | `crates/designos-app/src/shell.rs:73` | `crates/designos-app/src/shell.rs:289` | `crates/designos-app/src/shell.rs:372` |
+| `Shot` init in `Shell::build` | `crates/designos-app/src/shell.rs:394-405` | `crates/designos-app/src/shell.rs:703-716` | `crates/designos-app/src/shell.rs:940-966` |
+| `Shell::drive_screenshot` | `crates/designos-app/src/shell.rs:409-486` | `crates/designos-app/src/shell.rs:720-797` | `crates/designos-app/src/shell.rs:972-1156` |
+| — Frame 1 `set_pixels_per_point` + `InnerSize` | `shell.rs:413-419` | `shell.rs:724-730` | `shell.rs:982-988` |
+| — Capped GPU frame re-request (`!req_at_rest && !req_last_try`) | `shell.rs:423-427` | `shell.rs:734-739` | `shell.rs:1021-1033` |
+| — `RgbaImage::from_raw` | `shell.rs:433` | `shell.rs:744` | `shell.rs:1036` (via `image_to_rgba` at `shell.rs:254-257`) |
+| — Lanczos3 resize | `shell.rs:435` | `shell.rs:746` | `shell.rs:1045` |
+| — Micro-sequence (`shot.seq`) | `shell.rs:436-457` | `shell.rs:747-768` | `shell.rs:1046-1083` |
+| — PNG write error `cannot write` | `shell.rs:464` | `shell.rs:775` | `shell.rs:1051, 1096` |
+| — `ViewportCommand::Close` after image | `shell.rs:468` | `shell.rs:779` | `shell.rs:1080, 1122` |
+| — `due` calculation | `shell.rs:478-482` | `shell.rs:789-793` | `shell.rs:1150` |
+| — Give-up frame close | `shell.rs:483-485` | `shell.rs:794-796` | `shell.rs:1151-1155` |
+| `Shell::request_screenshot` | `crates/designos-app/src/shell.rs:492-508` | `crates/designos-app/src/shell.rs:803-819` | `crates/designos-app/src/shell.rs:1162-1202` |
+| `request_screenshot` call in `draw` | `crates/designos-app/src/shell.rs:1364` | `crates/designos-app/src/shell.rs:1805` | `crates/designos-app/src/shell.rs:2213` |
+| `drive_screenshot` call in `draw_window` | `crates/designos-app/src/shell.rs:1378` | `crates/designos-app/src/shell.rs:1819` | `crates/designos-app/src/shell.rs:2245` |
+| `main.rs` screenshot viewport setup | `crates/designos-app/src/main.rs:150-167` | `crates/designos-app/src/main.rs:175-192` | `crates/designos-app/src/main.rs:175-197` (`shell::screenshot_viewport` at `shell.rs:259-267`) |
+| `main.rs` post-run exit check | `crates/designos-app/src/main.rs:187-190` | `crates/designos-app/src/main.rs:224-227` | `crates/designos-app/src/main.rs:229-264` |
 | `Sim` default screen size `1600x1088` | `crates/designos-app/src/shell/tests.rs:103` | `crates/designos-app/src/shell/tests.rs:103` (unchanged) | `crates/designos-app/src/shell/tests.rs:103` |
 
 ---
 
 ## 3. Root Cause & Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`)
 
-1. **`[FACT]` Single-shot `ViewportCommand::Screenshot` dropped on surface error (`crates/designos-app/src/shell.rs:513-529`)**:
-   - In base `6f0c3bb2`, `Shell::request_screenshot` sent `egui::ViewportCommand::Screenshot` once and latched `shot.requested = true`. It never re-requested unless an image arrived from a capped GPU frame (`shell.rs:444-449`).
+1. **`[FACT]` Single-shot `ViewportCommand::Screenshot` dropped on surface error (`crates/designos-app/src/shell.rs:803-819`)**:
+   - Before `818b6249`, `Shell::request_screenshot` sent `egui::ViewportCommand::Screenshot` once and latched `shot.requested = true`. It never re-requested unless an image arrived from a capped GPU frame.
    - `eframe` drains pending `Screenshot` commands into `painter.paint_and_update_textures` for that single frame (`eframe-0.35.0/src/native/wgpu_integration.rs:731-752`).
-   - `egui_wgpu::winit::Painter::paint_and_update_textures` (`egui-wgpu-0.35.0/src/winit.rs:605-628`) calls `surface.get_current_texture()` and returns early **before** allocating `capture_buffer` whenever the surface status is `Outdated` (e.g., after Frame 1's `ViewportCommand::InnerSize` at `shell.rs:439`), `Lost`, `Occluded`, or `Timeout`. The drained `screenshot_commands` vector for that frame is dropped permanently, so no `Event::Screenshot` ever arrives and `drive_screenshot` eventually closes at frame 240 (`shell.rs:504-506`) with a bare `"designos: screenshot was not captured"` (`main.rs:205-208`).
+   - `egui_wgpu::winit::Painter::paint_and_update_textures` (`egui-wgpu-0.35.0/src/winit.rs:605-628`) calls `surface.get_current_texture()` and returns early **before** allocating `capture_buffer` whenever the surface status is `Outdated`, `Lost`, `Occluded`, or `Timeout`. The drained `screenshot_commands` vector for that frame is dropped permanently, so no `Event::Screenshot` ever arrives and `drive_screenshot` eventually closes with a bare `"designos: screenshot was not captured"`.
 2. **`[FACT]` macOS Metal surface occlusion when launching inactive (`wgpu-hal-29.0.4/src/metal/surface.rs:124-156`)**:
    - On macOS Metal, `get_current_texture()` checks `[NSWindow occlusionState] & NSWindowOcclusionStateVisible` and returns `SurfaceError::Occluded` if the window is covered.
-   - Base `main.rs:172-173` built the screenshot viewport with `.with_active(false)` (to avoid stealing focus) but without `WindowLevel::AlwaysOnTop`. When `eframe` called `window.set_visible(true)` (`[window makeKeyAndOrderFront:nil]`, `winit-0.30.13/src/platform_impl/macos/window_delegate.rs:905`) after Frame 1 (`epi_integration.rs:326`) while `[NSApp isActive] == NO`, AppKit ordered the window behind active windows.
-   - Setting `.with_window_level(egui::WindowLevel::AlwaysOnTop)` in [`screenshot_viewport`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L206-L214) and calling `[window orderFrontRegardless]` on `NSApp.windows` (`order_screenshot_window_front_regardless` at [`shell.rs:144-153`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L144-L153)) keeps the capture window at the front of `kCGFloatingWindowLevel` without activating the app or stealing keyboard focus.
-3. **`[FACT]` Secondary hang when `--screenshot` closes a file path dirtied by a CLI preset (`crates/designos-app/src/shell.rs:1745-1752`)**:
-   - When `--screenshot` was invoked on a real file path alongside a mutating preset (such as `fixture.designos --panel picker --screenshot out.png`), `preset_popup` mutated `app.doc` after `open_path`, marking the document dirty. When `drive_screenshot` wrote the PNG and sent `ViewportCommand::Close`, `Shell::draw_window` called `!self.app.may_quit(&ctx)` and sent `ViewportCommand::CancelClose` to show the interactive `"Save changes?"` dialog. Bypassing `may_quit` / `flush_autosave` on `close_requested()` when `self.shot.is_some()` ([`shell.rs:1745-1751`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L1745-L1751)) ensures headless screenshot runs always exit cleanly once the capture completes or fails.
+   - Base `main.rs` built the screenshot viewport with `.with_active(false)` (to avoid stealing focus) but without `WindowLevel::AlwaysOnTop`. When `eframe` called `window.set_visible(true)` (`[window makeKeyAndOrderFront:nil]`, `winit-0.30.13/src/platform_impl/macos/window_delegate.rs:905`) after Frame 1 (`epi_integration.rs:326`) while `[NSApp isActive] == NO`, AppKit ordered the window behind active windows.
+   - Setting `.with_window_level(egui::WindowLevel::AlwaysOnTop)` in [`screenshot_viewport`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L259-L267) and calling `[window orderFrontRegardless]` on `NSApp.windows` (`order_screenshot_window_front_regardless` at [`shell.rs:198-206`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L198-L206)) keeps the capture window at the front of `kCGFloatingWindowLevel` without activating the app or stealing keyboard focus.
+3. **`[FACT]` Secondary hang when `--screenshot` closes a file path dirtied by a CLI preset (`crates/designos-app/src/shell.rs:2250-2257`)**:
+   - When `--screenshot` was invoked on a real file path alongside a mutating preset (such as `fixture.designos --panel picker --screenshot out.png`), `preset_popup` mutated `app.doc` after `open_path`, marking the document dirty. When `drive_screenshot` wrote the PNG and sent `ViewportCommand::Close`, `Shell::draw_window` called `!self.app.may_quit(&ctx)` and sent `ViewportCommand::CancelClose` to show the interactive `"Save changes?"` dialog. Bypassing `may_quit` / `flush_autosave` on `close_requested()` when `self.shot.is_some()` ensures headless screenshot runs always exit cleanly once the capture completes or fails.
 4. **`[FACT]` Controller Ruling 1 (`DESIGNOS_SHOT_DROP_IMAGES` gating choice)**:
-   - The spec did not require `DESIGNOS_SHOT_DROP_IMAGES` in release builds, so per Controller Ruling 1 we gated it with `#[cfg(debug_assertions)]` ([`shell.rs:645-646`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L645-L646), [`shell.rs:682-686`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L682-L686)), committed it first in `d575ddf2`, and ran Case 7 against the debug build (`out/cargo/debug/designos`).
+   - The spec did not require `DESIGNOS_SHOT_DROP_IMAGES` in release builds, so per Controller Ruling 1 we gated it with `#[cfg(debug_assertions)]` ([`shell.rs:960-961`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L960-L961), [`shell.rs:996-1003`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs#L996-L1003)) and ran Case 7 against the debug build (`out/cargo/debug/designos`).
 
 ---
 
 ## 4. Skills Loaded & What Changed Because of Them
 
-- **`/es:dev` & `es:feature-dev`**: Enforced red-first commit sequencing (`d575ddf2` fault hook -> `4f766ace` failing unit tests -> `d1f4bbb9` implementation fix) and scoped file ownership.
+- **`/es:dev` & `es:feature-dev`**: Enforced red-first commit sequencing and scoped file ownership.
 - **`/es:rust`**: Kept `on_surface_status` zero-cost outside `--screenshot` mode by accessing `eframe::egui_wgpu::wgpu::CurrentSurfaceTexture` directly without adding `wgpu` to `crates/designos-app/Cargo.toml`, and used lock-free atomics / `OnceLock` (`SHOT_OK`, `SHOT_WRITE_FAILED`, `SHOT_FAILURE`, `SHOT_OPEN_ERROR`) across the `eframe::run_native` boundary.
-- **`/es:rust-gpu-canvas`**: Preserved the `SHOT_GPU_SETTLE_FRAMES` / `captured_at_rest` GPU refine handshake so a re-requested capture after a capped GPU frame does not count against the 5 lost-request budget (`shot.requests = shot.requests.saturating_sub(1)`).
+- **`/es:rust-gpu-canvas`**: Preserved the `SHOT_GPU_SETTLE_FRAMES` / per-request `at_rest` and `last_try` GPU refine handshake so a re-requested capture after a capped GPU frame does not count against the 5 lost-request budget (`shot.requests = shot.requests.saturating_sub(1)`).
 - **`es:astra-work` & `es:fable-thinking`**: Used prediction-before-action and falsification when `fixture-panel-picker` timed out during Case 8 diagnosis, proving within one 2-second test that `v3.png` had already been written (`size = 246811`) before `Shell::draw_window` cancelled the window close via `may_quit(&ctx)` -> `ViewportCommand::CancelClose`.
 
 ---
@@ -76,11 +75,11 @@
 
 | Gate / Criterion | Status | Evidence File / Command & Output |
 |---|---|---|
-| **Tests 1–6 & 6b (Red first)** | PASS | [`red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/red.log) on `4f766ace`: `FAILED. 0 passed; 7 failed` (`lost_screenshot_request_is_sent_again`, `capture_is_written_after_a_lost_request`, `capture_gives_up_with_a_reason_after_five_lost_requests`, `failure_line_keeps_the_infra_prefix`, `malformed_image_is_reported`, `screenshot_viewport_is_always_on_top`, `watchdog_is_not_armed_before_the_first_frame`). |
+| **Tests 1–6 & 6b (Red first)** | PASS | [`red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/red.log): `FAILED. 0 passed; 7 failed` (`lost_screenshot_request_is_sent_again`, `capture_is_written_after_a_lost_request`, `capture_gives_up_with_a_reason_after_five_lost_requests`, `failure_line_keeps_the_infra_prefix`, `malformed_image_is_reported`, `screenshot_viewport_is_always_on_top`, `watchdog_is_not_armed_before_the_first_frame`). |
 | **Tests 1–6, 6b & edge case (Green)** | PASS | [`green.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/green.log): `ok. 8 passed; 0 failed` (includes `late_image_after_lost_request_wins_and_second_image_is_ignored`). |
-| **Case 7 (`DESIGNOS_SHOT_DROP_IMAGES=1` on hook commit `d575ddf2`)** | PASS | [`case7-red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/case7-red.log): `exit_code=1`, `png_exists=false`, `stderr=designos: screenshot was not captured`. |
+| **Case 7 (`DESIGNOS_SHOT_DROP_IMAGES=1` before retry fix)** | PASS | [`case7-red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/case7-red.log): `exit_code=1`, `png_exists=false`, `stderr=designos: screenshot was not captured`. |
 | **Case 7 (`DESIGNOS_SHOT_DROP_IMAGES=1` on fix)** | PASS | [`case7-green.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/case7-green.log): `exit_code=0`, `png_exists=true`, `png_bytes=249968`, `stderr=`. |
-| **Case 8 (`scripts/screenshot_capture_loop.sh`, 250 idle + 250 load)** | PARTIAL (`load` PENDING screen) | [`case8.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/case8.log):<br>`mode=idle`: `total=250 passed=250 failed=0 unexplained=0`<br>`mode=load`: `PENDING (screen)` per controller instruction. |
+| **Case 8 (`scripts/screenshot_repeat.sh`, 250 idle + 250 load)** | PARTIAL (`load` PENDING screen) | [`case8.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/case8.log):<br>`mode=idle`: `total=250 passed=250 failed=0 unexplained=0`<br>`mode=load`: `PENDING (screen)` per controller instruction. |
 | **`cargo fmt --all -- --check`** | PASS | Exited `0` (`fmt_exit=0`). |
 | **`cargo clippy --workspace --all-targets --locked -- -D warnings`** | PASS | Exited `0` (`Finished dev profile [unoptimized + debuginfo] target(s) in 1m 22s`, `clippy_exit=0`). |
 | **`cargo test --workspace --locked --lib`** | PASS | Exited `0` (`workspace_lib_exit=0`). |
@@ -92,7 +91,7 @@
 
 #### 1. Red & Green Unit Tests (`red.log` / `green.log`)
 ```text
-# red.log (on 4f766ace):
+# red.log (before fix):
 running 7 tests
 test shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix ... FAILED
 test shell::tests::screenshot_capture::malformed_image_is_reported ... FAILED
@@ -103,7 +102,7 @@ test shell::tests::screenshot_capture::capture_is_written_after_a_lost_request .
 test shell::tests::screenshot_capture::capture_gives_up_with_a_reason_after_five_lost_requests ... FAILED
 test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 3346 filtered out; finished in 1.29s
 
-# green.log (on HEAD):
+# green.log (on 818b6249):
 running 8 tests
 test shell::tests::screenshot_capture::screenshot_viewport_is_always_on_top ... ok
 test shell::tests::screenshot_capture::malformed_image_is_reported ... ok
@@ -118,16 +117,15 @@ test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 3346 filtered out; f
 
 #### 2. Case 7 Fault Hook (`case7-red.log` / `case7-green.log`)
 ```text
-# case7-red.log (on d575ddf2):
-commit=d575ddf2
+# case7-red.log (before retry fix):
 cmd=DESIGNOS_SHOT_DROP_IMAGES=1 out/cargo/debug/designos --fixture showcase --select none --size 1440x900 --no-toast --screenshot $S/shot.png
 exit_code=1
 png_exists=false
 png_bytes=0
 stderr=designos: screenshot was not captured
 
-# case7-green.log (with fix):
-commit=4f766ace+fix
+# case7-green.log (on 818b6249):
+commit=818b6249
 cmd=DESIGNOS_SHOT_DROP_IMAGES=1 out/cargo/debug/designos --fixture showcase --select none --size 1440x900 --no-toast --screenshot $S/shot.png
 exit_code=0
 png_exists=true
@@ -185,7 +183,8 @@ bin_test_exit=0
   - [`crates/designos-app/src/shell.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell.rs)
   - [`crates/designos-app/src/shell/tests.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell/tests.rs)
   - [`crates/designos-app/src/shell/tests/screenshot_capture.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell/tests/screenshot_capture.rs)
-  - [`scripts/screenshot_capture_loop.sh`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/scripts/screenshot_capture_loop.sh)
+  - [`crates/designos-app/src/shell/tests/gpu_screenshot_wait.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/shell/tests/gpu_screenshot_wait.rs)
+  - [`scripts/screenshot_repeat.sh`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/scripts/screenshot_repeat.sh)
   - [`plans/reports/agy-1141-screenshot-capture.md`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture.md)
   - `plans/reports/agy-1141-screenshot-capture-evidence/{red.log,green.log,case7-red.log,case7-green.log,case8.log}`
 - **Files outside scope:** None.
@@ -207,7 +206,7 @@ Status: DONE
 - **Branch:** `jangtrinh/carry-1141-screenshot-capture-main` (carry onto `origin/main` `8dfaee93`, base `818b6249`)
 - **Commits:**
   1. `37eb0da2`: `test(screenshot): add round 2 failing tests for frame watchdog, write failure, and exit contract`
-  2. `HEAD`: `fix(screenshot): guard watchdog during frames, stop on write failure, and pin exit contract (#1141)`
+  2. `8948e6eb`: `fix(screenshot): guard watchdog during frames, stop on write failure, and pin exit contract (#1141)`
 
 ### 1. What Could NOT Be Verified (First)
 

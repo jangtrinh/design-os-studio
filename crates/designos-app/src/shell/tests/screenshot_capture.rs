@@ -50,6 +50,15 @@ fn screenshot_event(w: usize, h: usize) -> Event {
     Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image }
 }
 
+fn frame_screenshot_user_data(cmds: &[egui::ViewportCommand]) -> Option<egui::UserData> {
+    cmds.iter().find_map(|c| if let egui::ViewportCommand::Screenshot(u) = c { Some(u.clone()) } else { None })
+}
+
+fn tagged_screenshot_event(c: egui::Color32, user_data: egui::UserData) -> Event {
+    let image = Arc::new(egui::ColorImage::filled([SIZE.0 as usize, SIZE.1 as usize], c));
+    Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data, image }
+}
+
 // Run frames until one `ViewportCommand::Screenshot` is sent, then inject no image for 12 frames.
 // A second `Screenshot` command is sent.
 #[test]
@@ -330,4 +339,195 @@ fn screenshot_exit_contract() {
     // 4. Written: exits 0, nothing printed.
     assert_eq!(crate::exit_code(false, true), 0);
     assert_eq!(crate::screenshot_exit_line(None, true, false, &ShotOutcome::Written), None);
+}
+
+#[test]
+fn sequence_drops_late_image_of_superseded_request_and_captures_every_state() {
+    let dir = std::env::temp_dir().join(format!("designos_shot_capture_{}_seq_tagged_late", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create sequence temp dir");
+    let opts = Options {
+        fixture: Some(crate::showcase::FIXTURE.to_string()),
+        panel: Some("micro-scale-tool:seq:3".to_string()),
+        size: Some(SIZE),
+        screenshot: Some(dir.clone()),
+        ..Default::default()
+    };
+    let mut s = Sim::with(opts);
+    let mut n = 0;
+    while frame_screenshot_user_data(&s.commands).is_none() && n < 80 {
+        s.frame(vec![]);
+        n += 1;
+    }
+    let ud1 = frame_screenshot_user_data(&s.commands).expect("first sequence request for state 0");
+    let mut ud2 = None;
+    for _ in 1..=12 {
+        s.frame(vec![]);
+        if let Some(u) = frame_screenshot_user_data(&s.commands) {
+            ud2 = Some(u);
+            break;
+        }
+    }
+    let ud2 = ud2.expect("re-request for state 0 after 10 frames");
+
+    // Late image from request 1 arrives and captures state 0 (`frame-0000.jpg`).
+    s.frame(vec![tagged_screenshot_event(egui::Color32::from_rgb(255, 0, 0), ud1)]);
+    assert!(dir.join("frame-0000.jpg").is_file(), "frame-0000.jpg must be written from state 0");
+
+    // Late image from superseded request 2 (also captured during state 0) arrives on the next frame:
+    // it must be dropped and counted, and never saved as `frame-0001.jpg`.
+    s.frame(vec![tagged_screenshot_event(egui::Color32::from_rgb(0, 0, 255), ud2)]);
+    assert!(!dir.join("frame-0001.jpg").is_file(), "superseded request from state 0 must never be written as frame-0001.jpg");
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").images_dropped, 1, "superseded request image must be counted as dropped");
+
+    // Advance through the remaining sequence states (state 1 and state 2), answering each new request with its own color.
+    let state_colors = [egui::Color32::from_rgb(0, 255, 0), egui::Color32::from_rgb(255, 255, 0)];
+    let mut later_requests = 0usize;
+    for _ in 0..80 {
+        s.frame(vec![]);
+        if let Some(u) = frame_screenshot_user_data(&s.commands) {
+            let color = state_colors[later_requests.min(state_colors.len() - 1)];
+            later_requests += 1;
+            s.frame(vec![tagged_screenshot_event(color, u)]);
+        }
+        if s.shell.shot.as_ref().expect("shot exists").outcome != ShotOutcome::Pending {
+            break;
+        }
+    }
+    assert_eq!(later_requests, 2, "states 1 and 2 must each send their own screenshot request");
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").outcome, ShotOutcome::Written);
+    for idx in 0..3 {
+        assert!(dir.join(format!("frame-{idx:04}.jpg")).is_file(), "frame-{idx:04}.jpg must exist");
+    }
+    assert!(!dir.join("frame-0003.jpg").is_file(), "seq:3 must write exactly 3 frames");
+    let px0 = image::open(dir.join("frame-0000.jpg")).expect("open frame 0").into_rgb8().get_pixel(10, 10).0;
+    let px1 = image::open(dir.join("frame-0001.jpg")).expect("open frame 1").into_rgb8().get_pixel(10, 10).0;
+    let px2 = image::open(dir.join("frame-0002.jpg")).expect("open frame 2").into_rgb8().get_pixel(10, 10).0;
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(px0[0] > 200 && px0[1] < 30 && px0[2] < 30, "frame-0000.jpg must come from state 0 (red), got {px0:?}");
+    assert!(px1[1] > 200 && px1[0] < 30 && px1[2] < 30, "frame-0001.jpg must come from state 1 (green), got {px1:?}");
+    assert!(px2[0] > 200 && px2[1] > 200 && px2[2] < 30, "frame-0002.jpg must come from state 2 (yellow), got {px2:?}");
+}
+
+#[test]
+fn gpu_late_image_from_capped_frame_is_never_saved_as_at_rest_capture() {
+    const DT: f64 = 0.01;
+    let dir = std::env::temp_dir().join(format!("designos_shot_capture_{}_gpu_tagged_late", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create gpu temp dir");
+    let path = dir.join("shot.png");
+    let mut s = Sim::with(Options { screenshot: Some(path.clone()), size: Some(SIZE), ..Default::default() });
+    let g = &mut s.shell.app.canvas.gpu;
+    (g.available, g.pref) = (true, true);
+    g.set_max_texture(16_384);
+    g.frame_work_override = Some(0.0);
+
+    let gframe = |s: &mut Sim, events: Vec<Event>| -> (Option<egui::UserData>, bool) {
+        s.t += DT;
+        let ctx = s.ctx.clone();
+        let shell = &mut s.shell;
+        let raw = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(SIZE.0 as f32, SIZE.1 as f32))),
+            time: Some(s.t),
+            events,
+            ..Default::default()
+        };
+        let out = ctx.run_ui(raw, |ui| shell.draw(ui));
+        shell.app.canvas.gpu.ack_prepared_for_test();
+        let cmds: Vec<_> = out.viewport_output.values().flat_map(|v| v.commands.iter().cloned()).collect();
+        (frame_screenshot_user_data(&cmds), s.shell.app.canvas.gpu.at_rest())
+    };
+
+    let mut req_a = None;
+    for _ in 1..=200 {
+        if let (Some(u), _) = gframe(&mut s, vec![]) {
+            req_a = Some(u);
+            break;
+        }
+    }
+    let req_a = req_a.expect("request A sent at rest");
+
+    // Disturb the frame that captures request A (as `poll_fonts` does), so A's capture is painted capped.
+    s.shell.app.changed();
+    let (_, rest_after_disturb) = gframe(&mut s, vec![]);
+    assert!(!rest_after_disturb, "disturbed frame must compile capped (!at_rest)");
+
+    // Let request A time out and wait for request B to be sent once the GPU view settles back to at_rest.
+    let mut req_b = None;
+    for _ in 2..=300 {
+        if let (Some(u), _) = gframe(&mut s, vec![]) {
+            req_b = Some(u);
+            break;
+        }
+    }
+    let req_b = req_b.expect("request B sent after GPU view settles again");
+
+    // Even if `shot.last_try` were flipped on a later request, request A recorded its own `last_try = false`.
+    s.shell.shot.as_mut().expect("shot exists").last_try = true;
+
+    // Request A's late image (from the capped frame) arrives after B is already in flight:
+    // it must be dropped and counted, and never saved as the at-rest capture.
+    let (asked_again, _) = gframe(&mut s, vec![tagged_screenshot_event(egui::Color32::from_rgb(200, 10, 10), req_a)]);
+    assert!(!path.is_file(), "late capped image from request A must never be saved as the at-rest capture");
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").outcome, ShotOutcome::Pending);
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").images_dropped, 1, "capped request A image must be counted as dropped");
+    assert!(asked_again.is_none(), "no duplicate request should be sent while request B is already in flight");
+
+    // When request B's at-rest image arrives, it is saved.
+    gframe(&mut s, vec![tagged_screenshot_event(egui::Color32::from_rgb(10, 210, 20), req_b)]);
+    assert!(path.is_file(), "at-rest image from request B must be saved");
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").outcome, ShotOutcome::Written);
+    let px = image::open(&path).expect("open saved PNG").into_rgba8().get_pixel(0, 0).0;
+    cleanup(&path);
+    assert_eq!(px, [10, 210, 20, 255], "saved PNG must come from request B, not capped request A");
+}
+
+#[test]
+fn last_surface_status_names_status_during_failed_attempts_and_resets_when_a_later_frame_draws() {
+    let (mut s, path) = showcase_shot_sim("surface_status_reset");
+    // An early surface status during initial resize (before any request is sent) is ignored.
+    record_surface_status("Outdated");
+    run_until_first_screenshot_cmd(&mut s, 60);
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").last_surface_status, None);
+
+    // A surface status during an active attempt is recorded, then reset when a later frame draws.
+    record_surface_status("Outdated");
+    s.frame(vec![]);
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").last_surface_status.as_deref(), Some("Outdated"));
+    s.frame(vec![]);
+    assert_eq!(s.shell.shot.as_ref().expect("shot exists").last_surface_status, None, "later drawn frame must reset last_surface_status");
+    cleanup(&path);
+
+    // When the failed attempts cannot draw because the surface stays Occluded, the failure reason names Occluded.
+    let (mut s2, path2) = showcase_shot_sim("surface_status_occluded");
+    run_until_first_screenshot_cmd(&mut s2, 60);
+    for _ in 0..200 {
+        record_surface_status("Occluded");
+        s2.frame(vec![]);
+        if s2.commands.contains(&egui::ViewportCommand::Close) {
+            break;
+        }
+    }
+    let outcome = s2.shell.shot.as_ref().expect("shot exists").outcome.clone();
+    cleanup(&path2);
+    match outcome {
+        ShotOutcome::Failed(reason) => {
+            assert!(reason.ends_with("; last surface status Occluded"), "expected reason ending with '; last surface status Occluded', got: {reason:?}");
+        }
+        other => panic!("expected ShotOutcome::Failed, got {other:?}"),
+    }
+}
+
+#[test]
+fn draw_arms_watchdog_through_frame_guard_when_open_succeeded() {
+    let (mut s, path) = showcase_shot_sim("frame_guard_arms");
+    if let Ok(mut w) = SHOT_WATCHDOG.lock() {
+        *w = ShotWatchdog::new();
+    }
+    s.frame(vec![]);
+    let armed = SHOT_WATCHDOG.lock().expect("lock watchdog").last_frame_at.is_some();
+    let in_frame_after = SHOT_IN_FRAME.load(Ordering::SeqCst);
+    cleanup(&path);
+    assert!(armed, "Shell::draw must enter ShotFrameGuard and arm SHOT_WATCHDOG on frame completion");
+    assert!(!in_frame_after, "ShotFrameGuard must clear SHOT_IN_FRAME when the frame finishes");
 }

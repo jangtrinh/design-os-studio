@@ -158,7 +158,7 @@ fn a_lost_screenshot_request_is_retried_before_the_window_gives_up() {
         // request must still be sent so a transient macOS/eframe delivery loss does not turn into
         // the generic "screenshot was not captured" exit.
         let retry_after = (1..=300).find(|_| frame_requests_screenshot(&mut s)).expect("a dropped screenshot request is retried");
-        assert!(retry_after > 0, "{tag}: the retry must follow the lost first request");
+        assert_eq!(retry_after, crate::shell::SHOT_IMAGE_WAIT_FRAMES, "{tag}: the retry must follow SHOT_IMAGE_WAIT_FRAMES after the lost first request");
         assert!(s.app().canvas.gpu.at_rest(), "{tag}: the retried request is also sent at rest");
 
         let image = Arc::new(egui::ColorImage::filled([SIZE.0 as usize, SIZE.1 as usize], egui::Color32::BLACK));
