@@ -185,12 +185,53 @@ pub fn create_private_dir_all(path: &Path) -> io::Result<()> {
     builder.create(path)
 }
 
+#[cfg(target_os = "macos")]
+fn require_no_extended_acl(path: &Path) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::raw::{c_char, c_int, c_void};
+    use std::os::unix::ffi::OsStrExt;
+
+    const ACL_TYPE_EXTENDED: c_int = 0x100;
+
+    unsafe extern "C" {
+        fn acl_get_file(path: *const c_char, acl_type: c_int) -> *mut c_void;
+        fn acl_free(obj: *mut c_void) -> c_int;
+    }
+
+    let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "private folder path contains NUL"))?;
+    let acl = unsafe { acl_get_file(c_path.as_ptr(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ENOENT) {
+            // macOS uses ENOENT for a path with no extended ACL. Revalidate the path so a concurrent
+            // removal or replacement cannot turn the failed ACL lookup into an approval.
+            return match std::fs::symlink_metadata(path) {
+                Ok(meta) if meta.is_dir() => Ok(()),
+                Ok(_) => Err(io::Error::other("private folder changed while checking its ACL")),
+                Err(recheck) => Err(io::Error::other(format!("private folder disappeared while checking its ACL: {recheck}"))),
+            };
+        }
+        return Err(io::Error::other(format!("could not inspect the ACL on the private folder: {error}")));
+    }
+
+    // Any extended ACL is broader than the owner-only mode contract. Reject it instead of trying to
+    // interpret platform-specific principals and inheritance flags incorrectly.
+    let _ = unsafe { acl_free(acl) };
+    Err(io::Error::other("private folder has an extended ACL"))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn require_no_extended_acl(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 /// Requires `path` to be a real folder (not a link) that only its owner can use, tightening a looser mode.
 fn require_private_dir(path: &Path) -> io::Result<()> {
     let meta = std::fs::symlink_metadata(path)?;
     if !meta.is_dir() {
         return Err(io::Error::other(format!("{} is not a folder", path.display())));
     }
+    require_no_extended_acl(path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -327,6 +368,27 @@ mod tests {
         create_private_dir_all(&tab).unwrap();
         assert_eq!(std::fs::metadata(&tab).unwrap().permissions().mode() & 0o777, 0o700);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_private_folder_with_a_non_owner_acl_is_refused() {
+        let base = std::env::temp_dir().join(format!("designos-channel-acl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let parent = base.join("designos").join("ap");
+        std::fs::create_dir_all(&parent).unwrap();
+        let acl_rule = "everyone allow write,delete,add_file,add_subdirectory,file_inherit,directory_inherit";
+        let status = std::process::Command::new("/bin/chmod").args(["+a", acl_rule, parent.to_str().unwrap()]).status().unwrap();
+        assert!(status.success(), "chmod +a failed");
+        let child = parent.join("inherited");
+        std::fs::create_dir(&child).unwrap();
+
+        let result = require_private_dir(&child);
+
+        let _ = std::process::Command::new("/bin/chmod").arg("-N").arg(&child).status();
+        let _ = std::process::Command::new("/bin/chmod").arg("-N").arg(&parent).status();
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(result.is_err(), "an ACL granting non-owner access must not pass the private-folder check");
     }
 
     #[cfg(unix)]
