@@ -343,7 +343,6 @@ struct Shot {
     /// The request came after `SHOT_GPU_SETTLE_FRAMES`: its image is kept whatever it shows.
     last_try: bool,
     next_req: u64,
-    accept_from: u64,
     in_flight: Vec<ShotRequest>,
     seq: Option<MicroSeqCapture>,
     /// --no-toast: transient toasts are never painted into the capture.
@@ -947,7 +946,6 @@ impl Shell {
             captured_at_rest: true,
             last_try: false,
             next_req: 0,
-            accept_from: 0,
             in_flight: Vec::new(),
             seq: seq_capture,
             no_toast: opts.no_toast,
@@ -1005,17 +1003,11 @@ impl Shell {
                     continue;
                 }
                 let (req_at_rest, req_last_try) = if let Some(id) = tag {
-                    let matched = if id < shot.accept_from {
-                        None
-                    } else if let Some(pos) = shot.in_flight.iter().position(|r| r.id == id) {
-                        Some(shot.in_flight.remove(pos))
-                    } else {
-                        None
-                    };
-                    let Some(req) = matched else {
+                    let Some(pos) = shot.in_flight.iter().position(|r| r.id == id) else {
                         shot.images_dropped += 1;
                         continue;
                     };
+                    let req = shot.in_flight.remove(pos);
                     (req.at_rest, req.last_try)
                 } else {
                     (shot.captured_at_rest, shot.last_try)
@@ -1071,13 +1063,11 @@ impl Shell {
                         shot.requests = 0;
                         shot.lost_frames.clear();
                         shot.last_surface_status = None;
-                        shot.accept_from = shot.next_req;
                         shot.in_flight.clear();
                         seq.wait_frames = 2;
                         shot.frames = 12;
                         return;
                     } else {
-                        shot.accept_from = shot.next_req;
                         shot.in_flight.clear();
                         SHOT_OK.store(true, Ordering::SeqCst);
                         shot.outcome = ShotOutcome::Written;
@@ -1086,7 +1076,6 @@ impl Shell {
                         return;
                     }
                 } else {
-                    shot.accept_from = shot.next_req;
                     shot.in_flight.clear();
                     if let Some(dir) = shot.path.parent() {
                         let _ = std::fs::create_dir_all(dir);
