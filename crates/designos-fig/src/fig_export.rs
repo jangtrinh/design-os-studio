@@ -2275,7 +2275,9 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
                     && (ovs.contains(&OverrideField::Characters)
                         || ovs.contains(&OverrideField::TextStyle)
                         || src_tp.is_none_or(|stp| stp.lists != tp.lists || stp.direction != tp.direction));
-                if ovs.contains(&OverrideField::Characters) || (ovs.contains(&OverrideField::TextStyle) && (runs_differ || lists_differ)) {
+                // Only a node that overrides its characters records them: a record that names the characters pins the
+                // text, and a node with a style-only override must keep following its main component's text.
+                if ovs.contains(&OverrideField::Characters) {
                     ov.push(("textData", encode_text_data(tp, runs_differ, lists_differ)));
                 }
                 if ovs.contains(&OverrideField::TextStyle) {

@@ -1431,6 +1431,8 @@ fn build(entries: &mut [Entry], children: &HashMap<usize, Vec<usize>>, lk: &Lk, 
     if depth > 250 || !visited.insert(i) {
         return None;
     }
+    // The document, variable and style entries are not layers, so they leave no node. Their JSON must also stay in
+    // `entries`: the variables are read from it after this tree is built, once each layer's JSON has been taken.
     if matches!(fstr(&entries[i].json, "type"), Some("DOCUMENT" | "NONE" | "VARIABLE" | "VARIABLE_SET" | "VARIABLE_OVERRIDE"))
         || fstr(&entries[i].json, "styleType").is_some()
     {
