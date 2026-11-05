@@ -24,8 +24,14 @@ fn variable_with_value_for_modes(modes: &[(u64, u64)]) -> Value {
     )
 }
 
+/// A value that names a mode its collection never had, and one that names a mode removed from the collection.
 #[test]
 fn value_for_an_unknown_mode_adds_no_mode_on_fig_save() {
+    value_for_a_mode_the_collection_never_had_adds_no_mode();
+    value_for_a_removed_mode_adds_no_mode();
+}
+
+fn value_for_a_mode_the_collection_never_had_adds_no_mode() {
     // The value names a mode its collection does not have.
     let mut nodes = document_and_page();
     nodes.extend([
@@ -44,8 +50,7 @@ fn value_for_an_unknown_mode_adds_no_mode_on_fig_save() {
     assert_eq!(bg.values.keys().collect::<Vec<_>>(), [default_mode], "only the value of a mode the collection has is written");
 }
 
-#[test]
-fn value_for_a_removed_mode_adds_no_mode_on_fig_save() {
+fn value_for_a_removed_mode_adds_no_mode() {
     let mut nodes = document_and_page();
     nodes.extend([
         fig_node(
