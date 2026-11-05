@@ -1,6 +1,7 @@
 use designos_doc::*;
 use designos_fig::container::Compression;
-use designos_fig::testkit::{sample_fig, IMAGE_HASH};
+use designos_fig::kiwi::KiwiValue as V;
+use designos_fig::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, sample_fig, vec2, IMAGE_HASH};
 use designos_fig::{decode_fig_to_json, export_rest_json, image_refs, import_fig, import_rest_json};
 
 fn find<'a>(doc: &'a Document, name: &str) -> &'a Node {
@@ -27,7 +28,7 @@ fn check(doc: &Document) {
     assert!(f.clips_content, "frameMaskDisabled absent means clipping on");
     let al = f.auto_layout.as_ref().unwrap();
     assert_eq!(al.direction, LayoutDirection::Vertical);
-    assert_eq!(al.padding, [12.0, 16.0, 12.0, 16.0], "right/bottom fall back to horizontal/vertical padding");
+    assert_eq!(al.padding, [12.0, 0.0, 0.0, 16.0], "missing right/bottom padding imports as 0");
     assert_eq!(al.primary_sizing, Sizing::Hug);
     assert_eq!(al.counter_sizing, Sizing::Fixed);
     assert_eq!(al.counter_align, LayoutAlign::Center);
@@ -153,4 +154,200 @@ fn bad_input_never_panics() {
             let _ = decode_fig_to_json(&b);
         }
     }
+}
+
+fn import_encoded_nodes(mut changes: Vec<V>) -> Document {
+    changes.push(node((0, 0), (0, 0), "!", "DOCUMENT", "Doc", vec![]));
+    changes.push(node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]));
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).unwrap();
+    let bytes = designos_fig::container::write_container(&schema.encode(), &body, Compression::Deflate, 101);
+    import_fig(&bytes).unwrap()
+}
+
+#[test]
+fn end_aligned_row_with_only_horizontal_padding_keeps_child_at_stored_x_after_relayout() {
+    let mut doc = import_encoded_nodes(vec![
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "FRAME",
+            "ChatRow",
+            vec![
+                ("size", vec2(352.0, 64.0)),
+                ("stackMode", en("HORIZONTAL")),
+                ("stackPrimarySizing", en("FIXED")),
+                ("stackPrimaryAlignItems", en("MAX")),
+                ("stackHorizontalPadding", fl(32.0)),
+            ],
+        ),
+        node((1, 2), (1, 1), "a", "RECTANGLE", "Message", vec![("size", vec2(272.0, 40.0)), ("transform", matrix(80.0, 0.0))]),
+        node(
+            (1, 10),
+            (0, 1),
+            "b",
+            "SYMBOL",
+            "RowComp",
+            vec![("size", vec2(352.0, 64.0)), ("stackMode", en("HORIZONTAL")), ("stackPrimarySizing", en("FIXED")), ("stackPrimaryAlignItems", en("MAX"))],
+        ),
+        node((1, 11), (1, 10), "a", "RECTANGLE", "CompMsg", vec![("size", vec2(272.0, 40.0)), ("transform", matrix(80.0, 0.0))]),
+        node(
+            (1, 20),
+            (0, 1),
+            "c",
+            "INSTANCE",
+            "RowInst",
+            vec![
+                ("size", vec2(352.0, 64.0)),
+                (
+                    "symbolData",
+                    msg(vec![
+                        ("symbolID", guid(1, 10)),
+                        (
+                            "symbolOverrides",
+                            V::Array(vec![msg(vec![("guidPath", msg(vec![("guids", V::Array(vec![]))])), ("stackHorizontalPadding", fl(32.0))])]),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    ]);
+
+    let row_id = find(&doc, "ChatRow").id;
+    let inst_id = find(&doc, "RowInst").id;
+    doc.relayout_subtree(row_id);
+    doc.relayout_subtree(inst_id);
+
+    assert_eq!(find(&doc, "Message").transform.tx, 80.0);
+    let row = find(&doc, "ChatRow");
+    let row_al = row.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(row_al.padding, [0.0, 0.0, 0.0, 32.0]);
+
+    let inst = find(&doc, "RowInst");
+    let inst_child = doc.get(inst.children[0]).unwrap();
+    assert_eq!(inst_child.transform.tx, 80.0);
+    let inst_al = inst.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(inst_al.padding, [0.0, 0.0, 0.0, 32.0]);
+}
+
+#[test]
+fn end_aligned_column_with_only_vertical_padding_keeps_child_at_stored_y_after_relayout() {
+    let mut doc = import_encoded_nodes(vec![
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "FRAME",
+            "ChatColumn",
+            vec![
+                ("size", vec2(64.0, 352.0)),
+                ("stackMode", en("VERTICAL")),
+                ("stackPrimarySizing", en("FIXED")),
+                ("stackPrimaryAlignItems", en("MAX")),
+                ("stackVerticalPadding", fl(32.0)),
+            ],
+        ),
+        node((1, 2), (1, 1), "a", "RECTANGLE", "Message", vec![("size", vec2(40.0, 272.0)), ("transform", matrix(0.0, 80.0))]),
+        node(
+            (1, 10),
+            (0, 1),
+            "b",
+            "SYMBOL",
+            "ColComp",
+            vec![("size", vec2(64.0, 352.0)), ("stackMode", en("VERTICAL")), ("stackPrimarySizing", en("FIXED")), ("stackPrimaryAlignItems", en("MAX"))],
+        ),
+        node((1, 11), (1, 10), "a", "RECTANGLE", "CompMsg", vec![("size", vec2(40.0, 272.0)), ("transform", matrix(0.0, 80.0))]),
+        node(
+            (1, 20),
+            (0, 1),
+            "c",
+            "INSTANCE",
+            "ColInst",
+            vec![
+                ("size", vec2(64.0, 352.0)),
+                (
+                    "symbolData",
+                    msg(vec![
+                        ("symbolID", guid(1, 10)),
+                        (
+                            "symbolOverrides",
+                            V::Array(vec![msg(vec![("guidPath", msg(vec![("guids", V::Array(vec![]))])), ("stackVerticalPadding", fl(32.0))])]),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    ]);
+
+    let col_id = find(&doc, "ChatColumn").id;
+    let inst_id = find(&doc, "ColInst").id;
+    doc.relayout_subtree(col_id);
+    doc.relayout_subtree(inst_id);
+
+    assert_eq!(find(&doc, "Message").transform.ty, 80.0);
+    let col = find(&doc, "ChatColumn");
+    let col_al = col.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(col_al.padding, [32.0, 0.0, 0.0, 0.0]);
+
+    let inst = find(&doc, "ColInst");
+    let inst_child = doc.get(inst.children[0]).unwrap();
+    assert_eq!(inst_child.transform.ty, 80.0);
+    let inst_al = inst.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(inst_al.padding, [32.0, 0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn frame_with_all_four_padding_sides_set_imports_all_four() {
+    let doc = import_encoded_nodes(vec![
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "FRAME",
+            "FourSides",
+            vec![
+                ("size", vec2(200.0, 100.0)),
+                ("stackMode", en("HORIZONTAL")),
+                ("stackVerticalPadding", fl(10.0)),
+                ("stackPaddingRight", fl(20.0)),
+                ("stackPaddingBottom", fl(30.0)),
+                ("stackHorizontalPadding", fl(40.0)),
+            ],
+        ),
+        node((1, 10), (0, 1), "b", "SYMBOL", "FourComp", vec![("size", vec2(200.0, 100.0)), ("stackMode", en("HORIZONTAL"))]),
+        node(
+            (1, 20),
+            (0, 1),
+            "c",
+            "INSTANCE",
+            "FourInst",
+            vec![
+                ("size", vec2(200.0, 100.0)),
+                (
+                    "symbolData",
+                    msg(vec![
+                        ("symbolID", guid(1, 10)),
+                        (
+                            "symbolOverrides",
+                            V::Array(vec![msg(vec![
+                                ("guidPath", msg(vec![("guids", V::Array(vec![]))])),
+                                ("stackVerticalPadding", fl(11.0)),
+                                ("stackPaddingRight", fl(22.0)),
+                                ("stackPaddingBottom", fl(33.0)),
+                                ("stackHorizontalPadding", fl(44.0)),
+                            ])]),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    ]);
+
+    let al = find(&doc, "FourSides").kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(al.padding, [10.0, 20.0, 30.0, 40.0]);
+
+    let inst_al = find(&doc, "FourInst").kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(inst_al.padding, [11.0, 22.0, 33.0, 44.0]);
 }
