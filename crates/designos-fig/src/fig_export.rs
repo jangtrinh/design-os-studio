@@ -204,6 +204,14 @@ fn validate_shader_refs(doc: &Document, schema: &crate::kiwi::Schema) -> Result<
 /// Serializes `doc` into a `.fig` binary archive (ZIP containing `canvas.fig`,
 /// `meta.json`, and `images/<hash>`).
 pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
+    let mut hydrated;
+    let doc = if doc.page_hydrator.is_some() {
+        hydrated = doc.clone();
+        hydrated.hydrate_all_pages();
+        &hydrated
+    } else {
+        doc
+    };
     let schema = export_schema();
     validate_shader_refs(doc, schema)?;
     let root = schema.find("Message").ok_or_else(|| FigError::Format("missing Message in schema".into()))?;
@@ -1035,7 +1043,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if node.component.is_slot_content {
         fields.push(("isSlotContent", V::Bool(true)));
     }
-    if let Some(src) = node.component.source.and_then(|s| cx.node_guids.get(&s).copied()) {
+    if let Some(src) = authored_source_guid(cx, id) {
         fields.push(("overrideKey", guid(src.0, src.1)));
     } else if in_component {
         fields.push(("overrideKey", guid(nguid.0, nguid.1)));
@@ -2079,6 +2087,34 @@ fn overridden_node_modes(n: &Node, src: Option<&Node>) -> BTreeMap<String, Strin
     n.variables.modes.iter().filter(|(k, v)| sn.variables.modes.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
+/// Walks `component.source` from `id` to the authored template node inside a main component,
+/// stopping before an `Instance` steps to the `NodeKind::Component` it instantiates.
+fn authored_source_node(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut cur = id;
+    let mut origin = None;
+    for _ in 0..64 {
+        let Some(n) = doc.get(cur) else { break };
+        let Some(src) = n.component.source else { break };
+        if src == cur {
+            break;
+        }
+        if doc.get(src).is_some_and(|sn| matches!(sn.kind, NodeKind::Component(_))) {
+            break;
+        }
+        origin = Some(src);
+        cur = src;
+    }
+    origin
+}
+
+fn authored_source_guid(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
+    let orig = authored_source_node(cx.doc, id)?;
+    if let Some(g) = cx.doc.get(orig).and_then(|n| n.source_id.as_deref()).and_then(|s| s.rsplit(';').next()).and_then(parse_guid_pair) {
+        return Some(g);
+    }
+    cx.node_guids.get(&orig).copied()
+}
+
 fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
     let mut out = Vec::new();
     let Some(inst) = cx.doc.get(inst_id) else { return out };
@@ -2096,8 +2132,10 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
         let Some(n) = cx.doc.get(cid) else { continue };
         let own = cid == inst_id;
         if !own {
-            let step_g =
-                n.component.source.and_then(|s| cx.node_guids.get(&s).copied()).or_else(|| cx.node_guids.get(&cid).copied()).unwrap_or((1, cid.0 as u32));
+            let step_g = authored_source_guid(cx, cid)
+                .or_else(|| n.source_id.as_deref().and_then(|s| s.rsplit(';').next()).and_then(parse_guid_pair))
+                .or_else(|| cx.node_guids.get(&cid).copied())
+                .unwrap_or((1, cid.0 as u32));
             path.push(step_g);
         }
 
