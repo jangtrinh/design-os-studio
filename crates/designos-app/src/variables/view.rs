@@ -263,7 +263,7 @@ pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {
     let floating = !app.vars.full;
     let g = Geom { panel: if floating { floating_rect(app, screen) } else { content }, floating, sidebar: !app.vars.sidebar_hidden };
     let view = VariableStore::from_doc(&app.doc);
-    if !app.vars.collection.as_ref().is_some_and(|c| view.collections.get(c).is_some_and(|c| !c.is_soft_deleted())) {
+    if app.vars.collection.as_ref().is_none_or(|c| view.collections.get(c).is_none_or(VariableCollection::is_soft_deleted)) {
         app.vars.collection = library::first_collection(&view);
         app.vars.group = None;
     }

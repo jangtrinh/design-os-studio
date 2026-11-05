@@ -76,7 +76,7 @@ fn soft_deleted_referenced_variable_resolves_but_is_not_listed() {
     // Only the live variable is listed under its collection.
     let coll = &doc.variable_collections["VariableCollectionId:1:5"];
     assert_eq!(coll.variables, ["VariableID:1:20"], "the collection lists live variables only");
-    assert!(coll.extensions.get(MARKER).is_none(), "the collection is live");
+    assert!(!coll.extensions.contains_key(MARKER), "the collection is live");
 }
 
 #[test]
