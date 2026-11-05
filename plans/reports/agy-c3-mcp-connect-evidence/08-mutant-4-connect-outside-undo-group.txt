@@ -1,0 +1,27 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c3-mcp-connect/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.06s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5b9db1a7285515c4)
+
+running 1 test
+test tools::batch::tests::mcp_connect_single_undo_removes_connector_and_batch ... FAILED
+
+failures:
+
+---- tools::batch::tests::mcp_connect_single_undo_removes_connector_and_batch stdout ----
+
+thread 'tools::batch::tests::mcp_connect_single_undo_removes_connector_and_batch' (11473004) panicked at crates/designos-mcp/src/tools/batch.rs:5085:9:
+assertion `left == right` failed: entire batch including connect must be a single undo step
+  left: 2
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tools::batch::tests::mcp_connect_single_undo_removes_connector_and_batch
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 385 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
