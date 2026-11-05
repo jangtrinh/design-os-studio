@@ -21,3 +21,9 @@
 - [Prompt & CLI Cookbook](https://github.com/jangtrinh/design-os-studio/blob/main/docs/cookbook.md)
 - [Release & Packaging Guide](https://github.com/jangtrinh/design-os-studio/blob/main/docs/releasing.md)
 - [MCP Server (22 Tools)](https://github.com/jangtrinh/design-os-studio/blob/main/crates/designos-mcp/README.md)
+
+## Videos
+
+- [DESIGN:OS Studio v0.6.0 — Recap](https://www.youtube.com/watch?v=V76BySt9WOs): 30-second recap of DESIGN:OS Studio v0.6.0: a FREE native design studio with an Agents panel and MCP server. Source-available under PolyForm Shield.
+- [Autonomous Design Agent · Tập 03: Model + Harness và 6 trụ cột DESIGN:OS](https://www.youtube.com/watch?v=OYWsj7Jt8aw): Agent = Model + Harness: the six pillars of DESIGN:OS (single source of truth, Ontology Graph RAG, dual-layer spec, 126 CI gates, 9-verb patch, watchers). Vietnamese, with English terms.
+- [design:os by Jang on YouTube](https://www.youtube.com/@designosbyjang): channel, Autonomous Design Agent series.
