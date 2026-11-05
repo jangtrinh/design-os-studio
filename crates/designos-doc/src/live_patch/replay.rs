@@ -209,6 +209,27 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("update of node {} would turn a layer with children into one that cannot hold them", id.0));
                 return None;
             }
+            if let Some(comp) = crate::instance_component(&merged) {
+                let at = merged.parent.unwrap_or(id);
+                if let Some((held_main, cycle_path)) = crate::held_main_cycle_path_at(doc, comp, at, &[]) {
+                    let comp_name = crate::cycle_node_label(doc, comp);
+                    let held_name = crate::cycle_node_label(doc, held_main);
+                    let path_text = cycle_path.join(" -> ");
+                    report.skipped.push(format!(
+                        "INSTANCE_CYCLE: cannot update node {} to an instance of '{comp_name}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle path: {path_text})",
+                        id.0
+                    ));
+                    return None;
+                }
+            }
+            if matches!(merged.kind, NodeKind::Component(_)) && crate::mains_held_by(doc, &[id]).contains(&id) {
+                let held_name = if merged.name.trim().is_empty() { merged.kind.default_name().to_string() } else { merged.name.clone() };
+                report.skipped.push(format!(
+                    "INSTANCE_CYCLE: cannot turn '{held_name}' (node {}) into a component: that would make a component hold an instance of itself",
+                    id.0
+                ));
+                return None;
+            }
             if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {
                 report.needs_layout.push(id);
             }
@@ -247,12 +268,13 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("move of node {} into {} is not allowed", id.0, parent.0));
                 return None;
             }
-            if let Some(held_main) = crate::reparent_held_main(doc, &[id], parent) {
+            if let Some((held_main, cycle_path)) = crate::reparent_held_main_cycle_path(doc, &[id], parent) {
                 let node_name = crate::cycle_node_label(doc, id);
                 let parent_name = crate::cycle_node_label(doc, parent);
                 let held_name = crate::cycle_node_label(doc, held_main);
+                let path_text = cycle_path.join(" -> ");
                 report.skipped.push(format!(
-                    "MOVE_CYCLE: cannot move '{node_name}' into '{parent_name}' inside main component '{held_name}': that would make a component hold an instance of itself"
+                    "MOVE_CYCLE: cannot move '{node_name}' into '{parent_name}' inside main component '{held_name}': that would make a component hold an instance of itself (INSTANCE_CYCLE, cycle path: {path_text})"
                 ));
                 return None;
             }
@@ -646,6 +668,48 @@ fn resolve_insert(
     }
     let mut preview: Vec<Node> = nodes.to_vec();
     remap_subtree(&mut preview, &state.remap);
+    let preview_by_id: BTreeMap<NodeId, &Node> = preview.iter().map(|n| (n.id, n)).collect();
+    let node_label = |n: &Node| -> String {
+        if n.name.trim().is_empty() {
+            n.kind.default_name().to_string()
+        } else {
+            n.name.clone()
+        }
+    };
+    for n in &preview {
+        let Some(comp) = crate::instance_component(n) else { continue };
+        let mut extra = Vec::new();
+        let mut cur = n.parent;
+        let mut guard = 0usize;
+        while let Some(pid) = cur.filter(|pid| preview_by_id.contains_key(pid) && guard <= preview.len()) {
+            extra.push(node_label(preview_by_id[&pid]));
+            cur = preview_by_id[&pid].parent;
+            guard += 1;
+        }
+        extra.reverse();
+        if let Some((held_main, cycle_path)) = crate::held_main_cycle_path_at(doc, comp, parent, &extra) {
+            let inst_name = crate::cycle_node_label(doc, comp);
+            let parent_name = crate::cycle_node_label(doc, parent);
+            let held_name = crate::cycle_node_label(doc, held_main);
+            let path_text = cycle_path.join(" -> ");
+            report.skipped.push(format!(
+                "INSTANCE_CYCLE: cannot insert instance of '{inst_name}' into '{parent_name}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle path: {path_text})"
+            ));
+            return None;
+        }
+        let mut anc = n.parent;
+        let mut anc_guard = 0usize;
+        while let Some(pid) = anc.filter(|pid| preview_by_id.contains_key(pid) && anc_guard <= preview.len()) {
+            let pnode = preview_by_id[&pid];
+            if matches!(pnode.kind, NodeKind::Component(_)) && (comp == pid || crate::mains_held_through(doc, [comp]).contains(&pid)) {
+                let held_name = node_label(pnode);
+                report.skipped.push(format!("INSTANCE_CYCLE: cannot insert main component '{held_name}' holding an instance of itself"));
+                return None;
+            }
+            anc = pnode.parent;
+            anc_guard += 1;
+        }
+    }
     if let Some(existing) = doc.get(preview[0].id) {
         if existing.parent == Some(parent) && same_props(existing, &preview[0]) {
             report.duplicates += 1;

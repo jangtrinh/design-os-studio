@@ -673,6 +673,115 @@ pub fn cycle_node_label(doc: &Document, id: NodeId) -> String {
     doc.get(id).map(|n| if n.name.trim().is_empty() { n.kind.default_name().to_string() } else { n.name.clone() }).unwrap_or_else(|| "Layer".to_string())
 }
 
+fn container_labels_between(doc: &Document, ancestor: NodeId, leaf_parent: Option<NodeId>) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut cur = leaf_parent;
+    let mut guard = 0usize;
+    while let Some(pid) = cur {
+        if pid == ancestor || guard > doc.nodes.len() {
+            break;
+        }
+        chain.push(cycle_node_label(doc, pid));
+        cur = doc.get(pid).and_then(|p| p.parent);
+        guard += 1;
+    }
+    chain.reverse();
+    chain
+}
+
+fn component_chain_path(doc: &Document, start_comp: NodeId, goal_comp: NodeId) -> Option<Vec<String>> {
+    let edges_from = |m: NodeId| -> Vec<(NodeId, Vec<String>)> {
+        let mut out = Vec::new();
+        doc.walk(m, |n, _| {
+            let Some(target) = instance_component(n) else { return };
+            let via = container_labels_between(doc, m, n.parent);
+            out.push((target, via));
+        });
+        out
+    };
+
+    let mut queue = std::collections::VecDeque::new();
+    let mut visited = BTreeSet::new();
+    queue.push_back((start_comp, vec![cycle_node_label(doc, start_comp)]));
+    while let Some((cur, path)) = queue.pop_front() {
+        for (target, via) in edges_from(cur) {
+            let mut next_path = path.clone();
+            next_path.extend(via);
+            next_path.push(cycle_node_label(doc, target));
+            if target == goal_comp {
+                return Some(next_path);
+            }
+            if visited.insert(target) {
+                queue.push_back((target, next_path));
+            }
+        }
+    }
+    None
+}
+
+/// If `comp` is a main component that holds an instance of itself (directly or through other
+/// main components), returns the human-readable cycle path starting and ending with `comp`'s label
+/// (for example `["B", "X", "B"]`).
+pub fn self_holding_cycle_path(doc: &Document, comp: NodeId) -> Option<Vec<String>> {
+    if !matches!(doc.get(comp).map(|n| &n.kind), Some(NodeKind::Component(_))) {
+        return None;
+    }
+    component_chain_path(doc, comp, comp)
+}
+
+/// Finds the first main component in `doc` (ordered by [`NodeId`]) that holds an instance of itself,
+/// returning `(component_id, cycle_path_labels)`.
+pub fn first_self_holding_component_cycle(doc: &Document) -> Option<(NodeId, Vec<String>)> {
+    let mut comps: Vec<NodeId> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).map(|n| n.id).collect();
+    comps.sort();
+    comps.into_iter().find_map(|id| self_holding_cycle_path(doc, id).map(|path| (id, path)))
+}
+
+/// If placing an instance of `component` under `at` (optionally through `extra_containers`) would
+/// make an enclosing main component hold an instance of itself, returns `(held_main, cycle_path_labels)`.
+pub fn held_main_cycle_path_at(doc: &Document, component: NodeId, at: NodeId, extra_containers: &[String]) -> Option<(NodeId, Vec<String>)> {
+    let held_main = held_main_at(doc, component, at)?;
+    let mut path = vec![cycle_node_label(doc, held_main)];
+    path.extend(container_labels_between(doc, held_main, Some(at)));
+    path.extend(extra_containers.iter().cloned());
+    if component == held_main {
+        path.push(cycle_node_label(doc, held_main));
+    } else if let Some(tail) = component_chain_path(doc, component, held_main) {
+        path.extend(tail);
+    } else {
+        path.push(cycle_node_label(doc, component));
+        path.push(cycle_node_label(doc, held_main));
+    }
+    Some((held_main, path))
+}
+
+/// If reparenting `ids` under `new_parent` would make an enclosing main component hold an instance
+/// of itself, returns `(held_main, cycle_path_labels)`.
+pub fn reparent_held_main_cycle_path(doc: &Document, ids: &[NodeId], new_parent: NodeId) -> Option<(NodeId, Vec<String>)> {
+    let held_main = reparent_held_main(doc, ids, new_parent)?;
+    for &root in ids {
+        let mut found = None;
+        doc.walk(root, |n, _| {
+            if found.is_some() {
+                return;
+            }
+            let Some(target) = instance_component(n) else { return };
+            if target == held_main || mains_held_through(doc, [target]).contains(&held_main) {
+                let mut extra = Vec::new();
+                if n.id != root {
+                    extra.push(cycle_node_label(doc, root));
+                    extra.extend(container_labels_between(doc, root, n.parent));
+                }
+                found = held_main_cycle_path_at(doc, target, new_parent, &extra);
+            }
+        });
+        if let Some(res) = found {
+            return Some(res);
+        }
+    }
+    Some((held_main, vec![cycle_node_label(doc, held_main), cycle_node_label(doc, new_parent), cycle_node_label(doc, held_main)]))
+}
+
 /// Whether an instance of `component` at `at` (the parent it goes under, or the instance it replaces) would make a
 /// main hold itself: `at` is, or sits in, `component` or a main that the content of `component` holds an instance of.
 /// Such a main mirrors itself without end.

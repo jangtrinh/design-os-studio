@@ -35,6 +35,57 @@ fn replay_reparent_refuses_a_held_main_cycle() {
     assert_eq!(d.to_json().unwrap(), before);
 }
 
+#[test]
+fn replay_insert_and_reparent_refuse_concurrent_component_instance_cycle() {
+    let mut base = Document::new("concurrent-cycle");
+    let page = base.add_page("Page");
+    let b = base.alloc_id();
+    base.insert(page, Node::frame(b, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    base.get_mut(b).unwrap().name = "B".into();
+    create_component(&mut base, b).apply(&mut base).unwrap();
+
+    let x = base.alloc_id();
+    base.insert(page, Node::frame(x, Rect::new(150.0, 0.0, 100.0, 100.0))).unwrap();
+    base.get_mut(x).unwrap().name = "X".into();
+
+    // Direction 1: editor moved X into B; agent inserted an instance of B into X on its stale copy.
+    let mut main_a = base.clone();
+    Command::Reparent { id: x, parent: b, index: 0 }.apply(&mut main_a).unwrap();
+    let main_a_before = main_a.to_json().unwrap();
+
+    let mut branch_a = base.clone();
+    let insert_cmd = create_instance(&mut branch_a, b, x, Vec2::ZERO);
+    let insert_ops = live_ops_for_command(&branch_a, &insert_cmd).unwrap();
+
+    let report_a = replay(&mut main_a, insert_ops, &mut LivePatchState::default());
+    assert!(
+        report_a.skipped.iter().any(|s| { s.contains("INSTANCE_CYCLE") && s.contains("main component 'B'") && s.contains("B -> X -> B") }),
+        "insert replay must refuse with component name and cycle path: {:?}",
+        report_a.skipped
+    );
+    assert_eq!(main_a.to_json().unwrap(), main_a_before);
+
+    // Direction 2: editor inserted an instance of B into X; agent moved X into B on its stale copy.
+    let mut main_b = base.clone();
+    create_instance(&mut main_b, b, x, Vec2::ZERO).apply(&mut main_b).unwrap();
+    let main_b_before = main_b.to_json().unwrap();
+
+    let branch_b = base.clone();
+    let move_cmd = Command::Reparent { id: x, parent: b, index: 0 };
+    let move_ops = live_ops_for_command(&branch_b, &move_cmd).unwrap();
+
+    let report_b = replay(&mut main_b, move_ops, &mut LivePatchState::default());
+    assert!(
+        report_b
+            .skipped
+            .iter()
+            .any(|s| { s.contains("MOVE_CYCLE") && s.contains("INSTANCE_CYCLE") && s.contains("main component 'B'") && s.contains("B -> X -> B") }),
+        "reparent replay must refuse with component name and cycle path: {:?}",
+        report_b.skipped
+    );
+    assert_eq!(main_b.to_json().unwrap(), main_b_before);
+}
+
 /// A page with `frames` top-level frames of `kids` rectangles each, one style, one comment.
 fn full_doc(frames: usize, kids: usize) -> (Document, NodeId, Vec<NodeId>) {
     let mut d = Document::new("full");
