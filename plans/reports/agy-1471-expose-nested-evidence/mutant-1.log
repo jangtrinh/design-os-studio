@@ -1,0 +1,26 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.67s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test shell::tests::expose_nested_1471::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose ... FAILED
+
+failures:
+
+---- shell::tests::expose_nested_1471::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose stdout ----
+
+thread 'shell::tests::expose_nested_1471::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose' (79916977) panicked at crates/designos-app/src/shell/tests/expose_nested_1471.rs:183:5:
+unexposed nested instance heading must not be rendered
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::expose_nested_1471::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4224 filtered out; finished in 0.61s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

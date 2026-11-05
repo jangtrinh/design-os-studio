@@ -1,0 +1,32 @@
+# Figma Fullscreen WASM & Editor JS Bundle Inspection (REA)
+wasm_cache_entry: d8391341aedd28c3_0 -> https://www.figma.com/webpack-artifacts/assets/compiled_wasm.wasm.br?ef29ce4e154c1e4ef13ed01b651178c62f8c300f
+wasm_bytes: 53350481
+wasm_sha256: 09c36427208226f5c8fd4ec07117007df1a2d1a64d6d020d46c2679313ce8477
+js_cache_entry: baa5bfdcb33de8da_0 -> https://www.figma.com/webpack-artifacts/assets/figma_app-9b837f4ccec188a9.min.js.br
+js_bytes: 8396757
+js_sha256: 48b375393b89dd446cd0440b56c777cc12af668ae3e8811f321b3f18291c5a23
+rea_evidence_id: ev_6fdfebacf7bfa6ead63f5e1440af8bee87c3e534b44ecd88850eccdcf9e756e2
+
+# compiled_wasm.wasm Fragment Shader Offsets
+offset_luma_weights: 48564493  vec3(0.2126, 0.7152, 0.0722)
+offset_gamma_decode: 48564528  pow(max(c, vec3(0.0)), vec3(2.2))
+offset_gamma_encode: 48564572  pow(max(c, vec3(0.0)), vec3(1.0 / 2.2))
+offset_shadows_highlights: 48564620  h = luma - pow(0.5, 2.2); 0.75 * h / sqrt(1.0 + 4.0 * h * h) * (h > 0.0 ? highlights : -0.999 * shadows)
+offset_exposure_fn: 48564755  ag(c, exposure + ai)
+offset_hole1_neg_exposure_resat: 48564838  m *= 1.0 + n * n * min(0.0, j) / (0.2 - min(0.0, j))
+offset_saturation_fn: 48565037  ae(c, vibrance)
+offset_hole2_pos_sat_q: 48565100  q = n / (n - min(c.r, min(c.g, c.b)) + 1e-6)
+offset_hole3_pos_sat_r: 48565143  r = (1.0 - n) / (max(c.r, max(c.g, c.b)) - n + 1e-6)
+offset_smootherstep: 48565262  t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+offset_lab_fn: 48565360  ad(c, tint, temperature, contrast)
+offset_pipeline_caller: 48566068  ah(srgb) -> ad -> gamma_decode -> ae -> ag -> gamma_encode
+offset_fs_entry: 48566745  if (c.a > 0.0) { c.rgb = ah(c.rgb / c.a) * c.a; } gl_FragColor = c * opacity;
+
+# figma_app-9b837f4ccec188a9.min.js Image Adjustments Panel Offsets
+offset_slider_list: 3694145  ["exposure", "contrast", "vibrance", "temperature", "tint", "highlights", "shadows"]
+offset_slider_bounds: 3698950  contrast min=-0.3 max=0.3; all other 6 fields min=-1.0 max=1.0
+
+# Untitled UI PRO VARIABLES (v8.0) Kit Nodes with Non-Zero paintFilter (out/kit-clone.fig)
+node 1277:186 (NodeId(41802)) | name="Section" | size=880.0x960.0 | scale_mode=Fill | image_ref=cdc5333ab659a91172f4559b55b41dfdc544f660 | vibrance=-1.0 | exposure=0.0 | contrast=0.0 | temperature=0.0 | tint=0.0 | highlights=0.0 | shadows=0.0
+node 1369:8096 (NodeId(106660)) | name="Metrics" | size=1216.0x340.0 | scale_mode=Fill | image_ref=da95bf019bfa9a4309c2f5cc50e41426c13c9f61 | exposure=-0.46769068 | contrast=0.0 | vibrance=0.0 | temperature=0.0 | tint=0.0 | highlights=0.0 | shadows=0.0
+node 1369:8211 (NodeId(106786)) | name="Metrics" | size=343.0x788.0 | scale_mode=Fill | image_ref=da95bf019bfa9a4309c2f5cc50e41426c13c9f61 | exposure=-0.46769068 | contrast=0.0 | vibrance=0.0 | temperature=0.0 | tint=0.0 | highlights=0.0 | shadows=0.0

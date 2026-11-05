@@ -16,6 +16,10 @@ use crate::widgets;
 use crate::widgets::field::{self, Prefix};
 use designos_doc::{Affine, BlendMode, Command, Document, ImageScaleMode, Node, NodeId, NodeKind, Paint, PaintKind, Vec2};
 use egui::{Align2, Area, Color32, Context, Id, Key, Order, Pos2, Rect, Sense, Stroke, StrokeKind};
+use framing::{
+    cut_job_bitmap, cut_to_layer, erase_overlay_local_rect, expand_refusal, frame_uv_map, local_rect_to_bitmap_region, local_rect_to_tiled_bitmap_region,
+    plan_image_job_frame, ImageJobFrame,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -23,8 +27,219 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// Which pixels of an image fill an image job reads, and how the result sits on the layer.
+///
+/// Every window comes from [`designos_doc::image_uv_map`], the node-to-image mapping the CPU
+/// and GPU renderers draw with, so a job edits what the canvas shows.
+mod framing {
+    use designos_doc::{image_quarter_turns, image_uv_map, ImageParams, ImageScaleMode, ImageUvMap, Vec2};
+    use image::RgbaImage;
+
+    /// Slack that keeps float noise from adding or dropping a whole pixel at a window edge.
+    const PIXEL_EPS: f32 = 1e-3;
+    /// A crop window whose edges sit within this many pixels of the bitmap's edges is a plain stretch.
+    const PLAIN_WINDOW_SLACK_PX: f32 = 1.0;
+    const IDENTITY: [f32; 6] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+
+    /// The bitmap an image job sends and the paint parameters that put it back on the layer.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct ImageJobFrame {
+        /// Clockwise quarter turns applied to the decoded picture before the window is cut.
+        pub quarter_turns: u8,
+        /// `(x, y, w, h)` of the window in the turned picture, in pixels.
+        pub window: (u32, u32, u32, u32),
+        /// Paint parameters of a layer that shows the cut bitmap the way the original fill showed the picture:
+        /// a baked quarter turn is gone from `rotation`, a re-based crop keeps its framing in `transform`,
+        /// and everything else is carried over.
+        pub params: ImageParams,
+    }
+
+    impl ImageJobFrame {
+        /// Size in pixels of the bitmap sent to the agent.
+        pub fn dims(&self) -> (u32, u32) {
+            (self.window.2, self.window.3)
+        }
+    }
+
+    /// Plans the bitmap for an image fill of `raw_w` x `raw_h` pixels shown on a layer of `layer_size`.
+    /// `None` when the canvas shows no part of the picture (a singular crop transform, or a window that
+    /// lies wholly outside the picture).
+    pub fn plan_image_job_frame(raw_w: u32, raw_h: u32, layer_size: Vec2, scale_mode: ImageScaleMode, params: &ImageParams) -> Option<ImageJobFrame> {
+        let raw_w = raw_w.max(1);
+        let raw_h = raw_h.max(1);
+        let size = Vec2::new(layer_size.x.max(1.0), layer_size.y.max(1.0));
+        match scale_mode {
+            ImageScaleMode::Fill | ImageScaleMode::Fit => {
+                let quarter_turns = image_quarter_turns(params.rotation);
+                let (turned_w, turned_h) = if quarter_turns % 2 == 1 { (raw_h, raw_w) } else { (raw_w, raw_h) };
+                let window = if scale_mode == ImageScaleMode::Fill { cover_window(turned_w, turned_h, size) } else { (0, 0, turned_w, turned_h) };
+                Some(ImageJobFrame { quarter_turns, window, params: ImageParams { rotation: 0.0, ..*params } })
+            }
+            ImageScaleMode::Tile => Some(ImageJobFrame { quarter_turns: 0, window: (0, 0, raw_w, raw_h), params: *params }),
+            ImageScaleMode::Crop => crop_frame(raw_w, raw_h, size, params),
+        }
+    }
+
+    /// The centred window `Fill` shows: the picture scaled to cover the layer, cut to the layer's aspect ratio.
+    fn cover_window(w: u32, h: u32, layer: Vec2) -> (u32, u32, u32, u32) {
+        let (iw, ih) = (w as f32, h as f32);
+        let s = (layer.x / iw).max(layer.y / ih).max(1e-6);
+        let crop_w = (layer.x / s).round().clamp(1.0, iw) as u32;
+        let crop_h = (layer.y / s).round().clamp(1.0, ih) as u32;
+        (w.saturating_sub(crop_w) / 2, h.saturating_sub(crop_h) / 2, crop_w, crop_h)
+    }
+
+    /// The bounding box in pixels of the part of the picture the crop transform shows, with the transform
+    /// re-based onto that window so the result layer frames its bitmap exactly as the layer framed the picture.
+    fn crop_frame(raw_w: u32, raw_h: u32, size: Vec2, params: &ImageParams) -> Option<ImageJobFrame> {
+        let (iw, ih) = (raw_w as f32, raw_h as f32);
+        let map = image_uv_map(size, iw, ih, ImageScaleMode::Crop, params)?;
+        let corners = [map.apply(0.0, 0.0), map.apply(size.x, 0.0), map.apply(0.0, size.y), map.apply(size.x, size.y)];
+        let span = |pick: fn(&(f32, f32)) -> f32, dim: f32| {
+            let lo = corners.iter().map(pick).fold(f32::INFINITY, f32::min);
+            let hi = corners.iter().map(pick).fold(f32::NEG_INFINITY, f32::max);
+            let start = ((lo.max(0.0) * dim) + PIXEL_EPS).floor().clamp(0.0, dim);
+            let end = ((hi.min(1.0) * dim) - PIXEL_EPS).ceil().clamp(0.0, dim);
+            (end > start).then_some((start, end))
+        };
+        let (x0, x1) = span(|c| c.0, iw)?;
+        let (y0, y1) = span(|c| c.1, ih)?;
+        let (bw, bh) = (x1 - x0, y1 - y0);
+
+        let m = params.transform.unwrap_or(IDENTITY);
+        let rebased = [m[0] * iw / bw, m[1] * iw / bw, (m[2] * iw - x0) / bw, m[3] * ih / bh, m[4] * ih / bh, (m[5] * ih - y0) / bh];
+        let slack_x = PLAIN_WINDOW_SLACK_PX / bw + 1e-4;
+        let slack_y = PLAIN_WINDOW_SLACK_PX / bh + 1e-4;
+        let plain = rebased[1].abs() <= 1e-6
+            && rebased[3].abs() <= 1e-6
+            && rebased[2].abs() <= slack_x
+            && (rebased[2] + rebased[0] - 1.0).abs() <= slack_x
+            && rebased[5].abs() <= slack_y
+            && (rebased[5] + rebased[4] - 1.0).abs() <= slack_y;
+        let transform = if plain { None } else { Some(rebased) };
+        Some(ImageJobFrame { quarter_turns: 0, window: (x0 as u32, y0 as u32, bw as u32, bh as u32), params: ImageParams { transform, ..*params } })
+    }
+
+    /// Cuts the bitmap `frame` describes out of the decoded picture.
+    pub fn cut_job_bitmap(decoded: &RgbaImage, frame: &ImageJobFrame) -> RgbaImage {
+        let (x, y, w, h) = frame.window;
+        let cut = |src: &RgbaImage| {
+            if (x, y, w, h) == (0, 0, src.width(), src.height()) {
+                src.clone()
+            } else {
+                image::imageops::crop_imm(src, x, y, w, h).to_image()
+            }
+        };
+        match frame.quarter_turns {
+            1 => cut(&image::imageops::rotate90(decoded)),
+            2 => cut(&image::imageops::rotate180(decoded)),
+            3 => cut(&image::imageops::rotate270(decoded)),
+            _ => cut(decoded),
+        }
+    }
+
+    /// How the frame's bitmap maps onto the layer, as the renderer draws the result layer.
+    pub fn frame_uv_map(layer_size: Vec2, scale_mode: ImageScaleMode, frame: &ImageJobFrame) -> Option<ImageUvMap> {
+        let (bw, bh) = frame.dims();
+        let size = Vec2::new(layer_size.x.max(1.0), layer_size.y.max(1.0));
+        image_uv_map(size, bw as f32, bh as f32, scale_mode, &frame.params)
+    }
+
+    /// The pixels `[x, y, w, h]` of a `dims` bitmap that the layer-local rectangle `(p0, p1)` covers.
+    pub fn local_rect_to_bitmap_region(map: &ImageUvMap, dims: (u32, u32), p0: Vec2, p1: Vec2) -> Option<[u32; 4]> {
+        bitmap_region(map, dims, p0, p1, false)
+    }
+
+    /// Like [`local_rect_to_bitmap_region`] for a tiled fill, where the bitmap repeats across the layer: a rectangle
+    /// on a later copy covers the pixels it shows of that copy. One mask is one axis-aligned rectangle, so a rectangle
+    /// that crosses a copy edge takes the whole bitmap on that axis.
+    pub fn local_rect_to_tiled_bitmap_region(map: &ImageUvMap, dims: (u32, u32), p0: Vec2, p1: Vec2) -> Option<[u32; 4]> {
+        bitmap_region(map, dims, p0, p1, true)
+    }
+
+    fn bitmap_region(map: &ImageUvMap, dims: (u32, u32), p0: Vec2, p1: Vec2, tiled: bool) -> Option<[u32; 4]> {
+        let (bw, bh) = (dims.0 as f32, dims.1 as f32);
+        let corners = [map.apply(p0.x, p0.y), map.apply(p1.x, p0.y), map.apply(p0.x, p1.y), map.apply(p1.x, p1.y)];
+        let extent = |pick: fn(&(f32, f32)) -> f32, dim: f32| {
+            let lo = corners.iter().map(pick).fold(f32::INFINITY, f32::min) * dim;
+            let hi = corners.iter().map(pick).fold(f32::NEG_INFINITY, f32::max) * dim;
+            let (lo, hi) = if tiled { wrap_span(lo, hi, dim) } else { (lo.clamp(0.0, dim), hi.clamp(0.0, dim)) };
+            ((hi - lo) >= 1.0).then_some((lo, hi))
+        };
+        let (min_x, max_x) = extent(|c| c.0, bw)?;
+        let (min_y, max_y) = extent(|c| c.1, bh)?;
+        let rx = ((min_x + PIXEL_EPS).floor() as u32).min(dims.0.saturating_sub(1));
+        let ry = ((min_y + PIXEL_EPS).floor() as u32).min(dims.1.saturating_sub(1));
+        let rw = (((max_x - min_x) - PIXEL_EPS).ceil().max(1.0) as u32).min(dims.0.saturating_sub(rx));
+        let rh = (((max_y - min_y) - PIXEL_EPS).ceil().max(1.0) as u32).min(dims.1.saturating_sub(ry));
+        Some([rx, ry, rw, rh])
+    }
+
+    /// A span `lo..hi` in pixels over repeating copies of a `dim`-pixel bitmap, as the pixels of the one copy it lies in.
+    /// A span a whole copy wide, or one that crosses a copy edge, is the whole bitmap.
+    fn wrap_span(lo: f32, hi: f32, dim: f32) -> (f32, f32) {
+        let copy = ((lo + PIXEL_EPS) / dim).floor();
+        if hi - lo >= dim || copy != ((hi - PIXEL_EPS) / dim).floor() {
+            (0.0, dim)
+        } else {
+            (lo - copy * dim, hi - copy * dim)
+        }
+    }
+
+    /// The corners `(p0, p1)` cut to a layer of `layer_size`.
+    pub fn cut_to_layer(layer_size: Vec2, p0: Vec2, p1: Vec2) -> (Vec2, Vec2) {
+        let (w, h) = (layer_size.x.max(1.0), layer_size.y.max(1.0));
+        let cut = |p: Vec2| Vec2::new(p.x.clamp(0.0, w), p.y.clamp(0.0, h));
+        (cut(p0), cut(p1))
+    }
+
+    /// The layer-local rectangle `(x, y, w, h)` the erase overlay draws for the mask `region`. A tiled fill draws the
+    /// dragged rectangle itself, since the mask holds one copy's pixels and its inverse would land on the first copy.
+    pub fn erase_overlay_local_rect(
+        layer_size: Vec2,
+        scale_mode: ImageScaleMode,
+        frame: &ImageJobFrame,
+        region: [u32; 4],
+        drag_local: Option<(f32, f32, f32, f32)>,
+    ) -> Option<(f32, f32, f32, f32)> {
+        if scale_mode == ImageScaleMode::Tile {
+            return drag_local;
+        }
+        let map = frame_uv_map(layer_size, scale_mode, frame)?;
+        bitmap_region_to_local_rect(&map, frame.dims(), region)
+    }
+
+    /// The layer-local rectangle `(x, y, w, h)` that the bitmap pixels `region` cover, or `None` when the mapping is singular.
+    pub fn bitmap_region_to_local_rect(map: &ImageUvMap, dims: (u32, u32), region: [u32; 4]) -> Option<(f32, f32, f32, f32)> {
+        let det = map.u.0 * map.v.1 - map.u.1 * map.v.0;
+        if !det.is_finite() || det.abs() <= 1e-12 {
+            return None;
+        }
+        let [rx, ry, rw, rh] = region;
+        let (bw, bh) = (dims.0.max(1) as f32, dims.1.max(1) as f32);
+        let to_local = |px: u32, py: u32| {
+            let (du, dv) = (px as f32 / bw - map.u.2, py as f32 / bh - map.v.2);
+            ((du * map.v.1 - dv * map.u.1) / det, (dv * map.u.0 - du * map.v.0) / det)
+        };
+        let corners = [to_local(rx, ry), to_local(rx + rw, ry), to_local(rx, ry + rh), to_local(rx + rw, ry + rh)];
+        let lo = |pick: fn(&(f32, f32)) -> f32| corners.iter().map(pick).fold(f32::INFINITY, f32::min);
+        let hi = |pick: fn(&(f32, f32)) -> f32| corners.iter().map(pick).fold(f32::NEG_INFINITY, f32::max);
+        let (x0, y0) = (lo(|c| c.0), lo(|c| c.1));
+        Some((x0, y0, hi(|c| c.0) - x0, hi(|c| c.1) - y0))
+    }
+
+    /// Why Expand cannot run on this fill, when it cannot. Growing the picture outward only has a meaning
+    /// when the bitmap sits on the layer as a plain stretch, so a crop that turns, flips or leaves an empty margin is refused.
+    pub fn expand_refusal(scale_mode: ImageScaleMode, frame: &ImageJobFrame) -> Option<&'static str> {
+        (scale_mode == ImageScaleMode::Crop && frame.params.transform.is_some()).then_some("Expand needs a crop with no turn, flip or empty margin")
+    }
+}
+
 /// Tooltip shown on disabled AI image commands when no agent CLI is installed.
 pub const DISABLED_TOOLTIP: &str = "Needs an agent CLI. Set one up in Agents.";
+
+/// Shown when the canvas shows no part of the layer's picture, so there is nothing to send.
+const NO_VISIBLE_IMAGE: &str = "This layer shows no part of its image";
 
 /// Maximum padding per side for `Expand…` (px).
 pub const EXPAND_MAX_SIDE_PX: u32 = 4096;
@@ -129,6 +344,10 @@ pub struct ImageJob {
     pub request_path: PathBuf,
     /// Dimensions of the exported visible `input.png` crop in image pixels.
     pub input_crop_size: (u32, u32),
+    /// Scale mode of the fill when the job started; the result layer keeps it.
+    pub scale_mode: ImageScaleMode,
+    /// The bitmap sent and the paint parameters the result layer needs to frame it as the original was framed.
+    pub frame: ImageJobFrame,
     pub expected_size: (u32, u32),
     pub started_at: Instant,
     pub state: ImageJobState,
@@ -169,11 +388,13 @@ pub struct ErasePopoverState {
     pub anchor: Rect,
     pub instruction: String,
     pub focus_requested: bool,
-    /// Cached visible crop dimensions `(w, h)` in image pixels so canvas rendering never decodes `doc.images` per frame.
-    pub crop_dims: (u32, u32),
+    /// Cached bitmap the job will send, so canvas rendering never decodes `doc.images` per frame.
+    pub frame: ImageJobFrame,
     pub scale_mode: ImageScaleMode,
     /// Optional mask rectangle in exported crop pixel coordinates `[x, y, w, h]`.
     pub region: Option<[u32; 4]>,
+    /// The dragged rectangle in layer-local coordinates `(x, y, w, h)`, which a tiled fill draws as its overlay.
+    pub region_local: Option<(f32, f32, f32, f32)>,
     /// Drag start in page coordinates when drawing the mask rectangle on the canvas.
     pub drag_start_page: Option<Pos2>,
 }
@@ -330,7 +551,7 @@ pub fn topmost_visible_image_fill(node: &Node) -> Option<(usize, String, ImageSc
     let mut count = 0usize;
     let mut chosen: Option<(usize, String, ImageScaleMode)> = None;
     for (idx, paint) in node.fills.iter().enumerate() {
-        if let PaintKind::Image { image_ref, scale_mode } = &paint.kind {
+        if let PaintKind::Image { image_ref, scale_mode, .. } = &paint.kind {
             count += 1;
             if paint.visible {
                 chosen = Some((idx, image_ref.clone(), *scale_mode));
@@ -361,115 +582,57 @@ fn decode_doc_image(doc: &Document, image_ref: &str) -> Result<image::RgbaImage,
 /// Reads the header dimensions `(w, h)` of an image in `doc.images` without decoding every pixel when possible.
 fn doc_image_dimensions(doc: &Document, image_ref: &str) -> Option<(u32, u32)> {
     let bytes = doc.images.get(image_ref)?;
-    if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format() {
-        if let Ok(dims) = reader.into_dimensions() {
-            return Some((dims.0.max(1), dims.1.max(1)));
-        }
-    }
-    decode_doc_image(doc, image_ref).ok().map(|img| img.dimensions())
+    image_dimensions(bytes).or_else(|| decode_doc_image(doc, image_ref).ok().map(|img| img.dimensions()))
 }
 
-/// Computes the visible crop rectangle `(crop_x, crop_y, crop_w, crop_h)` in source image pixels
-/// matching `designos-render`'s `PaintKind::Image` shader (`Fill` / `Crop` center-cover vs `Fit`).
-pub fn visible_image_crop_rect(raw_w: u32, raw_h: u32, layer_size: Vec2, scale_mode: ImageScaleMode) -> (u32, u32, u32, u32) {
-    let rw = raw_w.max(1);
-    let rh = raw_h.max(1);
-    let iw = rw as f32;
-    let ih = rh as f32;
-    let lx = layer_size.x.max(1.0);
-    let ly = layer_size.y.max(1.0);
-    match scale_mode {
-        ImageScaleMode::Fill | ImageScaleMode::Crop => {
-            let s = (lx / iw).max(ly / ih).max(1e-6);
-            let crop_w = (lx / s).round().clamp(1.0, iw) as u32;
-            let crop_h = (ly / s).round().clamp(1.0, ih) as u32;
-            let crop_x = rw.saturating_sub(crop_w) / 2;
-            let crop_y = rh.saturating_sub(crop_h) / 2;
-            (crop_x, crop_y, crop_w, crop_h)
-        }
-        ImageScaleMode::Fit | ImageScaleMode::Tile => (0, 0, rw, rh),
-    }
+/// Header dimensions `(w, h)` of encoded image bytes, without decoding the pixels.
+fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let dims = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()?;
+    Some((dims.0.max(1), dims.1.max(1)))
 }
 
-/// Extracts the visible crop of `decoded` at native pixel resolution (`E5-10` §3 rule 3, §8.1).
-fn crop_visible_image(decoded: &image::RgbaImage, layer_size: Vec2, scale_mode: ImageScaleMode) -> image::RgbaImage {
-    let (raw_w, raw_h) = decoded.dimensions();
-    let (cx, cy, cw, ch) = visible_image_crop_rect(raw_w, raw_h, layer_size, scale_mode);
-    if cx == 0 && cy == 0 && cw == raw_w && ch == raw_h {
-        decoded.clone()
-    } else {
-        image::imageops::crop_imm(decoded, cx, cy, cw, ch).to_image()
-    }
-}
-
-/// Computes the cached visible crop dimensions `(crop_w, crop_h)` and `ImageScaleMode` for `(node, fill_index)`.
-fn node_fill_visible_crop_dims(doc: &Document, node: NodeId, fill_index: usize) -> Option<((u32, u32), ImageScaleMode)> {
+/// Plans the bitmap `(node, fill_index)` sends to an image job: the part of its picture the canvas shows.
+fn node_fill_job_frame(doc: &Document, node: NodeId, fill_index: usize) -> Option<(ImageJobFrame, ImageScaleMode)> {
     let n = doc.get(node)?;
-    let paint = n.fills.get(fill_index)?;
-    let PaintKind::Image { image_ref, scale_mode } = &paint.kind else {
+    let PaintKind::Image { image_ref, scale_mode, params } = &n.fills.get(fill_index)?.kind else {
         return None;
     };
     let (raw_w, raw_h) = doc_image_dimensions(doc, image_ref).unwrap_or_else(|| (n.size.x.round().max(1.0) as u32, n.size.y.round().max(1.0) as u32));
-    let (_, _, cw, ch) = visible_image_crop_rect(raw_w, raw_h, n.size, *scale_mode);
-    Some(((cw, ch), *scale_mode))
+    plan_image_job_frame(raw_w, raw_h, n.size, *scale_mode, params).map(|frame| (frame, *scale_mode))
 }
 
-/// Returns `(x, y, w, h)` in node-local coordinates for the rendered image content rect inside `layer_size`.
-fn local_image_content_rect(layer_size: Vec2, scale_mode: ImageScaleMode, crop_dims: (u32, u32)) -> (f32, f32, f32, f32) {
-    let lx = layer_size.x.max(1.0);
-    let ly = layer_size.y.max(1.0);
-    let cw = crop_dims.0.max(1) as f32;
-    let ch = crop_dims.1.max(1) as f32;
-    match scale_mode {
-        ImageScaleMode::Fit => {
-            let s = (lx / cw).min(ly / ch).max(1e-6);
-            let w = cw * s;
-            let h = ch * s;
-            ((lx - w) * 0.5, (ly - h) * 0.5, w.max(1e-6), h.max(1e-6))
-        }
-        _ => (0.0, 0.0, lx, ly),
-    }
+/// A canvas drag `(start_page, cur_page)` as layer-local corners, or `None` when it is under one unit wide or tall.
+fn drag_local_corners(world: Affine, start_page: Pos2, cur_page: Pos2) -> Option<(Vec2, Vec2)> {
+    let inv = world.invert()?;
+    let p0 = inv.apply(Vec2::new(start_page.x, start_page.y));
+    let p1 = inv.apply(Vec2::new(cur_page.x, cur_page.y));
+    ((p1.x - p0.x).abs() >= 1.0 && (p1.y - p0.y).abs() >= 1.0).then_some((p0, p1))
 }
 
-/// Maps a canvas drag `(start_page, cur_page)` through `world.invert()` into the exported crop's pixel grid `(0..crop_w, 0..crop_h)`.
+/// Maps a canvas drag `(start_page, cur_page)` through `world.invert()` into the pixel grid of the bitmap `frame` sends.
 pub fn page_drag_to_image_region(
     world: Affine,
     layer_size: Vec2,
     scale_mode: ImageScaleMode,
-    crop_dims: (u32, u32),
+    frame: &ImageJobFrame,
     start_page: Pos2,
     cur_page: Pos2,
 ) -> Option<[u32; 4]> {
-    let inv = world.invert()?;
-    let p0 = inv.apply(Vec2::new(start_page.x, start_page.y));
-    let p1 = inv.apply(Vec2::new(cur_page.x, cur_page.y));
-
-    let (cx, cy, cw_local, ch_local) = local_image_content_rect(layer_size, scale_mode, crop_dims);
-    let min_x = (p0.x.min(p1.x) - cx).clamp(0.0, cw_local);
-    let min_y = (p0.y.min(p1.y) - cy).clamp(0.0, ch_local);
-    let max_x = (p0.x.max(p1.x) - cx).clamp(0.0, cw_local);
-    let max_y = (p0.y.max(p1.y) - cy).clamp(0.0, ch_local);
-    if (max_x - min_x) < 1.0 || (max_y - min_y) < 1.0 {
-        return None;
+    let (p0, p1) = drag_local_corners(world, start_page, cur_page)?;
+    let map = frame_uv_map(layer_size, scale_mode, frame)?;
+    if scale_mode == ImageScaleMode::Tile {
+        let (p0, p1) = cut_to_layer(layer_size, p0, p1);
+        local_rect_to_tiled_bitmap_region(&map, frame.dims(), p0, p1)
+    } else {
+        local_rect_to_bitmap_region(&map, frame.dims(), p0, p1)
     }
+}
 
-    let cw = crop_dims.0.max(1) as f32;
-    let ch = crop_dims.1.max(1) as f32;
-    let sx = cw / cw_local;
-    let sy = ch / ch_local;
-    let min_ix: f32 = min_x * sx;
-    let min_iy: f32 = min_y * sy;
-    let max_ix: f32 = max_x * sx;
-    let max_iy: f32 = max_y * sy;
-
-    if (max_ix - min_ix) < 1.0 || (max_iy - min_iy) < 1.0 {
-        return None;
-    }
-    let rx = (min_ix.floor() as u32).min(crop_dims.0.saturating_sub(1));
-    let ry = (min_iy.floor() as u32).min(crop_dims.1.saturating_sub(1));
-    let rw = ((max_ix - min_ix).ceil().max(1.0) as u32).min(crop_dims.0.saturating_sub(rx));
-    let rh = ((max_iy - min_iy).ceil().max(1.0) as u32).min(crop_dims.1.saturating_sub(ry));
-    Some([rx, ry, rw, rh])
+/// A canvas drag as the layer-local rectangle `(x, y, w, h)` cut to the layer.
+pub fn page_drag_to_local_rect(world: Affine, layer_size: Vec2, start_page: Pos2, cur_page: Pos2) -> Option<(f32, f32, f32, f32)> {
+    let (p0, p1) = drag_local_corners(world, start_page, cur_page)?;
+    let (p0, p1) = cut_to_layer(layer_size, p0, p1);
+    Some((p0.x.min(p1.x), p0.y.min(p1.y), (p1.x - p0.x).abs(), (p1.y - p0.y).abs()))
 }
 
 /// Encodes an [`image::RgbaImage`] as PNG bytes.
@@ -541,7 +704,15 @@ impl App {
         if !self.check_image_fill_editable(node, fill_index) {
             return;
         }
-        let ((crop_w, crop_h), _) = node_fill_visible_crop_dims(&self.doc, node, fill_index).unwrap_or(((100, 100), ImageScaleMode::Fill));
+        let Some((frame, scale_mode)) = node_fill_job_frame(&self.doc, node, fill_index) else {
+            self.show_toast(NO_VISIBLE_IMAGE, true);
+            return;
+        };
+        if let Some(reason) = expand_refusal(scale_mode, &frame) {
+            self.show_toast(reason, true);
+            return;
+        }
+        let (crop_w, crop_h) = frame.dims();
         let pad_x = ((crop_w as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
         let pad_y = ((crop_h as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
         self.image_jobs.erase_popover = None;
@@ -558,7 +729,10 @@ impl App {
         if !self.check_image_fill_editable(node, fill_index) {
             return;
         }
-        let (crop_dims, scale_mode) = node_fill_visible_crop_dims(&self.doc, node, fill_index).unwrap_or(((100, 100), ImageScaleMode::Fill));
+        let Some((frame, scale_mode)) = node_fill_job_frame(&self.doc, node, fill_index) else {
+            self.show_toast(NO_VISIBLE_IMAGE, true);
+            return;
+        };
         self.image_jobs.expand_popover = None;
         self.image_jobs.erase_popover = Some(ErasePopoverState {
             node,
@@ -566,9 +740,10 @@ impl App {
             anchor,
             instruction: String::new(),
             focus_requested: true,
-            crop_dims,
+            frame,
             scale_mode,
             region: None,
+            region_local: None,
             drag_start_page: None,
         });
     }
@@ -624,9 +799,9 @@ impl App {
             }
         }
 
-        let (image_ref, scale_mode, layer_size) = match self.doc.get(node) {
+        let (image_ref, scale_mode, params, layer_size) = match self.doc.get(node) {
             Some(n) => match n.fills.get(fill_index).map(|p| &p.kind) {
-                Some(PaintKind::Image { image_ref, scale_mode }) => (image_ref.clone(), *scale_mode, n.size),
+                Some(PaintKind::Image { image_ref, scale_mode, params }) => (image_ref.clone(), *scale_mode, *params, n.size),
                 _ => return None,
             },
             None => return None,
@@ -639,7 +814,17 @@ impl App {
                 return None;
             }
         };
-        let cropped = crop_visible_image(&decoded, layer_size, scale_mode);
+        let Some(frame) = plan_image_job_frame(decoded.width(), decoded.height(), layer_size, scale_mode, &params) else {
+            self.show_toast(NO_VISIBLE_IMAGE, true);
+            return None;
+        };
+        if matches!(op, ImageOp::Expand { .. }) {
+            if let Some(reason) = expand_refusal(scale_mode, &frame) {
+                self.show_toast(reason, true);
+                return None;
+            }
+        }
+        let cropped = cut_job_bitmap(&decoded, &frame);
         let (orig_w, orig_h) = cropped.dimensions();
         let expected_size = match &op {
             ImageOp::Expand { top, right, bottom, left } => {
@@ -732,6 +917,8 @@ impl App {
             output_path,
             request_path,
             input_crop_size: (orig_w, orig_h),
+            scale_mode,
+            frame,
             expected_size,
             started_at: Instant::now(),
             state: ImageJobState::Queued,
@@ -802,6 +989,8 @@ impl App {
             self.changed();
         }
 
+        let now = self.now;
+        let asking = self.leave.is_asking();
         let tab_len = self.tabs.entries.len();
         for idx in 0..tab_len {
             let is_parked = self.tabs.parked_in_home || self.home.is_some() || !self.tabs.is_hist_in_app() || idx != self.tabs.active_idx;
@@ -830,17 +1019,33 @@ impl App {
                                         if let (Some(lib), Some(lf)) = (&self.lib, &tab.lib_file) {
                                             // The job is a step of the tab's history, so the dot already shows it. A write
                                             // that took the whole document leaves the tab as the file holds it.
-                                            if Self::save_doc_to_library(lib, lf, &mut tab.doc, &mut tab.hist).is_ok() {
-                                                tab.hist.mark_clean();
-                                                tab.dirty = false;
-                                                // The file now holds the document: its tab must not read the write as another program's.
-                                                tab.disk = crate::home::DiskState {
-                                                    saved_hash: crate::home::doc_hash(&tab.doc),
-                                                    disk_mtime: std::fs::metadata(crate::home::library_file_disk_path(lib, &lf.project_id, &lf.id))
-                                                        .ok()
-                                                        .and_then(|m| m.modified().ok()),
-                                                    conflict_mtime: None,
-                                                };
+                                            if tab.disk.write_held(asking) {
+                                                // The tab holds edits that were refused, or that a question still open is about:
+                                                // the write would take them along. The file keeps what it has, and the tab stays unsaved.
+                                                tab.dirty = true;
+                                            } else {
+                                                match Self::save_doc_to_library(lib, lf, &mut tab.doc, &mut tab.hist) {
+                                                    Ok(_) => {
+                                                        tab.hist.mark_clean();
+                                                        tab.dirty = false;
+                                                        // The file now holds the document: its tab must not read the write as another program's.
+                                                        tab.disk = crate::home::DiskState {
+                                                            saved_hash: crate::home::doc_hash(&tab.doc),
+                                                            disk_mtime: std::fs::metadata(crate::home::library_file_disk_path(lib, &lf.project_id, &lf.id))
+                                                                .ok()
+                                                                .and_then(|m| m.modified().ok()),
+                                                            save_failed_at: None,
+                                                            conflict_mtime: None,
+                                                            edits_refused: false,
+                                                        };
+                                                    }
+                                                    Err(_) => {
+                                                        // The file does not hold the job. The tab remembers that, so leaving the
+                                                        // app asks about it and its next visit tries the write again.
+                                                        tab.disk.save_failed_at = Some(now);
+                                                        tab.dirty = true;
+                                                    }
+                                                }
                                             }
                                         }
                                         let msg = warning.unwrap_or_else(|| format!("Applied {}", job.op.layer_suffix()));
@@ -984,20 +1189,19 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
     new_node.visible = true;
     new_node.kind = NodeKind::Rectangle;
 
-    let (orig_scale_mode, orig_opacity, orig_blend) = orig
-        .fills
-        .get(job.fill_index)
-        .and_then(|p| match &p.kind {
-            PaintKind::Image { scale_mode, .. } => Some((*scale_mode, p.opacity, p.blend)),
-            _ => None,
-        })
-        .unwrap_or((ImageScaleMode::Fill, 1.0, BlendMode::Normal));
+    let (orig_opacity, orig_blend) =
+        orig.fills.get(job.fill_index).filter(|p| matches!(p.kind, PaintKind::Image { .. })).map(|p| (p.opacity, p.blend)).unwrap_or((1.0, BlendMode::Normal));
 
+    // The result bitmap replaces the picture, so the recorded original size follows it.
+    let mut params = job.frame.params;
+    if params.original_size.is_some() {
+        params.original_size = image_dimensions(&png_bytes);
+    }
     let new_paint = Paint {
         visible: true,
         opacity: orig_opacity,
         blend: orig_blend,
-        kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: orig_scale_mode },
+        kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: job.scale_mode, params },
     };
     if job.fill_index < new_node.fills.len() {
         new_node.fills[job.fill_index] = new_paint;
@@ -1008,7 +1212,7 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
     if let ImageOp::Expand { top, right, bottom, left } = job.op {
         let cw = job.input_crop_size.0.max(1) as f32;
         let ch = job.input_crop_size.1.max(1) as f32;
-        let (scale_x, scale_y) = match orig_scale_mode {
+        let (scale_x, scale_y) = match job.scale_mode {
             ImageScaleMode::Fit => {
                 let s = (orig.size.x.max(1.0) / cw).min(orig.size.y.max(1.0) / ch);
                 (s, s)
@@ -1547,7 +1751,6 @@ fn show_erase_popover(app: &mut App, ctx: &Context) {
 }
 
 fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, popover_rect: Rect, pop: &mut ErasePopoverState) {
-    let image_dims = pop.crop_dims;
     let world = app.doc.world_transform(node.id);
     let node_size = Vec2::new(node.size.x.max(1.0), node.size.y.max(1.0));
 
@@ -1562,8 +1765,9 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
             let start = pop.drag_start_page.unwrap();
             let cur_v = app.view.to_page(app.canvas_rect.min, pos);
             let cur = Pos2::new(cur_v.x, cur_v.y);
-            if let Some(region) = page_drag_to_image_region(world, node_size, pop.scale_mode, image_dims, start, cur) {
+            if let Some(region) = page_drag_to_image_region(world, node_size, pop.scale_mode, &pop.frame, start, cur) {
                 pop.region = Some(region);
+                pop.region_local = page_drag_to_local_rect(world, node_size, start, cur);
             }
             if released {
                 pop.drag_start_page = None;
@@ -1572,15 +1776,12 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
     }
 
     if let Some([rx, ry, rw, rh]) = pop.region {
-        let (cx, cy, cw_local, ch_local) = local_image_content_rect(node_size, pop.scale_mode, image_dims);
-        let sx = cw_local / image_dims.0.max(1) as f32;
-        let sy = ch_local / image_dims.1.max(1) as f32;
-        let local_x0 = cx + rx as f32 * sx;
-        let local_y0 = cy + ry as f32 * sy;
-        let local_x1 = cx + (rx + rw) as f32 * sx;
-        let local_y1 = cy + (ry + rh) as f32 * sy;
-        let p0 = world.apply(Vec2::new(local_x0, local_y0));
-        let p1 = world.apply(Vec2::new(local_x1, local_y1));
+        let Some((local_x, local_y, local_w, local_h)) = erase_overlay_local_rect(node_size, pop.scale_mode, &pop.frame, [rx, ry, rw, rh], pop.region_local)
+        else {
+            return;
+        };
+        let p0 = world.apply(Vec2::new(local_x, local_y));
+        let p1 = world.apply(Vec2::new(local_x + local_w, local_y + local_h));
         let s0 = app.view.to_screen(app.canvas_rect.min, p0);
         let s1 = app.view.to_screen(app.canvas_rect.min, p1);
         let mask_screen = Rect::from_two_pos(s0, s1);
@@ -1593,16 +1794,19 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
 }
 
 #[cfg(test)]
+mod framing_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use designos_doc::Rect as DRect;
     use std::path::Path;
     use std::sync::atomic::AtomicU64;
 
-    struct TestDir(PathBuf);
+    pub(super) struct TestDir(PathBuf);
 
     impl TestDir {
-        fn new(label: &str) -> Self {
+        pub(super) fn new(label: &str) -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(1);
             let n = NEXT.fetch_add(1, Ordering::Relaxed);
             let dir = std::env::temp_dir().join(format!("designos-e5-10-test-{}-{label}-{n}", std::process::id()));
@@ -1611,7 +1815,7 @@ mod tests {
             Self(dir)
         }
 
-        fn path(&self) -> &Path {
+        pub(super) fn path(&self) -> &Path {
             &self.0
         }
     }
@@ -1623,7 +1827,7 @@ mod tests {
     }
 
     /// Builds a test `App` with one 100x100 layer at `(0, 0)` holding an opaque RGBA PNG fill.
-    fn sample_app_with_image_layer(temp_dir: &Path) -> (App, NodeId, String) {
+    pub(super) fn sample_app_with_image_layer(temp_dir: &Path) -> (App, NodeId, String) {
         let mut doc = Document::new("Image Tools Spec");
         let page = doc.add_page("Page 1");
         let mut img = image::RgbaImage::from_pixel(100, 100, image::Rgba([220, 40, 40, 255]));
@@ -1643,7 +1847,7 @@ mod tests {
             visible: true,
             opacity: 1.0,
             blend: BlendMode::Normal,
-            kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
         }];
         doc.insert(page, node).unwrap();
 
@@ -1669,7 +1873,7 @@ mod tests {
         std::fs::write(path, bytes).unwrap();
     }
 
-    fn wait_for_job_completion(app: &mut App) {
+    pub(super) fn wait_for_job_completion(app: &mut App) {
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
             if app.poll_image_jobs() {
@@ -1946,8 +2150,8 @@ mod tests {
         let tmp = TestDir::new("crop-hidpi");
         let (mut app, orig_id, img_key) = sample_app_with_image_layer(tmp.path());
 
-        // Replace source bitmap with a 400x200 hi-DPI landscape image on the 100x100 layer using ImageScaleMode::Crop.
-        // Center cover crop of 400x200 into 100x100 aspect ratio is the middle 200x200 square (x in 100..300, y in 0..200).
+        // Replace the source bitmap with a 400x200 hi-DPI landscape image on the 100x100 layer using ImageScaleMode::Crop.
+        // An identity crop stretches the whole picture into the layer, so the whole 400x200 picture is what the canvas shows.
         let mut wide = image::RgbaImage::from_pixel(400, 200, image::Rgba([10, 20, 30, 255]));
         for y in 0..200 {
             for x in 100..300 {
@@ -1955,38 +2159,45 @@ mod tests {
             }
         }
         app.doc.images.insert(img_key.clone(), encode_png(&wide).unwrap());
-        app.doc.get_mut(orig_id).unwrap().fills[0].kind = PaintKind::Image { image_ref: img_key, scale_mode: ImageScaleMode::Crop };
+        app.doc.get_mut(orig_id).unwrap().fills[0].kind = PaintKind::Image { image_ref: img_key, scale_mode: ImageScaleMode::Crop, params: Default::default() };
 
-        // Expand by 50 image px each side on the 200x200 visible crop -> expected output is 300x300 image px,
-        // and the 100x100 layer (0.5 layer units per image px) grows by 25 layer units each side to 150x150 at (-25, -25).
-        let expanded_png = tmp.path().join("expanded_300x300.png");
-        write_rgba_png(&expanded_png, 300, 300, false);
+        // Expand by 50 image px each side of the 400x200 picture -> expected output is 500x300 image px,
+        // and the 100x100 layer (0.25 layer units per image px across, 0.5 down) grows by 12.5 and 25 layer units
+        // per side to 125x150 at (-12.5, -25).
+        let expanded_png = tmp.path().join("expanded_500x300.png");
+        write_rgba_png(&expanded_png, 500, 300, false);
         app.image_jobs.agent_script = Some(format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", expanded_png.display()));
 
         let job_id = app.start_image_job(orig_id, 0, ImageOp::Expand { top: 50, right: 50, bottom: 50, left: 50 }).expect("expand starts");
         let input_img = image::open(tmp.path().join("image-jobs").join(&job_id).join("input.png")).unwrap().to_rgba8();
-        assert_eq!(input_img.dimensions(), (200, 200), "input.png must be the 200x200 visible center crop, not the raw 400x200 bitmap");
-        assert_eq!(input_img.get_pixel(0, 0).0, [200, 100, 50, 255], "cropped input.png must come from center x=100..300");
+        assert_eq!(input_img.dimensions(), (400, 200), "input.png must be the whole 400x200 picture the identity crop shows");
+        assert_eq!(input_img.get_pixel(0, 0).0, [10, 20, 30, 255], "input.png starts at the picture's left edge, not a centred cover window");
 
         wait_for_job_completion(&mut app);
 
         let page_children = &app.doc.get(app.page).unwrap().children;
         assert_eq!(page_children.len(), 2);
         let new_node = app.doc.get(page_children[1]).unwrap();
-        assert_eq!(new_node.size, Vec2::new(150.0, 150.0), "layer size must scale expansion by layer-units-per-image-pixel (150/300 == 100/200)");
-        assert_eq!((new_node.transform.tx, new_node.transform.ty), (-25.0, -25.0));
+        assert_eq!(
+            new_node.size,
+            Vec2::new(125.0, 150.0),
+            "layer size must scale expansion by layer-units-per-image-pixel (125/500 == 100/400, 150/300 == 100/200)"
+        );
+        assert_eq!((new_node.transform.tx, new_node.transform.ty), (-12.5, -25.0));
         match &new_node.fills[0].kind {
             PaintKind::Image { scale_mode, .. } => assert_eq!(*scale_mode, ImageScaleMode::Crop, "source scale_mode must be preserved"),
             other => panic!("expected image fill, got {other:?}"),
         }
+    }
 
-        // Also verify `page_drag_to_image_region` respects both world scale/translation and Fit letterbox rect:
+    #[test]
+    fn drag_region_follows_the_world_transform_and_the_fit_letterbox() {
         // 400x200 image in a 100x100 layer under Fit occupies local y in 25..75, x in 0..100.
         // With a 2x scaled world transform at (50, 100), local (10, 35)..(60, 60) maps to page (70, 170)..(170, 220).
         let world = Affine { a: 2.0, b: 0.0, c: 0.0, d: 2.0, tx: 50.0, ty: 100.0 };
-        let region =
-            page_drag_to_image_region(world, Vec2::new(100.0, 100.0), ImageScaleMode::Fit, (400, 200), Pos2::new(70.0, 170.0), Pos2::new(170.0, 220.0))
-                .expect("drag within Fit image content rect resolves");
+        let frame = plan_image_job_frame(400, 200, Vec2::new(100.0, 100.0), ImageScaleMode::Fit, &Default::default()).expect("Fit shows the picture");
+        let region = page_drag_to_image_region(world, Vec2::new(100.0, 100.0), ImageScaleMode::Fit, &frame, Pos2::new(70.0, 170.0), Pos2::new(170.0, 220.0))
+            .expect("drag within Fit image content rect resolves");
         // local x: 10..60 of 0..100 -> 40..240 px (width 200); local y: 35..60 within 25..75 (10..35 of 50) -> 40..140 px (height 100).
         assert_eq!(region, [40, 40, 200, 100]);
     }
@@ -2255,6 +2466,255 @@ mod tests {
         assert!(app.has_unsaved_edits());
         app.undo();
         assert!(!app.has_unsaved_edits(), "the job is a step of the undo history, so undoing it is back at the saved state");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_whose_write_failed_on_a_parked_library_tab_is_asked_about_on_quit() {
+        let tmp = TestDir::new("parked-lib-failed-write");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        let mut doc_b = Document::new("File B");
+        doc_b.add_page("Page 1");
+        let lib = designos_library::Library::open(tmp.path().join("library")).unwrap();
+        let proj_a = lib.create_project("Project A").unwrap();
+        let proj_b = lib.create_project("Project B").unwrap();
+        let entry_a = lib.create_file(&proj_a.id, None, "File A", &app.doc).unwrap();
+        let entry_b = lib.create_file(&proj_b.id, None, "File B", &doc_b).unwrap();
+        app.lib = Some(lib.clone());
+        app.open_library_file(&entry_a.id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+        let stub_png = tmp.path().join("parked_failed_write_out.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        app.image_jobs.agent_script = Some(format!("sleep 0.05 && cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+        app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts on File A");
+        app.go_home();
+        app.open_library_file(&entry_b.id);
+        // File A's folder cannot be written while its job finishes; File B's can.
+        let file_a = crate::home::library_file_disk_path(&lib, &proj_a.id, &entry_a.id);
+        let files = file_a.parent().unwrap().to_path_buf();
+        let moved = files.with_file_name("blocked-files");
+        std::fs::rename(&files, &moved).unwrap();
+        std::fs::write(&files, b"not a directory").unwrap();
+        wait_for_job_completion(&mut app);
+        assert!(app.tabs.entries[0].disk.save_failed_at.is_some(), "the tab remembers that its write failed");
+        assert!(crate::tabs::tab_is_unsaved(&app, 0), "and shows the dot");
+        // Quitting without ever visiting the tab asks first, and names it.
+        let ctx = egui::Context::default();
+        assert!(!app.may_quit(&ctx), "the finished edit is not dropped silently");
+        assert_eq!(app.dialog.as_ref().map(|d| d.title.clone()).as_deref(), Some("Save changes to File A?"));
+        std::fs::remove_file(&files).unwrap();
+        std::fs::rename(&moved, &files).unwrap();
+        assert_eq!(lib.load_file(&entry_a.id).unwrap().get(app.page).unwrap().children.len(), 1, "nothing of the job reached File A");
+    }
+
+    /// An agent script that finishes a job once a file named after the job exists in `gates`, so a test decides when
+    /// each job lands. The wait is bounded, so a script that nobody releases ends on its own.
+    #[cfg(unix)]
+    fn gated_agent_script(gates: &Path, result_png: &Path) -> String {
+        format!(
+            "g=\"{}/$(basename \"$(dirname \"$DESIGNOS_IMAGE_OUTPUT\")\")\"; i=0; while [ ! -e \"$g\" ] && [ \"$i\" -lt 500 ]; do sleep 0.02; i=$((i+1)); done; cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"",
+            gates.display(),
+            result_png.display()
+        )
+    }
+
+    /// File A is parked with the result of its first image job, which its file does not hold (the folder could not be
+    /// written when the job landed), and a second job still waiting to land. File B is shown. Quitting has asked
+    /// "Save changes to File A?", and the disk is writable again.
+    #[cfg(unix)]
+    struct ParkedFileWithAnUnwrittenJob {
+        _tmp: TestDir,
+        app: App,
+        lib: designos_library::Library,
+        file_a: String,
+        path_a: PathBuf,
+        before: Vec<u8>,
+        modified_before: std::time::SystemTime,
+        gates: PathBuf,
+        second_job: String,
+    }
+
+    #[cfg(unix)]
+    impl ParkedFileWithAnUnwrittenJob {
+        fn asked_about_on_quit() -> Self {
+            let tmp = TestDir::new("parked-unwritten-job");
+            let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+            app.image_jobs.custom_jobs_root = None;
+            let mut doc_b = Document::new("File B");
+            doc_b.add_page("Page 1");
+            let lib = designos_library::Library::open(tmp.path().join("library")).unwrap();
+            let proj_a = lib.create_project("Project A").unwrap();
+            let proj_b = lib.create_project("Project B").unwrap();
+            let entry_a = lib.create_file(&proj_a.id, None, "File A", &app.doc).unwrap();
+            let entry_b = lib.create_file(&proj_b.id, None, "File B", &doc_b).unwrap();
+            app.lib = Some(lib.clone());
+            app.open_library_file(&entry_a.id);
+            let mut tabs = std::mem::take(&mut app.tabs);
+            tabs.reconcile_frame(&mut app);
+            app.tabs = tabs;
+            let result_png = tmp.path().join("unwritten_job_out.png");
+            write_rgba_png(&result_png, 100, 100, true);
+            let gates = tmp.path().join("gates");
+            std::fs::create_dir_all(&gates).unwrap();
+            app.image_jobs.agent_script = Some(gated_agent_script(&gates, &result_png));
+            app.image_jobs.job_timeout = Duration::from_secs(20);
+            let first_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("the first job starts on File A");
+            let second_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("the second job waits behind it");
+            app.go_home();
+            app.open_library_file(&entry_b.id);
+            assert_eq!(app.tabs.entries.len(), 2, "File A stays parked in tab 0 and File B opens in tab 1");
+            let path_a = crate::home::library_file_disk_path(&lib, &proj_a.id, &entry_a.id);
+            let before = std::fs::read(&path_a).unwrap();
+            let modified_before = std::fs::metadata(&path_a).unwrap().modified().unwrap();
+            // File A's folder cannot be written when its first job lands; File B's can.
+            let files = path_a.parent().unwrap().to_path_buf();
+            let moved = files.with_file_name("blocked-files");
+            std::fs::rename(&files, &moved).unwrap();
+            std::fs::write(&files, b"not a directory").unwrap();
+            std::fs::File::create(gates.join(&first_job)).unwrap();
+            wait_for_job_completion(&mut app);
+            assert!(app.tabs.entries[0].disk.save_failed_at.is_some(), "File A's tab remembers that its write failed");
+            std::fs::remove_file(&files).unwrap();
+            std::fs::rename(&moved, &files).unwrap();
+            let ctx = egui::Context::default();
+            assert!(!app.may_quit(&ctx), "the unwritten result is not dropped silently");
+            assert_eq!(app.dialog.as_ref().map(|d| d.title.clone()).as_deref(), Some("Save changes to File A?"));
+            Self { _tmp: tmp, app, lib, file_a: entry_a.id, path_a, before, modified_before, gates, second_job }
+        }
+
+        fn answer(&mut self, answer: crate::home::Answer) {
+            // The dialog layer takes the question away before it passes the answer on.
+            self.app.dialog = None;
+            self.app.answer_save_changes_with(None, answer, &crate::io::SystemDialogs);
+        }
+
+        /// The second job finishes and lands on File A's parked tab.
+        fn land_the_second_job(&mut self) {
+            std::fs::File::create(self.gates.join(&self.second_job)).unwrap();
+            wait_for_job_completion(&mut self.app);
+        }
+
+        /// File A holds the same bytes and was not written at all since its first job landed.
+        fn file_a_untouched(&self) -> bool {
+            std::fs::read(&self.path_a).is_ok_and(|b| b == self.before)
+                && std::fs::metadata(&self.path_a).and_then(|m| m.modified()).is_ok_and(|t| t == self.modified_before)
+        }
+
+        fn layers_on_disk(&self) -> usize {
+            let doc = self.lib.load_file(&self.file_a).unwrap();
+            doc.get(doc.pages[0]).unwrap().children.len()
+        }
+
+        fn layers_in_the_tab(&self) -> usize {
+            let tab = &self.app.tabs.entries[0];
+            tab.doc.get(tab.doc.pages[0]).unwrap().children.len()
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_that_lands_on_a_parked_file_after_dont_save_is_not_written_to_it() {
+        let mut t = ParkedFileWithAnUnwrittenJob::asked_about_on_quit();
+        t.answer(crate::home::Answer::DontSave);
+        assert!(t.app.leave.quit_approved, "every question is answered");
+        t.land_the_second_job();
+        assert!(t.file_a_untouched(), "the refused result was not written when the next job landed");
+        assert_eq!(t.layers_in_the_tab(), 3, "the job still lands in the tab");
+        assert!(crate::tabs::tab_is_unsaved(&t.app, 0), "and shows the dot");
+        // The window's own way out.
+        let ctx = egui::Context::default();
+        assert!(t.app.may_quit(&ctx));
+        t.app.save_close_version();
+        t.app.flush_autosave();
+        assert!(t.file_a_untouched(), "nor was it written on the way out");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_that_lands_on_a_parked_file_while_its_question_is_open_is_not_written_to_it() {
+        let mut t = ParkedFileWithAnUnwrittenJob::asked_about_on_quit();
+        t.land_the_second_job();
+        assert!(t.file_a_untouched(), "an unanswered failed write is not written by the next job");
+        assert!(t.app.leave.is_asking(), "the question is still open");
+        assert_eq!(t.layers_in_the_tab(), 3, "the job still lands in the tab");
+        t.answer(crate::home::Answer::Cancel);
+        let ctx = egui::Context::default();
+        assert!(!t.app.may_quit(&ctx), "quitting still asks about File A");
+        assert_eq!(t.app.dialog.as_ref().map(|d| d.title.clone()).as_deref(), Some("Save changes to File A?"));
+        assert!(t.file_a_untouched());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_that_lands_on_a_parked_file_after_its_question_was_cancelled_writes_it() {
+        let mut t = ParkedFileWithAnUnwrittenJob::asked_about_on_quit();
+        t.answer(crate::home::Answer::Cancel);
+        assert!(!t.app.leave.is_asking());
+        t.land_the_second_job();
+        assert!(!t.file_a_untouched(), "File A is written as usual");
+        assert_eq!(t.layers_on_disk(), 3, "with both jobs");
+        assert!(!crate::tabs::tab_is_unsaved(&t.app, 0), "and its tab shows no dot");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_job_that_lands_on_the_shown_file_after_dont_save_is_not_written_on_the_way_out() {
+        let tmp = TestDir::new("shown-dont-save-job");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        let lib = designos_library::Library::open(tmp.path().join("library")).unwrap();
+        let proj = lib.create_project("Project A").unwrap();
+        let entry = lib.create_file(&proj.id, None, "File A", &app.doc).unwrap();
+        app.lib = Some(lib.clone());
+        app.open_library_file(&entry.id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+        let result_png = tmp.path().join("shown_dont_save_out.png");
+        write_rgba_png(&result_png, 100, 100, true);
+        let gates = tmp.path().join("gates");
+        std::fs::create_dir_all(&gates).unwrap();
+        app.image_jobs.agent_script = Some(gated_agent_script(&gates, &result_png));
+        app.image_jobs.job_timeout = Duration::from_secs(20);
+        let first_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("the first job starts");
+        let second_job = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("the second job waits behind it");
+        let path = crate::home::library_file_disk_path(&lib, &proj.id, &entry.id);
+        let before = std::fs::read(&path).unwrap();
+        let modified_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let files = path.parent().unwrap().to_path_buf();
+        let moved = files.with_file_name("blocked-files");
+        std::fs::rename(&files, &moved).unwrap();
+        std::fs::write(&files, b"not a directory").unwrap();
+        std::fs::File::create(gates.join(&first_job)).unwrap();
+        wait_for_job_completion(&mut app);
+        app.flush_autosave();
+        assert!(app.autosave.save_failed_at.is_some(), "the first job's write failed");
+        let ctx = egui::Context::default();
+        assert!(!app.may_quit(&ctx), "the unwritten result is asked about");
+        std::fs::remove_file(&files).unwrap();
+        std::fs::rename(&moved, &files).unwrap();
+        app.dialog = None;
+        app.answer_save_changes_with(None, crate::home::Answer::DontSave, &crate::io::SystemDialogs);
+        assert!(app.leave.quit_approved, "every question is answered");
+        std::fs::File::create(gates.join(&second_job)).unwrap();
+        wait_for_job_completion(&mut app);
+        assert!(app.may_quit(&ctx));
+        let versions_dir = lib.path("versions").join(&entry.id);
+        let version_files = || std::fs::read_dir(&versions_dir).map_or(0, |dir| dir.filter_map(Result::ok).count());
+        let versions_before = (version_files(), lib.list_versions(&entry.id).len());
+        app.save_close_version();
+        app.flush_autosave();
+        let untouched =
+            std::fs::read(&path).is_ok_and(|b| b == before) && std::fs::metadata(&path).and_then(|m| m.modified()).is_ok_and(|t| t == modified_before);
+        assert!(untouched, "the second job's result was not written on the way out");
+        assert_eq!(
+            (version_files(), lib.list_versions(&entry.id).len()),
+            versions_before,
+            "nor kept as a version of the file, which could be restored onto it"
+        );
     }
 
     #[test]

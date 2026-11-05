@@ -1,0 +1,15 @@
+ed4d2e96123d39a033a018843ca74e9741ee3f29
+/dev/disk3s1s1   926Gi    12Gi   129Gi     9%    459k  1.4G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/fig_instance_lock_aspect_override_roundtrip.rs (out/cargo/debug/deps/fig_instance_lock_aspect_override_roundtrip-2f8b8aa72887dfcb)
+
+running 2 tests
+test an_instance_whose_lock_differs_from_its_main_keeps_both_the_lock_and_the_override_through_a_fig_reopen ... ok
+test a_reopened_instance_keeps_its_own_lock_when_its_main_is_locked_or_unlocked_and_synced ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+green_rc=0

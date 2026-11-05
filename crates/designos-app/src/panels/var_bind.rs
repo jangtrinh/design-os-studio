@@ -46,6 +46,30 @@ fn picker_action_id() -> Id {
     Id::new("picker-stop-bind-action")
 }
 
+/// After undo or redo: the picker shows what the document now holds, whatever paint type that is.
+pub(crate) fn adopt_picker_paint_after_history(app: &mut App) {
+    let Some(pk) = app.props.picker.as_mut() else { return };
+    if !pk.tx.ed.touched().is_empty() {
+        return;
+    }
+    let doc_paint = pk.ids.first().and_then(|id| app.doc.get(*id)).and_then(|n| match pk.target {
+        super::properties::PickTarget::Fill(pi) => n.fills.get(pi).cloned(),
+        super::properties::PickTarget::Stroke(pi) => n.stroke.paints.get(pi).cloned(),
+        _ => Some(pk.paint.clone()),
+    });
+    let Some(p) = doc_paint else {
+        app.props.picker = None;
+        app.props.eyedropper = None;
+        return;
+    };
+    pk.paint = p;
+    let n_stops = crate::widgets::picker::stops_of(&pk.paint.kind).map(|s| s.len()).unwrap_or(1);
+    pk.state.sel = pk.state.sel.min(n_stops.saturating_sub(1));
+    pk.state.reset_stop_origins(&pk.paint);
+    let rgba = crate::widgets::picker::active_rgba(&pk.paint, pk.state.sel);
+    pk.state.sync(rgba);
+}
+
 fn sync_picker_paint_from_doc(app: &mut App) {
     let Some(pk) = app.props.picker.as_mut() else { return };
     if !pk.tx.ed.touched().is_empty() {
@@ -70,65 +94,294 @@ fn sync_picker_paint_from_doc(app: &mut App) {
     }
 }
 
+#[derive(Clone, Default)]
+struct CachedLibVars {
+    stamp: u64,
+    vars: std::sync::Arc<[(VariableKind, Vec<String>)]>,
+}
+
+/// Figma scope names `scope_allows` knows; any other scope string never matches a key.
+const SCOPE_NAMES: [&str; 23] = [
+    "ALL_FILLS",
+    "FRAME_FILL",
+    "SHAPE_FILL",
+    "TEXT_FILL",
+    "STROKE",
+    "STROKE_COLOR",
+    "EFFECT_COLOR",
+    "EFFECT_FLOAT",
+    "WIDTH_HEIGHT",
+    "CORNER_RADIUS",
+    "GAP",
+    "OPACITY",
+    "COLOR_OPACITY",
+    "STROKE_FLOAT",
+    "FONT_SIZE",
+    "FONT_WEIGHT",
+    "LINE_HEIGHT",
+    "LETTER_SPACING",
+    "PARAGRAPH_SPACING",
+    "PARAGRAPH_INDENT",
+    "FONT_FAMILY",
+    "FONT_STYLE",
+    "TEXT_CONTENT",
+];
+
+fn scope_name_strings() -> &'static [String] {
+    static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| SCOPE_NAMES.iter().map(|s| s.to_string()).chain(std::iter::once("__unknown__".to_string())).collect())
+}
+
+/// Per variable kind: is there any variable with no scope limit, any scoped variable at all, and which known scopes occur.
+#[derive(Clone, Copy, Default)]
+struct ScopeCensus {
+    pass_nr: u64,
+    local_vars_len: usize,
+    enabled_len: usize,
+    unscoped: [bool; 4],
+    scoped: [bool; 4],
+    bits: [u32; 4],
+}
+
+fn kind_index(kind: VariableKind) -> usize {
+    match kind {
+        VariableKind::Color => 0,
+        VariableKind::Number => 1,
+        VariableKind::String => 2,
+        VariableKind::Boolean => 3,
+    }
+}
+
+fn lib_meta_stamp(app: &App) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    app.libs.root.hash(&mut h);
+    app.doc.library.enabled.len().hash(&mut h);
+    for e in &app.doc.library.enabled {
+        e.id.hash(&mut h);
+        e.version.hash(&mut h);
+    }
+    for u in app.libs.pending_all() {
+        u.library_id.hash(&mut h);
+        u.version.hash(&mut h);
+    }
+    h.finish()
+}
+
+fn shared_lib_vars(app: &mut App, ctx: &Context, stamp: u64) -> std::sync::Arc<[(VariableKind, Vec<String>)]> {
+    if app.doc.library.enabled.is_empty() {
+        return std::sync::Arc::from([]);
+    }
+    let cache_id = Id::new("var-bind-lib-vars-cache");
+    if let Some(c) = ctx.data(|d| d.get_temp::<CachedLibVars>(cache_id)).filter(|c| c.stamp == stamp) {
+        return c.vars;
+    }
+    let v: std::sync::Arc<[(VariableKind, Vec<String>)]> = app.library_variables().into_iter().map(|lv| (lv.kind, lv.scopes)).collect::<Vec<_>>().into();
+    ctx.data_mut(|d| {
+        d.insert_temp(cache_id, CachedLibVars { stamp, vars: std::sync::Arc::clone(&v) });
+    });
+    v
+}
+
+fn census_add(c: &mut ScopeCensus, kind: VariableKind, scopes: &[String]) {
+    let ki = kind_index(kind);
+    if c.unscoped[ki] {
+        return;
+    }
+    if scopes.is_empty() || scopes.iter().any(|s| s == "ALL_SCOPES") {
+        c.unscoped[ki] = true;
+        return;
+    }
+    c.scoped[ki] = true;
+    for s in scopes {
+        if let Some(i) = SCOPE_NAMES.iter().position(|n| n == s) {
+            c.bits[ki] |= 1 << i;
+        }
+    }
+}
+
+fn pass_scope_census(app: &mut App, ctx: &Context) -> ScopeCensus {
+    let pass_nr = ctx.cumulative_pass_nr();
+    let local_vars_len = app.doc.variables.len();
+    let enabled_len = app.doc.library.enabled.len();
+    let id = Id::new("var-bind-scope-census");
+    if let Some(t) =
+        ctx.data(|d| d.get_temp::<ScopeCensus>(id)).filter(|t| t.pass_nr == pass_nr && t.local_vars_len == local_vars_len && t.enabled_len == enabled_len)
+    {
+        return t;
+    }
+    let mut c = ScopeCensus { pass_nr, local_vars_len, enabled_len, ..Default::default() };
+    #[cfg(test)]
+    let mut visits = 0usize;
+    for coll in app.doc.variable_collections.values() {
+        for v in coll.variables.iter().filter_map(|id| app.doc.variables.get(id)) {
+            #[cfg(test)]
+            {
+                visits += 1;
+            }
+            census_add(&mut c, v.kind, &v.scopes);
+        }
+    }
+    if enabled_len > 0 {
+        let stamp = lib_meta_stamp(app);
+        let vars = shared_lib_vars(app, ctx, stamp);
+        for (k, scopes) in vars.iter() {
+            #[cfg(test)]
+            {
+                visits += 1;
+            }
+            census_add(&mut c, *k, scopes);
+        }
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(id, c);
+        #[cfg(test)]
+        {
+            let visit_id = Id::new("var-bind-pass-visits");
+            let prev = d.get_temp::<(u64, usize)>(visit_id).filter(|(p, _)| *p == pass_nr).map(|(_, n)| n).unwrap_or(0);
+            d.insert_temp(visit_id, (pass_nr, prev + visits));
+        }
+    });
+    c
+}
+
+/// Whether at least one variable in `app.doc.variable_collections` or an enabled library
+/// matches `kind` and `scope_allows(&v.scopes, key0, target_kind)`.
+pub(super) fn has_matching_var(app: &mut App, ctx: &Context, key0: &str, kind: VariableKind, target_kind: &NodeKind) -> bool {
+    let c = pass_scope_census(app, ctx);
+    let ki = kind_index(kind);
+    if c.unscoped[ki] {
+        return true;
+    }
+    if !c.scoped[ki] {
+        return false;
+    }
+    let names = scope_name_strings();
+    // a key that `scope_allows` accepts whatever the scopes are (e.g. `visible`)
+    if scope_allows(std::slice::from_ref(&names[SCOPE_NAMES.len()]), key0, target_kind) {
+        return true;
+    }
+    (0..SCOPE_NAMES.len()).any(|i| c.bits[ki] & (1 << i) != 0 && scope_allows(std::slice::from_ref(&names[i]), key0, target_kind))
+}
+
+fn text_target_kind() -> &'static NodeKind {
+    static KIND: std::sync::OnceLock<NodeKind> = std::sync::OnceLock::new();
+    KIND.get_or_init(|| NodeKind::Text(TextProps::default()))
+}
+
+fn node_target_kind(app: &App, sel: &[NodeId]) -> &'static NodeKind {
+    match sel.first().and_then(|id| app.doc.get(*id)).map(|n| &n.kind) {
+        Some(NodeKind::Text(_)) => text_target_kind(),
+        Some(NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. } | NodeKind::Section) => &NodeKind::Section,
+        _ => &NodeKind::Rectangle,
+    }
+}
+
+fn style_target_kind(app: &App, style_key: &str) -> &'static NodeKind {
+    match app.doc.styles.get(style_key) {
+        Some(Style::Text(_)) => text_target_kind(),
+        _ => &NodeKind::Rectangle,
+    }
+}
+
+/// The key `scope_allows` is asked about for `prop` of style `style_key`. A stroke style keeps its
+/// paints and bindings under `fills/…`, but its variables are scoped like the strokes of a layer.
+fn style_scope_key<'a>(app: &App, style_key: &str, prop: &'a str) -> std::borrow::Cow<'a, str> {
+    let is_stroke = app.doc.style_meta.get(style_key).is_some_and(|m| m.property == StyleProperty::Stroke);
+    match prop.strip_prefix("fills/") {
+        Some(rest) if is_stroke => std::borrow::Cow::Owned(format!("strokes/{rest}")),
+        _ => std::borrow::Cow::Borrowed(prop),
+    }
+}
+
+fn narrow_for_bind(rect: Rect, reserve: bool) -> Rect {
+    if reserve {
+        let max_x = (rect.right() - theme::TARGET_MIN - theme::BORDER_WIDTH).max(rect.left());
+        Rect::from_min_max(rect.min, Pos2::new(max_x, rect.max.y))
+    } else {
+        rect
+    }
+}
+
+/// Returns the sub-rect available for a node field's value widget when `keys[0]` is not bound,
+/// reserving the right-hand `TARGET_MIN + BORDER_WIDTH` strip whenever a matching variable exists.
+pub fn value_rect(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) -> Rect {
+    let target_kind = node_target_kind(app, sel);
+    let has_vars = has_matching_var(app, ui.ctx(), keys[0], kind, target_kind);
+    narrow_for_bind(rect, has_vars)
+}
+
+/// Returns the sub-rect available for a style editor field's value widget when `prop` is not bound,
+/// reserving the right-hand `TARGET_MIN + BORDER_WIDTH` strip whenever a matching variable exists.
+pub fn style_value_rect(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) -> Rect {
+    let target_kind = style_target_kind(app, style_key);
+    let scope_key = style_scope_key(app, style_key, prop);
+    let has_vars = has_matching_var(app, ui.ctx(), &scope_key, kind, target_kind);
+    narrow_for_bind(rect, has_vars)
+}
+
 pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
     sync_picker_paint_from_doc(app);
     let mut state = PickerStopBindState::default();
-    if let Some(pk) = app.props.picker.as_ref() {
+    let pk_info = app.props.picker.as_ref().and_then(|pk| {
         let prefix = match pk.target {
             super::properties::PickTarget::Fill(pi) => Some(("fills", pi)),
             super::properties::PickTarget::Stroke(pi) => Some(("strokes", pi)),
             _ => None,
         };
-        if let (Some((pfx, pi)), false) = (prefix, pk.ids.is_empty()) {
-            state.prefix = Some((pfx, pi));
-            state.has_vars = !app.doc.variables.is_empty() || !app.doc.library.enabled.is_empty();
-            state.open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first().cloned());
-            let stop_prefix = format!("{pfx}/{pi}/stops/");
-            let nodes: Vec<NodeId> = pk.ids.iter().copied().filter(|&id| app.doc.get(id).is_some()).collect();
-            let mut keys = std::collections::BTreeSet::new();
-            for &id in &nodes {
-                if let Some(node) = app.doc.get(id) {
-                    for k in node.variables.bindings.keys() {
-                        if k.starts_with(&stop_prefix) && bound_var(app, id, k).is_some() {
-                            keys.insert(k.clone());
-                        }
+        prefix.filter(|_| !pk.ids.is_empty()).map(|(pfx, pi)| (pfx, pi, pk.ids.clone()))
+    });
+    if let Some((pfx, pi, pk_ids)) = pk_info {
+        state.prefix = Some((pfx, pi));
+        let nodes: Vec<NodeId> = pk_ids.iter().copied().filter(|&id| app.doc.get(id).is_some()).collect();
+        let target_kind = node_target_kind(app, &nodes);
+        let sample_key = format!("{pfx}/{pi}/stops/0");
+        state.has_vars = has_matching_var(app, ctx, &sample_key, VariableKind::Color, target_kind);
+        state.open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first().cloned());
+        let stop_prefix = format!("{pfx}/{pi}/stops/");
+        let mut keys = std::collections::BTreeSet::new();
+        for &id in &nodes {
+            if let Some(node) = app.doc.get(id) {
+                for k in node.variables.bindings.keys() {
+                    if k.starts_with(&stop_prefix) && bound_var(app, id, k).is_some() {
+                        keys.insert(k.clone());
                     }
                 }
             }
-            for k in keys {
-                let mut uniform: Option<(&str, &str, Option<egui::Color32>)> = None;
-                let mut mixed = false;
-                for &id in &nodes {
-                    match bound_var(app, id, &k) {
-                        Some(var) => {
-                            let swatch = match app.doc.bound_value(id, &k) {
-                                Some(VariableValue::Color(c)) => Some(to_c32(c)),
-                                _ => None,
-                            };
-                            match uniform {
-                                None => uniform = Some((var.id.as_str(), var.name.as_str(), swatch)),
-                                Some((fid, fname, fsw)) => {
-                                    if fid != var.id.as_str() {
-                                        mixed = true;
-                                        break;
-                                    }
-                                    if fsw != swatch {
-                                        uniform = Some((fid, fname, None));
-                                    }
+        }
+        for k in keys {
+            let mut uniform: Option<(&str, &str, Option<egui::Color32>)> = None;
+            let mut mixed = false;
+            for &id in &nodes {
+                match bound_var(app, id, &k) {
+                    Some(var) => {
+                        let swatch = match app.doc.bound_value(id, &k) {
+                            Some(VariableValue::Color(c)) => Some(to_c32(c)),
+                            _ => None,
+                        };
+                        match uniform {
+                            None => uniform = Some((var.id.as_str(), var.name.as_str(), swatch)),
+                            Some((fid, fname, fsw)) => {
+                                if fid != var.id.as_str() {
+                                    mixed = true;
+                                    break;
+                                }
+                                if fsw != swatch {
+                                    uniform = Some((fid, fname, None));
                                 }
                             }
                         }
-                        None => {
-                            mixed = true;
-                            break;
-                        }
+                    }
+                    None => {
+                        mixed = true;
+                        break;
                     }
                 }
-                if mixed {
-                    state.bound_stops.insert(k, ("Mixed".to_string(), None));
-                } else if let Some((_, name, swatch)) = uniform {
-                    state.bound_stops.insert(k, (name.to_string(), swatch));
-                }
+            }
+            if mixed {
+                state.bound_stops.insert(k, ("Mixed".to_string(), None));
+            } else if let Some((_, name, swatch)) = uniform {
+                state.bound_stops.insert(k, (name.to_string(), swatch));
             }
         }
     }
@@ -173,30 +426,48 @@ pub(super) fn remap_indexed_bindings(bindings: &mut std::collections::BTreeMap<S
 }
 
 fn commit_picker_tx_before_bind(app: &mut App) {
-    if let Some(pk) = app.props.picker.as_mut() {
-        if !pk.tx.ed.touched().is_empty() {
-            let tx = std::mem::replace(&mut pk.tx, crate::edit::Tx::new());
-            pk.state.reset_stop_origins(&pk.paint);
-            app.run_tx(tx);
-        }
-    }
+    app.commit_pending_picker_tx();
 }
 
-fn draw_pill(ui: &mut Ui, rect: Rect, record_key: &str, id: impl crate::widgets::Key, label: &str, swatch: Option<egui::Color32>) -> PillResponse {
-    widgets::record(ui, record_key, rect);
+fn draw_pill(
+    ui: &mut Ui,
+    rect: Rect,
+    record_name: impl FnOnce() -> String,
+    id: impl crate::widgets::Key,
+    label: &str,
+    swatch: Option<egui::Color32>,
+) -> PillResponse {
+    widgets::record_with(ui, record_name, rect);
     pill(ui, rect, id, label, swatch, true)
 }
 
-fn draw_hover_button(ui: &mut Ui, rect: Rect, record_key: &str, id: impl crate::widgets::Key, has_vars: bool, is_open: bool) -> bool {
-    if !has_vars || !ui.rect_contains_pointer(rect) && !is_open {
+fn draw_hover_button(
+    ui: &mut Ui,
+    rect: Rect,
+    record_name: impl FnOnce() -> String,
+    id: impl crate::widgets::Key,
+    has_vars: bool,
+    is_open: bool,
+    always_visible: bool,
+) -> bool {
+    if !has_vars || (!always_visible && !ui.rect_contains_pointer(rect) && !is_open) {
         return false;
     }
-    let b = Rect::from_center_size(Pos2::new(rect.right() - (theme::SPACE_GROUP + theme::INSET_SEGMENT), rect.center().y), Vec2::splat(20.0));
+    let b = Rect::from_center_size(Pos2::new(rect.right() - theme::TARGET_MIN / 2.0, rect.center().y), Vec2::splat(theme::TARGET_MIN));
     let r = ui.interact(b, ui.id().with(id), Sense::click());
     let p = ui.painter();
-    p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-    hexagon(p, b.center(), 5.0, if r.hovered() { theme::ICON } else { theme::ICON_SECONDARY }, false);
-    widgets::record(ui, record_key, b);
+    if always_visible {
+        if r.hovered() || is_open {
+            p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
+            hexagon(p, b.center(), 5.0, theme::ICON, false);
+        } else {
+            hexagon(p, b.center(), 5.0, theme::ICON_QUATERNARY, false);
+        }
+    } else {
+        p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        hexagon(p, b.center(), 5.0, if r.hovered() { theme::ICON } else { theme::ICON_SECONDARY }, false);
+    }
+    widgets::record_with(ui, record_name, b);
     let clicked = r.clicked();
     r.on_hover_text("Apply variable");
     clicked
@@ -224,7 +495,7 @@ pub(crate) fn picker_stop_pill_field(ui: &mut Ui, st: &mut crate::widgets::picke
     let Some((pfx, pi)) = st_ctx.prefix else { return false };
     let key = format!("{pfx}/{pi}/stops/{stop_idx}");
     let Some((label, swatch)) = st_ctx.bound_stops.get(&key).cloned() else { return false };
-    let r = draw_pill(ui, rect, &format!("bound:{key}"), ("bound", key.as_str()), &label, swatch);
+    let r = draw_pill(ui, rect, || format!("bound:{key}"), ("bound", key.as_str()), &label, swatch);
     if r.detach {
         st.menu_open = true;
         ui.ctx().data_mut(|d| d.insert_temp(picker_action_id(), PickerStopBindAction::Detach { key }));
@@ -241,7 +512,7 @@ pub(crate) fn picker_stop_hover_button(ui: &mut Ui, st: &mut crate::widgets::pic
     let Some((pfx, pi)) = st_ctx.prefix else { return };
     let key = format!("{pfx}/{pi}/stops/{stop_idx}");
     let is_open = st_ctx.open_key.as_deref() == Some(key.as_str());
-    if draw_hover_button(ui, rect, &format!("bind:{key}"), ("bind-btn", key.as_str()), st_ctx.has_vars, is_open) {
+    if draw_hover_button(ui, rect, || format!("bind:{key}"), ("bind-btn", key.as_str()), st_ctx.has_vars, is_open, false) {
         st.menu_open = true;
         ui.ctx().data_mut(|d| d.insert_temp(picker_action_id(), PickerStopBindAction::Open { key, anchor: rect }));
     }
@@ -258,7 +529,7 @@ pub fn bound_var<'a>(app: &'a App, node: NodeId, key: &str) -> Option<&'a Variab
     doc_bound_var(&app.doc, node, key)
 }
 
-fn open_picker(app: &mut App, sel: &[NodeId], keys: &[&str], kind: VariableKind, anchor: Rect) {
+pub(super) fn open_picker(app: &mut App, sel: &[NodeId], keys: &[&str], kind: VariableKind, anchor: Rect) {
     app.vars.bind_picker =
         Some(BindPicker { keys: keys.iter().map(|k| k.to_string()).collect(), kind, nodes: sel.to_vec(), style_key: None, anchor, query: String::new() });
 }
@@ -277,7 +548,8 @@ pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
         Some(VariableValue::Color(c)) => Some(to_c32(c)),
         _ => None,
     };
-    let r = draw_pill(ui, rect, &format!("bound:{}", keys[0]), ("bound", keys[0]), &var.name, swatch);
+    let k0 = keys[0];
+    let r = draw_pill(ui, rect, || format!("bound:{k0}"), ("bound", k0), &var.name, swatch);
     if r.detach {
         app.detach_variable(sel, keys);
     } else if r.body.clicked() {
@@ -286,22 +558,25 @@ pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
     true
 }
 
-/// Small hexagon button shown on hover that opens the variable picker.
+/// Small hexagon button that opens the variable picker when a matching variable exists.
 pub fn hover_button(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) {
-    let has_vars = !app.doc.variables.is_empty() || !app.doc.library.enabled.is_empty();
-    let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.keys.first().map(String::as_str) == Some(keys[0]));
-    if draw_hover_button(ui, rect, &format!("bind:{}", keys[0]), ("bind-btn", keys[0]), has_vars, is_open) {
+    let target_kind = node_target_kind(app, sel);
+    let k0 = keys[0];
+    let has_vars = has_matching_var(app, ui.ctx(), k0, kind, target_kind);
+    let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.style_key.is_none() && b.keys.first().map(String::as_str) == Some(k0));
+    if draw_hover_button(ui, rect, || format!("bind:{k0}"), ("bind-btn", k0), has_vars, is_open, true) {
         open_picker(app, sel, keys, kind, rect);
     }
 }
 
-/// A numeric field that turns into a variable pill when bound, with a bind
-/// button on hover when not.
-pub fn numeric(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], field: impl FnOnce(&mut Ui) -> Option<f32>) -> Option<f32> {
+/// A numeric field that turns into a variable pill when bound, with an
+/// always-visible bind button when a matching number variable exists.
+pub fn numeric(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], field: impl FnOnce(&mut Ui, Rect) -> Option<f32>) -> Option<f32> {
     if pill_field(app, ui, rect, sel, keys) {
         return None;
     }
-    let v = field(ui);
+    let val_r = value_rect(app, ui, rect, sel, keys, VariableKind::Number);
+    let v = field(ui, val_r);
     hover_button(app, ui, rect, sel, keys, VariableKind::Number);
     v
 }
@@ -319,7 +594,7 @@ pub fn style_pill_field(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
         Some(VariableValue::Color(c)) => Some(to_c32(c)),
         _ => None,
     };
-    let r = draw_pill(ui, rect, &format!("style-bound:{style_key}:{prop}"), ("style-bound", style_key, prop), &label, swatch);
+    let r = draw_pill(ui, rect, || format!("style-bound:{style_key}:{prop}"), ("style-bound", style_key, prop), &label, swatch);
     if r.detach {
         app.unbind_style_variable(style_key, prop);
     } else if r.body.clicked() {
@@ -328,23 +603,41 @@ pub fn style_pill_field(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
     true
 }
 
-/// Small hexagon button shown on hover in the style editor that opens the variable picker for `prop`.
+/// Small hexagon button in the style editor that opens the variable picker for `prop`.
 pub fn style_hover_button(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) {
-    let has_vars = !app.doc.variables.is_empty() || !app.doc.library.enabled.is_empty();
+    let target_kind = style_target_kind(app, style_key);
+    let scope_key = style_scope_key(app, style_key, prop);
+    let has_vars = has_matching_var(app, ui.ctx(), &scope_key, kind, target_kind);
     let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.style_key.as_deref() == Some(style_key) && b.keys.first().map(String::as_str) == Some(prop));
-    if draw_hover_button(ui, rect, &format!("style-bind:{style_key}:{prop}"), ("style-bind-btn", style_key, prop), has_vars, is_open) {
+    if draw_hover_button(ui, rect, || format!("style-bind:{style_key}:{prop}"), ("style-bind-btn", style_key, prop), has_vars, is_open, true) {
         open_style_picker(app, style_key, prop, kind, rect);
     }
 }
 
 /// A numeric field in the style editor that turns into a variable pill when bound.
-pub fn style_numeric(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, field: impl FnOnce(&mut Ui) -> Option<f32>) -> Option<f32> {
+pub fn style_numeric(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, field: impl FnOnce(&mut Ui, Rect) -> Option<f32>) -> Option<f32> {
     if style_pill_field(app, ui, rect, style_key, prop) {
         return None;
     }
-    let v = field(ui);
+    let val_r = style_value_rect(app, ui, rect, style_key, prop, VariableKind::Number);
+    let v = field(ui, val_r);
     style_hover_button(app, ui, rect, style_key, prop, VariableKind::Number);
     v
+}
+
+fn is_text_style_key(key: &str) -> bool {
+    matches!(key, "fontFamily" | "fontStyle" | "fontWeight" | "fontSize" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent")
+}
+
+fn detach_text_style_in(doc: &mut Document, tx: &mut crate::edit::Tx, nodes: &[NodeId]) {
+    let rk = crate::styles::StyleKind::Text.ref_key();
+    for &nid in nodes {
+        if doc.get(nid).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)) && n.style_refs.contains_key(rk)) {
+            if let Some(n) = tx.ed.node(doc, nid) {
+                n.style_refs.remove(rk);
+            }
+        }
+    }
 }
 
 /// Renders the picker opened by [`hover_button`] / [`style_hover_button`] / a pill.
@@ -368,13 +661,13 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         return;
     };
     let key0 = bp.keys.first().cloned().unwrap_or_default();
-    let (current, kind_node) = if let Some(skey) = &bp.style_key {
+    let (current, kind_node, scope_key) = if let Some(skey) = &bp.style_key {
         let cur = app.doc.style_meta.get(skey).and_then(|m| m.bindings.get(&key0)).cloned();
         let kn = match app.doc.styles.get(skey) {
             Some(Style::Text(_)) => NodeKind::Text(TextProps::default()),
             _ => NodeKind::Rectangle,
         };
-        (cur, kn)
+        (cur, kn, style_scope_key(app, skey, &key0).into_owned())
     } else {
         let Some(first) = bp.nodes.first().copied() else {
             return;
@@ -382,19 +675,19 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         let Some(node) = app.doc.get(first) else {
             return;
         };
-        (node.variables.bindings.get(&key0).cloned(), node.kind.clone())
+        (node.variables.bindings.get(&key0).cloned(), node.kind.clone(), key0.clone())
     };
     let mut items = Vec::new();
     for c in app.doc.variable_collections.values() {
         for vid in &c.variables {
             let Some(v) = app.doc.variables.get(vid) else { continue };
-            if v.kind == bp.kind && scope_allows(&v.scopes, &key0, &kind_node) {
+            if v.kind == bp.kind && scope_allows(&v.scopes, &scope_key, &kind_node) {
                 items.push(pick_item(&app.doc, v));
             }
         }
     }
     // Variables of enabled libraries, one section per library; copied into the file when picked.
-    for lv in app.library_variables().into_iter().filter(|v| v.kind == bp.kind && v.local_id.is_none() && scope_allows(&v.scopes, &key0, &kind_node)) {
+    for lv in app.library_variables().into_iter().filter(|v| v.kind == bp.kind && v.local_id.is_none() && scope_allows(&v.scopes, &scope_key, &kind_node)) {
         let Some(render) = app.library_render_doc(&lv.library_id) else { continue };
         let Some(v) = render.variables.get(lv.key.strip_prefix("var:").unwrap_or(&lv.key)) else { continue };
         let mut item = pick_item(&render, v);
@@ -428,10 +721,38 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
                 }
             } else {
                 commit_picker_tx_before_bind(app);
-                match id.strip_prefix(LIB_PREFIX).and_then(|r| r.split_once(LIB_SEP)) {
-                    Some((lib, key)) => app.bind_library_variable(&bp.nodes, &key_refs, lib, key),
-                    None => app.bind_variable(&bp.nodes, &key_refs, &id),
-                }
+                crate::canvas::textsession::requesting_new_faces(app, &bp.nodes, |app| {
+                    let style_keys = is_text_style_key(&key0);
+                    match id.strip_prefix(LIB_PREFIX).and_then(|r| r.split_once(LIB_SEP)) {
+                        Some((lib, key)) if style_keys => {
+                            let mut tx = crate::edit::Tx::new();
+                            match app.import_asset_in(&mut tx, lib, key) {
+                                Some(local) => {
+                                    app.bind_variable_in(&mut tx, &bp.nodes, &key_refs, &local);
+                                    detach_text_style_in(&mut app.doc, &mut tx, &bp.nodes);
+                                    app.run_tx(tx);
+                                }
+                                None => {
+                                    tx.cancel(&mut app.doc);
+                                    app.show_toast("Library variable could not be loaded", true);
+                                }
+                            }
+                            app.libs.invalidate();
+                        }
+                        Some((lib, key)) => {
+                            app.bind_library_variable(&bp.nodes, &key_refs, lib, key);
+                        }
+                        None if style_keys => {
+                            let mut tx = crate::edit::Tx::new();
+                            app.bind_variable_in(&mut tx, &bp.nodes, &key_refs, &id);
+                            detach_text_style_in(&mut app.doc, &mut tx, &bp.nodes);
+                            app.run_tx(tx);
+                        }
+                        None => {
+                            app.bind_variable(&bp.nodes, &key_refs, &id);
+                        }
+                    }
+                });
             }
         }
         PickResult::Detach => {
@@ -468,7 +789,7 @@ pub(super) fn mode_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Node
         let nm = widgets::elide(ui.painter(), &c.name, &theme::font_body(), lr.width() - 28.0);
         ui.painter().text(Pos2::new(lr.left() + 24.0, lr.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT_SECONDARY);
         let dd = pane.col(1, 0.0);
-        widgets::record(ui, &format!("mode:{}", c.name), dd);
+        widgets::record_with(ui, || format!("mode:{}", c.name), dd);
         if let Some(i) = dropdown(ui, dd, ("var-mode", &c.id), &label, &options) {
             let pick = if i == 0 { None } else { Some(c.modes[i - 1].id.clone()) };
             app.set_node_mode(sel, &c.id, pick.as_deref());

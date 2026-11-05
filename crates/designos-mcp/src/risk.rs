@@ -113,6 +113,8 @@ const TOOLS: &[(&str, RiskTier, bool)] = &[
     ("designos_render_png", RiskTier::Additive, false),
     ("designos_new_document", RiskTier::Additive, false),
     ("designos_close_document", RiskTier::Modify, false),
+    ("designos_docs_list", RiskTier::Read, true),
+    ("designos_docs_read", RiskTier::Read, true),
 ];
 
 fn canonical(name: &str) -> &str {

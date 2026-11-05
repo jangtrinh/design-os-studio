@@ -1,0 +1,4 @@
+# python3 -B scripts/zero_fake_ui_gate.py (code head dea90b5f)
+Z16   | PASS   | registered label helpers in designos-app/src | UX writing: action labels at registered button/menu helpers and label fns <=3 words, no count in them (ratchet vs ux_writing_baseline.js
+ Gate Verdict: PASS (17/17 invariants satisfied)
+zfu_rc=0

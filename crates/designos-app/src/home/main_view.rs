@@ -181,7 +181,7 @@ fn empty_state(h: &Home, ui: &Ui, area: Rect) {
             Section::Recents => ("No files yet".into(), "Create a design file, or import a .fig, .svg or .designos file to get started.".into()),
             Section::Starred => ("Nothing starred".into(), "Right-click a file and choose Star to keep it handy here.".into()),
             Section::Project(..) => ("This project is empty".into(), "Create a design file here, or drag files in from other projects.".into()),
-            Section::Trash => ("Trash is empty".into(), "Files and projects you delete wait here until you empty the trash.".into()),
+            Section::Trash => ("Trash is empty".into(), "Files, projects and pages you delete wait here until you empty the trash.".into()),
         }
     };
     let p = ui.painter();

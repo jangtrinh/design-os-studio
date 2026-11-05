@@ -1,0 +1,60 @@
+=== GREEN CHECK: agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ===
+
+running 1 test
+test agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.52s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.79s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+exit_code=0
+=== GREEN CHECK: agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ===
+
+running 1 test
+test agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.73s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.61s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+exit_code=0
+=== GREEN CHECK: agent_composer::tests::image_job_submitted_during_running_turn_waits_for_turn_end ===
+
+running 1 test
+test agent_composer::tests::image_job_submitted_during_running_turn_waits_for_turn_end ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.20s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.38s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+exit_code=0
+=== GREEN CHECK: terminal::gemini_composer_tests::the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste ===
+
+running 1 test
+test terminal::gemini_composer_tests::the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.81s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.51s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+exit_code=0

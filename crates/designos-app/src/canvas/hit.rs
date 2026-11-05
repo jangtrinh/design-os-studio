@@ -46,28 +46,69 @@ pub fn is_one_shape_component(doc: &Document, node: &Node) -> bool {
     )
 }
 
+/// A frame, component, or component set is treated as top-level when its parent is the page or a section; to be confirmed against Figma.
+pub(crate) fn is_top_level_parent(doc: &Document, parent: Option<NodeId>) -> bool {
+    parent.and_then(|p| doc.get(p)).is_some_and(|pn| matches!(pn.kind, NodeKind::Page { .. } | NodeKind::Section))
+}
+
+/// Clicking empty space inside a transparent container selects the container itself when no child is hit; to be confirmed against Figma.
+pub(crate) fn transparent_container_selects_self_on_empty_area() -> bool {
+    true
+}
+
+/// Holding the command modifier while dragging a marquee selects nested leaf layers without selecting their ancestor containers; to be confirmed against Figma.
+pub(crate) fn deep_marquee_selects_leaf_layers() -> bool {
+    true
+}
+
 /// True if the container is "transparent" to clicks: clicking a child
-/// selects the child directly (frames, sections, pages, component sets,
-/// and multi-child or container-child components). A component made from
-/// one leaf shape ([`is_one_shape_component`]) is selected as a whole on
-/// single click and entered on double-click.
-fn selects_through(doc: &Document, node: &Node) -> bool {
-    matches!(node.kind, NodeKind::Page { .. } | NodeKind::Frame(_) | NodeKind::Section | NodeKind::Component(_) | NodeKind::ComponentSet(_))
-        && !is_one_shape_component(doc, node)
+/// selects the child directly (pages, sections, and top-level frames,
+/// component sets, and multi-child or container-child components). When
+/// `through_nested_frames` is true, nested frames and components are also
+/// transparent (used by non-selection callers such as comments and vector
+/// hover). A component made from one leaf shape ([`is_one_shape_component`])
+/// is selected as a whole on single click and entered on double-click.
+fn selects_through(doc: &Document, node: &Node, through_nested_frames: bool) -> bool {
+    match node.kind {
+        NodeKind::Page { .. } | NodeKind::Section => true,
+        NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) => {
+            (through_nested_frames || is_top_level_parent(doc, node.parent)) && !is_one_shape_component(doc, node)
+        }
+        _ => false,
+    }
 }
 
 /// True if a marquee that only partly covers a container of this kind selects the layers inside it
 /// instead of the container. Main components and component sets are selected whole by a marquee,
 /// like instances; their layers stay reachable by click, Cmd+click and double-click.
 fn marquee_enters(doc: &Document, node: &Node) -> bool {
-    selects_through(doc, node) && !matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))
+    selects_through(doc, node, false) && !matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))
+}
+
+/// True when `id` sits deeper than plain-click depth (an ancestor container between `id`
+/// and the page is opaque to a plain click with nothing selected, so a plain click at `id`'s
+/// position would select that ancestor instead of `id`). A direct child of a top-level frame
+/// is at click depth and is not nested.
+pub fn is_nested_selection_layer(doc: &Document, id: NodeId) -> bool {
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(pid) = cur {
+        let Some(pn) = doc.get(pid) else { return false };
+        if matches!(pn.kind, NodeKind::Page { .. }) {
+            break;
+        }
+        if !selects_through(doc, pn, false) {
+            return true;
+        }
+        cur = pn.parent;
+    }
+    false
 }
 
 /// Finds the node under `p` (page space).
 ///
 /// * `deep` selects the deepest node (ctrl/cmd-click).
 /// * `entered` lists containers (usually ancestors of the current selection)
-///   that groups/instances may be descended into.
+///   that groups/instances/nested frames may be descended into.
 #[allow(dead_code)]
 pub fn hit_test(doc: &Document, root: NodeId, p: Vec2, tol: f32, deep: bool, entered: &[NodeId]) -> Option<NodeId> {
     hit_test_with_index(doc, root, p, tol, deep, entered, None)
@@ -84,6 +125,20 @@ pub fn hit_test_with_index(
     index: Option<&designos_render::SceneIndex>,
 ) -> Option<NodeId> {
     hit_test_excluding_with_index(doc, root, p, tol, deep, entered, &[], index)
+}
+
+/// Like [`hit_test_with_index`], descending through nested frames at any depth
+/// (used by non-selection callers such as comment pins and vector path hover).
+pub fn hit_test_any_depth_with_index(
+    doc: &Document,
+    root: NodeId,
+    p: Vec2,
+    tol: f32,
+    deep: bool,
+    entered: &[NodeId],
+    index: Option<&designos_render::SceneIndex>,
+) -> Option<NodeId> {
+    hit_in(doc, root, Affine::IDENTITY, p, tol, deep, true, entered, &[], index)
 }
 
 /// [`hit_test`] that ignores the `exclude`d nodes (and everything inside them).
@@ -103,7 +158,7 @@ pub fn hit_test_excluding_with_index(
     exclude: &[NodeId],
     index: Option<&designos_render::SceneIndex>,
 ) -> Option<NodeId> {
-    hit_in(doc, root, Affine::IDENTITY, p, tol, deep, entered, exclude, index)
+    hit_in(doc, root, Affine::IDENTITY, p, tol, deep, false, entered, exclude, index)
 }
 
 fn indexed_bounds(index: Option<&designos_render::SceneIndex>, id: NodeId) -> Option<Rect> {
@@ -114,8 +169,15 @@ fn indexed_bounds(index: Option<&designos_render::SceneIndex>, id: NodeId) -> Op
 /// Whether `p` (in the connector's parent space) is on the line of connector `id`.
 fn connector_hit(doc: &Document, id: NodeId, parent_local: Vec2, tol: f32) -> bool {
     let Some(n) = doc.get(id) else { return false };
+    let margin = n.stroke.weight / 2.0 + tol * 3.0;
+    let Some(box_bounds) = designos_doc::connector_route_bounds(doc, id, margin) else {
+        return false;
+    };
+    if !box_bounds.contains(parent_local) {
+        return false;
+    }
     let Some(route) = designos_doc::connector_route(doc, id) else { return false };
-    route.distance_to(parent_local) <= n.stroke.weight / 2.0 + tol * 3.0
+    route.distance_to(parent_local) <= margin
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -126,6 +188,7 @@ fn hit_in(
     p: Vec2,
     tol: f32,
     deep: bool,
+    through_nested_frames: bool,
     entered: &[NodeId],
     exclude: &[NodeId],
     index: Option<&designos_render::SceneIndex>,
@@ -136,10 +199,18 @@ fn hit_in(
         pn.children.len() > 64
             && matches!(pn.kind, NodeKind::Page { .. })
             && pn.children.iter().find(|&&c| doc.get(c).is_some_and(|n| n.visible)).is_some_and(|&c| i.bounds_of(c).is_some())
-            && !pn.children.iter().any(|&c| matches!(doc.get(c).map(|n| &n.kind), Some(NodeKind::Connector(_))))
     }) {
-        let m = tol + 4.0;
-        idx.query_top_level((p.x - m, p.y - m, p.x + m, p.y + m), &mut top_cands);
+        let m = tol * 3.0 + 4.0;
+        let window = (p.x - m, p.y - m, p.x + m, p.y + m);
+        // A connector is drawn along its live route, which can leave its stored box, so the grid cannot pick
+        // the connectors near `p`. The index keeps each connector's live route box and returns the ones near the
+        // window (`connector_hit` still tests each); when the document changed since the index last synced with
+        // it those boxes are out of date, so every page-level connector is a candidate instead.
+        if idx.connector_routes_current(doc) {
+            idx.query_top_level_with_connectors(window, &mut top_cands);
+        } else {
+            idx.query_top_level_with_every_connector(window, &mut top_cands);
+        }
         &top_cands
     } else {
         &pn.children
@@ -166,7 +237,8 @@ fn hit_in(
             k => local_hit(k, n.size, local, tol),
         };
         if n.kind.is_container() {
-            let descend = deep || selects_through(doc, n) || entered.contains(&cid);
+            let transparent = selects_through(doc, n, through_nested_frames);
+            let descend = deep || transparent || entered.contains(&cid);
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
             let near_unindexed =
                 index.is_some() || inside || n.size.x <= 0.0 || n.size.y <= 0.0 || matches!(n.kind, NodeKind::Group | NodeKind::BooleanOp(_)) || {
@@ -174,11 +246,11 @@ fn hit_in(
                     local.x >= -pad && local.y >= -pad && local.x <= n.size.x + pad && local.y <= n.size.y + pad
                 };
             if descend && (!clips || inside) && near_unindexed {
-                if let Some(h) = hit_in(doc, cid, world, p, tol, deep, entered, exclude, index) {
+                if let Some(h) = hit_in(doc, cid, world, p, tol, deep, through_nested_frames, entered, exclude, index) {
                     return Some(h);
                 }
             }
-            if inside {
+            if inside && (!transparent || transparent_container_selects_self_on_empty_area()) {
                 return Some(cid);
             }
         } else if inside {
@@ -192,11 +264,89 @@ fn hit_in(
 /// ordered from top-most leaf down to container/frame (capped at 32 items).
 pub fn hit_all_under(doc: &Document, page: NodeId, p: Vec2, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
     let mut out = Vec::new();
-    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, index, &mut out);
+    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, false, index, &mut out);
     out
 }
 
-fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol: f32, index: Option<&designos_render::SceneIndex>, out: &mut Vec<NodeId>) {
+/// Collects all visible nodes (including locked layers) on `page` under `p` (page space),
+/// capped at 32 items. When `parents_first` is true, containers are listed before their
+/// children in front-to-back sibling order and the 32-item cap keeps parents before deeper
+/// layers across all branches (breadth-first by depth).
+pub fn hit_all_under_including_locked(doc: &Document, page: NodeId, p: Vec2, parents_first: bool, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
+    if parents_first {
+        let mut by_depth = Vec::new();
+        hit_all_parents_first_in(doc, page, Affine::IDENTITY, p, 2.0, true, 0, index, &mut by_depth);
+        by_depth.sort_by_key(|&(_, depth)| depth);
+        by_depth.truncate(32);
+        return by_depth.into_iter().map(|(id, _)| id).collect();
+    }
+    let mut out = Vec::new();
+    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, true, index, &mut out);
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hit_all_parents_first_in(
+    doc: &Document,
+    parent: NodeId,
+    parent_world: Affine,
+    p: Vec2,
+    tol: f32,
+    include_locked: bool,
+    depth: usize,
+    index: Option<&designos_render::SceneIndex>,
+    out: &mut Vec<(NodeId, usize)>,
+) {
+    if depth >= 32 {
+        return;
+    }
+    let Some(pn) = doc.get(parent) else { return };
+    for &cid in pn.children_front_to_back() {
+        let Some(n) = doc.get(cid) else { continue };
+        if !n.visible || (!include_locked && n.locked) {
+            continue;
+        }
+        if !matches!(n.kind, NodeKind::Connector(_)) {
+            if let Some(bb) = indexed_bounds(index, cid) {
+                let m = tol + 2.0;
+                if !Rect::new(bb.x - m, bb.y - m, bb.w + 2.0 * m, bb.h + 2.0 * m).contains(p) {
+                    continue;
+                }
+            }
+        }
+        let world = parent_world * n.transform;
+        let Some(inv) = world.invert() else { continue };
+        let local = inv.apply(p);
+        let inside = match &n.kind {
+            NodeKind::Connector(_) => parent_world.invert().is_some_and(|pi| connector_hit(doc, cid, pi.apply(p), tol)),
+            k => local_hit(k, n.size, local, tol),
+        };
+        if n.kind.is_container() {
+            if inside {
+                out.push((cid, depth));
+            }
+            let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
+            if !clips || inside {
+                let next_depth = if inside { depth + 1 } else { depth };
+                hit_all_parents_first_in(doc, cid, world, p, tol, include_locked, next_depth, index, out);
+            }
+        } else if inside {
+            out.push((cid, depth));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hit_all_in(
+    doc: &Document,
+    parent: NodeId,
+    parent_world: Affine,
+    p: Vec2,
+    tol: f32,
+    include_locked: bool,
+    index: Option<&designos_render::SceneIndex>,
+    out: &mut Vec<NodeId>,
+) {
     if out.len() >= 32 {
         return;
     }
@@ -206,7 +356,7 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
             return;
         }
         let Some(n) = doc.get(cid) else { continue };
-        if !n.visible || n.locked {
+        if !n.visible || (!include_locked && n.locked) {
             continue;
         }
         if !matches!(n.kind, NodeKind::Connector(_)) {
@@ -227,7 +377,7 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
         if n.kind.is_container() {
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
             if !clips || inside {
-                hit_all_in(doc, cid, world, p, tol, index, out);
+                hit_all_in(doc, cid, world, p, tol, include_locked, index, out);
             }
             if inside && out.len() < 32 {
                 out.push(cid);
@@ -239,11 +389,19 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
 }
 
 /// Nodes selected by a marquee (page space). Fully-enclosed top-level objects
-/// are selected as a whole; frames only partly covered are entered. Main
-/// components and component sets are always selected as a whole.
+/// are selected as a whole; top-level frames and sections only partly covered
+/// are entered, while nested frames, groups, instances, main components, and
+/// component sets are selected as a whole (matching plain-click depth).
 #[allow(dead_code)]
 pub fn marquee_select(doc: &Document, root: NodeId, r: &Rect) -> Vec<NodeId> {
     marquee_select_with_index(doc, root, r, None)
+}
+
+/// Deep marquee selection (`Cmd/Ctrl + drag`): descends into every container
+/// and selects leaf layers intersecting `r` without selecting their ancestor containers.
+#[allow(dead_code)]
+pub fn marquee_select_deep(doc: &Document, root: NodeId, r: &Rect) -> Vec<NodeId> {
+    marquee_select_deep_with_index(doc, root, r, None)
 }
 
 const MAX_MARQUEE_NODES: usize = 512;
@@ -284,6 +442,38 @@ pub fn marquee_select_with_index(doc: &Document, root: NodeId, r: &Rect, index: 
     }
     marquee_in(doc, root, r, index, 0, large_doc, &mut out);
     out
+}
+
+/// Like [`marquee_select_deep`], using `index` bounds when available.
+pub fn marquee_select_deep_with_index(doc: &Document, root: NodeId, r: &Rect, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
+    if !deep_marquee_selects_leaf_layers() {
+        return marquee_select_with_index(doc, root, r, index);
+    }
+    let mut out = Vec::new();
+    marquee_deep_in(doc, root, r, index, &mut out);
+    out
+}
+
+fn marquee_deep_in(doc: &Document, parent: NodeId, r: &Rect, index: Option<&designos_render::SceneIndex>, out: &mut Vec<NodeId>) {
+    let Some(pn) = doc.get(parent) else { return };
+    for &cid in &pn.children {
+        if out.len() >= MAX_MARQUEE_NODES {
+            break;
+        }
+        let Some(n) = doc.get(cid) else { continue };
+        if !n.visible || n.locked {
+            continue;
+        }
+        let bb = if let Some(ibb) = indexed_bounds(index, cid) { ibb } else { super::fast_world_aabb(doc, None, cid) };
+        if n.kind.is_container() && !n.children.is_empty() {
+            let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
+            if (!clips && index.is_none()) || r.intersects(&bb) {
+                marquee_deep_in(doc, cid, r, index, out);
+            }
+        } else if r.intersects(&bb) {
+            out.push(cid);
+        }
+    }
 }
 
 fn marquee_in(doc: &Document, parent: NodeId, r: &Rect, index: Option<&designos_render::SceneIndex>, depth: usize, large_doc: bool, out: &mut Vec<NodeId>) {
@@ -608,5 +798,267 @@ mod tests {
         }
         assert_eq!(marquee_both_ways(&d, page, &Rect::new(0.0, 0.0, 60.0, 60.0)), vec![comp], "partial marquee selects component whole");
         assert_eq!(marquee_both_ways(&d, page, &Rect::new(-10.0, -10.0, 400.0, 400.0)), vec![comp], "enclosing marquee selects component whole");
+    }
+
+    #[test]
+    fn hit_test_rejects_far_connectors_by_box_first() {
+        designos_doc::clear_route_cache();
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let mut items = Vec::with_capacity(200);
+        for i in 0..200usize {
+            let col = (i % 20) as f32;
+            let row = (i / 20) as f32;
+            let id = d.alloc_id();
+            d.insert(page, Node::sticky(id, Rect::new(col * 220.0, row * 220.0, 120.0, 100.0), "s")).unwrap();
+            items.push(id);
+        }
+        let mut cids = Vec::with_capacity(1_000);
+        for k in 0..1_000usize {
+            let a = items[k % 200];
+            let b = items[(k * 7 + 1) % 200];
+            let cid = d.alloc_id();
+            let props = designos_doc::ConnectorProps {
+                start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+                end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+                ..Default::default()
+            };
+            d.insert(page, Node::connector(cid, props)).unwrap();
+            designos_doc::sync_connector(&mut d, cid);
+            cids.push(cid);
+        }
+
+        let stats_before = designos_doc::route_cache_stats();
+        assert_eq!(stats_before, (0, 1_000));
+
+        let far_pt = v2(-5_000.0, -5_000.0);
+        let hit = hit_test(&d, page, far_pt, 2.0, false, &[]);
+        assert_eq!(hit, None);
+        assert_eq!(
+            designos_doc::route_cache_stats(),
+            stats_before,
+            "far hit test should reject all 1,000 connectors by route bounding box without computing or evaluating routes"
+        );
+
+        // The scene index lists every page-level connector as a candidate; each must still reject by its cached box.
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        assert_eq!(hit_test_with_index(&d, page, far_pt, 2.0, false, &[], Some(&idx)), None);
+        assert_eq!(
+            designos_doc::route_cache_stats(),
+            stats_before,
+            "far indexed hit test should reject all 1,000 connectors by cached route bounds without computing or evaluating routes"
+        );
+
+        // Hitting directly on the midpoint of the top-most connector between adjacent nodes still routes and hits.
+        let top_cid = *cids.last().unwrap();
+        let mid = designos_doc::connector_route(&d, top_cid).unwrap().midpoint();
+        let (h_before, m_before) = designos_doc::route_cache_stats();
+        let near_hit = hit_test(&d, page, mid, 2.0, false, &[]);
+        assert!(near_hit.is_some());
+        let (h_after, m_after) = designos_doc::route_cache_stats();
+        assert!(h_after > h_before, "expected at least one route evaluation when probing on a connector");
+        assert_eq!(m_after, m_before, "expected 0 route recomputations when probing on a synced connector");
+    }
+
+    #[test]
+    fn hit_test_hits_connector_after_anchor_moves_without_sync() {
+        let mut d = Document::new("t");
+        assert_eq!(d.kind, designos_doc::DocumentKind::Design);
+        let page = d.add_page("p");
+        let a_id = d.alloc_id();
+        let a = d.insert(page, Node::sticky(a_id, Rect::new(0.0, 0.0, 100.0, 100.0), "a")).unwrap();
+        let b_id = d.alloc_id();
+        let b = d.insert(page, Node::sticky(b_id, Rect::new(300.0, 0.0, 100.0, 100.0), "b")).unwrap();
+        let c_id = d.alloc_id();
+        let props = designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+            ..Default::default()
+        };
+        let c = d.insert(page, Node::connector(c_id, props)).unwrap();
+        designos_doc::sync_connector(&mut d, c);
+
+        let mut moved_copy = d.clone();
+        moved_copy.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+        let new_mid = designos_doc::connector_route(&moved_copy, c).unwrap().midpoint();
+        assert!(new_mid.y > 250.0, "expected moved route midpoint below old box, got {new_mid:?}");
+
+        // Restore the route cache entry for `c` to the old synced state, then move `b` via get_mut
+        // without calling sync_connector so both the stored node box and cache entry start at the old position.
+        designos_doc::sync_connector(&mut d, c);
+        d.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+
+        let hit = hit_test(&d, page, new_mid, 2.0, false, &[]);
+        assert_eq!(hit, Some(c), "click at new route midpoint at tol=2 must hit connector even when stored node box is stale");
+    }
+
+    #[test]
+    fn hit_test_keeps_scene_index_path_with_page_level_connectors() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        for i in 0..200usize {
+            let col = (i % 20) as f32;
+            let row = (i / 20) as f32;
+            let fid = d.alloc_id();
+            d.insert(page, Node::frame(fid, Rect::new(col * 560.0, row * 1_040.0, 390.0, 844.0))).unwrap();
+        }
+        let mut items = Vec::with_capacity(2_000);
+        for i in 0..2_000usize {
+            let col = (i % 50) as f32;
+            let row = (i / 50) as f32;
+            let id = d.alloc_id();
+            d.insert(page, Node::sticky(id, Rect::new(col * 240.0, 11_000.0 + row * 220.0, 140.0, 120.0), "n")).unwrap();
+            items.push(id);
+        }
+        let mut cids = Vec::with_capacity(1_000);
+        for k in 0..1_000usize {
+            let a = items[(k * 2) % 2_000];
+            let b = items[(k * 2 + 1) % 2_000];
+            let cid = d.alloc_id();
+            let props = designos_doc::ConnectorProps {
+                start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+                end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+                ..Default::default()
+            };
+            d.insert(page, Node::connector(cid, props)).unwrap();
+            designos_doc::sync_connector(&mut d, cid);
+            cids.push(cid);
+        }
+
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+
+        let mut sample_pts = Vec::with_capacity(200);
+        for k in 0..50usize {
+            let col = (k % 20) as f32;
+            let row = (k / 20) as f32;
+            sample_pts.push(v2(col * 560.0 + 195.0, row * 1_040.0 + 422.0));
+        }
+        for k in 0..50usize {
+            let col = (k % 50) as f32;
+            let row = (k / 50) as f32;
+            sample_pts.push(v2(col * 240.0 + 70.0, 11_000.0 + row * 220.0 + 60.0));
+        }
+        for k in 0..50usize {
+            let mid = designos_doc::connector_route(&d, cids[k * 20]).unwrap().midpoint();
+            sample_pts.push(mid);
+        }
+        for k in 0..50usize {
+            sample_pts.push(v2(-2_000.0 - k as f32 * 50.0, -2_000.0 - k as f32 * 50.0));
+        }
+
+        for &pt in &sample_pts {
+            let with_idx = hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx));
+            let without_idx = hit_test(&d, page, pt, 2.0, false, &[]);
+            assert_eq!(with_idx, without_idx, "SceneIndex hit-test mismatch at {pt:?}");
+        }
+
+        // Warmup and measure p95 latency of hit_test_with_index across the 200 sample points.
+        for &pt in &sample_pts {
+            std::hint::black_box(hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx)));
+        }
+        let (_, misses_before) = designos_doc::route_cache_stats();
+        let mut samples_us: Vec<f64> = Vec::with_capacity(sample_pts.len());
+        for &pt in &sample_pts {
+            let mut best_us = f64::INFINITY;
+            for _ in 0..3 {
+                let t0 = std::time::Instant::now();
+                let res = std::hint::black_box(hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx)));
+                let elapsed_us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+                let _ = res;
+                if elapsed_us < best_us {
+                    best_us = elapsed_us;
+                }
+            }
+            samples_us.push(best_us);
+        }
+        let (_, misses_after) = designos_doc::route_cache_stats();
+        assert_eq!(misses_after, misses_before, "hover hit-test with SceneIndex must not recompute any cached connector routes");
+        samples_us.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        let p50_us = samples_us[samples_us.len() / 2];
+        let p95_idx = ((samples_us.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(samples_us.len() - 1);
+        let p95_us = samples_us[p95_idx];
+        let scale = if cfg!(debug_assertions) || std::env::var_os("CI").is_some() { 15.0 } else { 1.0 };
+        let budget_us = 1_000.0 * scale;
+        eprintln!(
+            "[hit_test_keeps_scene_index_path_with_page_level_connectors] n={} p50={p50_us:.2}us p95={p95_us:.2}us budget={budget_us:.0}us",
+            samples_us.len()
+        );
+        assert!(p95_us <= budget_us, "hover hit-test p95 {p95_us:.2}us exceeded {budget_us:.0}us budget");
+    }
+
+    /// A page of more than 64 far-away rectangles (so hit testing goes through the scene index), two stickies at
+    /// (0, 0) and (300, 0), and a synced connector between them. Returns `(doc, page, a, b, connector)`.
+    fn indexed_connector_page() -> (Document, NodeId, NodeId, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        for i in 0..70usize {
+            let id = d.alloc_id();
+            d.insert(page, Node::rectangle(id, Rect::new(-5_000.0 + i as f32 * 30.0, 4_000.0, 20.0, 20.0))).unwrap();
+        }
+        let a_id = d.alloc_id();
+        let a = d.insert(page, Node::sticky(a_id, Rect::new(0.0, 0.0, 100.0, 100.0), "a")).unwrap();
+        let b_id = d.alloc_id();
+        let b = d.insert(page, Node::sticky(b_id, Rect::new(300.0, 0.0, 100.0, 100.0), "b")).unwrap();
+        let c_id = d.alloc_id();
+        let props = designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+            ..Default::default()
+        };
+        let c = d.insert(page, Node::connector(c_id, props)).unwrap();
+        designos_doc::sync_connector(&mut d, c);
+        (d, page, a, b, c)
+    }
+
+    /// Moves `b` straight down with `get_mut`, leaving the connector's stored box and route cache as they were
+    /// before the move. Returns the midpoint of the connector's live route.
+    fn move_end_without_sync(d: &mut Document, b: NodeId, c: NodeId) -> Vec2 {
+        let mut moved = d.clone();
+        moved.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+        let mid = designos_doc::connector_route(&moved, c).unwrap().midpoint();
+        assert!(mid.y > 250.0, "expected the moved route to leave the stored connector box, got {mid:?}");
+        d.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+        designos_doc::clear_route_cache();
+        mid
+    }
+
+    #[test]
+    fn indexed_hit_test_finds_a_connector_whose_end_moved_without_sync() {
+        let (mut d, page, _a, b, c) = indexed_connector_page();
+        assert!(d.get(page).unwrap().children.len() > 64, "the page must be large enough to use the scene index");
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        let mid = move_end_without_sync(&mut d, b, c);
+
+        assert_eq!(hit_test(&d, page, mid, 2.0, false, &[]), Some(c), "without an index the live route is hit");
+        assert_eq!(hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)), Some(c), "an index built before the move must not hide it");
+        idx.ensure(&d, page, 2);
+        assert_eq!(
+            hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)),
+            Some(c),
+            "re-indexing the moved nodes does not change the stored connector box"
+        );
+    }
+
+    #[test]
+    fn indexed_hit_test_orders_a_stale_connector_by_paint_order() {
+        for connector_on_top in [true, false] {
+            let (mut d, page, _a, b, c) = indexed_connector_page();
+            let mid = move_end_without_sync(&mut d, b, c);
+            let rid = d.alloc_id();
+            let rect = d.insert(page, Node::rectangle(rid, Rect::new(mid.x - 30.0, mid.y - 30.0, 60.0, 60.0))).unwrap();
+            let last = d.get(page).unwrap().children.len() - 1;
+            if connector_on_top {
+                d.reparent(c, page, last).unwrap();
+            }
+            let mut idx = designos_render::SceneIndex::new();
+            idx.ensure(&d, page, 1);
+
+            let expected = if connector_on_top { c } else { rect };
+            assert_eq!(hit_test(&d, page, mid, 2.0, false, &[]), Some(expected), "unindexed, connector_on_top={connector_on_top}");
+            assert_eq!(hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)), Some(expected), "indexed, connector_on_top={connector_on_top}");
+        }
     }
 }

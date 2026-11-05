@@ -13,6 +13,9 @@ use std::collections::HashSet;
 /// shape drawable. Instances become `<include>` of the component's layout; bound variables become
 /// `@color/name` / `@dimen/name`. Text is escaped for an XML attribute and for Android resources.
 pub fn android_xml_for(doc: &Document, node: NodeId) -> String {
+    if doc.get(node).is_some_and(|n| matches!(n.kind, NodeKind::Connector(_))) {
+        return String::new();
+    }
     let mut cx = Cx { doc, out: Out::new("    "), drawables: Vec::new(), used: HashSet::new() };
     cx.emit(node, Parent::root(), 0, None);
     let mut text = format!("<!-- res/layout/{}.xml -->\n{}", snake(&doc.get(node).map(|n| n.name.clone()).unwrap_or_default()), cx.out.finish());
@@ -30,6 +33,7 @@ struct Slot {
     /// or when there is no spacing.
     gap: Option<String>,
     linear: bool,
+    gravity: Option<String>,
 }
 
 struct Cx<'a> {
@@ -107,6 +111,24 @@ fn gravity_word(a: LayoutAlign, horizontal: bool) -> &'static str {
     }
 }
 
+fn android_cell_gravity(ah: GridChildAlign, av: GridChildAlign) -> String {
+    let h = match ah {
+        GridChildAlign::Center => "center_horizontal",
+        GridChildAlign::End => "end",
+        _ => "start",
+    };
+    let v = match av {
+        GridChildAlign::Center => "center_vertical",
+        GridChildAlign::End => "bottom",
+        _ => "top",
+    };
+    if h == "center_horizontal" && v == "center_vertical" {
+        "center".into()
+    } else {
+        format!("{v}|{h}")
+    }
+}
+
 type Attrs = Vec<(String, String)>;
 
 fn attr(a: &mut Attrs, name: &str, value: impl Into<String>) {
@@ -142,8 +164,17 @@ impl Cx<'_> {
     /// `android:background` (inline colour or a new shape drawable), `elevation`, `alpha`, `rotation`.
     fn style(&mut self, n: &Node, attrs: &mut Attrs) {
         let doc = self.doc;
-        let fill = if text_of(n).is_some() { None } else { n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0) };
-        let stroke = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0).filter(|_| n.stroke.weight > 0.0 && !matches!(n.kind, NodeKind::Line));
+        let fill = if text_of(n).is_some() {
+            None
+        } else {
+            n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
+        };
+        let stroke = n
+            .stroke
+            .paints
+            .iter()
+            .find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
+            .filter(|_| n.stroke.weight > 0.0 && !matches!(n.kind, NodeKind::Line));
         let keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
         let oval = matches!(n.kind, NodeKind::Ellipse(_));
         let rounded = n.corner_radii.iter().any(|r| *r > 0.0) || keys.iter().any(|k| bound(doc, n, k).is_some());
@@ -205,6 +236,7 @@ impl Cx<'_> {
                 }
                 PaintKind::AngularGradient { stops, .. } => l.extend(gradient_lines(doc, n, p, stops, "android:type=\"sweep\"")),
                 PaintKind::Image { .. } => l.push("    <solid android:color=\"#FF808080\" /> <!-- image fill -->".to_string()),
+                PaintKind::Shader(_) => {}
             }
         }
         if let Some(p) = stroke {
@@ -280,15 +312,18 @@ impl Cx<'_> {
         if weighted {
             attr(attrs, "layout_weight", "1");
         }
-        if let Some(Slot { gap: Some(gap), horizontal, linear: true }) = slot {
-            attr(attrs, if horizontal { "layout_marginStart" } else { "layout_marginTop" }, gap);
+        if let Some(Slot { gap: Some(gap), horizontal, linear: true, .. }) = &slot {
+            attr(attrs, if *horizontal { "layout_marginStart" } else { "layout_marginTop" }, gap.clone());
+        }
+        if let Some(Slot { gravity: Some(g), .. }) = slot {
+            attr(attrs, "layout_gravity", g);
         }
     }
 
     fn emit(&mut self, id: NodeId, parent: Parent<'_>, depth: usize, slot: Option<Slot>) {
         let doc = self.doc;
         let Some(n) = doc.get(id) else { return };
-        if !n.visible {
+        if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
             return;
         }
         let sz = sizes(n, parent);
@@ -328,6 +363,100 @@ impl Cx<'_> {
             self.text_attrs(n, t, &mut attrs);
             self.style(n, &mut attrs);
             self.open(depth, "TextView", &attrs, true);
+        } else if let Some((al, sg)) = own_al.and_then(|al| solved_grid(doc, n, al).map(|sg| (al, sg))) {
+            let out_of_flow: Vec<&Node> = kids.iter().copied().filter(|k| !sg.children.iter().any(|(cid, _)| *cid == k.id)).collect();
+            let has_oof = !out_of_flow.is_empty();
+            let g_depth = if has_oof { depth + 1 } else { depth };
+            if has_oof {
+                self.style(n, &mut attrs);
+                self.open(depth, "FrameLayout", &attrs, false);
+                let mut g_attrs: Attrs = Vec::new();
+                attr(&mut g_attrs, "layout_width", "match_parent");
+                attr(&mut g_attrs, "layout_height", if sz.h == Dim::Hug { "wrap_content" } else { "match_parent" });
+                attr(&mut g_attrs, "columnCount", sg.widths.len().to_string());
+                attr(&mut g_attrs, "rowCount", sg.rows.len().to_string());
+                self.padding(n, al, &mut g_attrs);
+                self.open(g_depth, "GridLayout", &g_attrs, false);
+            } else {
+                attr(&mut attrs, "columnCount", sg.widths.len().to_string());
+                attr(&mut attrs, "rowCount", sg.rows.len().to_string());
+                self.padding(n, al, &mut attrs);
+                self.style(n, &mut attrs);
+                self.open(depth, "GridLayout", &attrs, false);
+            }
+            let col_gap_val = (sg.col_gap > 0.0 || bound(doc, n, "itemSpacing").is_some()).then(|| dp(doc, n, "itemSpacing", sg.col_gap));
+            let row_gap_key = grid_row_gap_key(doc, n, al);
+            let row_gap_val = (sg.row_gap > 0.0 || bound(doc, n, row_gap_key).is_some()).then(|| dp(doc, n, row_gap_key, sg.row_gap));
+            for (c, &col_w) in sg.widths.iter().enumerate() {
+                let covered = sg.children.iter().any(|(_, p)| p.col == c && p.col_span == 1);
+                if !covered {
+                    let mut s: Attrs = Vec::new();
+                    attr(&mut s, "layout_width", format!("{}dp", num(col_w)));
+                    attr(&mut s, "layout_height", "0dp");
+                    attr(&mut s, "layout_row", "0");
+                    attr(&mut s, "layout_column", c.to_string());
+                    if c > 0 {
+                        if let Some(ref cg) = col_gap_val {
+                            attr(&mut s, "layout_marginStart", cg.clone());
+                        }
+                    }
+                    self.open(g_depth + 1, "Space", &s, true);
+                }
+            }
+            for (r, &row_h) in sg.rows.iter().enumerate() {
+                let covered = sg.children.iter().any(|(_, p)| p.row == r && p.row_span == 1);
+                if !covered {
+                    let mut s: Attrs = Vec::new();
+                    attr(&mut s, "layout_width", "0dp");
+                    attr(&mut s, "layout_height", format!("{}dp", num(row_h)));
+                    attr(&mut s, "layout_row", r.to_string());
+                    attr(&mut s, "layout_column", "0");
+                    if r > 0 {
+                        if let Some(ref rg) = row_gap_val {
+                            attr(&mut s, "layout_marginTop", rg.clone());
+                        }
+                    }
+                    self.open(g_depth + 1, "Space", &s, true);
+                }
+            }
+            let me = Parent::of(n);
+            for &(child_id, ref p) in &sg.children {
+                let cell_w = sg.cell_width(p);
+                let cell_h = sg.cell_height(p, true);
+                let mut c_attrs: Attrs = Vec::new();
+                attr(&mut c_attrs, "layout_width", format!("{}dp", num(cell_w)));
+                attr(&mut c_attrs, "layout_height", format!("{}dp", num(cell_h)));
+                attr(&mut c_attrs, "layout_row", p.row.to_string());
+                attr(&mut c_attrs, "layout_column", p.col.to_string());
+                if p.row_span > 1 {
+                    attr(&mut c_attrs, "layout_rowSpan", p.row_span.to_string());
+                }
+                if p.col_span > 1 {
+                    attr(&mut c_attrs, "layout_columnSpan", p.col_span.to_string());
+                }
+                if p.col > 0 {
+                    if let Some(ref cg) = col_gap_val {
+                        attr(&mut c_attrs, "layout_marginStart", cg.clone());
+                    }
+                }
+                if p.row > 0 {
+                    if let Some(ref rg) = row_gap_val {
+                        attr(&mut c_attrs, "layout_marginTop", rg.clone());
+                    }
+                }
+                self.open(g_depth + 1, "FrameLayout", &c_attrs, false);
+                let (h_align, v_align) = grid_cell_align(doc, child_id, al);
+                let grav = android_cell_gravity(h_align, v_align);
+                self.emit(child_id, me, g_depth + 2, Some(Slot { horizontal: true, gap: None, linear: false, gravity: Some(grav) }));
+                self.out.line(g_depth + 1, "</FrameLayout>");
+            }
+            self.out.line(g_depth, "</GridLayout>");
+            if has_oof {
+                for k in out_of_flow {
+                    self.emit(k.id, me, depth + 1, Some(Slot { horizontal: true, gap: None, linear: false, gravity: None }));
+                }
+                self.out.line(depth, "</FrameLayout>");
+            }
         } else if let Some(al) = own_al.filter(|_| !kids.is_empty()) {
             let horizontal = al.direction == LayoutDirection::Horizontal;
             attr(&mut attrs, "orientation", if horizontal { "horizontal" } else { "vertical" });
@@ -365,7 +494,7 @@ impl Cx<'_> {
                     attr(&mut s, "layout_weight", "1");
                     self.open(depth + 1, "Space", &s, true);
                 }
-                let slot = Slot { horizontal, gap: gap.clone().filter(|_| i > 0), linear: true };
+                let slot = Slot { horizontal, gap: gap.clone().filter(|_| i > 0), linear: true, gravity: None };
                 self.emit(k.id, me, depth + 1, Some(slot));
             }
             self.out.line(depth, "</LinearLayout>");
@@ -374,7 +503,7 @@ impl Cx<'_> {
             self.open(depth, "FrameLayout", &attrs, false);
             let me = Parent::of(n);
             for k in &kids {
-                self.emit(k.id, me, depth + 1, Some(Slot { horizontal: true, gap: None, linear: false }));
+                self.emit(k.id, me, depth + 1, Some(Slot { horizontal: true, gap: None, linear: false, gravity: None }));
             }
             self.out.line(depth, "</FrameLayout>");
         } else {
@@ -573,5 +702,33 @@ mod tests {
             assert!(xml.contains(&format!("android:layout_height=\"{height}dp\"")), "{track:?}: {xml}");
             assert!(!xml.contains("android:layout_height=\"match_parent\""), "{track:?}: {xml}");
         }
+    }
+
+    #[test]
+    fn android_xml_grid_emits_grid_layout_spans_and_uncovered_spaces() {
+        let al = AutoLayout {
+            grid_columns: 2,
+            item_spacing: 10.0,
+            counter_spacing: 8.0,
+            grid_col_tracks: vec![GridTrack::Fixed(100.0), GridTrack::Fixed(120.0)].into(),
+            grid_row_tracks: vec![GridTrack::Fixed(40.0), GridTrack::Fixed(50.0)].into(),
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..Default::default()
+        };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(230.0, 98.0));
+        let a = fixture::add_rect(&mut d, grid, Vec2::new(100.0, 40.0));
+        d.get_mut(a).unwrap().name = "Hero".into();
+        d.get_mut(a).unwrap().layout_child.grid_row = Some(0);
+        d.get_mut(a).unwrap().layout_child.grid_column = Some(0);
+        d.get_mut(a).unwrap().layout_child.row_span = 2;
+        d.relayout_subtree(grid);
+
+        let xml = android_xml_for(&d, grid);
+        assert!(xml.contains("<GridLayout"), "{xml}");
+        assert!(xml.contains("android:columnCount=\"2\""), "{xml}");
+        assert!(xml.contains("android:rowCount=\"2\""), "{xml}");
+        assert!(xml.contains("android:layout_rowSpan=\"2\""), "{xml}");
+        assert!(xml.contains("<Space\n        android:layout_width=\"120dp\"\n        android:layout_height=\"0dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"1\"\n        android:layout_marginStart=\"10dp\" />"), "{xml}");
     }
 }

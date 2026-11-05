@@ -19,6 +19,7 @@ use crate::text;
 use crate::util::{esc, hex, num, svg_transform};
 use base64::Engine;
 use designos_doc::*;
+use designos_render::{dashed_rect_stroke_path, outline_of, vectorops::sk_to_doc};
 use std::collections::HashMap;
 use std::f32::consts::TAU;
 
@@ -111,8 +112,29 @@ pub(crate) fn blend_css(b: BlendMode) -> Option<&'static str> {
     })
 }
 
+fn fe_blend_mode(b: BlendMode) -> &'static str {
+    match b {
+        BlendMode::Normal | BlendMode::PassThrough | BlendMode::LinearBurn | BlendMode::LinearDodge => "normal",
+        BlendMode::Darken => "darken",
+        BlendMode::Multiply => "multiply",
+        BlendMode::ColorBurn => "color-burn",
+        BlendMode::Lighten => "lighten",
+        BlendMode::Screen => "screen",
+        BlendMode::ColorDodge => "color-dodge",
+        BlendMode::Overlay => "overlay",
+        BlendMode::SoftLight => "soft-light",
+        BlendMode::HardLight => "hard-light",
+        BlendMode::Difference => "difference",
+        BlendMode::Exclusion => "exclusion",
+        BlendMode::Hue => "hue",
+        BlendMode::Saturation => "saturation",
+        BlendMode::Color => "color",
+        BlendMode::Luminosity => "luminosity",
+    }
+}
+
 fn visible_paints(paints: &[Paint]) -> impl Iterator<Item = &Paint> {
-    paints.iter().filter(|p| p.visible && p.opacity > 0.0)
+    paints.iter().filter(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
 }
 
 fn sorted_stops(stops: &[GradientStop]) -> Vec<GradientStop> {
@@ -155,6 +177,9 @@ fn gradient_matrix(handles: &[Vec2; 3], size: Vec2) -> Affine {
 fn matrix_attr(a: &Affine) -> String {
     format!("matrix({} {} {} {} {} {})", num(a.a), num(a.b), num(a.c), num(a.d), num(a.tx), num(a.ty))
 }
+
+/// Flattening tolerance for the node outline the stroke decision is made on (only boolean shapes use it).
+const OUTLINE_TOLERANCE: f32 = 0.05;
 
 /// Rectangle outline at (x, y) as a path.
 fn rect_geo(x: f32, y: f32, w: f32, h: f32) -> Geo {
@@ -452,7 +477,7 @@ impl Svg<'_> {
                 let c = sorted_stops(stops).first()?.color;
                 Some((hex(&c), c.a * p.opacity))
             }
-            PaintKind::Image { image_ref, scale_mode } => {
+            PaintKind::Image { image_ref, scale_mode, .. } => {
                 let (img, iw, ih) = self.image_symbol(image_ref)?;
                 let (iw, ih) = (iw as f32, ih as f32);
                 let id = self.uid("pattern");
@@ -476,6 +501,7 @@ impl Svg<'_> {
                 self.def("</pattern>");
                 Some((format!("url(#{id})"), p.opacity))
             }
+            PaintKind::Shader(_) => None,
         }
     }
 
@@ -592,12 +618,46 @@ impl Svg<'_> {
             }
             return;
         }
+        if designos_render::vectorops::has_arrow_caps(n) || designos_render::vectorops::vertex_caps(n).is_some() {
+            let outlined = designos_render::vectorops::outline_node_stroke(self.doc, n);
+            if outlined.is_empty() {
+                return;
+            }
+            let g = Geo {
+                kind: GeoKind::Path,
+                paths: outlined.into_iter().map(|p| (p.cmds, p.fill_rule)).collect(),
+                closed: true,
+                fillable: true,
+                is_rect: false,
+                mask: None,
+            };
+            for p in paints {
+                let lines = self.fill_lines(&g, p, n.size);
+                self.emit_lines(lines);
+            }
+            return;
+        }
         let w = st.weight;
         let aligned = geo.closed && geo.fillable;
+        // A dashed inside or outside rectangle is stroked at its own weight along the inset or outset
+        // outline, like the canvas does; it is still clipped to its side of the boundary below.
+        let dashed_outline = if aligned && st.align != StrokeAlign::Center {
+            outline_of(self.doc, n, OUTLINE_TOLERANCE).and_then(|sh| dashed_rect_stroke_path(n, &sh)).map(|p| Geo {
+                kind: GeoKind::Path,
+                paths: vec![(sk_to_doc(&p, FillRule::NonZero).cmds, FillRule::NonZero)],
+                closed: true,
+                fillable: true,
+                is_rect: false,
+                mask: None,
+            })
+        } else {
+            None
+        };
+        let aligned_width = if dashed_outline.is_some() { w } else { w * 2.0 };
         let (width, wrapper) = match (st.align, aligned) {
             (StrokeAlign::Inside, true) => {
                 let c = self.clip_def(geo);
-                (w * 2.0, Some(format!("<g clip-path=\"url(#{c})\">")))
+                (aligned_width, Some(format!("<g clip-path=\"url(#{c})\">")))
             }
             (StrokeAlign::Outside, true) => {
                 let id = self.uid("outside");
@@ -620,7 +680,7 @@ impl Svg<'_> {
                     self.def(&format!("  {l}"));
                 }
                 self.def("</mask>");
-                (w * 2.0, Some(format!("<g mask=\"url(#{id})\">")))
+                (aligned_width, Some(format!("<g mask=\"url(#{id})\">")))
             }
             _ => (w, None),
         };
@@ -636,7 +696,12 @@ impl Svg<'_> {
             }
             a.push_str(&format!(" stroke-width=\"{}\"", num(width)));
             match st.cap {
-                StrokeCap::None => {}
+                StrokeCap::None
+                | StrokeCap::ArrowLines
+                | StrokeCap::ArrowEquilateral
+                | StrokeCap::TriangleFilled
+                | StrokeCap::DiamondFilled
+                | StrokeCap::CircleFilled => {}
                 StrokeCap::Round => a.push_str(" stroke-linecap=\"round\""),
                 StrokeCap::Square => a.push_str(" stroke-linecap=\"square\""),
             }
@@ -656,7 +721,7 @@ impl Svg<'_> {
             if let Some(b) = blend_css(p.blend) {
                 a.push_str(&format!(" style=\"mix-blend-mode:{b}\""));
             }
-            let lines = self.shape_lines(geo, &a, false);
+            let lines = self.shape_lines(dashed_outline.as_ref().unwrap_or(geo), &a, false);
             self.emit_lines(lines);
         }
         if wrapper.is_some() {
@@ -692,11 +757,15 @@ impl Svg<'_> {
             num(n.size.x + l + r),
             num(n.size.y + t + b)
         ));
+        let has_blended_drop = n.effects.iter().any(|e| matches!(e, Effect::DropShadow { visible: true, blend, .. } if !blend.is_normal()));
+        if has_blended_drop {
+            self.def("  <feFlood flood-opacity=\"0\" result=\"BackgroundImageFix\"/>");
+        }
         let colorize = |c: &Color| format!("0 0 0 0 {} 0 0 0 0 {} 0 0 0 0 {} 0 0 0 {} 0", num(c.r), num(c.g), num(c.b), num(c.a));
         self.def("  <feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"/>");
         let mut shadows = Vec::new();
         for (i, e) in n.effects.iter().enumerate() {
-            if let Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, .. } = e {
+            if let Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } = e {
                 let mut input = "hardAlpha".to_string();
                 if *spread != 0.0 {
                     let op = if *spread > 0.0 { "dilate" } else { "erode" };
@@ -714,6 +783,9 @@ impl Svg<'_> {
                     input = format!("knockout{i}");
                 }
                 self.def(&format!("  <feColorMatrix in=\"{input}\" type=\"matrix\" values=\"{}\" result=\"shadow{i}\"/>", colorize(color)));
+                if !blend.is_normal() {
+                    self.def(&format!("  <feBlend mode=\"{}\" in=\"shadow{i}\" in2=\"BackgroundImageFix\" result=\"shadow{i}\"/>", fe_blend_mode(*blend)));
+                }
                 shadows.push(format!("shadow{i}"));
             }
         }
@@ -728,7 +800,7 @@ impl Svg<'_> {
             current = "withShadows".into();
         }
         for (i, e) in n.effects.iter().enumerate() {
-            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } = e {
+            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
                 let mut input = "hardAlpha".to_string();
                 if *spread > 0.0 {
                     self.def(&format!("  <feMorphology in=\"{input}\" operator=\"erode\" radius=\"{}\" result=\"inset{i}\"/>", num(*spread)));
@@ -742,7 +814,7 @@ impl Svg<'_> {
                 }
                 self.def(&format!("  <feComposite in=\"hardAlpha\" in2=\"{input}\" operator=\"arithmetic\" k2=\"1\" k3=\"-1\" result=\"innerCut{i}\"/>"));
                 self.def(&format!("  <feColorMatrix in=\"innerCut{i}\" type=\"matrix\" values=\"{}\" result=\"innerShadow{i}\"/>", colorize(color)));
-                self.def(&format!("  <feBlend mode=\"normal\" in=\"innerShadow{i}\" in2=\"{current}\" result=\"withInner{i}\"/>"));
+                self.def(&format!("  <feBlend mode=\"{}\" in=\"innerShadow{i}\" in2=\"{current}\" result=\"withInner{i}\"/>", fe_blend_mode(*blend)));
                 current = format!("withInner{i}");
             }
         }
@@ -1056,13 +1128,128 @@ mod tests {
             n.stroke.paints = vec![Paint::solid(Color::BLACK)];
             n.stroke.weight = 2.0;
             n.stroke.align = StrokeAlign::Inside;
-            n.stroke.dashes = vec![4.0, 2.0];
             d.insert(page, n).unwrap();
         });
         let s = svg(&d, id);
         assert!(s.contains("<clipPath id=\"clip0\">"), "{s}");
         assert!(s.contains("<g clip-path=\"url(#clip0)\">"), "{s}");
-        assert!(s.contains("fill=\"none\" stroke=\"#000000\" stroke-width=\"4\" stroke-dasharray=\"4 2\""), "{s}");
+        assert!(s.contains("<rect width=\"10\" height=\"10\" fill=\"none\" stroke=\"#000000\" stroke-width=\"4\"/>"), "{s}");
+    }
+
+    /// A node with a 100 x 60 dashed, round-capped, 8 wide black stroke aligned `align`.
+    fn dashed_rectangle(align: StrokeAlign, edit: impl FnOnce(&mut Node)) -> String {
+        let (d, id) = doc1(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 100.0, 60.0));
+            n.fills.clear();
+            n.stroke = Stroke {
+                paints: vec![Paint::solid(Color::BLACK)],
+                weight: 8.0,
+                align,
+                cap: StrokeCap::Round,
+                dashes: vec![10.0, 14.0],
+                miter_limit: 4.0,
+                ..Default::default()
+            };
+            edit(&mut n);
+            d.insert(page, n).unwrap();
+        });
+        svg(&d, id)
+    }
+
+    #[test]
+    fn dashed_inside_rectangle_strokes_its_inset_outline_at_its_own_weight_under_the_clip() {
+        let s = dashed_rectangle(StrokeAlign::Inside, |_| {});
+        assert!(s.contains("<g clip-path=\"url(#clip0)\">"), "{s}");
+        assert!(
+            s.contains("<path d=\"M4 4 L96 4 L96 56 L4 56 L4 4 Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"),
+            "{s}"
+        );
+        assert!(!s.contains("stroke-width=\"16\""), "{s}");
+    }
+
+    #[test]
+    fn dashed_outside_rectangle_strokes_its_outset_outline_at_its_own_weight_under_the_mask() {
+        let s = dashed_rectangle(StrokeAlign::Outside, |_| {});
+        assert!(s.contains("<g mask=\"url(#outside0)\">"), "{s}");
+        assert!(
+            s.contains("<path d=\"M-4 -4 L104 -4 L104 64 L-4 64 L-4 -4 Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"),
+            "{s}"
+        );
+        assert!(!s.contains("stroke-width=\"16\""), "{s}");
+    }
+
+    #[test]
+    fn dashed_rectangle_with_rounded_corners_strokes_a_path_with_curves() {
+        let s = dashed_rectangle(StrokeAlign::Inside, |n| n.corner_radii = [12.0; 4]);
+        // the inset outline of a 12 radius corner has radius 12 - 8 / 2 = 8
+        assert!(s.contains("<path d=\"M12 4 L88 4 C92.418 4 96 7.582 96 12 L96 48 "), "{s}");
+        assert!(s.contains("stroke-width=\"8\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"), "{s}");
+        assert!(!s.contains("<rect width=\"100\" height=\"60\" rx=\"12\" fill=\"none\""), "{s}");
+    }
+
+    #[test]
+    fn dashed_rectangle_with_imported_fill_geometry_takes_the_inset_outline_too() {
+        let outline = Path { cmds: square_rect_cmds(100.0, 60.0), fill_rule: FillRule::NonZero };
+        let s = dashed_rectangle(StrokeAlign::Inside, |n| n.fill_geometry = Some(vec![outline]));
+        assert!(s.contains("<path d=\"M4 4 L96 4 L96 56 L4 56 L4 4 Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"8\""), "{s}");
+    }
+
+    fn square_rect_cmds(w: f32, h: f32) -> Vec<PathCmd> {
+        crate::geo::rounded_rect(w, h, [0.0; 4])
+    }
+
+    /// A rectangle thinner than its stroke has no inset outline: it keeps the boundary stroke at twice the weight.
+    #[test]
+    fn dashed_rectangle_thinner_than_its_stroke_keeps_the_doubled_boundary_stroke() {
+        let s = dashed_rectangle(StrokeAlign::Inside, |n| n.size = Vec2::new(100.0, 6.0));
+        assert!(s.contains("<g clip-path=\"url(#clip0)\">"), "{s}");
+        assert!(
+            s.contains(
+                "<rect width=\"100\" height=\"6\" fill=\"none\" stroke=\"#000000\" stroke-width=\"16\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"
+            ),
+            "{s}"
+        );
+    }
+
+    /// Only rectangle layers take the inset outline; a vector with the same outline, a centered stroke
+    /// and a solid stroke keep the boundary at the old width.
+    #[test]
+    fn strokes_that_are_not_dashed_rectangle_layers_keep_the_boundary_stroke() {
+        let vector = {
+            let (d, id) = doc1(|d, page| {
+                let i = d.alloc_id();
+                let mut n =
+                    Node::new(i, NodeKind::Vector { paths: vec![Path { cmds: square_rect_cmds(100.0, 60.0), fill_rule: FillRule::NonZero }], network: None });
+                n.size = Vec2::new(100.0, 60.0);
+                n.stroke = Stroke {
+                    paints: vec![Paint::solid(Color::BLACK)],
+                    weight: 8.0,
+                    align: StrokeAlign::Inside,
+                    cap: StrokeCap::Round,
+                    dashes: vec![10.0, 14.0],
+                    miter_limit: 4.0,
+                    ..Default::default()
+                };
+                d.insert(page, n).unwrap();
+            });
+            svg(&d, id)
+        };
+        assert!(vector.contains("<path d=\"M0 0 L100 0 L100 60 L0 60 Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"16\""), "{vector}");
+        let centered = dashed_rectangle(StrokeAlign::Center, |_| {});
+        assert!(
+            centered.contains(
+                "<rect width=\"100\" height=\"60\" fill=\"none\" stroke=\"#000000\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"
+            ),
+            "{centered}"
+        );
+        let solid_inside = dashed_rectangle(StrokeAlign::Inside, |n| n.stroke.dashes.clear());
+        assert_eq!(
+            solid_inside,
+            format!(
+                "{HEAD} width=\"100\" height=\"60\" viewBox=\"0 0 100 60\" fill=\"none\">\n  <defs>\n    <clipPath id=\"clip0\">\n      <rect width=\"100\" height=\"60\"/>\n    </clipPath>\n  </defs>\n  <g data-name=\"Rectangle\">\n    <g clip-path=\"url(#clip0)\">\n      <rect width=\"100\" height=\"60\" fill=\"none\" stroke=\"#000000\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n    </g>\n  </g>\n</svg>\n"
+            )
+        );
     }
 
     #[test]
@@ -1119,14 +1306,25 @@ mod tests {
                 Effect::Noise(NoiseEffect {
                     mode: NoiseMode::Mono { color: Color::BLACK },
                     size: 2.0,
+                    size_y: None,
                     density: 0.5,
                     opacity: 0.25,
                     blend: BlendMode::Normal,
                     seed: 3,
                     visible: true,
                 }),
-                Effect::Texture(TextureEffect { size: 4.0, radius: 3.0, clip_to_shape: true, seed: 5, visible: true }),
-                Effect::Glass(GlassEffect { light_angle: 0.0, light_intensity: 0.5, refraction: 0.5, depth: 8.0, dispersion: 0.0, frost: 4.0, visible: true }),
+                Effect::Texture(TextureEffect { size: 4.0, size_y: None, radius: 3.0, clip_to_shape: true, seed: 5, visible: true }),
+                Effect::Glass(GlassEffect {
+                    light_angle: 0.0,
+                    light_intensity: 0.5,
+                    refraction: 0.5,
+                    depth: 8.0,
+                    dispersion: 0.0,
+                    frost: 4.0,
+                    splay: 0.0,
+                    bevel: 0.0,
+                    visible: true,
+                }),
             ];
             d.insert(page, n).unwrap();
         });
@@ -1218,7 +1416,7 @@ mod tests {
             let i = d.alloc_id();
             let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 8.0, 8.0));
             n.fills = vec![Paint {
-                kind: PaintKind::Image { image_ref: "h1".into(), scale_mode: ImageScaleMode::Fill },
+                kind: PaintKind::Image { image_ref: "h1".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
                 opacity: 1.0,
                 visible: true,
                 blend: BlendMode::Normal,
@@ -1280,5 +1478,110 @@ mod tests {
         assert!(s2.contains("<mask id=\"subtract0\""), "{s2}");
         assert!(s2.contains("fill=\"black\""), "{s2}");
         assert!(s2.contains("mask=\"url(#subtract0)\""), "{s2}");
+    }
+
+    #[test]
+    fn shadow_filter_exports_multiply_and_screen_blend_modes() {
+        for (mode, token) in [(BlendMode::Multiply, "multiply"), (BlendMode::Screen, "screen")] {
+            let (d, id) = doc1(|d, page| {
+                let i = d.alloc_id();
+                let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 40.0, 30.0));
+                n.effects = vec![
+                    Effect::DropShadow {
+                        color: Color::rgba(0, 0, 0, 128),
+                        offset: Vec2::new(0.0, 4.0),
+                        radius: 8.0,
+                        spread: 0.0,
+                        visible: true,
+                        show_behind: false,
+                        blend: mode,
+                    },
+                    Effect::InnerShadow {
+                        color: Color::rgba(255, 255, 255, 128),
+                        offset: Vec2::new(1.0, 2.0),
+                        radius: 4.0,
+                        spread: 0.0,
+                        visible: true,
+                        blend: mode,
+                    },
+                ];
+                d.insert(page, n).unwrap();
+            });
+            let s = svg(&d, id);
+            assert!(
+                s.contains(&format!("<feBlend mode=\"{token}\" in=\"shadow0\" in2=\"BackgroundImageFix\" result=\"shadow0\"/>")),
+                "expected drop shadow feBlend mode={token} in:\n{s}"
+            );
+            assert!(
+                s.contains(&format!("<feBlend mode=\"{token}\" in=\"innerShadow1\" in2=\"withShadows\" result=\"withInner1\"/>")),
+                "expected inner shadow feBlend mode={token} in:\n{s}"
+            );
+        }
+    }
+
+    #[test]
+    fn shadow_filter_unsupported_svg_blend_modes_fall_back_to_normal() {
+        for mode in [BlendMode::LinearBurn, BlendMode::LinearDodge, BlendMode::PassThrough] {
+            let (d, id) = doc1(|d, page| {
+                let i = d.alloc_id();
+                let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 40.0, 30.0));
+                n.effects = vec![
+                    Effect::DropShadow {
+                        color: Color::rgba(0, 0, 0, 128),
+                        offset: Vec2::new(0.0, 4.0),
+                        radius: 8.0,
+                        spread: 0.0,
+                        visible: true,
+                        show_behind: false,
+                        blend: mode,
+                    },
+                    Effect::InnerShadow {
+                        color: Color::rgba(255, 255, 255, 128),
+                        offset: Vec2::new(1.0, 2.0),
+                        radius: 4.0,
+                        spread: 0.0,
+                        visible: true,
+                        blend: mode,
+                    },
+                ];
+                d.insert(page, n).unwrap();
+            });
+            let s = svg(&d, id);
+            assert!(
+                s.contains("<feBlend mode=\"normal\" in=\"shadow0\" in2=\"BackgroundImageFix\" result=\"shadow0\"/>"),
+                "expected drop shadow fallback to feBlend mode=\"normal\" for {mode:?} in:\n{s}"
+            );
+            assert!(
+                s.contains("<feBlend mode=\"normal\" in=\"innerShadow1\" in2=\"withShadows\" result=\"withInner1\"/>"),
+                "expected inner shadow fallback to feBlend mode=\"normal\" for {mode:?} in:\n{s}"
+            );
+            assert!(!s.contains("linear-burn") && !s.contains("linear-dodge") && !s.contains("plus-lighter") && !s.contains("pass-through"), "{s}");
+        }
+    }
+
+    #[test]
+    fn normal_shadow_filter_output_is_byte_identical_to_base() {
+        let (d, id) = doc1(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.effects = vec![
+                Effect::DropShadow {
+                    color: Color::rgba(0, 0, 0, 64),
+                    offset: Vec2::new(0.0, 4.0),
+                    radius: 4.0,
+                    spread: 0.0,
+                    visible: true,
+                    show_behind: false,
+                    blend: BlendMode::Normal,
+                },
+                Effect::InnerShadow { color: Color::WHITE, offset: Vec2::new(1.0, 1.0), radius: 2.0, spread: 0.0, visible: true, blend: BlendMode::Normal },
+            ];
+            d.insert(page, n).unwrap();
+        });
+        let s = svg(&d, id);
+        let expected = format!(
+            "{HEAD} width=\"18\" height=\"18\" viewBox=\"-4 0 18 18\" fill=\"none\">\n  <defs>\n    <filter id=\"shadow0\" x=\"-4\" y=\"0\" width=\"18\" height=\"18\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\">\n      <feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"/>\n      <feOffset in=\"hardAlpha\" dx=\"0\" dy=\"4\" result=\"offset0\"/>\n      <feGaussianBlur in=\"offset0\" stdDeviation=\"2\" result=\"blur0\"/>\n      <feComposite in=\"blur0\" in2=\"hardAlpha\" operator=\"out\" result=\"knockout0\"/>\n      <feColorMatrix in=\"knockout0\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.251 0\" result=\"shadow0\"/>\n      <feMerge result=\"withShadows\">\n        <feMergeNode in=\"shadow0\"/>\n        <feMergeNode in=\"SourceGraphic\"/>\n      </feMerge>\n      <feOffset in=\"hardAlpha\" dx=\"1\" dy=\"1\" result=\"innerOffset1\"/>\n      <feGaussianBlur in=\"innerOffset1\" stdDeviation=\"1\" result=\"innerBlur1\"/>\n      <feComposite in=\"hardAlpha\" in2=\"innerBlur1\" operator=\"arithmetic\" k2=\"1\" k3=\"-1\" result=\"innerCut1\"/>\n      <feColorMatrix in=\"innerCut1\" type=\"matrix\" values=\"0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0\" result=\"innerShadow1\"/>\n      <feBlend mode=\"normal\" in=\"innerShadow1\" in2=\"withShadows\" result=\"withInner1\"/>\n    </filter>\n  </defs>\n  <g data-name=\"Rectangle\">\n    <g filter=\"url(#shadow0)\">\n      <rect width=\"10\" height=\"10\" fill=\"#D9D9D9\"/>\n    </g>\n  </g>\n</svg>\n"
+        );
+        assert_eq!(s, expected);
     }
 }

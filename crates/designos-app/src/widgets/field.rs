@@ -71,8 +71,7 @@ pub fn edit_text_hint(
         .id(id)
         .font(font.clone())
         .text_color(if focused { color } else { Color32::TRANSPARENT })
-        .frame(egui::Frame::NONE)
-        .margin(Margin::symmetric(pad_x as i8, 0))
+        .frame(egui::Frame::NONE.inner_margin(Margin::symmetric(pad_x as i8, 0)))
         .vertical_align(Align::Center)
         .min_size(rect.size())
         .desired_width(rect.width());
@@ -561,12 +560,33 @@ pub(crate) fn parse_number(s: &str) -> Option<f32> {
 /// `text_secondary`, value at x+24 (x+8 without a prefix), suffix right after the value
 /// in `text_secondary`. Integers print without decimals, other values with at most two.
 pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
+    num_field_inner(ui, rect, key, prefix, value, suffix, false)
+}
+
+/// Like [`num_field`], with the value placed at the prefix label's measured right edge plus [`theme::SPACE_FACT`].
+pub fn num_field_prefix_gap(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
+    num_field_inner(ui, rect, key, prefix, value, suffix, true)
+}
+
+fn num_field_inner(
+    ui: &mut Ui,
+    rect: Rect,
+    key: impl crate::widgets::Key,
+    prefix: Prefix,
+    value: Option<f32>,
+    suffix: &str,
+    tight_prefix_gap: bool,
+) -> Option<f32> {
     #[cfg(test)]
-    ui.ctx().data_mut(|d| {
+    {
         let k = format!("{key:?}");
-        d.insert_temp(Id::new(("field-rect", k.clone())), rect);
-        d.insert_temp(Id::new(("field-prefix", k)), prefix);
-    });
+        let rect_id = Id::new(("field-rect", k.clone()));
+        let prefix_id = Id::new(("field-prefix", k));
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(rect_id, rect);
+            d.insert_temp(prefix_id, prefix);
+        });
+    }
     let id = ui.id().with(("num", key));
     let display = value.map(super::numeric_field_value).unwrap_or_default();
     let has_prefix = !matches!(prefix, Prefix::None);
@@ -590,7 +610,9 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
                 theme::TEXT_SECONDARY,
             );
             let prefix_right = painted.right() - rect.left();
-            if prefix_right > theme::FIELD_PREFIX_W {
+            if tight_prefix_gap {
+                pw = prefix_right + theme::SPACE_FACT;
+            } else if prefix_right > theme::FIELD_PREFIX_W {
                 pw = prefix_right.ceil() + theme::SPACE_FACT;
             }
         }
@@ -803,6 +825,28 @@ mod tests {
         assert_eq!(eval_number_expr(&format!("{}1", "-".repeat(10)), None, false), Some(1.0));
         assert_eq!(eval_number_expr(&format!("{}5{}", "(".repeat(20), ")".repeat(20)), None, false), Some(5.0));
         assert_eq!(eval_number_expr("2^2^3", None, false), Some(256.0));
+    }
+
+    #[test]
+    fn focused_text_starts_after_the_requested_horizontal_inset() {
+        let ctx = egui::Context::default();
+        theme::apply(&ctx);
+        theme::install_fonts(&ctx);
+        let rect = Rect::from_min_size(Pos2::new(24.0, 24.0), Vec2::new(120.0, theme::FIELD_HEIGHT));
+        let id = Id::new("focused-inset");
+        let mut text_shape = None;
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() }, |ui| {
+                ui.memory_mut(|m| m.request_focus(id));
+                edit_text_hint(ui, rect, id, "123", theme::font_body(), theme::TEXT, 8.0, None);
+            });
+            text_shape = out.shapes.iter().find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) if shape.galley.text() == "123" => Some(shape.clone()),
+                _ => None,
+            });
+        }
+        let shape = text_shape.expect("focused field text is painted");
+        assert!((shape.pos.x - (rect.left() + 8.0)).abs() < 0.1, "text starts at {}, expected {}", shape.pos.x, rect.left() + 8.0);
     }
 
     #[test]

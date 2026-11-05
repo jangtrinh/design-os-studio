@@ -1,0 +1,120 @@
+$ cargo test --workspace --locked --lib
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.75s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-ac9ac4f3b29bd301)
+
+running 13 tests
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-043d4392435df81c)
+
+running 733 tests
+
+test result: ok. 733 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.21s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-40a4fa01ab02d564)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-56d56e8bb2e3086d)
+
+running 159 tests
+test html::tests::card_passes_html_validate ... ignored, needs html-validate (cargo test -p designos-export --lib card_passes_html_validate -- --ignored)
+
+test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-4604fd409bbe265a)
+
+running 143 tests
+
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.57s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-3314a122f1c6d8b9)
+
+running 30 tests
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-b45e02ca235d2444)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-deec03b867f3c13b)
+
+running 37 tests
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.01s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-355a5183c1dcb720)
+
+running 327 tests
+
+test result: ok. 327 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.71s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-414c4008158cd923)
+
+running 58 tests
+test blur::tests::scan_thresholds ... ignored
+test blur::tests::where_is_worst ... ignored
+
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 33.91s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-160045c1fb418a4f)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-32c480f78f51377e)
+
+running 8 tests
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+lib_rc=0
+test branch_merge::tests::same_named_variables_with_different_ids_kept_and_renamed ... ok
+test component_cycle_tests::an_instance_swapped_to_the_main_it_sits_in_on_the_page_still_follows_that_main ... ok
+test components::tests::a_property_other_than_a_variant_is_stored_on_the_nested_instance_as_a_value ... ok
+test components::tests::a_variant_edit_on_an_exposed_nested_instance_is_a_swap_that_a_sync_keeps_and_reset_takes_back ... ok
+test components::tests::an_instance_is_not_swapped_to_a_component_that_holds_the_main_it_sits_in ... ok
+test components::tests::detach_keeps_nested_instances_working ... ok
+test components::tests::deeper_exposed_names_of_a_row_are_the_union_over_its_variants ... ok
+test components::tests::inner_swap_below_swapped_slot_is_dropped_and_counted ... ok
+test components::tests::exposed_nested_instances_handles_multi_level_hierarchy_and_variant_sets ... ok
+test components::tests::expose_nested_instances_toggles_bubbles_edits_survives_sync_and_preserves_overrides_when_unexposed ... ok
+test components::tests::migrate_instance_swap_region_to_slot_keeps_swapped_and_overridden_content_and_undoes_in_one_step ... ok
+test components::tests::nested_slot_size_rule_is_per_axis_across_swap_and_sync ... ok
+test components::tests::nested_slot_widened_by_outer_instance_keeps_width_on_swap ... ok
+test components::tests::one_nested_instance_per_variant_stays_one_row_that_sets_every_variant ... ok
+test components::tests::nested_variant_values_do_not_switch_a_nested_instance_while_expose_is_off ... ok
+test components::tests::nested_instances_follow_both_levels ... ok
+test components::tests::nested_values_are_overrides_only_while_the_nested_instance_is_exposed ... ok
+test components::tests::reswapped_nested_slot_takes_new_main_size ... ok
+test components::tests::same_named_nested_instances_in_one_component_are_exposed_one_by_one ... ok
+test components::tests::same_named_nested_instances_connect_across_variants_by_their_position_among_same_names ... ok
+test components::tests::swap_reports_zero_dropped_inner_swaps_on_unswapped_nested_chain ... ok
+test components::tests::swapped_nested_slot_follows_new_main_resize_by_property ... ok
+test components::tests::swapped_nested_slot_follows_new_main_resize_by_direct_swap ... ok
+test components::tests::swapped_slot_glyph_after_three_syncs_matches_direct_20px_glyph ... ok
+test find::tests::find_matching_layers_equals_brute_force_oracle_across_top_level_instances_and_nested_component_sets ... ok
+test layout_apply::tests::repro_33_nested_frames_under_page_counts_hops_from_changed_node ... ok
+test library_ops::tests::nested_library_instances_import_dependencies ... ok
+test slot_model_tests::a_slot_in_a_nested_instance_takes_its_settings_from_the_nested_component ... ok
+test spec_instance::tests::nested_slot_via_override_path ... ok
+test spec_instance::tests::swap_nested_instance ... ok
+test vector::tests::faces_report_holes_of_nested_loops ... ok
+test rest_import::grid_sizing_tests::deeply_nested_repeat_stops_at_depth_cap ... ok
+test rest_import::grid_sizing_tests::nested_repeat_bomb_is_counted_not_expanded ... ok
+test variables_dtcg::tests::dtcg_export_gives_same_named_collections_unique_groups_and_files ... ok
+test variables_dtcg::tests::dtcg_zip_export_with_same_named_collections_succeeds ... ok
+test web_capture::tests::looks_like_web_capture_ignores_nested_substring ... ok
+test server::tests::unknown_field_nested_paths_and_corrected_examples_pass_when_resent ... ok
+test tools::batch::tests::set_slot_prefers_bound_slot_over_same_named_ordinary_child ... ok
+test index::tests::hiding_a_deep_ancestor_drops_every_nested_layout_grid ... ok

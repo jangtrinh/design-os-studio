@@ -60,7 +60,7 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
             };
             has(&["ALL_FILLS", specific])
         }
-        k if k.starts_with("strokes/") => has(&["STROKE_COLOR"]),
+        k if k.starts_with("strokes/") => has(&["STROKE", "STROKE_COLOR"]),
         k if effect_field_key(k).is_some() => match effect_field_key(k).map(|(_, f)| f) {
             Some("color") => has(&["EFFECT_COLOR"]),
             Some("radius" | "spread" | "offsetX" | "offsetY") => has(&["EFFECT_FLOAT"]),
@@ -223,7 +223,7 @@ fn apply_font_style_str(s: &mut TextStyle, val: &str) {
     let low = val.to_ascii_lowercase();
     s.italic = low.contains("italic") || low.contains("oblique");
     if let Some(w) = font_style_weight(val) {
-        s.font_weight = w;
+        s.set_font_weight(w);
     }
 }
 
@@ -449,7 +449,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
             if let NodeKind::Text(t) = &mut n.kind {
                 let apply = |s: &mut TextStyle| match key {
                     "fontSize" => s.font_size = x.max(1.0),
-                    "fontWeight" => s.font_weight = x.round().clamp(1.0, 1000.0) as u16,
+                    "fontWeight" => s.set_font_weight(x.round().clamp(1.0, 1000.0) as u16),
                     "lineHeight" => s.line_height = LineHeight::Pixels(x.max(0.0)),
                     "paragraphSpacing" => s.paragraph_spacing = x.max(0.0),
                     _ => s.letter_spacing = x,
@@ -505,7 +505,7 @@ pub fn set_bound_style_property(style: &mut Style, key: &str, value: &VariableVa
             }
             ("fontWeight", _) => {
                 if let Some(x) = number_of(value) {
-                    ts.font_weight = x.round().clamp(1.0, 1000.0) as u16;
+                    ts.set_font_weight(x.round().clamp(1.0, 1000.0) as u16);
                 }
             }
             ("lineHeight", _) => {
@@ -709,6 +709,19 @@ mod tests {
     }
 
     #[test]
+    fn font_weight_binding_keeps_wght_axis_in_sync() {
+        let mut n = Node::text(NodeId(1), Rect::new(0.0, 0.0, 20.0, 20.0), "text", TextStyle::default());
+        let NodeKind::Text(t) = &mut n.kind else { panic!() };
+        t.style.set_axis("wght", 400.0);
+
+        set_bound_property(&mut n, "fontWeight", &VariableValue::Number(700.0));
+
+        let NodeKind::Text(t) = n.kind else { panic!() };
+        assert_eq!(t.style.font_weight, 700);
+        assert_eq!(t.style.get_axis("wght"), Some(700.0));
+    }
+
+    #[test]
     fn mode_on_ancestor_switches_values() {
         let (mut d, _, frame, text) = setup();
         d.get_mut(frame).unwrap().variables.modes.insert("c".into(), "dark".into());
@@ -861,6 +874,15 @@ mod tests {
         assert!(!scope_allows(&["FRAME_FILL".into()], "fills/0", &text));
         assert!(scope_allows(&["TEXT_FILL".into()], "fills/0", &text));
         assert!(scope_allows(&["ALL_FILLS".into()], "fills/0", &text));
+        assert!(scope_allows(&["STROKE".into()], "strokes/0", &frame), "Figma editor scope STROKE must allow stroke colours");
+        assert!(scope_allows(&["STROKE_COLOR".into()], "strokes/0", &frame), "REST scope STROKE_COLOR must allow stroke colours");
+        for spelling in ["STROKE", "STROKE_COLOR"] {
+            let scopes = [spelling.to_string()];
+            assert!(!scope_allows(&scopes, "fills/0", &frame), "{spelling} is a stroke colour scope, not a frame fill scope");
+            assert!(!scope_allows(&scopes, "fills/0", &text), "{spelling} is a stroke colour scope, not a text fill scope");
+            assert!(!scope_allows(&scopes, "strokeWeight", &frame), "{spelling} is a stroke colour scope, not a stroke weight scope");
+            assert!(!scope_allows(&scopes, "strokes/0/opacity", &frame), "{spelling} does not cover paint opacity");
+        }
     }
 
     #[test]

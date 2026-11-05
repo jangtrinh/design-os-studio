@@ -1,0 +1,53 @@
+== null control
+     Running tests/fig_export_shader_unknown_keys.rs (out/cargo/debug/deps/fig_export_shader_unknown_keys-a82988e39d8e1657)
+test an_unknown_key_inside_an_array_of_messages_names_the_index ... ok
+test an_unknown_key_on_a_nested_message_fails_the_export ... ok
+test an_unknown_key_in_an_effect_style_names_the_style ... ok
+test an_unknown_key_on_a_nested_struct_fails_the_export ... ok
+test an_unknown_key_two_levels_down_names_the_whole_path ... ok
+test an_unknown_top_level_key_names_the_layer_and_the_next_action ... ok
+test a_nested_value_that_cannot_be_written_fails_the_export_instead_of_being_left_out ... ok
+test a_shader_whose_every_key_the_schema_names_exports ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/fig_export_text_style_fills.rs (out/cargo/debug/deps/fig_export_text_style_fills-dd3aa3508191c227)
+test a_text_style_without_fills_writes_no_fill_paints_field ... ok
+test a_text_style_with_a_solid_fill_round_trips_its_fill_through_fig ... ok
+test a_solid_fill_on_a_text_style_of_a_file_comes_back_after_a_round_trip ... ok
+test a_text_style_whose_fill_is_a_shader_round_trips_it_byte_equal ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/fig_shader_refs.rs (out/cargo/debug/deps/fig_shader_refs-ee25a948f2416590)
+test shader_message_bytes_are_equal_after_round_trip ... ok
+test unknown_field_on_a_shader_message_is_kept ... ok
+test designos_json_round_trip_keeps_shader ... ok
+test shader_fill_keeps_opacity_visible_blend_and_slot_order ... ok
+test shader_in_effect_style_round_trips ... ok
+test shader_effect_and_fill_survive_fig_import_export_reimport ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+== mutant: the Style::Text arm drops fillPaints again
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+     Running tests/fig_export_shader_unknown_keys.rs (out/cargo/debug/deps/fig_export_shader_unknown_keys-a82988e39d8e1657)
+test an_unknown_key_on_a_nested_message_fails_the_export ... ok
+test an_unknown_key_in_an_effect_style_names_the_style ... ok
+test an_unknown_key_on_a_nested_struct_fails_the_export ... ok
+test an_unknown_key_inside_an_array_of_messages_names_the_index ... ok
+test an_unknown_key_two_levels_down_names_the_whole_path ... ok
+test an_unknown_top_level_key_names_the_layer_and_the_next_action ... ok
+test a_nested_value_that_cannot_be_written_fails_the_export_instead_of_being_left_out ... ok
+test a_shader_whose_every_key_the_schema_names_exports ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/fig_export_text_style_fills.rs (out/cargo/debug/deps/fig_export_text_style_fills-dd3aa3508191c227)
+test a_text_style_without_fills_writes_no_fill_paints_field ... ok
+test a_text_style_with_a_solid_fill_round_trips_its_fill_through_fig ... FAILED
+test a_text_style_whose_fill_is_a_shader_round_trips_it_byte_equal ... FAILED
+test a_solid_fill_on_a_text_style_of_a_file_comes_back_after_a_round_trip ... FAILED
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+error: test failed, to rerun pass `-p designos-fig --test fig_export_text_style_fills`
+     Running tests/fig_shader_refs.rs (out/cargo/debug/deps/fig_shader_refs-ee25a948f2416590)
+test shader_message_bytes_are_equal_after_round_trip ... ok
+test designos_json_round_trip_keeps_shader ... ok
+test unknown_field_on_a_shader_message_is_kept ... ok
+test shader_fill_keeps_opacity_visible_blend_and_slot_order ... ok
+test shader_in_effect_style_round_trips ... ok
+test shader_effect_and_fill_survive_fig_import_export_reimport ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+== restored: git diff empty?        0 lines

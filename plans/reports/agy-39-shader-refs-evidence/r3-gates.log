@@ -1,0 +1,41 @@
+# r3 gates on code commit a6fa6939f360719f330dc2b7b9234844964a92f7 (merge of origin/main 7f2f7f49e at fed48f525; effects row change at a6fa6939f)
+# harness: short HOME/TMPDIR /tmp/xr3/{home,tmp} for all but the designos-app full run (long mktemp harness, see below)
+spacing exit=0
+ontology exit=0
+zero-fake-ui exit=0
+fmt exit=0
+clippy exit=0
+test-doc exit=0
+test-fig exit=0
+test-render exit=0
+test-gpu exit=0
+test-export exit=0
+test-mcp exit=0
+test-app exit=101   (short-HOME run: 25 failures, all from HOME under /tmp counting as agent temp; superseded by the long-TMPDIR run below)
+test-workspace-lib exit=0
+self-evolve exit=1
+unittest-ontology exit=0
+tree after gates: self-evolve rewrote design/heartbeat-state.json, memory.events.count.json, memory.events.jsonl, memory.graph.json and added one design/harvest-inbox file; all reverted (git checkout, rm) and not committed; 0 changed paths outside plans/reports/**
+DONE
+
+# designos-app full run, long mktemp TMPDIR harness (the common brief harness): exit=101
+4435:test result: FAILED. 4364 passed; 3 failed; 13 ignored; 0 measured; 0 filtered out; finished in 408.76s
+    agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+    vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope
+    vecops::tests::two_deferred_text_commands_both_convert_in_order
+
+# the three failures rerun alone, short TMPDIR /tmp/xr3/tmp: exit=0
+10:test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+11:test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+12:test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+14:test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4377 filtered out; finished in 1.52s
+
+# self-evolve: branch = FAIL 7/9 (G06, G09), origin/main 7f2f7f49e = FAIL 7/9 (G06, G09): identical, pre-existing
+branch: 12:G06  | FAIL   | ui_agents_check          | errorCount=0, warningCount=1, claude_agents=0, missing_cross_runtime=[]
+branch: 15:G09  | FAIL   | design_os_project_audit  | audit_exit=1, targets=40, excluded=2, tools_run=203, tools_failed=0, audit_errors=6, failing=[plans/261102-project
+branch: 17: G09 detail:
+branch: 65: Overall Self-Evolution Verdict: FAIL (7/9 gates passed)
+main:   12:G06  | FAIL   | ui_agents_check          | errorCount=0, warningCount=1, claude_agents=0, missing_cross_runtime=[]
+main:   15:G09  | FAIL   | design_os_project_audit  | audit_exit=1, targets=40, excluded=2, tools_run=203, tools_failed=0, audit_errors=6, failing=[plans/261102-project
+main:   17: G09 detail:
+main:   65: Overall Self-Evolution Verdict: FAIL (7/9 gates passed)

@@ -1,0 +1,28 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.45s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 4 tests
+test shell::tests::edit_menu_parity::edit_menu_and_palette_expose_all_five_commands_with_labels_shortcuts_and_enabled_states ... ok
+test shell::tests::edit_menu_parity::select_same_text_style_and_variant_match_exact_unlocked_visible_siblings ... ok
+
+thread 'shell::tests::edit_menu_parity::swap_fill_and_stroke_single_and_multi_selection_preserves_gradients_and_bindings_and_round_trips' (78212869) panicked at crates/designos-app/src/shell/tests/edit_menu_parity.rs:225:5:
+assertion `left == right` failed: fills/0 binding moved to strokes/0
+  left: None
+ right: Some("var_fill")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_single_and_multi_selection_preserves_gradients_and_bindings_and_round_trips ... FAILED
+test shell::tests::edit_menu_parity::paste_and_match_style_layer_and_text_carries_target_style_and_undoes_in_one_step ... ok
+
+failures:
+
+failures:
+    shell::tests::edit_menu_parity::swap_fill_and_stroke_single_and_multi_selection_preserves_gradients_and_bindings_and_round_trips
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 4219 filtered out; finished in 0.76s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

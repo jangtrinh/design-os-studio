@@ -1,0 +1,74 @@
+=== GREEN TEST 1 & 2 (CPU): designos-render ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.74s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 3 tests
+test dashed_line_and_caps ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+
+=== GREEN TEST 1 & 2 (GPU): designos-gpu ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.63s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 2 tests
+test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.17s
+
+
+=== GREEN TEST 3 (Stroke panel): designos-app ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-mcp)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-export)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+   Compiling designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-library)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.05s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4195 filtered out; finished in 0.02s
+
+
+=== GREEN TEST 4 & 5 (.fig + REST roundtrip): designos-fig ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.58s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 2 tests
+test rest_export_import_preserves_dash_cap ... ok
+test fig_export_import_preserves_dash_cap ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.03s
+

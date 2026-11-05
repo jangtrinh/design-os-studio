@@ -7,7 +7,7 @@ mod pdf_probe;
 
 use designos_doc::*;
 use designos_export::export_pdf;
-use pdf_probe::{page_pixels, PageKind, Pdf, Pixels, Val};
+use pdf_probe::{page_pixels, paint_vector_page, PageKind, Pdf, Pixels, Val};
 
 const SCALE: f32 = 2.0;
 
@@ -159,7 +159,12 @@ fn photo_png(rgb: [u8; 3]) -> Vec<u8> {
 }
 
 fn image_paint(image_ref: &str) -> Paint {
-    Paint { kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: ImageScaleMode::Fill }, opacity: 1.0, visible: true, blend: BlendMode::Normal }
+    Paint {
+        kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -475,6 +480,61 @@ fn inside_and_centered_strokes_match_the_canvas() {
         out.assert_agree_at("stroke alignment", &[(80.0, 24.0), (80.0, 27.0), (80.0, 33.0), (80.0, 36.0), (80.0, 60.0)], 3);
         assert_eq!(out.kind, PageKind::Vector);
     }
+}
+
+/// A dashed inside or outside stroke on a rectangle is drawn along the inset or outset outline at the stroke's own
+/// weight, so the dashes sit where the canvas puts them and each dash end carries the stroke cap.
+#[test]
+fn dashed_inside_and_outside_rectangle_strokes_match_the_canvas() {
+    // (align, cap, weight, dashes, corner radius, a point in the middle of the first dash)
+    let cases = [
+        (StrokeAlign::Inside, StrokeCap::Round, 8.0, [10.0, 14.0], 0.0, (39.0, 34.0)),
+        (StrokeAlign::Inside, StrokeCap::None, 8.0, [10.0, 14.0], 0.0, (39.0, 34.0)),
+        (StrokeAlign::Inside, StrokeCap::Square, 6.0, [9.0, 7.0], 12.0, (53.0, 33.0)),
+        (StrokeAlign::Outside, StrokeCap::Square, 8.0, [10.0, 14.0], 0.0, (31.0, 26.0)),
+        (StrokeAlign::Outside, StrokeCap::None, 6.0, [9.0, 7.0], 12.0, (46.0, 27.0)),
+    ];
+    let mut failures = Vec::new();
+    for (align, cap, weight, dashes, radius, first_dash) in cases {
+        let label = format!("{align:?} {cap:?} dashed rectangle");
+        let (mut doc, _page, frame) = frame_doc(200.0, 120.0);
+        let stroke = Stroke { paints: vec![solid(200, 30, 30)], weight, align, cap, dashes: dashes.to_vec(), miter_limit: 4.0, ..Default::default() };
+        let id = stroked_rect(&mut doc, frame, Rect::new(30.0, 30.0, 100.0, 60.0), stroke);
+        doc.get_mut(id).unwrap().corner_radii = [radius; 4];
+        let out = export(&doc, frame);
+        assert_eq!(out.kind, PageKind::Vector, "{label}");
+        out.assert_canvas_shows(&label, first_dash, [200, 30, 30], 3);
+        let (bad, total) = differing_pixels(&out.canvas, &out.page, 200.0, 120.0, 12);
+        if bad * 500 > total {
+            failures.push(format!("{label}: {bad} of {total} sampled pixels differ from the canvas"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A rectangle thinner than its stroke has no inset outline, so the stroke is the outline at twice the weight,
+/// clipped to the inside, as on the canvas.
+#[test]
+fn thin_dashed_rectangle_stroke_matches_the_canvas() {
+    let (mut doc, _page, frame) = frame_doc(240.0, 30.0);
+    let stroke = Stroke {
+        paints: vec![solid(200, 30, 30)],
+        weight: 4.0,
+        align: StrokeAlign::Inside,
+        cap: StrokeCap::Round,
+        dashes: vec![8.0, 60.0],
+        miter_limit: 4.0,
+        ..Default::default()
+    };
+    stroked_rect(&mut doc, frame, Rect::new(10.0, 10.0, 200.0, 4.0), stroke);
+    let out = export(&doc, frame);
+    assert_eq!(out.kind, PageKind::Vector);
+    out.assert_canvas_shows("first dash", (14.0, 12.0), [200, 30, 30], 3);
+    out.assert_canvas_shows("round cap past the dash end", (19.5, 11.5), [200, 30, 30], 3);
+    out.assert_canvas_shows("middle of the gap", (40.0, 12.0), [240, 240, 240], 3);
+    let (bad, total) = differing_pixels(&out.canvas, &out.page, 240.0, 30.0, 12);
+    assert!(bad * 500 <= total, "{bad} of {total} sampled pixels differ from the canvas");
+    out.assert_agree_at("thin rectangle", &[(14.0, 12.0), (19.5, 11.5), (40.0, 12.0)], 12);
 }
 
 /// A closed pentagram (five vertices joined to every second one) in a 120 x 120 box at (40, 40): its centre
@@ -1054,7 +1114,7 @@ fn random_paint(rng: &mut Rng) -> Paint {
         75..=86 => radial(random_stops(rng), random_handles(rng)),
         87..=91 => angular(random_stops(rng), random_handles(rng)),
         92..=95 => diamond(random_stops(rng), random_handles(rng)),
-        _ => PaintKind::Image { image_ref: "photo".into(), scale_mode: ImageScaleMode::Fill },
+        _ => PaintKind::Image { image_ref: "photo".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
     };
     let opacity = if rng.chance(0.85) { 1.0 } else { rng.range(0.4, 0.9) };
     let blend = if rng.hazard(0.04) { BlendMode::Multiply } else { BlendMode::Normal };
@@ -1182,6 +1242,11 @@ fn random_frames_agree(dense: bool, frames: u64) -> u64 {
             keep_named(&name, &out.bytes);
             let canvas = designos_render::render_node(&doc, frame, SCALE).unwrap();
             std::fs::write(std::path::Path::new(&dir).join(format!("{name}.canvas.png")), canvas.encode_png().unwrap()).unwrap();
+            if out.kind == PageKind::Vector {
+                let pdf = Pdf::parse(&out.bytes);
+                let page = paint_vector_page(&pdf, &pdf.pages()[0], SCALE);
+                std::fs::write(std::path::Path::new(&dir).join(format!("{name}.page.png")), page.encode_png().unwrap()).unwrap();
+            }
         }
         let (bad, total) = differing_pixels(&out.canvas, &out.page, 240.0, 160.0, 12);
         if out.kind == PageKind::Vector {

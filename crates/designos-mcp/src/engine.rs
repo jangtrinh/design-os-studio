@@ -202,6 +202,8 @@ pub const DISPATCHED: &[&str] = &[
     "designos_redo",
     "designos_apply_batch",
     "designos_configure_session",
+    "designos_docs_list",
+    "designos_docs_read",
 ];
 
 /// Non-prefixed compatibility aliases accepted by [`Engine::call`].
@@ -1092,8 +1094,20 @@ impl Engine {
                 });
                 Ok(value)
             }
-            "designos_apply_batch" => crate::tools::batch::apply(self, args),
+            "designos_apply_batch" => {
+                let depth_before = self.history.undo_depth();
+                let epoch_before = self.doc.mutation_epoch();
+                let res = crate::tools::batch::apply(self, args)?;
+                if self.history.undo_depth() > depth_before {
+                    if let Some(inv) = self.history.peek_undo().cloned() {
+                        self.reroute_after_batch_layout(&inv, epoch_before)?;
+                    }
+                }
+                Ok(res)
+            }
             "designos_configure_session" => self.session_options.apply_patch(args).map_err(ToolError::from),
+            "designos_docs_list" => crate::tools::docs::docs_list(&crate::tools::library_source::resolve_library_root(), self.file_path.as_deref(), args),
+            "designos_docs_read" => crate::tools::docs::docs_read(&crate::tools::library_source::resolve_library_root(), self.file_path.as_deref(), args),
             "designos_import_web_capture" | "import_web_capture" => {
                 let a: ImportWebCaptureArgs = parse(args)?;
                 let page = a
@@ -1175,8 +1189,86 @@ impl Engine {
     /// drains deferred layout a step per frame; this engine has no window, and its document is
     /// read, saved and exported as is.
     pub(crate) fn relayout(&mut self, root: NodeId) {
+        let ep = self.doc.mutation_epoch();
         self.doc.relayout_subtree(root);
         self.doc.flush_pending_relayout();
+        if self.doc.mutation_epoch() != ep && designos_doc::with_index(&self.doc, |idx| !idx.is_empty()) {
+            let mut dirty = Vec::new();
+            let mut removed = Vec::new();
+            let touched = if self.doc.dirty_changes_since(ep, &mut dirty, &mut removed) { dirty } else { vec![root] };
+            if !touched.is_empty() && !designos_doc::plan_reroute(&self.doc, &touched, None).updates.is_empty() {
+                let _ = self.reroute_in_last_step(&touched);
+                self.doc.relayout_subtree(root);
+                self.doc.flush_pending_relayout();
+            }
+        }
+    }
+
+    /// Re-routes the connectors a committed `designos_apply_batch` left behind, in the batch's own
+    /// undo step. The batch has already been solved by the time it commits, so connectors are
+    /// planned against where layout left the nodes: the batch's own targets, and every node the
+    /// solve wrote (the siblings of a resized or deleted child move without being a target).
+    /// Passing those nodes also keeps a reflow from being taken for a rigid move of a subtree.
+    /// When the change log cannot name them, that is everything under the auto-layout containers
+    /// the batch reached: the ones holding its targets now, and the ones its inserts, removals and
+    /// moves left (a moved child's old parent reflows although the child is no longer in it).
+    ///
+    /// A fold is followed by one more solve, because re-routing resizes connectors and one that is
+    /// itself a flow child of an auto-layout frame is measured by the solver, which also moves its
+    /// siblings and rewrites its transform. Routing has the last word: the nodes that solve wrote
+    /// are planned once more and folded, and there is no loop. A further solve would put the
+    /// connector back in its flow slot, so a plan would never come back empty; the cap is one
+    /// extra plan and one extra fold per batch.
+    fn reroute_after_batch_layout(&mut self, inverse: &Command, epoch_before: u64) -> Result<(), ToolError> {
+        if designos_doc::with_index(&self.doc, |idx| idx.is_empty()) {
+            return Ok(());
+        }
+        let mut targets = Vec::new();
+        collect_cmd_touched_nodes(inverse, &mut targets);
+        let mut anchors = targets.clone();
+        collect_cmd_container_parents(inverse, &mut anchors);
+        for id in &targets {
+            if let Some(parent) = self.doc.get(*id).and_then(|n| n.parent) {
+                if !anchors.contains(&parent) {
+                    anchors.push(parent);
+                }
+            }
+        }
+        let mut touched = targets;
+        let mut seen: std::collections::HashSet<NodeId> = touched.iter().copied().collect();
+        touched.extend(self.layout_written_since(epoch_before, &anchors).into_iter().filter(|id| seen.insert(*id)));
+        if self.reroute_in_last_step(&touched)? {
+            let epoch = self.doc.mutation_epoch();
+            let tops: std::collections::BTreeSet<NodeId> =
+                anchors.iter().filter_map(|id| crate::tools::batch::top_container_under_page(&self.doc, *id)).collect();
+            for top in tops {
+                crate::tools::batch::relayout_for_node(&mut self.doc, top);
+            }
+            self.settle_layout();
+            let written = self.layout_written_since(epoch, &anchors);
+            if !written.is_empty() {
+                self.reroute_in_last_step(&written)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The nodes layout wrote since `epoch`: what the change log lists, or, when it cannot say, every
+    /// node under the outermost auto-layout frame holding any of `anchors`.
+    fn layout_written_since(&self, epoch: u64, anchors: &[NodeId]) -> Vec<NodeId> {
+        if self.doc.mutation_epoch() == epoch {
+            return Vec::new();
+        }
+        let (mut written, mut removed) = (Vec::new(), Vec::new());
+        if self.doc.dirty_changes_since(epoch, &mut written, &mut removed) {
+            return written;
+        }
+        let roots: std::collections::BTreeSet<NodeId> = anchors.iter().filter_map(|id| auto_layout_root(&self.doc, *id)).collect();
+        let mut scope = Vec::new();
+        for root in roots {
+            self.doc.walk(root, |n, _| scope.push(n.id));
+        }
+        scope
     }
 
     /// Finishes any auto-layout the document still has deferred. Callers that serialize or
@@ -1202,11 +1294,58 @@ impl Engine {
 
     pub fn exec(&mut self, command: Command) -> Result<(), ToolError> {
         let w = designos_doc::writer_command(&self.doc, command);
+        let mut touched = Vec::new();
+        for p in &w.parts {
+            collect_cmd_touched_nodes(p, &mut touched);
+        }
         let ops = self.live_ops_for_parts(&w.parts)?;
         self.history.exec(&mut self.doc, w.cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
         self.revision = self.revision.wrapping_add(1);
         self.record(ops);
+        self.reroute_in_last_step(&touched)?;
         Ok(())
+    }
+
+    /// Folds the re-route of the connectors `touched` nodes leave stale into the last undo step.
+    /// Returns whether it wrote anything.
+    pub(crate) fn reroute_in_last_step(&mut self, touched: &[NodeId]) -> Result<bool, ToolError> {
+        if touched.is_empty() || designos_doc::with_index(&self.doc, |idx| idx.is_empty()) {
+            return Ok(false);
+        }
+        let plan = designos_doc::plan_reroute(&self.doc, touched, None);
+        if plan.updates.is_empty() {
+            return Ok(false);
+        }
+        let mut reroute_parts = Vec::with_capacity(plan.updates.len());
+        for (cid, g) in plan.updates {
+            if let Some(cur) = self.doc.get(cid) {
+                let mut updated = cur.clone();
+                g.apply(&mut updated);
+                reroute_parts.push(Command::Update { node: Box::new(updated) });
+            }
+        }
+        if reroute_parts.is_empty() {
+            return Ok(false);
+        }
+        let ops = self.live_ops_for_parts(&reroute_parts)?;
+        let depth = self.history.undo_depth();
+        if let Some(inv_prev) = self.history.peek_undo().cloned() {
+            let label = self.history.peek_undo_label().map(str::to_owned);
+            let fwd_prev = inv_prev.apply(&mut self.doc).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            self.history.drop_undo_steps_after(depth - 1);
+            let mut cmds = match fwd_prev {
+                Command::Batch(v) => v,
+                other => vec![other],
+            };
+            cmds.extend(reroute_parts);
+            let combined = if cmds.len() == 1 { cmds.pop().unwrap() } else { Command::Batch(cmds) };
+            self.history.exec_labeled(&mut self.doc, combined, label).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        } else {
+            let cmd = if reroute_parts.len() == 1 { reroute_parts.pop().unwrap() } else { Command::Batch(reroute_parts) };
+            self.history.exec(&mut self.doc, cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        }
+        self.record(ops);
+        Ok(true)
     }
 
     /// The ops `command` will perform, when recording; refuses edits the editor cannot replay.
@@ -1323,6 +1462,65 @@ impl Engine {
         }
         Ok(out)
     }
+}
+
+fn collect_cmd_touched_nodes(cmd: &Command, out: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Insert { nodes, .. } | Command::InsertPage { nodes, .. } => {
+            for n in nodes {
+                if !out.contains(&n.id) {
+                    out.push(n.id);
+                }
+            }
+        }
+        Command::Remove { id } | Command::Reparent { id, .. } | Command::RemovePage { id } => {
+            if !out.contains(id) {
+                out.push(*id);
+            }
+        }
+        Command::Update { node } => {
+            if !out.contains(&node.id) {
+                out.push(node.id);
+            }
+        }
+        Command::Batch(cmds) => {
+            for c in cmds {
+                collect_cmd_touched_nodes(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The containers an inverse command puts nodes back into: the parent of an `Insert` (where a
+/// deleted child's siblings reflow) and of a `Reparent` (the container a moved node left).
+fn collect_cmd_container_parents(cmd: &Command, out: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Insert { parent, .. } | Command::Reparent { parent, .. } => {
+            if !out.contains(parent) {
+                out.push(*parent);
+            }
+        }
+        Command::Batch(cmds) => {
+            for c in cmds {
+                collect_cmd_container_parents(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The outermost auto-layout frame of the unbroken chain that holds `id` (or is `id`): the frame
+/// whose solve can move `id`'s siblings and resize what hugs it.
+fn auto_layout_root(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let is_auto = |id: NodeId| doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some());
+    let mut top = is_auto(id).then_some(id);
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(c) = cur.filter(|c| is_auto(*c)) {
+        top = Some(c);
+        cur = doc.get(c).and_then(|n| n.parent);
+    }
+    top
 }
 
 /// Adds the bind warnings (such as a variable that has no value in the node's mode) to a write reply, as `apply_spec` does.
@@ -2337,6 +2535,7 @@ pub fn tools() -> Vec<Value> {
     out.push(crate::tools::design_context::tool_descriptor());
     out.push(crate::tools::session_options::tool_descriptor());
     out.push(crate::tools::bootstrap::tool_definition());
+    out.extend(crate::tools::docs_descriptors::tool_descriptors());
     for tool in &mut out {
         crate::risk::stamp_tool_json(tool);
     }
@@ -4654,5 +4853,457 @@ mod tests {
         assert_eq!(slot_diff.name, "Leading icon");
         let glyph_diff = e.doc.get(slot_diff.children[0]).unwrap();
         assert_eq!(glyph_diff.fills[0].kind, PaintKind::Solid(Color::rgb(0, 255, 0)), "non-matching default fill drops override on MCP apply_spec swap");
+    }
+
+    fn engine_with_connected_frames() -> (Engine, NodeId, NodeId, NodeId) {
+        use designos_doc::{sync_connector, ConnectorEnd, ConnectorProps, Magnet};
+        let mut doc = Document::new("mcp_connectors");
+        let page = doc.add_page("Page 1");
+        let a = doc.alloc_id();
+        doc.insert(page, Node::frame(a, Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(page, Node::frame(b, Rect::new(300.0, 0.0, 120.0, 80.0))).unwrap();
+        let c = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(c, props)).unwrap();
+        sync_connector(&mut doc, c);
+        let mut e = Engine::new();
+        e.doc = doc;
+        (e, a, b, c)
+    }
+
+    #[test]
+    fn mcp_move_of_a_frame_saves_rerouted_connectors() {
+        use designos_doc::connector_geometry;
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        let before_geom = connector_geometry(&e.doc, c).unwrap();
+
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 520.0, "y": -180.0 })).unwrap();
+
+        let expected = connector_geometry(&e.doc, c).unwrap();
+        assert_ne!(expected.transform, before_geom.transform);
+        let stored = e.doc.get(c).unwrap();
+        assert_eq!(stored.transform, expected.transform);
+        assert_eq!(stored.size, expected.size);
+        let cp = match &stored.kind {
+            NodeKind::Connector(cp) => cp,
+            _ => unreachable!(),
+        };
+        assert_eq!(cp.start.point, expected.start_point);
+        assert_eq!(cp.end.point, expected.end_point);
+    }
+
+    #[test]
+    fn mcp_update_node_move_undoes_in_one_step() {
+        use designos_doc::connector_geometry;
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        let orig_b_tx = e.doc.get(b).unwrap().transform;
+        let orig_c_geom = connector_geometry(&e.doc, c).unwrap();
+
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 500.0, "y": -140.0 })).unwrap();
+        assert_eq!(e.history.undo_depth(), 1);
+        assert_ne!(e.doc.get(c).unwrap().transform, orig_c_geom.transform);
+
+        let u = e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(u["changed"], json!(true));
+        assert_eq!(u["can_undo"], json!(false));
+        assert_eq!(e.history.undo_depth(), 0);
+        assert_eq!(e.doc.get(b).unwrap().transform, orig_b_tx);
+        assert_eq!(e.doc.get(c).unwrap().transform, orig_c_geom.transform);
+        assert_eq!(e.doc.get(c).unwrap().size, orig_c_geom.size);
+        let cp = match &e.doc.get(c).unwrap().kind {
+            NodeKind::Connector(cp) => cp,
+            _ => unreachable!(),
+        };
+        assert_eq!(cp.start.point, orig_c_geom.start_point);
+        assert_eq!(cp.end.point, orig_c_geom.end_point);
+    }
+
+    #[test]
+    fn mcp_undo_and_redo_add_no_reroute_step() {
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 480.0, "y": -120.0 })).unwrap();
+        let moved_c_tx = e.doc.get(c).unwrap().transform;
+        assert_eq!(e.history.undo_depth(), 1);
+
+        let u = e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(u["can_undo"], json!(false));
+        assert_eq!(u["can_redo"], json!(true));
+        assert_eq!(e.history.undo_depth(), 0);
+
+        let r = e.call("designos_redo", json!({})).unwrap();
+        assert_eq!(r["can_undo"], json!(true));
+        assert_eq!(r["can_redo"], json!(false));
+        assert_eq!(e.history.undo_depth(), 1);
+        assert_eq!(e.doc.get(c).unwrap().transform, moved_c_tx);
+    }
+
+    /// An auto-layout frame holding `a` then `b` (100x40 each), and a page-level connector from a
+    /// frame below it to `a` or to `b`. Layout is solved before the connector is routed.
+    struct ConnectedStack {
+        engine: Engine,
+        a: NodeId,
+        b: NodeId,
+        connector: NodeId,
+    }
+
+    fn connected_stack(
+        direction: designos_doc::LayoutDirection,
+        frame: (f32, f32),
+        counter_align: designos_doc::LayoutAlign,
+        connector_on_first: bool,
+    ) -> ConnectedStack {
+        use designos_doc::{sync_connector, AutoLayout, ConnectorEnd, ConnectorProps, Magnet, Sizing};
+        let mut doc = Document::new("mcp_stack_connectors");
+        let page = doc.add_page("Page 1");
+        let stack = doc.alloc_id();
+        let mut stack_node = Node::frame(stack, Rect::new(0.0, 0.0, frame.0, frame.1));
+        if let NodeKind::Frame(fp) = &mut stack_node.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction,
+                item_spacing: 0.0,
+                counter_align,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::v1()
+            });
+        }
+        doc.insert(page, stack_node).unwrap();
+        let a = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(a, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(b, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let outside = doc.alloc_id();
+        doc.insert(page, Node::frame(outside, Rect::new(0.0, 400.0, 100.0, 40.0))).unwrap();
+        doc.relayout_subtree(stack);
+        let connector = doc.alloc_id();
+        let target = if connector_on_first { a } else { b };
+        let props =
+            ConnectorProps { start: ConnectorEnd::attached(outside, Magnet::Auto), end: ConnectorEnd::attached(target, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(connector, props)).unwrap();
+        sync_connector(&mut doc, connector);
+        let mut engine = Engine::new();
+        engine.doc = doc;
+        ConnectedStack { engine, a, b, connector }
+    }
+
+    fn assert_connector_follows_its_ends(doc: &Document, connector: NodeId) {
+        let expected = designos_doc::connector_geometry(doc, connector).unwrap();
+        let stored = doc.get(connector).unwrap();
+        assert_eq!(stored.transform, expected.transform, "connector transform");
+        assert_eq!(stored.size, expected.size, "connector size");
+        let NodeKind::Connector(props) = &stored.kind else { unreachable!() };
+        assert_eq!(props.start.point, expected.start_point, "connector start");
+        assert_eq!(props.end.point, expected.end_point, "connector end");
+    }
+
+    fn vertical_stack_with_connector_on_second_child() -> ConnectedStack {
+        let s = connected_stack(designos_doc::LayoutDirection::Vertical, (100.0, 300.0), designos_doc::LayoutAlign::Start, false);
+        assert_eq!(s.engine.doc.get(s.b).unwrap().transform.ty, 40.0, "precondition: b sits under a");
+        assert_connector_follows_its_ends(&s.engine.doc, s.connector);
+        s
+    }
+
+    #[test]
+    fn mcp_batch_resizing_a_stack_child_reroutes_the_connector_on_the_sibling_the_solver_moves() {
+        let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+        let before = engine.doc.get(connector).unwrap().clone();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 80.0, "the solver moves b below the taller a");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_ne!(engine.doc.get(connector).unwrap().transform, before.transform);
+        assert_eq!(engine.history.undo_depth(), 1);
+
+        let saved = Document::from_json(&engine.doc.to_json().unwrap()).unwrap();
+        assert_eq!(saved.get(b).unwrap().transform.ty, 80.0);
+        assert_connector_follows_its_ends(&saved, connector);
+
+        engine.call("designos_undo", json!({})).unwrap();
+        assert_eq!(engine.doc.get(a).unwrap().size.y, 40.0);
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 40.0);
+        assert_eq!(engine.doc.get(connector).unwrap().transform, before.transform);
+        assert_eq!(engine.doc.get(connector).unwrap().kind, before.kind);
+    }
+
+    #[test]
+    fn mcp_batch_resize_keeps_a_centered_child_and_its_connector_in_agreement() {
+        let ConnectedStack { mut engine, a, connector, .. } =
+            connected_stack(designos_doc::LayoutDirection::Horizontal, (300.0, 100.0), designos_doc::LayoutAlign::Center, true);
+        assert_eq!(engine.doc.get(a).unwrap().transform.ty, 30.0, "precondition: a is centered across the frame");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        let before_a = engine.doc.get(a).unwrap().clone();
+        let before_connector = engine.doc.get(connector).unwrap().clone();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+        engine.settle_layout();
+
+        let grown = engine.doc.get(a).unwrap();
+        assert_eq!((grown.size.y, grown.transform.ty), (80.0, 10.0), "a stays centered after it grows");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        let NodeKind::Connector(props) = &engine.doc.get(connector).unwrap().kind else { unreachable!() };
+        assert_eq!(props.end.point.y, 90.0, "the connector leaves the bottom edge of the grown a");
+        assert_eq!(engine.history.undo_depth(), 1);
+
+        engine.call("designos_undo", json!({})).unwrap();
+        assert_eq!(engine.doc.get(a).unwrap().size, before_a.size);
+        assert_eq!(engine.doc.get(a).unwrap().transform, before_a.transform);
+        assert_eq!(engine.doc.get(connector).unwrap().transform, before_connector.transform);
+        assert_eq!(engine.doc.get(connector).unwrap().kind, before_connector.kind);
+        assert_connector_follows_its_ends(&engine.doc, connector);
+    }
+
+    #[test]
+    fn mcp_batch_deleting_a_stack_child_reroutes_the_connector_on_the_sibling_that_shifts() {
+        let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": a.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert!(engine.doc.get(a).is_none());
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 0.0, "b moves up into the gap");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_eq!(engine.history.undo_depth(), 1);
+    }
+
+    #[test]
+    fn mcp_batch_resizing_a_child_of_a_long_stack_reroutes_the_connector_on_the_last_child() {
+        // More children than the document's change log remembers, so the solve's writes cannot be listed.
+        let ConnectedStack { mut engine, a, connector, .. } = vertical_stack_with_connector_on_second_child();
+        let stack = engine.doc.get(a).unwrap().parent.unwrap();
+        let mut last = a;
+        for _ in 0..600 {
+            last = engine.doc.alloc_id();
+            engine.doc.insert(stack, Node::rectangle(last, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        }
+        engine.doc.get_mut(stack).unwrap().size.y = 40.0 * 603.0;
+        engine.doc.relayout_subtree(stack);
+        engine.doc.flush_pending_relayout();
+        if let NodeKind::Connector(props) = &mut engine.doc.get_mut(connector).unwrap().kind {
+            props.end.node = Some(last);
+        }
+        designos_doc::sync_connector(&mut engine.doc, connector);
+        let last_ty = engine.doc.get(last).unwrap().transform.ty;
+        assert_eq!(last_ty, 40.0 * 601.0, "precondition: the stack is laid out");
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert_eq!(engine.doc.get(last).unwrap().transform.ty, last_ty + 40.0);
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_eq!(engine.history.undo_depth(), 1);
+    }
+
+    #[test]
+    fn mcp_batch_deleting_a_large_stack_child_reroutes_the_connector_on_the_sibling_that_shifts() {
+        // Removing more nodes than the change log tracks one by one: it cannot name what the solve wrote.
+        let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+        let stack = engine.doc.get(a).unwrap().parent.unwrap();
+        let page = engine.doc.get(stack).unwrap().parent.unwrap();
+        let big = engine.doc.alloc_id();
+        engine.doc.insert(page, Node::frame(big, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        for _ in 0..70 {
+            let leaf = engine.doc.alloc_id();
+            engine.doc.insert(big, Node::rectangle(leaf, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        }
+        engine.doc.reparent(big, stack, 0).unwrap();
+        engine.doc.relayout_subtree(stack);
+        designos_doc::sync_connector(&mut engine.doc, connector);
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 80.0, "precondition: b sits under big and a");
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": big.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert!(engine.doc.get(big).is_none());
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 40.0, "b moves up into the gap");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_eq!(engine.history.undo_depth(), 1);
+    }
+
+    #[test]
+    fn mcp_batch_dry_run_resizing_a_stack_child_changes_nothing() {
+        let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+        let before = engine.doc.get(connector).unwrap().clone();
+        let epoch = engine.doc.mutation_epoch();
+
+        engine.call("designos_apply_batch", json!({ "dry_run": true, "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+
+        assert_eq!(engine.doc.mutation_epoch(), epoch);
+        assert_eq!(engine.history.undo_depth(), 0);
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 40.0);
+        assert_eq!(engine.doc.get(connector).unwrap(), &before);
+    }
+
+    /// The long vertical stack of 602 children (`a`, `b`, then 600 more) with the connector on the last
+    /// one. More children than the document's change log remembers, so a solve's writes cannot be listed.
+    fn long_stack_with_connector_on_last_child() -> (ConnectedStack, NodeId, f32) {
+        let mut s = vertical_stack_with_connector_on_second_child();
+        let stack = s.engine.doc.get(s.a).unwrap().parent.unwrap();
+        let mut last = s.b;
+        for _ in 0..600 {
+            last = s.engine.doc.alloc_id();
+            s.engine.doc.insert(stack, Node::rectangle(last, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        }
+        s.engine.doc.get_mut(stack).unwrap().size.y = 40.0 * 603.0;
+        s.engine.doc.relayout_subtree(stack);
+        s.engine.doc.flush_pending_relayout();
+        if let NodeKind::Connector(props) = &mut s.engine.doc.get_mut(s.connector).unwrap().kind {
+            props.end.node = Some(last);
+        }
+        designos_doc::sync_connector(&mut s.engine.doc, s.connector);
+        let last_ty = s.engine.doc.get(last).unwrap().transform.ty;
+        assert_eq!(last_ty, 40.0 * 601.0, "precondition: the stack is laid out");
+        (s, last, last_ty)
+    }
+
+    #[test]
+    fn mcp_batch_moving_the_first_child_of_a_long_stack_out_reroutes_the_connector_on_the_last_child() {
+        let (ConnectedStack { mut engine, a, connector, .. }, last, last_ty) = long_stack_with_connector_on_last_child();
+        let stack = engine.doc.get(a).unwrap().parent.unwrap();
+        let page = engine.doc.get(stack).unwrap().parent.unwrap();
+        let before = engine.doc.get(connector).unwrap().clone();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "move", "node": a.0, "parent": page.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert_eq!(engine.doc.get(a).unwrap().parent, Some(page));
+        assert_eq!(engine.doc.get(last).unwrap().transform.ty, last_ty - 40.0, "the rest of the stack closes the gap");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_eq!(engine.history.undo_depth(), 1);
+
+        engine.call("designos_undo", json!({})).unwrap();
+        assert_eq!(engine.doc.get(a).unwrap().parent, Some(stack));
+        assert_eq!(engine.doc.get(last).unwrap().transform.ty, last_ty);
+        assert_eq!(engine.doc.get(connector).unwrap(), &before);
+    }
+
+    /// Document-wide edits fail the change log however small the document is.
+    fn document_wide_edits() -> [Value; 2] {
+        [
+            json!({
+                "op": "set_variables",
+                "upsert_collections": [{ "id": "brand", "name": "Brand", "modes": [{ "id": "light", "name": "Light" }], "default_mode": "light" }],
+                "upsert_variables": [{ "id": "brand/accent", "name": "Accent", "collection": "brand", "kind": "color", "values": { "light": "#E36323" } }]
+            }),
+            json!({ "op": "set_style", "upsert": [{ "key": "surface", "name": "Surface", "property": "fill", "fill": "#18181B" }] }),
+        ]
+    }
+
+    #[test]
+    fn mcp_batch_moving_a_stack_child_out_with_a_document_wide_edit_reroutes_the_connector_on_the_remaining_child() {
+        for edit in document_wide_edits() {
+            let op = edit["op"].clone();
+            let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+            let page = engine.doc.get(engine.doc.get(a).unwrap().parent.unwrap()).unwrap().parent.unwrap();
+
+            engine.call("designos_apply_batch", json!({ "ops": [{ "op": "move", "node": a.0, "parent": page.0 }, edit] })).unwrap();
+            engine.settle_layout();
+
+            assert_eq!(engine.doc.get(a).unwrap().parent, Some(page), "{op}");
+            assert_eq!(engine.doc.get(b).unwrap().transform.ty, 0.0, "{op}: b moves up into the gap");
+            assert_connector_follows_its_ends(&engine.doc, connector);
+            assert_eq!(engine.history.undo_depth(), 1, "{op}");
+        }
+    }
+
+    #[test]
+    fn mcp_batch_moving_a_child_between_stacks_reroutes_the_connectors_on_the_siblings_left_behind() {
+        use designos_doc::{AutoLayout, LayoutDirection};
+        for edit in document_wide_edits() {
+            let op = edit["op"].clone();
+            let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+            let page = engine.doc.get(engine.doc.get(a).unwrap().parent.unwrap()).unwrap().parent.unwrap();
+            let dest = engine.doc.alloc_id();
+            let mut dest_node = Node::frame(dest, Rect::new(500.0, 0.0, 100.0, 300.0));
+            if let NodeKind::Frame(fp) = &mut dest_node.kind {
+                fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: 0.0, ..AutoLayout::v1() });
+            }
+            engine.doc.insert(page, dest_node).unwrap();
+            let resident = engine.doc.alloc_id();
+            engine.doc.insert(dest, Node::rectangle(resident, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+            engine.doc.relayout_subtree(dest);
+
+            engine.call("designos_apply_batch", json!({ "ops": [{ "op": "move", "node": a.0, "parent": dest.0 }, edit] })).unwrap();
+            engine.settle_layout();
+
+            assert_eq!(engine.doc.get(a).unwrap().parent, Some(dest), "{op}");
+            assert_eq!(engine.doc.get(a).unwrap().transform.ty, 40.0, "{op}: a lands under the resident");
+            assert_eq!(engine.doc.get(b).unwrap().transform.ty, 0.0, "{op}: b moves up into the gap a left");
+            assert_connector_follows_its_ends(&engine.doc, connector);
+            assert_eq!(engine.history.undo_depth(), 1, "{op}");
+        }
+    }
+
+    /// A vertical stack of `a`, a connector that is itself part of the flow (start on `a`, free end),
+    /// and `b`; a page-level connector runs from a frame below to `b`. The solver measures the flow
+    /// connector, and routing resizes it when `a` changes, so the two feed each other.
+    struct FlowConnectorStack {
+        engine: Engine,
+        a: NodeId,
+        b: NodeId,
+        flow_connector: NodeId,
+        page_connector: NodeId,
+    }
+
+    fn stack_with_a_connector_in_its_flow() -> FlowConnectorStack {
+        use designos_doc::{sync_connector, AutoLayout, ConnectorEnd, ConnectorProps, LayoutDirection, Magnet};
+        let mut doc = Document::new("mcp_flow_connector");
+        let page = doc.add_page("Page 1");
+        let stack = doc.alloc_id();
+        let mut stack_node = Node::frame(stack, Rect::new(0.0, 0.0, 100.0, 300.0));
+        if let NodeKind::Frame(fp) = &mut stack_node.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: 0.0, ..AutoLayout::v1() });
+        }
+        doc.insert(page, stack_node).unwrap();
+        let a = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(a, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let flow_connector = doc.alloc_id();
+        let flow_props =
+            ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::free(Vec2::new(250.0, 20.0)), ..Default::default() };
+        doc.insert(stack, Node::connector(flow_connector, flow_props)).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(b, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let far = doc.alloc_id();
+        doc.insert(page, Node::frame(far, Rect::new(300.0, 400.0, 100.0, 40.0))).unwrap();
+        let page_connector = doc.alloc_id();
+        let page_props =
+            ConnectorProps { start: ConnectorEnd::attached(far, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(page_connector, page_props)).unwrap();
+        // The flow connector is sized before layout measures it, and layout then leaves it in its slot.
+        sync_connector(&mut doc, flow_connector);
+        doc.relayout_subtree(stack);
+        sync_connector(&mut doc, page_connector);
+        let b_ty = doc.get(b).unwrap().transform.ty;
+        doc.relayout_subtree(stack);
+        assert_eq!(doc.get(b).unwrap().transform.ty, b_ty, "precondition: the stack is laid out");
+        assert_eq!(b_ty, 40.0 + doc.get(flow_connector).unwrap().size.y, "precondition: b sits under the flow connector");
+        let mut grown = doc.clone();
+        grown.get_mut(a).unwrap().size.y = 80.0;
+        sync_connector(&mut grown, flow_connector);
+        assert_ne!(grown.get(flow_connector).unwrap().size, doc.get(flow_connector).unwrap().size, "precondition: a taller a resizes the flow connector");
+        let mut engine = Engine::new();
+        engine.doc = doc;
+        FlowConnectorStack { engine, a, b, flow_connector, page_connector }
+    }
+
+    #[test]
+    fn mcp_batch_resizing_a_stack_child_leaves_a_flow_connector_and_a_page_connector_on_their_routes() {
+        let FlowConnectorStack { mut engine, a, b, flow_connector, page_connector } = stack_with_a_connector_in_its_flow();
+        let before: Vec<Node> = [a, b, flow_connector, page_connector].iter().map(|id| engine.doc.get(*id).unwrap().clone()).collect();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert_connector_follows_its_ends(&engine.doc, flow_connector);
+        assert_connector_follows_its_ends(&engine.doc, page_connector);
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 80.0 + engine.doc.get(flow_connector).unwrap().size.y, "b sits under the resized flow connector");
+        assert_eq!(engine.history.undo_depth(), 1);
+
+        engine.call("designos_undo", json!({})).unwrap();
+        for (id, was) in [a, b, flow_connector, page_connector].iter().zip(&before) {
+            assert_eq!(engine.doc.get(*id).unwrap(), was, "node {} after undo", id.0);
+        }
     }
 }

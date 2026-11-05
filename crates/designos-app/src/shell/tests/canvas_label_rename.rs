@@ -174,7 +174,7 @@ fn click_selects_one_shape_component_and_double_click_enters_shape() {
         shape.size = DVec2::new(80.0, 60.0);
         if idx == 7 {
             shape.fills = vec![Paint {
-                kind: PaintKind::Image { image_ref: "img_test".into(), scale_mode: ImageScaleMode::Fill },
+                kind: PaintKind::Image { image_ref: "img_test".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
                 opacity: 1.0,
                 visible: true,
                 blend: BlendMode::Normal,

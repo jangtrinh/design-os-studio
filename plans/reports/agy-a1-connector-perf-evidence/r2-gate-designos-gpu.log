@@ -1,0 +1,38 @@
+# cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks on HEAD b09d487c8
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-d215a11909824aa5)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/adapter.rs (out/cargo/debug/deps/adapter-e9c1c7b0346aa503)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+     Running tests/command_buffer_limit.rs (out/cargo/debug/deps/command_buffer_limit-316071b63ca9797b)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.40s
+     Running tests/connector_perf.rs (out/cargo/debug/deps/connector_perf-9a96e251bed9fb5a)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.29s
+     Running tests/dashed_endpoint_caps.rs (out/cargo/debug/deps/dashed_endpoint_caps-725174b766512c01)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-156207cb03bd72aa)
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.69s
+     Running tests/full_detail_at_rest.rs (out/cargo/debug/deps/full_detail_at_rest-bf575434536359c2)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/large_file_perf.rs (out/cargo/debug/deps/large_file_perf-7b8317c19596678e)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-9dd65f3e6f2ee825)
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+     Running tests/program_cap.rs (out/cargo/debug/deps/program_cap-4f172fbb00697e06)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.02s
+     Running tests/refine_chunks.rs (out/cargo/debug/deps/refine_chunks-22e6ae239a63ef2d)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+     Running tests/refine_vram_budget.rs (out/cargo/debug/deps/refine_vram_budget-2face4735842fe52)
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.26s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-23cc3e65f1c446da)
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+     Running tests/shadow_blend_parity.rs (out/cargo/debug/deps/shadow_blend_parity-ea84d43efb99e85b)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.47s
+     Running tests/shadow_fillless_fixture.rs (out/cargo/debug/deps/shadow_fillless_fixture-5f7eabd3bc12b0ac)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+     Running tests/shadow_silhouette_source.rs (out/cargo/debug/deps/shadow_silhouette_source-5c4e6d28afff4177)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+     Running tests/text_hug_box.rs (out/cargo/debug/deps/text_hug_box-b6937cd0db9a25ec)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+   Doc-tests designos_gpu
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+rc=0

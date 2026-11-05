@@ -1,0 +1,34 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.60s
+     Running tests/vectorops.rs (out/cargo/debug/deps/vectorops-30cf93ca5695e39d)
+
+running 23 tests
+test offset_of_an_open_path_alone_returns_it_unchanged ... ok
+test disjoint_pieces_of_one_region_become_separate_cells ... ok
+test dashes_split_the_outline ... ok
+test merging_cells_unions_them_and_cuts_the_remainders ... ok
+test a_fully_eroded_closed_part_returns_nothing_even_next_to_an_open_segment ... ok
+test joins_change_the_outer_corner ... ok
+test inset_erodes_the_outline_of_overlapping_squares_not_their_inner_edges ... ok
+test arrange_cuts_overlapping_rectangles_into_three_regions ... ok
+test flatten_a_subtract_boolean_group_computes_the_geometry ... ok
+test offset_moves_the_boundary_of_a_hole_the_other_way ... ok
+test flatten_merges_a_selection_in_the_target_space ... ok
+test inset_ignores_a_path_that_lies_inside_another ... ok
+test circles_arrange_into_a_lens_and_two_crescents_and_fit_back_to_curves ... ok
+test outline_of_a_closed_rectangle_by_alignment ... ok
+test offset_passes_an_open_segment_through_next_to_a_closed_square ... ok
+test outline_of_a_curve_keeps_curves ... ok
+test outline_of_a_line_honours_weight_and_caps ... ok
+test offset_path_expands_100px_square_and_shrinks_on_negative_offset ... ok
+test per_vertex_caps_override_the_node_cap ... ok
+test subtracting_the_lens_leaves_two_crescent_remainders ... ok
+test separate_paths_stay_separate_regions ... ok
+test offset_of_a_circle_keeps_its_curve ... ok
+test flatten_converts_text_and_skips_empty_selections ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

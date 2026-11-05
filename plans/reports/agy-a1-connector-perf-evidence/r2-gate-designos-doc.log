@@ -1,0 +1,17 @@
+# cargo test -p designos-doc --locked on HEAD b09d487c8
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+test live_patch::validate_tests::a_failed_replay_leaves_no_id_remaps_behind ... ok
+test result: ok. 782 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.66s
+     Running tests/auto_layout_wrap_fields_compat.rs (out/cargo/debug/deps/auto_layout_wrap_fields_compat-bd3d3c82fdc133ee)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/changelog_pillars.rs (out/cargo/debug/deps/changelog_pillars-5f26da692849cb6a)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/glass_noise_texture_fields.rs (out/cargo/debug/deps/glass_noise_texture_fields-b4422caf2370f8e8)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/glass_splay_bevel_defaults.rs (out/cargo/debug/deps/glass_splay_bevel_defaults-86780b678ab7a18f)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/shadow_blend.rs (out/cargo/debug/deps/shadow_blend-36dc480d6fb8acc1)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+   Doc-tests designos_doc
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+rc=0

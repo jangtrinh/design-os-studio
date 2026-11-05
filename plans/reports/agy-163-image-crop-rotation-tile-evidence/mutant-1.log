@@ -1,0 +1,62 @@
+=== Mutant 1: ImageScaleMode::Crop routed to Fill arm in crates/designos-render/src/paint.rs ===
+diff --git a/crates/designos-render/src/paint.rs b/crates/designos-render/src/paint.rs
+index 2f9ff10c..90dd566d 100644
+--- a/crates/designos-render/src/paint.rs
++++ b/crates/designos-render/src/paint.rs
+@@ -321,7 +321,8 @@ pub fn with_paint<R>(
+             // first decode at full size to learn dimensions
+             let full = load_image(env.doc, image_ref, None)?;
+             let (iw, ih) = (full.width() as f32, full.height() as f32);
+-            let (u, v, s) = image_uv_affine(size, iw, ih, *scale_mode, params)?;
++            let eff_mode = if matches!(scale_mode, d::ImageScaleMode::Crop) { d::ImageScaleMode::Fill } else { *scale_mode };
++            let (u, v, s) = image_uv_affine(size, iw, ih, eff_mode, params)?;
+             let dev_scale = (ts.sx * ts.sy - ts.kx * ts.ky).abs().sqrt().max(1e-6);
+             let eff = s * dev_scale;
+             let img = if eff < 0.6 {
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.70s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 3 tests
+test crop_transform_maps_uv_through_the_affine ... FAILED
+test singular_crop_transform_draws_nothing ... FAILED
+test crop_with_identity_transform_stretches_the_image ... FAILED
+
+failures:
+
+---- crop_transform_maps_uv_through_the_affine stdout ----
+
+thread 'crop_transform_maps_uv_through_the_affine' (87475294) panicked at crates/designos-render/tests/render.rs:923:5:
+assertion `left == right` failed: UV < 0 outside cropped image is transparent over white page
+  left: [255, 0, 0, 255]
+ right: [255, 255, 255, 255]
+
+---- singular_crop_transform_draws_nothing stdout ----
+
+thread 'singular_crop_transform_draws_nothing' (87475296) panicked at crates/designos-render/tests/render.rs:940:5:
+assertion `left == right` failed: singular crop transform draws nothing
+  left: [255, 0, 0, 255]
+ right: [255, 255, 255, 255]
+
+---- crop_with_identity_transform_stretches_the_image stdout ----
+
+thread 'crop_with_identity_transform_stretches_the_image' (87475295) panicked at crates/designos-render/tests/render.rs:908:5:
+left edge of stretched crop shows red band: [0, 255, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    crop_transform_maps_uv_through_the_affine
+    crop_with_identity_transform_stretches_the_image
+    singular_crop_transform_draws_nothing
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+exit_code=101

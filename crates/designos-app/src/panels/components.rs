@@ -232,7 +232,10 @@ fn instance_boolean_toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> egui
     crate::widgets::kit::toggle(ui, track, key, on, true)
 }
 
-fn has_changes(app: &App, inst: NodeId) -> bool {
+/// Whether "Reset all changes" has anything to take back on `inst`: an override anywhere in it, a property value of its
+/// own, or a value on an exposed nested instance. The values of a nested instance that is not exposed are not changes.
+pub(crate) fn has_changes(app: &App, inst: NodeId) -> bool {
+    let exposed_values = exposed_nested_value_overrides(&app.doc, inst);
     let mut stack = vec![inst];
     let mut visited = 0usize;
     while let Some(id) = stack.pop() {
@@ -241,7 +244,7 @@ fn has_changes(app: &App, inst: NodeId) -> bool {
         }
         let Some(n) = app.doc.get(id) else { continue };
         visited += 1;
-        if !n.component.overrides.is_empty() || (n.id == inst && !n.component.values.is_empty()) {
+        if !n.component.overrides.is_empty() || (n.id == inst && !n.component.values.is_empty()) || exposed_values.contains(&n.id) {
             return true;
         }
         stack.extend(n.children.iter().copied());
@@ -263,17 +266,28 @@ fn sort_props_by_kind(defs: &mut [ComponentPropDef]) {
     defs.sort_by_key(|def| kind_rank(&def.kind));
 }
 
-fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
-    let Some(comp) = app.main_of(inst) else { return };
-    let mut defs = prop_defs(&app.doc, comp);
-    sort_props_by_kind(&mut defs);
-    if defs.is_empty() {
-        return;
+/// One edit of a property row: on the instance the row belongs to, or on a nested instance it exposes.
+fn edit_prop(app: &mut App, target: NodeId, nested: bool, name: &str, value: Option<PropValue>) {
+    if nested {
+        app.set_nested_instance_prop(target, name, value);
+    } else {
+        app.set_instance_prop(target, name, value);
     }
+}
+
+fn render_instance_prop_rows(
+    app: &mut App,
+    ui: &mut Ui,
+    pane: &mut Pane,
+    target_inst: NodeId,
+    defs: &[ComponentPropDef],
+    nested_scope: Option<&str>,
+    seen_bare_names: &mut std::collections::HashSet<String>,
+) {
     for def in defs {
-        let value = prop_value(&app.doc, inst, &def);
+        let value = prop_value(&app.doc, target_inst, def);
         let lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 92.0, theme::FIELD_HEIGHT);
-        let is_set = app.doc.get(inst).is_some_and(|n| n.component.values.contains_key(&def.name));
+        let is_set = app.doc.get(target_inst).is_some_and(|n| n.component.values.contains_key(&def.name));
         let shown = widgets::elide(ui.painter(), &def.name, &theme::font_body(), lab.width() - 4.0);
         ui.painter().text(
             Pos2::new(lab.left(), lab.center().y),
@@ -283,21 +297,40 @@ fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
             if is_set { theme::TEXT } else { theme::TEXT_SECONDARY },
         );
         if shown != def.name {
-            ui.interact(lab, ui.id().with(("prop-label", &def.name)), Sense::hover()).on_hover_text(&def.name);
+            ui.interact(lab, ui.id().with(("prop-label", target_inst, &def.name)), Sense::hover()).on_hover_text(&def.name);
         }
         let ctl = pane.col(1, 0.0);
-        let key = format!("prop:{}", def.name);
+        let bare_key = format!("prop:{}", def.name);
+        let key = match nested_scope {
+            Some(scope) => {
+                let scoped = format!("prop:{scope}/{}", def.name);
+                if seen_bare_names.insert(scoped.clone()) {
+                    scoped
+                } else {
+                    format!("prop:{}:{scope}/{}", target_inst.0, def.name)
+                }
+            }
+            None => bare_key.clone(),
+        };
         widgets::record(ui, &key, ctl);
+        widgets::record(ui, &format!("prop-node:{}/{}", target_inst.0, def.name), ctl);
+        let record_bare = seen_bare_names.insert(def.name.clone());
+        if record_bare && key != bare_key {
+            widgets::record(ui, &bare_key, ctl);
+        }
         match (&def.kind, &value) {
             (PropKind::Boolean, PropValue::Bool(b)) => {
+                if record_bare && key != bare_key {
+                    widgets::record(ui, &format!("toggle:{bare_key}"), ctl);
+                }
                 if instance_boolean_toggle(ui, ctl, &key, *b).clicked() {
                     let v = !*b;
-                    app.set_instance_prop(inst, &def.name, Some(PropValue::Bool(v)));
+                    edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Bool(v)));
                 }
             }
             (PropKind::Text, PropValue::Text(s)) => {
                 if let Some(v) = field::text_input(ui, ctl, &key, s) {
-                    app.set_instance_prop(inst, &def.name, Some(PropValue::Text(v)));
+                    edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Text(v)));
                 }
             }
             (PropKind::Variant { options }, v) => {
@@ -306,7 +339,7 @@ fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
                     _ => String::new(),
                 };
                 if let Some(i) = dropdown(ui, ctl, &key, &cur, options) {
-                    app.set_instance_prop(inst, &def.name, Some(PropValue::Variant(options[i].clone())));
+                    edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Variant(options[i].clone())));
                 }
             }
             (PropKind::InstanceSwap { .. }, v) => {
@@ -318,7 +351,7 @@ fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
                     let comps = all_components_cached(app);
                     let names: Vec<String> = comps.iter().map(|c| comp_label(&app.doc, *c)).collect();
                     if let Some(i) = dropdown(ui, ctl, &key, &cur, &names) {
-                        app.set_instance_prop(inst, &def.name, Some(PropValue::Instance(comps[i])));
+                        edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Instance(comps[i])));
                     }
                 } else {
                     let _ = dropdown(ui, ctl, &key, &cur, &[]);
@@ -327,6 +360,37 @@ fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
             _ => {}
         }
         row_end(pane);
+    }
+}
+
+fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
+    let mut defs = app.main_of(inst).map(|comp| prop_defs(&app.doc, comp)).unwrap_or_default();
+    sort_props_by_kind(&mut defs);
+    let exposed: Vec<(NodeId, String, Vec<ComponentPropDef>)> = exposed_nested_instances(&app.doc, inst)
+        .into_iter()
+        .filter_map(|nid| {
+            let name = app.doc.get(nid)?.name.clone();
+            let ncomp = app.main_of(nid)?;
+            let mut ndefs: Vec<ComponentPropDef> = prop_defs(&app.doc, ncomp).into_iter().filter(|d| !matches!(d.kind, PropKind::Slot)).collect();
+            sort_props_by_kind(&mut ndefs);
+            (!ndefs.is_empty()).then_some((nid, name, ndefs))
+        })
+        .collect();
+    if defs.is_empty() && exposed.is_empty() {
+        return;
+    }
+    let mut seen_bare_names = std::collections::HashSet::new();
+    render_instance_prop_rows(app, ui, pane, inst, &defs, None, &mut seen_bare_names);
+    for (idx, (nid, nname, ndefs)) in exposed.iter().enumerate() {
+        if !defs.is_empty() || idx > 0 {
+            pane.y += theme::SPACE_ROW;
+        }
+        let hdr = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
+        widgets::record(ui, &format!("exposed-heading:{nname}"), hdr);
+        let shown = widgets::elide(ui.painter(), nname, &theme::font_body_medium(), hdr.width() - theme::SPACE_FACT);
+        ui.painter().text(Pos2::new(hdr.left(), hdr.center().y), Align2::LEFT_CENTER, &shown, theme::font_body_medium(), theme::TEXT);
+        row_end(pane);
+        render_instance_prop_rows(app, ui, pane, *nid, ndefs, Some(nname.as_str()), &mut seen_bare_names);
     }
     pane.y += 4.0;
     section_sep(ui, pane, false);
@@ -461,6 +525,7 @@ fn override_name(f: OverrideField) -> &'static str {
         OverrideField::Layout => "layout",
         OverrideField::MainComponent => "component",
         OverrideField::SlotContent => "slot content",
+        OverrideField::LockAspect => "aspect lock",
     }
 }
 
@@ -490,9 +555,10 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
             }
         }
     }
+    let nested_candidates = expose_nested_candidates(&app.doc, id);
     let plus = pane.rect(theme::SECTION_TRAILING_X, 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     widgets::record(ui, "prop-add", plus);
-    if title(ui, pane, "Properties", Some(Icon::Plus), defs.is_empty()) {
+    if title(ui, pane, "Properties", Some(Icon::Plus), defs.is_empty() && nested_candidates.is_empty()) {
         app.ui.prop_menu = if app.ui.prop_menu.is_some() { None } else { Some(plus) };
     }
     for (def_owner, def) in &defs {
@@ -558,6 +624,54 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
             slot_settings_rows(app, ui, pane, *def_owner, &def.name);
         }
         pane.y += 4.0;
+    }
+    if !nested_candidates.is_empty() {
+        let hdr = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
+        widgets::record(ui, "expose-nested-heading", hdr);
+        ui.painter().text(
+            Pos2::new(hdr.left(), hdr.center().y),
+            Align2::LEFT_CENTER,
+            "Expose properties from",
+            theme::font_body_medium(),
+            theme::TEXT_SECONDARY,
+        );
+        row_end(pane);
+        let sub = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
+        widgets::record(ui, "nested-instances-heading", sub);
+        ui.painter().text(Pos2::new(sub.left(), sub.center().y), Align2::LEFT_CENTER, "Nested instances", theme::font_body(), theme::TEXT_SECONDARY);
+        row_end(pane);
+        for cand in &nested_candidates {
+            let lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 92.0, theme::FIELD_HEIGHT);
+            let shown = widgets::elide(ui.painter(), &cand.name, &theme::font_body(), lab.width() - theme::SPACE_FACT);
+            ui.painter().text(
+                Pos2::new(lab.left(), lab.center().y),
+                Align2::LEFT_CENTER,
+                &shown,
+                theme::font_body(),
+                if cand.exposed { theme::TEXT } else { theme::TEXT_SECONDARY },
+            );
+            if shown != cand.name {
+                ui.interact(lab, ui.id().with(("expose-label", cand.id)), Sense::hover()).on_hover_text(&cand.name);
+            }
+            let ctl = pane.col(1, 0.0);
+            let track = Rect::from_min_size(Pos2::new(ctl.left(), ctl.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
+            // Keyed by the nested instance, not its name: two nested instances can share one.
+            let key = format!("expose-nested:{}", cand.id.0);
+            widgets::record(ui, &key, track);
+            if instance_boolean_toggle(ui, ctl, &key, cand.exposed).clicked() {
+                app.set_expose_nested_instance(cand.id, !cand.exposed);
+            }
+            row_end(pane);
+            if cand.exposed {
+                for dname in &cand.deeper_exposed_names {
+                    let dlab =
+                        pane.rect(theme::SECTION_CONTENT_X + theme::SPACE_GROUP, 0.0, theme::SECTION_CONTENT_W - theme::SPACE_GROUP, theme::FIELD_HEIGHT);
+                    ui.painter().text(Pos2::new(dlab.left(), dlab.center().y), Align2::LEFT_CENTER, dname, theme::font_body(), theme::TEXT_SECONDARY);
+                    row_end(pane);
+                }
+            }
+        }
+        pane.y += theme::SPACE_ROW;
     }
     if let Some(anchor) = app.ui.prop_menu {
         let items = [MenuItem::new("Boolean"), MenuItem::new("Text"), MenuItem::new("Instance swap"), MenuItem::new("Slot")];

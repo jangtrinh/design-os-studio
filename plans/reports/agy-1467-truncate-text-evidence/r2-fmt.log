@@ -1,0 +1,5 @@
+# r2 fmt
+head=b4a7470b7ed6fbd5ea56f1c9c56bf44e6e5bec0b
+cmd: cargo fmt --all -- --check; echo fmt_rc=$?
+date=2026-11-02T16:58:51Z
+fmt_rc=0

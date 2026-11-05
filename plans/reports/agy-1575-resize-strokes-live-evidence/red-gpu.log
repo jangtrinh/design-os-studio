@@ -1,0 +1,57 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.15s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 9 tests
+
+thread 'equal_cap_open_stroke_draws_identically_on_cpu_and_gpu' (88648223) panicked at crates/designos-gpu/tests/resized_shapes.rs:491:5:
+equal per-vertex caps use the node cap path
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu' (88648225) panicked at crates/designos-gpu/tests/resized_shapes.rs:455:5:
+mixed-join path drops its bake on 2x resize
+
+thread 'resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu' (88648229) panicked at crates/designos-gpu/tests/resized_shapes.rs:343:9:
+Inside: the baked outline is dropped
+test equal_cap_open_stroke_draws_identically_on_cpu_and_gpu ... FAILED
+test resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu ... FAILED
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu ... FAILED
+
+thread 'file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu' (88648224) panicked at crates/designos-gpu/tests/resized_shapes.rs:402:5:
+file-type network drops its bake on 2x resize
+test file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu ... FAILED
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+resized_vector_network_stroke: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_imported_vector: mismatch 0.0220% (8 px of 36400) at tolerance 8, ssim 0.9997
+resized_star: mismatch 0.9505% (346 px of 36400) at tolerance 8, ssim 0.9990
+resized_union: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_imported_shapes: mismatch 1.1566% (421 px of 36400) at tolerance 8, ssim 0.9984
+resized_vector_network_stroke: 0.0000% with AA pixels forgiven (0 px)
+resized_imported_vector: 0.0000% with AA pixels forgiven (0 px)
+resized_star: 0.0000% with AA pixels forgiven (0 px)
+resized_union: 0.0000% with AA pixels forgiven (0 px)
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+resized_imported_shapes: 0.0000% with AA pixels forgiven (0 px)
+test resized_union_matches_cpu ... ok
+test resized_imported_ellipse_and_star_match_cpu ... ok
+
+failures:
+
+failures:
+    equal_cap_open_stroke_draws_identically_on_cpu_and_gpu
+    file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu
+    mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu
+    resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu
+
+test result: FAILED. 5 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `-p designos-gpu --test resized_shapes`

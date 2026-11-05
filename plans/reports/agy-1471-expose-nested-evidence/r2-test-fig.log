@@ -1,0 +1,322 @@
+$ cargo test -p designos-fig --locked
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1471-expose-nested/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.45s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-11e9f1ea5f7ddc4e)
+
+running 143 tests
+
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.70s
+
+     Running tests/clipboard.rs (out/cargo/debug/deps/clipboard-3ae93f6470a46feb)
+
+running 8 tests
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/component_props.rs (out/cargo/debug/deps/component_props-895ad476769519e8)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dev_mode.rs (out/cargo/debug/deps/dev_mode-c04d27b29461d74f)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fig_child_margins.rs (out/cargo/debug/deps/fig_child_margins-95b7747d9f4a1574)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-13ca09d8430efcce)
+
+running 21 tests
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/fig_export_field_shapes.rs (out/cargo/debug/deps/fig_export_field_shapes-aa6bb96f691a22aa)
+
+running 8 tests
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fig_export_grid_shapes.rs (out/cargo/debug/deps/fig_export_grid_shapes-ba35aeaa85db46f0)
+
+running 6 tests
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/fig_export_non_finite.rs (out/cargo/debug/deps/fig_export_non_finite-738f87de1d3b879b)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/fig_export_real_schema.rs (out/cargo/debug/deps/fig_export_real_schema-e801e42070d5957a)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/fig_export_real_tags.rs (out/cargo/debug/deps/fig_export_real_tags-6574c51c778ffde4)
+
+running 11 tests
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/fig_grid_fixed_row_export.rs (out/cargo/debug/deps/fig_grid_fixed_row_export-952ca5c442782c60)
+
+running 13 tests
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fig_grid_override_anchors.rs (out/cargo/debug/deps/fig_grid_override_anchors-cf252dfafcb1b18d)
+
+running 21 tests
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fig_import.rs (out/cargo/debug/deps/fig_import-c749035531067785)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/fig_import_legacy_export.rs (out/cargo/debug/deps/fig_import_legacy_export-e19e8661fde02d92)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fig_instance_lock_aspect_override_roundtrip.rs (out/cargo/debug/deps/fig_instance_lock_aspect_override_roundtrip-2f8b8aa72887dfcb)
+
+running 2 tests
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/fig_instance_node_lock_aspect.rs (out/cargo/debug/deps/fig_instance_node_lock_aspect-5cdeaecaf65f3f42)
+
+running 2 tests
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/fig_instance_root_overrides_roundtrip.rs (out/cargo/debug/deps/fig_instance_root_overrides_roundtrip-f628c941f7668587)
+
+running 6 tests
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/fig_instance_vector_corner_override_roundtrip.rs (out/cargo/debug/deps/fig_instance_vector_corner_override_roundtrip-da22bd2d787f77d3)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/fig_library.rs (out/cargo/debug/deps/fig_library-98a4ae995b09be6b)
+
+running 28 tests
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fig_non_finite_derived.rs (out/cargo/debug/deps/fig_non_finite_derived-334af490ec4ce784)
+
+running 2 tests
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/fig_prop_var_value.rs (out/cargo/debug/deps/fig_prop_var_value-48fdda9cc8f804c1)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 44 tests
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/fig_slots.rs (out/cargo/debug/deps/fig_slots-1554ab71e16dd6a4)
+
+running 32 tests
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.08s
+
+     Running tests/fig_stroke_seed_varint64.rs (out/cargo/debug/deps/fig_stroke_seed_varint64-5205435c95b8b681)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/fig_unmapped_layer_edits.rs (out/cargo/debug/deps/fig_unmapped_layer_edits-c4b521f6746c7ae6)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fig_upgrade.rs (out/cargo/debug/deps/fig_upgrade-48955c4623949bc9)
+
+running 15 tests
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/figjam.rs (out/cargo/debug/deps/figjam-b9241337c9d0824c)
+
+running 7 tests
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/grid_child_align_patch.rs (out/cargo/debug/deps/grid_child_align_patch-30256cb9a8088bac)
+
+running 6 tests
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/instance_vector_scale.rs (out/cargo/debug/deps/instance_vector_scale-702558e9521a2dd7)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/kiwi_zero_size_struct_limit.rs (out/cargo/debug/deps/kiwi_zero_size_struct_limit-5a63b0bb56b2cd0b)
+
+running 6 tests
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/node_effect_stop_bindings.rs (out/cargo/debug/deps/node_effect_stop_bindings-38f35ce76841137a)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/pen_component_depth_limits.rs (out/cargo/debug/deps/pen_component_depth_limits-2e738c7019c0050e)
+
+running 2 tests
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/pen_schema_2_21.rs (out/cargo/debug/deps/pen_schema_2_21-1331f8e68fa4f242)
+
+running 34 tests
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/proto_import.rs (out/cargo/debug/deps/proto_import-76d7338c210d77e8)
+
+running 6 tests
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/proto_vars.rs (out/cargo/debug/deps/proto_vars-cfb29a7aab067117)
+
+running 6 tests
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/real_files.rs (out/cargo/debug/deps/real_files-6d4c1710ba2e105a)
+
+running 6 tests
+test kit_resized_instances_match_shared_constraint_solver ... ignored, needs private reference .fig kits
+test private_ui_kit_imports_with_library_instances_resolved ... ignored, needs the private reference/private-ui-kit.fig
+test shadcn_ui_imports_with_local_components ... ignored, needs the private reference/shadcn-ui.fig
+test untitled_ui_instance_text_overrides_resolve ... ignored, needs the private Untitled UI .fig
+test untitled_ui_pie_chart_resized_instances_match ... ignored, needs the private reference/untitled-ui.fig
+test untitled_ui_swapped_link_and_secondary_buttons_match_variant_shell ... ignored, needs the private Untitled UI PRO VARIABLES v8.0 kit
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/remote_components.rs (out/cargo/debug/deps/remote_components-931bcf7f4f334186)
+
+running 2 tests
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rest_import.rs (out/cargo/debug/deps/rest_import-23b3ccdfcf9190b2)
+
+running 10 tests
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/rest_import_grid_sizing.rs (out/cargo/debug/deps/rest_import_grid_sizing-713310bb9794157a)
+
+running 2 tests
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rest_upgrade.rs (out/cargo/debug/deps/rest_upgrade-c7be1099c5536162)
+
+running 7 tests
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/settings_import.rs (out/cargo/debug/deps/settings_import-b83af218ced6cba3)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/shadow_blend.rs (out/cargo/debug/deps/shadow_blend-e10abdeef96e816a)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/stack_wrap_and_text_wrap.rs (out/cargo/debug/deps/stack_wrap_and_text_wrap-ba5cfd10671a9f6f)
+
+running 11 tests
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/variables.rs (out/cargo/debug/deps/variables-460dc0f2cf329b37)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variables_code_syntax_opacity.rs (out/cargo/debug/deps/variables_code_syntax_opacity-797c6f6ff01e871c)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/variables_library_collections.rs (out/cargo/debug/deps/variables_library_collections-b919634ab8758363)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/vector_network.rs (out/cargo/debug/deps/vector_network-14bfe4c8142cc92c)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_fig
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+fig_rc=0
+test rest_import::grid_sizing_tests::nested_repeat_bomb_is_counted_not_expanded ... ok
+test rest_import::grid_sizing_tests::deeply_nested_repeat_stops_at_depth_cap ... ok
+test variables_dtcg::tests::dtcg_export_gives_same_named_collections_unique_groups_and_files ... ok
+test variables_dtcg::tests::dtcg_zip_export_with_same_named_collections_succeeds ... ok
+test web_capture::tests::looks_like_web_capture_ignores_nested_substring ... ok
+test nested_instance_sources_follow_inline_ids ... ok
+test stack_mode_none_override_on_a_nested_frame_survives_a_fig_round_trip ... ok
+test nested_library_instances_expand_and_overrides_follow_override_keys ... ok
+test fig_import_resolves_symbol_overrides_bindings_nested_swaps_and_handoff_map ... ok
+test a_nested_instance_is_written_as_swapped_only_when_both_it_and_its_main_side_instance_have_a_component ... ok
+test nested_instance_swap_updates_shell_fills_strokes_effects_and_reapplies_props ... ok
+test expose_nested_instances_and_nested_overrides_roundtrip_fig_and_rest ... ok
+test nested_instances_resolve_multi_step_paths ... ok
+test nested_icon_instance_inside_resized_button_instance_scales_child_vectors ... ok
+test expands_a_chain_of_deeply_nested_components_on_a_small_stack ... ok
+test nested_slash_path_in_descendants_resolves ... ok

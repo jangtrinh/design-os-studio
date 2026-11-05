@@ -191,6 +191,223 @@ pub enum ImageScaleMode {
     Tile,
 }
 
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+
+fn is_one_f32(v: &f32) -> bool {
+    (*v - 1.0).abs() < f32::EPSILON
+}
+
+fn default_tile_scale() -> f32 {
+    1.0
+}
+
+/// Per-paint image colour adjustments matching `PaintFilterMessage` (fields 1..10).
+/// Each adjustment ranges over `[-1.0, 1.0]` with `0.0` as neutral.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ImageAdjust {
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub tint: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub shadows: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub highlights: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub detail: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub exposure: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub vignette: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub temperature: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub vibrance: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub contrast: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub brightness: f32,
+}
+
+impl ImageAdjust {
+    pub fn is_default(&self) -> bool {
+        self.tint == 0.0
+            && self.shadows == 0.0
+            && self.highlights == 0.0
+            && self.detail == 0.0
+            && self.exposure == 0.0
+            && self.vignette == 0.0
+            && self.temperature == 0.0
+            && self.vibrance == 0.0
+            && self.contrast == 0.0
+            && self.brightness == 0.0
+    }
+}
+
+/// Crop transform, rotation, tile scale, colour adjustments, and round-trip metadata for [`PaintKind::Image`].
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ImageParams {
+    /// Crop affine `[m00, m01, m02, m10, m11, m12]` in normalised UV space (`0..1` of node -> `0..1` of image).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform: Option<[f32; 6]>,
+    /// Clockwise rotation in degrees (`0`, `90`, `180`, `270`, mod `360`).
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub rotation: f32,
+    /// Tile scale factor (`1.0` = 100% native pixel dimensions).
+    #[serde(default = "default_tile_scale", skip_serializing_if = "is_one_f32")]
+    pub tile_scale: f32,
+    /// Colour adjustments.
+    #[serde(default, skip_serializing_if = "ImageAdjust::is_default")]
+    pub adjust: ImageAdjust,
+    /// Round-tripped `.fig` `imageShouldColorManage` flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_manage: Option<bool>,
+    /// Round-tripped `.fig` `(originalImageWidth, originalImageHeight)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_size: Option<(u32, u32)>,
+}
+
+impl Default for ImageParams {
+    fn default() -> Self {
+        Self { transform: None, rotation: 0.0, tile_scale: 1.0, adjust: ImageAdjust::default(), color_manage: None, original_size: None }
+    }
+}
+
+impl ImageParams {
+    pub fn is_default(&self) -> bool {
+        self.transform.is_none()
+            && self.rotation == 0.0
+            && is_one_f32(&self.tile_scale)
+            && self.adjust.is_default()
+            && self.color_manage.is_none()
+            && self.original_size.is_none()
+    }
+}
+
+/// Smallest tile scale an image fill renders at.
+pub const TILE_SCALE_MIN: f32 = 0.01;
+/// Largest tile scale an image fill renders at.
+pub const TILE_SCALE_MAX: f32 = 100.0;
+
+/// Clamps a tile scale into `TILE_SCALE_MIN..=TILE_SCALE_MAX`. Zero and negative
+/// values land on the minimum; a non-finite value falls back to `1.0` (native size).
+pub fn clamp_tile_scale(raw: f32) -> f32 {
+    if raw.is_finite() {
+        raw.clamp(TILE_SCALE_MIN, TILE_SCALE_MAX)
+    } else {
+        1.0
+    }
+}
+
+/// Clockwise quarter turns (`0..4`) an image fill rotation renders at: the nearest
+/// multiple of 90 degrees, modulo 360. A non-finite rotation is `0`.
+pub fn image_quarter_turns(rotation: f32) -> u8 {
+    const ROTATION_STEP_DEG: f32 = 90.0;
+    if rotation.is_finite() {
+        ((rotation / ROTATION_STEP_DEG).round() as i32).rem_euclid(4) as u8
+    } else {
+        0
+    }
+}
+
+/// Maps a node-local point `(x, y)` to image UV `(u, v)` (`0..1` over the decoded
+/// picture, before any quarter turn): `u = u.0 * x + u.1 * y + u.2` and likewise
+/// for `v`. The CPU and GPU renderers and the image jobs all read this one mapping.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageUvMap {
+    pub u: (f32, f32, f32),
+    pub v: (f32, f32, f32),
+    /// Node units per image pixel, used to pick a mip level.
+    pub scale: f32,
+    /// Clockwise quarter turns baked into `u` and `v`. Always `0` for Crop.
+    pub quarter_turns: u8,
+}
+
+impl ImageUvMap {
+    /// Image UV of the node-local point `(x, y)`.
+    pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
+        (self.u.0 * x + self.u.1 * y + self.u.2, self.v.0 * x + self.v.1 * y + self.v.2)
+    }
+}
+
+/// Rotates an unrotated `(x, y) -> (u, v)` affine clockwise by `q` quarter turns around `(0.5, 0.5)`.
+fn rotate_uv_quarter_turns(q: u8, u: (f32, f32, f32), v: (f32, f32, f32)) -> ((f32, f32, f32), (f32, f32, f32)) {
+    match q {
+        1 => (v, (-u.0, -u.1, 1.0 - u.2)),
+        2 => ((-u.0, -u.1, 1.0 - u.2), (-v.0, -v.1, 1.0 - v.2)),
+        3 => ((-v.0, -v.1, 1.0 - v.2), u),
+        _ => (u, v),
+    }
+}
+
+/// Node-local to image-UV mapping of an image fill on a node of `size` showing an
+/// `iw` x `ih` picture. Fill, Fit and Tile rotate by `params.rotation` (odd quarter
+/// turns swap the picture's width and height before scaling); Tile scales by the
+/// clamped `tile_scale`; Crop maps node UV through `params.transform` (identity when
+/// absent) and ignores rotation. `None` when nothing is drawn: a degenerate size or
+/// picture, or a singular or non-finite Crop transform.
+pub fn image_uv_map(size: Vec2, iw: f32, ih: f32, scale_mode: ImageScaleMode, params: &ImageParams) -> Option<ImageUvMap> {
+    if !iw.is_finite() || !ih.is_finite() || iw <= 0.0 || ih <= 0.0 || !size.x.is_finite() || !size.y.is_finite() {
+        return None;
+    }
+    let q = image_quarter_turns(params.rotation);
+    let (rw, rh) = if q % 2 != 0 { (ih, iw) } else { (iw, ih) };
+    match scale_mode {
+        ImageScaleMode::Fill | ImageScaleMode::Fit => {
+            let s = if matches!(scale_mode, ImageScaleMode::Fill) { (size.x / rw).max(size.y / rh) } else { (size.x / rw).min(size.y / rh) };
+            if !s.is_finite() || s <= 0.0 {
+                return None;
+            }
+            let tx = (size.x - rw * s) * 0.5;
+            let ty = (size.y - rh * s) * 0.5;
+            let u0 = (1.0 / (rw * s), 0.0, -tx / (rw * s));
+            let v0 = (0.0, 1.0 / (rh * s), -ty / (rh * s));
+            let (u, v) = rotate_uv_quarter_turns(q, u0, v0);
+            Some(ImageUvMap { u, v, scale: s, quarter_turns: q })
+        }
+        ImageScaleMode::Tile => {
+            let ts_factor = clamp_tile_scale(params.tile_scale);
+            let u0 = (1.0 / (rw * ts_factor), 0.0, 0.0);
+            let v0 = (0.0, 1.0 / (rh * ts_factor), 0.0);
+            let (u, v) = rotate_uv_quarter_turns(q, u0, v0);
+            Some(ImageUvMap { u, v, scale: ts_factor, quarter_turns: q })
+        }
+        ImageScaleMode::Crop => {
+            if size.x <= 0.0 || size.y <= 0.0 {
+                return None;
+            }
+            let m = params.transform.unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+            if !m.iter().all(|v| v.is_finite()) {
+                return None;
+            }
+            let det = m[0] * m[4] - m[1] * m[3];
+            if !det.is_finite() || det.abs() <= 1e-12 {
+                return None;
+            }
+            let u = (m[0] / size.x, m[1] / size.y, m[2]);
+            let v = (m[3] / size.x, m[4] / size.y, m[5]);
+            let sx = (u.0 * iw).hypot(v.0 * ih).max(1e-6);
+            let sy = (u.1 * iw).hypot(v.1 * ih).max(1e-6);
+            let s = (1.0 / sx).max(1.0 / sy);
+            if !s.is_finite() || s <= 0.0 {
+                return None;
+            }
+            Some(ImageUvMap { u, v, scale: s, quarter_turns: 0 })
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShaderRef {
+    pub raw: serde_json::Value,
+}
+
+impl Default for ShaderRef {
+    fn default() -> Self {
+        Self { raw: serde_json::Value::Object(serde_json::Map::new()) }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PaintKind {
     Solid(Color),
@@ -216,7 +433,10 @@ pub enum PaintKind {
     Image {
         image_ref: String,
         scale_mode: ImageScaleMode,
+        #[serde(default, skip_serializing_if = "ImageParams::is_default")]
+        params: ImageParams,
     },
+    Shader(ShaderRef),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -233,12 +453,14 @@ impl Paint {
     }
 
     /// The coverage this paint leaves in an effect silhouette (drop shadow, inner shadow,
-    /// background blur, glass, noise): a solid colour contributes its own alpha, every other
-    /// kind is opaque, and the paint opacity scales either. A colour variable keeps its alpha on
-    /// the colour, so reading only `opacity` would ink the silhouette fully.
+    /// background blur, glass, noise): a solid colour contributes its own alpha, a custom
+    /// shader contributes nothing (it is not rendered), every other kind is opaque, and the
+    /// paint opacity scales either. A colour variable keeps its alpha on the colour, so reading
+    /// only `opacity` would ink the silhouette fully.
     pub fn silhouette_alpha(&self) -> f32 {
         let base = match &self.kind {
             PaintKind::Solid(c) => c.a,
+            PaintKind::Shader(_) => 0.0,
             _ => 1.0,
         };
         base * self.opacity
@@ -259,6 +481,18 @@ pub enum StrokeCap {
     None,
     Round,
     Square,
+    ArrowLines,
+    ArrowEquilateral,
+    TriangleFilled,
+    DiamondFilled,
+    CircleFilled,
+}
+
+impl StrokeCap {
+    /// True when this cap is one of the 5 arrowhead / endpoint marker caps.
+    pub fn is_arrow(self) -> bool {
+        matches!(self, Self::ArrowLines | Self::ArrowEquilateral | Self::TriangleFilled | Self::DiamondFilled | Self::CircleFilled)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -336,6 +570,12 @@ pub enum Effect {
     Texture(TextureEffect),
     /// Frosted, refractive glass over what is behind the layer.
     Glass(GlassEffect),
+    Shader {
+        #[serde(flatten)]
+        shader: ShaderRef,
+        #[serde(default = "default_true")]
+        visible: bool,
+    },
 }
 
 impl Effect {
@@ -344,7 +584,8 @@ impl Effect {
             Effect::DropShadow { visible, .. }
             | Effect::InnerShadow { visible, .. }
             | Effect::LayerBlur { visible, .. }
-            | Effect::BackgroundBlur { visible, .. } => *visible,
+            | Effect::BackgroundBlur { visible, .. }
+            | Effect::Shader { visible, .. } => *visible,
             Effect::Noise(e) => e.visible,
             Effect::Texture(e) => e.visible,
             Effect::Glass(e) => e.visible,
@@ -365,10 +606,14 @@ pub enum NoiseMode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NoiseEffect {
     pub mode: NoiseMode,
-    /// Grain size in px.
+    /// Grain size in px along X. Also the size along Y while `size_y` is `None`.
     pub size: f32,
+    /// Grain size in px along Y when it differs from `size`; `None` means the same as `size`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_y: Option<f32>,
     /// Share of covered pixels, 0..1.
     pub density: f32,
+    /// Strength of the grain, 0..1. Every mode draws its grain with it.
     pub opacity: f32,
     pub blend: BlendMode,
     /// Deterministic seed so renders are reproducible.
@@ -378,8 +623,11 @@ pub struct NoiseEffect {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextureEffect {
-    /// Texture scale in px.
+    /// Texture scale in px along X. Also the scale along Y while `size_y` is `None`.
     pub size: f32,
+    /// Texture scale in px along Y when it differs from `size`; `None` means the same as `size`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_y: Option<f32>,
     /// Edge displacement in px.
     pub radius: f32,
     /// Keep the textured result inside the original shape.
@@ -396,12 +644,18 @@ pub struct GlassEffect {
     pub light_intensity: f32,
     /// How strongly the backdrop bends at the edges, 0..1.
     pub refraction: f32,
-    /// Bevel depth in px.
+    /// Refraction radius in px: how far from the edge the backdrop bends.
     pub depth: f32,
     /// Chromatic split at the edges, 0..1.
     pub dispersion: f32,
     /// Backdrop blur radius in px.
     pub frost: f32,
+    /// How far the bending direction turns from the edge normal toward the shape centre, 0..1.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub splay: f32,
+    /// Width in px of the bevel band along the edge.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub bevel: f32,
     pub visible: bool,
 }
 
@@ -501,6 +755,15 @@ pub struct TextStyle {
 }
 
 impl TextStyle {
+    /// Set the CSS weight and keep an existing variable-font weight axis in sync.
+    /// Styles without a `wght` axis keep their current axis list.
+    pub fn set_font_weight(&mut self, weight: u16) {
+        self.font_weight = weight;
+        if self.get_axis("wght").is_some() {
+            self.set_axis("wght", f32::from(weight));
+        }
+    }
+
     pub fn get_axis(&self, tag: &str) -> Option<f32> {
         self.variation_axes.iter().find(|(k, _)| k.eq_ignore_ascii_case(tag)).map(|(_, v)| *v)
     }
@@ -583,10 +846,6 @@ fn is_true(v: &bool) -> bool {
 
 fn is_default_grid_align(a: &LayoutGridAlign) -> bool {
     *a == LayoutGridAlign::Stretch
-}
-
-fn is_zero_f32(v: &f32) -> bool {
-    *v == 0.0
 }
 
 fn is_default_leading_trim(v: &LeadingTrim) -> bool {
@@ -686,5 +945,105 @@ mod tests {
         assert_eq!(Color::from_hex("blue"), Some(Color::rgb(0, 0, 255)));
         assert_eq!(Color::from_hex("coral"), Some(Color::rgb(255, 127, 80)));
         assert_eq!(Color::from_hex("rebeccapurple"), Some(Color::rgb(102, 51, 153)));
+    }
+
+    #[test]
+    fn old_designos_file_loads_with_default_params_and_saves_unchanged() {
+        let json = r#"{"Image":{"image_ref":"hash123","scale_mode":"Fill"}}"#;
+        let kind: PaintKind = serde_json::from_str(json).unwrap();
+        assert_eq!(kind, PaintKind::Image { image_ref: "hash123".into(), scale_mode: ImageScaleMode::Fill, params: ImageParams::default() });
+        let saved = serde_json::to_string(&kind).unwrap();
+        assert_eq!(saved, json);
+    }
+    #[test]
+    fn tile_scale_clamps_into_range_and_non_finite_falls_back_to_native() {
+        assert_eq!(clamp_tile_scale(0.0), TILE_SCALE_MIN);
+        assert_eq!(clamp_tile_scale(-4.0), TILE_SCALE_MIN);
+        assert_eq!(clamp_tile_scale(0.001), TILE_SCALE_MIN);
+        assert_eq!(clamp_tile_scale(2.5), 2.5);
+        assert_eq!(clamp_tile_scale(1.0e6), TILE_SCALE_MAX);
+        for raw in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(clamp_tile_scale(raw), 1.0, "{raw}");
+        }
+    }
+
+    #[test]
+    fn quarter_turns_round_to_the_nearest_right_angle_modulo_a_full_turn() {
+        for (degrees, turns) in [(0.0, 0), (89.0, 1), (90.0, 1), (180.0, 2), (270.0, 3), (360.0, 0), (450.0, 1), (-90.0, 3), (44.0, 0), (f32::NAN, 0)] {
+            assert_eq!(image_quarter_turns(degrees), turns, "{degrees}");
+        }
+    }
+
+    #[test]
+    fn image_uv_map_places_the_picture_like_each_scale_mode() {
+        let params = ImageParams::default();
+        // Fill: a 400x200 picture covers a 100x100 node, centred: the node shows u in 0.25..0.75.
+        let fill = image_uv_map(Vec2::new(100.0, 100.0), 400.0, 200.0, ImageScaleMode::Fill, &params).unwrap();
+        assert_eq!((fill.apply(0.0, 0.0), fill.apply(100.0, 100.0)), ((0.25, 0.0), (0.75, 1.0)));
+        // Fit: the whole picture sits in the middle of the node.
+        let fit = image_uv_map(Vec2::new(100.0, 100.0), 400.0, 200.0, ImageScaleMode::Fit, &params).unwrap();
+        assert_eq!((fit.apply(0.0, 25.0), fit.apply(100.0, 75.0)), ((0.0, 0.0), (1.0, 1.0)));
+        // A quarter turn clockwise: the top-left of the node shows the bottom-left of the picture.
+        let turned = image_uv_map(Vec2::new(100.0, 100.0), 400.0, 200.0, ImageScaleMode::Fit, &ImageParams { rotation: 90.0, ..params }).unwrap();
+        assert_eq!(turned.quarter_turns, 1);
+        let (u, v) = turned.apply(25.0, 0.0);
+        assert!((u - 0.0).abs() < 1e-6 && (v - 1.0).abs() < 1e-6, "({u}, {v})");
+        // Crop ignores rotation and maps node UV through the transform.
+        let crop = ImageParams { transform: Some([0.5, 0.0, 0.25, 0.0, 0.5, 0.25]), rotation: 90.0, ..params };
+        let crop = image_uv_map(Vec2::new(100.0, 100.0), 400.0, 200.0, ImageScaleMode::Crop, &crop).unwrap();
+        assert_eq!((crop.quarter_turns, crop.apply(0.0, 0.0), crop.apply(100.0, 100.0)), (0, (0.25, 0.25), (0.75, 0.75)));
+    }
+
+    #[test]
+    fn image_uv_map_draws_nothing_for_degenerate_input() {
+        let size = Vec2::new(100.0, 100.0);
+        let singular = ImageParams { transform: Some([1.0, 2.0, 0.0, 2.0, 4.0, 0.0]), ..Default::default() };
+        assert_eq!(image_uv_map(size, 10.0, 10.0, ImageScaleMode::Crop, &singular), None);
+        assert_eq!(image_uv_map(size, 0.0, 10.0, ImageScaleMode::Fill, &ImageParams::default()), None);
+        assert_eq!(image_uv_map(Vec2::new(f32::NAN, 10.0), 10.0, 10.0, ImageScaleMode::Fit, &ImageParams::default()), None);
+        let tile = image_uv_map(size, 10.0, 10.0, ImageScaleMode::Tile, &ImageParams { tile_scale: 0.0, ..Default::default() }).unwrap();
+        assert_eq!(tile.scale, TILE_SCALE_MIN, "tile scale 0 is drawn at the minimum");
+    }
+
+    #[test]
+    fn old_designos_file_without_shaders_loads_and_saves_unchanged() {
+        let mut doc = crate::Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let frame_id = doc.alloc_id();
+        doc.insert(page, crate::Node::frame(frame_id, crate::Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let json = doc.to_json().unwrap();
+        let loaded = crate::Document::from_json(&json).unwrap();
+        assert_eq!(loaded.to_json().unwrap(), json);
+    }
+
+    #[test]
+    fn designos_json_round_trip_keeps_shader() {
+        let mut doc = crate::Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let frame_id = doc.alloc_id();
+        let mut frame = crate::Node::frame(frame_id, crate::Rect::new(0.0, 0.0, 120.0, 80.0));
+        let raw = serde_json::json!({
+            "customEffectId": {
+                "guid": { "sessionID": 7, "localID": 19 },
+                "assetRef": { "key": "shader-key", "version": "1" }
+            },
+            "componentPropAssignments": [
+                {
+                    "defID": { "sessionID": 1, "localID": 2 },
+                    "value": { "floatValue": 0.5 }
+                }
+            ]
+        });
+        frame.fills.push(Paint { kind: PaintKind::Shader(ShaderRef { raw: raw.clone() }), opacity: 0.75, visible: true, blend: BlendMode::Normal });
+        frame.effects.push(Effect::Shader { shader: ShaderRef { raw: raw.clone() }, visible: false });
+        doc.insert(page, frame).unwrap();
+
+        let json = doc.to_json().unwrap();
+        assert!(json.contains(r#""Shader":{"raw":"#), "{json}");
+        let loaded = crate::Document::from_json(&json).unwrap();
+        let loaded_frame = loaded.get(frame_id).unwrap();
+        assert_eq!(loaded_frame.fills.len(), 2);
+        assert_eq!(loaded_frame.fills[1].kind, PaintKind::Shader(ShaderRef { raw: raw.clone() }));
+        assert_eq!(loaded_frame.effects, vec![Effect::Shader { shader: ShaderRef { raw }, visible: false }]);
     }
 }

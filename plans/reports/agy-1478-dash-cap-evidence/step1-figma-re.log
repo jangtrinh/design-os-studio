@@ -1,0 +1,46 @@
+=== 1. REA Evidence Bundles ===
+rea inspect-macho /Applications/Figma.app/Contents/MacOS/Figma -> ev_0cd5f3f9cd98cd6b00b4abca25c0efd5ef3b4108880aca82eba125aa3cc16c4a
+rea analyze-javascript-application scratch/figma_js_subset -> ev_063289d197f28b1354a60309c44d21a8b1f8e71775da9fbb91ab929b9755322e
+
+=== 2. Figma v43 Editor Bundle Kiwi Schema (Cache_Data/3905b617efbb4f81_0 -> 27756-1dc8c27de1ebafa4.min.js.br) ===
+decompressed_bytes=15063487 sha256=2403ce35291fbd828f026f5670edf0284b5f9c5bec06b1eb2f9f8a21f4736980
+dashCap_count=0 terminalCap_count=0
+offset=13457308: enum StrokeCap{NONE=0;ROUND=1;SQUARE=2;ARROW_LINES=3;ARROW_EQUILATERAL=4;DIAMOND_FILLED=5;TRIANGLE_FILLED=6;HIGHLIGHT=7;WASHI_TAPE_1=8;WASHI_TAPE_2=9;WASHI_TAPE_3=10;WASHI_TAPE_4=11;WASHI_TAPE_5=12;WASHI_TAPE_6=13;CIRCLE_FILLED=14;ERD_ZERO_
+offset=13458035: enum DashMode{CLIP=0;STRETCH=1;}message GeoBundleParam{uint key=1;float number=2;Vector vector=3;Color color=4;GUID node=5;float[]numbers=6;uint integer=7;uint64 big=8;bool flag=9;string text=10;}message GeoBundleColumn{uint key=1;float[]nu
+offset=13479835: message Stroke{int strokeId=1;float strokeWeight=2;VariableData strokeWeightVar=3;Paint[]strokePaint=4;StyleId styleIdForStrokeFill=5;StrokeAlign strokeAlign=6;StrokeCap strokeCap=7;Number strokeCapSize=8;StrokeJoin strokeJoin=9;float miter
+offset=13489978: StrokeCap strokeCap=30;uint strokeCapTag=82[deprecated];Number strokeCapSize=497;StrokeJoin strokeJoin=31;uint strokeJoinTag=83[deprecated];Paint[]fillPaints=38;uint fillPaintsTag=90[deprecated];Paint[]strokePaints=39;uint strokePaintsTag=9
+
+=== 3. Untitled UI Kit Embedded Kiwi Schema (scratch/untitled-clone.fig -> canvas.fig) ===
+untitled_schema_decompressed_bytes=75243 sha256=f361538d53170dafb2e5ad8f6cd722e5cbca5697e1aa7c490caa098b27242643
+untitled_schema_dashCap_count=0 terminalCap_count=0
+untitled_schema_offset=3047 token=StrokeCap
+untitled_schema_offset=3783 token=DashMode
+untitled_schema_offset=19838 token=dashPattern
+untitled_schema_offset=19779 token=strokeCap
+untitled_schema_offset=19792 token=strokeCapSize
+
+=== 4. Figma Fullscreen Wasm JS Bindings (Cache_Data/7d063ae82a1f1003_0 -> compiled_wasm.js.br) ===
+compiled_wasm_decompressed_bytes=2377189 dashCap_count=0
+compiled_wasm_offset=1007067 symbol=_NodeTsApi_getStrokeCap
+compiled_wasm_offset=1007186 symbol=_NodeTsApi_getStrokeCapOrMixed
+compiled_wasm_offset=1007321 symbol=_NodeTsApi_setStrokeCap
+compiled_wasm_offset=1010980 symbol=_NodeTsApi_getDashPattern
+compiled_wasm_offset=1011112 symbol=_NodeTsApi_setDashPattern
+compiled_wasm_offset=1229331 symbol=_SceneGraphUiHelpers_updateSelectionProperties
+
+=== 5. Figma Editor Stroke Settings & Selection Property Bridge ===
+bundle=v43_09f33c869f30e8a7_0_84430-eea6d6965fe6eeb8.min.js decompressed_bytes=357181
+  offset=124471: nel.stroke_settings.dash_cap_none.tooltip"):(0,f.t)("fullscreen.properties_panel.stroke_settings.end_cap_none.tooltip")}),(0,r.jsx)(a.c$,{icon:(0,r.jsx)(d.J,{}),value:"SQUARE","aria-label":"dashCap"==
+  offset=140758: "NONE"}},[m,x,R,O]);let M=(0,et.Hd)(e.dashCap),F=p===E.yTM.VERTEX||p===E.yTM.ENDPOINT,z=(0,V.kl)("numSelectedByType"),K=(0,G.vx)(z,"CONNECTOR"),B=(0,i.jsxs)(o.bL,{value:(0,b.zj)(h)?h:void 0,onChange:t
+  offset=144279: hange({dashCap:t})},recordingKey:A.Pt(e,"dashCap"),label:(0,y.t)("fullscreen.properties_panel.stroke_settings.dash_cap"),kind:"dashCap"}),ed=(0,i.jsx)(em.D7,{source:"flyout",recordingKey:A.Pt(e.record
+  offset=145276: ||p===E.yTM.LINE)&&("SIMPLE_DASH"===ec||"CUSTOM_DASH"===ec)&&void 0!==M&&(0,i.jsx)(er.cS,{label:(0,j.tx)("fullscreen.properties_panel.stroke_settings.dash_cap"),appendedClassName:eK,input:es}),!(0,w.k
+bundle=v43_0ffb76f013a6c928_0_57075-82fe18db0c55edd9.min.js decompressed_bytes=23831
+  offset=18973: turn a.oV;switch(e){case"NONE":case"ROUND":case"SQUARE":return e;default:return}}function k(e){if(!e)return"LINE";if((0,a.Oq)(e))return a.oV;if(0===e.length)return"LINE";if(2!==e.length)return"CUSTOM_
+  offset=19034: n e;default:return}}function k(e){if(!e)return"LINE";if((0,a.Oq)(e))return a.oV;if(0===e.length)return"LINE";if(2!==e.length)return"CUSTOM_DASH";if(0===e[0]&&0===e[1])return"LINE";else return"SIMPLE_D
+  offset=19219: return"SIMPLE_DASH"}function A(e,t,o,i,r){return t&&e===c.yTM.VECTOR&&1!==r&&"LINE"!==k(i)?t:o}o.d(t,{$4:()=>S,Fc:()=>E,Hd:()=>P,JD:()=>_,Jt:()=>b,R8:()=>M,V0:()=>R,W:()=>L,Xd:()=>B,e6:()=>C,kW:()=>H,
+bundle=v43_613e12ea20f89370_0_figma_app-7d9f1f40fd698362.min.js decompressed_bytes=8369519
+  offset=2273536: ","miterLimitAngle","terminalCap","dashCap","pathTrim","dynamicStrokeFrequency","dynamicStrokeSmoothen","dynamicStrokeWiggle","scatterBrushGap","scatterBrushWiggle","scatterBrushAngularJitter","scatte
+  offset=5137600: .connectorLineStyle,dashCap:i.dashCap,dashPattern:i.dashPattern,dropdownShown:a,leftEndCap:i.leftEndCap,maxStrokeWeight:i.maxStrokeWeight,miterLimitAngle:i.miterLimitAngle,numSelectedByType:i.numSelec
+  offset=2277874: ot available");d.mA.updateSelectionProperties(c,n,s,a===b.zk.YES,e)}}(e,t,n,a,s)}finally{m.rH.stop("update-selection-properties")}}function et(e){switch(e){case b.zk.YES:case b.zk.YES_FORCE_TRACKING_A
+bundle=v43_193b5f09212e6390_0_74515-63b499fb5ad21b5d.min.js decompressed_bytes=226628
+  offset=79313: >{j({strokeCap:e})},recordingKey:v.Pt(e,"dashCap"),label:(0,c.t)("fullscreen.properties_panel.stroke_settings.end_points"),hideNone:n,kind:"endCap"})}),ev=(0,r.jsx)("span",{className:"pencil_tool_pane

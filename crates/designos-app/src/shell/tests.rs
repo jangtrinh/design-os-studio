@@ -1,7 +1,7 @@
 //! End-to-end UI tests: drive the whole window with synthetic egui input.
 
 use super::*;
-use designos_doc::{Color, NodeId, NodeKind, Paint, Vec2 as DV};
+use designos_doc::{BlendMode, Color, GradientStop, NodeId, NodeKind, Paint, PaintKind, Vec2 as DV};
 use egui::{Modifiers, PointerButton, RawInput};
 
 fn no_system_clipboard() -> Option<String> {
@@ -610,6 +610,102 @@ fn color_swatch_opens_picker_without_panic() {
 }
 
 #[test]
+fn gradient_picker_delete_removes_stop_without_deleting_layer() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint {
+                kind: PaintKind::LinearGradient {
+                    handles: [DV::new(0.0, 0.5), DV::new(1.0, 0.5), DV::new(0.0, 1.0)],
+                    stops: vec![
+                        GradientStop { pos: 0.0, color: Color::BLACK },
+                        GradientStop { pos: 0.5, color: Color::rgb(128, 128, 128) },
+                        GradientStop { pos: 1.0, color: Color::WHITE },
+                    ],
+                },
+                opacity: 1.0,
+                visible: true,
+                blend: BlendMode::Normal,
+            }];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some(), "gradient picker should be open");
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_some(), "{key:?} in the picker must not delete the layer");
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected surviving gradient fill")
+        };
+        assert_eq!(stops.len(), 2, "{key:?} should remove one selected gradient stop");
+        s.key(Key::Escape);
+        assert!(s.app().props.picker.is_none(), "closing the picker should commit the stop deletion");
+        s.cmd_key(Key::Z);
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected gradient after undo")
+        };
+        assert_eq!(stops.len(), 3, "undo should restore the deleted stop in one step");
+    }
+}
+
+#[test]
+fn delete_still_removes_layers_without_a_picker_and_on_a_solid_fill() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_none());
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_none(), "{key:?} with no picker must delete the layer");
+    }
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint::solid(Color::BLACK)];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some(), "solid picker should be open");
+        let solid = s.app().props.picker.as_ref().is_some_and(|pk| !crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient());
+        assert!(solid, "the open picker must be a solid fill");
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_none(), "{key:?} in a solid picker must delete the layer");
+    }
+}
+
+#[test]
+fn gradient_picker_keeps_the_last_two_stops() {
+    for key in [Key::Delete, Key::Backspace] {
+        let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+        let hero = s.by_name("Hero");
+        s.shell.app.edit_nodes(&[hero], |n| {
+            n.fills = vec![Paint {
+                kind: PaintKind::LinearGradient {
+                    handles: [DV::new(0.0, 0.5), DV::new(1.0, 0.5), DV::new(0.0, 1.0)],
+                    stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+                },
+                opacity: 1.0,
+                visible: true,
+                blend: BlendMode::Normal,
+            }];
+        });
+        s.frame(vec![]);
+        s.click(s.rect_of("sw:false:0").center());
+        s.frame(vec![]);
+        assert!(s.app().props.picker.is_some());
+        s.key(key);
+        assert!(s.app().doc.get(hero).is_some(), "{key:?} must not delete the layer when the gradient cannot lose a stop");
+        let Some(Paint { kind: PaintKind::LinearGradient { stops, .. }, .. }) = s.app().doc.get(hero).and_then(|n| n.fills.first()) else {
+            panic!("expected surviving gradient fill")
+        };
+        assert_eq!(stops.len(), 2, "{key:?} must not remove a stop from a two-stop gradient");
+    }
+}
+
+#[test]
 fn page_context_menu_duplicates_and_deletes() {
     let mut s = Sim::new();
     let n = s.app().doc.pages.len();
@@ -1172,12 +1268,15 @@ mod board_home;
 mod canvas_label_rename;
 mod check_designs;
 mod chrome_census;
+mod click_selection;
+mod clipboard_shortcuts;
 mod close_human_dirty;
 mod close_tab_kinds;
 mod comments;
 mod components;
 mod components_cycles;
 mod components_main_copies;
+mod corner_radius;
 mod decks;
 mod deferred_page_instances;
 mod dev;
@@ -1185,11 +1284,14 @@ mod dev_code_panel;
 mod dev_mode_shortcut;
 mod dropdown_keys;
 mod duplicate_order;
+mod edit_menu_parity;
 mod effect_caps;
 mod effect_grid_styles;
+mod effect_popover_rows;
 mod effect_stop_binds;
 mod empty_slot_flows;
 mod export_toast;
+mod expose_nested_instances;
 mod fast_drag_draw;
 mod fast_drag_transform;
 mod fig_export_toast;
@@ -1201,6 +1303,7 @@ mod history;
 mod home;
 mod home_agents_card;
 mod idle_repaint;
+mod inspector_var_binds;
 mod layer_drag_fast;
 mod leave_agent;
 #[cfg(target_os = "macos")]
@@ -1221,6 +1324,8 @@ mod palette_autofix_undo;
 mod panel_export;
 mod panel_keys;
 mod picker_libraries_tooltip;
+mod picker_ok_escape;
+mod project_tab;
 mod proto;
 mod proto_vars;
 mod relayout_budget;
@@ -1923,5 +2028,88 @@ mod agent_a11y {
         assert!(shell_live.app.ui.regions.title_bar.is_some(), "non-screenshot launch draws title_bar");
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos() {
+        let tmp = std::env::temp_dir().join(format!("designos-mask-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let ctx = egui::Context::default();
+        let opts = Options { library: Some(tmp.join("lib")), fixture: Some("demo".to_string()), ..Options::default() };
+        let mut shell = Shell::build(&ctx, opts);
+        let page = shell.app.page;
+        let id = shell.app.doc.alloc_id();
+        shell.app.doc.insert(page, designos_doc::Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+
+        let try_chord = |shell: &mut Shell, m: egui::Modifiers| -> bool {
+            shell.app.doc.get_mut(id).unwrap().is_mask = false;
+            shell.app.selection = vec![id];
+            shell.key(&ctx, egui::Key::M, m);
+            shell.app.doc.get(id).unwrap().is_mask
+        };
+
+        if cfg!(target_os = "macos") {
+            let ctrl_cmd = egui::Modifiers { alt: false, ctrl: true, shift: false, mac_cmd: true, command: true };
+            let alt_cmd = egui::Modifiers { alt: true, ctrl: false, shift: false, mac_cmd: true, command: true };
+            let ctrl_alt_cmd = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: true, command: true };
+            let plain_cmd = egui::Modifiers { alt: false, ctrl: false, shift: false, mac_cmd: true, command: true };
+            let ctrl_alt = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: false };
+            assert!(try_chord(&mut shell, ctrl_cmd), "⌃⌘M must toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, alt_cmd), "⌥⌘M must not toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, ctrl_alt_cmd), "⌃⌥⌘M must not toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, plain_cmd), "⌘M must not toggle Use as mask");
+            assert!(!try_chord(&mut shell, ctrl_alt), "⌃⌥M without ⌘ must not toggle Use as mask on macOS");
+        } else {
+            let ctrl_alt = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: true };
+            let plain_ctrl = egui::Modifiers { alt: false, ctrl: true, shift: false, mac_cmd: false, command: true };
+            assert!(try_chord(&mut shell, ctrl_alt), "Ctrl+Alt+M must toggle Use as mask");
+            assert!(!try_chord(&mut shell, plain_ctrl), "Ctrl+M must not toggle Use as mask");
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace() {
+        let mut s = Sim::new();
+        let page = s.app().page;
+        let frame = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::frame(frame, designos_doc::Rect::new(100.0, 120.0, 320.0, 240.0))).unwrap();
+        let child = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(frame, designos_doc::Node::rectangle(child, designos_doc::Rect::new(30.0, 40.0, 90.0, 60.0))).unwrap();
+        let src = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::rectangle(src, designos_doc::Rect::new(500.0, 120.0, 50.0, 50.0))).unwrap();
+        let target = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::rectangle(target, designos_doc::Rect::new(600.0, 120.0, 110.0, 80.0))).unwrap();
+
+        // Copy `src` into Studio's internal clip so PasteToReplace has a clip payload ready.
+        s.shell.app.selection = vec![src];
+        s.shell.app.copy_selection();
+
+        // Select `frame` and press Cmd+Alt+Shift+R (⌥⇧⌘R / Ctrl+Alt+Shift+R): must Resize to fit `frame`, NOT Paste to replace it!
+        s.shell.app.selection = vec![frame];
+        let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+        s.mods = Modifiers { alt: true, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        s.key(Key::R);
+        s.mods = Modifiers::NONE;
+
+        let f_after = s.app().doc.get(frame).expect("frame still exists and was not replaced by clipboard");
+        assert_eq!((f_after.transform.tx, f_after.transform.ty), (130.0, 160.0));
+        assert_eq!(f_after.size, DV::new(90.0, 60.0));
+        let c_after = s.app().doc.get(child).expect("child still exists");
+        assert_eq!((c_after.transform.tx, c_after.transform.ty), (0.0, 0.0));
+
+        // Now select `target` and press Cmd+Shift+R (⇧⌘R / Ctrl+Shift+R): must Paste to replace `target` with a 50x50 copy of `src`.
+        s.shell.app.selection = vec![target];
+        s.mods = Modifiers { alt: false, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        s.key(Key::R);
+        s.mods = Modifiers::NONE;
+
+        assert!(s.app().doc.get(target).is_none(), "target was replaced by PasteToReplace");
+        assert_eq!(s.app().selection.len(), 1);
+        let replaced = s.app().doc.get(s.app().selection[0]).unwrap();
+        assert_eq!(replaced.size, DV::new(50.0, 50.0));
+        assert_eq!((replaced.transform.tx, replaced.transform.ty), (600.0, 120.0));
     }
 }

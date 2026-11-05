@@ -1,0 +1,655 @@
+# r2 citation grep: every file:line this round added to the report, shown from the cited source
+code ref = b4a7470b (full b4a7470b7ed6fbd5ea56f1c9c56bf44e6e5bec0b); "@sha" cites use that sha; *.log cites read the evidence folder
+cites checked: 161
+
+--- crates/designos-app/src/shell/tests/typography.rs@150fb411:447-519
+447: fn headless_popover_render_truncate_off_and_on_max_lines_2() {
+448:     let mut s = Sim::built(Options { select: Some("Continue".into()), panel: Some("type-details".into()), ..Options::default() });
+449:     let mut atlas = std::collections::HashMap::new();
+450:     let run = |s: &mut Sim, atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>| {
+451:         s.t += 0.05;
+452:         let mut raw = RawInput {
+   ... (67 more lines in range)
+--- crates/designos-app/src/shell/tests/typography.rs@150fb411:451-458
+451:         s.t += 0.05;
+452:         let mut raw = RawInput {
+453:             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1088.0))),
+454:             time: Some(s.t),
+455:             modifiers: s.mods,
+456:             ..Default::default()
+   ... (2 more lines in range)
+--- crates/designos-app/src/shell/tests/typography.rs@150fb411:344-371
+344: fn apply_textures_delta(atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>, delta: &egui::TexturesDelta) {
+345:     for (tid, d) in &delta.set {
+346:         let [w, h] = d.image.size();
+347:         let src: Vec<[u8; 4]> = match &d.image {
+348:             egui::ImageData::Color(c) => c.pixels.iter().map(|p| p.to_array()).collect(),
+349:         };
+   ... (22 more lines in range)
+--- crates/designos-app/src/shell/tests/typography.rs@150fb411:373-444
+373: fn rasterize_shapes(
+374:     ctx: &egui::Context,
+375:     shapes: Vec<egui::epaint::ClippedShape>,
+376:     atlas: &std::collections::HashMap<egui::TextureId, image::RgbaImage>,
+377:     width: u32,
+378:     height: u32,
+   ... (66 more lines in range)
+--- r2-png-size.log:4
+4: type-settings-truncate-off-crop.png:            PNG image data, 312 x 760, 8-bit/color RGBA, non-interlaced
+--- r2-png-size.log:5
+5: type-settings-truncate-on-max-lines-2-crop.png: PNG image data, 312 x 792, 8-bit/color RGBA, non-interlaced
+--- test-designos-app.log:4300-4304
+4300:     agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+4301:     agent_session_files::tests::two_windows_never_touch_each_others_session_files
+4302:     shell::tests::close_tab_kinds::a_fig_or_pen_tab_close_save_needs_a_native_path_and_never_rewrites_the_source
+4303:     shell::tests::close_tab_kinds::opening_the_library_file_again_makes_a_close_work_again
+4304:     vecops::tests::two_deferred_text_commands_both_convert_in_order
+--- test-designos-app.log:4306
+4306: test result: FAILED. 4182 passed; 5 failed; 13 ignored; 0 measured; 0 filtered out; finished in 403.24s
+--- test-designos-app.log:4309
+4309: test_app_rc=101
+--- test-designos-app.log:4275
+4275: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/out/scratch/test-env/home/Library/Application Support/designos/ap/8454d3eb6bc52580/codex.sock is 
+--- test-designos-app.log:4281
+4281: called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+--- test-designos-app.log:4286
+4286: legacy-0.4.0-rich.fig: {"code":"EDITOR_NOT_NOTIFIED","error":{"code":"EDITOR_NOT_NOTIFIED","error_kind":"retryable","message":"The editor did not close the tab in time.",
+--- test-designos-app.log:4291
+4291: the reopened tab closes: Object {"code": String("EDITOR_NOT_NOTIFIED"), "error": Object {"code": String("EDITOR_NOT_NOTIFIED"), "error_kind": String("retryable"), "messag
+--- test-designos-app.log:4296
+4296: both texts still waiting for slow fonts
+--- test-designos-app.log:4360
+4360: test agent_permissions::tests::hook_rejects_a_malformed_scope_and_accepts_session_text ... FAILED
+--- test-designos-app.log:4391
+4391: thread 'agent_permissions::tests::hook_rejects_a_malformed_scope_and_accepts_session_text' (72676388) panicked at crates/designos-app/src/agent_permissions.rs:2270:13:
+--- test-designos-app.log:4403
+4403: test_app_isolated_rc=101
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4412-4584
+4412:      Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+4413: 
+4414: running 5 tests
+4415: test agent_approval_channel::tests::a_link_in_place_of_the_root_is_refused ... ok
+4416: test agent_approval_channel::tests::a_root_inside_the_session_folder_gets_no_channel ... ok
+4417: test agent_approval_channel::tests::prepared_folders_are_owner_only_even_when_they_existed_with_a_looser_mode ... ok
+   ... (167 more lines in range)
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4421
+4421: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4195 filtered out; finished in 0.19s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4481
+4481: test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 4153 filtered out; finished in 17.54s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4512
+4512: test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 4181 filtered out; finished in 18.64s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4537
+4537: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4187 filtered out; finished in 9.04s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4582
+4582: test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 4167 filtered out; finished in 1.53s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4584
+4584: test_app_isolated_rc=0
+--- r2-test-designos-app.log:2980
+2980: test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+--- test-designos-app.log:3506
+3506: test shell::tests::variables::bind_button_opens_picker_and_binds_a_fill ... ok
+--- crates/designos-app/src/panels/typography.rs@150fb411:745-755
+745: fn details_rows(sets: usize, active_tab: usize, truncating: bool) -> f32 {
+746:     let chips = if sets == 0 { 0 } else { 1 + sets.div_ceil(SETS_PER_ROW) };
+747:     match active_tab {
+748:         // Variable tab: 3-tab bar + Ag live preview + 4 variable axes + reset row
+749:         2 => (1 + 5) as f32 + 2.5,
+750:         // Details tab: 3-tab bar + Ag live preview + 7 OpenType rows + stylistic set chips
+   ... (5 more lines in range)
+--- r2-png-size.log:4-5
+4: type-settings-truncate-off-crop.png:            PNG image data, 312 x 760, 8-bit/color RGBA, non-interlaced
+5: type-settings-truncate-on-max-lines-2-crop.png: PNG image data, 312 x 792, 8-bit/color RGBA, non-interlaced
+--- plans/reports/agy-1467-truncate-text-evidence/mutant1.log:14
+14: test shell::tests::typography::truncate_text_toggle_shows_mixed_and_writes_every_selected_text_layer_in_one_undo_step ... FAILED
+--- plans/reports/agy-1467-truncate-text-evidence/mutant1.log:36
+36: test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 2.18s
+--- plans/reports/agy-1467-truncate-text-evidence/mutant2.log:11
+11: test shell::tests::typography::max_lines_appears_only_while_truncating ... FAILED
+--- plans/reports/agy-1467-truncate-text-evidence/mutant2.log:14
+14: test shell::tests::typography::truncate_text_toggle_shows_mixed_and_writes_every_selected_text_layer_in_one_undo_step ... FAILED
+--- plans/reports/agy-1467-truncate-text-evidence/mutant2.log:41
+41: test result: FAILED. 8 passed; 2 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 1.95s
+--- crates/designos-render/src/text.rs:545-577
+545: fn laid_out(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> (Shaper, Vec<Para>, Flow) {
+546:     let shaper = Shaper::new(fonts, props);
+547:     let mut paras = split_paragraphs(props, false);
+548:     let mut fl = flow(fonts, &shaper, props, size, &paras);
+549: 
+550:     // Truncate: keep at most `limit` lines and end the last one with "…".
+   ... (27 more lines in range)
+--- crates/designos-gpu/src/geom.rs:503-512
+503: fn build_geom(doc: &Document, n: &Node, scale: f32) -> NodeGeom {
+504:     let tol = 0.1 / scale;
+505:     let mut g = NodeGeom { shape: None, fill: None, stroke: RefCell::default(), text: Vec::new(), scale, lazy: RefCell::default() };
+506:     if let NodeKind::Text(tp) = &n.kind {
+507:         for o in text_outlines(tp, n.size) {
+508:             let Some(mesh) = tessellate(&[(o.path.clone(), sk::FillRule::Winding)], tol) else { continue };
+   ... (4 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:657
+657:     app.edit_nodes(sel, |n| {
+--- crates/designos-app/src/panels/typography.rs:673
+673:     app.edit_nodes(sel, |n| {
+--- crates/designos-app/src/ops.rs:279
+279:         self.run_tx(tx);
+--- crates/designos-app/src/ops.rs:232
+232:                 self.changed();
+--- crates/designos-fig/src/fig_export.rs:2481-2496
+2481:     fields.push((
+2482:         "textAutoResize",
+2483:         en(match tp.auto_resize {
+2484:             TextAutoResize::None => "NONE",
+2485:             TextAutoResize::WidthAndHeight => "WIDTH_AND_HEIGHT",
+2486:             TextAutoResize::Height => "HEIGHT",
+   ... (10 more lines in range)
+--- crates/designos-fig/src/fig_export.rs:2486-2488
+2486:             TextAutoResize::Height => "HEIGHT",
+2487:             // Figma has no `TRUNCATE` resize mode: a truncating text is fixed in size and says so in `textTruncation`.
+2488:             TextAutoResize::Truncate => "NONE",
+--- crates/designos-fig/src/fig_export.rs:2491-2493
+2491:     if tp.auto_resize == TextAutoResize::Truncate {
+2492:         fields.push(("textTruncation", en("ENDING")));
+2493:     }
+--- crates/designos-fig/src/fig_export.rs:2494-2496
+2494:     if let Some(m) = tp.max_lines {
+2495:         fields.push(("maxLines", V::Int(i32::try_from(m).unwrap_or(i32::MAX))));
+2496:     }
+--- crates/designos-app/src/panels/typography.rs@150fb411:760-1120
+760: pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &super::effects::PopState) {
+761:     let ctx = ui.ctx().clone();
+762:     let ids = st.ids.clone();
+763:     let Some(t) = ids.first().and_then(|id| match app.doc.get(*id).map(|n| &n.kind) {
+764:         Some(NodeKind::Text(t)) => Some(t.clone()),
+765:         _ => None,
+   ... (355 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:769
+769:     let trunc_state = truncate_state(app, &ids);
+--- crates/designos-app/src/panels/typography.rs:787-791
+787:             active_tab = t_idx;
+788:             ctx.data_mut(|d| d.insert_temp(tab_state_id, active_tab));
+789:         }
+790: 
+791:         // ---- 2. Figma UI3 `Ag` Live Preview Box (68x68px, >64px height so lint treats as preview canvas) + Basic Case & Decoration
+--- crates/designos-app/src/panels/typography.rs:770
+770:     let height = widgets::popover::HEADER_H + 8.0 + details_rows(sets.len(), active_tab, trunc_state == Some(true)) * widgets::popover::ROW_H + 8.0;
+--- crates/designos-app/src/panels/typography.rs:745-755
+745: /// live `Ag` preview box with baseline/cap-height guides, basic case/decoration controls,
+746: /// number styles, fractions, ligatures, stylistic sets, paragraph settings, and variable font axes.
+747: pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &super::effects::PopState) {
+748:     let ctx = ui.ctx().clone();
+749:     let ids = st.ids.clone();
+750:     let Some(t) = ids.first().and_then(|id| match app.doc.get(*id).map(|n| &n.kind) {
+   ... (5 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:809-813
+809:         let case_row_y = body.top() + 8.0 + ag_top_offset + 6.0;
+810:         let case_line = Rect::from_min_size(Pos2::new(ag_rect.right() + 10.0, case_row_y), Vec2::new(body.width() - 90.0, 24.0));
+811:         widgets::text_on_baseline(
+812:             ui.painter(),
+813:             ag_rect.right() + 10.0,
+--- crates/designos-app/src/panels/typography.rs@150fb411:956-1042
+956:                         if resp.clicked() {
+957:                             set_features(app, &ids, vec![(tag.as_str(), (!on).then_some(1))]);
+958:                         }
+959:                     }
+960:                 }
+961:             }
+   ... (81 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:1040
+1040:                 if let Some(next_on) = widgets::popover::check(ui, r, "det-truncate", on) {
+--- crates/designos-app/src/panels/typography.rs:769
+769:     let trunc_state = truncate_state(app, &ids);
+--- crates/designos-app/src/panels/typography.rs:1031-1043
+1031:             let trunc_y = next() - 8.0;
+1032:             detail_row(ui, body, trunc_y, "Truncate text", false, |ui, r| {
+1033:                 widgets::record(ui, "det-truncate", r);
+1034:                 let on = trunc_state == Some(true);
+1035:                 if trunc_state.is_none() {
+1036:                     let font = theme::font_body();
+   ... (7 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:1044
+1044:             if trunc_state == Some(true) {
+--- crates/designos-app/src/panels/typography.rs:1046
+1046:                 let ml_y = next() - 8.0;
+--- crates/designos-app/src/panels/typography.rs:689-715
+689: fn max_lines_field(ui: &mut Ui, rect: Rect, key: &str, state: Option<Option<u32>>) -> Option<Option<u32>> {
+690:     widgets::record(ui, key, rect);
+691:     #[cfg(test)]
+692:     {
+693:         let k = format!("{key:?}");
+694:         let rect_id = egui::Id::new(("field-rect", k.clone()));
+   ... (21 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:717-729
+717: fn clear_max_lines_test_rects(ctx: &egui::Context) {
+718:     #[cfg(test)]
+719:     {
+720:         let k = format!("{:?}", "det-max-lines");
+721:         ctx.data_mut(|d| {
+722:             d.remove::<Rect>(egui::Id::new(("test-rect", "det-max-lines".to_string())));
+   ... (7 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:1053
+1053:                 clear_max_lines_test_rects(&ctx);
+--- crates/designos-app/src/panels/typography.rs:656-669
+656: fn set_truncate_text(app: &mut App, sel: &[NodeId], on: bool) {
+657:     app.edit_nodes(sel, |n| {
+658:         if let NodeKind::Text(t) = &mut n.kind {
+659:             t.auto_resize = if on { TextAutoResize::Truncate } else { TextAutoResize::None };
+660:             if n.layout_child.horizontal == Sizing::Hug {
+661:                 n.layout_child.horizontal = Sizing::Fixed;
+   ... (8 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:659
+659:             t.auto_resize = if on { TextAutoResize::Truncate } else { TextAutoResize::None };
+--- crates/designos-app/src/panels/typography.rs:660-665
+660:             if n.layout_child.horizontal == Sizing::Hug {
+661:                 n.layout_child.horizontal = Sizing::Fixed;
+662:             }
+663:             if n.layout_child.vertical == Sizing::Hug {
+664:                 n.layout_child.vertical = Sizing::Fixed;
+665:             }
+--- crates/designos-app/src/panels/typography.rs:672-684
+672: fn set_max_lines(app: &mut App, sel: &[NodeId], max_lines: Option<u32>) {
+673:     app.edit_nodes(sel, |n| {
+674:         let mut is_text = false;
+675:         if let NodeKind::Text(t) = &mut n.kind {
+676:             t.max_lines = max_lines;
+677:             is_text = true;
+   ... (7 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:679-682
+679:         if is_text && max_lines.is_some() {
+680:             n.layout_child.max_h = None;
+681:             n.variables.bindings.remove("maxHeight");
+682:         }
+--- crates/designos-app/src/shell/tests/typography.rs@150fb411:312-342
+312: fn setting_max_lines_clears_max_height_on_text_layer_in_same_undo_step() {
+313:     let mut s = popover_sim();
+314:     let id = s.by_name("Continue");
+315:     {
+316:         let n = s.shell.app.doc.get_mut(id).unwrap();
+317:         n.layout_child.max_h = Some(48.0);
+   ... (25 more lines in range)
+--- crates/designos-mcp/src/tools/mod.rs:183-194
+183: pub(crate) struct UpdateFields {
+184:     pub name: Option<String>,
+185:     pub text: Option<String>,
+186:     pub x: Option<f32>,
+187:     pub y: Option<f32>,
+188:     pub width: Option<f32>,
+   ... (6 more lines in range)
+--- crates/designos-mcp/src/tools/mod.rs:272-279
+272:     if let NodeKind::Text(props) = &mut node.kind {
+273:         if u.height.is_some() {
+274:             if matches!(props.auto_resize, designos_doc::TextAutoResize::WidthAndHeight | designos_doc::TextAutoResize::Height) {
+275:                 props.auto_resize = designos_doc::TextAutoResize::None;
+276:             }
+277:         } else if u.width.is_some() && props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
+   ... (2 more lines in range)
+--- crates/designos-doc/src/spec_instance.rs:1122-1133
+1122:                         let new_size = match tp.auto_resize {
+1123:                             TextAutoResize::WidthAndHeight => {
+1124:                                 measured = true;
+1125:                                 Some(ctx.text_size(tp, None))
+1126:                             }
+1127:                             TextAutoResize::Height => {
+   ... (6 more lines in range)
+--- crates/designos-doc/src/spec_instance.rs:1299-1308
+1299:                         match tp.auto_resize {
+1300:                             TextAutoResize::WidthAndHeight => {
+1301:                                 node.size = ctx.text_size(tp, None);
+1302:                                 measured = true;
+1303:                             }
+1304:                             TextAutoResize::Height => {
+   ... (4 more lines in range)
+--- crates/designos-doc/src/spec.rs:51
+51: #[serde(deny_unknown_fields)]
+--- crates/designos-mcp/tests/text_truncation_roundtrip.rs:52-55
+52:         let node = e.doc.get_mut(excerpt_id).expect("Excerpt node");
+53:         if let NodeKind::Text(tp) = &mut node.kind {
+54:             tp.auto_resize = TextAutoResize::Truncate;
+55:             tp.max_lines = Some(2);
+--- crates/designos-mcp/tests/text_truncation_roundtrip.rs:192-195
+192:         let n = e.doc.get_mut(id).unwrap();
+193:         if let NodeKind::Text(tp) = &mut n.kind {
+194:             tp.auto_resize = TextAutoResize::Truncate;
+195:             tp.max_lines = Some(1);
+--- crates/designos-mcp/tests/text_truncation_roundtrip.rs:215-218
+215:         let n = e.doc.get_mut(overflowing_id).unwrap();
+216:         n.size.y = 120.0;
+217:         if let NodeKind::Text(tp) = &mut n.kind {
+218:             tp.max_lines = None;
+--- test-designos-app.log:4584
+4584: test_app_isolated_rc=0
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-mcp.log:336
+336: test result: ok. 326 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.14s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-mcp.log:717
+717: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-mcp.log:725
+725: test_mcp_rc=0
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4306
+4306: test result: FAILED. 4182 passed; 5 failed; 13 ignored; 0 measured; 0 filtered out; finished in 403.24s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4421
+4421: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4195 filtered out; finished in 0.19s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4481
+4481: test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 4153 filtered out; finished in 17.54s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4512
+4512: test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 4181 filtered out; finished in 18.64s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4537
+4537: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4187 filtered out; finished in 9.04s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4582
+4582: test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 4167 filtered out; finished in 1.53s
+--- plans/reports/agy-1467-truncate-text-evidence/test-designos-app.log:4584
+4584: test_app_isolated_rc=0
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:23
+23: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:749
+749: test result: ok. 720 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.46s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:756
+756: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:921
+921: test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.22s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1070
+1070: test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.31s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1106
+1106: test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1117
+1117: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1160
+1160: test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.42s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1492
+1492: test result: ok. 326 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.41s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1556
+1556: test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 33.78s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1563
+1563: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1577
+1577: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+--- plans/reports/agy-1467-truncate-text-evidence/test-workspace-lib.log:1579
+1579: test_ws_lib_rc=0
+--- crates/designos-doc/src/paint.rs:426-432
+426: pub enum TextAutoResize {
+427:     #[default]
+428:     None,
+429:     WidthAndHeight,
+430:     Height,
+431:     Truncate,
+   ... (1 more lines in range)
+--- crates/designos-doc/src/node.rs:687
+687:     pub max_lines: Option<u32>,
+--- crates/designos-render/src/text.rs:304-336
+304: fn truncation_limit(fl: &Flow, props: &TextProps, size: Vec2) -> usize {
+305:     match props.max_lines {
+306:         Some(m) => m.max(1) as usize,
+307:         None if size.y > 0.0 => fl.lines.iter().filter(|l| l.top - fl.shift + l.height <= size.y + 0.5).count().max(1),
+308:         None => usize::MAX,
+309:     }
+   ... (27 more lines in range)
+--- crates/designos-render/src/text.rs:545-577
+545: fn laid_out(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> (Shaper, Vec<Para>, Flow) {
+546:     let shaper = Shaper::new(fonts, props);
+547:     let mut paras = split_paragraphs(props, false);
+548:     let mut fl = flow(fonts, &shaper, props, size, &paras);
+549: 
+550:     // Truncate: keep at most `limit` lines and end the last one with "…".
+   ... (27 more lines in range)
+--- crates/designos-fig/src/rest_import.rs:439-446
+439: fn auto_resize(s: &str) -> TextAutoResize {
+440:     match s {
+441:         "WIDTH_AND_HEIGHT" => TextAutoResize::WidthAndHeight,
+442:         "HEIGHT" => TextAutoResize::Height,
+443:         "TRUNCATE" => TextAutoResize::Truncate,
+444:         _ => TextAutoResize::None,
+   ... (2 more lines in range)
+--- crates/designos-fig/src/rest_import.rs:3915-3920
+3915:     let mut auto = fstr(v, "textAutoResize").or_else(|| st.and_then(|s| fstr(s, "textAutoResize"))).map(auto_resize).unwrap_or(TextAutoResize::None);
+3916:     if fstr(v, "textTruncation").or_else(|| st.and_then(|s| fstr(s, "textTruncation"))) == Some("ENDING") {
+3917:         auto = TextAutoResize::Truncate;
+3918:     }
+3919:     let max_lines =
+3920:         v.get("maxLines").or_else(|| st.and_then(|s| s.get("maxLines"))).and_then(Value::as_u64).filter(|n| *n > 0).map(|n| n.min(u32::MAX as u64) as u32);
+--- crates/designos-app/src/panels/typography.rs:740
+740:         _ => (1 + 7 + chips + 8 + usize::from(truncating)) as f32 + 3.0,
+--- crates/designos-app/src/widgets/popover.rs:8
+8: pub const ROW_H: f32 = 32.0;
+--- crates/designos-app/src/panels/typography.rs:717-729
+717: fn clear_max_lines_test_rects(ctx: &egui::Context) {
+718:     #[cfg(test)]
+719:     {
+720:         let k = format!("{:?}", "det-max-lines");
+721:         ctx.data_mut(|d| {
+722:             d.remove::<Rect>(egui::Id::new(("test-rect", "det-max-lines".to_string())));
+   ... (7 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:1053
+1053:                 clear_max_lines_test_rects(&ctx);
+--- crates/designos-app/src/shell/tests/typography.rs:18
+18: fn has_no_rect(s: &Sim, name: &str) -> bool {
+--- crates/designos-app/src/shell/tests.rs:224
+224:     fn field_rect(&self, key: &str) -> Rect {
+--- crates/designos-app/src/shell/tests/typography.rs:455-474
+455: fn turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit() {
+456:     let mut s = popover_sim();
+457:     let id = s.by_name("Continue");
+458:     select_truncating(&mut s, &[(id, Some(3))]);
+459:     let r = s.field_rect("det-max-lines");
+460:     assert!(texts_in_rect(&s, r).iter().any(|t| t == "3"), "the field shows the stored limit while truncating");
+   ... (14 more lines in range)
+--- r2-merge-and-cleanup.log:13-15
+13: crates/designos-app/src/panels/typography.rs
+14: crates/designos-app/src/shell/tests/typography.rs
+15: crates/designos-mcp/tests/text_truncation_roundtrip.rs
+--- r2-png-size.log:3
+3: git log --oneline -1 -- type-settings-truncate-off-crop.png type-settings-truncate-on-max-lines-2-crop.png: e28ae5f1 feat(typography): truncate text toggle and max lines 
+--- r2-red-test.log:25
+25: test shell::tests::typography::turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit ... ok
+--- r2-green-test.log:26
+26: test shell::tests::typography::turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit ... ok
+--- r2-off-clears-max-lines.log:26
+26: test shell::tests::typography::turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit ... FAILED
+--- r2-off-clears-max-lines.log:42
+42: thread 'shell::tests::typography::turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit' (73457295) panicked at crates/designos-app/src/shell/tests
+--- r2-rerun-production-root.log:20
+20: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.eCD1XK/home/Library/Application Support/designos/ap/c38ac3fda41d8b24/codex.sock is 130 bytes
+--- crates/designos-app/src/agent_approval_channel.rs:286
+286:         assert!(socket.as_os_str().len() <= 103, "{} is {} bytes", socket.display(), socket.as_os_str().len());
+--- r2-clippy.log:359
+359:     --> crates/designos-app/src/agent_permissions.rs:1176:9
+--- r2-clippy.log:373
+373:     --> crates/designos-app/src/agent_permissions.rs:1194:9
+--- r2-clippy.log:388
+388:     --> crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181:21
+--- crates/designos-app/src/panels/typography.rs:612-618
+612: /// Applies `f` to the text properties (paragraph settings, lists, direction) of the edited text or of every selected layer.
+613: pub fn set_text_props(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextProps)) {
+614:     if editing(app, sel) {
+615:         ts::edit_text_props(app, &f);
+616:         return;
+617:     }
+   ... (1 more lines in range)
+--- crates/designos-app/src/panels/typography.rs@150fb411:707
+707:         ui.data_mut(|d| d.insert_temp(clear_id, true));
+--- crates/designos-app/src/panels/typography.rs@150fb411:711
+711:     let was_cleared = lost_focus && ui.data_mut(|d| d.remove_temp::<bool>(clear_id)).unwrap_or(false);
+--- r2-zero-fake-ui.log:28
+28:  Gate Verdict: PASS (17/17 invariants satisfied)
+--- r2-red-test.log:7
+7: PREDICT: 3 new behaviour tests FAIL, off-then-on pin PASSES (it pins behaviour that was already right)
+--- r2-green-test.log:7
+7: PREDICT: 15 typography tests pass (12 old + 3 new red ones now green); mcp 2 pass
+--- crates/designos-app/src/panels/typography.rs:656-668
+656: fn set_truncate_text(app: &mut App, sel: &[NodeId], on: bool) {
+657:     app.edit_nodes(sel, |n| {
+658:         if let NodeKind::Text(t) = &mut n.kind {
+659:             t.auto_resize = if on { TextAutoResize::Truncate } else { TextAutoResize::None };
+660:             if n.layout_child.horizontal == Sizing::Hug {
+661:                 n.layout_child.horizontal = Sizing::Fixed;
+   ... (7 more lines in range)
+--- crates/designos-app/src/panels/typography.rs:710-712
+710:     if trimmed.is_empty() {
+711:         return Some(None);
+712:     }
+--- crates/designos-app/src/widgets/field.rs:105-113
+105:     if out.lost_focus() {
+106:         ui.data_mut(|d| {
+107:             d.remove_temp::<String>(id);
+108:             d.remove_temp::<String>(seed_id);
+109:         });
+110:         let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+   ... (3 more lines in range)
+--- crates/designos-mcp/tests/text_truncation_roundtrip.rs:1
+1: //! Round-trip and lint regression tests for text truncation (`TextAutoResize::Truncate` and `max_lines`).
+--- crates/designos-app/src/shell/tests/typography.rs:297-304
+297:     // Clearing stores None (truncate at the box height)
+298:     let r = s.field_rect("det-max-lines");
+299:     s.click(Pos2::new(r.left() + 30.0, r.center().y));
+300:     s.key(Key::Backspace);
+301:     s.key(Key::Enter);
+302:     assert_eq!(text_of(&s, id1).max_lines, None);
+   ... (2 more lines in range)
+--- r2-green-test.log:28
+28: test shell::tests::typography::max_lines_commits_integer_at_least_one_shows_mixed_and_clearing_stores_none ... ok
+--- r2-red-test.log:22
+22: test shell::tests::typography::truncate_text_leaves_non_text_layers_in_the_selection_alone ... FAILED
+--- r2-red-test.log:55-56
+55: thread 'shell::tests::typography::truncate_text_leaves_non_text_layers_in_the_selection_alone' (73423151) panicked at crates/designos-app/src/shell/tests/typography.rs:41
+56: assertion `left == right` failed: a non-text layer in the selection keeps its sizing
+--- r2-green-test.log:22
+22: test shell::tests::typography::truncate_text_leaves_non_text_layers_in_the_selection_alone ... ok
+--- r2-red-test.log:20
+20: test shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again ... FAILED
+--- r2-red-test.log:38-41
+38: thread 'shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again' (73423145) panicked at crates/designos-app/src/
+39: assertion `left == right` failed: retyping the same digits leaves the limit alone
+40:   left: None
+41:  right: Some(12)
+--- r2-green-test.log:20
+20: test shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again ... ok
+--- r2-red-test.log:21
+21: test shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field ... FAILED
+--- r2-red-test.log:47-50
+47: thread 'shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field' (73423146) panicked at crates/designos-app/src/shell/tes
+48: assertion `left == right` failed
+49:   left: None
+50:  right: Some(2)
+--- r2-green-test.log:21
+21: test shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field ... ok
+--- r2-null-control.log:31
+31: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 3.78s
+--- r2-hug-outside-text-arm.log:25
+25: test shell::tests::typography::truncate_text_leaves_non_text_layers_in_the_selection_alone ... FAILED
+--- r2-hug-outside-text-arm.log:50
+50: test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 4.01s
+--- r2-sticky-cleared-flag.log:23
+23: test shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again ... FAILED
+--- r2-sticky-cleared-flag.log:25
+25: test shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field ... FAILED
+--- r2-sticky-cleared-flag.log:60
+60: test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 3.87s
+--- r2-fmt.log:5
+5: fmt_rc=0
+--- r2-clippy.log:399
+399: rc=0
+--- r2-test-designos-app.log:4256
+4256: test result: FAILED. 4189 passed; 2 failed; 13 ignored; 0 measured; 0 filtered out; finished in 404.42s
+--- r2-test-designos-app.log:4253-4254
+4253:     agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+4254:     vecops::tests::two_deferred_text_commands_both_convert_in_order
+--- r2-test-designos-app.log:4259
+4259: rc=101
+--- r2-test-designos-app.log:3413-3438
+3413: test shell::tests::typography::features_follow_the_selected_range_while_editing ... ok
+3414: test shell::tests::text_styles::renaming_and_detaching_from_the_linked_row ... ok
+3415: test shell::tests::text_styles::the_styles_list_styles_a_new_box_inside_its_session ... ok
+3416: test shell::tests::text_styles::a_created_text_style_survives_a_fig_export_and_import_in_every_field ... ok
+3417: test shell::tests::typography::popover_lists_only_the_stylistic_sets_the_font_has ... ok
+3418: test shell::tests::text_tool_auto_resizes_with_real_measurement ... ok
+   ... (20 more lines in range)
+--- r2-rerun-production-root.log:27
+27: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4203 filtered out; finished in 0.00s
+--- r2-rerun-vecops.log:15
+15: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4203 filtered out; finished in 1.45s
+--- r2-test-designos-mcp.log:729
+729: rc=0
+--- r2-test-designos-mcp.log:340
+340: test result: ok. 326 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.80s
+--- r2-test-designos-mcp.log:689
+689: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+--- r2-test-workspace-lib.log:1636
+1636: rc=0
+--- r2-test-workspace-lib.log:80
+80: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+--- r2-test-workspace-lib.log:1634
+1634: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+--- r2-zero-fake-ui.log:30
+30: zero_fake_rc=0
+--- r2-merge-and-cleanup.log:7
+7: Already up to date.
+--- r2-merge-and-cleanup.log:21
+21: ls: out/cargo: No such file or directory
+--- r2-rerun-vecops.log:13
+13: test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+--- r2-test-designos-app.log:4252-4254
+4252: failures:
+4253:     agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+4254:     vecops::tests::two_deferred_text_commands_both_convert_in_order
+--- r2-red-test.log:20-25
+20: test shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again ... FAILED
+21: test shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field ... FAILED
+22: test shell::tests::typography::truncate_text_leaves_non_text_layers_in_the_selection_alone ... FAILED
+23: test shell::tests::typography::tab_in_a_text_session_nests_list_items_and_never_moves_egui_focus ... ok
+24: test shell::tests::typography::max_lines_appears_only_while_truncating ... ok
+25: test shell::tests::typography::turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit ... ok
+--- r2-red-test.log:66
+66: test result: FAILED. 12 passed; 3 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 3.72s
+--- r2-green-test.log:33
+33: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 3.89s
+--- r2-green-test.log:177
+177: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+--- r2-hug-outside-text-arm.log:40
+40: thread 'shell::tests::typography::truncate_text_leaves_non_text_layers_in_the_selection_alone' (73450653) panicked at crates/designos-app/src/shell/tests/typography.rs:41
+--- r2-sticky-cleared-flag.log:41
+41: thread 'shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again' (73454474) panicked at crates/designos-app/src/
+--- r2-sticky-cleared-flag.log:50
+50: thread 'shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field' (73454475) panicked at crates/designos-app/src/shell/tes
+--- r2-off-clears-max-lines.log:52
+52: test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 3.81s
+--- r2-hug-outside-text-arm.log:59
+59: git diff --stat (empty = clean):
+--- r2-sticky-cleared-flag.log:70
+70: git diff --stat (empty = clean):
+--- r2-off-clears-max-lines.log:63
+63: git diff --stat (empty = clean):
+--- r2-red-test.log:38
+38: thread 'shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again' (73423145) panicked at crates/designos-app/src/
+--- r2-red-test.log:47
+47: thread 'shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field' (73423146) panicked at crates/designos-app/src/shell/tes
+--- r2-red-test.log:55
+55: thread 'shell::tests::typography::truncate_text_leaves_non_text_layers_in_the_selection_alone' (73423151) panicked at crates/designos-app/src/shell/tests/typography.rs:41
+--- r2-merge-and-cleanup.log:9
+9: a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+--- r2-merge-and-cleanup.log:11
+11: a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+--- crates/designos-doc/src/layout_solver_types.rs:118-125
+118:     pub fn effective_sizing(&self, horizontal: bool, counter_horizontal: Option<bool>) -> Sizing {
+119:         let own = if horizontal { self.horizontal } else { self.vertical };
+120:         if own == Sizing::Fill || (self.align_self == AlignSelf::Stretch && counter_horizontal == Some(horizontal)) {
+121:             Sizing::Fill
+122:         } else {
+123:             own
+   ... (2 more lines in range)
+--- crates/designos-app/src/shell/tests/typography.rs:397-399
+397:     let (group_child_before, group_flow_before, group_size_before) = hug_axes(&s, group);
+398:     assert_eq!((group_child_before.horizontal, group_child_before.vertical), (Sizing::Hug, Sizing::Hug), "the sibling starts hugging on both axes");
+399:     assert_eq!(group_flow_before, Some((Sizing::Hug, Sizing::Hug)), "the sibling's own auto layout starts hugging on both axes");
+--- crates/designos-app/src/panels/typography.rs:709-712
+709:     let trimmed = committed.trim();
+710:     if trimmed.is_empty() {
+711:         return Some(None);
+712:     }
+--- crates/designos-app/src/shell/tests/typography.rs:639
+639:     if let Ok(ev_dir) = std::env::var("DESIGNOS_1467_EVIDENCE_DIR") {
+--- crates/designos-app/src/shell/tests/typography.rs:644
+644:         if let Ok(full_dir) = std::env::var("DESIGNOS_1467_FULL_DIR") {
+--- crates/designos-app/src/shell/tests/typography.rs:447
+447:     assert!(s.app().props.pop.is_some(), "the popover is still open after leaving the field");
+--- r2-merge-and-cleanup.log:20-22
+20: $ ls out/cargo
+21: ls: out/cargo: No such file or directory
+22: ls_rc=1
+
+bad_cites=0

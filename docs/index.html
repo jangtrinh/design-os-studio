@@ -297,7 +297,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <li><a href="#install">Install</a></li>
       <li><a href="#faq">FAQ</a></li>
     </ul>
-    <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.5/designos-0.7.5-macos.dmg">Download for macOS</a>
+    <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos.dmg">Download for macOS</a>
   </nav>
 </header>
 
@@ -309,7 +309,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <h1 id="title"><span class="sel sel-box" id="sel-box"><span class="own">Own</span> your design canvas.<span class="pill" id="sel-pill" aria-hidden="true" hidden></span></span></h1>
       <p class="sub">Open Figma files, paste from Figma desktop, and let a coding agent build on the same canvas.</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.5/designos-0.7.5-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
         <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
       </div>
       <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>
@@ -476,9 +476,42 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.5. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.8. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--078" id="new-in-v078" aria-labelledby="v078-h">
+          <h3 id="v078-h" class="new-ver">0.7.8</h3>
+          <ul class="new-bullets">
+            <li><strong>Arrowheads and the Arrow tool.</strong> Lines and vectors can end in arrowheads, drawn live and kept through <code>.fig</code> and Figma REST JSON. The stroke panel gains <code>Start point</code> and <code>End point</code> rows, dashed strokes get a dash cap, and the Arrow tool is on Shift+L.</li>
+            <li><strong>Images.</strong> Image fills gain crop, rotation and tile scale, kept through <code>.fig</code> and Figma REST JSON.</li>
+            <li><strong>Glass and noise.</strong> Glass effects gain splay and bevel settings, and noise and texture effects gain X and Y size, kept through <code>.fig</code> and Figma REST JSON.</li>
+            <li><strong>Inspector.</strong> Corners get individual radius fields and a corner smoothing slider, a lock aspect ratio toggle sits next to W and H, Type settings gain <code>Truncate text</code> and <code>Max lines</code>, and properties from nested instances are exposed.</li>
+            <li><strong>Edit menu.</strong> Select same text properties and font, <code>Paste and match style</code> and <code>Swap fill and stroke</code> work as in Figma.</li>
+            <li><strong><code>.fig</code> round trip.</strong> An instance's stroke and corner overrides keep their baked geometry, an instance keeps its own aspect lock, and a variable's stroke colour scope survives a save and reopen.</li>
+          </ul>
+        </article>
+        <article class="new-release new-release--077" id="new-in-v077" aria-labelledby="v077-h">
+          <h3 id="v077-h" class="new-ver">0.7.7</h3>
+          <ul class="new-bullets">
+            <li><strong>Canvas.</strong> A page viewed zoomed far out draws full detail once the view is still, a click selects from the outside in, and Shift-click or Shift-drag adds the matching layers.</li>
+            <li><strong>Colour and inspector.</strong> The colour picker adds OKLCH and OKLAB modes, a variable bind icon is always visible on bindable fields, and Typography fields get bind entry points.</li>
+            <li><strong>Objects, vectors and masks.</strong> <code>Resize to fit</code> shrinks or grows a frame to its visible content, <code>Paste to replace</code> keeps its own shortcut, <code>Flatten</code> and <code>Outline stroke</code> turn text into vector paths, and masks come in Alpha, Vector and Luminance types.</li>
+            <li><strong><code>.fig</code> files.</strong> An instance's fill and stroke overrides keep their own colour style, and saving to <code>.fig</code> keeps an instance's own size, opacity and other root overrides.</li>
+            <li><strong>Layout and export.</strong> Wrapped Fill-width text re-measures its height after a width change, and native code export (SwiftUI, UIKit, Compose, Android XML) places grid children on the layout tracks.</li>
+            <li><strong>App, Agents and MCP.</strong> A narrow window no longer crashes, the Auto-save OFF switch shows its track edge, a second send while a prompt waits is queued behind it, and a <code>set_slot</code> op in <code>designos_apply_batch</code> fills the instance's slot.</li>
+          </ul>
+        </article>
+        <article class="new-release new-release--076" id="new-in-v076" aria-labelledby="v076-h">
+          <h3 id="v076-h" class="new-ver">0.7.6</h3>
+          <ul class="new-bullets">
+            <li><strong>Inspector.</strong> Bind variables on a layer's effect rows and on gradient stops. Instance properties are listed in the order the designer set in Figma, with the source component, its description, and an ellipsis for long values.</li>
+            <li><strong>Agents.</strong> The Agents panel is simpler and uses the dark kit. Approvals gain an <code>Ask for risky only</code> mode and a grant that lasts for the session for edits you have already allowed.</li>
+            <li><strong><code>designos-mcp</code>.</strong> Each tool publishes its risk tier and tool annotations. <code>designos_close_document</code> closes a document with an explicit policy for unsaved changes and an optional save path, so an agent is no longer stuck on a "Save changes?" dialog. A <code>LOOP_SUSPECTED</code> hint appears when an agent repeats the same call, alternates between two, or keeps calling a failing tool, and errors carry an <code>error_kind</code> (retryable, fatal or needs a person).</li>
+            <li><strong><code>.fig</code> import.</strong> An instance text override that names a text style now links that style, so text in kits such as Untitled UI no longer comes out one size too big and clipped. Design-token aliases resolve by their manifest group.</li>
+            <li><strong>Components, Typography and export.</strong> Swapping an instance keeps the overrides set on its layers, the way Figma does. Editing a Typography field that a text style owns detaches the style, so the panel never shows a style the text no longer matches. CSS and Tailwind grids export with the layout solver's track sizes and row heights.</li>
+            <li><strong>Controls, CLI and Windows.</strong> The radio card's focus ring follows the card's corners, and a closed dropdown paints its keyboard focus ring. <code>--select</code> refuses a value that matches both a layer name and an id, and refuses ids that exist only in a session. Hug text sizes from a spec are whole pixels, the Windows app binaries get an 8 MiB main-thread stack, and the plugin manifest import that nothing used is removed.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--075" id="new-in-v075" aria-labelledby="v075-h">
           <h3 id="v075-h" class="new-ver">0.7.5</h3>
           <ul class="new-bullets">
@@ -615,26 +648,26 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <h2 id="install-h">Install.</h2>
       <div class="install">
         <div>
-          <h3>Download Studio 0.7.5</h3>
+          <h3>Download Studio 0.7.8</h3>
           <ul class="dl">
             <li>
               <span class="os">macOS</span>
               <span class="files">
-                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.5/designos-0.7.5-macos.dmg">.dmg <small>136 MB</small></a>
-                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.5/designos-0.7.5-macos-universal.tar.gz">.tar.gz <small>122 MB</small></a>
+                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos.dmg">.dmg <small>138 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos-universal.tar.gz">.tar.gz <small>124 MB</small></a>
               </span>
             </li>
             <li>
               <span class="os">Windows</span>
               <span class="files">
-                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.5/designos-0.7.5-x86_64-pc-windows-msvc.zip">.zip <small>56 MB</small></a>
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-x86_64-pc-windows-msvc.zip">.zip <small>57 MB</small></a>
               </span>
             </li>
             <li>
               <span class="os">Linux</span>
               <span class="files">
-                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.5/designos_0.7.5_amd64.deb">.deb <small>52 MB</small></a>
-                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.5/designos-0.7.5-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>70 MB</small></a>
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos_0.7.8_amd64.deb">.deb <small>53 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>71 MB</small></a>
               </span>
             </li>
           </ul>
@@ -706,7 +739,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
       </div>
       <div class="get__actions">
         <div class="cta">
-          <a class="btn btn-primary" id="get-download" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.5/designos-0.7.5-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+          <a class="btn btn-primary" id="get-download" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.8/designos-0.7.8-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
           <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
         </div>
         <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>

@@ -1,0 +1,27 @@
+## head 2145b877 branch jangtrinh/agy-1575-resize-strokes-live
+## null control (no mutation): sh /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/fix-1588-r2/test-a.sh
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_in_a_piecewise_stroke ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.35s
+## null control rc=0
+## mutation applied to crates/designos-render/src/vectorops.rs
+diff --git a/crates/designos-render/src/vectorops.rs b/crates/designos-render/src/vectorops.rs
+index 3cbf874d..6f8fa77b 100644
+--- a/crates/designos-render/src/vectorops.rs
++++ b/crates/designos-render/src/vectorops.rs
+@@ -264,4 +263,0 @@ fn split_cubic_half(c: &[Vec2; 4]) -> ([Vec2; 4], [Vec2; 4]) {
+-    if is_straight(c) {
+-        let m = mid(c[0], c[3]);
+-        return ([c[0], c[0], m, m], [m, m, c[3], c[3]]);
+-    }
+## mutant run: sh /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/fix-1588-r2/test-a.sh
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_in_a_piecewise_stroke ... FAILED
+thread 'a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_in_a_piecewise_stroke' (90290658) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:743:5:
+CPU right_then_down_on_the_axis: miter apex at node (44.5, -3.5) should be inked
+CPU curve_then_right_then_down: miter apex at node (44.5, -3.5) should be inked
+CPU down_then_right_on_the_axis: miter apex at node (-4.5, 44.5) should be inked
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+error: test failed, to rerun pass `-p designos-render --test resized_vector_stroke_weight`
+## mutant rc=101 (non-zero = killed)
+## reverted; git status:

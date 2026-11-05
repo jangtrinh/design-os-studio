@@ -1,0 +1,20 @@
+diff --git a/crates/designos-doc/src/layout_constraints.rs b/crates/designos-doc/src/layout_constraints.rs
+index 9ca63f34..c23af738 100644
+--- a/crates/designos-doc/src/layout_constraints.rs
++++ b/crates/designos-doc/src/layout_constraints.rs
+@@ -185,13 +185,8 @@ fn scale_paths(paths: &mut [Path], kx: f32, ky: f32) {
+ /// at import in `fig_metadata["strokeCap"]`, on the node or on any vertex), a vertex with its own
+ /// cap or join, or dashes on an inside or outside stroke.
+ fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>, net: &VectorNetwork) -> bool {
+-    !net.is_empty()
+-        && net.is_valid()
+-        && stroke.side_weights.is_none()
+-        && !meta.contains_key("brushType")
+-        && !meta.contains_key("strokeCap")
+-        && net.vertices.iter().all(|v| v.cap.is_none_or(|c| c == stroke.cap) && v.join.is_none_or(|j| j == stroke.join))
+-        && (stroke.dashes.is_empty() || stroke.align == StrokeAlign::Center)
++    let _ = (stroke, meta, net);
++    true
+ }
+ 
+ /// Applies `(new_transform, new_size)` from [`constrain_child`] / [`plan_constraint_pass`]

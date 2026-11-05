@@ -1,0 +1,3 @@
+HEAD 96209831 branch jangtrinh/agy-1471-expose-nested
+$ cargo fmt --all -- --check; echo fmt_rc=$?
+fmt_rc=0

@@ -380,6 +380,8 @@
       "variants": [
         "Kind=Libraries",
         "Kind=Plugins",
+        "Kind=InstallPlugin",
+        "Kind=Compare",
         "State=Default"
       ]
     },
@@ -676,7 +678,14 @@
       "markup": "<div data-ds=\"Navigation/BottomCanvasToolbar\"><div data-ds=\"Button/Tool\"></div><div data-ds=\"Tabs/Segmented\"></div><div data-ds=\"Bar/Contextual\"></div><div data-ds=\"Button/Secondary\"></div></div>\n",
       "name": "Navigation/BottomCanvasToolbar",
       "scope": "local",
-      "tokensUsed": []
+      "tokensUsed": [],
+      "variants": [
+        "State=Move",
+        "State=Comment",
+        "State=AI",
+        "State=Dev",
+        "State=DevAnnotate"
+      ]
     },
     {
       "category": "region",
@@ -686,7 +695,11 @@
       "scope": "local",
       "tokensUsed": [],
       "variants": [
-        "Rail=48px"
+        "Rail=48px",
+        "Tool=File",
+        "Tool=Agents",
+        "Tool=Assets",
+        "Tool=Variables"
       ]
     },
     {
@@ -722,7 +735,13 @@
       "markup": "<div data-ds=\"Panel/AgentTerminal\"><div data-ds=\"Tabs/Pill\"></div><div data-ds=\"Button/*\"></div><div data-ds=\"Tag/Chip\"></div><div data-ds=\"Card/Approval\"></div><div data-ds=\"Card/AgentTurn\"></div><div data-ds=\"Input/Composer\"></div><div data-ds=\"Input/Search\"></div><div data-ds=\"Banner/Inline\"></div><div data-ds=\"Button/Icon\"></div><div data-ds=\"Button/Tertiary\"></div><div data-ds=\"Menu/Panel\"></div><div data-ds=\"Menu/Item\"></div><div data-ds=\"Status/Dot\"></div><div data-ds=\"Popover/Panel\"></div></div>\n",
       "name": "Panel/AgentTerminal",
       "scope": "local",
-      "tokensUsed": []
+      "tokensUsed": [],
+      "variants": [
+        "State=Picker",
+        "State=Chat",
+        "State=Failure",
+        "State=Approval"
+      ]
     },
     {
       "category": "region",
@@ -754,7 +773,13 @@
       "markup": "<div data-ds=\"Panel/DevInspect\"><div data-ds=\"Section/Header\"></div><div data-ds=\"Badge/StatusCount\"></div><div data-ds=\"Code/Block\"></div><div data-ds=\"Button/Primary\"></div><div data-ds=\"Tabs/Pill\"></div><div data-ds=\"Tree/Row\"></div></div>\n",
       "name": "Panel/DevInspect",
       "scope": "local",
-      "tokensUsed": []
+      "tokensUsed": [],
+      "variants": [
+        "State=Inspect",
+        "State=Annotate",
+        "State=Component",
+        "State=List"
+      ]
     },
     {
       "category": "region",
@@ -809,7 +834,16 @@
       "markup": "<div data-ds=\"Panel/RightInspector\"><div data-ds=\"Tabs/Pill\"></div><div data-ds=\"Section/Header\"></div><div data-ds=\"Input/PropertyField\"></div><div data-ds=\"Select/Trigger\"></div><div data-ds=\"Tabs/Segmented\"></div><div data-ds=\"Checkbox/Box\"></div><div data-ds=\"Popover/ColorPicker\"></div><div data-ds=\"Button/*\"></div></div>\n",
       "name": "Panel/RightInspector",
       "scope": "local",
-      "tokensUsed": []
+      "tokensUsed": [],
+      "variants": [
+        "State=Page",
+        "State=Frame",
+        "State=Layers",
+        "State=Text",
+        "State=Instance",
+        "State=Prototype",
+        "State=Dev"
+      ]
     },
     {
       "category": "region",
@@ -835,6 +869,11 @@
       "scope": "local",
       "tokensUsed": [
         "colors.popover"
+      ],
+      "variants": [
+        "Kind=Fill",
+        "Kind=Page",
+        "Kind=Gradient"
       ]
     },
     {
@@ -849,7 +888,23 @@
         "colors.popover-foreground"
       ],
       "variants": [
-        "State=Default"
+        "State=Default",
+        "Kind=Default",
+        "Kind=EditStyleColor",
+        "Kind=EditStyleEffect",
+        "Kind=EditStyleGrid",
+        "Kind=EditStyleText",
+        "Kind=Stroke",
+        "Kind=Noise",
+        "Kind=Glass",
+        "Kind=Texture",
+        "Kind=TypeSettings",
+        "Kind=Interaction",
+        "Kind=Erase",
+        "Kind=Expand",
+        "Kind=CommentThread",
+        "Kind=Skills",
+        "Kind=Permissions"
       ]
     },
     {
@@ -1169,7 +1224,13 @@
         "Size=Xs",
         "State=Selected",
         "State=Default",
-        "State=Hover"
+        "State=Hover",
+        "Depth=0",
+        "Depth=1",
+        "Depth=2",
+        "Depth=3",
+        "Depth=4",
+        "Depth=5"
       ]
     },
     {
@@ -1178,7 +1239,12 @@
       "markup": "<div data-ds=\"Window/Variables\"><div data-ds=\"Table/Data\"></div><div data-ds=\"Popover/Panel\"></div><div data-ds=\"Menu/Item\"></div></div>\n",
       "name": "Window/Variables",
       "scope": "local",
-      "tokensUsed": []
+      "tokensUsed": [],
+      "variants": [
+        "Layout=Full",
+        "Layout=Floating",
+        "Layout=Present"
+      ]
     }
   ],
   "version": "0.1.0"

@@ -67,6 +67,17 @@ pub struct FileEntry {
 pub enum TrashKind {
     File,
     Project,
+    /// A page of a project's docs.
+    Page,
+}
+
+/// Where a trashed docs page came from.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PageTrash {
+    /// The page's path inside the project's docs folder (`spec/payment-methods.md`).
+    pub path: String,
+    /// The manifest group it was listed in (`spec`), if any.
+    pub group: Option<String>,
 }
 
 /// Something in the trash, restorable until the trash is emptied.
@@ -81,6 +92,9 @@ pub struct TrashItem {
     pub project: Option<String>,
     pub project_name: Option<String>,
     pub entry: Option<FileEntry>,
+    /// For pages: the docs path and group they were deleted from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<PageTrash>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -563,6 +577,7 @@ impl Library {
             project: None,
             project_name: None,
             entry: None,
+            page: None,
         };
         write_atomic(&dir.join(TRASH_MANIFEST), serde_json::to_string_pretty(&item)?.as_bytes())?;
         let dest = dir.join("project");
@@ -931,6 +946,7 @@ impl Library {
             project: Some(m.project.id.clone()),
             project_name: Some(m.project.name.clone()),
             entry: Some(entry.clone()),
+            page: None,
         };
         write_atomic(&dir.join(TRASH_MANIFEST), serde_json::to_string_pretty(&item)?.as_bytes())?;
         std::fs::rename(self.file_path(&m.project.id, id), dir.join("file.designos"))?;
@@ -1053,6 +1069,7 @@ impl Library {
     pub fn restore(&self, id: &str) -> Result<()> {
         match self.list_trash().into_iter().find(|t| t.id == id) {
             Some(t) if t.kind == TrashKind::Project => self.restore_project(id).map(|_| ()),
+            Some(t) if t.kind == TrashKind::Page => self.restore_page(id).map(|_| ()),
             Some(_) => self.restore_file(id).map(|_| ()),
             None => Err(LibraryError::NotFound(format!("trash item {id}"))),
         }
@@ -1079,6 +1096,8 @@ impl Library {
             for item in self.list_trash() {
                 match item.kind {
                     TrashKind::File => session_file_ids.push(item.id),
+                    // A page has no agent sessions; its folder goes with the trash.
+                    TrashKind::Page => {}
                     TrashKind::Project => {
                         let proj_manifest = self.trash_dir(&item.id).join("project").join(MANIFEST);
                         if let Ok(text) = std::fs::read_to_string(proj_manifest) {
@@ -1156,6 +1175,9 @@ impl Library {
         Ok(None)
     }
 }
+
+#[path = "trash_pages.rs"]
+mod trash_pages;
 
 #[cfg(test)]
 mod tests {

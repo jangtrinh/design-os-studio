@@ -1,0 +1,27 @@
+# cargo test --workspace --locked --lib   (code head 7c033f12)
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-ac9ac4f3b29bd301)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-043d4392435df81c)
+test result: ok. 723 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.82s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-40a4fa01ab02d564)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-56d56e8bb2e3086d)
+test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.55s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-4604fd409bbe265a)
+test vecnet::tests::corrupt_blobs_are_rejected_not_panicked_on ... ok
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.83s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-3314a122f1c6d8b9)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-b45e02ca235d2444)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-deec03b867f3c13b)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.97s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-355a5183c1dcb720)
+test result: ok. 327 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.91s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-414c4008158cd923)
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 34.45s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-160045c1fb418a4f)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-32c480f78f51377e)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+ws_lib_rc=0

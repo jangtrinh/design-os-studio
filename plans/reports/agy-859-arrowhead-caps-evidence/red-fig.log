@@ -1,0 +1,116 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-doc)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.69s
+     Running tests/resized_vector_stroke_model.rs (out/cargo/debug/deps/resized_vector_stroke_model-87b6562e1729e120)
+
+running 21 tests
+test all_five_arrow_caps_round_trip_through_rest_and_fig_on_node_and_vertex_and_plain_json_stays_byte_identical ... FAILED
+test an_arrow_cap_on_the_node_drops_its_bake_and_is_modelled ... FAILED
+test a_vertex_cap_of_its_own_and_dashes_inside_keep_the_scaled_bake_while_a_vertex_join_drops_it ... ok
+test a_brush_and_side_weights_keep_the_scaled_bake ... ok
+test a_vertex_cap_equal_to_the_nodes_and_dashes_on_a_centered_stroke_still_drop_the_bake ... ok
+test a_rest_export_writes_a_vertex_arrow_back_onto_its_vertex_when_the_node_has_a_cap ... FAILED
+test an_unmodelled_cap_on_the_node_or_on_a_vertex_keeps_the_scaled_bake ... ok
+test a_rest_export_keeps_a_vertex_arrow_off_a_plain_node ... FAILED
+test an_arrow_cap_survives_a_rest_round_trip_and_drops_its_bake_on_a_resize ... FAILED
+test a_rest_export_writes_a_node_arrow_into_the_nodes_stroke_cap ... FAILED
+test a_document_recorded_without_the_cap_source_keeps_writing_the_arrow_where_it_always_did ... ok
+test an_arrow_cap_on_a_vertex_drops_its_bake_and_is_modelled ... FAILED
+test dashes_on_a_centered_stroke_whose_vertex_join_differs_from_the_nodes_keep_the_scaled_bake ... ok
+test the_kit_icon_drops_its_bake_and_draws_its_own_weight ... ok
+test fig_icon_without_an_arrow_cap_drops_its_bake ... ok
+test fig_arrow_caps_on_the_node_and_on_a_vertex_are_modelled_and_drop_the_bake ... FAILED
+test fig_unmodelled_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake ... ok
+test an_arrow_vector_in_an_instance_drops_its_bake_while_an_unmodelled_cap_keeps_it ... FAILED
+test an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_drops_its_bake_on_a_resize ... FAILED
+test a_saved_fig_file_of_a_plain_icon_carries_no_cap_marker_and_still_drops_its_bake ... ok
+test an_instance_clone_of_an_arrow_icon_writes_the_arrow_back_onto_its_vertex_at_any_file_size ... ok
+
+failures:
+
+---- all_five_arrow_caps_round_trip_through_rest_and_fig_on_node_and_vertex_and_plain_json_stays_byte_identical stdout ----
+
+thread 'all_five_arrow_caps_round_trip_through_rest_and_fig_on_node_and_vertex_and_plain_json_stays_byte_identical' (90542854) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:687:9:
+assertion `left == right` failed: REST node import for ARROW_LINES
+  left: None
+ right: ArrowLines
+
+---- an_arrow_cap_on_the_node_drops_its_bake_and_is_modelled stdout ----
+
+thread 'an_arrow_cap_on_the_node_drops_its_bake_and_is_modelled' (90542856) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:135:5:
+assertion `left == right` failed
+  left: None
+ right: ArrowLines
+
+---- a_rest_export_writes_a_vertex_arrow_back_onto_its_vertex_when_the_node_has_a_cap stdout ----
+
+thread 'a_rest_export_writes_a_vertex_arrow_back_onto_its_vertex_when_the_node_has_a_cap' (90542850) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:323:5:
+round node, arrow on vertex 3: modelled arrow cap is not recorded in fig_metadata
+
+---- a_rest_export_keeps_a_vertex_arrow_off_a_plain_node stdout ----
+
+thread 'a_rest_export_keeps_a_vertex_arrow_off_a_plain_node' (90542848) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:339:5:
+plain node, arrow on vertex 3: modelled arrow cap is not recorded in fig_metadata
+
+---- an_arrow_cap_survives_a_rest_round_trip_and_drops_its_bake_on_a_resize stdout ----
+
+thread 'an_arrow_cap_survives_a_rest_round_trip_and_drops_its_bake_on_a_resize' (90542857) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:217:9:
+node arrow cap: modelled arrow cap is not in fig_metadata
+
+---- a_rest_export_writes_a_node_arrow_into_the_nodes_stroke_cap stdout ----
+
+thread 'a_rest_export_writes_a_node_arrow_into_the_nodes_stroke_cap' (90542849) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:355:5:
+arrow on the node: modelled arrow cap is not recorded in fig_metadata
+
+---- an_arrow_cap_on_a_vertex_drops_its_bake_and_is_modelled stdout ----
+
+thread 'an_arrow_cap_on_a_vertex_drops_its_bake_and_is_modelled' (90542855) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:146:5:
+assertion `left == right` failed
+  left: None
+ right: Some(ArrowEquilateral)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- fig_arrow_caps_on_the_node_and_on_a_vertex_are_modelled_and_drop_the_bake stdout ----
+
+thread 'fig_arrow_caps_on_the_node_and_on_a_vertex_are_modelled_and_drop_the_bake' (90542863) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:497:5:
+assertion `left == right` failed
+  left: None
+ right: ArrowLines
+
+---- an_arrow_vector_in_an_instance_drops_its_bake_while_an_unmodelled_cap_keeps_it stdout ----
+
+thread 'an_arrow_vector_in_an_instance_drops_its_bake_while_an_unmodelled_cap_keeps_it' (90542859) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:613:9:
+assertion `left == right` failed: padding 0: the arrow cap is modelled on the clone
+  left: None
+ right: ArrowLines
+
+---- an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_drops_its_bake_on_a_resize stdout ----
+
+thread 'an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_drops_its_bake_on_a_resize' (90542858) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:651:9:
+assertion `left == right` failed: node cap: the cap written to the file is Figma's enum name
+  left: String("NONE")
+ right: "ARROW_LINES"
+
+
+failures:
+    a_rest_export_keeps_a_vertex_arrow_off_a_plain_node
+    a_rest_export_writes_a_node_arrow_into_the_nodes_stroke_cap
+    a_rest_export_writes_a_vertex_arrow_back_onto_its_vertex_when_the_node_has_a_cap
+    all_five_arrow_caps_round_trip_through_rest_and_fig_on_node_and_vertex_and_plain_json_stays_byte_identical
+    an_arrow_cap_on_a_vertex_drops_its_bake_and_is_modelled
+    an_arrow_cap_on_the_node_drops_its_bake_and_is_modelled
+    an_arrow_cap_survives_a_rest_round_trip_and_drops_its_bake_on_a_resize
+    an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_drops_its_bake_on_a_resize
+    an_arrow_vector_in_an_instance_drops_its_bake_while_an_unmodelled_cap_keeps_it
+    fig_arrow_caps_on_the_node_and_on_a_vertex_are_modelled_and_drop_the_bake
+
+test result: FAILED. 11 passed; 10 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+error: test failed, to rerun pass `-p designos-fig --test resized_vector_stroke_model`

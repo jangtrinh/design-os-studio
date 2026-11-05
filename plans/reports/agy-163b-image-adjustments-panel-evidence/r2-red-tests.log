@@ -1,0 +1,23 @@
+# red on d4b20b427: tests added in this round, run against the d4b20b427 renderer and picker code (tests only differ)
+# render unit tests (allocation instrumented behind cfg(test): the largest pixmap an image fill allocated)
+test image_adjust::tests::outside_crop_each_node_keeps_the_frame_and_the_angle_it_stored_and_a_turn_drops_the_frame ... FAILED
+test image_adjust::tests::a_fill_over_the_scratch_limit_is_drawn_unadjusted_and_counted ... ok
+test image_adjust::tests::adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent ... FAILED
+test image_adjust::tests::adjusted_quarter_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent ... FAILED
+assertion `left == right` failed: Fill: the picker's angle is not written over the node's
+  left: 0.0
+Fit: a pixmap of 12014004 pixels was allocated for a fill of which 4096 pixels are on screen
+turned Crop: a pixmap of 12014004 pixels was allocated for a fill of which 4096 pixels are on screen
+test result: FAILED. 13 passed; 3 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.30s
+
+# picker test (A at 0 degrees, B turned to 90, both selected, Crop to Tile)
+test widgets::picker::tests::leaving_crop_keeps_each_nodes_own_angle_and_coming_back_restores_it ... FAILED
+thread 'widgets::picker::tests::leaving_crop_keeps_each_nodes_own_angle_and_coming_back_restores_it' (99158693) panicked at crates/designos-app/src/widgets/picker.rs:4354:9:
+assertion `left == right` failed: each node keeps its own angle in Tile
+  left: (0.0, 0.0)
+ right: (0.0, 90.0)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4374 filtered out; finished in 0.10s
+
+# green on d4b20b427 as well (they guard behaviour that must not change): the letterbox tests
+gpu: an_adjusted_fit_letterbox_and_turned_crop_stay_transparent_and_match_between_cpu_and_gpu ... ok on d4b20b427
+render: the_letterbox_and_the_area_outside_a_turned_crop_stay_transparent_when_the_picture_is_adjusted: ok on the d4b20b427 renderer once the inside range is two pixels in from the picture edge (its first version asserted on the soft edge ring and failed on d4b20b427: Fit (18, 0) alpha 196)

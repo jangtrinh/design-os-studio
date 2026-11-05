@@ -136,7 +136,11 @@ pub fn fit_group(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
     let Some(g) = doc.get(id) else { return false };
     let mut pts = Vec::new();
     for c in &g.children {
-        if let Some(k) = doc.get(*c) {
+        if let Some(raw) = doc.get(*c) {
+            let k = resolve_node(doc, raw);
+            if !k.visible {
+                continue;
+            }
             let r = Rect::new(0.0, 0.0, k.size.x, k.size.y);
             pts.extend(rect_corners(&r).map(|p| k.transform.apply(p)));
         }
@@ -168,9 +172,10 @@ pub fn fit_group(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
 /// `GroupsAndStacksObserver` (`apply_groups_and_stacks_layout`) bottom-up frontier
 /// propagation with Fixed-box boundary cutoff.
 pub fn relayout_up(doc: &mut Document, ed: &mut Edit, start: NodeId) {
-    // on a board, connectors follow the moved node live (every move, resize and rotate comes through here)
+    // connectors follow the moved node live (every move, resize and rotate comes through here)
     crate::board::connect::reroute_touched(doc, ed);
     let mut cur = doc.get(start).and_then(|n| n.parent);
+    let mut any_ancestor_changed = false;
     while let Some(p) = cur {
         let is_group = matches!(doc.get(p).map(|n| &n.kind), Some(NodeKind::Group));
         let is_al = doc.get(p).and_then(|n| n.kind.frame_props()).map(|f| f.auto_layout.is_some()).unwrap_or(false);
@@ -184,7 +189,11 @@ pub fn relayout_up(doc: &mut Document, ed: &mut Edit, start: NodeId) {
         if !box_changed {
             break;
         }
+        any_ancestor_changed = true;
         cur = doc.get(p).and_then(|n| n.parent);
+    }
+    if any_ancestor_changed {
+        crate::board::connect::reroute_touched(doc, ed);
     }
 }
 
@@ -705,11 +714,12 @@ mod tests {
             kid(40.0, 20.0),
         ];
         let out_span = compute(&al, v2(320.0, 100.0), &kids);
-        // kid[1] reserves (row 0..2, col 1); kid[0] takes (0, 0); kid[2] (col_span=2) cannot fit on row 0 or row 1 so takes (2, 0); kid[3] takes (0, 2).
+        // kid[1] reserves (row 0..2, col 1); kid[0] takes (0, 0); kid[2] (col_span=2) cannot fit on row 0 or row 1 so takes (2, 0);
+        // kid[3] follows kid[2] on the auto-placement cursor, which does not go back to the free cell at (0, 2), and takes (2, 2).
         assert_eq!((out_span.rects[0].x, out_span.rects[0].y), (0.0, 0.0));
         assert_eq!((out_span.rects[1].x, out_span.rects[1].y), (110.0, 0.0));
         assert_eq!((out_span.rects[2].x, out_span.rects[2].y), (0.0, 60.0));
-        assert_eq!((out_span.rects[3].x, out_span.rects[3].y), (220.0, 0.0));
+        assert_eq!((out_span.rects[3].x, out_span.rects[3].y), (220.0, 60.0));
 
         // 3. Explicit row 0 uses grid_row_tracks[0] (30px), while overflow auto rows (1, 2) use grid_auto_tracks (50px).
         al.grid_rows = 1;

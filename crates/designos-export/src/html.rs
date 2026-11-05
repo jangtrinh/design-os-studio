@@ -31,6 +31,9 @@ pub fn html_with(doc: &Document, node: NodeId, opts: &HtmlOptions) -> String {
     let Some(root) = doc.get(node) else {
         return String::new();
     };
+    if matches!(root.kind, NodeKind::Connector(_)) {
+        return String::new();
+    }
     let mut builder = HtmlBuilder::new(doc, node);
     let body_indent = if opts.fragment { 0 } else { 1 };
     let mut markup_lines = Vec::new();
@@ -183,7 +186,7 @@ impl<'a> HtmlBuilder<'a> {
     }
 
     fn emit_node(&mut self, n: &Node, parent: Parent, is_root: bool, indent: usize, out: &mut Vec<String>) {
-        if !n.visible && !is_root {
+        if (!n.visible && !is_root) || matches!(n.kind, NodeKind::Connector(_)) {
             return;
         }
         self.record_node_vars(n);
@@ -473,7 +476,7 @@ impl<'a> HtmlBuilder<'a> {
 
         // If a tiled image fill or background image is present on a non-<img> node, expand
         // `url(<image_ref>)` into its embedded `data:` URI.
-        if let Some(Paint { kind: PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Tile }, .. }) = first_paint(&n.fills) {
+        if let Some(Paint { kind: PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Tile, .. }, .. }) = first_paint(&n.fills) {
             if n.fills.iter().filter(|p| p.visible && p.opacity > 0.0).count() == 1 {
                 let uri = data_uri_for_image(self.doc, image_ref);
                 lines.retain(|l| !l.starts_with("background: "));
@@ -506,7 +509,7 @@ fn image_element_paint(n: &Node) -> Option<(&str, ImageScaleMode)> {
     }
     let p = first_paint(&n.fills)?;
     match &p.kind {
-        PaintKind::Image { image_ref, scale_mode } if *scale_mode != ImageScaleMode::Tile => Some((image_ref.as_str(), *scale_mode)),
+        PaintKind::Image { image_ref, scale_mode, .. } if *scale_mode != ImageScaleMode::Tile => Some((image_ref.as_str(), *scale_mode)),
         _ => None,
     }
 }
@@ -1008,7 +1011,7 @@ mod tests {
         img.name = "Hero Photo".into();
         img.transform = Affine::rotate(15.0_f32.to_radians());
         img.fills = vec![Paint {
-            kind: PaintKind::Image { image_ref: "missing".into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: "missing".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: BlendMode::Normal,
@@ -1020,7 +1023,7 @@ mod tests {
         let mut tile = Node::rectangle(tile_id, Rect::new(140.0, 90.0, 60.0, 60.0));
         tile.name = "Hero Photo".into(); // duplicate name -> hero-photo-2
         tile.fills = vec![Paint {
-            kind: PaintKind::Image { image_ref: "missing".into(), scale_mode: ImageScaleMode::Tile },
+            kind: PaintKind::Image { image_ref: "missing".into(), scale_mode: ImageScaleMode::Tile, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: BlendMode::Normal,

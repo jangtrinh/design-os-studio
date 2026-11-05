@@ -1,0 +1,33 @@
+=== M0_null (null control: no mutation applied) ===
+   running 1 test
+   test agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ... ok
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.60s
+   rc=0
+   running 1 test
+   test agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ... ok
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.69s
+   rc=0
+=== M1_restore_gemini_non_box_flush_paused_clear (KILLED) ===
+Mutation applied in crates/designos-app/src/agent_composer.rs (deliver_to_agent):
++                    if !from_box && tab.spawn_preset == AgentCliPreset::Gemini && !tab.gemini_dialog_open() && !status_waits(tab) {
++                        tab.composer.flush_paused = false;
++                    }
+   running 1 test
+   test agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ... FAILED
+   thread 'agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation' (65836672) panicked at crates/designos-app/src/agent_composer.rs:3651:9:
+   assertion `left == right` failed: dispatch_figma_ai_prompt after a Gemini dialog hold must stay queued while flush_paused is set
+     left: Some(Written)
+    right: Some(Queued)
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.15s
+   rc=101
+=== M2_restore_image_prompt_last_output_at_write (KILLED) ===
+Mutation applied in crates/designos-app/src/terminal.rs (submit_system_image_prompt):
++            if let Ok(mut last_out) = tab.last_output_at.lock() {
++                *last_out = Some(std::time::Instant::now());
++            }
+   running 1 test
+   test agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ... FAILED
+   thread 'agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end' (65837727) panicked at crates/designos-app/src/agent_composer.rs:3764:9:
+   image text must stay absent after READY_QUIET_OUTPUT when no real PTY output or turn-end arrived: "\u{1b}[200~hookless turn one\u{1b}[201~\r\u{1b}[200~Image task 10: Remove background.\u{1b}[201~\r"
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.41s
+   rc=101

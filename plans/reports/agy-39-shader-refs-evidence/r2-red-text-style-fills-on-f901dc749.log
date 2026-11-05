@@ -1,0 +1,13 @@
+# f901dc749 source (git diff f901dc749 4fa8609fd -- crates is empty) + tests/fig_export_text_style_fills.rs: cargo test -p designos-fig --locked --no-fail-fast --test fig_export_text_style_fills
+test a_text_style_without_fills_writes_no_fill_paints_field ... ok
+test a_text_style_with_a_solid_fill_round_trips_its_fill_through_fig ... FAILED
+test a_solid_fill_on_a_text_style_of_a_file_comes_back_after_a_round_trip ... FAILED
+test a_text_style_whose_fill_is_a_shader_round_trips_it_byte_equal ... FAILED
+thread 'a_text_style_with_a_solid_fill_round_trips_its_fill_through_fig' (178054) panicked at crates/designos-fig/tests/fig_export_text_style_fills.rs:41:49:
+thread 'a_solid_fill_on_a_text_style_of_a_file_comes_back_after_a_round_trip' (178052) panicked at crates/designos-fig/tests/fig_export_text_style_fills.rs:143:5:
+assertion `left == right` failed
+  left: [Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }]
+thread 'a_text_style_whose_fill_is_a_shader_round_trips_it_byte_equal' (178053) panicked at crates/designos-fig/tests/fig_export_text_style_fills.rs:111:5:
+assertion `left == right` failed: every field of the shader fill is written
+  left: Null
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s

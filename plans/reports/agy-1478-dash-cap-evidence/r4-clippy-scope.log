@@ -1,0 +1,23 @@
+# HEAD 6aabc5991985e2dc9586b93d6bd0411a312090f7
+## files this PR changes against origin/main e7ace20b (crates only)
+crates/designos-app/src/panels/stroke.rs
+crates/designos-export/src/pdf.rs
+crates/designos-export/tests/pdf_vector_fidelity.rs
+crates/designos-fig/src/export.rs
+crates/designos-fig/src/fig.rs
+crates/designos-fig/src/fig_export.rs
+crates/designos-fig/src/rest_import.rs
+crates/designos-fig/tests/fig_roundtrip.rs
+crates/designos-gpu/tests/fidelity.rs
+crates/designos-render/src/lib.rs
+crates/designos-render/src/outline.rs
+crates/designos-render/src/vectorops.rs
+crates/designos-render/tests/render.rs
+## clippy errors in the workspace run (r4-gates.log:8-18) by file
+crates/designos-app/src/agent_permissions.rs:1176:9
+crates/designos-app/src/agent_permissions.rs:1194:9
+crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181:21
+## are those files changed by this PR? (empty = no)
+## scoped clippy on every crate this PR touches except designos-app
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.89s
+clippy_scoped_rc=0

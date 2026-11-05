@@ -1,0 +1,26 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.60s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step ... FAILED
+
+failures:
+
+---- panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step stdout ----
+
+thread 'panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step' (70817082) panicked at crates/designos-app/src/panels/properties.rs:3484:9:
+clicking lock-aspect when any selected node is unlocked must lock every selected node
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4199 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

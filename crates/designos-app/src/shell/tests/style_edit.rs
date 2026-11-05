@@ -359,6 +359,15 @@ fn raw_field_prefix(s: &Sim, key_debug: &str) -> crate::widgets::field::Prefix {
         .unwrap_or_else(|| panic!("no field prefix {key_debug}"))
 }
 
+/// A noise effect in the multitone mode, the only one with an opacity row.
+fn multitone_noise() -> Effect {
+    let mut fx = crate::panels::effects::default_effect(4, 1);
+    if let Effect::Noise(n) = &mut fx {
+        n.mode = designos_doc::NoiseMode::Multi;
+    }
+    fx
+}
+
 #[test]
 fn popover_number_fields_use_distinct_non_duplicate_prefixes() {
     use crate::panels::effects::{default_effect, PopKind, PopState};
@@ -385,7 +394,8 @@ fn popover_number_fields_use_distinct_non_duplicate_prefixes() {
     let effect_cases: &[(Effect, &[&str], &str)] = &[
         (shadow(8.0), &["(\"fxp-x\", 0)", "(\"fxp-y\", 0)", "(\"fxp-b\", 0)", "(\"fxp-s\", 0)"], "layer DropShadow popover"),
         (default_effect(2, 1), &["(\"fxp-blur\", 0)"], "layer LayerBlur popover"),
-        (default_effect(4, 1), &["(\"fxp-nsize\", 0)", "(\"fxp-dens\", 0)", "(\"fxp-nop\", 0)"], "layer Noise popover"),
+        (default_effect(4, 1), &["(\"fxp-nsize\", 0)", "(\"fxp-dens\", 0)"], "layer Noise popover"),
+        (multitone_noise(), &["(\"fxp-nsize\", 0)", "(\"fxp-dens\", 0)", "(\"fxp-nop\", 0)"], "layer multitone Noise popover"),
         (default_effect(5, 1), &["(\"fxp-tsize\", 0)", "(\"fxp-trad\", 0)"], "layer Texture popover"),
         (
             default_effect(6, 1),
@@ -396,6 +406,8 @@ fn popover_number_fields_use_distinct_non_duplicate_prefixes() {
                 "(\"fxp-glass\", 0, 2)",
                 "(\"fxp-glass\", 0, 3)",
                 "(\"fxp-glass\", 0, 4)",
+                "(\"fxp-glass\", 0, 5)",
+                "(\"fxp-glass\", 0, 6)",
             ],
             "layer Glass popover",
         ),

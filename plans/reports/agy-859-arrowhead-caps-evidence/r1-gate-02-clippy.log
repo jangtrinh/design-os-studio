@@ -1,0 +1,256 @@
+$ cargo clippy --workspace --all-targets --locked
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling serde_core v1.0.229
+    Checking smallvec v1.16.3
+   Compiling serde v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling serde_json v1.0.154
+   Compiling ref-cast v1.0.27
+   Compiling syn v2.0.119
+   Compiling ref-cast-impl v1.0.27
+    Checking regex-automata v0.4.18
+   Compiling serde_derive_internals v0.30.0
+    Checking percent-encoding v2.3.2
+    Checking dyn-clone v1.0.20
+    Checking fax v0.2.7
+    Checking allocator-api2 v0.2.21
+    Checking either v1.19.0
+    Checking rustc-hash v2.1.3
+   Compiling nix v0.31.3
+    Checking icu_normalizer v2.3.0
+    Checking harfrust v0.5.2
+    Checking form_urlencoded v1.2.2
+    Checking rayon v1.12.0
+    Checking kurbo v0.11.3
+    Checking hashbrown v0.17.1
+    Checking rustybuzz v0.20.1
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking parking_lot_core v0.9.12
+    Checking svgtypes v0.15.3
+    Checking parking_lot v0.12.5
+    Checking url v2.5.8
+    Checking pin-project-lite v0.2.17
+   Compiling getrandom v0.4.3
+    Checking tracing-core v0.1.36
+    Checking ureq v2.12.1
+    Checking moxcms v0.8.1
+   Compiling getrandom v0.3.4
+    Checking futures-core v0.3.34
+   Compiling ahash v0.8.12
+    Checking futures-sink v0.3.34
+    Checking usvg v0.45.1
+    Checking errno v0.3.14
+    Checking regex v1.13.1
+    Checking signal-hook-registry v1.4.8
+    Checking futures-channel v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling futures-macro v0.3.34
+    Checking cosmic-text v0.19.0
+    Checking mio v1.2.4
+   Compiling unicode-general-category v1.1.0
+    Checking slab v0.4.12
+    Checking futures-io v0.3.34
+    Checking bytes v1.12.1
+    Checking futures-task v0.3.34
+    Checking objc2-core-foundation v0.3.2
+   Compiling rmcp v3.5.1
+   Compiling pastey v0.2.3
+    Checking indexmap v2.14.2
+    Checking objc2-foundation v0.3.2
+    Checking chrono v0.4.45
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-mcp)
+    Checking euclid v0.22.14
+    Checking num-integer v0.1.47
+    Checking wgpu-types v29.0.4
+   Compiling wgpu-hal v29.0.4
+    Checking num-bigint v0.4.8
+    Checking zip v9.0.4
+    Checking uuid v1.28.0
+    Checking num-iter v0.1.46
+    Checking num-rational v0.4.2
+    Checking num-complex v0.4.6
+   Compiling wgpu-core v29.0.4
+    Checking borrow-or-share v0.2.4
+   Compiling jsonschema-value v0.59.0
+    Checking bit-vec v0.8.0
+    Checking num v0.4.3
+   Compiling wgpu v29.0.4
+    Checking objc2-metal v0.3.2
+    Checking fraction v0.17.0
+    Checking bit-set v0.8.0
+    Checking micromap v0.3.0
+    Checking vsimd v0.8.0
+    Checking num-cmp v0.1.0
+    Checking outref v0.5.2
+    Checking bytecount v0.6.9
+    Checking fancy-regex v0.19.2
+    Checking uuid-simd v0.8.0
+    Checking email_address v0.2.9
+    Checking jsonschema-regex v0.59.0
+    Checking data-encoding v2.11.1
+    Checking lyon_geom v1.0.19
+    Checking quick-xml v0.41.0
+    Checking lyon_path v1.0.19
+   Compiling objc-sys v0.3.5
+    Checking polycool v0.4.0
+    Checking lyon_tessellation v1.0.22
+    Checking kurbo v0.13.1
+    Checking color v0.3.3
+    Checking tokio v1.53.2
+    Checking objc2-quartz-core v0.3.2
+    Checking winnow v1.0.4
+    Checking fluent-uri v0.4.1
+    Checking core-foundation-sys v0.8.7
+    Checking raw-window-metal v1.1.0
+    Checking dispatch v0.2.0
+    Checking peniko v0.6.1
+    Checking core-foundation v0.9.4
+    Checking toml_parser v1.1.5+spec-1.1.0
+    Checking accesskit v0.24.1
+    Checking guillotiere v0.7.0
+    Checking toml_datetime v1.1.2+spec-1.1.0
+    Checking serde_spanned v1.1.2
+    Checking read-fonts v0.39.2
+   Compiling foreign-types-macros v0.2.4
+    Checking toml_writer v1.1.3+spec-1.1.0
+    Checking foreign-types-shared v0.3.1
+    Checking fearless_simd v0.4.1
+    Checking core-graphics-types v0.1.3
+    Checking toml v1.1.8+spec-1.1.0
+    Checking futures-util v0.3.34
+    Checking objc2-core-graphics v0.3.2
+    Checking rgb v0.8.53
+    Checking emath v0.35.0
+   Compiling winit v0.30.13
+    Checking resvg v0.45.1
+    Checking ecolor v0.35.0
+   Compiling schemars_derive v1.2.3
+    Checking objc2-app-kit v0.3.2
+    Checking nohash-hasher v0.2.0
+    Checking cursor-icon v1.2.0
+    Checking smol_str v0.2.2
+    Checking epaint_default_fonts v0.35.0
+    Checking vello_common v0.0.9
+    Checking dpi v0.1.2
+    Checking accesskit_consumer v0.38.0
+    Checking itertools v0.14.0
+   Compiling memoffset v0.6.5
+    Checking vello_cpu v0.0.9
+   Compiling thiserror v1.0.69
+    Checking serial-core v0.4.0
+    Checking ioctl-rs v0.1.6
+    Checking termios v0.2.2
+   Compiling anyhow v1.0.104
+    Checking web-time v1.1.0
+    Checking webbrowser v1.2.4
+    Checking foreign-types v0.5.0
+    Checking serial-unix v0.4.0
+    Checking type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling rfd v0.17.2
+    Checking pin-utils v0.1.1
+    Checking serial v0.4.0
+    Checking dispatch2 v0.3.1
+    Checking shell-words v1.1.1
+    Checking unicode-width v0.1.14
+    Checking vte v0.11.1
+    Checking downcast-rs v1.2.1
+    Checking open v5.4.4
+    Checking skrifa v0.42.1
+    Checking harfrust v0.7.0
+    Checking objc2 v0.5.3
+    Checking block2 v0.5.1
+    Checking objc2-foundation v0.2.2
+    Checking tokio-stream v0.1.19
+    Checking tokio-util v0.7.20
+    Checking objc2-app-kit v0.2.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+    Checking futures-executor v0.3.34
+    Checking futures v0.3.34
+   Compiling strum_macros v0.28.0
+   Compiling thiserror-impl v1.0.69
+    Checking nix v0.25.1
+    Checking schemars v1.2.3
+   Compiling winresource v0.1.34
+    Checking accesskit_macos v0.26.3
+    Checking core-graphics v0.23.2
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app)
+    Checking tracing v0.1.44
+    Checking zerocopy v0.8.62
+    Checking vt100 v0.15.2
+    Checking strum v0.28.0
+    Checking designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-doc)
+    Checking process-wrap v10.0.1
+    Checking filedescriptor v0.8.3
+    Checking accesskit_winit v0.32.2
+    Checking portable-pty v0.8.1
+    Checking half v2.7.1
+    Checking referencing v0.59.0
+    Checking epaint v0.35.0
+    Checking tiff v0.11.3
+    Checking naga v29.0.4
+    Checking jsonschema v0.59.0
+    Checking image v0.25.10
+    Checking egui v0.35.0
+    Checking designos-diff v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-diff)
+    Checking arboard v3.6.1
+    Checking egui-winit v0.35.0
+    Checking wgpu-naga-bridge v29.0.4
+    Checking designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fonts)
+    Checking wgpu-core-deps-apple v29.0.4
+    Checking designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-render)
+    Checking designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-svg)
+    Checking designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-export)
+    Checking designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-webcapture)
+    Checking designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fig)
+    Checking designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-gpu)
+    Checking egui-wgpu v0.35.0
+    Checking eframe v0.35.0
+    Checking designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-library)
+    Checking designos-eval v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-eval)
+warning: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1176:9
+     |
+1176 | ...   return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_return
+     = note: `#[warn(clippy::needless_return)]` on by default
+help: remove `return`
+     |
+1176 -         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+1176 +         std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"))
+     |
+
+warning: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1194:9
+     |
+1194 |         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_return
+help: remove `return`
+     |
+1194 -         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+1194 +         std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"))
+     |
+
+warning: `designos-app` (bin "designos-studio") generated 2 warnings (run `cargo clippy --fix --bin "designos-studio" -p designos-app` to apply 2 suggestions)
+warning: `designos-app` (bin "designos") generated 2 warnings (2 duplicates)
+warning: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/designos-app/src/shell/tests/inspector_var_binds.rs:1182:21
+     |
+1182 |     let multi_docs: Vec<(&str, Vec<(VariableKind, Vec<String>)>)> = vec![
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#type_complexity
+     = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: `designos-app` (bin "designos" test) generated 3 warnings (2 duplicates)
+warning: `designos-app` (bin "designos-studio" test) generated 3 warnings (3 duplicates)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 48.98s
+exit code: 0

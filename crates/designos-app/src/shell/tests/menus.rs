@@ -99,22 +99,22 @@ fn shape_dropdown_picks_a_tool_and_remembers_it() {
     let chev = toolbar::chevron_rect(screen, 2);
     s.click(chev.center());
     assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(2)));
-    // Rectangle, Line, Ellipse, Polygon, Star, Image: the Arrow tool is hidden.
-    let h = theme::MENU_PADDING * 2.0 + 6.0 * theme::MENU_ITEM_HEIGHT;
+    // Rectangle, Line, Arrow, Ellipse, Polygon, Star, Image.
+    let h = theme::MENU_PADDING * 2.0 + 7.0 * theme::MENU_ITEM_HEIGHT;
     let pos = toolbar::tool_menu_pos(chev, h);
     // 232px wide panel, opening above the bar.
     assert_eq!(pos.y + h, toolbar::toolbar_rect(screen).top() + theme::TOOL_MENU_OVERLAP);
-    s.click(Pos2::new(pos.x + 100.0, pos.y + theme::MENU_PADDING + 2.0 * theme::MENU_ITEM_HEIGHT + 12.0));
+    s.click(Pos2::new(pos.x + 100.0, pos.y + theme::MENU_PADDING + 3.0 * theme::MENU_ITEM_HEIGHT + 12.0));
     assert_eq!(s.app().tool, Tool::Ellipse);
-    assert_eq!(s.app().group_pick[2], 2);
+    assert_eq!(s.app().group_pick[2], 3);
     assert_eq!(s.app().ui.menu, None);
 }
 
-/// Group of the Rectangle / Line / Ellipse / Polygon / Star / Image dropdown.
+/// Group of the Rectangle / Line / Arrow / Ellipse / Polygon / Star / Image dropdown.
 const SHAPE_GROUP: usize = 2;
-/// Rows of that dropdown (the Arrow tool is hidden).
+/// Rows of that dropdown.
 const ROW_RECTANGLE: usize = 0;
-const ROW_ELLIPSE: usize = 2;
+const ROW_ELLIPSE: usize = 3;
 
 fn chevron_center(s: &Sim) -> Pos2 {
     s.rect_of(&format!("tool-chevron-{SHAPE_GROUP}")).center()
@@ -318,9 +318,11 @@ fn the_dropdown_opens_against_its_chevron_in_a_deck() {
 }
 
 #[test]
-fn shift_l_picks_line_because_the_arrow_tool_is_hidden() {
+fn shift_l_picks_arrow_and_plain_l_picks_line() {
     let mut s = Sim::new();
     shift_key(&mut s, Key::L);
+    assert_eq!(s.app().tool, Tool::Arrow);
+    s.key(Key::L);
     assert_eq!(s.app().tool, Tool::Line);
 }
 

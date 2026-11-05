@@ -45,6 +45,76 @@
   },
   "overlays": [],
   "named": {
+    "bind:fills/0": {
+      "region": "unknown",
+      "rect": [
+        1456.0,
+        1246.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:height": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        540.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:opacity": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        621.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:strokeWeight": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        1398.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:strokes/0": {
+      "region": "unknown",
+      "rect": [
+        1456.0,
+        1339.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:topLeftRadius": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        621.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:width": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        540.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "copy-to-figma-slides-btn": {
       "region": "right_panel",
       "rect": [
@@ -65,6 +135,46 @@
       ],
       "count": 1
     },
+    "corner-individual": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        621.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        653.0,
+        76.25,
+        32.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing-ios": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        657.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing-slider": {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        653.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
     "distribute": {
       "region": "right_panel",
       "rect": [
@@ -79,7 +189,7 @@
       "region": "unknown",
       "rect": [
         1540.0,
-        1417.0,
+        1453.0,
         24.0,
         24.0
       ],
@@ -89,7 +199,7 @@
       "region": "unknown",
       "rect": [
         1568.0,
-        2233.0,
+        2269.0,
         24.0,
         24.0
       ],
@@ -109,7 +219,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1799.0,
+        1835.0,
         223.0,
         32.0
       ],
@@ -119,7 +229,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1735.0,
+        1771.0,
         223.0,
         32.0
       ],
@@ -129,7 +239,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1927.0,
+        1963.0,
         223.0,
         32.0
       ],
@@ -139,7 +249,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        2096.0,
+        2132.0,
         223.0,
         32.0
       ],
@@ -149,7 +259,7 @@
       "region": "unknown",
       "rect": [
         1568.0,
-        1417.0,
+        1453.0,
         24.0,
         24.0
       ],
@@ -159,7 +269,7 @@
       "region": "unknown",
       "rect": [
         1540.0,
-        1458.0,
+        1494.0,
         24.0,
         24.0
       ],
@@ -226,36 +336,6 @@
       "count": 1
     },
     "mode:Starter colours": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        1049.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter dividers": {
-      "region": "unknown",
-      "rect": [
-        1472.0,
-        1121.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter platform colours": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        725.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter primitives": {
       "region": "unknown",
       "rect": [
         1472.0,
@@ -265,47 +345,17 @@
       ],
       "count": 1
     },
-    "mode:Starter progress and icons": {
-      "region": "right_panel",
+    "mode:Starter dividers": {
+      "region": "unknown",
       "rect": [
         1472.0,
-        1013.0,
+        1157.0,
         88.0,
         32.0
       ],
       "count": 1
     },
-    "mode:Starter roles": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        869.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter shape and size": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        689.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter spacing": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        905.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter spacing extra": {
+    "mode:Starter platform colours": {
       "region": "right_panel",
       "rect": [
         1472.0,
@@ -315,7 +365,57 @@
       ],
       "count": 1
     },
-    "mode:Starter spacing tokens": {
+    "mode:Starter primitives": {
+      "region": "unknown",
+      "rect": [
+        1472.0,
+        1121.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter progress and icons": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1049.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter roles": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        905.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter shape and size": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        725.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        941.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing extra": {
       "region": "right_panel",
       "rect": [
         1472.0,
@@ -325,7 +425,7 @@
       ],
       "count": 1
     },
-    "mode:Starter surfaces": {
+    "mode:Starter spacing tokens": {
       "region": "right_panel",
       "rect": [
         1472.0,
@@ -335,11 +435,21 @@
       ],
       "count": 1
     },
+    "mode:Starter surfaces": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        869.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
     "mode:Starter theme": {
       "region": "right_panel",
       "rect": [
         1472.0,
-        977.0,
+        1013.0,
         88.0,
         32.0
       ],
@@ -349,7 +459,7 @@
       "region": "right_panel",
       "rect": [
         1472.0,
-        941.0,
+        977.0,
         88.0,
         32.0
       ],
@@ -559,7 +669,7 @@
       "region": "unknown",
       "rect": [
         1400.0,
-        1535.0,
+        1571.0,
         96.0,
         32.0
       ],
@@ -569,7 +679,7 @@
       "region": "unknown",
       "rect": [
         1400.0,
-        1575.0,
+        1611.0,
         96.0,
         32.0
       ],
@@ -579,7 +689,7 @@
       "region": "unknown",
       "rect": [
         1400.0,
-        1615.0,
+        1651.0,
         96.0,
         32.0
       ],
@@ -589,7 +699,7 @@
       "region": "unknown",
       "rect": [
         1376.0,
-        1539.0,
+        1575.0,
         16.0,
         16.0
       ],
@@ -599,7 +709,7 @@
       "region": "unknown",
       "rect": [
         1376.0,
-        1579.0,
+        1615.0,
         16.0,
         16.0
       ],
@@ -609,7 +719,7 @@
       "region": "unknown",
       "rect": [
         1376.0,
-        1619.0,
+        1655.0,
         16.0,
         16.0
       ],
@@ -629,7 +739,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1767.0,
+        1803.0,
         223.0,
         32.0
       ],
@@ -639,7 +749,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        2128.0,
+        2164.0,
         223.0,
         32.0
       ],
@@ -649,7 +759,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        2160.0,
+        2196.0,
         223.0,
         32.0
       ],
@@ -659,7 +769,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        2192.0,
+        2228.0,
         223.0,
         32.0
       ],
@@ -669,7 +779,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1831.0,
+        1867.0,
         223.0,
         32.0
       ],
@@ -679,7 +789,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1863.0,
+        1899.0,
         223.0,
         32.0
       ],
@@ -689,7 +799,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1895.0,
+        1931.0,
         223.0,
         32.0
       ],
@@ -699,7 +809,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1959.0,
+        1995.0,
         223.0,
         32.0
       ],
@@ -709,7 +819,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        2023.0,
+        2059.0,
         223.0,
         32.0
       ],
@@ -719,7 +829,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1991.0,
+        2027.0,
         223.0,
         32.0
       ],
@@ -729,7 +839,7 @@
       "region": "unknown",
       "rect": [
         1380.0,
-        1214.0,
+        1250.0,
         16.0,
         16.0
       ],
@@ -739,7 +849,7 @@
       "region": "unknown",
       "rect": [
         1380.0,
-        1307.0,
+        1343.0,
         16.0,
         16.0
       ],
@@ -809,7 +919,7 @@
       "region": "unknown",
       "rect": [
         1568.0,
-        2233.0,
+        2269.0,
         24.0,
         24.0
       ],
@@ -819,7 +929,7 @@
       "region": "unknown",
       "rect": [
         1568.0,
-        1458.0,
+        1494.0,
         24.0,
         24.0
       ],
@@ -1467,7 +1577,7 @@
       "rect": [
         1400.0,
         536.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1493,7 +1603,7 @@
       "rect": [
         1496.0,
         536.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1519,7 +1629,7 @@
       "rect": [
         1400.0,
         617.0,
-        52.25,
+        27.25,
         32.0
       ],
       "sense": [
@@ -1545,7 +1655,7 @@
       "rect": [
         1496.0,
         617.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1558,7 +1668,7 @@
       "region": "right_panel",
       "rect": [
         1376.0,
-        653.0,
+        689.0,
         184.0,
         32.0
       ],

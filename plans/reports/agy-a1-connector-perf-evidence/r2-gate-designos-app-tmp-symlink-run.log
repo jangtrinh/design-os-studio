@@ -1,0 +1,124 @@
+# NOT a code failure: TMPDIR base /tmp (macOS symlink to /private/tmp) makes path-comparing approval-root tests fail; the same test passes alone with TMPDIR base /private/tmp (see r2-gate-designos-app.log)
+# cargo test -p designos-app --bin designos --locked on HEAD b09d487c8 (TMPDIR base /tmp, HOME and TMPDIR siblings)
+test agent_composer::tests::failed_start_of_a_system_send_never_lands_in_the_draft ... ok
+test agent_composer::tests::failed_start_returns_the_text_to_the_draft ... ok
+test agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice ... ok
+test agent_permissions::tests::auto_allow_log_keeps_every_concurrent_append ... FAILED
+test agent_permissions::tests::auto_allow_log_skips_a_malformed_line_and_drops_oldest_past_the_cap ... FAILED
+test agent_permissions::tests::generated_auto_allow_names_are_exactly_the_read_and_additive_rows ... FAILED
+test agent_permissions::tests::hook_ask_risky_delete_writes_no_auto_allow_row ... FAILED
+test agent_permissions::tests::hook_ask_risky_read_writes_an_auto_allow_row ... FAILED
+test agent_permissions::tests::hook_fails_closed_when_the_log_cannot_be_appended ... FAILED
+test agent_permissions::tests::settle_granted_request_writes_a_grant_row ... FAILED
+test agent_permissions::tests::settle_leaves_the_request_when_the_grant_row_cannot_be_written ... FAILED
+test agent_permissions::tests::settle_on_a_tab_folder_logs_the_grant_on_the_session ... FAILED
+test agent_permissions::tests::settle_writes_allow_for_a_matching_grant_and_leaves_a_different_target ... FAILED
+test agent_picker::tests::failed_resume_last_session_keeps_the_plus_menu_open_with_a_notice ... ok
+test agent_session_files::folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do ... ok
+test agent_session_files::open_removed_link_tests::a_session_folder_link_the_agent_removes_after_the_failed_open_is_not_found_not_a_failure ... ok
+test agent_session_files::open_removed_link_tests::a_link_the_agent_removes_after_the_failed_open_is_tried_again_not_reported_as_a_failure ... ok
+test agent_sessions::tests::failed_start_with_empty_output_does_not_sleep_on_ui_thread ... ok
+test agent_start_failure::tests::only_a_quick_unclean_exit_counts_as_a_failed_start ... ok
+test agent_start_failure::tests::signed_out_output_beats_a_failed_install_probe ... ok
+test agent_start_failure::tests::unknown_flag_output_beats_a_failed_install_probe ... ok
+test agent_turn_ledger::tests::revert_of_an_auto_allowed_write_restores_the_document_and_keeps_the_row ... FAILED
+test agent_turn_ledger::tests::turn_card_hides_keep_and_revert_when_the_turn_has_no_canvas_edits ... FAILED
+test agent_turn_status::tests::a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug ... ok
+test agent_turn_ledger::tests::turn_card_lists_auto_allow_rows ... FAILED
+test agent_usage::tests::failed_usage_probe_preserves_previous_reading_until_source_is_gone ... ok
+test canvas::textsession::tests::a_failed_face_is_reported_once_per_session_but_retried_when_the_document_reloads ... ok
+test canvas::textsession::tests::bold_on_bundled_inter_starts_no_load_while_another_face_has_failed ... ok
+test canvas::textsession::tests::an_edit_that_adds_a_face_does_not_refetch_or_report_a_failed_face_of_another_text ... ok
+test canvas::textsession::tests::picking_the_family_again_retries_a_failed_face_and_reports_it_again ... ok
+test canvas::textsession::tests::picking_the_family_again_reaches_a_failed_face_on_a_large_document ... ok
+test agent_permissions::tests::hook_auto_allows_a_read_and_still_asks_for_a_delete ... FAILED
+test agent_permissions::tests::hook_tags_rows_with_the_tab_id_from_approvals_dir ... FAILED
+test edit::tests::a_failed_rollback_poisons_the_transaction_and_cancels_commit ... ok
+test fig_export::tests::export_copy_reports_a_failed_write ... ok
+test fig_export::tests::palette_export_reports_a_failed_write ... ok
+test fig_export::tests::home_export_reports_a_failed_write_and_does_not_retry_in_the_temp_folder ... ok
+test home::session::tests::failed_autosave_is_retried_by_the_next_frame_after_the_retry_delay ... ok
+test home::session::tests::failed_autosave_keeps_the_edit_and_its_error_while_the_file_changed_on_disk ... ok
+test io::tests::failed_save_leaves_original_intact ... ok
+test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... ok
+test live_log_wake::tests::a_failed_thread_start_is_tried_once_not_on_every_frame ... ok
+test live_doc_epoch_tests::edits_dropped_on_a_failed_switch_are_still_reported_when_a_later_switch_in_the_same_poll_loads ... ok
+test live_doc_epoch_tests::edits_dropped_after_a_failed_load_are_reported_when_the_next_poll_brings_a_switch_that_loads ... ok
+test live_doc_epoch_tests::edits_dropped_on_a_failed_switch_are_reported_when_the_good_switch_waits_for_a_drag_to_end ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 13.28s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 13.38s
+test shell::tests::fig_export_toast::a_failed_reveal_says_so ... ok
+test shell::tests::layout_unchanged::new_named_widget_is_reported_not_failed ... ok
+test shell::tests::panel_export::panel_export_failed_write_shows_error_toast_with_path_and_reason ... ok
+test shell::tests::unsaved_dot::a_failed_library_save_keeps_the_dot ... ok
+test terminal::ask_mode_tests::a_session_dir_change_clears_grants_and_the_next_call_asks ... FAILED
+test terminal::ask_mode_tests::bind_session_on_a_library_file_with_a_held_lock_clears_grants_and_keeps_the_dir ... FAILED
+test terminal::ask_mode_tests::bind_session_to_a_different_id_clears_grants_and_the_next_call_asks ... FAILED
+test terminal::ask_mode_tests::ask_risky_keeps_turn_marks_and_auto_allows_only_safe_tool_names ... FAILED
+test terminal::ask_mode_tests::closing_the_last_tab_clears_grants_and_the_next_call_asks ... FAILED
+test terminal::ask_mode_tests::auto_allow_rows_from_a_background_tab_stay_on_that_tab ... FAILED
+test terminal::ask_mode_tests::shutdown_clears_grants_and_the_next_call_asks ... FAILED
+test terminal::ask_mode_tests::closing_one_of_several_tabs_does_not_clear_grants ... FAILED
+test terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped ... ok
+test terminal::gemini_launch_tests::a_failed_spawn_leaves_no_hooks_file_behind ... ok
+test terminal::tests::a_failed_mode_save_keeps_ask_for_the_next_agent_tab ... ok
+test terminal::tests::clicking_the_fix_on_the_failed_tab_panel_opens_a_shell_tab ... ok
+test terminal::tests::failed_start_drain_in_the_bridge_poll_never_blocks_the_ui_thread ... ok
+test terminal::tests::the_app_setter_reports_a_failed_save_and_keeps_ask_until_a_save_works ... ok
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+failures:
+thread 'agent_permissions::tests::auto_allow_log_keeps_every_concurrent_append' (1794835) panicked at crates/designos-app/src/agent_permissions.rs:2476:46:
+thread 'agent_permissions::tests::auto_allow_log_skips_a_malformed_line_and_drops_oldest_past_the_cap' (1794837) panicked at crates/designos-app/src/agent_permissions.rs:2382:49:
+thread 'agent_permissions::tests::generated_auto_allow_names_are_exactly_the_read_and_additive_rows' (1794867) panicked at crates/designos-app/src/agent_permissions.rs:2113:13:
+thread 'agent_permissions::tests::hook_ask_risky_delete_writes_no_auto_allow_row' (1794869) panicked at crates/designos-app/src/agent_permissions.rs:2310:53:
+thread 'agent_permissions::tests::hook_ask_risky_read_writes_an_auto_allow_row' (1794870) panicked at crates/designos-app/src/agent_permissions.rs:2286:53:
+thread 'agent_permissions::tests::hook_fails_closed_when_the_log_cannot_be_appended' (1794873) panicked at crates/designos-app/src/agent_permissions.rs:2420:53:
+thread 'agent_permissions::tests::settle_granted_request_writes_a_grant_row' (1795749) panicked at crates/designos-app/src/agent_permissions.rs:2363:9:
+thread 'agent_permissions::tests::settle_leaves_the_request_when_the_grant_row_cannot_be_written' (1795750) panicked at crates/designos-app/src/agent_permissions.rs:2420:53:
+thread 'agent_permissions::tests::settle_on_a_tab_folder_logs_the_grant_on_the_session' (1795751) panicked at crates/designos-app/src/agent_permissions.rs:2338:9:
+thread 'agent_permissions::tests::settle_writes_allow_for_a_matching_grant_and_leaves_a_different_target' (1795769) panicked at crates/designos-app/src/agent_permissions.rs:2208:9:
+assertion `left == right` failed
+thread 'agent_turn_ledger::tests::revert_of_an_auto_allowed_write_restores_the_document_and_keeps_the_row' (1799939) panicked at crates/designos-app/src/agent_turn_ledger.rs:1402:151:
+thread 'agent_turn_ledger::tests::turn_card_hides_keep_and_revert_when_the_turn_has_no_canvas_edits' (1800391) panicked at crates/designos-app/src/agent_turn_ledger.rs:1384:14:
+thread 'agent_turn_ledger::tests::turn_card_lists_auto_allow_rows' (1800403) panicked at crates/designos-app/src/agent_turn_ledger.rs:1364:14:
+thread 'agent_permissions::tests::hook_auto_allows_a_read_and_still_asks_for_a_delete' (1794872) panicked at crates/designos-app/src/agent_permissions.rs:2238:77:
+thread 'agent_permissions::tests::hook_tags_rows_with_the_tab_id_from_approvals_dir' (1795648) panicked at crates/designos-app/src/agent_permissions.rs:2557:9:
+assertion failed: String::from_utf8_lossy(&out.stdout).contains("\"behavior\":\"allow\"")
+thread 'terminal::ask_mode_tests::a_session_dir_change_clears_grants_and_the_next_call_asks' (1852637) panicked at crates/designos-app/src/terminal/ask_mode_tests.rs:528:5:
+thread 'terminal::ask_mode_tests::bind_session_on_a_library_file_with_a_held_lock_clears_grants_and_keeps_the_dir' (1852697) panicked at crates/designos-app/src/terminal/ask_mode_tests.rs:551:5:
+thread 'terminal::ask_mode_tests::bind_session_to_a_different_id_clears_grants_and_the_next_call_asks' (1852717) panicked at crates/designos-app/src/terminal/ask_mode_tests.rs:511:5:
+thread 'terminal::ask_mode_tests::ask_risky_keeps_turn_marks_and_auto_allows_only_safe_tool_names' (1852648) panicked at crates/designos-app/src/terminal/ask_mode_tests.rs:298:5:
+thread 'terminal::ask_mode_tests::closing_the_last_tab_clears_grants_and_the_next_call_asks' (1852739) panicked at crates/designos-app/src/terminal/ask_mode_tests.rs:498:5:
+thread 'terminal::ask_mode_tests::auto_allow_rows_from_a_background_tab_stay_on_that_tab' (1852652) panicked at crates/designos-app/src/terminal/ask_mode_tests.rs:578:6:
+thread 'terminal::ask_mode_tests::shutdown_clears_grants_and_the_next_call_asks' (1852883) panicked at crates/designos-app/src/terminal/ask_mode_tests.rs:486:5:
+thread 'terminal::ask_mode_tests::closing_one_of_several_tabs_does_not_clear_grants' (1852731) panicked at crates/designos-app/src/terminal/ask_mode_tests.rs:616:5:
+thread 'vecops::tests::two_deferred_text_commands_both_convert_in_order' (1869444) panicked at crates/designos-app/src/vecops.rs:1921:9:
+failures:
+    agent_permissions::tests::auto_allow_log_keeps_every_concurrent_append
+    agent_permissions::tests::auto_allow_log_skips_a_malformed_line_and_drops_oldest_past_the_cap
+    agent_permissions::tests::generated_auto_allow_names_are_exactly_the_read_and_additive_rows
+    agent_permissions::tests::hook_ask_risky_delete_writes_no_auto_allow_row
+    agent_permissions::tests::hook_ask_risky_read_writes_an_auto_allow_row
+    agent_permissions::tests::hook_auto_allows_a_read_and_still_asks_for_a_delete
+    agent_permissions::tests::hook_fails_closed_when_the_log_cannot_be_appended
+    agent_permissions::tests::hook_tags_rows_with_the_tab_id_from_approvals_dir
+    agent_permissions::tests::settle_granted_request_writes_a_grant_row
+    agent_permissions::tests::settle_leaves_the_request_when_the_grant_row_cannot_be_written
+    agent_permissions::tests::settle_on_a_tab_folder_logs_the_grant_on_the_session
+    agent_permissions::tests::settle_writes_allow_for_a_matching_grant_and_leaves_a_different_target
+    agent_turn_ledger::tests::revert_of_an_auto_allowed_write_restores_the_document_and_keeps_the_row
+    agent_turn_ledger::tests::turn_card_hides_keep_and_revert_when_the_turn_has_no_canvas_edits
+    agent_turn_ledger::tests::turn_card_lists_auto_allow_rows
+    terminal::ask_mode_tests::a_session_dir_change_clears_grants_and_the_next_call_asks
+    terminal::ask_mode_tests::ask_risky_keeps_turn_marks_and_auto_allows_only_safe_tool_names
+    terminal::ask_mode_tests::auto_allow_rows_from_a_background_tab_stay_on_that_tab
+    terminal::ask_mode_tests::bind_session_on_a_library_file_with_a_held_lock_clears_grants_and_keeps_the_dir
+    terminal::ask_mode_tests::bind_session_to_a_different_id_clears_grants_and_the_next_call_asks
+    terminal::ask_mode_tests::closing_one_of_several_tabs_does_not_clear_grants
+    terminal::ask_mode_tests::closing_the_last_tab_clears_grants_and_the_next_call_asks
+    terminal::ask_mode_tests::shutdown_clears_grants_and_the_next_call_asks
+    vecops::tests::two_deferred_text_commands_both_convert_in_order
+test result: FAILED. 4343 passed; 24 failed; 13 ignored; 0 measured; 0 filtered out; finished in 395.90s
+error: test failed, to rerun pass `-p designos-app --bin designos`
+rc=101

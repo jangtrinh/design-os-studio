@@ -1,0 +1,5 @@
+test an_oversized_file_is_not_read_into_memory_and_not_reported ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.70s run 1
+test an_oversized_file_is_not_read_into_memory_and_not_reported ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.64s run 2
+test an_oversized_file_is_not_read_into_memory_and_not_reported ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.64s run 3
+test an_oversized_file_is_not_read_into_memory_and_not_reported ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.64s run 4
+test an_oversized_file_is_not_read_into_memory_and_not_reported ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.64s run 5

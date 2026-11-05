@@ -1,0 +1,27 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-fig/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/fig_library.rs (out/cargo/debug/deps/fig_library-af310a22a7483a3e)
+
+running 1 test
+test instance_text_style_link_override_survives_main_edit ... FAILED
+
+failures:
+
+---- instance_text_style_link_override_survives_main_edit stdout ----
+
+thread 'instance_text_style_link_override_survives_main_edit' (10275163) panicked at crates/designos-fig/tests/fig_library.rs:707:5:
+assertion `left == right` failed: local relink must be written into the instance override
+  left: Null
+ right: Object {"localID": Number(2), "sessionID": Number(8)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    instance_text_style_link_override_survives_main_edit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_library`
+EXIT_CODE=101

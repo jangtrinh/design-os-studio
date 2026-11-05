@@ -1,0 +1,2 @@
+$ cargo fmt --all -- --check; echo fmt_rc=$?
+fmt_rc=0

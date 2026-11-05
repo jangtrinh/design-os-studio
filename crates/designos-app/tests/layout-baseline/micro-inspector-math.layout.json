@@ -45,6 +45,56 @@
   },
   "overlays": [],
   "named": {
+    "bind:fills/0": {
+      "region": "unknown",
+      "rect": [
+        1456.0,
+        1246.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:height": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        540.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:opacity": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        621.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:topLeftRadius": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        621.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:width": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        540.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "copy-to-figma-slides-btn": {
       "region": "right_panel",
       "rect": [
@@ -65,6 +115,46 @@
       ],
       "count": 1
     },
+    "corner-individual": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        621.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        653.0,
+        76.25,
+        32.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing-ios": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        657.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing-slider": {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        653.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
     "distribute": {
       "region": "right_panel",
       "rect": [
@@ -79,7 +169,7 @@
       "region": "unknown",
       "rect": [
         1540.0,
-        1304.0,
+        1340.0,
         24.0,
         24.0
       ],
@@ -89,7 +179,7 @@
       "region": "unknown",
       "rect": [
         1568.0,
-        1955.0,
+        1991.0,
         24.0,
         24.0
       ],
@@ -100,7 +190,7 @@
       "rect": [
         57.0,
         40.0,
-        193.0,
+        184.0,
         24.0
       ],
       "count": 1
@@ -109,7 +199,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1521.0,
+        1557.0,
         223.0,
         32.0
       ],
@@ -119,7 +209,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1457.0,
+        1493.0,
         223.0,
         32.0
       ],
@@ -129,7 +219,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1649.0,
+        1685.0,
         223.0,
         32.0
       ],
@@ -139,7 +229,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1818.0,
+        1854.0,
         223.0,
         32.0
       ],
@@ -149,7 +239,7 @@
       "region": "unknown",
       "rect": [
         1568.0,
-        1304.0,
+        1340.0,
         24.0,
         24.0
       ],
@@ -159,7 +249,7 @@
       "region": "unknown",
       "rect": [
         1540.0,
-        1345.0,
+        1381.0,
         24.0,
         24.0
       ],
@@ -178,10 +268,10 @@
     "layers-collapse-all": {
       "region": "left_panel",
       "rect": [
-        229.0,
-        217.0,
-        24.0,
-        24.0
+        213.0,
+        213.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
@@ -198,10 +288,10 @@
     "layers-search": {
       "region": "left_panel",
       "rect": [
-        257.0,
-        217.0,
-        24.0,
-        24.0
+        249.0,
+        213.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
@@ -212,6 +302,16 @@
         71.0,
         124.5,
         18.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-band": {
+      "region": "left_panel",
+      "rect": [
+        278.0,
+        32.0,
+        15.0,
+        1056.0
       ],
       "count": 1
     },
@@ -226,36 +326,6 @@
       "count": 1
     },
     "mode:Starter colours": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        1049.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter dividers": {
-      "region": "unknown",
-      "rect": [
-        1472.0,
-        1121.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter platform colours": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        725.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter primitives": {
       "region": "unknown",
       "rect": [
         1472.0,
@@ -265,47 +335,17 @@
       ],
       "count": 1
     },
-    "mode:Starter progress and icons": {
-      "region": "right_panel",
+    "mode:Starter dividers": {
+      "region": "unknown",
       "rect": [
         1472.0,
-        1013.0,
+        1157.0,
         88.0,
         32.0
       ],
       "count": 1
     },
-    "mode:Starter roles": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        869.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter shape and size": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        689.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter spacing": {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        905.0,
-        88.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "mode:Starter spacing extra": {
+    "mode:Starter platform colours": {
       "region": "right_panel",
       "rect": [
         1472.0,
@@ -315,7 +355,57 @@
       ],
       "count": 1
     },
-    "mode:Starter spacing tokens": {
+    "mode:Starter primitives": {
+      "region": "unknown",
+      "rect": [
+        1472.0,
+        1121.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter progress and icons": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1049.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter roles": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        905.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter shape and size": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        725.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        941.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing extra": {
       "region": "right_panel",
       "rect": [
         1472.0,
@@ -325,7 +415,7 @@
       ],
       "count": 1
     },
-    "mode:Starter surfaces": {
+    "mode:Starter spacing tokens": {
       "region": "right_panel",
       "rect": [
         1472.0,
@@ -335,11 +425,21 @@
       ],
       "count": 1
     },
+    "mode:Starter surfaces": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        869.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
     "mode:Starter theme": {
       "region": "right_panel",
       "rect": [
         1472.0,
-        977.0,
+        1013.0,
         88.0,
         32.0
       ],
@@ -349,7 +449,7 @@
       "region": "right_panel",
       "rect": [
         1472.0,
-        941.0,
+        977.0,
         88.0,
         32.0
       ],
@@ -362,6 +462,16 @@
         205.0,
         240.0,
         6.0
+      ],
+      "count": 1
+    },
+    "pages-layers-separator-band": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        196.0,
+        240.0,
+        24.0
       ],
       "count": 1
     },
@@ -569,7 +679,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1489.0,
+        1525.0,
         223.0,
         32.0
       ],
@@ -579,7 +689,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1850.0,
+        1886.0,
         223.0,
         32.0
       ],
@@ -589,7 +699,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1882.0,
+        1918.0,
         223.0,
         32.0
       ],
@@ -599,7 +709,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1914.0,
+        1950.0,
         223.0,
         32.0
       ],
@@ -609,7 +719,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1553.0,
+        1589.0,
         223.0,
         32.0
       ],
@@ -619,7 +729,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1585.0,
+        1621.0,
         223.0,
         32.0
       ],
@@ -629,7 +739,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1617.0,
+        1653.0,
         223.0,
         32.0
       ],
@@ -639,7 +749,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1681.0,
+        1717.0,
         223.0,
         32.0
       ],
@@ -649,7 +759,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1745.0,
+        1781.0,
         223.0,
         32.0
       ],
@@ -659,7 +769,7 @@
       "region": "unknown",
       "rect": [
         1367.0,
-        1713.0,
+        1749.0,
         223.0,
         32.0
       ],
@@ -669,7 +779,7 @@
       "region": "unknown",
       "rect": [
         1380.0,
-        1214.0,
+        1250.0,
         16.0,
         16.0
       ],
@@ -715,6 +825,16 @@
       ],
       "count": 1
     },
+    "tab-close-hit-1": {
+      "region": "tab_bar",
+      "rect": [
+        307.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "tab-unsaved-dot-1": {
       "region": "unknown",
       "rect": [
@@ -739,7 +859,7 @@
       "region": "unknown",
       "rect": [
         1568.0,
-        1955.0,
+        1991.0,
         24.0,
         24.0
       ],
@@ -749,7 +869,7 @@
       "region": "unknown",
       "rect": [
         1568.0,
-        1345.0,
+        1381.0,
         24.0,
         24.0
       ],
@@ -801,6 +921,56 @@
         808.0,
         1036.0,
         16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-0": {
+      "region": "canvas",
+      "rect": [
+        584.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-1": {
+      "region": "canvas",
+      "rect": [
+        640.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-2": {
+      "region": "canvas",
+      "rect": [
+        696.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-3": {
+      "region": "canvas",
+      "rect": [
+        752.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-4": {
+      "region": "canvas",
+      "rect": [
+        808.0,
+        1036.0,
+        24.0,
         32.0
       ],
       "count": 1
@@ -986,10 +1156,10 @@
     {
       "region": "left_panel",
       "rect": [
-        253.0,
-        44.0,
-        24.0,
-        24.0
+        245.0,
+        40.0,
+        32.0,
+        32.0
       ],
       "sense": [
         "click",
@@ -999,10 +1169,10 @@
     {
       "region": "left_panel",
       "rect": [
-        229.0,
-        105.0,
-        24.0,
-        24.0
+        213.0,
+        101.0,
+        32.0,
+        32.0
       ],
       "sense": [
         "click",
@@ -1012,10 +1182,10 @@
     {
       "region": "left_panel",
       "rect": [
-        257.0,
-        105.0,
-        24.0,
-        24.0
+        249.0,
+        101.0,
+        32.0,
+        32.0
       ],
       "sense": [
         "click",
@@ -1384,7 +1554,7 @@
       "rect": [
         1400.0,
         536.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1410,7 +1580,7 @@
       "rect": [
         1496.0,
         536.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1436,7 +1606,7 @@
       "rect": [
         1400.0,
         617.0,
-        52.25,
+        27.25,
         32.0
       ],
       "sense": [
@@ -1462,7 +1632,7 @@
       "rect": [
         1496.0,
         617.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1475,7 +1645,7 @@
       "region": "right_panel",
       "rect": [
         1376.0,
-        653.0,
+        689.0,
         184.0,
         32.0
       ],
@@ -1502,7 +1672,7 @@
       "rect": [
         92.0,
         3.0,
-        216.0,
+        213.0,
         26.0
       ],
       "sense": [

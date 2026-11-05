@@ -1,0 +1,25 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.84s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 1 test
+test layout_constraints::tests::a_dashed_stroke_with_a_vertex_join_of_its_own_keeps_its_bake_on_resize ... FAILED
+
+failures:
+
+---- layout_constraints::tests::a_dashed_stroke_with_a_vertex_join_of_its_own_keeps_its_bake_on_resize stdout ----
+
+thread 'layout_constraints::tests::a_dashed_stroke_with_a_vertex_join_of_its_own_keeps_its_bake_on_resize' (89979229) panicked at crates/designos-doc/src/layout_constraints.rs:685:47:
+the baked outline is kept
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_constraints::tests::a_dashed_stroke_with_a_vertex_join_of_its_own_keeps_its_bake_on_resize
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 746 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

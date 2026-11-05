@@ -1,0 +1,107 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Checking smallvec v1.16.3
+    Checking designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-doc)
+    Checking icu_normalizer v2.3.0
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking image v0.25.10
+    Checking ureq v2.12.1
+    Checking harfrust v0.5.2
+    Checking rustc-hash v2.1.3
+    Checking either v1.19.0
+    Checking cosmic-text v0.19.0
+    Checking rayon v1.12.0
+    Checking kurbo v0.11.3
+    Checking svgtypes v0.15.3
+    Checking rustybuzz v0.20.1
+    Checking usvg v0.45.1
+    Checking parking_lot_core v0.9.12
+    Checking parking_lot v0.12.5
+    Checking designos-diff v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-diff)
+   Compiling ahash v0.8.12
+    Checking designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-fonts)
+    Checking designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-render)
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-mcp)
+    Checking designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-svg)
+    Checking designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-export)
+    Checking designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-webcapture)
+    Checking designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-fig)
+    Checking referencing v0.59.0
+    Checking jsonschema-value v0.59.0
+    Checking jsonschema v0.59.0
+    Checking designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-library)
+    Checking objc2-core-foundation v0.3.2
+    Checking objc2-foundation v0.3.2
+    Checking objc2-metal v0.3.2
+    Checking half v2.7.1
+    Checking wgpu-types v29.0.4
+    Checking naga v29.0.4
+    Checking objc2-quartz-core v0.3.2
+    Checking raw-window-metal v1.1.0
+    Checking resvg v0.45.1
+    Checking wgpu-naga-bridge v29.0.4
+    Checking wgpu-hal v29.0.4
+    Checking wgpu-core-deps-apple v29.0.4
+    Checking wgpu-core v29.0.4
+    Checking wgpu v29.0.4
+    Checking designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-gpu)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 37.14s
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Checking designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-doc)
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-mcp)
+    Checking designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-fonts)
+    Checking designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-render)
+    Checking designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-svg)
+    Checking designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-webcapture)
+    Checking designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-fig)
+    Checking designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-export)
+    Checking designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-library)
+    Checking designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-gpu)
+    Checking designos-eval v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-eval)
+    Checking designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app)
+warning: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1176:9
+     |
+1176 | ...   return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_return
+     = note: `#[warn(clippy::needless_return)]` on by default
+help: remove `return`
+     |
+1176 -         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+1176 +         std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"))
+     |
+
+warning: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1194:9
+     |
+1194 | ...   return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_return
+help: remove `return`
+     |
+1194 -         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+1194 +         std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"))
+     |
+
+warning: `designos-app` (bin "designos-studio") generated 2 warnings (run `cargo clippy --fix --bin "designos-studio" -p designos-app` to apply 2 suggestions)
+warning: `designos-app` (bin "designos") generated 2 warnings (2 duplicates)
+warning: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/designos-app/src/shell/tests/inspector_var_binds.rs:1182:21
+     |
+1182 |     let multi_docs: Vec<(&str, Vec<(VariableKind, Vec<String>)>)> = vec![
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#type_complexity
+     = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: `designos-app` (bin "designos" test) generated 3 warnings (2 duplicates)
+warning: `designos-app` (bin "designos-studio" test) generated 3 warnings (3 duplicates)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 31.84s

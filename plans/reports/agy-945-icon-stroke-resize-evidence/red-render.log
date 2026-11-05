@@ -1,0 +1,32 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-render)
+    Finished `test` profile [unoptimized] target(s) in 0.97s
+     Running tests/resized_vector_stroke_weight.rs (out/cargo/debug/deps/resized_vector_stroke_weight-657641d76e113ea4)
+
+running 3 tests
+
+thread 'plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes' (82264255) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:135:5:
+assertion `left == right` failed: 2x plain-resized icon keeps 2px left/right stroke walls instead of scaling to 4px
+  left: [4, 4]
+ right: [2, 2]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize' (82264256) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:168:5:
+assertion `left == right` failed: stroke-only vector with network draws one 2px band per side after resize
+  left: [4, 4]
+ right: [2, 2]
+test stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize ... FAILED
+test plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes ... FAILED
+test null_control_unresized_imported_vector_renders_unchanged ... ok
+
+failures:
+
+failures:
+    plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes
+    stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.60s
+
+error: test failed, to rerun pass `-p designos-render --test resized_vector_stroke_weight`

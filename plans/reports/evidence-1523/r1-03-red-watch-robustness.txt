@@ -1,0 +1,42 @@
+warning: /Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-docs v0.7.7 (/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-docs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+     Running tests/watch_robustness.rs (target/debug/deps/watch_robustness-5497bbbdbe710ada)
+
+running 3 tests
+test an_oversized_file_is_not_read_into_memory_and_not_reported ... FAILED
+test start_does_no_disk_work_on_the_callers_thread ... FAILED
+test a_panicking_wake_callback_still_marks_the_watcher_stopped ... FAILED
+
+failures:
+
+---- an_oversized_file_is_not_read_into_memory_and_not_reported stdout ----
+
+thread 'an_oversized_file_is_not_read_into_memory_and_not_reported' (101962294) panicked at crates/designos-docs/tests/watch_robustness.rs:19:5:
+a page over the 8 MiB read limit is skipped, like the store: [DocChange { rel: "huge.md", hash: Some(ContentHash(23ff721b5953)) }, DocChange { rel: "small.md", hash: Some(ContentHash(b3ed6ea75c33)) }]
+
+---- start_does_no_disk_work_on_the_callers_thread stdout ----
+
+thread 'start_does_no_disk_work_on_the_callers_thread' (101962295) panicked at crates/designos-docs/tests/watch_robustness.rs:59:5:
+start() took 13.592333ms, a scan of the folder takes 7.566292ms: it must not scan on the caller's thread
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_panicking_wake_callback_still_marks_the_watcher_stopped stdout ----
+
+thread 'designos-docs-watch' (101962296) panicked at crates/designos-docs/tests/watch_robustness.rs:25:53:
+wake callback failed
+
+thread 'a_panicking_wake_callback_still_marks_the_watcher_stopped' (101962293) panicked at crates/designos-docs/tests/watch_robustness.rs:32:5:
+the flag must say the watcher is dead
+
+
+failures:
+    a_panicking_wake_callback_still_marks_the_watcher_stopped
+    an_oversized_file_is_not_read_into_memory_and_not_reported
+    start_does_no_disk_work_on_the_callers_thread
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+
+error: test failed, to rerun pass `-p designos-docs --test watch_robustness`

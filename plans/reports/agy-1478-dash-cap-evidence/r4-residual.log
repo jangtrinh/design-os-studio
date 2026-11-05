@@ -1,0 +1,7 @@
+# differing samples (spread > 12) recomputed in Python from the dumped PNGs; threshold of the randomised test is 48 of 9600
+# the 'before' column here is a recount (65/70/105/202/126 are the Rust test's own counts, see r4-repro-head.log)
+seed 6: before-fix 65/9600 bbox=[187.0, 87.0, 223.0, 149.0] max=135 | after-fix 0/9600 bbox=- max=0 | main-pre-PR 0/9600 bbox=- max=0
+seed 17: before-fix 72/9600 bbox=[123.0, 21.0, 233.0, 159.0] max=64 | after-fix 7/9600 bbox=[123.0, 21.0, 233.0, 35.0] max=64 | main-pre-PR 7/9600 bbox=[123.0, 21.0, 233.0, 35.0] max=64
+seed 49: before-fix 105/9600 bbox=[139.0, 15.0, 239.0, 67.0] max=71 | after-fix 17/9600 bbox=[139.0, 15.0, 237.0, 49.0] max=48 | main-pre-PR 17/9600 bbox=[139.0, 15.0, 237.0, 49.0] max=48
+seed 69: before-fix 201/9600 bbox=[67.0, 65.0, 137.0, 121.0] max=232 | after-fix 0/9600 bbox=- max=0 | main-pre-PR 0/9600 bbox=- max=0
+seed 83: before-fix 121/9600 bbox=[121.0, 75.0, 189.0, 111.0] max=166 | after-fix 0/9600 bbox=- max=0 | main-pre-PR 0/9600 bbox=- max=0

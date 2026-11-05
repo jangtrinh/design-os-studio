@@ -1,0 +1,75 @@
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    88Gi    12%    459k  924M    0%   /
+=== RERUN: agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.86s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... FAILED
+
+failures:
+
+---- agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root stdout ----
+
+thread 'agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root' (87082285) panicked at crates/designos-app/src/agent_approval_channel.rs:286:9:
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.WO3qo8/home/Library/Application Support/designos/ap/2a681cbc0b56dc3f/codex.sock is 130 bytes
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4255 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+rc=101
+=== RERUN: shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.83s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4255 filtered out; finished in 2.50s
+
+rc=0
+=== RERUN: vecops::tests::two_deferred_text_commands_both_convert_in_order ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.47s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4255 filtered out; finished in 1.64s
+
+rc=0
+=== RERUN (short /tmp root): agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1028-text-style-ops-to-doc/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.80s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4255 filtered out; finished in 0.00s
+
+rc=0

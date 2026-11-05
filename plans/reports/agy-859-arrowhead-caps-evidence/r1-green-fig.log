@@ -1,0 +1,38 @@
+$ cargo test --locked -p designos-fig --test resized_vector_stroke_model
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running tests/resized_vector_stroke_model.rs (out/cargo/debug/deps/resized_vector_stroke_model-87b6562e1729e120)
+
+running 25 tests
+test an_arrow_cap_on_the_node_drops_its_bake_and_is_modelled ... ok
+test an_arrow_cap_on_a_vertex_drops_its_bake_and_is_modelled ... ok
+test a_vertex_cap_equal_to_the_nodes_and_dashes_on_a_centered_stroke_still_drop_the_bake ... ok
+test a_brush_and_side_weights_keep_the_scaled_bake ... ok
+test a_vertex_cap_of_its_own_and_dashes_inside_keep_the_scaled_bake_while_a_vertex_join_drops_it ... ok
+test a_stroke_without_an_arrow_cap_keeps_the_bake_rules_it_had_at_every_alignment ... ok
+test a_dashed_arrow_stroke_keeps_the_scaled_bake_at_every_alignment ... ok
+test a_document_recorded_without_the_cap_source_keeps_writing_the_arrow_where_it_always_did ... ok
+test an_arrow_cap_survives_a_rest_round_trip_and_drops_its_bake_on_a_resize ... ok
+test an_unmodelled_cap_on_the_node_or_on_a_vertex_keeps_the_scaled_bake ... ok
+test fig_icon_without_an_arrow_cap_drops_its_bake ... ok
+test a_rest_export_writes_a_vertex_arrow_back_onto_its_vertex_when_the_node_has_a_cap ... ok
+test a_rest_export_keeps_a_vertex_arrow_off_a_plain_node ... ok
+test a_rest_export_writes_a_node_arrow_into_the_nodes_stroke_cap ... ok
+test the_kit_icon_drops_its_bake_and_draws_its_own_weight ... ok
+test an_arrow_cap_on_a_stroke_with_no_alignment_given_drops_the_bake_on_a_resize ... ok
+test fig_arrow_caps_on_the_node_and_on_a_vertex_are_modelled_and_drop_the_bake ... ok
+test fig_unmodelled_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake ... ok
+test dashes_on_a_centered_stroke_whose_vertex_join_differs_from_the_nodes_keep_the_scaled_bake ... ok
+test an_arrow_cap_on_an_inside_or_outside_stroke_drops_the_bake_on_a_resize ... ok
+test a_saved_fig_file_of_a_plain_icon_carries_no_cap_marker_and_still_drops_its_bake ... ok
+test an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_drops_its_bake_on_a_resize ... ok
+test all_five_arrow_caps_round_trip_through_rest_and_fig_on_node_and_vertex_and_plain_json_stays_byte_identical ... ok
+test an_arrow_vector_in_an_instance_drops_its_bake_while_an_unmodelled_cap_keeps_it ... ok
+test an_instance_clone_of_an_arrow_icon_writes_the_arrow_back_onto_its_vertex_at_any_file_size ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+
+exit code: 0

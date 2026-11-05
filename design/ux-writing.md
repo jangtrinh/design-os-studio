@@ -12,9 +12,11 @@ Roles stay separate. Action labels (rule 1), prose and messages (rules 2, 5, 6),
 
 **Statement.** Visible button, link-button and menu-item action labels use verb + object, at most three words, with no articles or prepositional tails. An exact product or app name counts as one word; a separate count badge does not count. Do not abbreviate a canonical name or invent hyphenation to pass. Prose, headings and accessible names are different roles.
 
+**Exception.** A menu or palette command that copies a Figma command name keeps Figma's exact wording, even past three words: people arrive knowing that name, and a shortened one reads as a different command. Each such label is listed in `FIGMA_COMMAND_LABELS` in `scripts/ux_writing_labels.py` with the Figma string id that carries it, as evidence. `Paste and match style` (`fullscreen_actions.paste-and-match-style`) and `Swap fill and stroke` (`fullscreen_actions.swap-fill-and-stroke`) are the two so far. The list is closed: an unlisted label follows the three-word cap, and a count in a listed label still breaks rule 3. Owner ruling, 2026-11-03.
+
 **Do / don't.** Keep `Save as…` (`panels/menus.rs:429`) and `Reset all changes` (`panels/context.rs:101`). Replace the five-word `Mark as ready for dev` (`dev/sections.rs:67`, `panels/context.rs:110`) with Proposed `Mark ready`. Replace `Open in new window` (`home/mod.rs:508`) with Proposed `Open window`. Replace `Export selection as PNG…` (`panels/menus.rs:434`) with Proposed `Export PNG…`, keeping the selection scope in the accessible name (rule 14). Three words alone do not satisfy the rule: the object must still be named.
 
-**Enforcement.** Gate Z16 in `scripts/zero_fake_ui_gate.py` (word count, ratchet). Review for verb + object meaning and for articles and prepositional tails, which the gate does not judge.
+**Enforcement.** Gate Z16 in `scripts/zero_fake_ui_gate.py` (word count, ratchet, the Figma allowlist above). Review for verb + object meaning and for articles and prepositional tails, which the gate does not judge.
 
 ## 2. Keep text that changes understanding
 

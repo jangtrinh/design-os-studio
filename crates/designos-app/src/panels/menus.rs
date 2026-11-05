@@ -44,6 +44,7 @@ pub enum Action {
     Group,
     Ungroup,
     FrameSelection,
+    ResizeToFit,
     AutoLayout,
     UpdateAutoLayout,
     FitAll,
@@ -56,6 +57,8 @@ pub enum Action {
     SendBackward,
     BringToFront,
     SendToBack,
+    /// Toggle `is_mask` on the selected layers (`⌃⌘M` on macOS, `Ctrl+Alt+M` elsewhere).
+    ToggleMask,
     ToggleSidebar,
     CreateComponent,
     ConvertToSlot,
@@ -67,8 +70,10 @@ pub enum Action {
     Paste,
     PasteOverSelection,
     PasteToReplace,
+    PasteAndMatchStyle,
     CopyProperties,
     PasteProperties,
+    SwapFillAndStroke,
     InsertTableRow,
     DeleteTableRow,
     InsertTableColumn,
@@ -115,8 +120,12 @@ pub enum Action {
     YourName,
     /// Preferences -> Use GPU rendering.
     ToggleGpu,
+    /// Preferences -> Highlight layers on hover.
+    ToggleHoverHighlight,
     /// Preferences -> Agent permissions.
     AgentPermissions,
+    /// Right-click -> Select layer -> pick a specific layer.
+    SelectLayer(designos_doc::NodeId),
     Shortcuts,
     OpenStarterSample,
     AboutDesignOS,
@@ -135,6 +144,21 @@ pub enum Action {
     AiEraseImage,
     /// Switches to a tool (also from the command palette).
     Tool(Tool),
+}
+
+/// Shared "is the selection a mask" rule used by the properties header button,
+/// the Object menu item, and `toggle_mask_selection`: true when the selection is
+/// non-empty and the first 128 selected nodes are all masks.
+pub(crate) fn selection_shows_all_mask(app: &App) -> bool {
+    !app.selection.is_empty() && app.selection.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask))
+}
+
+/// Shared "Use as mask" toggle rule used by both the Object menu and the properties header button:
+/// sets `is_mask = !selection_shows_all_mask(app)` across the whole selection.
+pub fn toggle_mask_selection(app: &mut App) {
+    let on = selection_shows_all_mask(app);
+    let sel = app.selection.clone();
+    app.edit_nodes(&sel, |n| n.is_mask = !on);
 }
 
 pub fn run(app: &mut App, ctx: &Context, a: Action) {
@@ -156,7 +180,9 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SelectInverse => app.select_inverse(),
         Action::SelectChildren => app.select_children(),
         Action::SelectParent => app.select_parent(),
-        Action::SelectMatching => app.select_matching(MatchCriteria::Properties),
+        Action::SelectMatching => {
+            app.select_matching_layers();
+        }
         Action::SelectSame(c) => app.select_matching(c),
         Action::Find => app.open_find(),
         Action::Delete => app.delete_selection(),
@@ -164,6 +190,9 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::Group => app.group_selection(false),
         Action::Ungroup => app.ungroup_selection(),
         Action::FrameSelection => app.group_selection(true),
+        Action::ResizeToFit => {
+            app.resize_to_fit();
+        }
         Action::AutoLayout => app.toggle_auto_layout(),
         Action::UpdateAutoLayout => {
             app.upgrade_auto_layout_version();
@@ -178,6 +207,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SendBackward => app.reorder(false, false),
         Action::BringToFront => app.reorder(true, true),
         Action::SendToBack => app.reorder(false, true),
+        Action::ToggleMask => toggle_mask_selection(app),
         Action::ToggleSidebar => app.ui.left_collapsed = !app.ui.left_collapsed,
         Action::CreateComponent => app.create_component(),
         Action::ConvertToSlot => app.convert_selection_to_slot(),
@@ -203,8 +233,10 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::Paste => app.paste_from_system(None),
         Action::PasteOverSelection => app.paste_over_selection(),
         Action::PasteToReplace => app.paste_to_replace(),
+        Action::PasteAndMatchStyle => app.paste_and_match_style(),
         Action::CopyProperties => app.copy_properties(),
         Action::PasteProperties => app.paste_properties(),
+        Action::SwapFillAndStroke => app.swap_fill_and_stroke(),
         Action::InsertTableRow => app.insert_table_row(),
         Action::DeleteTableRow => app.delete_table_row(),
         Action::InsertTableColumn => app.insert_table_column(),
@@ -258,7 +290,17 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SaveVersion => app.begin_save_version(),
         Action::YourName => app.ask_author_name(),
         Action::ToggleGpu => app.toggle_gpu(),
+        Action::ToggleHoverHighlight => {
+            app.ui.hide_hover_highlight = !app.ui.hide_hover_highlight;
+            let on = !app.ui.hide_hover_highlight;
+            if let Some(lib) = &app.lib {
+                if let Err(e) = crate::comments::settings::save_flag(lib.root(), "highlight_layers_on_hover", on) {
+                    app.show_toast(e, true);
+                }
+            }
+        }
         Action::AgentPermissions => app.open_agent_permissions(),
+        Action::SelectLayer(id) => app.select_only(id),
         Action::Shortcuts => app.show_shortcuts(),
         Action::OpenStarterSample => app.open_starter_sample(),
         Action::AboutDesignOS => app.show_about(),
@@ -413,21 +455,41 @@ fn stub_sub(label: &str) -> Node {
 }
 
 /// "Select all with same ..." entries (the Edit menu's submenu; the palette lists them flat).
-fn same_nodes(enabled: bool) -> Vec<Node> {
+fn same_nodes(app: &App) -> Vec<Node> {
+    let has_sel = !app.selection.is_empty();
+    let can_text = designos_doc::find::can_select_same_text(&app.doc, &app.selection) || app.canvas.text.is_some();
+    let can_inst = designos_doc::find::can_select_same_instance(&app.doc, &app.selection);
+    let can_var = designos_doc::find::can_select_same_variant(&app.doc, &app.selection);
     [
-        ("Select all with same fill", MatchCriteria::Fill),
-        ("Select all with same stroke", MatchCriteria::Stroke),
-        ("Select all with same effect", MatchCriteria::Effect),
-        ("Select all with same font", MatchCriteria::Font),
-        ("Select all with same instance", MatchCriteria::Instance),
+        ("Select all with same properties", MatchCriteria::Properties, has_sel),
+        ("Select all with same fill", MatchCriteria::Fill, has_sel),
+        ("Select all with same stroke", MatchCriteria::Stroke, has_sel),
+        ("Select all with same effect", MatchCriteria::Effect, has_sel),
+        ("Select all with same text properties", MatchCriteria::TextProperties, can_text),
+        ("Select all with same font", MatchCriteria::Font, can_text),
+        ("Select all with same instance", MatchCriteria::Instance, can_inst),
+        ("Select all with same variant", MatchCriteria::Variant, can_var),
     ]
     .into_iter()
-    .map(|(label, c)| leaf(label, "", Action::SelectSame(c)).off(!enabled))
+    .map(|(label, c, en)| leaf(label, "", Action::SelectSame(c)).off(!en))
     .collect()
+}
+
+const PREF_HOVER_HIGHLIGHT_LABEL: &str = "Highlight layers on hover";
+
+fn pref_nodes(app: &App) -> Vec<Node> {
+    vec![
+        leaf("Your name…", "", Action::YourName),
+        leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available).tip(gpu_off_reason(app)),
+        leaf(PREF_HOVER_HIGHLIGHT_LABEL, "", Action::ToggleHoverHighlight).on(!app.ui.hide_hover_highlight),
+        leaf("Agent permissions…", "", Action::AgentPermissions),
+    ]
 }
 
 /// The logo menu: sections separated by lines, every submenu wired to real commands.
 fn main_nodes(app: &App) -> Vec<Node> {
+    // A Project tab has no design document to save or export; the commands stay visible but greyed.
+    let project = app.tabs.active_is_project();
     let has_sel = !app.selection.is_empty();
     let has_text = app.selection.iter().any(|id| app.doc.get(*id).is_some_and(|n| matches!(n.kind, NodeKind::Text(_))));
     let has_inst = !app.selected_instances().is_empty();
@@ -438,17 +500,17 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("New deck", "", Action::NewDeck),
         leaf("Open…", "Ctrl+O", Action::Open),
         leaf("Import web capture…", "", Action::ImportWebCapture),
-        leaf("Save", "Ctrl+S", Action::Save),
-        leaf("Save as…", "Ctrl+Shift+S", Action::SaveAs),
-        leaf("Save .fig copy", "", Action::ExportFig),
-        leaf("Save to library…", "", Action::SaveToLibrary).off(app.lib.is_none() || app.lib_file.is_some()).sep(),
-        leaf("Show version history", "", Action::ToggleVersionHistory).on(app.history.open),
-        leaf("Save to version history…", "Ctrl+Alt+S", Action::SaveVersion).off(!app.has_history()).sep(),
-        leaf("Export selection as PNG…", "", Action::Export).off(!has_sel),
+        leaf("Save", "Ctrl+S", Action::Save).off(project),
+        leaf("Save as…", "Ctrl+Shift+S", Action::SaveAs).off(project),
+        leaf("Save .fig copy", "", Action::ExportFig).off(project),
+        leaf("Save to library…", "", Action::SaveToLibrary).off(project || app.lib.is_none() || app.lib_file.is_some()).sep(),
+        leaf("Show version history", "", Action::ToggleVersionHistory).on(app.history.open).off(project),
+        leaf("Save to version history…", "Ctrl+Alt+S", Action::SaveVersion).off(project || !app.has_history()).sep(),
+        leaf("Export selection as PNG…", "", Action::Export).off(project || !has_sel),
     ];
     if app.is_deck() {
-        file.push(leaf("Export current slide as PDF…", "", Action::ExportSlidePdf).off(app.deck_pdf_slides(false).is_err()));
-        file.push(leaf("Export all slides as PDF…", "", Action::ExportDeckPdf).off(app.deck_pdf_slides(true).is_err()));
+        file.push(leaf("Export current slide as PDF…", "", Action::ExportSlidePdf).off(project || app.deck_pdf_slides(false).is_err()));
+        file.push(leaf("Export all slides as PDF…", "", Action::ExportDeckPdf).off(project || app.deck_pdf_slides(true).is_err()));
     }
     let edit = vec![
         leaf("Undo", "Ctrl+Z", Action::Undo).off(!app.hist.can_undo()),
@@ -463,12 +525,14 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Select children", "Enter", Action::SelectChildren).off(!has_sel),
         leaf("Select parent", "Shift+Enter", Action::SelectParent).off(!has_sel),
         leaf("Select matching layers", "Ctrl+Alt+A", Action::SelectMatching).off(!has_sel),
-        submenu("Select all with same", same_nodes(has_sel)).off(!has_sel).sep(),
+        submenu("Select all with same", same_nodes(app)).off(!has_sel).sep(),
         leaf("Find and replace…", "Ctrl+F", Action::Find).sep(),
         leaf("Copy properties", "Ctrl+Alt+C", Action::CopyProperties).off(!has_sel),
         leaf("Paste properties", "Ctrl+Alt+V", Action::PasteProperties).off(!has_sel),
         leaf("Paste over selection", "Ctrl+Shift+V", Action::PasteOverSelection).off(app.clip.is_none()),
-        leaf("Paste to replace", "Ctrl+Alt+Shift+R", Action::PasteToReplace).off(!has_sel || app.clip.is_none()),
+        leaf("Paste to replace", "Ctrl+Shift+R", Action::PasteToReplace).off(!has_sel || app.clip.is_none()),
+        leaf("Paste and match style", "", Action::PasteAndMatchStyle).off((!has_sel || app.clip.is_none()) && app.canvas.text.is_none()).sep(),
+        leaf("Swap fill and stroke", "Shift+X", Action::SwapFillAndStroke).off(!has_sel),
     ];
     let view = vec![
         leaf("Zoom in", "Ctrl+=", Action::ZoomIn),
@@ -482,12 +546,16 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Rulers", "Shift+R", Action::ToggleRulers).on(app.ui.rulers),
         leaf("Show/Hide UI", "Ctrl+\\", Action::ToggleSidebar).on(!app.ui.left_collapsed),
     ];
+    let all_mask = selection_shows_all_mask(app);
+    let mask_shortcut = if cfg!(target_os = "macos") { "⌃⌘M" } else { "Ctrl+Alt+M" };
     let object = vec![
         leaf("Group selection", "Ctrl+G", Action::Group).off(!has_sel),
         leaf("Ungroup", "Ctrl+Shift+G", Action::Ungroup).off(!has_sel),
         leaf("Frame selection", "Ctrl+Alt+G", Action::FrameSelection).off(!has_sel),
+        leaf("Resize to fit", "Ctrl+Alt+Shift+R", Action::ResizeToFit).off(!app.can_resize_to_fit()),
         leaf("Add auto layout", "Shift+A", Action::AutoLayout).off(!has_sel),
         leaf("Update auto layout", "", Action::UpdateAutoLayout).off(!app.has_upgradable_auto_layout()).sep(),
+        leaf("Use as mask", mask_shortcut, Action::ToggleMask).off(!has_sel).on(all_mask).sep(),
         leaf("Create component", "Ctrl+Alt+K", Action::CreateComponent).off(!has_sel),
         leaf("Detach instance", "Ctrl+Alt+B", Action::Detach).off(!has_inst).sep(),
         leaf("Bring to front", "Ctrl+Shift+]", Action::BringToFront).off(!has_sel),
@@ -558,14 +626,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         submenu("Vector", vector).sep(),
         leaf("Plugins", "", Action::Plugins),
         stub_sub("Widgets"),
-        submenu(
-            "Preferences",
-            vec![
-                leaf("Your name…", "", Action::YourName),
-                leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available).tip(gpu_off_reason(app)),
-                leaf("Agent permissions…", "", Action::AgentPermissions),
-            ],
-        ),
+        submenu("Preferences", pref_nodes(app)),
         leaf("Libraries", "", Action::OpenLibraries).sep(),
         leaf("AI balance", "", Action::OpenAgents).sep(),
         submenu("Help and account", help),
@@ -636,6 +697,7 @@ pub fn preset_menu(ctx: &Context, app: &mut App, spec: &str, screen: Rect) -> bo
 }
 
 fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
+    let project = app.tabs.active_is_project();
     let has_sel = !app.selection.is_empty();
     let mut items = vec![
         (MenuItem::new("New design file"), Some(Action::New)),
@@ -643,12 +705,12 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
         (MenuItem::new("New deck"), Some(Action::NewDeck)),
         (MenuItem::new("Open…").shortcut("Ctrl+O"), Some(Action::Open)),
         (MenuItem::new("Import web capture…"), Some(Action::ImportWebCapture)),
-        (MenuItem::new("Save").shortcut("Ctrl+S"), Some(Action::Save)),
-        (MenuItem::new("Save as…").shortcut("Ctrl+Shift+S"), Some(Action::SaveAs)),
-        (MenuItem::new("Save .fig copy"), Some(Action::ExportFig)),
-        (MenuItem::new("Save to library…").disabled(app.lib.is_none() || app.lib_file.is_some()).sep(), Some(Action::SaveToLibrary)),
-        (MenuItem::new("Show version history").checked(app.history.open), Some(Action::ToggleVersionHistory)),
-        (MenuItem::new("Save to version history…").shortcut("Ctrl+Alt+S").disabled(!app.has_history()).sep(), Some(Action::SaveVersion)),
+        (MenuItem::new("Save").shortcut("Ctrl+S").disabled(project), Some(Action::Save)),
+        (MenuItem::new("Save as…").shortcut("Ctrl+Shift+S").disabled(project), Some(Action::SaveAs)),
+        (MenuItem::new("Save .fig copy").disabled(project), Some(Action::ExportFig)),
+        (MenuItem::new("Save to library…").disabled(project || app.lib.is_none() || app.lib_file.is_some()).sep(), Some(Action::SaveToLibrary)),
+        (MenuItem::new("Show version history").checked(app.history.open).disabled(project), Some(Action::ToggleVersionHistory)),
+        (MenuItem::new("Save to version history…").shortcut("Ctrl+Alt+S").disabled(project || !app.has_history()).sep(), Some(Action::SaveVersion)),
         (MenuItem::new("Undo").shortcut("Ctrl+Z").disabled(!app.hist.can_undo()), Some(Action::Undo)),
         (MenuItem::new("Redo").shortcut("Ctrl+Shift+Z").disabled(!app.hist.can_redo()).sep(), Some(Action::Redo)),
         (MenuItem::new("Select all").shortcut("Ctrl+A"), Some(Action::SelectAll)),
@@ -657,11 +719,11 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
         (MenuItem::new("Add auto layout").shortcut("Shift+A").disabled(!has_sel).sep(), Some(Action::AutoLayout)),
         (MenuItem::new("Create component").shortcut("Ctrl+Alt+K").disabled(!has_sel), Some(Action::CreateComponent)),
         (MenuItem::new("Detach instance").shortcut("Ctrl+Alt+B").disabled(!has_sel).sep(), Some(Action::Detach)),
-        (MenuItem::new("Export selection as PNG…").disabled(!has_sel), Some(Action::Export)),
+        (MenuItem::new("Export selection as PNG…").disabled(project || !has_sel), Some(Action::Export)),
     ];
     if app.is_deck() {
-        items.push((MenuItem::new("Export current slide as PDF…").disabled(app.deck_pdf_slides(false).is_err()), Some(Action::ExportSlidePdf)));
-        items.push((MenuItem::new("Export all slides as PDF…").disabled(app.deck_pdf_slides(true).is_err()), Some(Action::ExportDeckPdf)));
+        items.push((MenuItem::new("Export current slide as PDF…").disabled(project || app.deck_pdf_slides(false).is_err()), Some(Action::ExportSlidePdf)));
+        items.push((MenuItem::new("Export all slides as PDF…").disabled(project || app.deck_pdf_slides(true).is_err()), Some(Action::ExportDeckPdf)));
     }
     items
 }
@@ -736,8 +798,7 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
             .id(id.with("zoom-input"))
             .font(theme::font_body())
             .text_color(theme::TEXT)
-            .frame(egui::Frame::NONE)
-            .margin(egui::Margin::symmetric(8, 0))
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 0)))
             .vertical_align(egui::Align::Center)
             .desired_width(input_box.width() - 16.0);
         let resp = ui.put(input_box, te);
@@ -905,6 +966,11 @@ fn commands(app: &App) -> Vec<Command> {
     out
 }
 
+#[cfg(test)]
+pub(crate) fn palette_command_info(app: &App, label: &str) -> Option<(String, bool)> {
+    commands(app).into_iter().find(|c| c.label == label).map(|c| (c.shortcut, c.disabled))
+}
+
 const PALETTE_ROWS: usize = 8;
 const PALETTE_TAB_H: f32 = 34.0;
 const PALETTE_SEC_H: f32 = 22.0;
@@ -977,7 +1043,6 @@ fn palette(app: &mut App, ctx: &Context) {
             .font(font.clone())
             .text_color(theme::TEXT)
             .frame(egui::Frame::NONE)
-            .margin(egui::Margin::ZERO)
             .vertical_align(egui::Align::Center)
             .hint_text(egui::RichText::new("Search...").font(font.clone()).color(theme::TEXT_PLACEHOLDER))
             .desired_width(field.width());
@@ -1158,21 +1223,19 @@ mod tests {
     }
 
     #[test]
-    fn palette_and_dropdowns_do_not_offer_the_arrow_tool() {
+    fn palette_and_dropdowns_offer_the_arrow_tool() {
         let app = App::new(designos_doc::Document::new("t"));
-        assert!(commands(&app).iter().all(|c| !matches!(c.act, Action::Tool(Tool::Arrow))), "Cmd+K must not offer the Arrow tool");
-        assert!(palette_entries(&app, "").iter().all(|(_, shortcut)| shortcut != "Shift+L"), "no row advertises Shift+L");
-        for g in 0..GROUPS.len() {
-            assert!(tool_nodes(&app, g).iter().all(|n| n.item.label != "Arrow"), "toolbar group {g} lists Arrow");
-        }
+        assert!(commands(&app).iter().any(|c| matches!(c.act, Action::Tool(Tool::Arrow)) && c.shortcut == "Shift+L"), "Cmd+K must offer the Arrow tool");
+        assert!(palette_entries(&app, "").iter().any(|(label, shortcut)| label == "Arrow" && shortcut == "Shift+L"), "Arrow row advertises Shift+L");
+        assert!(tool_nodes(&app, 2).iter().any(|n| n.item.label == "Arrow" && n.item.shortcut == "Shift+L"), "shape toolbar group lists Arrow");
     }
 
     #[test]
-    fn picking_the_hidden_arrow_tool_remembers_line_for_the_group() {
+    fn picking_the_arrow_tool_remembers_arrow_for_the_group() {
         let mut app = App::new(designos_doc::Document::new("t"));
         pick_tool(&mut app, Tool::Arrow);
-        assert_eq!(app.tool, Tool::Line);
-        assert_eq!(GROUPS[2][app.group_pick[2]], Tool::Line, "the shape button shows Line, never a stale Arrow");
+        assert_eq!(app.tool, Tool::Arrow);
+        assert_eq!(GROUPS[2][app.group_pick[2]], Tool::Arrow, "the shape button shows Arrow when picked");
     }
 
     #[test]
@@ -1231,5 +1294,203 @@ mod tests {
         }
         // Several surface roles share one fill, so only the size says this is the palette frame.
         assert!(found.iter().any(|(w, h)| (w - 520.0).abs() < 0.5 && (h - 394.0).abs() < 0.5), "palette frame is 520 by 394, got {found:?}");
+    }
+
+    #[test]
+    fn object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-menu");
+        let page = doc.add_page("Page 1");
+        let (a, b) = (doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, DocNode::rectangle(a, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        doc.insert(page, DocNode::rectangle(b, Rect::new(60.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        let expected_sc = if cfg!(target_os = "macos") { "⌃⌘M" } else { "Ctrl+Alt+M" };
+        let row_empty = mask_row(&app);
+        assert!(row_empty.disabled, "disabled when nothing is selected");
+        assert!(!row_empty.checked);
+        assert_eq!(row_empty.shortcut, expected_sc);
+
+        app.selection = vec![a, b];
+        let row_sel = mask_row(&app);
+        assert!(!row_sel.disabled, "enabled when layers are selected");
+        assert!(!row_sel.checked);
+
+        let ctx = egui::Context::default();
+        run(&mut app, &ctx, Action::ToggleMask);
+        assert!(app.doc.get(a).unwrap().is_mask && app.doc.get(b).unwrap().is_mask);
+        assert!(mask_row(&app).checked, "checked when all selected layers are masks");
+
+        app.undo();
+        assert!(!app.doc.get(a).unwrap().is_mask && !app.doc.get(b).unwrap().is_mask);
+    }
+
+    #[test]
+    fn selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-128-prefix");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::with_capacity(129);
+        for i in 0..129 {
+            let id = doc.alloc_id();
+            let mut n = DocNode::rectangle(id, Rect::new((i as f32) * 12.0, 0.0, 10.0, 10.0));
+            n.is_mask = i < 128;
+            ids.push(doc.insert(page, n).unwrap());
+        }
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = ids.clone();
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        assert!(selection_shows_all_mask(&app), "first 128 selected nodes are masks");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app), "Object menu Use as mask on flag must equal selection_shows_all_mask");
+
+        toggle_mask_selection(&mut app);
+        assert!(!app.doc.get(ids[0]).unwrap().is_mask, "node 0 unmasked after toggle_mask_selection");
+        assert!(!app.doc.get(ids[128]).unwrap().is_mask, "node 128 remains unmasked after toggle_mask_selection");
+        assert!(!selection_shows_all_mask(&app));
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+    }
+
+    #[test]
+    fn selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-129-non-masks");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::with_capacity(129);
+        for i in 0..129 {
+            let id = doc.alloc_id();
+            let n = DocNode::rectangle(id, Rect::new((i as f32) * 12.0, 0.0, 10.0, 10.0));
+            ids.push(doc.insert(page, n).unwrap());
+        }
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        app.selection = ids.clone();
+        assert!(!selection_shows_all_mask(&app), "129 non-masks must not report all-mask");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+
+        toggle_mask_selection(&mut app);
+        assert!(ids.iter().all(|id| app.doc.get(*id).unwrap().is_mask), "all 129 non-masks become masks");
+        assert!(selection_shows_all_mask(&app));
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+
+        app.selection.clear();
+        assert!(!selection_shows_all_mask(&app), "empty selection must not report all-mask");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+        toggle_mask_selection(&mut app);
+        assert!(ids.iter().all(|id| app.doc.get(*id).unwrap().is_mask), "toggling with nothing selected leaves all 129 masks intact");
+    }
+
+    #[test]
+    fn resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+        let empty_frame = doc.alloc_id();
+        doc.insert(page, DocNode::frame(empty_frame, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let full_frame = doc.alloc_id();
+        doc.insert(page, DocNode::frame(full_frame, Rect::new(250.0, 0.0, 200.0, 200.0))).unwrap();
+        let child = doc.alloc_id();
+        doc.insert(full_frame, DocNode::rectangle(child, Rect::new(10.0, 10.0, 40.0, 40.0))).unwrap();
+        let shape = doc.alloc_id();
+        doc.insert(page, DocNode::rectangle(shape, Rect::new(500.0, 0.0, 60.0, 60.0))).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let edit_row = |app: &App, label: &str| {
+            let nodes = main_nodes(app);
+            let edit = nodes.iter().find(|n| n.item.label == "Edit").expect("Edit submenu");
+            edit.kids.iter().find(|n| n.item.label == label).expect("Edit row").item.clone()
+        };
+        let object_row = |app: &App, label: &str| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == label).expect("Object row").item.clone()
+        };
+
+        let paste_replace = edit_row(&app, "Paste to replace");
+        assert_eq!(paste_replace.shortcut, "Ctrl+Shift+R");
+
+        // No selection -> disabled
+        app.selection = vec![];
+        let rtf0 = object_row(&app, "Resize to fit");
+        assert_eq!(rtf0.shortcut, "Ctrl+Alt+Shift+R");
+        assert!(rtf0.disabled, "empty selection disables Resize to fit");
+
+        // Plain shape -> disabled
+        app.selection = vec![shape];
+        assert!(object_row(&app, "Resize to fit").disabled, "leaf shape disables Resize to fit");
+
+        // Empty frame -> disabled
+        app.selection = vec![empty_frame];
+        assert!(object_row(&app, "Resize to fit").disabled, "empty frame disables Resize to fit");
+
+        // Frame with visible child -> enabled
+        app.selection = vec![full_frame];
+        assert!(!object_row(&app, "Resize to fit").disabled, "frame with visible child enables Resize to fit");
+
+        // Hide the only child -> disabled
+        app.doc.get_mut(child).unwrap().visible = false;
+        assert!(object_row(&app, "Resize to fit").disabled, "frame with only hidden children disables Resize to fit");
+    }
+
+    fn node_disabled(nodes: &[Node], label: &str) -> Option<bool> {
+        nodes.iter().find_map(|n| if n.item.label == label { Some(n.item.disabled) } else { node_disabled(&n.kids, label) })
+    }
+
+    const DOCUMENT_FILE_COMMANDS: [&str; 7] =
+        ["Save", "Save as…", "Save .fig copy", "Save to library…", "Show version history", "Save to version history…", "Export selection as PNG…"];
+
+    #[test]
+    fn save_and_export_are_greyed_on_a_project_tab_and_enabled_on_a_design_tab() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+        let rect = doc.alloc_id();
+        doc.insert(page, DocNode::rectangle(rect, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut app = App::new(doc);
+        app.selection = vec![rect];
+        let root = std::env::temp_dir().join(format!("designos-menus-project-tab-{}", std::process::id()));
+        app.lib = Some(designos_library::Library::open(&root).unwrap());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        // A design tab: the commands that can run are enabled (version history needs a saved file, so it is not asserted here).
+        for label in ["Save", "Save as…", "Save .fig copy", "Save to library…", "Show version history", "Export selection as PNG…"] {
+            assert_eq!(node_disabled(&main_nodes(&app), label), Some(false), "{label} on a design tab (logo menu)");
+            let items = file_items(&app);
+            assert_eq!(items.iter().find(|(m, _)| m.label == label).map(|(m, _)| m.disabled), Some(false), "{label} on a design tab (file items)");
+        }
+        // The same window on a Project tab: greyed, not hidden.
+        app.tabs.entries[app.tabs.active_idx].kind = crate::tabs::ProjectTabKind::Project;
+        assert!(app.tabs.active_is_project());
+        for label in DOCUMENT_FILE_COMMANDS {
+            assert_eq!(node_disabled(&main_nodes(&app), label), Some(true), "{label} on a Project tab (logo menu)");
+            let items = file_items(&app);
+            let found = items.iter().find(|(m, _)| m.label == label).map(|(m, _)| m.disabled);
+            assert_eq!(found, Some(true), "{label} on a Project tab (file items)");
+        }
+        std::fs::remove_dir_all(&root).ok();
     }
 }

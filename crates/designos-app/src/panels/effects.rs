@@ -64,6 +64,7 @@ pub fn kind_of(e: &Effect) -> usize {
         Effect::Noise(_) => 4,
         Effect::Texture(_) => 5,
         Effect::Glass(_) => 6,
+        Effect::Shader { .. } => 7,
     }
 }
 
@@ -72,7 +73,8 @@ pub fn set_visible(e: &mut Effect, v: bool) {
         Effect::DropShadow { visible, .. }
         | Effect::InnerShadow { visible, .. }
         | Effect::LayerBlur { visible, .. }
-        | Effect::BackgroundBlur { visible, .. } => *visible = v,
+        | Effect::BackgroundBlur { visible, .. }
+        | Effect::Shader { visible, .. } => *visible = v,
         Effect::Noise(n) => n.visible = v,
         Effect::Texture(t) => t.visible = v,
         Effect::Glass(g) => g.visible = v,
@@ -97,14 +99,25 @@ pub fn default_effect(kind: usize, seed: u32) -> Effect {
         4 => Effect::Noise(NoiseEffect {
             mode: NoiseMode::Mono { color: Color::BLACK },
             size: 1.0,
+            size_y: None,
             density: 0.5,
             opacity: 0.25,
             blend: BlendMode::Normal,
             seed,
             visible: true,
         }),
-        5 => Effect::Texture(TextureEffect { size: 2.0, radius: 2.0, clip_to_shape: true, seed, visible: true }),
-        _ => Effect::Glass(GlassEffect { light_angle: 315.0, light_intensity: 0.5, refraction: 0.5, depth: 10.0, dispersion: 0.25, frost: 4.0, visible: true }),
+        5 => Effect::Texture(TextureEffect { size: 2.0, size_y: None, radius: 2.0, clip_to_shape: true, seed, visible: true }),
+        _ => Effect::Glass(GlassEffect {
+            light_angle: 315.0,
+            light_intensity: 0.5,
+            refraction: 0.5,
+            depth: 10.0,
+            dispersion: 0.25,
+            frost: 4.0,
+            splay: 0.0,
+            bevel: 0.0,
+            visible: true,
+        }),
     }
 }
 
@@ -209,20 +222,30 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         pane.y += 4.0;
     }
     for (i, e) in effects.iter().enumerate() {
-        let kind = kind_of(e);
-        let dd = pane.rect(theme::SECTION_CONTENT_X, 0.0, 134.0, theme::FIELD_HEIGHT);
-        if let Some(k) = dropdown(ui, dd, ("fx-kind", i), names[kind].as_str(), &names) {
-            let new = convert(e, k);
-            app.edit_nodes(sel, |n| {
-                if let Some(slot) = n.effects.get_mut(i) {
-                    *slot = new.clone();
-                }
-            });
-        }
-        let set_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 25.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
-        let open = app.props.pop.as_ref().is_some_and(|p| p.kind == PopKind::Effect(i));
-        if widgets::icon_button(ui, set_r, ("fx-settings", i), Icon::StrokeSettings, open, "Effect settings").clicked() {
-            app.props.pop = (!open).then(|| PopState { kind: PopKind::Effect(i), anchor: set_r, ids: sel.to_vec() });
+        if matches!(e, Effect::Shader { .. }) {
+            let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, 159.0, theme::FIELD_HEIGHT);
+            ui.painter().rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+            // A field with a prefix icon: the icon is centred in the theme's prefix slot, the text starts after it.
+            let icon_slot = Rect::from_min_size(row.min, Vec2::new(theme::FIELD_PREFIX_W, row.height()));
+            crate::icons::paint(ui.painter(), Icon::Shader, icon_slot.center(), theme::FIELD_PREFIX_ICON, theme::TEXT_SECONDARY);
+            let text_r = Rect::from_min_max(Pos2::new(row.left() + theme::FIELD_PREFIX_W, row.top()), row.max);
+            widgets::field_text(ui.painter(), text_r, 0.0, 0.0, "Shader (not rendered)", theme::font_body(), theme::TEXT_SECONDARY);
+        } else {
+            let kind = kind_of(e);
+            let dd = pane.rect(theme::SECTION_CONTENT_X, 0.0, 134.0, theme::FIELD_HEIGHT);
+            if let Some(k) = dropdown(ui, dd, ("fx-kind", i), names[kind].as_str(), &names) {
+                let new = convert(e, k);
+                app.edit_nodes(sel, |n| {
+                    if let Some(slot) = n.effects.get_mut(i) {
+                        *slot = new.clone();
+                    }
+                });
+            }
+            let set_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 25.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+            let open = app.props.pop.as_ref().is_some_and(|p| p.kind == PopKind::Effect(i));
+            if widgets::icon_button(ui, set_r, ("fx-settings", i), Icon::StrokeSettings, open, "Effect settings").clicked() {
+                app.props.pop = (!open).then(|| PopState { kind: PopKind::Effect(i), anchor: set_r, ids: sel.to_vec() });
+            }
         }
         let eye_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 1.0 + 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         let visible = e.visible();
@@ -352,18 +375,177 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect) {
 }
 
 /// Number of setting rows of the popover of effect `e`.
-pub(super) fn effect_rows(e: &Effect) -> usize {
+pub(crate) fn effect_rows(e: &Effect) -> usize {
     match e {
         Effect::DropShadow { .. } => 7,
         Effect::InnerShadow { .. } => 6,
         Effect::LayerBlur { .. } | Effect::BackgroundBlur { .. } => 1,
-        Effect::Noise(n) => match n.mode {
-            NoiseMode::Mono { .. } => 5,
-            NoiseMode::Duo { .. } => 6,
-            NoiseMode::Multi => 4,
-        },
-        Effect::Texture(_) => 3,
-        Effect::Glass(_) => 6,
+        // Mode, the colour rows, size, density and opacity: every mode draws its grain with the opacity.
+        Effect::Noise(n) => {
+            let colours = match n.mode {
+                NoiseMode::Mono { .. } => 1,
+                NoiseMode::Duo { .. } => 2,
+                NoiseMode::Multi => 0,
+            };
+            let (mode, density_and_opacity) = (1, 2);
+            mode + colours + size_rows(n.size_y).len() + density_and_opacity
+        }
+        // Size, radius and clip to shape.
+        Effect::Texture(t) => size_rows(t.size_y).len() + 2,
+        // Light angle, then the rows of [`GLASS_ROWS`].
+        Effect::Glass(_) => 1 + GLASS_ROWS.len(),
+        Effect::Shader { .. } => 0,
+    }
+}
+
+/// Which side of a noise or texture size a field edits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SizeAxis {
+    /// The one "Size" row of a size whose two sides agree.
+    Both,
+    X,
+    Y,
+}
+
+/// Smallest size a field sets, in px.
+const MIN_SIZE: f32 = 0.1;
+
+/// The size rows of a noise or texture: one "Size" row while no second size is stored, "Size X" and "Size Y"
+/// while one is, so a stored value is never hidden. Rows follow what is stored, so a scrub that carries the two
+/// sides through the same value keeps both rows (see [`scrubbed_size`]).
+fn size_rows(size_y: Option<f32>) -> &'static [(&'static str, SizeAxis)] {
+    if size_y.is_some() {
+        &[("Size X", SizeAxis::X), ("Size Y", SizeAxis::Y)]
+    } else {
+        &[("Size", SizeAxis::Both)]
+    }
+}
+
+/// `(size, size_y)` after `axis` was set to `v` by a typed value or a wheel step. The second size is kept only
+/// while it differs from the first, so two sides that agree fall back to one size at once.
+fn edited_size(size: f32, size_y: Option<f32>, axis: SizeAxis, v: f32) -> (f32, Option<f32>) {
+    let v = v.max(MIN_SIZE);
+    match axis {
+        SizeAxis::Both => (v, None),
+        SizeAxis::X => (v, size_y.filter(|y| *y != v)),
+        SizeAxis::Y => (size, Some(v).filter(|y| *y != size)),
+    }
+}
+
+/// `(size, size_y)` after one sample of a scrub on `axis`. The sides are written as they are, even when they
+/// agree: the rows stay where they are for the pressed field to keep its drag, and the other side is not lost
+/// when the dragged one passes through its value. A scrub that ends with the sides equal leaves both rows until
+/// the next typed value or wheel step, so one scrub is one undo step.
+fn scrubbed_size(size: f32, size_y: Option<f32>, axis: SizeAxis, v: f32) -> (f32, Option<f32>) {
+    let v = v.max(MIN_SIZE);
+    match axis {
+        SizeAxis::Both => (v, None),
+        SizeAxis::X => (v, size_y),
+        SizeAxis::Y => (size, Some(v)),
+    }
+}
+
+/// True while a numeric field of the window is being scrubbed (see [`field::SCRUB_FLAG`]).
+fn scrubbing(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(Id::new(field::SCRUB_FLAG))).unwrap_or(false)
+}
+
+/// The size and the second size of a noise or texture.
+fn size_pair(e: &mut Effect) -> Option<(&mut f32, &mut Option<f32>)> {
+    match e {
+        Effect::Noise(n) => Some((&mut n.size, &mut n.size_y)),
+        Effect::Texture(t) => Some((&mut t.size, &mut t.size_y)),
+        _ => None,
+    }
+}
+
+/// Whose size rows these are: effect `index` of `tgt`, a texture's or a noise's.
+#[derive(Clone, Copy)]
+struct SizeTarget<'a> {
+    tgt: FxTarget<'a>,
+    index: usize,
+    texture: bool,
+}
+
+impl SizeTarget<'_> {
+    /// Field key of the row that edits `axis`.
+    fn key(self, axis: SizeAxis) -> (&'static str, usize) {
+        let name = match (self.texture, axis == SizeAxis::Y) {
+            (false, false) => "fxp-nsize",
+            (false, true) => "fxp-nsize-y",
+            (true, false) => "fxp-tsize",
+            (true, true) => "fxp-tsize-y",
+        };
+        (name, self.index)
+    }
+}
+
+/// The size rows of a noise or texture, one popover row each. A scrub samples through [`scrubbed_size`], so it never
+/// folds the two sides, and a typed value or a wheel step goes through [`edited_size`], which folds them at once
+/// when they become equal.
+fn size_rows_ui(app: &mut App, ui: &mut Ui, body: Rect, t: SizeTarget, (size, size_y): (f32, Option<f32>), next: &mut impl FnMut() -> usize) {
+    for (label, axis) in size_rows(size_y) {
+        let (axis, value) = (*axis, if *axis == SizeAxis::Y { size_y.unwrap_or(size) } else { size });
+        popover::row(ui, body, next(), label, |ui, rc| {
+            let Some(v) = num(ui, rc, t.key(axis), Prefix::Icon(size_row_icon(axis)), value, "") else { return };
+            let scrubbed = scrubbing(ui.ctx());
+            edit_effect(app, t.tgt, t.index, |e| {
+                if let Some((size, size_y)) = size_pair(e) {
+                    (*size, *size_y) = if scrubbed { scrubbed_size(*size, *size_y, axis, v) } else { edited_size(*size, *size_y, axis, v) };
+                }
+            });
+        });
+    }
+}
+
+/// The icon, key and prefix of a size row; the two sides of a split size get the two direction icons.
+fn size_row_icon(axis: SizeAxis) -> Icon {
+    match axis {
+        SizeAxis::Both => Icon::Scale,
+        SizeAxis::X => Icon::DirHorizontal,
+        SizeAxis::Y => Icon::DirVertical,
+    }
+}
+
+/// The first glass row, a dial with a number field.
+const GLASS_ANGLE_LABEL: &str = "Light angle";
+
+/// The glass rows under "Light angle", in popover order: label, icon, unit suffix and which value the row
+/// edits (see [`glass_value`]). The value index of a row is its field key, so adding a row never renames the others.
+const GLASS_ROWS: [(&str, Icon, &str, u8); 7] = [
+    ("Light intensity", Icon::Sparkle, "%", 0),
+    ("Refraction", Icon::Glass, "%", 1),
+    ("Depth", Icon::DropShadow, "", 2),
+    ("Dispersion", Icon::PaintLinear, "%", 3),
+    ("Splay", Icon::Scale, "%", 5),
+    ("Bevel", Icon::Radius, "", 6),
+    ("Frost", Icon::BackgroundBlur, "", 4),
+];
+
+/// What the glass row `which` shows: 0..1 values as percent, lengths in px.
+fn glass_value(g: &GlassEffect, which: u8) -> f32 {
+    match which {
+        0 => pct(g.light_intensity),
+        1 => pct(g.refraction),
+        2 => g.depth,
+        3 => pct(g.dispersion),
+        4 => g.frost,
+        5 => pct(g.splay),
+        _ => g.bevel,
+    }
+}
+
+/// Sets the glass value `which` from the field value `v` (percent for 0..1 values).
+fn set_glass_value(g: &mut GlassEffect, which: u8, v: f32) {
+    let unit = (v / 100.0).clamp(0.0, 1.0);
+    match which {
+        0 => g.light_intensity = unit,
+        1 => g.refraction = unit,
+        2 => g.depth = v.max(0.0),
+        3 => g.dispersion = unit,
+        4 => g.frost = v.max(0.0),
+        5 => g.splay = unit,
+        _ => g.bevel = v.max(0.0),
     }
 }
 
@@ -388,10 +570,10 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         popover::row(ui, body, next(), "X", |ui, rc| {
             let v = match (&style_key, tgt) {
                 (Some(sk), _) => {
-                    super::var_bind::style_numeric(app, ui, rc, sk, &x_prop, |ui| num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""))
+                    super::var_bind::style_numeric(app, ui, rc, sk, &x_prop, |ui, r| num(ui, r, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""))
                 }
                 (None, FxTarget::Nodes(ids)) => {
-                    super::var_bind::numeric(app, ui, rc, ids, &[&x_prop], |ui| num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""))
+                    super::var_bind::numeric(app, ui, rc, ids, &[&x_prop], |ui, r| num(ui, r, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""))
                 }
                 (None, FxTarget::Style) => num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""),
             };
@@ -403,10 +585,10 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         popover::row(ui, body, next(), "Y", |ui, rc| {
             let v = match (&style_key, tgt) {
                 (Some(sk), _) => {
-                    super::var_bind::style_numeric(app, ui, rc, sk, &y_prop, |ui| num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""))
+                    super::var_bind::style_numeric(app, ui, rc, sk, &y_prop, |ui, r| num(ui, r, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""))
                 }
                 (None, FxTarget::Nodes(ids)) => {
-                    super::var_bind::numeric(app, ui, rc, ids, &[&y_prop], |ui| num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""))
+                    super::var_bind::numeric(app, ui, rc, ids, &[&y_prop], |ui, r| num(ui, r, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""))
                 }
                 (None, FxTarget::Style) => num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""),
             };
@@ -418,10 +600,10 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         popover::row(ui, body, next(), "Blur", |ui, rc| {
             let v = match (&style_key, tgt) {
                 (Some(sk), _) => {
-                    super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui| num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""))
+                    super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui, r| num(ui, r, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""))
                 }
                 (None, FxTarget::Nodes(ids)) => {
-                    super::var_bind::numeric(app, ui, rc, ids, &[&r_prop], |ui| num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""))
+                    super::var_bind::numeric(app, ui, rc, ids, &[&r_prop], |ui, r| num(ui, r, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""))
                 }
                 (None, FxTarget::Style) => num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""),
             };
@@ -433,10 +615,10 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         popover::row(ui, body, next(), "Spread", |ui, rc| {
             let v = match (&style_key, tgt) {
                 (Some(sk), _) => {
-                    super::var_bind::style_numeric(app, ui, rc, sk, &s_prop, |ui| num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""))
+                    super::var_bind::style_numeric(app, ui, rc, sk, &s_prop, |ui, r| num(ui, r, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""))
                 }
                 (None, FxTarget::Nodes(ids)) => {
-                    super::var_bind::numeric(app, ui, rc, ids, &[&s_prop], |ui| num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""))
+                    super::var_bind::numeric(app, ui, rc, ids, &[&s_prop], |ui, r| num(ui, r, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""))
                 }
                 (None, FxTarget::Style) => num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""),
             };
@@ -448,7 +630,8 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         popover::row(ui, body, next(), "Color", |ui, rc| match (&style_key, tgt) {
             (Some(sk), _) => {
                 if !super::var_bind::style_pill_field(app, ui, rc, sk, &c_prop) {
-                    if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
+                    let val_r = super::var_bind::style_value_rect(app, ui, rc, sk, &c_prop, VariableKind::Color);
+                    if let Some(nc) = color_row(app, ui, val_r, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
                         edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
                     }
                     super::var_bind::style_hover_button(app, ui, rc, sk, &c_prop, VariableKind::Color);
@@ -456,7 +639,8 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
             }
             (None, FxTarget::Nodes(ids)) => {
                 if !super::var_bind::pill_field(app, ui, rc, ids, &[&c_prop]) {
-                    if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
+                    let val_r = super::var_bind::value_rect(app, ui, rc, ids, &[&c_prop], VariableKind::Color);
+                    if let Some(nc) = color_row(app, ui, val_r, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
                         edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
                     }
                     super::var_bind::hover_button(app, ui, rc, ids, &[&c_prop], VariableKind::Color);
@@ -498,11 +682,11 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
             let r_prop = format!("effects/{i}/radius");
             popover::row(ui, body, next(), "Blur", |ui, rc| {
                 let v = match (&style_key, tgt) {
-                    (Some(sk), _) => {
-                        super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui| num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""))
-                    }
+                    (Some(sk), _) => super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui, r| {
+                        num(ui, r, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, "")
+                    }),
                     (None, FxTarget::Nodes(ids)) => {
-                        super::var_bind::numeric(app, ui, rc, ids, &[&r_prop], |ui| num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""))
+                        super::var_bind::numeric(app, ui, rc, ids, &[&r_prop], |ui, r| num(ui, r, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""))
                     }
                     (None, FxTarget::Style) => num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""),
                 };
@@ -559,15 +743,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                     }
                 });
             }
-            popover::row(ui, body, next(), "Size", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-nsize", i), Prefix::Icon(Icon::Scale), n.size, "") {
-                    edit_effect(app, tgt, i, |e| {
-                        if let Effect::Noise(n) = e {
-                            n.size = v.max(0.1);
-                        }
-                    });
-                }
-            });
+            size_rows_ui(app, ui, body, SizeTarget { tgt, index: i, texture: false }, (n.size, n.size_y), &mut next);
             popover::row(ui, body, next(), "Density", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-dens", i), Prefix::Icon(Icon::Noise), pct(n.density), "%") {
                     edit_effect(app, tgt, i, |e| {
@@ -588,15 +764,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
             });
         }
         Effect::Texture(t) => {
-            popover::row(ui, body, next(), "Size", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-tsize", i), Prefix::Icon(Icon::Scale), t.size, "") {
-                    edit_effect(app, tgt, i, |e| {
-                        if let Effect::Texture(t) = e {
-                            t.size = v.max(0.1);
-                        }
-                    });
-                }
-            });
+            size_rows_ui(app, ui, body, SizeTarget { tgt, index: i, texture: true }, (t.size, t.size_y), &mut next);
             popover::row(ui, body, next(), "Radius", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-trad", i), Prefix::Icon(Icon::Radius), t.radius, "") {
                     edit_effect(app, tgt, i, |e| {
@@ -617,7 +785,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
             });
         }
         Effect::Glass(g) => {
-            popover::row(ui, body, next(), "Light angle", |ui, rc| {
+            popover::row(ui, body, next(), GLASS_ANGLE_LABEL, |ui, rc| {
                 let dial_r = Rect::from_min_size(rc.min, Vec2::splat(24.0));
                 let num_r = Rect::from_min_max(Pos2::new(rc.left() + 32.0, rc.top()), rc.right_bottom());
                 let mut v = popover::dial(ui, dial_r, ("fxp-dial", i), g.light_angle);
@@ -632,26 +800,12 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                     });
                 }
             });
-            let sliders: [(&str, Icon, f32, &str, u8); 5] = [
-                ("Intensity", Icon::Sparkle, pct(g.light_intensity), "%", 0),
-                ("Refraction", Icon::Glass, pct(g.refraction), "%", 1),
-                ("Depth", Icon::DropShadow, g.depth, "", 2),
-                ("Dispersion", Icon::PaintLinear, pct(g.dispersion), "%", 3),
-                ("Frost", Icon::BackgroundBlur, g.frost, "", 4),
-            ];
-            for (label, icon, val, suffix, which) in sliders {
+            for (label, icon, suffix, which) in GLASS_ROWS {
                 popover::row(ui, body, next(), label, |ui, rc| {
-                    if let Some(v) = num(ui, rc, ("fxp-glass", i, which), Prefix::Icon(icon), val, suffix) {
+                    if let Some(v) = num(ui, rc, ("fxp-glass", i, which), Prefix::Icon(icon), glass_value(g, which), suffix) {
                         edit_effect(app, tgt, i, |e| {
                             if let Effect::Glass(g) = e {
-                                let unit = (v / 100.0).clamp(0.0, 1.0);
-                                match which {
-                                    0 => g.light_intensity = unit,
-                                    1 => g.refraction = unit,
-                                    2 => g.depth = v.max(0.0),
-                                    3 => g.dispersion = unit,
-                                    _ => g.frost = v.max(0.0),
-                                }
+                                set_glass_value(g, which, v);
                             }
                         });
                     }
@@ -797,6 +951,94 @@ mod tests {
         assert_eq!(blend_label(&[]).0, "Normal");
     }
 
+    fn fx(json: serde_json::Value) -> Effect {
+        serde_json::from_value(json).expect("an effect")
+    }
+
+    fn noise_with(mode: serde_json::Value, size_y: Option<f32>) -> Effect {
+        let mut n = serde_json::json!({"mode": mode, "size": 3.0, "density": 0.5, "opacity": 0.5, "blend": "Normal", "seed": 1, "visible": true});
+        if let Some(y) = size_y {
+            n["size_y"] = serde_json::json!(y);
+        }
+        fx(serde_json::json!({"Noise": n}))
+    }
+
+    fn texture_with(size_y: Option<f32>) -> Effect {
+        let mut t = serde_json::json!({"size": 3.0, "radius": 4.0, "clip_to_shape": true, "seed": 1, "visible": true});
+        if let Some(y) = size_y {
+            t["size_y"] = serde_json::json!(y);
+        }
+        fx(serde_json::json!({"Texture": t}))
+    }
+
+    #[test]
+    fn popover_row_counts_follow_the_rows_shown() {
+        let mono = serde_json::json!({"Mono": {"color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0}}});
+        let duo = serde_json::json!({"Duo": {"color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0}, "secondary": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}}});
+        assert_eq!(effect_rows(&default_effect(6, 1)), 8, "glass");
+        assert_eq!(effect_rows(&noise_with(mono.clone(), None)), 5, "mono shows the opacity it is drawn with");
+        assert_eq!(effect_rows(&noise_with(duo, None)), 6, "duo shows the opacity too");
+        assert_eq!(effect_rows(&noise_with(serde_json::json!("Multi"), None)), 4, "multitone has opacity and no colour rows");
+        assert_eq!(effect_rows(&noise_with(mono, Some(7.0))), 6, "a second size adds one row");
+        assert_eq!(effect_rows(&texture_with(None)), 3);
+        assert_eq!(effect_rows(&texture_with(Some(1.5))), 4);
+    }
+
+    #[test]
+    fn the_second_size_is_kept_only_while_it_differs() {
+        // one row edits both sizes
+        assert_eq!(edited_size(3.0, None, SizeAxis::Both, 5.0), (5.0, None));
+        assert_eq!(edited_size(3.0, Some(7.0), SizeAxis::Both, 5.0), (5.0, None));
+        // X and Y rows edit one side each and fall back to a single size once they agree
+        assert_eq!(edited_size(3.0, Some(7.0), SizeAxis::X, 4.0), (4.0, Some(7.0)));
+        assert_eq!(edited_size(3.0, Some(7.0), SizeAxis::Y, 2.0), (3.0, Some(2.0)));
+        assert_eq!(edited_size(3.0, Some(7.0), SizeAxis::X, 7.0), (7.0, None));
+        assert_eq!(edited_size(3.0, Some(7.0), SizeAxis::Y, 3.0), (3.0, None));
+        // a size is never zero or negative
+        assert_eq!(edited_size(3.0, None, SizeAxis::Both, 0.0), (0.1, None));
+    }
+
+    #[test]
+    fn a_scrubbed_size_keeps_the_other_side_even_where_the_two_meet() {
+        // X passes through Y's value and on
+        assert_eq!(scrubbed_size(3.0, Some(7.0), SizeAxis::X, 7.0), (7.0, Some(7.0)));
+        assert_eq!(scrubbed_size(7.0, Some(7.0), SizeAxis::X, 10.0), (10.0, Some(7.0)));
+        // Y passes through X's value and on
+        assert_eq!(scrubbed_size(3.0, Some(7.0), SizeAxis::Y, 3.0), (3.0, Some(3.0)));
+        assert_eq!(scrubbed_size(3.0, Some(3.0), SizeAxis::Y, 1.0), (3.0, Some(1.0)));
+        // the one row still writes one size, and no side goes below the minimum
+        assert_eq!(scrubbed_size(3.0, None, SizeAxis::Both, 5.0), (5.0, None));
+        assert_eq!(scrubbed_size(3.0, Some(7.0), SizeAxis::Y, -2.0), (3.0, Some(0.1)));
+    }
+
+    #[test]
+    fn size_rows_follow_whether_a_second_size_is_stored() {
+        assert_eq!(size_rows(None), [("Size", SizeAxis::Both)]);
+        assert_eq!(size_rows(Some(7.0)), [("Size X", SizeAxis::X), ("Size Y", SizeAxis::Y)]);
+    }
+
+    #[test]
+    fn every_glass_row_reads_and_writes_its_own_field() {
+        let Effect::Glass(mut g) = default_effect(6, 1) else { unreachable!("kind 6 is glass") };
+        let mut keys: Vec<u8> = GLASS_ROWS.iter().map(|r| r.3).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), GLASS_ROWS.len(), "each row edits a different value");
+        for which in keys {
+            set_glass_value(&mut g, which, 37.0);
+            assert_eq!(glass_value(&g, which), 37.0, "row {which}");
+        }
+        // 0..1 values stop at the ends, lengths at zero
+        set_glass_value(&mut g, 5, 250.0);
+        assert_eq!(g.splay, 1.0);
+        set_glass_value(&mut g, 5, -5.0);
+        assert_eq!(g.splay, 0.0);
+        set_glass_value(&mut g, 6, -3.0);
+        assert_eq!(g.bevel, 0.0);
+        set_glass_value(&mut g, 6, 3.5);
+        assert_eq!(g.bevel, 3.5);
+    }
+
     #[test]
     fn convert_keeps_shared_values_and_visibility() {
         let e = Effect::DropShadow {
@@ -813,5 +1055,30 @@ mod tests {
         let blur = convert(&e, 2);
         assert!(matches!(blur, Effect::LayerBlur { radius, visible: false } if radius == 9.0));
         assert!(matches!(convert(&e, 6), Effect::Glass(g) if !g.visible));
+    }
+
+    #[test]
+    fn shader_inspector_rows_render_label_and_toggle_visibility() {
+        let raw_payload = serde_json::json!({
+            "radius": 12.0,
+            "backgroundShader": {
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            }
+        });
+        let mut eff = Effect::Shader { shader: designos_doc::ShaderRef { raw: raw_payload.clone() }, visible: true };
+        assert_eq!(kind_of(&eff), 7);
+        assert_eq!(effect_rows(&eff), 0);
+        assert!(eff.visible());
+
+        set_visible(&mut eff, false);
+        assert!(!eff.visible());
+        match &eff {
+            Effect::Shader { shader, visible } => {
+                assert!(!*visible);
+                assert_eq!(shader.raw, raw_payload);
+            }
+            other => panic!("expected Effect::Shader, got {other:?}"),
+        }
     }
 }

@@ -1,0 +1,23 @@
+# designos-gpu dashed_endpoint_caps on the final commit, --nocapture (adapter line proves the GPU leg ran)
+     Running tests/dashed_endpoint_caps.rs (<target>/debug/deps/dashed_endpoint_caps-aa30ba64fe43388d)
+
+running 4 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+dashed_round_none_end: mismatch 0.9167% (44 px of 4800) at tolerance 8, ssim 0.9998
+dashed_round_square_end: mismatch 0.9167% (44 px of 4800) at tolerance 8, ssim 0.9998
+dashed_round_arrow_start: mismatch 1.5417% (74 px of 4800) at tolerance 8, ssim 0.9985
+dashed_round_arrow_end: mismatch 2.0417% (98 px of 4800) at tolerance 8, ssim 0.9975
+dashed_round_none_end: 0.0000% with AA pixels forgiven (0 px)
+dashed_round_square_end: 0.0000% with AA pixels forgiven (0 px)
+dashed_round_arrow_start: 0.0000% with AA pixels forgiven (0 px)
+dashed_round_arrow_end: 0.0000% with AA pixels forgiven (0 px)
+test an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes_on_cpu_and_gpu ... ok
+test a_square_end_on_a_dashed_round_line_squares_only_the_last_dash_on_cpu_and_gpu ... ok
+test a_none_end_on_a_dashed_round_line_leaves_the_last_dash_butt_on_cpu_and_gpu ... ok
+test a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+

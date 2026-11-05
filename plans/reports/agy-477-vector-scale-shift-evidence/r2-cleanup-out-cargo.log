@@ -1,0 +1,3 @@
+# r2 cleanup: build output removed after the last cargo run
+ls: out/cargo: No such file or directory
+ls_out_cargo_rc=1

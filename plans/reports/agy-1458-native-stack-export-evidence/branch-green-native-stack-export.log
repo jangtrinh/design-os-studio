@@ -1,0 +1,18 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.06s
+     Running tests/native_stack_export.rs (out/cargo/debug/deps/native_stack_export-bf2213274ac9527a)
+
+running 5 tests
+test null_control_frames_without_abs_children_or_fill_fixed_pairs_export_identically ... ok
+test absolute_and_variable_hidden_children_in_stacks_are_emitted_in_overlay_out_of_flow ... ok
+test fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames ... ok
+test absolute_and_variable_hidden_children_in_grid_are_emitted_in_overlay_out_of_flow ... ok
+swiftc_typecheck_summary: checked=12 passed=12 failed=0
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.47s
+
+native_stack_rc=0

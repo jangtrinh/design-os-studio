@@ -1,0 +1,7 @@
+# cargo test -p designos-fig --locked on the PR head (HEAD 461b165fa): a test of main that the shared strict conversion broke
+test passthrough_color_struct_array_and_quoted_string_roundtrip ... FAILED
+---- passthrough_color_struct_array_and_quoted_string_roundtrip stdout ----
+thread 'passthrough_color_struct_array_and_quoted_string_roundtrip' (98455974) panicked at crates/designos-fig/tests/fig_roundtrip.rs:3634:65:
+variableWidthPoints kept in fig_metadata
+    passthrough_color_struct_array_and_quoted_string_roundtrip
+test result: FAILED. 53 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s

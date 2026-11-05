@@ -1,0 +1,40 @@
+# round 3 red: the two new tests on 6bb92813's code (effects/ binding key and override recording absent)
+# cargo test -p designos-app --bin designos --locked edit_menu_parity
+running 13 tests
+test shell::tests::edit_menu_parity::paste_and_match_style_restyles_the_text_inside_a_pasted_frame ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_rebinds_the_effect_colour_to_the_targets_variable ... FAILED
+test shell::tests::edit_menu_parity::select_same_text_style_and_variant_match_exact_unlocked_visible_siblings ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_copies_only_the_visual_bindings_and_style_refs ... ok
+test shell::tests::edit_menu_parity::edit_menu_and_palette_expose_all_five_commands_with_labels_shortcuts_and_enabled_states ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_keeps_the_target_text_style_on_text_inside_a_pasted_instance_after_a_sync_of_its_main ... FAILED
+test shell::tests::edit_menu_parity::the_old_paste_and_match_style_chord_does_nothing ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_gives_a_stroke_with_every_width_zero_a_visible_width ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_leaves_text_with_different_run_fills_unchanged_and_swaps_the_rest ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_on_instance_text_survives_a_sync_of_its_main ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_layer_and_text_carries_target_style_and_undoes_in_one_step ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_on_uniform_text_exchanges_the_painted_fills_with_the_stroke_and_round_trips ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_single_and_multi_selection_preserves_gradients_and_bindings_and_round_trips ... ok
+
+failures:
+
+---- shell::tests::edit_menu_parity::paste_and_match_style_rebinds_the_effect_colour_to_the_targets_variable stdout ----
+
+thread 'shell::tests::edit_menu_parity::paste_and_match_style_rebinds_the_effect_colour_to_the_targets_variable' (79597911) panicked at crates/designos-app/src/shell/tests/edit_menu_parity.rs:697:5:
+assertion `left == right` failed: the pasted layer drops its own effect binding for the target's
+  left: Some("VariableID:d11")
+ right: Some("VariableID:d12")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::edit_menu_parity::paste_and_match_style_keeps_the_target_text_style_on_text_inside_a_pasted_instance_after_a_sync_of_its_main stdout ----
+
+thread 'shell::tests::edit_menu_parity::paste_and_match_style_keeps_the_target_text_style_on_text_inside_a_pasted_instance_after_a_sync_of_its_main' (79597909) panicked at crates/designos-app/src/shell/tests/edit_menu_parity.rs:732:5:
+and the change is recorded as an override
+
+
+failures:
+    shell::tests::edit_menu_parity::paste_and_match_style_keeps_the_target_text_style_on_text_inside_a_pasted_instance_after_a_sync_of_its_main
+    shell::tests::edit_menu_parity::paste_and_match_style_rebinds_the_effect_colour_to_the_targets_variable
+
+test result: FAILED. 11 passed; 2 failed; 0 ignored; 0 measured; 4224 filtered out; finished in 1.83s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

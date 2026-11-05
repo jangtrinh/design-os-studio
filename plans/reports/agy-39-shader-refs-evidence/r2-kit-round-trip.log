@@ -1,0 +1,16 @@
+# APFS clone (cp -c) of the Untitled UI PRO VARIABLES v8.0 kit; test a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested, DESIGNOS_FIG_ROUND_TRIP_PATH set; import -> export -> import
+## with the fix (head da4dde6d6)
+round_trip before: nodes=207601 text_styles=44 text_style_fills=44 styles_with_other_than_the_default_black_fill=0
+test a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested has been running for over 60 seconds
+round_trip after:  nodes=207601 text_styles=44 text_style_fills=44 styles_with_other_than_the_default_black_fill=0
+test a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 130.13s
+## without the fix (the Style::Text arm mutated back, tree restored afterwards)
+round_trip before: nodes=207601 text_styles=44 text_style_fills=44 styles_with_other_than_the_default_black_fill=0
+test a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested has been running for over 60 seconds
+round_trip after:  nodes=207601 text_styles=44 text_style_fills=44 styles_with_other_than_the_default_black_fill=31
+thread 'a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested' (211481) panicked at crates/designos-fig/tests/fig_export_text_style_fills.rs:191:5:
+assertion `left == right` failed: every text style keeps its fills
+test a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested ... FAILED
+    a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 129.37s

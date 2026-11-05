@@ -178,7 +178,7 @@ fn folded_key(coll: &str, path: &str) -> String {
 const SCOPE_FILTERS: [(&str, &[&str]); 6] = [
     ("All", &[]),
     ("Fills", &["ALL_FILLS", "FRAME_FILL", "SHAPE_FILL"]),
-    ("Strokes", &["STROKE_COLOR", "STROKE_FLOAT"]),
+    ("Strokes", &["STROKE", "STROKE_COLOR", "STROKE_FLOAT"]),
     ("Text", &["TEXT_FILL", "FONT_FAMILY", "FONT_SIZE", "LINE_HEIGHT", "LETTER_SPACING"]),
     ("Radius", &["CORNER_RADIUS"]),
     ("Gap & Size", &["GAP", "WIDTH_HEIGHT"]),
@@ -686,8 +686,7 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
         .hint_text(egui::RichText::new("Search").color(theme::TEXT_PLACEHOLDER))
         .font(theme::font_body())
         .text_color(theme::TEXT)
-        .frame(egui::Frame::NONE)
-        .margin(egui::Margin::symmetric(4, 0))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 0)))
         .vertical_align(egui::Align::Center);
     ui.put(Rect::from_min_max(search.min + Vec2::new(24.0, -1.0), search.max + Vec2::new(0.0, -1.0)), te);
     widgets::record(ui, "vars-search", search);
@@ -1816,6 +1815,11 @@ mod tests {
         assert!(!matches_scope_filter(&var, 3)); // Text
         assert!(matches_scope_filter(&var, 4)); // Radius
         assert!(!matches_scope_filter(&var, 5)); // Gap & Size
+
+        var.scopes = vec!["STROKE".into()];
+        assert!(matches_scope_filter(&var, 2), "Figma editor STROKE scope must appear in Strokes");
+        var.scopes = vec!["STROKE_COLOR".into()];
+        assert!(matches_scope_filter(&var, 2), "REST STROKE_COLOR scope must appear in Strokes");
 
         var.scopes.clear(); // Empty scopes = ALL_SCOPES
         for idx in 0..SCOPE_FILTERS.len() {

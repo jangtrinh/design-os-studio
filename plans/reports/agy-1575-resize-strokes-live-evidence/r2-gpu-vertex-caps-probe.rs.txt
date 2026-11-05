@@ -1,0 +1,60 @@
+// GPU half of the vertex cap test, left out of the PR: it fails on 858d6fe8 and on the fix because the GPU draws no per-vertex caps.
+// Helpers (T, gpu, compare, cpu_render, is_ink, VIEW) are those of crates/designos-gpu/tests/resized_shapes.rs.
+
+/// An open `(10, 20) -> (60, 20)` line of weight 12 whose end vertices carry `cap` while the node's own cap is None.
+fn line_with_vertex_caps(t: &mut T, cap: StrokeCap) -> NodeId {
+    let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(10.0, 20.0)), PathCmd::LineTo(Vec2::new(60.0, 20.0))], fill_rule: FillRule::NonZero };
+    let mut net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+    let last = net.vertices.len() - 1;
+    net.vertices[0].cap = Some(cap);
+    net.vertices[last].cap = Some(cap);
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+        n.size = Vec2::new(70.0, 40.0);
+        n.fills.clear();
+        n.stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 12.0,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::None,
+            join: StrokeJoin::Miter,
+            ..Stroke::default()
+        };
+        n
+    })
+}
+
+/// First and last inked pixel of row `y` when the row is one unbroken run.
+fn ink_span(pm: &Pixmap, y: u32) -> Option<(u32, u32)> {
+    let xs: Vec<u32> = (0..pm.width()).filter(|x| is_ink(pm, *x, y)).collect();
+    let (first, last) = (*xs.first()?, *xs.last()?);
+    (xs.len() as u32 == last - first + 1).then_some((first, last))
+}
+
+#[test]
+fn vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends_like_cpu() {
+    let mut failed = vec![];
+    for (cap, name) in [(StrokeCap::Square, "vertex_square_caps"), (StrokeCap::Round, "vertex_round_caps")] {
+        let mut t = T::new();
+        line_with_vertex_caps(&mut t, cap);
+        // the line spans x = 10..60 and each cap adds half the weight: ink on x = 4..66
+        let Some(mut g) = gpu() else {
+            let span = ink_span(&cpu_render(&t), 20);
+            if span != Some((4, 65)) {
+                failed.push(format!("CPU {cap:?}: ink on y = 20 spans {span:?}, expected Some((4, 65))"));
+            }
+            continue;
+        };
+        let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), VIEW, 8);
+        for (what, pm) in [("GPU", &c.gpu), ("CPU", &c.cpu)] {
+            let span = ink_span(pm, 20);
+            if span != Some((4, 65)) {
+                failed.push(format!("{what} {cap:?}: ink on y = 20 spans {span:?}, expected Some((4, 65))"));
+            }
+        }
+        if c.report.ratio >= 0.005 || c.report.ssim <= 0.98 {
+            failed.push(format!("{cap:?}: CPU and GPU differ, mismatch {:.3}% {:?}", c.report.ratio * 100.0, c.report));
+        }
+    }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+}

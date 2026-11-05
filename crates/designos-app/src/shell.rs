@@ -82,8 +82,13 @@ struct Shot {
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
-/// keeps whatever is on screen (the run closes after 240).
-const SHOT_GPU_SETTLE_FRAMES: u32 = 180;
+/// keeps whatever is on screen (the run closes after `SHOT_CLOSE_FRAMES`). The refine of a
+/// big page is spread over frames (slices, geometry warm-up, chunks): the largest page of the
+/// Untitled UI kit at fit takes 205 of them, a page of a million-record file more.
+const SHOT_GPU_SETTLE_FRAMES: u32 = 600;
+
+/// Frames after which a `--screenshot` run closes, saved or not.
+const SHOT_CLOSE_FRAMES: u32 = SHOT_GPU_SETTLE_FRAMES + 60;
 
 /// Height of the custom top window title bar (`🟠 design:os studio`).
 pub const TOP_TITLE_BAR_HEIGHT: f32 = 28.0;
@@ -113,6 +118,7 @@ impl Shell {
         opts.home = opts.wants_home();
         let screenshot = opts.screenshot.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
+        let (menu_preset, size) = (opts.menu.clone(), opts.size);
         let mut shell = Self::build(&cc.egui_ctx, opts);
         if shell.app.ui.pages_height.is_none() {
             let settings_root = library.clone().unwrap_or_else(designos_library::Library::default_root);
@@ -134,7 +140,36 @@ impl Shell {
         shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
         shell.apply_launch_defaults(screenshot);
+        shell.open_project_tab_from_env(screenshot);
+        // Switching to the Project tab closes a menu that `--menu` opened during the build; open it again over the Project tab.
+        if let (Some(spec), true) = (menu_preset.as_deref(), shell.app.tabs.active_is_project() && shell.app.ui.menu.is_none()) {
+            let (w, h) = size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(w as f32, h as f32));
+            menus::preset_menu(&cc.egui_ctx, &mut shell.app, spec, screen);
+        }
         shell
+    }
+
+    /// A run with `DESIGNOS_PROJECT_TAB_SHOT` set starts on a Project tab (see `project_tab::shot`): screenshots and idle-CPU runs.
+    fn open_project_tab_from_env(&mut self, screenshot: bool) {
+        let Some(spec) = crate::tabs::project_tab::shot::ShotSpec::from_env(screenshot) else { return };
+        match spec {
+            Ok(spec) => {
+                if spec.home_trash {
+                    if let Some(h) = self.app.home.as_mut() {
+                        h.section = crate::home::Section::Trash;
+                        h.dirty = true;
+                    }
+                }
+                if !spec.project.is_empty() {
+                    let project = spec.project.clone();
+                    let mut tabs = std::mem::take(&mut self.app.tabs);
+                    tabs.open_project_tab(&mut self.app, &project, Some(spec));
+                    self.app.tabs = tabs;
+                }
+            }
+            Err(e) => self.app.show_toast(e, true),
+        }
     }
 
     pub fn apply_launch_defaults(&mut self, screenshot: bool) {
@@ -254,6 +289,7 @@ impl Shell {
             app.attach_library(root);
             if let Some(lib) = &app.lib {
                 app.agent_presence.cursor_size = crate::agent_presence::AgentCursorSize::load(lib.root());
+                app.ui.hide_hover_highlight = crate::comments::settings::load_flag(lib.root(), "highlight_layers_on_hover") == Some(false);
             }
         }
         let mut shot_open_failed = false;
@@ -439,6 +475,13 @@ impl Shell {
                 app.ui.left_collapsed = false;
                 app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
                 app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
+            }
+            Some("agents-chat:two-waiting") => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
+                app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
+                app.terminal.submit_chat_prompt("Also add a quarterly revenue sparkline", app.file_path.as_deref());
             }
             Some("agents-skills") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -716,7 +759,7 @@ impl Shell {
             (r.width() - shot.size.0 as f32).abs() < 1.5 && (r.height() - shot.size.1 as f32).abs() < 1.5
         };
         shot.due = !shot.requested && ((shot.frames >= 12 && sized) || shot.frames >= 60);
-        if shot.frames > 240 && shot.seq.is_none() {
+        if shot.frames > SHOT_CLOSE_FRAMES && shot.seq.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -724,7 +767,7 @@ impl Shell {
     /// Sends the screenshot request that `drive_screenshot` found due, once this frame has drawn.
     /// A GPU canvas first shows the capped interactive frame; the full-quality frame of the at-rest
     /// view follows once the idle refine has run. Ask for that one, but never wait past the point
-    /// where the run would give up (`shot.frames > 240` in `drive_screenshot`).
+    /// where the run would give up (`SHOT_CLOSE_FRAMES` in `drive_screenshot`).
     fn request_screenshot(&mut self, ctx: &Context) {
         let Some(shot) = &mut self.shot else { return };
         let at_rest = self.app.canvas.gpu.at_rest();
@@ -744,7 +787,8 @@ impl Shell {
     }
 
     fn handle_keys(&mut self, ctx: &Context) {
-        self.paste_chord.begin_frame(ctx.input(|i| i.modifiers.command));
+        let frame_modifiers = ctx.input(|i| i.modifiers);
+        self.paste_chord.begin_frame(frame_modifiers);
         if self.app.plugins.open
             || self.app.dialog.is_some()
             || self.app.history.save_modal.is_some()
@@ -779,18 +823,20 @@ impl Shell {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
-        for ev in events {
+        let mac = ctx.os().is_mac();
+        for (at, ev) in events.iter().enumerate() {
             // egui-winit emits `Event::Paste` only for a non-empty `text/plain` and never a V press for a paste chord;
             // a Figma copy can carry HTML alone, which only the V release reveals (see `PasteChord`).
-            if self.paste_chord.on_event(&ev) && !editing_text {
-                self.app.paste_from_system(None);
+            if let Some(modifiers) = self.paste_chord.on_event(ev) {
+                if !editing_text {
+                    self.route_system_paste(ctx, modifiers, None);
+                }
                 continue;
             }
             match ev {
                 Event::Copy if !editing_text => {
-                    if let Some(s) = self.app.copy_selection() {
-                        ctx.copy_text(s);
-                    }
+                    let held = crate::clipboard::chord_modifiers(&events[at + 1..], Key::C, frame_modifiers, mac);
+                    self.route_system_copy(ctx, held);
                 }
                 Event::Cut if !editing_text => {
                     if let Some(s) = self.app.cut_selection() {
@@ -798,9 +844,11 @@ impl Shell {
                     }
                 }
                 Event::Paste(s) if !editing_text => {
-                    self.app.paste_from_system(Some(&s));
+                    let held = crate::clipboard::chord_modifiers(&events[at + 1..], Key::V, frame_modifiers, mac);
+                    self.route_system_paste(ctx, held, Some(s.as_str()));
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => {
+                    let (key, modifiers) = (*key, *modifiers);
                     if self.try_typography_shortcut(key, modifiers) {
                         continue;
                     }
@@ -811,6 +859,24 @@ impl Shell {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn route_system_copy(&mut self, ctx: &Context, modifiers: egui::Modifiers) {
+        if modifiers.command && modifiers.alt {
+            self.app.copy_properties();
+        } else if let Some(s) = self.app.copy_selection() {
+            ctx.copy_text(s);
+        }
+    }
+
+    fn route_system_paste(&mut self, _ctx: &Context, modifiers: egui::Modifiers, text: Option<&str>) {
+        if modifiers.command && modifiers.alt && !modifiers.shift {
+            self.app.paste_properties();
+        } else if modifiers.command && modifiers.shift && !modifiers.alt {
+            self.app.paste_over_selection();
+        } else {
+            self.app.paste_from_system(text);
         }
     }
 
@@ -864,6 +930,10 @@ impl Shell {
         }
         let sel = app.selection.clone();
         if m.command && m.shift && matches!(key, Key::Period | Key::Comma) {
+            // An open text session sizes the selected text through its own key handler; applying it here too would step twice.
+            if app.canvas.text.is_some() {
+                return true;
+            }
             let delta = if m.alt { 10.0 } else { 1.0 } * if key == Key::Period { 1.0 } else { -1.0 };
             crate::panels::typography::set_style(app, &sel, |st| {
                 st.font_size = (st.font_size + delta).clamp(1.0, 1000.0);
@@ -915,6 +985,11 @@ impl Shell {
         false
     }
 
+    /// Pressing Escape with a nested selection clears the selection rather than climbing to the parent; to be confirmed against Figma.
+    fn escape_clears_selection() -> bool {
+        true
+    }
+
     fn key(&mut self, ctx: &Context, key: Key, m: egui::Modifiers) {
         let app = &mut self.app;
         let cmd = m.command;
@@ -934,10 +1009,12 @@ impl Shell {
                 (Key::C, false, true) => Some(Action::CopyProperties),
                 (Key::V, false, true) => Some(Action::PasteProperties),
                 (Key::V, true, false) => Some(Action::PasteOverSelection),
-                (Key::R, true, _) => Some(Action::PasteToReplace),
+                (Key::R, true, false) => Some(Action::PasteToReplace),
+                (Key::R, true, true) => Some(Action::ResizeToFit),
                 (Key::G, false, false) => Some(Action::Group),
                 (Key::G, true, _) => Some(Action::Ungroup),
                 (Key::G, false, true) => Some(Action::FrameSelection),
+                (Key::M, false, alt) if if cfg!(target_os = "macos") { m.mac_cmd && m.ctrl && !alt } else { alt } => Some(Action::ToggleMask),
                 (Key::K, false, true) => Some(Action::CreateComponent),
                 (Key::B, false, true) => Some(Action::Detach),
                 (Key::K, true, false) => Some(Action::CombineVariants),
@@ -951,12 +1028,7 @@ impl Shell {
                     None
                 }
                 (Key::A, true, false) => Some(Action::SelectInverse),
-                (Key::A, false, true) => {
-                    if app.select_matching_layers() == 0 {
-                        return menus::run(app, ctx, Action::SelectMatching);
-                    }
-                    None
-                }
+                (Key::A, false, true) => Some(Action::SelectMatching),
                 (Key::A, false, _) => Some(Action::SelectAll),
                 (Key::F, false, false) => Some(Action::Find),
                 (Key::Quote, false, _) => Some(Action::TogglePixelGrid),
@@ -1019,11 +1091,21 @@ impl Shell {
                     None
                 }
                 (Key::Tab, false, _) => {
-                    app.next_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let next = (app.tabs.active_idx + 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(next).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::Tab, true, _) => {
-                    app.prev_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let prev = (app.tabs.active_idx + app.tabs.entries.len() - 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(prev).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::T, false, false) => {
@@ -1038,7 +1120,21 @@ impl Shell {
                 }
                 _ => None,
             };
-            if let Some(a) = act {
+            // A Project tab has no design file: its placeholder document must never be saved or exported.
+            let blocked = |a: &Action| {
+                app.tabs.active_is_project()
+                    && matches!(
+                        a,
+                        Action::Save
+                            | Action::SaveAs
+                            | Action::SaveVersion
+                            | Action::Export
+                            | Action::ExportFig
+                            | Action::ExportSlidePdf
+                            | Action::ExportDeckPdf
+                    )
+            };
+            if let Some(a) = act.filter(|a| !blocked(a)) {
                 menus::run(app, ctx, a);
             }
             return;
@@ -1057,6 +1153,7 @@ impl Shell {
             return;
         }
         match key {
+            Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
             // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
             // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
@@ -1080,8 +1177,10 @@ impl Shell {
                     app.close_layer_filter();
                 } else if app.tool != Tool::Move {
                     app.tool = Tool::Move;
-                } else {
+                } else if Self::escape_clears_selection() {
                     app.clear_selection();
+                } else {
+                    app.select_parent();
                 }
             }
             Key::Enter => {
@@ -1150,6 +1249,7 @@ impl Shell {
             Key::D if m.shift && !m.alt && app.dev_mode_available() => app.set_dev_mode(!app.ui.dev_mode),
             Key::H if m.shift && !m.alt => app.flip_selection(true),
             Key::V if m.shift && !m.alt => app.flip_selection(false),
+            Key::X if m.shift && !m.alt => menus::run(app, ctx, Action::SwapFillAndStroke),
             Key::H | Key::V if m.shift && m.alt => menus::run(app, ctx, Action::Distribute),
             Key::H if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::HCenter)),
             Key::V if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::VCenter)),
@@ -1218,6 +1318,7 @@ impl Shell {
             let candidates = crate::canvas::hit::hit_all_under(&app.doc, app.page, page, idx);
             if !candidates.is_empty() {
                 app.ui.ctx_menu = None;
+                app.ui.ctx_menu_page = None;
                 app.ui.layer_picker = Some((pos, candidates));
                 return;
             }
@@ -1228,6 +1329,7 @@ impl Shell {
             None => app.clear_selection(),
         }
         app.ui.ctx_menu = Some(pos);
+        app.ui.ctx_menu_page = Some(page);
     }
 
     fn toast(&mut self, ui: &egui::Ui, screen: Rect) {
@@ -1686,6 +1788,7 @@ impl Shell {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
+        let began = std::time::Instant::now();
         self.draw_window(ui);
         let ctx = ui.ctx().clone();
         // A paste that started during this frame (the key or the menu ran after the poll) waits for its clipboard
@@ -1696,6 +1799,9 @@ impl Shell {
         self.app.repaint_if_dot_moved(&ctx);
         self.request_screenshot(&ctx);
         widgets::finish_pass_records();
+        // the canvas starts its refine only after a frame that was light on work (a document
+        // that has just opened is not): tell it what this frame cost
+        self.app.canvas.gpu.note_frame_work(began.elapsed().as_secs_f32() * 1000.0);
     }
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {
@@ -1809,10 +1915,14 @@ impl Shell {
         let notes_rect = Rect::from_min_max(Pos2::new(canvas_left, canvas_rect.bottom()), Pos2::new(right_rect.left(), full.bottom()));
 
         let full_vars = self.app.vars.open && self.app.vars.full;
+        // A Project tab draws its own regions (rail, doc tree, reading column); the canvas workspace is not shown.
+        let project_active = !full_vars && self.app.tabs.active_is_project();
         regions.rail = Some(rail_rect);
         if full_vars {
             let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
             regions.variables_full = Some(content);
+        } else if project_active {
+            // No canvas, panels or inspector this frame.
         } else {
             if !left_hidden {
                 regions.left_panel = Some(left_rect);
@@ -1852,6 +1962,10 @@ impl Shell {
             rail::show(&mut self.app, ui, rail_rect);
             let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
             crate::variables::view::show(&mut self.app, ui, content);
+        } else if project_active {
+            crate::tabs::show_active_project(&mut self.app, ui, full);
+            // The rail's main menu.
+            menus::show(&mut self.app, &ctx);
         } else {
             let specs_reader_open = false;
             if specs_reader_open {
@@ -2907,6 +3021,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
     };
 
     app.doc = base_doc.clone();
+    app.doc.renew_runtime_id();
     app.ui.rulers = true;
     app.ui.dev_mode = false;
     app.ui.right_tab = Some(crate::app::RightTab::Design);

@@ -1,0 +1,77 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-svg v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-svg)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.24s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-3323143897a28cce)
+
+running 2 tests
+test scan::tests::injects_ids_and_records_shapes ... ok
+test effects::tests::parses_blend_mode_from_drop_and_inner_shadow_filter_chains ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dashed_rectangle_stroke_alignment.rs (out/cargo/debug/deps/dashed_rectangle_stroke_alignment-d0a59ca1c476a1c2)
+
+running 3 tests
+test solid_inside_rectangle_still_matches_the_canvas ... ok
+test dashed_inside_and_outside_rectangles_with_round_caps_match_the_canvas ... ok
+test dashed_inside_and_outside_rectangles_with_rounded_corners_match_the_canvas ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-9c535b4bbfd8a89c)
+
+running 2 tests
+test dump_pngs ... ignored
+test imported_fixtures_render_like_resvg ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/import.rs (out/cargo/debug/deps/import-d3d50d05b9ca7c0d)
+
+running 18 tests
+test groups_keep_transform_and_opacity_and_single_wrappers_fold ... ok
+test curves_and_even_odd_survive ... ok
+test stroke_properties_map_over ... ok
+test svg_to_nodes_is_a_self_contained_subtree ... ok
+test errors_and_sniffing ... ok
+test luminance_masks_turn_brightness_into_alpha ... ok
+test skewed_rect_stays_a_vector_but_rotation_keeps_the_rectangle ... ok
+test root_is_a_clipping_frame_sized_to_the_svg_and_placed_at ... ok
+test external_hrefs_are_never_read ... ok
+test filters_map_to_effects ... ok
+test embedded_images_become_image_fills ... ok
+test shapes_become_rectangles_and_ellipses_with_radius ... ok
+test rect_clip_path_becomes_a_clipping_frame_and_others_become_masks ... ok
+test gradients_become_node_normalized_handles ... ok
+test viewbox_scaling_is_baked_into_the_content ... ok
+test multiline_tspans_merge_into_one_node ... ok
+test text_id_becomes_a_stable_layer_name ... ok
+test text_becomes_an_editable_text_node ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/roundtrip.rs (out/cargo/debug/deps/roundtrip-c0b48a67dc129941)
+
+running 2 tests
+test kinds_and_geometry_survive_the_roundtrip ... ok
+test reimported_document_renders_like_the_original_and_like_resvg ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/shadow_blend_roundtrip.rs (out/cargo/debug/deps/shadow_blend_roundtrip-e0b91ebfe863169c)
+
+running 3 tests
+test svg_roundtrip_unsupported_shadow_blend_modes_fall_back_to_normal ... ok
+test svg_roundtrip_preserves_multiply_and_screen_shadow_blend_modes ... ok
+test cpu_render_of_svg_reimported_multiply_shadow_node_matches_original ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Doc-tests designos_svg
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

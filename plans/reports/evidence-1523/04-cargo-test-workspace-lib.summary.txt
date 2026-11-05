@@ -1,0 +1,27 @@
+     Running unittests src/lib.rs (target/debug/deps/designos_diff-97b5db69fdcd9c68)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/designos_doc-18f4500351079eb1)
+test result: ok. 720 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.91s
+     Running unittests src/lib.rs (target/debug/deps/designos_docs-8088cc37d5838c64)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (target/debug/deps/designos_eval-c2489b38bbcccff9)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (target/debug/deps/designos_export-18adcc4017a7a7af)
+test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.22s
+     Running unittests src/lib.rs (target/debug/deps/designos_fig-861945a6becd4004)
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.35s
+     Running unittests src/lib.rs (target/debug/deps/designos_fonts-c2d586a1e5c886ba)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/designos_gpu-77666ce24b473797)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/designos_library-7534529c79ad779d)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.98s
+     Running unittests src/lib.rs (target/debug/deps/designos_mcp-db051a2df27fbe42)
+test result: ok. 326 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.40s
+     Running unittests src/lib.rs (target/debug/deps/designos_render-59facfce9e95a574)
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 36.19s
+     Running unittests src/lib.rs (target/debug/deps/designos_svg-dd3732f70a143b29)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (target/debug/deps/designos_webcapture-2fa66b1349242d0a)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+exit=0

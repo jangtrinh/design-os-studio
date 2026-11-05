@@ -1,0 +1,181 @@
+head: e4747320 branch: jangtrinh/agy-1471-expose-nested
+=== null control (no mutant) ===
+tree clean for crates/designos-doc/src/components.rs
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 5 tests
+test components::tests::a_nested_value_inherited_from_the_main_side_badge_is_not_a_change ... ok
+test components::tests::a_nested_badge_made_after_the_main_side_value_holds_an_equal_map_that_is_no_change ... ok
+test components::tests::a_variant_edit_on_an_exposed_nested_instance_applies_the_instance_swap_chosen_before_it_at_once ... ok
+test components::tests::reset_leaves_an_inherited_nested_value_inheriting ... ok
+test components::tests::reset_takes_back_the_nested_values_that_differ_from_the_main_side_badge_and_the_badge_follows_again ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 733 filtered out; finished in 0.01s
+
+
+=== mutant (iii): a key missing on the copy counts as an override again ===
+diff --git a/crates/designos-doc/src/components.rs b/crates/designos-doc/src/components.rs
+index b01614f1..e319216d 100644
+--- a/crates/designos-doc/src/components.rs
++++ b/crates/designos-doc/src/components.rs
+@@ -788,7 +788,7 @@ fn mirrored_values<'a>(doc: &'a Document, n: &Node) -> Option<&'a BTreeMap<Strin
+ /// the main-side instance has a value for it.
+ fn overriding_value_keys(doc: &Document, n: &Node) -> Vec<String> {
+     let source = mirrored_values(doc, n);
+-    n.component.values.iter().filter(|(name, value)| source.is_none_or(|v| v.get(*name) != Some(*value))).map(|(name, _)| name.clone()).collect()
++    n.component.values.keys().chain(source.into_iter().flat_map(|v| v.keys())).filter(|name| source.is_none_or(|v| v.get(*name) != n.component.values.get(*name))).cloned().collect()
+ }
+ 
+ /// The exposed nested instances of `outer` with a property value that overrides the main-side instance they mirror.
+@@ -818,7 +818,10 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
+             n.component.overrides.clear();
+             n.component.grid_align_overrides = [false, false];
+             for name in &own_values {
+-                n.component.values.remove(name);
++                match mirrored_values(c.s, &n).and_then(|v| v.get(name)).cloned() {
++                    Some(v) => n.component.values.insert(name.clone(), v),
++                    None => n.component.values.remove(name),
++                };
+             }
+             n.plugin_data.remove("pen:explicit_width");
+             n.plugin_data.remove("pen:explicit_height");
+ crates/designos-doc/src/components.rs | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 5 tests
+test components::tests::a_nested_badge_made_after_the_main_side_value_holds_an_equal_map_that_is_no_change ... ok
+test components::tests::a_variant_edit_on_an_exposed_nested_instance_applies_the_instance_swap_chosen_before_it_at_once ... ok
+test components::tests::reset_takes_back_the_nested_values_that_differ_from_the_main_side_badge_and_the_badge_follows_again ... FAILED
+test components::tests::a_nested_value_inherited_from_the_main_side_badge_is_not_a_change ... FAILED
+test components::tests::reset_leaves_an_inherited_nested_value_inheriting ... FAILED
+
+failures:
+
+---- components::tests::reset_takes_back_the_nested_values_that_differ_from_the_main_side_badge_and_the_badge_follows_again stdout ----
+
+thread 'components::tests::reset_takes_back_the_nested_values_that_differ_from_the_main_side_badge_and_the_badge_follows_again' (81733712) panicked at crates/designos-doc/src/components.rs:7454:9:
+Reset removed the values that differed
+
+---- components::tests::a_nested_value_inherited_from_the_main_side_badge_is_not_a_change stdout ----
+
+thread 'components::tests::a_nested_value_inherited_from_the_main_side_badge_is_not_a_change' (81733709) panicked at crates/designos-doc/src/components.rs:7391:9:
+a value that is inherited is not a change of the outer instance
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- components::tests::reset_leaves_an_inherited_nested_value_inheriting stdout ----
+
+thread 'components::tests::reset_leaves_an_inherited_nested_value_inheriting' (81733711) panicked at crates/designos-doc/src/components.rs:7406:9:
+Reset does not write the main-side value onto the badge
+
+
+failures:
+    components::tests::a_nested_value_inherited_from_the_main_side_badge_is_not_a_change
+    components::tests::reset_leaves_an_inherited_nested_value_inheriting
+    components::tests::reset_takes_back_the_nested_values_that_differ_from_the_main_side_badge_and_the_badge_follows_again
+
+test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 733 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+mutant (iii) reverted, tree clean
+
+=== null control again ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 5 tests
+test components::tests::a_nested_value_inherited_from_the_main_side_badge_is_not_a_change ... ok
+test components::tests::a_nested_badge_made_after_the_main_side_value_holds_an_equal_map_that_is_no_change ... ok
+test components::tests::a_variant_edit_on_an_exposed_nested_instance_applies_the_instance_swap_chosen_before_it_at_once ... ok
+test components::tests::reset_leaves_an_inherited_nested_value_inheriting ... ok
+test components::tests::reset_takes_back_the_nested_values_that_differ_from_the_main_side_badge_and_the_badge_follows_again ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 733 filtered out; finished in 0.01s
+
+
+=== mutant (iv): the sync after the nested variant swap removed ===
+diff --git a/crates/designos-doc/src/components.rs b/crates/designos-doc/src/components.rs
+index b01614f1..d53d446d 100644
+--- a/crates/designos-doc/src/components.rs
++++ b/crates/designos-doc/src/components.rs
+@@ -1790,7 +1790,6 @@ pub fn set_nested_instance_prop(doc: &mut Document, nested: NodeId, name: &str,
+     // The layers of the new variant start from the variant itself: the other values of the nested instance (an instance
+     // swap, a boolean, a text) are applied to them in this command. The variant is not resolved or swapped again, as the
+     // nested instance is not a top instance and holds its swap.
+-    sync_one(&mut c, nested);
+     c.finish()
+ }
+ 
+ crates/designos-doc/src/components.rs | 1 -
+ 1 file changed, 1 deletion(-)
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 5 tests
+test components::tests::a_nested_value_inherited_from_the_main_side_badge_is_not_a_change ... ok
+test components::tests::a_nested_badge_made_after_the_main_side_value_holds_an_equal_map_that_is_no_change ... ok
+test components::tests::reset_leaves_an_inherited_nested_value_inheriting ... ok
+test components::tests::reset_takes_back_the_nested_values_that_differ_from_the_main_side_badge_and_the_badge_follows_again ... ok
+test components::tests::a_variant_edit_on_an_exposed_nested_instance_applies_the_instance_swap_chosen_before_it_at_once ... FAILED
+
+failures:
+
+---- components::tests::a_variant_edit_on_an_exposed_nested_instance_applies_the_instance_swap_chosen_before_it_at_once stdout ----
+designos-doc: swapping instance NodeId(19) dropped 1 inner instance swap(s) (#1433)
+
+thread 'components::tests::a_variant_edit_on_an_exposed_nested_instance_applies_the_instance_swap_chosen_before_it_at_once' (81735278) panicked at crates/designos-doc/src/components.rs:7527:9:
+assertion `left == right` failed: the glyph of the new variant shows the chosen icon without another sync
+  left: Some(NodeId(2))
+ right: Some(NodeId(3))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::a_variant_edit_on_an_exposed_nested_instance_applies_the_instance_swap_chosen_before_it_at_once
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 733 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+mutant (iv) reverted, tree clean
+
+##### app-level: has_changes uses the same predicate #####
+=== null control (no mutant) ===
+tree clean for crates/designos-doc/src/components.rs
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 5 tests
+test shell::tests::expose_nested_instances::reset_all_changes_counts_nested_values_only_while_the_nested_instance_is_exposed ... ok
+test shell::tests::expose_nested_instances::reset_all_changes_leaves_a_nested_value_the_outer_instance_inherits ... ok
+test shell::tests::expose_nested_instances::reset_all_changes_takes_back_a_variant_edit_made_from_the_outer_instance ... ok
+test shell::tests::expose_nested_instances::same_named_nested_instances_have_their_own_expose_toggles_and_property_rows ... ok
+test shell::tests::expose_nested_instances::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4239 filtered out; finished in 1.76s
+
+
+=== mutant (iii) applied ===
+ crates/designos-doc/src/components.rs | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 5 tests
+test shell::tests::expose_nested_instances::reset_all_changes_leaves_a_nested_value_the_outer_instance_inherits ... FAILED
+test shell::tests::expose_nested_instances::reset_all_changes_counts_nested_values_only_while_the_nested_instance_is_exposed ... ok
+test shell::tests::expose_nested_instances::reset_all_changes_takes_back_a_variant_edit_made_from_the_outer_instance ... ok
+test shell::tests::expose_nested_instances::same_named_nested_instances_have_their_own_expose_toggles_and_property_rows ... ok
+test shell::tests::expose_nested_instances::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose ... ok
+
+failures:
+
+---- shell::tests::expose_nested_instances::reset_all_changes_leaves_a_nested_value_the_outer_instance_inherits stdout ----
+
+thread 'shell::tests::expose_nested_instances::reset_all_changes_leaves_a_nested_value_the_outer_instance_inherits' (81750739) panicked at crates/designos-app/src/shell/tests/expose_nested_instances.rs:370:5:
+an inherited value is not a change of the outer instance
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::expose_nested_instances::reset_all_changes_leaves_a_nested_value_the_outer_instance_inherits
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 4239 filtered out; finished in 2.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant (iii) reverted, tree clean

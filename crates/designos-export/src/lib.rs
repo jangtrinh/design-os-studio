@@ -265,4 +265,99 @@ mod tests {
         let pm = decode(&s.render(&d, id));
         assert_eq!((pm.width(), pm.height()), (60, 30));
     }
+
+    #[test]
+    fn shader_effect_and_paint_skipped_by_svg_pdf_and_css_export() {
+        let build = |with_shader: bool| {
+            let mut d = Document::new("shader-export");
+            let page = d.add_page("p");
+            let id = d.alloc_id();
+            let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 120.0, 80.0));
+            frame.name = "HeroCard".into();
+            frame.fills = vec![Paint::solid(Color::from_hex("#2563EB").unwrap())];
+            if with_shader {
+                frame.fills.push(Paint { kind: PaintKind::Shader(ShaderRef::default()), opacity: 1.0, visible: true, blend: BlendMode::Normal });
+                frame.effects.push(Effect::Shader { shader: ShaderRef::default(), visible: true });
+            }
+            d.insert(page, frame).unwrap();
+            (d, id)
+        };
+
+        let (d_shader, id_shader) = build(true);
+        let (d_plain, id_plain) = build(false);
+
+        let svg_shader = export_svg(&d_shader, id_shader, &SvgOptions::default());
+        let svg_plain = export_svg(&d_plain, id_plain, &SvgOptions::default());
+        assert!(svg_shader.to_ascii_lowercase().contains("#2563eb"), "{svg_shader}");
+        assert_eq!(svg_shader, svg_plain);
+
+        let pdf_shader = export_pdf(&d_shader, &[id_shader]).expect("export_pdf with shader");
+        let pdf_plain = export_pdf(&d_plain, &[id_plain]).expect("export_pdf plain");
+        assert!(pdf_shader.starts_with(b"%PDF-1.4"));
+        assert_eq!(pdf_shader, pdf_plain);
+
+        let css_shader = css_for(&d_shader, id_shader);
+        let css_plain = css_for(&d_plain, id_plain);
+        assert!(css_shader.to_ascii_lowercase().contains("#2563eb"), "{css_shader}");
+        assert_eq!(css_shader, css_plain);
+        assert_eq!(tailwind_for(&d_shader, id_shader), tailwind_for(&d_plain, id_plain));
+        assert_eq!(swiftui_for(&d_shader, id_shader), swiftui_for(&d_plain, id_plain));
+        assert_eq!(compose_for(&d_shader, id_shader), compose_for(&d_plain, id_plain));
+        assert_eq!(uikit_for(&d_shader, id_shader), uikit_for(&d_plain, id_plain));
+        assert_eq!(android_xml_for(&d_shader, id_shader), android_xml_for(&d_plain, id_plain));
+    }
+
+    #[test]
+    fn codegen_emits_nothing_for_a_connector() {
+        let build = |with_connector: bool| {
+            let mut d = Document::new("connector-codegen");
+            let page = d.add_page("p");
+            let root = d.alloc_id();
+            let mut frame = Node::frame(root, Rect::new(0.0, 0.0, 400.0, 200.0));
+            frame.name = "FlowContainer".into();
+            d.insert(page, frame).unwrap();
+
+            let a = d.alloc_id();
+            let mut ra = Node::rectangle(a, Rect::new(20.0, 40.0, 100.0, 60.0));
+            ra.name = "CardA".into();
+            d.insert(root, ra).unwrap();
+
+            let b = d.alloc_id();
+            let mut rb = Node::rectangle(b, Rect::new(240.0, 40.0, 100.0, 60.0));
+            rb.name = "CardB".into();
+            d.insert(root, rb).unwrap();
+
+            let mut conn_id = None;
+            if with_connector {
+                let c = d.alloc_id();
+                let mut cn = Node::connector(
+                    c,
+                    ConnectorProps {
+                        start: ConnectorEnd::attached(a, Magnet::Right),
+                        end: ConnectorEnd::attached(b, Magnet::Left),
+                        line: ConnectorLine::Elbowed,
+                        start_cap: ConnectorCap::None,
+                        end_cap: ConnectorCap::Arrow,
+                        label: Some(TextProps { content: "next".into(), ..Default::default() }),
+                    },
+                );
+                cn.name = "ConnectorWire".into();
+                d.insert(root, cn).unwrap();
+                sync_connector(&mut d, c);
+                conn_id = Some(c);
+            }
+            (d, root, conn_id)
+        };
+
+        let (d_with, root_with, Some(cid)) = build(true) else { unreachable!() };
+        let (d_without, root_without, _) = build(false);
+
+        for lang in CodeLanguage::ALL {
+            assert_eq!(lang.generate(&d_with, cid, CodeLanguageOptions::default()), "", "direct codegen on a connector must be empty for {lang:?}");
+            let with_code = lang.generate(&d_with, root_with, CodeLanguageOptions::default());
+            let without_code = lang.generate(&d_without, root_without, CodeLanguageOptions::default());
+            assert_eq!(with_code, without_code, "container codegen must skip connector children for {lang:?}");
+            assert!(!with_code.contains("ConnectorWire"), "connector name leaked in {lang:?}: {with_code}");
+        }
+    }
 }

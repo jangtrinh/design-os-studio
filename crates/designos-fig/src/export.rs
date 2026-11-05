@@ -1,7 +1,8 @@
 //! [`Document`] -> Figma REST-shaped JSON (the inverse of `import_rest_json`).
 
+use crate::effect_units;
 use crate::kiwi::clean_f32;
-use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align};
+use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align, StrokeCapSite, STROKE_CAP_SITE_KEY};
 use crate::svgpath::write_path;
 use designos_doc::*;
 use serde_json::{json, Map, Value};
@@ -62,7 +63,7 @@ fn paint(p: &Paint) -> Value {
         PaintKind::RadialGradient { handles, stops } => grad(&mut m, "GRADIENT_RADIAL", handles, stops),
         PaintKind::AngularGradient { handles, stops } => grad(&mut m, "GRADIENT_ANGULAR", handles, stops),
         PaintKind::DiamondGradient { handles, stops } => grad(&mut m, "GRADIENT_DIAMOND", handles, stops),
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, params } => {
             m.insert("type".into(), "IMAGE".into());
             m.insert("imageRef".into(), image_ref.clone().into());
             m.insert(
@@ -75,6 +76,37 @@ fn paint(p: &Paint) -> Value {
                 }
                 .into(),
             );
+            if let Some(xf) = params.transform {
+                m.insert("imageTransform".into(), json!([[n(xf[0]), n(xf[1]), n(xf[2])], [n(xf[3]), n(xf[4]), n(xf[5])]]));
+            }
+            if params.rotation != 0.0 {
+                m.insert("rotation".into(), n(params.rotation));
+            }
+            if (params.tile_scale - 1.0).abs() > 1e-6 {
+                m.insert("scalingFactor".into(), n(params.tile_scale));
+            }
+            let adj = &params.adjust;
+            let mut flt = Map::new();
+            for (k, v) in [
+                ("exposure", adj.exposure),
+                ("contrast", adj.contrast),
+                ("saturation", adj.vibrance),
+                ("temperature", adj.temperature),
+                ("tint", adj.tint),
+                ("highlights", adj.highlights),
+                ("shadows", adj.shadows),
+            ] {
+                if v != 0.0 {
+                    flt.insert(k.into(), n(v));
+                }
+            }
+            if !flt.is_empty() {
+                m.insert("filters".into(), Value::Object(flt));
+            }
+        }
+        PaintKind::Shader(shader) => {
+            m.insert("type".into(), "SHADER".into());
+            m.insert("shader".into(), shader.raw.clone());
         }
     }
     m.insert("opacity".into(), n(p.opacity));
@@ -85,6 +117,16 @@ fn paint(p: &Paint) -> Value {
 
 pub(crate) fn paints(ps: &[Paint]) -> Value {
     Value::Array(ps.iter().map(paint).collect())
+}
+
+/// `noiseSize` as a number while both sides agree, as an `{x, y}` pair when they differ.
+fn noise_size_json(size: f32, size_y: Option<f32>) -> Value {
+    let (x, y) = effect_units::noise_size_to_kiwi(size, size_y);
+    if x == y {
+        n(x)
+    } else {
+        json!({"x": n(x), "y": n(y)})
+    }
 }
 
 fn effect(e: &Effect) -> Value {
@@ -109,19 +151,20 @@ fn effect(e: &Effect) -> Value {
             };
             json!({
                 "type": "NOISE", "noiseType": mode, "color": color.map(col), "secondaryColor": secondary.map(col),
-                "noiseSize": n(e.size), "density": n(e.density), "opacity": n(e.opacity),
+                "noiseSize": noise_size_json(e.size, e.size_y), "density": n(e.density), "opacity": n(e.opacity),
                 "blendMode": blend_name(e.blend), "seed": e.seed, "visible": e.visible
             })
         }
         Effect::Texture(e) => json!({
-            "type": "TEXTURE", "noiseSize": n(e.size), "radius": n(e.radius),
+            "type": "TEXTURE", "noiseSize": noise_size_json(e.size, e.size_y), "radius": n(e.radius),
             "clipToShape": e.clip_to_shape, "seed": e.seed, "visible": e.visible
         }),
         Effect::Glass(e) => json!({
-            "type": "GLASS", "lightAngle": n(e.light_angle), "lightIntensity": n(e.light_intensity),
+            "type": "GLASS", "lightAngle": n(effect_units::specular_angle_to_kiwi(e.light_angle)), "lightIntensity": n(e.light_intensity),
             "refraction": n(e.refraction), "depth": n(e.depth), "dispersion": n(e.dispersion),
-            "radius": n(e.frost), "visible": e.visible
+            "radius": n(e.frost), "reflectionDistance": n(e.splay), "bevelSize": n(e.bevel), "visible": e.visible
         }),
+        Effect::Shader { shader, visible } => json!({"type": "SHADER", "visible": visible, "shader": shader.raw}),
     }
 }
 
@@ -271,7 +314,57 @@ fn geometry(paths: &[Path]) -> Value {
 }
 
 pub(crate) fn figma_id(doc: &Document, id: NodeId) -> String {
-    doc.get(id).and_then(|n| n.source_id.clone()).unwrap_or_else(|| format!("9000:{}", id.0))
+    if let Some(n) = doc.get(id) {
+        if let Some(s) = &n.source_id {
+            return s.clone();
+        }
+        if let (Some(src), Some(inst)) = (n.component.source, instance_root_of(doc, id).filter(|&i| i != id)) {
+            return format!("I{};{}", figma_id(doc, inst), figma_id(doc, src));
+        }
+    }
+    format!("9000:{}", id.0)
+}
+
+fn instance_overrides(doc: &Document, inst_id: NodeId) -> Vec<Value> {
+    let mut out = Vec::new();
+    doc.walk(inst_id, |n, _| {
+        if n.component.overrides.is_empty() && n.component.grid_align_overrides == [false, false] {
+            return;
+        }
+        let mut fields: Vec<&'static str> = Vec::new();
+        for ov in &n.component.overrides {
+            match ov {
+                OverrideField::Name => fields.push("name"),
+                OverrideField::Visible => fields.push("visible"),
+                OverrideField::Locked => fields.push("locked"),
+                OverrideField::LockAspect => fields.push("preserveRatio"),
+                OverrideField::Opacity => fields.push("opacity"),
+                OverrideField::Blend => fields.push("blendMode"),
+                OverrideField::Size => fields.push("size"),
+                OverrideField::Transform => fields.push("relativeTransform"),
+                OverrideField::Fills => fields.push("fills"),
+                OverrideField::Stroke => fields.extend(["strokes", "strokeWeight", "strokeAlign", "strokeCap", "strokeJoin", "strokeDashes"]),
+                OverrideField::Effects => fields.push("effects"),
+                OverrideField::CornerRadii => fields.push("cornerRadius"),
+                OverrideField::Characters => fields.push("characters"),
+                OverrideField::TextStyle => fields.push("style"),
+                OverrideField::Layout if !(matches!(n.kind, NodeKind::Instance { .. }) && n.component.layout_cleared) => fields.push("layoutMode"),
+                OverrideField::Layout => {}
+                OverrideField::MainComponent => fields.push("componentId"),
+                OverrideField::SlotContent => fields.push("slotContent"),
+            }
+        }
+        if n.component.grid_align_overrides[0] {
+            fields.push("gridChildHorizontalAlign");
+        }
+        if n.component.grid_align_overrides[1] {
+            fields.push("gridChildVerticalAlign");
+        }
+        if !fields.is_empty() {
+            out.push(json!({"id": figma_id(doc, n.id), "overriddenFields": fields}));
+        }
+    });
+    out
 }
 
 fn align_name(a: LayoutAlign) -> &'static str {
@@ -383,6 +476,20 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
     if node.locked {
         m.insert("locked".into(), true.into());
     }
+    let lowered_conn = match (&node.kind, doc.kind) {
+        (NodeKind::Connector(cp), k) if k != DocumentKind::Board => {
+            let carrier = crate::board::StudioConnectorCarrier::from_node(
+                node,
+                cp,
+                cp.start.node.map(|nid| figma_id(doc, nid)),
+                cp.end.node.map(|nid| figma_id(doc, nid)),
+            );
+            let carrier_str = serde_json::to_string(&carrier).unwrap_or_default();
+            let lowered = crate::board::lower_design_connector(doc, id, node, cp, false);
+            Some((lowered, carrier_str))
+        }
+        _ => None,
+    };
     let ty = match &node.kind {
         NodeKind::Page { .. } => "CANVAS",
         NodeKind::Frame(_) => "FRAME",
@@ -400,9 +507,12 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
         NodeKind::ComponentSet(_) => "COMPONENT_SET",
         NodeKind::Instance { .. } => "INSTANCE",
         NodeKind::Unknown { type_name } => type_name.as_str(),
-        NodeKind::Sticky(_) | NodeKind::Connector(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => {
-            crate::board::type_name(&node.kind).unwrap_or("SECTION")
-        }
+        NodeKind::Connector(_) => match &lowered_conn {
+            Some((lc, _)) if lc.label_chip.is_some() => "GROUP",
+            Some(_) => "VECTOR",
+            None => "CONNECTOR",
+        },
+        NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => crate::board::type_name(&node.kind).unwrap_or("SECTION"),
     };
     m.insert("type".into(), ty.into());
     crate::variables::export_node_variables(node, &mut m);
@@ -457,8 +567,19 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 };
                 json!({"horizontal": h, "vertical": v})
             });
+            if node.lock_aspect {
+                m.insert("preserveRatio".into(), true.into());
+            }
             if node.is_mask {
                 m.insert("isMask".into(), true.into());
+            }
+            if node.is_mask || node.mask_type != MaskType::Alpha {
+                let mt = match node.mask_type {
+                    MaskType::Alpha => "ALPHA",
+                    MaskType::Vector => "VECTOR",
+                    MaskType::Luminance => "LUMINANCE",
+                };
+                m.insert("maskType".into(), mt.into());
             }
             if !matches!(node.kind, NodeKind::Text(_)) {
                 m.insert("fills".into(), paints(&node.fills));
@@ -481,21 +602,15 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             m.insert(
                 "strokeCap".into(),
                 match s.cap {
-                    StrokeCap::None => "NONE",
-                    StrokeCap::Round => "ROUND",
-                    StrokeCap::Square => "SQUARE",
+                    StrokeCap::None => match unmodelled_stroke_cap(node) {
+                        Some((cap, None | Some(StrokeCapSite::Node))) => cap,
+                        _ => "NONE",
+                    },
+                    c => crate::vecnet::cap_name(c),
                 }
                 .into(),
             );
-            m.insert(
-                "strokeJoin".into(),
-                match s.join {
-                    StrokeJoin::Miter => "MITER",
-                    StrokeJoin::Bevel => "BEVEL",
-                    StrokeJoin::Round => "ROUND",
-                }
-                .into(),
-            );
+            m.insert("strokeJoin".into(), stroke_join_name(s.join).into());
             if s.miter_limit >= 1.0 {
                 m.insert("strokeMiterLimit".into(), n(s.miter_limit));
                 m.insert("strokeMiterAngle".into(), n((2.0 * (1.0 / s.miter_limit).asin()).to_degrees()));
@@ -596,6 +711,13 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             } else if let Some(k) = component_key {
                 m.insert("componentKey".into(), k.clone().into());
             }
+            if node.component.expose_nested_instances {
+                m.insert("propsAreBubbled".into(), true.into());
+            }
+            let ovs = instance_overrides(doc, id);
+            if !ovs.is_empty() {
+                m.insert("overrides".into(), Value::Array(ovs));
+            }
         }
         NodeKind::Ellipse(a) => {
             m.insert("arcData".into(), json!({"startingAngle": n(a.start), "endingAngle": n(a.end), "innerRadius": n(a.inner_radius)}));
@@ -612,11 +734,85 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 m.insert("fillGeometry".into(), geometry(paths));
             }
             if let Some(net) = network {
-                m.insert("vectorNetwork".into(), crate::vecnet::network_to_json(net));
+                let mut vn = crate::vecnet::network_to_json(net);
+                if let Some((cap, site)) = unmodelled_stroke_cap(node) {
+                    let vertices = vn["vertices"].as_array_mut();
+                    let free = |v: &&mut Value| v.get("strokeCap").is_none();
+                    let target = match site {
+                        Some(StrokeCapSite::Vertex(i)) => vertices.and_then(|a| a.get_mut(i)).filter(free),
+                        None if node.stroke.cap != StrokeCap::None => vertices.and_then(|a| a.iter_mut().find(|v| free(v))),
+                        _ => None,
+                    };
+                    if let Some(vx) = target {
+                        vx["strokeCap"] = cap.into();
+                    }
+                }
+                m.insert("vectorNetwork".into(), vn);
             }
         }
         NodeKind::Sticky(_) | NodeKind::Connector(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => {
-            crate::board::export_fields(node, parent_abs.map(|p| p.translation()).unwrap_or(Vec2::ZERO), &mut m, &|t| figma_id(doc, t));
+            if let Some((lc, carrier_str)) = lowered_conn {
+                let pd = m.entry("pluginData").or_insert_with(|| Value::Object(Map::new()));
+                if let Some(pdo) = pd.as_object_mut() {
+                    pdo.insert("designos-studio:field:studioConnector".into(), Value::String(carrier_str.clone()));
+                }
+                if let Some((bg_rect, radius, text_rect, lbl)) = lc.label_chip {
+                    let id_str = figma_id(doc, id);
+                    m.insert("fills".into(), Value::Array(Vec::new()));
+                    m.insert("strokes".into(), Value::Array(Vec::new()));
+                    let mut vec_child = json!({
+                        "id": format!("{id_str}:vec"),
+                        "name": node.name,
+                        "type": "VECTOR",
+                        "visible": true,
+                        "size": v2(node.size),
+                        "relativeTransform": [[1, 0, 0], [0, 1, 0]],
+                        "fills": [],
+                        "strokes": paints(&node.stroke.paints),
+                        "strokeWeight": n(node.stroke.weight),
+                        "strokeAlign": "CENTER",
+                        "fillGeometry": [],
+                        "strokeGeometry": geometry(std::slice::from_ref(&lc.local_route.path())),
+                        "vectorNetwork": crate::vecnet::network_to_json(&network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap)),
+                        "strokeCap": crate::vecnet::cap_name(node.stroke.cap),
+                        "strokeJoin": stroke_join_name(node.stroke.join),
+                        "pluginData": {"designos-studio:field:studioConnector": carrier_str},
+                    });
+                    if !node.stroke.dashes.is_empty() {
+                        vec_child["strokeDashes"] = Value::Array(node.stroke.dashes.iter().map(|d| n(*d)).collect());
+                    }
+                    let chip_child = json!({
+                        "id": format!("{id_str}:chip"),
+                        "name": "Label background",
+                        "type": "RECTANGLE",
+                        "visible": true,
+                        "size": v2(Vec2::new(bg_rect.w, bg_rect.h)),
+                        "relativeTransform": [[1, 0, n(bg_rect.x)], [0, 1, n(bg_rect.y)]],
+                        "cornerRadius": n(radius),
+                        "fills": paints(&[Paint::solid(Color::WHITE)]),
+                        "strokes": [],
+                    });
+                    let text_child = json!({
+                        "id": format!("{id_str}:text"),
+                        "name": lbl.content,
+                        "type": "TEXT",
+                        "visible": true,
+                        "size": v2(Vec2::new(text_rect.w, text_rect.h)),
+                        "relativeTransform": [[1, 0, n(text_rect.x)], [0, 1, n(text_rect.y)]],
+                        "characters": lbl.content,
+                        "fills": paints(&lbl.style.fills),
+                        "strokes": [],
+                        "style": type_style(&lbl.style, Some(lbl.auto_resize), lbl.max_lines),
+                    });
+                    m.insert("children".into(), Value::Array(vec![vec_child, chip_child, text_child]));
+                } else {
+                    m.insert("fillGeometry".into(), Value::Array(Vec::new()));
+                    m.insert("strokeGeometry".into(), geometry(std::slice::from_ref(&lc.local_route.path())));
+                    m.insert("vectorNetwork".into(), crate::vecnet::network_to_json(&network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap)));
+                }
+            } else {
+                crate::board::export_fields(node, parent_abs.map(|p| p.translation()).unwrap_or(Vec2::ZERO), &mut m, &|t| figma_id(doc, t));
+            }
         }
         NodeKind::BooleanOp(op) => {
             m.insert(
@@ -729,4 +925,36 @@ pub fn export_rest_json(doc: &Document) -> Value {
         out["editorType"] = "figjam".into();
     }
     out
+}
+
+/// A lowered connector's network with the node's stroke cap on each end that carries no arrowhead of its own, so an
+/// open end is capped like the live connector body whether a reader takes caps per vertex or from the node.
+pub(crate) fn network_with_node_cap_on_open_ends(net: &VectorNetwork, node_cap: StrokeCap) -> VectorNetwork {
+    let mut capped = net.clone();
+    if node_cap != StrokeCap::None {
+        if let Some(first) = capped.vertices.first_mut() {
+            first.cap.get_or_insert(node_cap);
+        }
+        if let Some(last) = capped.vertices.last_mut() {
+            last.cap.get_or_insert(node_cap);
+        }
+    }
+    capped
+}
+
+fn stroke_join_name(join: StrokeJoin) -> &'static str {
+    match join {
+        StrokeJoin::Miter => "MITER",
+        StrokeJoin::Bevel => "BEVEL",
+        StrokeJoin::Round => "ROUND",
+    }
+}
+
+/// The cap the stroke model still has no name for that the node carries from import, and where it sat: on the node,
+/// or on the vertex at that index. `None` as the site means the cap was recorded before its site was kept; the
+/// export then places it as it always did: on the node when the node has no cap of its own, else on the first
+/// vertex without a cap.
+fn unmodelled_stroke_cap(node: &Node) -> Option<(&str, Option<StrokeCapSite>)> {
+    let cap = node.fig_metadata.get("strokeCap").map(String::as_str).filter(|s| !s.is_empty() && crate::vecnet::cap_from(s).is_none())?;
+    Some((cap, node.fig_metadata.get(STROKE_CAP_SITE_KEY).and_then(|s| StrokeCapSite::decode(s))))
 }

@@ -1,0 +1,44 @@
+# cargo test -p designos-app --bin designos --locked   (code head dea90b5f; HOME=/Users/jangtrinh/.c1477/h TMPDIR=/Users/jangtrinh/.c1477/t, real CARGO_HOME and RUSTUP_HOME)
+# full run: app_rc=101, 4220 passed, 4 failed
+test agent_composer::tests::image_job_queued_behind_user_prompt_at_start_flushes_both_in_order ... FAILED
+test shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required ... FAILED
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... FAILED
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+thread 'agent_composer::tests::image_job_queued_behind_user_prompt_at_start_flushes_both_in_order' (79642605) panicked at crates/designos-app/src/agent_composer.rs:3494:65:
+image job written second
+thread 'shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required' (79794854) panicked at crates/designos-app/src/shell/tests/close_human_dirty.rs:47:85:
+library save close: Object {"code": String("EDITOR_NOT_NOTIFIED"), "error": Object {"code": String("EDITOR_NOT_NOTIFIED"), "error_kind": String("retryable"), "message": String("The editor did not close the tab in time."), "next_step": String("The close was can
+thread 'vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope' (79858446) panicked at crates/designos-app/src/vecops.rs:1483:9:
+text stays until font arrives
+thread 'vecops::tests::two_deferred_text_commands_both_convert_in_order' (79858461) panicked at crates/designos-app/src/vecops.rs:1882:9:
+both texts still waiting for slow fonts
+test result: FAILED. 4220 passed; 4 failed; 13 ignored; 0 measured; 0 filtered out; finished in 392.85s
+
+# each failure rerun alone
+test agent_composer::tests::image_job_queued_behind_user_prompt_at_start_flushes_both_in_order ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4236 filtered out; finished in 0.19s
+rerun_rc=0  (agent_composer::tests::image_job_queued_behind_user_prompt_at_start_flushes_both_in_order)
+test shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4236 filtered out; finished in 1.66s
+rerun_rc=0  (shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required)
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4236 filtered out; finished in 1.48s
+rerun_rc=0  (vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope)
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4236 filtered out; finished in 1.47s
+rerun_rc=0  (vecops::tests::two_deferred_text_commands_both_convert_in_order)
+
+# round-3 parity tests inside the full run
+test shell::tests::edit_menu_parity::edit_menu_and_palette_expose_all_five_commands_with_labels_shortcuts_and_enabled_states ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_rebinds_the_effect_colour_to_the_targets_variable ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_copies_only_the_visual_bindings_and_style_refs ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_keeps_the_target_text_style_on_text_inside_a_pasted_instance_after_a_sync_of_its_main ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_restyles_the_text_inside_a_pasted_frame ... ok
+test shell::tests::edit_menu_parity::select_same_text_style_and_variant_match_exact_unlocked_visible_siblings ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_layer_and_text_carries_target_style_and_undoes_in_one_step ... ok
+test shell::tests::edit_menu_parity::the_old_paste_and_match_style_chord_does_nothing ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_gives_a_stroke_with_every_width_zero_a_visible_width ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_on_instance_text_survives_a_sync_of_its_main ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_leaves_text_with_different_run_fills_unchanged_and_swaps_the_rest ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_on_uniform_text_exchanges_the_painted_fills_with_the_stroke_and_round_trips ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_single_and_multi_selection_preserves_gradients_and_bindings_and_round_trips ... ok

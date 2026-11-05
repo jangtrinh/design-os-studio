@@ -355,7 +355,12 @@ pub fn map_background_paints(el_id: &str, styles: &BTreeMap<String, String>, ima
                                 }
                             };
                             let image_ref = store_image_dedup(images, bytes);
-                            paints.push(Paint { kind: PaintKind::Image { image_ref, scale_mode }, opacity: 1.0, visible: true, blend: BlendMode::Normal });
+                            paints.push(Paint {
+                                kind: PaintKind::Image { image_ref, scale_mode, params: Default::default() },
+                                opacity: 1.0,
+                                visible: true,
+                                blend: BlendMode::Normal,
+                            });
                         }
                     } else {
                         report.unsupported_css.push(UnsupportedCssEntry {

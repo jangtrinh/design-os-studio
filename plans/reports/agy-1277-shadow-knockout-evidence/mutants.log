@@ -1,0 +1,106 @@
+=== MUTANT 1: paint-free children knock out their rectangle again ===
+
+$ cargo test -p designos-doc --locked silhouette
+exit_code=101
+running 15 tests
+test silhouette::tests::hidden_fill_does_not_count ... ok
+test silhouette::tests::frame_with_visible_fill_uses_its_own_shape ... ok
+test silhouette::tests::knockout_of_filled_or_stroked_node_is_its_own_shape ... ok
+test silhouette::tests::unfillable_fill_is_ignored_but_stroke_counts ... ok
+test silhouette::tests::hidden_children_are_decided_at_draw_time ... ok
+test silhouette::tests::fill_less_clipping_frame_uses_children ... ok
+test silhouette::tests::knockout_of_group_and_text_is_children_opaque_and_text ... ok
+test silhouette::tests::opaque_mode_counts_fill_less_fillable_shapes_only ... ok
+test silhouette::tests::no_shape_falls_back_to_children_and_boolean_ops_draw_none ... ok
+test silhouette::tests::fill_less_frame_with_children_uses_the_children ... ok
+test silhouette::tests::stroke_only_node_uses_its_own_shape ... ok
+test silhouette::tests::text_node_uses_glyphs ... ok
+test silhouette::tests::hidden_stroke_or_zero_weight_does_not_count ... ok
+test silhouette::tests::knockout_ignores_zero_alpha_fills_and_strokes ... FAILED
+test silhouette::tests::knockout_of_fill_less_frame_is_its_children_not_its_rectangle ... FAILED
+thread 'silhouette::tests::knockout_ignores_zero_alpha_fills_and_strokes' (83347813) panicked at crates/designos-doc/src/silhouette.rs:239:9:
+thread 'silhouette::tests::knockout_of_fill_less_frame_is_its_children_not_its_rectangle' (83347814) panicked at crates/designos-doc/src/silhouette.rs:229:9:
+test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.00s
+error: test failed, to rerun pass `-p designos-doc --lib`
+
+$ cargo test -p designos-render --locked --test shadow_fillless
+exit_code=101
+running 14 tests
+test issue_1277_a_paint_free_and_zero_fill_children_keep_shadow ... FAILED
+test show_behind_on_never_knocks_out ... ok
+test filled_frame_shadow_comes_from_its_own_shape ... ok
+test hidden_and_transparent_children_add_nothing ... ok
+test fillless_frame_knockout_follows_children_opaque_rule ... ok
+test issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... FAILED
+test fillless_frame_shadow_is_not_erased_inside_the_frame ... ok
+test fixture_pair_probes_on_one_page ... ok
+test clipping_frame_clips_children_in_silhouette_and_knockout ... ok
+test issue_1277_e_runtime_opacity_zero_child_is_skipped_in_knockout ... ok
+test issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... ok
+test issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... ok
+test issue_1277_null_control_filled_and_plain_fillless_frames_unchanged ... ok
+test tile_render_equals_full_render_for_the_fixture_pair ... ok
+thread 'issue_1277_a_paint_free_and_zero_fill_children_keep_shadow' (83360087) panicked at crates/designos-render/tests/shadow_fillless.rs:238:5:
+shadow under paint-free child frame was knocked out: [255, 255, 255, 255]
+thread 'issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild' (83360088) panicked at crates/designos-render/tests/shadow_fillless.rs:279:5:
+fill-less child frame knocked out shadow outside grandchild: [255, 255, 255, 255]
+test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+error: test failed, to rerun pass `-p designos-render --test shadow_fillless`
+
+$ cargo test -p designos-gpu --locked --test shadow_fillless_fixture -- --test-threads=1
+exit_code=101
+running 8 tests
+test cpu_and_gpu_match_on_the_fixture_pair ... ok
+test cpu_and_gpu_match_on_the_fixture_pair_with_show_behind ... ok
+test issue_1277_a_paint_free_and_zero_fill_children_keep_shadow ... FAILED
+test issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... FAILED
+test issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... ok
+test issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... ok
+test issue_1277_e_gpu_skips_runtime_opacity_zero_child_like_cpu ... ok
+test issue_1277_null_control_filled_and_plain_fillless_frames_unchanged ... ok
+thread 'issue_1277_a_paint_free_and_zero_fill_children_keep_shadow' (83371573) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:146:5:
+CPU knocked out shadow under paint-free child frame: [255, 255, 255, 255]
+thread 'issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild' (83371584) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:194:5:
+CPU knocked out shadow outside grandchild: [255, 255, 255, 255]
+test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.99s
+error: test failed, to rerun pass `-p designos-gpu --test shadow_fillless_fixture`
+
+=== MUTANT 2: mask is ignored in the knockout walk ===
+
+$ cargo test -p designos-render --locked --test shadow_fillless
+exit_code=101
+running 14 tests
+test show_behind_on_never_knocks_out ... ok
+test fillless_frame_knockout_follows_children_opaque_rule ... ok
+test filled_frame_shadow_comes_from_its_own_shape ... ok
+test issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... FAILED
+test fillless_frame_shadow_is_not_erased_inside_the_frame ... ok
+test fixture_pair_probes_on_one_page ... ok
+test hidden_and_transparent_children_add_nothing ... ok
+test issue_1277_e_runtime_opacity_zero_child_is_skipped_in_knockout ... ok
+test issue_1277_a_paint_free_and_zero_fill_children_keep_shadow ... ok
+test issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... ok
+test clipping_frame_clips_children_in_silhouette_and_knockout ... ok
+test issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... ok
+test issue_1277_null_control_filled_and_plain_fillless_frames_unchanged ... ok
+test tile_render_equals_full_render_for_the_fixture_pair ... ok
+thread 'issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect' (83396542) panicked at crates/designos-render/tests/shadow_fillless.rs:326:5:
+unmasked rect corner knocked out circular shadow at (40, 40): [255, 255, 255, 255]
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+error: test failed, to rerun pass `-p designos-render --test shadow_fillless`
+
+$ cargo test -p designos-gpu --locked --test shadow_fillless_fixture -- --test-threads=1
+exit_code=101
+running 8 tests
+test cpu_and_gpu_match_on_the_fixture_pair ... ok
+test cpu_and_gpu_match_on_the_fixture_pair_with_show_behind ... ok
+test issue_1277_a_paint_free_and_zero_fill_children_keep_shadow ... ok
+test issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... ok
+test issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... FAILED
+test issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... ok
+test issue_1277_e_gpu_skips_runtime_opacity_zero_child_like_cpu ... ok
+test issue_1277_null_control_filled_and_plain_fillless_frames_unchanged ... ok
+thread 'issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect' (83400692) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:250:5:
+CPU unmasked rect corner knocked out circular shadow: [255, 255, 255, 255]
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.94s
+error: test failed, to rerun pass `-p designos-gpu --test shadow_fillless_fixture`

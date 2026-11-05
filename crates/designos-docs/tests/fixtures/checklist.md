@@ -1,0 +1,3 @@
+- [ ] write the spec
+- [x] pin the checkout screen
+- [ ] review **edge cases**

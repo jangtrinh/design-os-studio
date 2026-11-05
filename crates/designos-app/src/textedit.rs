@@ -1,7 +1,8 @@
 //! Pure text-editing helpers: grapheme / word / paragraph navigation over byte
 //! offsets and the in-session undo log with burst coalescing.
 
-use designos_doc::TextProps;
+use designos_doc::{TextProps, TextStyle};
+use std::collections::BTreeSet;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Previous grapheme boundary before `at`.
@@ -117,7 +118,7 @@ pub struct Snap {
 pub struct UndoLog {
     undo: Vec<Snap>,
     redo: Vec<Snap>,
-    last: Option<(EditKind, f64)>,
+    last: Option<(EditKind, f64, Option<u32>)>,
 }
 
 /// A pause longer than this starts a new undo step.
@@ -127,11 +128,28 @@ impl UndoLog {
     /// Records `before` unless this edit continues the previous burst.
     /// `new_word` forces a step (the typed char starts a new word).
     pub fn record(&mut self, before: Snap, kind: EditKind, now: f64, new_word: bool) {
+        self.record_keyed(before, kind, now, new_word, None);
+    }
+
+    /// Records a style edit with a key describing which style property changed.
+    /// Different properties must start separate undo steps, while repeated edits
+    /// to the same property may still coalesce during the burst.
+    pub fn record_style(&mut self, before: Snap, after: &Snap, now: f64, new_word: bool) {
+        let mut key = style_change_key(&before.props, &after.props);
+        if before.style_ref != after.style_ref {
+            key |= STYLE_LINK_BIT;
+        }
+        self.record_keyed(before, EditKind::Style, now, new_word, Some(key));
+    }
+
+    fn record_keyed(&mut self, before: Snap, kind: EditKind, now: f64, new_word: bool, key: Option<u32>) {
         let continues = match (self.last, kind) {
-            (Some((k, t)), EditKind::Typing | EditKind::Deleting | EditKind::Style) => k == kind && now - t < BURST_SECONDS && !new_word,
+            (Some((k, t, old_key)), EditKind::Typing | EditKind::Deleting | EditKind::Style) => {
+                k == kind && now - t < BURST_SECONDS && !new_word && (kind != EditKind::Style || old_key == key)
+            }
             _ => false,
         };
-        self.last = Some((kind, now));
+        self.last = Some((kind, now, key));
         self.redo.clear();
         if !continues {
             self.undo.push(before);
@@ -161,6 +179,95 @@ impl UndoLog {
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
+}
+
+const STYLE_LINK_BIT: u32 = 1 << 17;
+const STYLE_ALL_BITS: u32 = (1 << 18) - 1;
+
+/// Returns a coalescing key for the style properties changed by an edit.
+///
+/// Text selections are represented by `TextProps::runs`, so comparing only the
+/// base style misses edits applied to a partial selection. Compare effective
+/// styles at every run boundary in both snapshots and OR the changed property
+/// bits across the whole edited text.
+fn style_change_key(before: &TextProps, after: &TextProps) -> u32 {
+    if before.content != after.content {
+        return STYLE_ALL_BITS;
+    }
+
+    let mut boundaries = BTreeSet::from([0, before.content.len()]);
+    for run in before.runs.iter().chain(after.runs.iter()) {
+        boundaries.insert(run.start.min(before.content.len()));
+        boundaries.insert(run.end.min(before.content.len()));
+    }
+
+    let points: Vec<_> = boundaries.into_iter().collect();
+    let mut key = 0;
+    for window in points.windows(2) {
+        let at = window[0];
+        key |= style_property_bits(&crate::richtext::style_at(before, at), &crate::richtext::style_at(after, at));
+    }
+    if points.len() == 1 {
+        key | style_property_bits(&before.style, &after.style)
+    } else {
+        key
+    }
+}
+
+fn style_property_bits(a: &TextStyle, b: &TextStyle) -> u32 {
+    let mut bits = 0;
+    if a.font_family != b.font_family {
+        bits |= 1 << 0;
+    }
+    if a.font_weight != b.font_weight {
+        bits |= 1 << 1;
+    }
+    if a.italic != b.italic {
+        bits |= 1 << 2;
+    }
+    if a.font_size != b.font_size {
+        bits |= 1 << 3;
+    }
+    if a.line_height != b.line_height {
+        bits |= 1 << 4;
+    }
+    if a.letter_spacing != b.letter_spacing {
+        bits |= 1 << 5;
+    }
+    if a.paragraph_spacing != b.paragraph_spacing {
+        bits |= 1 << 6;
+    }
+    if a.paragraph_indent != b.paragraph_indent {
+        bits |= 1 << 7;
+    }
+    if a.list_spacing != b.list_spacing {
+        bits |= 1 << 8;
+    }
+    if a.leading_trim != b.leading_trim {
+        bits |= 1 << 9;
+    }
+    if a.align_h != b.align_h {
+        bits |= 1 << 10;
+    }
+    if a.align_v != b.align_v {
+        bits |= 1 << 11;
+    }
+    if a.case != b.case {
+        bits |= 1 << 12;
+    }
+    if a.decoration != b.decoration {
+        bits |= 1 << 13;
+    }
+    if a.fills != b.fills {
+        bits |= 1 << 14;
+    }
+    if a.features != b.features {
+        bits |= 1 << 15;
+    }
+    if a.variation_axes != b.variation_axes {
+        bits |= 1 << 16;
+    }
+    bits
 }
 
 /// Whether typing `typed` at `caret` begins a new word (previous char is a

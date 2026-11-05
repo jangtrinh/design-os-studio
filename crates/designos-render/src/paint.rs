@@ -280,6 +280,7 @@ pub fn with_paint<R>(
             paint.set_color(sk_color(c, a));
             Some(f(&paint))
         }
+        PaintKind::Shader(_) => None,
         PaintKind::LinearGradient { handles, stops } | PaintKind::RadialGradient { handles, stops } => {
             let radial = matches!(p.kind, PaintKind::RadialGradient { .. });
             let st = gradient_stops(stops, a);
@@ -317,50 +318,74 @@ pub fn with_paint<R>(
             paint.shader = sk::Pattern::new(pm.as_ref(), sk::SpreadMode::Pad, sk::FilterQuality::Nearest, 1.0, shader_ts);
             Some(f(&paint))
         }
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, params } => {
             // first decode at full size to learn dimensions
             let full = load_image(env.doc, image_ref, None)?;
             let (iw, ih) = (full.width() as f32, full.height() as f32);
-            let (s, tx, ty) = match scale_mode {
-                d::ImageScaleMode::Fill | d::ImageScaleMode::Crop => {
-                    let s = (size.x / iw).max(size.y / ih);
-                    (s, (size.x - iw * s) / 2.0, (size.y - ih * s) / 2.0)
-                }
-                d::ImageScaleMode::Fit => {
-                    let s = (size.x / iw).min(size.y / ih);
-                    (s, (size.x - iw * s) / 2.0, (size.y - ih * s) / 2.0)
-                }
-                d::ImageScaleMode::Tile => (1.0, 0.0, 0.0),
-            };
-            if !s.is_finite() || s <= 0.0 {
-                return None;
-            }
+            let map = d::image_uv_map(size, iw, ih, *scale_mode, params)?;
+            let (u, v, s) = (map.u, map.v, map.scale);
             let dev_scale = (ts.sx * ts.sy - ts.kx * ts.ky).abs().sqrt().max(1e-6);
             let eff = s * dev_scale;
-            let (img, mult) = if eff < 0.6 {
+            let img = if eff < 0.6 {
                 let w = (iw * eff).ceil().max(1.0) as u32;
                 let h = (ih * eff).ceil().max(1.0) as u32;
-                let im = load_image(env.doc, image_ref, Some((w, h)))?;
-                let m = iw / im.width() as f32;
-                (im, m)
+                load_image(env.doc, image_ref, Some((w, h)))?
             } else {
-                (full, 1.0)
+                full
             };
             let (spread, quality) = match scale_mode {
                 d::ImageScaleMode::Tile => (sk::SpreadMode::Repeat, sk::FilterQuality::Bilinear),
                 _ => (sk::SpreadMode::Pad, if eff > 1.0 { sk::FilterQuality::Bicubic } else { sk::FilterQuality::Bilinear }),
             };
-            let shader_ts = sk::Transform::from_scale(s * mult, s * mult).post_translate(tx, ty);
-            if matches!(scale_mode, d::ImageScaleMode::Fit) {
-                // 1px transparent border so Pad leaves the letterbox transparent
-                let (w, h) = (img.width(), img.height());
-                let mut padded = sk::Pixmap::new(w + 2, h + 2)?;
-                padded.draw_pixmap(1, 1, img.as_ref().as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
-                let ts2 = sk::Transform::from_translate(-1.0, -1.0).post_concat(shader_ts);
-                paint.shader = sk::Pattern::new(padded.as_ref(), spread, quality, a, ts2);
-                return Some(f(&paint));
+            let (w_f, h_f) = (img.width() as f32, img.height() as f32);
+            let local_to_px = sk::Transform::from_row(u.0 * w_f, v.0 * h_f, u.1 * w_f, v.1 * h_f, u.2 * w_f, v.2 * h_f);
+            let shader_ts = local_to_px.invert()?;
+            let crop_leaves_unit_uv = matches!(scale_mode, d::ImageScaleMode::Crop)
+                && [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)].into_iter().any(|(x, y)| {
+                    let uu = u.0 * x + u.1 * y + u.2;
+                    let vv = v.0 * x + v.1 * y + v.2;
+                    let unit = -1e-5..=1.0 + 1e-5;
+                    !unit.contains(&uu) || !unit.contains(&vv)
+                });
+            let needs_border = matches!(scale_mode, d::ImageScaleMode::Fit) || crop_leaves_unit_uv;
+            if crate::image_adjust::has_rendered_adjustments(&params.adjust) {
+                let (x0, y0, x1, y1) = transformed_bounds(ts, -margin, -margin, size.x + 2.0 * margin, size.y + 2.0 * margin);
+                let region: crate::image_adjust::DeviceRegion = (
+                    (x0.floor() as i32).max(0),
+                    (y0.floor() as i32).max(0),
+                    (x1.ceil() as i32).min(target_dims.0 as i32),
+                    (y1.ceil() as i32).min(target_dims.1 as i32),
+                );
+                if region.2 <= region.0 || region.3 <= region.1 {
+                    return None;
+                }
+                let inv = ts.invert()?;
+                // The picture itself is sampled; the letterbox and out-of-bounds crop are cleared inside the scratch.
+                let source =
+                    crate::image_adjust::FillSource { src: (*img).as_ref(), spread, quality, pattern_ts: shader_ts, clear_outside_picture: needs_border };
+                if let Some(scratch) = crate::image_adjust::adjusted_fill_region(&source, ts, region, &params.adjust) {
+                    let from_scratch = sk::Transform::from_translate(region.0 as f32, region.1 as f32).post_concat(inv);
+                    paint.shader = sk::Pattern::new(scratch.as_ref(), sk::SpreadMode::Pad, sk::FilterQuality::Nearest, a, from_scratch);
+                    return Some(f(&paint));
+                }
+                // The scratch is over budget or could not be allocated: the fill is drawn without its adjustments and counted.
+                crate::image_adjust::note_unadjusted_fallback();
             }
-            paint.shader = sk::Pattern::new(img.as_ref().as_ref(), spread, quality, a, shader_ts);
+            // A 1px transparent border lets Pad leave a Fit letterbox or an out-of-bounds crop transparent.
+            let padded: Option<sk::Pixmap> = if needs_border {
+                #[cfg(test)]
+                crate::image_adjust::note_fill_allocation(img.width() + 2, img.height() + 2);
+                let mut padded = sk::Pixmap::new(img.width() + 2, img.height() + 2)?;
+                padded.draw_pixmap(1, 1, (*img).as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
+                Some(padded)
+            } else {
+                None
+            };
+            let (src, pattern_ts) = match &padded {
+                Some(p) => (p.as_ref(), sk::Transform::from_translate(-1.0, -1.0).post_concat(shader_ts)),
+                None => ((*img).as_ref(), shader_ts),
+            };
+            paint.shader = sk::Pattern::new(src, spread, quality, a, pattern_ts);
             Some(f(&paint))
         }
     }

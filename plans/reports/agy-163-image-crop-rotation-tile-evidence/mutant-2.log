@@ -1,0 +1,43 @@
+=== Mutant 2: tile_scale hardcoded to 1.0 in crates/designos-render/src/paint.rs ===
+diff --git a/crates/designos-render/src/paint.rs b/crates/designos-render/src/paint.rs
+index 2f9ff10c..8fcfbd91 100644
+--- a/crates/designos-render/src/paint.rs
++++ b/crates/designos-render/src/paint.rs
+@@ -402,7 +402,7 @@ fn image_uv_affine(size: Vec2, iw: f32, ih: f32, scale_mode: d::ImageScaleMode,
+             Some((u, v, s))
+         }
+         d::ImageScaleMode::Tile => {
+-            let ts_factor = if params.tile_scale.is_finite() && params.tile_scale > 0.0 { params.tile_scale.clamp(0.01, 100.0) } else { 1.0 };
++            let ts_factor = 1.0_f32;
+             let u0 = (1.0 / (rw * ts_factor), 0.0, 0.0);
+             let v0 = (0.0, 1.0 / (rh * ts_factor), 0.0);
+             let (u, v) = rotate_uv_quarter_turns(params.rotation, u0, v0);
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.58s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 1 test
+test tile_scale_2_doubles_the_tile_size ... FAILED
+
+failures:
+
+---- tile_scale_2_doubles_the_tile_size stdout ----
+
+thread 'tile_scale_2_doubles_the_tile_size' (87476465) panicked at crates/designos-render/tests/render.rs:886:5:
+x=7 is inside the doubled red band (0..10): [0, 0, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tile_scale_2_doubles_the_tile_size
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+exit_code=101
