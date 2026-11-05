@@ -1398,6 +1398,11 @@ fn reparenting_an_end_node_rehomes_the_connector_in_the_same_undo_step() {
     s.drag(node_center(&s, a), node_center(&s, b));
     let c = connectors(&s)[0];
     assert_eq!(s.app().doc.get(c).unwrap().parent, Some(f));
+    let end_points = |s: &Sim| match &s.app().doc.get(c).unwrap().kind {
+        NodeKind::Connector(p) => (p.start.point, p.end.point),
+        k => panic!("{k:?}"),
+    };
+    let points_in_f = end_points(&s);
 
     let page_len = s.app().doc.get(page).unwrap().children.len();
     let mut tx = crate::edit::Tx::new();
@@ -1407,11 +1412,24 @@ fn reparenting_an_end_node_rehomes_the_connector_in_the_same_undo_step() {
     assert_eq!(s.app().doc.get(b).unwrap().parent, Some(page));
     assert_eq!(s.app().doc.get(c).unwrap().parent, Some(page), "reparenting B to page rehomes connector C to page in the same commit");
 
-    // One undo puts both B and C back in F.
+    // The end points are in the page's space now: they match the route and each sits on the edge of its node.
+    let geometry = designos_doc::connector_geometry(&s.app().doc, c).unwrap();
+    let (start, end) = end_points(&s);
+    assert_eq!((start, end), (geometry.start_point, geometry.end_point), "the stored end points are the route's, resolved in the new parent");
+    for (point, node) in [(start, a), (end, b)] {
+        let r = crate::util::world_aabb(&s.app().doc, node);
+        let on_edge = ((point.x - r.x).abs() < 0.5 || (point.x - (r.x + r.w)).abs() < 0.5) && point.y >= r.y - 0.5 && point.y <= r.y + r.h + 0.5
+            || ((point.y - r.y).abs() < 0.5 || (point.y - (r.y + r.h)).abs() < 0.5) && point.x >= r.x - 0.5 && point.x <= r.x + r.w + 0.5;
+        assert!(on_edge, "end point {point:?} sits on the edge of its node {r:?}");
+    }
+    assert_ne!((start, end), points_in_f, "the points moved with the parent space");
+
+    // One undo puts both B and C back in F, and the end points back where they were.
     s.shell.app.undo();
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(b).unwrap().parent, Some(f), "one undo puts B back in F");
     assert_eq!(s.app().doc.get(c).unwrap().parent, Some(f), "one undo puts C back in F");
+    assert_eq!(end_points(&s), points_in_f, "one undo restores the end points");
 }
 
 #[test]

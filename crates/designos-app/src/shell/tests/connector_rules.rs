@@ -297,3 +297,90 @@ fn design_files_offer_connector_in_the_shape_dropdown_and_the_palette() {
     let menu = s.rect_of("menu-level-0");
     assert_eq!(menu.height(), crate::theme::MENU_PADDING * 2.0 + rows * crate::theme::MENU_ITEM_HEIGHT);
 }
+
+/// A page with frame F holding rectangles A and B and the connector C that joins them.
+fn doc_with_connector_in_a_frame() -> (designos_doc::Document, NodeId, NodeId, NodeId, NodeId, NodeId) {
+    use designos_doc::{ConnectorEnd, ConnectorProps, Document, Magnet};
+    let mut doc = Document::new("live patch connector");
+    let page = doc.add_page("Page 1");
+    let f = doc.alloc_id();
+    doc.insert(page, Node::frame(f, DRect::new(100.0, 100.0, 600.0, 300.0))).unwrap();
+    let a = doc.alloc_id();
+    doc.insert(f, Node::rectangle(a, DRect::new(40.0, 100.0, 100.0, 60.0))).unwrap();
+    let b = doc.alloc_id();
+    doc.insert(f, Node::rectangle(b, DRect::new(400.0, 100.0, 100.0, 60.0))).unwrap();
+    let c = doc.alloc_id();
+    let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+    doc.insert(f, Node::connector(c, props)).unwrap();
+    designos_doc::sync_connector(&mut doc, c);
+    (doc, page, f, a, b, c)
+}
+
+fn live_patch_of(doc: &designos_doc::Document, cmd: Command, label: &str) -> designos_doc::live_patch::LivePatch {
+    let ops = designos_doc::live_patch::live_ops_for_command(doc, &cmd).unwrap();
+    let mut patch = designos_doc::live_patch::LivePatch::new(ops);
+    patch.label = Some(label.into());
+    patch
+}
+
+#[test]
+fn an_agent_reparenting_an_end_node_rehomes_the_connector_in_the_same_undo_step() {
+    let (doc, page, f, _a, b, c) = doc_with_connector_in_a_frame();
+    let patch = live_patch_of(&doc, Command::Reparent { id: b, parent: page, index: usize::MAX }, "move B out of F");
+    let mut app = crate::app::App::new(doc);
+    let depth = app.hist.undo_depth();
+    crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
+    assert_eq!(app.doc.get(b).unwrap().parent, Some(page));
+    assert_eq!(app.doc.get(c).unwrap().parent, Some(page), "the connector follows to the nearest common container");
+    let g = designos_doc::connector_geometry(&app.doc, c).unwrap();
+    let NodeKind::Connector(p) = &app.doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.point, p.end.point), (g.start_point, g.end_point), "the end points are resolved in the new parent");
+    assert_eq!(app.hist.undo_depth(), depth + 1, "the patch and the re-home are one undo step");
+    app.undo();
+    assert_eq!(app.doc.get(b).unwrap().parent, Some(f));
+    assert_eq!(app.doc.get(c).unwrap().parent, Some(f), "one undo restores both");
+}
+
+#[test]
+fn an_agent_moving_an_end_node_to_another_page_detaches_that_end_and_says_so() {
+    let (mut doc, page1, _f, a, b, c) = doc_with_connector_in_a_frame();
+    let page2 = doc.add_page("Page 2");
+    let patch = live_patch_of(&doc, Command::Reparent { id: b, parent: page2, index: 0 }, "move B to page 2");
+    let mut app = crate::app::App::new(doc);
+    let _ = crate::board::connect::take_detach_toast();
+    crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
+    assert_eq!(app.doc.page_of(c), Some(page1), "the connector stays on its page");
+    let NodeKind::Connector(p) = &app.doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.node, p.end.node), (Some(a), None), "the end on the moved node is free");
+    assert!(crate::board::connect::take_detach_toast().is_some(), "the user is told");
+}
+
+#[test]
+fn a_connector_the_user_moved_by_hand_is_not_pulled_back_by_an_unrelated_reparent() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(100.0, 100.0, 160.0, 100.0)), "A");
+    let b = add(&mut s, page, |id| Node::frame(id, DRect::new(520.0, 100.0, 160.0, 100.0)), "B");
+    let f = add(&mut s, page, |id| Node::frame(id, DRect::new(100.0, 400.0, 300.0, 200.0)), "F");
+    let g = add(&mut s, page, |id| Node::frame(id, DRect::new(520.0, 400.0, 300.0, 200.0)), "G");
+    let l = rectangle(&mut s, page, "L", 900.0, 100.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(center(&s, a), center(&s, b));
+    let c = connectors(&s)[0];
+
+    // the user drops the connector into F in the Layers panel
+    let mut tx = crate::edit::Tx::new();
+    tx.cmd(&mut s.shell.app.doc, Command::Reparent { id: c, parent: f, index: usize::MAX }).unwrap();
+    s.shell.app.run_tx(tx);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(f), "a manual reparent sticks");
+
+    // one step: A is nudged and a layer that has nothing to do with the connector goes into G
+    let mut tx = crate::edit::Tx::new();
+    tx.ed.node(&mut s.shell.app.doc, a).unwrap().transform = Affine::translate(100.0, 120.0);
+    tx.cmd(&mut s.shell.app.doc, Command::Reparent { id: l, parent: g, index: usize::MAX }).unwrap();
+    s.shell.app.run_tx(tx);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(l).unwrap().parent, Some(g));
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(f), "the connector stays where the user put it");
+}

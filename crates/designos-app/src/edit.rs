@@ -276,6 +276,23 @@ impl Tx {
         self.commit_with_before(doc, hist, label).map(|(changed, _)| changed)
     }
 
+    /// Nodes whose place in the tree this transaction changed: the targets of its structural commands
+    /// and every node whose parent differs from what it was before.
+    fn reparented_nodes(&self, doc: &Document) -> std::collections::HashSet<NodeId> {
+        let mut out = std::collections::HashSet::new();
+        for cmd in &self.cmds {
+            match cmd {
+                Command::Reparent { id, .. } | Command::Remove { id } => {
+                    out.insert(*id);
+                }
+                Command::Insert { nodes, .. } => out.extend(nodes.first().map(|root| root.id)),
+                _ => {}
+            }
+        }
+        out.extend(self.ed.before.iter().filter(|(&id, old)| doc.get(id).is_some_and(|cur| cur.parent != old.parent)).map(|(&id, _)| id));
+        out
+    }
+
     /// Commits the transaction and returns `(changed, before_nodes)`, where `before_nodes` holds only the
     /// nodes whose properties changed and that still exist in `doc` after the commit.
     pub fn commit_with_before(mut self, doc: &mut Document, hist: &mut History, label: Option<String>) -> Result<(bool, BTreeMap<NodeId, Node>), DocError> {
@@ -321,13 +338,10 @@ impl Tx {
             }
             // a board connector always lives on the page, so a board file is never re-homed
             let rehomes = if crate::board::caps::board_targeting_for(doc.kind) { Vec::new() } else { plan.rehomes };
+            let reparented = self.reparented_nodes(doc);
             for (cid, new_home) in rehomes {
-                let ancestry_changed = self.cmds.iter().any(|cmd| match cmd {
-                    Command::Reparent { id, .. } | Command::Remove { id } => *id != cid,
-                    Command::Insert { nodes, .. } => nodes.first().is_some_and(|n| n.id != cid),
-                    _ => false,
-                }) || self.ed.before.iter().any(|(&id, old)| id != cid && doc.get(id).is_some_and(|cur| cur.parent != old.parent));
-                if !ancestry_changed {
+                // only a connector with an end whose place in the tree changed in this step is re-homed
+                if !ends_moved_with(doc, cid, &reparented) {
                     continue;
                 }
                 let old_parent = doc.get(cid).and_then(|n| n.parent);
@@ -382,6 +396,22 @@ impl Tx {
         self.ed.before.retain(|id, _| doc.get(*id).is_some());
         Ok((true, self.ed.before))
     }
+}
+
+/// Whether an end of connector `cid` is, or sits below, a node in `reparented`.
+fn ends_moved_with(doc: &Document, cid: NodeId, reparented: &std::collections::HashSet<NodeId>) -> bool {
+    let Some(designos_doc::NodeKind::Connector(c)) = doc.get(cid).map(|n| &n.kind) else { return false };
+    [c.start.node, c.end.node].into_iter().flatten().any(|end| {
+        let mut cur = Some(end);
+        for _ in 0..=doc.nodes.len() {
+            let Some(id) = cur else { return false };
+            if reparented.contains(&id) {
+                return true;
+            }
+            cur = doc.get(id).and_then(|n| n.parent);
+        }
+        false
+    })
 }
 
 #[cfg(test)]
