@@ -760,8 +760,9 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         return;
     }
     let over_handle = handle_hit(app, rect, pos);
-    // board: a magnet dot starts a connector
-    if over_handle.is_none() && app.wb_connectors_enabled() && !mid && !inp.space && !inp.mods.alt && matches!(app.tool, Tool::Move | Tool::Connector) {
+    // a magnet dot starts a connector; in a design file a resize handle or Alt (copy-drag) wins over a dot
+    let dot_wins = app.wb_board_targeting() || (over_handle.is_none() && !inp.mods.alt);
+    if dot_wins && app.wb_connectors_enabled() && !mid && !inp.space && matches!(app.tool, Tool::Move | Tool::Connector) {
         if let Some((node, magnet)) = crate::board::connect::dot_hit(app, rect, pos) {
             crate::board::connect::start(app, Some((node, magnet)), page);
             return;
@@ -822,8 +823,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         PressAction::PenPoint => pen_press(app, rect, pos, page, inp.mods),
         PressAction::Connect => {
             if app.wb_connectors_enabled() {
-                let deep = inp.mods.command || inp.mods.ctrl;
-                let from = (!inp.mods.alt).then(|| crate::board::connect::drop_target(app, page, deep, &[])).flatten();
+                let from = crate::board::connect::press_target(app, page, inp.mods);
                 crate::board::connect::start(app, from, page);
             }
         }
@@ -1618,7 +1618,8 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
         }
         Interaction::Guide(g) => rulers::release(app, g),
         Interaction::Connect(mut c) => {
-            if let Some(page) = cur {
+            // the drop lands where the pointer is now, with the modifiers held now (a board file keeps the last drag step)
+            if let Some(page) = cur.filter(|_| !app.wb_board_targeting()) {
                 crate::board::connect::drag(app, &mut c, page, inp.mods);
             }
             crate::board::connect::release(app, c);
@@ -2554,7 +2555,8 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
                     app.canvas.last_hover_query = None;
                 }
             }
-            Tool::Connector => {
+            // a board file reads its dots from its own hit test, so it keeps the plain crosshair
+            Tool::Connector if !app.wb_board_targeting() => {
                 cursor = egui::CursorIcon::Crosshair;
                 if inp.space {
                     app.hover = None;

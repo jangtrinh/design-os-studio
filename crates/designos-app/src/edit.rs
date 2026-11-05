@@ -319,7 +319,9 @@ impl Tx {
             if detached_any {
                 crate::board::connect::notify_detached();
             }
-            for (cid, new_home) in plan.rehomes {
+            // a board connector always lives on the page, so a board file is never re-homed
+            let rehomes = if crate::board::caps::board_targeting_for(doc.kind) { Vec::new() } else { plan.rehomes };
+            for (cid, new_home) in rehomes {
                 let ancestry_changed = self.cmds.iter().any(|cmd| match cmd {
                     Command::Reparent { id, .. } | Command::Remove { id } => *id != cid,
                     Command::Insert { nodes, .. } => nodes.first().is_some_and(|n| n.id != cid),

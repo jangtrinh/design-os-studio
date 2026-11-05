@@ -33,23 +33,39 @@ pub struct ConnectDrag {
     pub origin: Vec2,
 }
 
+/// Whiteboard items: the layers a connector reaches in a board file.
+fn is_whiteboard_item(kind: &NodeKind) -> bool {
+    matches!(kind, NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } | NodeKind::Text(_))
+}
+
+/// Whether a connector end may attach to `id`: a visible, unlocked whiteboard item in a board
+/// file, any connectable layer in a design file.
 fn candidate(app: &App, id: NodeId) -> bool {
-    connectable_node(&app.doc, id)
+    if app.wb_board_targeting() {
+        app.doc.get(id).is_some_and(|n| n.visible && !n.locked && is_whiteboard_item(&n.kind))
+    } else {
+        connectable_node(&app.doc, id)
+    }
 }
 
-fn is_whiteboard_dot_target(app: &App, id: NodeId) -> bool {
-    app.doc.get(id).is_some_and(|n| {
-        matches!(n.kind, NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. }) || (app.is_board() && matches!(n.kind, NodeKind::Text(_)))
-    })
-}
-
+/// Whether the dots show on `id` under the current tool: a board file shows them on every
+/// whiteboard item, a design file on the hovered or selected target of the Connector tool and, with
+/// the Move tool, on whiteboard items and the single selected layer.
 fn dot_allowed(app: &App, id: NodeId) -> bool {
-    candidate(app, id)
-        && match app.tool {
-            crate::canvas::tools::Tool::Connector => true,
-            crate::canvas::tools::Tool::Move => is_whiteboard_dot_target(app, id) || app.selection.as_slice() == [id],
-            _ => false,
+    if !candidate(app, id) {
+        return false;
+    }
+    if app.wb_board_targeting() {
+        return true;
+    }
+    match app.tool {
+        crate::canvas::tools::Tool::Connector => true,
+        crate::canvas::tools::Tool::Move => {
+            app.doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. }))
+                || app.selection.as_slice() == [id]
         }
+        _ => false,
+    }
 }
 
 /// The four magnet dots of a node in page space: just outside the middle of each side.
@@ -67,9 +83,12 @@ pub fn dot_hit(app: &App, rect: egui::Rect, pos: egui::Pos2) -> Option<(NodeId, 
 }
 
 /// Keeps `board.dots` on the node under the pointer (or the one whose dots the pointer is reaching for).
+/// A board file looks the whiteboard item up through groups and sections; a design file reads the
+/// cached hover and also shows the dots on a single selected layer.
 pub fn update_hover(app: &mut App, page: Option<Vec2>) {
+    let board = app.wb_board_targeting();
     if !app.wb_connectors_enabled()
-        || app.canvas.vedit.is_some()
+        || (!board && app.canvas.vedit.is_some())
         || !matches!(app.tool, crate::canvas::tools::Tool::Move | crate::canvas::tools::Tool::Connector)
     {
         app.board.dots = None;
@@ -82,7 +101,7 @@ pub fn update_hover(app: &mut App, page: Option<Vec2>) {
         app.board.dots = None;
         return;
     }
-    let single_sel = (app.tool == crate::canvas::tools::Tool::Move)
+    let single_sel = (!board && app.tool == crate::canvas::tools::Tool::Move)
         .then(|| match app.selection.as_slice() {
             &[s] if candidate(app, s) => Some(s),
             _ => None,
@@ -92,7 +111,7 @@ pub fn update_hover(app: &mut App, page: Option<Vec2>) {
         app.board.dots = single_sel;
         return;
     };
-    let hit = app.hover.filter(|id| dot_allowed(app, *id));
+    let hit = if board { interact::hit_under(app, page, true) } else { app.hover }.filter(|id| dot_allowed(app, *id));
     let near_current = app.board.dots.filter(|n| dot_allowed(app, *n)).filter(|n| {
         let r = world_aabb(&app.doc, *n);
         let m = (theme::BOARD_MAGNET_GAP + theme::BOARD_MAGNET_RADIUS + 8.0) / app.view.zoom;
@@ -103,12 +122,18 @@ pub fn update_hover(app: &mut App, page: Option<Vec2>) {
 
 /// Node (and magnet) a connector dropped at `page` would attach to: the node under the pointer,
 /// at the nearest magnet dot when the pointer is close to one, else on its side facing the start.
+/// A board file picks the deepest whiteboard item; a design file picks what a click would select,
+/// or the deepest layer when `deep`.
 pub(crate) fn drop_target(app: &App, page: Vec2, deep: bool, exclude: &[NodeId]) -> Option<(NodeId, Magnet)> {
     let tol = 2.0 / app.view.zoom;
-    let entered = interact::entered(app);
-    let hit_id = match interact::active_index(app) {
-        Some(idx) => hit::hit_test_excluding_with_index(&app.doc, app.page, page, tol, deep, &entered, exclude, Some(idx)),
-        None => hit::hit_test_excluding(&app.doc, app.page, page, tol, deep, &entered, exclude),
+    let hit_id = if app.wb_board_targeting() {
+        hit::hit_test_excluding(&app.doc, app.page, page, tol, true, &[], exclude)
+    } else {
+        let entered = interact::entered(app);
+        match interact::active_index(app) {
+            Some(idx) => hit::hit_test_excluding_with_index(&app.doc, app.page, page, tol, deep, &entered, exclude, Some(idx)),
+            None => hit::hit_test_excluding(&app.doc, app.page, page, tol, deep, &entered, exclude),
+        }
     };
     let id = hit_id.filter(|id| candidate(app, *id))?;
     let near = dot_positions(app, id)
@@ -117,6 +142,36 @@ pub(crate) fn drop_target(app: &App, page: Vec2, deep: bool, exclude: &[NodeId])
         .filter(|(_, d)| *d <= theme::BOARD_MAGNET_HIT * 2.5)
         .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
     Some((id, near.map(|(m, _)| m).unwrap_or(Magnet::Auto)))
+}
+
+/// Node (and magnet) a Connector-tool press at `page` starts from. Alt starts from a free point in
+/// a design file.
+pub fn press_target(app: &App, page: Vec2, mods: egui::Modifiers) -> Option<(NodeId, Magnet)> {
+    if app.wb_board_targeting() {
+        return interact::hit_under(app, page, true).filter(|id| app.doc.get(*id).is_some_and(|n| is_whiteboard_item(&n.kind))).map(|id| (id, Magnet::Auto));
+    }
+    if mods.alt {
+        return None;
+    }
+    drop_target(app, page, mods.command || mods.ctrl, &[])
+}
+
+/// The container a connector joining `a` and `b` lives in: the page in a board file, the nearest
+/// common frame, section or page in a design file.
+fn home_for(app: &App, a: Option<NodeId>, b: Option<NodeId>) -> NodeId {
+    if app.wb_board_targeting() {
+        app.page
+    } else {
+        connector_home(&app.doc, a, b, app.page)
+    }
+}
+
+/// A connector in a design file is positioned absolutely, so an auto-layout parent ignores it. A
+/// board connector is stored as it always was.
+fn keep_out_of_flow(board: bool, n: &mut Node) {
+    if !board {
+        n.layout_child.absolute = true;
+    }
 }
 
 fn default_connector_ink(app: &App, home: NodeId) -> Color {
@@ -150,7 +205,7 @@ fn default_connector_ink(app: &App, home: NodeId) -> Color {
 
 /// Starts dragging a connector from `from` (node and magnet) or, without one, from a free point.
 pub fn start(app: &mut App, from: Option<(NodeId, Magnet)>, page: Vec2) {
-    let parent = connector_home(&app.doc, from.map(|f| f.0), None, app.page);
+    let parent = home_for(app, from.map(|f| f.0), None);
     let local_page = app.doc.world_transform(parent).invert().unwrap_or(Affine::IDENTITY).apply(page);
     let id = app.doc.alloc_id();
     let start = match from {
@@ -159,7 +214,7 @@ pub fn start(app: &mut App, from: Option<(NodeId, Magnet)>, page: Vec2) {
     };
     let props = ConnectorProps { start, end: ConnectorEnd::free(local_page), ..Default::default() };
     let mut node = Node::connector(id, props);
-    node.layout_child.absolute = true;
+    keep_out_of_flow(app.wb_board_targeting(), &mut node);
     node.stroke.paints = vec![Paint::solid(default_connector_ink(app, parent))];
     node.name = app.unique_name("Connector");
     let mut tx = Tx::new();
@@ -185,9 +240,11 @@ fn place(app: &mut App, tx: &mut Tx, id: NodeId) {
 /// Pointer moved to `page` while dragging a connector.
 pub fn drag(app: &mut App, c: &mut ConnectDrag, page: Vec2, mods: egui::Modifiers) {
     let deep = mods.command || mods.ctrl;
-    let target = (!mods.alt).then(|| drop_target(app, page, deep, &[c.id])).flatten().filter(|(t, _)| Some(*t) != c.from);
+    let board = app.wb_board_targeting();
+    let ignore_magnets = mods.alt && !board;
+    let target = (!ignore_magnets).then(|| drop_target(app, page, deep, &[c.id])).flatten().filter(|(t, _)| Some(*t) != c.from);
     app.board.target = target.map(|t| t.0);
-    let home = connector_home(&app.doc, c.from, target.map(|t| t.0), app.page);
+    let home = home_for(app, c.from, target.map(|t| t.0));
     let cur_parent = app.doc.get(c.id).and_then(|n| n.parent);
     if cur_parent != Some(home) {
         let old_parent = cur_parent.unwrap_or(app.page);
@@ -197,7 +254,7 @@ pub fn drag(app: &mut App, c: &mut ConnectDrag, page: Vec2, mods: egui::Modifier
             let ink = default_connector_ink(app, home);
             let xform = new_inv * old_world;
             if let Some(n) = c.tx.ed.node(&mut app.doc, c.id) {
-                n.layout_child.absolute = true;
+                keep_out_of_flow(board, n);
                 n.stroke.paints = vec![Paint::solid(ink)];
                 if let NodeKind::Connector(p) = &mut n.kind {
                     if p.start.node.is_none() {
@@ -213,7 +270,7 @@ pub fn drag(app: &mut App, c: &mut ConnectDrag, page: Vec2, mods: egui::Modifier
         None => ConnectorEnd::free(local_page),
     };
     if let Some(n) = c.tx.ed.node(&mut app.doc, c.id) {
-        n.layout_child.absolute = true;
+        keep_out_of_flow(board, n);
         if let NodeKind::Connector(p) = &mut n.kind {
             p.end = end;
         }
