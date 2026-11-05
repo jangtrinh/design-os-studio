@@ -24,6 +24,9 @@ pub fn react_for(doc: &Document, node: NodeId) -> String {
 /// `var(--token)` references.
 pub fn react_with(doc: &Document, node: NodeId, opts: &ReactOptions) -> String {
     let Some(n) = doc.get(node) else { return String::new() };
+    if matches!(n.kind, NodeKind::Connector(_)) {
+        return String::new();
+    }
     let mut o = Out::new("  ");
     o.line(0, react_slot_signature(doc, n));
     o.line(1, "return (");
@@ -137,7 +140,7 @@ fn open_tag(o: &mut Out, depth: usize, tag: &str, extra: &str, style: &[String],
 
 fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
-    if !n.visible {
+    if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
     let style = style_entries(doc, id, parent.root);

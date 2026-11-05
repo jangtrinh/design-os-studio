@@ -32,7 +32,7 @@ fn board_text_props(v: &Value, base: TextProps) -> TextProps {
             t.style.font_family = f.to_string();
         }
         if let Some(w) = fnum(st, "fontWeight") {
-            t.style.font_weight = w as u16;
+            t.style.set_font_weight(w as u16);
         }
         match fstr(st, "textAlignHorizontal") {
             Some("CENTER") => t.style.align_h = TextAlignH::Center,
@@ -244,7 +244,13 @@ pub(crate) fn link_connectors(doc: &mut Document, ids: &BTreeMap<String, NodeId>
     fn rec(doc: &mut Document, ids: &BTreeMap<String, NodeId>, v: &Value, out: &mut Vec<NodeId>) {
         if fstr(v, "type") == Some("CONNECTOR") {
             if let Some(&cid) = fstr(v, "id").and_then(|s| ids.get(s)) {
-                let target = |key: &str| v.get(key).and_then(|e| fstr(e, "endpointNodeId")).and_then(|s| ids.get(s)).copied();
+                let target = |key: &str| {
+                    v.get(key)
+                        .filter(|e| !matches!(fstr(e, "magnet"), Some("NONE" | "ABSOLUTE")))
+                        .and_then(|e| fstr(e, "endpointNodeId"))
+                        .and_then(|s| ids.get(s))
+                        .copied()
+                };
                 let (a, b) = (target("connectorStart"), target("connectorEnd"));
                 if let Some(NodeKind::Connector(c)) = doc.get_mut(cid).map(|n| &mut n.kind) {
                     c.start.node = a;
@@ -262,6 +268,112 @@ pub(crate) fn link_connectors(doc: &mut Document, ids: &BTreeMap<String, NodeId>
     for c in connectors {
         sync_connector(doc, c);
     }
+}
+
+fn default_stroke_weight() -> f32 {
+    2.0
+}
+
+/// Carried connector payload stored on a design or deck `VECTOR` or `GROUP` under
+/// `field:studioConnector` in `.fig` and `designos-studio:field:studioConnector` in REST JSON.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct StudioConnectorCarrier {
+    #[serde(flatten)]
+    pub props: ConnectorProps,
+    #[serde(default = "default_stroke_weight", rename = "strokeWeight")]
+    pub stroke_weight: f32,
+    #[serde(default, rename = "strokePaints")]
+    pub stroke_paints: Vec<Paint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "strokeDashes")]
+    pub stroke_dashes: Vec<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "strokeJoin")]
+    pub stroke_join: Option<StrokeJoin>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "startNodeId")]
+    pub start_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "endNodeId")]
+    pub end_node_id: Option<String>,
+}
+
+impl StudioConnectorCarrier {
+    pub(crate) fn from_node(node: &Node, cp: &ConnectorProps, start_node_id: Option<String>, end_node_id: Option<String>) -> Self {
+        Self {
+            props: cp.clone(),
+            stroke_weight: node.stroke.weight,
+            stroke_paints: node.stroke.paints.clone(),
+            stroke_dashes: node.stroke.dashes.clone(),
+            stroke_join: Some(node.stroke.join),
+            start_node_id,
+            end_node_id,
+        }
+    }
+}
+
+/// Lowered vector representation of a connector for non-board export.
+pub(crate) struct LoweredConnector {
+    pub local_route: Route,
+    pub network: VectorNetwork,
+    pub label_chip: Option<(Rect, f32, Rect, TextProps)>,
+}
+
+fn connector_cap_to_stroke_cap(c: ConnectorCap, for_fig: bool) -> StrokeCap {
+    match c {
+        ConnectorCap::None => StrokeCap::None,
+        ConnectorCap::Arrow => StrokeCap::ArrowLines,
+        ConnectorCap::Triangle => {
+            if for_fig {
+                StrokeCap::ArrowEquilateral
+            } else {
+                StrokeCap::TriangleFilled
+            }
+        }
+        ConnectorCap::Circle => StrokeCap::CircleFilled,
+        ConnectorCap::Diamond => StrokeCap::DiamondFilled,
+    }
+}
+
+pub(crate) fn lower_design_connector(doc: &Document, id: NodeId, node: &Node, cp: &ConnectorProps, for_fig: bool) -> LoweredConnector {
+    let parent_route = connector_route(doc, id).unwrap_or_else(|| {
+        let (a, b) = resolve_anchors((None, cp.start.magnet, cp.start.point), (None, cp.end.magnet, cp.end.point));
+        route(cp.line, &a, &b)
+    });
+    let local_route = parent_route.translated(Vec2::new(-node.transform.tx, -node.transform.ty));
+    let mut net = VectorNetwork::default();
+    if let Some([p0, c1, c2, p3]) = local_route.curve {
+        net.add_vertex(p0);
+        net.add_vertex(p3);
+        net.connect(0, 1);
+        net.segments[0].ta = Vec2::new(c1.x - p0.x, c1.y - p0.y);
+        net.segments[0].tb = Vec2::new(c2.x - p3.x, c2.y - p3.y);
+    } else if local_route.pts.len() >= 2 {
+        for p in &local_route.pts {
+            net.add_vertex(*p);
+        }
+        for i in 0..(net.vertices.len() - 1) {
+            net.connect(i, i + 1);
+        }
+    } else {
+        net.add_vertex(local_route.start());
+        net.add_vertex(local_route.end());
+        net.connect(0, 1);
+    }
+    if cp.start_cap != ConnectorCap::None {
+        if let Some(first) = net.vertices.first_mut() {
+            first.cap = Some(connector_cap_to_stroke_cap(cp.start_cap, for_fig));
+        }
+    }
+    if cp.end_cap != ConnectorCap::None {
+        if let Some(last) = net.vertices.last_mut() {
+            last.cap = Some(connector_cap_to_stroke_cap(cp.end_cap, for_fig));
+        }
+    }
+    let label_chip = cp.label.as_ref().filter(|l| !l.content.is_empty()).map(|lbl| {
+        let sz = label_size_estimate(lbl);
+        let mid = local_route.midpoint();
+        let text_rect = Rect::new(mid.x - sz.x / 2.0, mid.y - sz.y / 2.0, sz.x, sz.y);
+        let bg_rect = Rect::new(text_rect.x - 4.0, text_rect.y - 2.0, text_rect.w + 8.0, text_rect.h + 4.0);
+        (bg_rect, 6.0, text_rect, lbl.clone())
+    });
+    LoweredConnector { local_route, network: net, label_chip }
 }
 
 /// REST `type` of a board kind.

@@ -488,6 +488,8 @@ fn pref_nodes(app: &App) -> Vec<Node> {
 
 /// The logo menu: sections separated by lines, every submenu wired to real commands.
 fn main_nodes(app: &App) -> Vec<Node> {
+    // A Project tab has no design document to save or export; the commands stay visible but greyed.
+    let project = app.tabs.active_is_project();
     let has_sel = !app.selection.is_empty();
     let has_text = app.selection.iter().any(|id| app.doc.get(*id).is_some_and(|n| matches!(n.kind, NodeKind::Text(_))));
     let has_inst = !app.selected_instances().is_empty();
@@ -498,17 +500,17 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("New deck", "", Action::NewDeck),
         leaf("Open…", "Ctrl+O", Action::Open),
         leaf("Import web capture…", "", Action::ImportWebCapture),
-        leaf("Save", "Ctrl+S", Action::Save),
-        leaf("Save as…", "Ctrl+Shift+S", Action::SaveAs),
-        leaf("Save .fig copy", "", Action::ExportFig),
-        leaf("Save to library…", "", Action::SaveToLibrary).off(app.lib.is_none() || app.lib_file.is_some()).sep(),
-        leaf("Show version history", "", Action::ToggleVersionHistory).on(app.history.open),
-        leaf("Save to version history…", "Ctrl+Alt+S", Action::SaveVersion).off(!app.has_history()).sep(),
-        leaf("Export selection as PNG…", "", Action::Export).off(!has_sel),
+        leaf("Save", "Ctrl+S", Action::Save).off(project),
+        leaf("Save as…", "Ctrl+Shift+S", Action::SaveAs).off(project),
+        leaf("Save .fig copy", "", Action::ExportFig).off(project),
+        leaf("Save to library…", "", Action::SaveToLibrary).off(project || app.lib.is_none() || app.lib_file.is_some()).sep(),
+        leaf("Show version history", "", Action::ToggleVersionHistory).on(app.history.open).off(project),
+        leaf("Save to version history…", "Ctrl+Alt+S", Action::SaveVersion).off(project || !app.has_history()).sep(),
+        leaf("Export selection as PNG…", "", Action::Export).off(project || !has_sel),
     ];
     if app.is_deck() {
-        file.push(leaf("Export current slide as PDF…", "", Action::ExportSlidePdf).off(app.deck_pdf_slides(false).is_err()));
-        file.push(leaf("Export all slides as PDF…", "", Action::ExportDeckPdf).off(app.deck_pdf_slides(true).is_err()));
+        file.push(leaf("Export current slide as PDF…", "", Action::ExportSlidePdf).off(project || app.deck_pdf_slides(false).is_err()));
+        file.push(leaf("Export all slides as PDF…", "", Action::ExportDeckPdf).off(project || app.deck_pdf_slides(true).is_err()));
     }
     let edit = vec![
         leaf("Undo", "Ctrl+Z", Action::Undo).off(!app.hist.can_undo()),
@@ -695,6 +697,7 @@ pub fn preset_menu(ctx: &Context, app: &mut App, spec: &str, screen: Rect) -> bo
 }
 
 fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
+    let project = app.tabs.active_is_project();
     let has_sel = !app.selection.is_empty();
     let mut items = vec![
         (MenuItem::new("New design file"), Some(Action::New)),
@@ -702,12 +705,12 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
         (MenuItem::new("New deck"), Some(Action::NewDeck)),
         (MenuItem::new("Open…").shortcut("Ctrl+O"), Some(Action::Open)),
         (MenuItem::new("Import web capture…"), Some(Action::ImportWebCapture)),
-        (MenuItem::new("Save").shortcut("Ctrl+S"), Some(Action::Save)),
-        (MenuItem::new("Save as…").shortcut("Ctrl+Shift+S"), Some(Action::SaveAs)),
-        (MenuItem::new("Save .fig copy"), Some(Action::ExportFig)),
-        (MenuItem::new("Save to library…").disabled(app.lib.is_none() || app.lib_file.is_some()).sep(), Some(Action::SaveToLibrary)),
-        (MenuItem::new("Show version history").checked(app.history.open), Some(Action::ToggleVersionHistory)),
-        (MenuItem::new("Save to version history…").shortcut("Ctrl+Alt+S").disabled(!app.has_history()).sep(), Some(Action::SaveVersion)),
+        (MenuItem::new("Save").shortcut("Ctrl+S").disabled(project), Some(Action::Save)),
+        (MenuItem::new("Save as…").shortcut("Ctrl+Shift+S").disabled(project), Some(Action::SaveAs)),
+        (MenuItem::new("Save .fig copy").disabled(project), Some(Action::ExportFig)),
+        (MenuItem::new("Save to library…").disabled(project || app.lib.is_none() || app.lib_file.is_some()).sep(), Some(Action::SaveToLibrary)),
+        (MenuItem::new("Show version history").checked(app.history.open).disabled(project), Some(Action::ToggleVersionHistory)),
+        (MenuItem::new("Save to version history…").shortcut("Ctrl+Alt+S").disabled(project || !app.has_history()).sep(), Some(Action::SaveVersion)),
         (MenuItem::new("Undo").shortcut("Ctrl+Z").disabled(!app.hist.can_undo()), Some(Action::Undo)),
         (MenuItem::new("Redo").shortcut("Ctrl+Shift+Z").disabled(!app.hist.can_redo()).sep(), Some(Action::Redo)),
         (MenuItem::new("Select all").shortcut("Ctrl+A"), Some(Action::SelectAll)),
@@ -716,11 +719,11 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
         (MenuItem::new("Add auto layout").shortcut("Shift+A").disabled(!has_sel).sep(), Some(Action::AutoLayout)),
         (MenuItem::new("Create component").shortcut("Ctrl+Alt+K").disabled(!has_sel), Some(Action::CreateComponent)),
         (MenuItem::new("Detach instance").shortcut("Ctrl+Alt+B").disabled(!has_sel).sep(), Some(Action::Detach)),
-        (MenuItem::new("Export selection as PNG…").disabled(!has_sel), Some(Action::Export)),
+        (MenuItem::new("Export selection as PNG…").disabled(project || !has_sel), Some(Action::Export)),
     ];
     if app.is_deck() {
-        items.push((MenuItem::new("Export current slide as PDF…").disabled(app.deck_pdf_slides(false).is_err()), Some(Action::ExportSlidePdf)));
-        items.push((MenuItem::new("Export all slides as PDF…").disabled(app.deck_pdf_slides(true).is_err()), Some(Action::ExportDeckPdf)));
+        items.push((MenuItem::new("Export current slide as PDF…").disabled(project || app.deck_pdf_slides(false).is_err()), Some(Action::ExportSlidePdf)));
+        items.push((MenuItem::new("Export all slides as PDF…").disabled(project || app.deck_pdf_slides(true).is_err()), Some(Action::ExportDeckPdf)));
     }
     items
 }
@@ -795,8 +798,7 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
             .id(id.with("zoom-input"))
             .font(theme::font_body())
             .text_color(theme::TEXT)
-            .frame(egui::Frame::NONE)
-            .margin(egui::Margin::symmetric(8, 0))
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 0)))
             .vertical_align(egui::Align::Center)
             .desired_width(input_box.width() - 16.0);
         let resp = ui.put(input_box, te);
@@ -1041,7 +1043,6 @@ fn palette(app: &mut App, ctx: &Context) {
             .font(font.clone())
             .text_color(theme::TEXT)
             .frame(egui::Frame::NONE)
-            .margin(egui::Margin::ZERO)
             .vertical_align(egui::Align::Center)
             .hint_text(egui::RichText::new("Search...").font(font.clone()).color(theme::TEXT_PLACEHOLDER))
             .desired_width(field.width());
@@ -1452,5 +1453,44 @@ mod tests {
         // Hide the only child -> disabled
         app.doc.get_mut(child).unwrap().visible = false;
         assert!(object_row(&app, "Resize to fit").disabled, "frame with only hidden children disables Resize to fit");
+    }
+
+    fn node_disabled(nodes: &[Node], label: &str) -> Option<bool> {
+        nodes.iter().find_map(|n| if n.item.label == label { Some(n.item.disabled) } else { node_disabled(&n.kids, label) })
+    }
+
+    const DOCUMENT_FILE_COMMANDS: [&str; 7] =
+        ["Save", "Save as…", "Save .fig copy", "Save to library…", "Show version history", "Save to version history…", "Export selection as PNG…"];
+
+    #[test]
+    fn save_and_export_are_greyed_on_a_project_tab_and_enabled_on_a_design_tab() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+        let rect = doc.alloc_id();
+        doc.insert(page, DocNode::rectangle(rect, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut app = App::new(doc);
+        app.selection = vec![rect];
+        let root = std::env::temp_dir().join(format!("designos-menus-project-tab-{}", std::process::id()));
+        app.lib = Some(designos_library::Library::open(&root).unwrap());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        // A design tab: the commands that can run are enabled (version history needs a saved file, so it is not asserted here).
+        for label in ["Save", "Save as…", "Save .fig copy", "Save to library…", "Show version history", "Export selection as PNG…"] {
+            assert_eq!(node_disabled(&main_nodes(&app), label), Some(false), "{label} on a design tab (logo menu)");
+            let items = file_items(&app);
+            assert_eq!(items.iter().find(|(m, _)| m.label == label).map(|(m, _)| m.disabled), Some(false), "{label} on a design tab (file items)");
+        }
+        // The same window on a Project tab: greyed, not hidden.
+        app.tabs.entries[app.tabs.active_idx].kind = crate::tabs::ProjectTabKind::Project;
+        assert!(app.tabs.active_is_project());
+        for label in DOCUMENT_FILE_COMMANDS {
+            assert_eq!(node_disabled(&main_nodes(&app), label), Some(true), "{label} on a Project tab (logo menu)");
+            let items = file_items(&app);
+            let found = items.iter().find(|(m, _)| m.label == label).map(|(m, _)| m.disabled);
+            assert_eq!(found, Some(true), "{label} on a Project tab (file items)");
+        }
+        std::fs::remove_dir_all(&root).ok();
     }
 }

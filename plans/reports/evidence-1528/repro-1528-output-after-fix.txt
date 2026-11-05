@@ -1,0 +1,21 @@
+[A manifest unknown key -> docs_list error] isError=True loose_injection_strings=[]
+[B manifest page path -> docs_list path] isError=False loose_injection_strings=[]
+[C on-disk page name -> docs_read valid_options] isError=True loose_injection_strings=[]
+[D project.json id -> unknown project valid_options] isError=True loose_injection_strings=[]
+[D project.json id -> docs_list project.id] isError=True loose_injection_strings=[]
+[E file symlink] isError= True value= null
+[E dir symlink] isError= True value= null
+[F missing library] calls=[('designos_docs_list', True, 'INVALID_ARGUMENTS'), ('designos_docs_read', True, 'INVALID_ARGUMENTS'), ('designos_docs_list', True, 'INVALID_ARGUMENTS'), ('designos_docs_read', True, 'INVALID_ARGUMENTS')] fs_before=[] fs_after=[] untouched=True
+[F project without docs] calls=[('designos_docs_list', False, None), ('designos_docs_read', True, 'INVALID_ARGUMENTS'), ('designos_docs_list', True, 'INVALID_ARGUMENTS'), ('designos_docs_read', True, 'INVALID_ARGUMENTS')] fs_before=['library', 'library/projects', 'library/projects/a1', 'library/projects/a1/project.json'] fs_after=['library', 'library/projects', 'library/projects/a1', 'library/projects/a1/project.json'] untouched=True
+[G budget] blocks_returned=1 next_start=1 markdown_chars=30000 structured_json_bytes=60651 content_text_bytes=60598 jsonrpc_line_bytes=181387
+[H oversize block] total=1 next_start=None truncated=True returned_chars=86641
+[I {'page': 'empty.md'}] isError=False code=None path=None msg=None
+[I {'page': 'empty.md', 'range': {'start': 5}}] isError=True code=VALUE_OUT_OF_RANGE path=/range/start msg=start 5 is past the last block; the page has no blocks, so start must be 0
+[I {'page': 'empty.md', 'range': {'end': 0}}] isError=True code=VALUE_OUT_OF_RANGE path=/range/end msg=end must be at least 1; end is exclusive
+[J '/etc/passwd.md'] isError=True code=INVALID_ARGUMENTS msg='the page path is not a valid docs path; fix: use a relative Markdown path such as spec/checkout.md (no `..`, no leading '
+[J '../a1/docs/empty.md'] isError=True code=INVALID_ARGUMENTS msg='the page path is not a valid docs path; fix: use a relative Markdown path such as spec/checkout.md (no `..`, no leading '
+[J 'spec/..%2f.md'] isError=True code=INVALID_ARGUMENTS msg='the page path is not a valid docs path; fix: use a relative Markdown path such as spec/checkout.md (no `..`, no leading '
+[J 'spec/\u202egnp.md'] isError=True code=INVALID_ARGUMENTS msg="no such page in this project's docs; fix: call designos_docs_list and pass a page path from it"
+[J 'spec/a\u200b.md'] isError=True code=INVALID_ARGUMENTS msg="no such page in this project's docs; fix: call designos_docs_list and pass a page path from it"
+[J 'C:/x.md'] isError=True code=INVALID_ARGUMENTS msg='the page path is not a valid docs path; fix: use a relative Markdown path such as spec/checkout.md (no `..`, no leading '
+[J 'spec\\x.md'] isError=True code=INVALID_ARGUMENTS msg='the page path is not a valid docs path; fix: use a relative Markdown path such as spec/checkout.md (no `..`, no leading '

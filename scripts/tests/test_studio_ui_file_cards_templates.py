@@ -38,7 +38,7 @@ def part(node, name):
 
 
 class StarterTemplateTest(unittest.TestCase):
-    """`templates_view` template cards (home/mod.rs:1590-1771), the first card (`Blank design`)."""
+    """`templates_view` template cards (home/mod.rs:1634-1815), the first card (`Blank design`)."""
 
     def setUp(self):
         self.spec, self.card = SPECS["Card/StarterTemplate"], build("Card/StarterTemplate")
@@ -50,11 +50,11 @@ class StarterTemplateTest(unittest.TestCase):
         self.assertEqual([(k["set"], k["variant"]) for k in walk(self.card) if k["t"] == "X"], [("Button/Secondary", "Size=Sm, State=Default")])
 
     def test_the_card_is_240_by_204_xl_radius_with_a_border_and_clips_its_banner(self):
-        """`tcw` 240, `tch` = 188 + SPACE_GROUP + SPACE_FACT (:1644); the banner's top corners are the card's own (a clip), as only they are rounded in the Rust."""
+        """`tcw` 240, `tch` = 188 + SPACE_GROUP + SPACE_FACT (:1688); the banner's top corners are the card's own (a clip), as only they are rounded in the Rust."""
         self.assertEqual((self.card["w"], self.card["h"]), (240, 204))
         self.assertEqual((self.card["fill"], self.card["stroke"], self.card["sw"][:2], self.card["radius"], self.card["clip"]),
                          ("color/bg-secondary", "color/border", ("lit", 1.0), "radius/xl", True))
-        self.assertIn("home/mod.rs:1686", self.card["sw"][2])  # `Stroke::new(if hot { 1.5 } else { 1.0 }, ..)`: raw widths; the icon box and the pill name `theme::BORDER_WIDTH`
+        self.assertIn("home/mod.rs:1730", self.card["sw"][2])  # `Stroke::new(if hot { 1.5 } else { 1.0 }, ..)`: raw widths; the icon box and the pill name `theme::BORDER_WIDTH`
 
     def test_the_button_is_the_nested_secondary_sm_filling_the_card_between_its_padding_at_the_bottom(self):
         """`btn_r` is `r.bottom() - SPACE_GROUP - CONTROL_SM` and as wide as the card less 2 * SPACE_GROUP (:1722-1725): a bottom-aligned child with that padding, filling the width; its main is
@@ -108,7 +108,7 @@ class StarterTemplateTest(unittest.TestCase):
 
 
 class EmptyStateTest(unittest.TestCase):
-    """The Home `empty_state` (home/mod.rs:2390-2414): a tile 44 above the centre, a title at it, a body 4 below the title's line."""
+    """The Home `empty_state` (home/mod.rs:2450-2474): a tile 44 above the centre, a title at it, a body 4 below the title's line."""
 
     def setUp(self):
         self.spec, self.state = SPECS["EmptyState/Default"], build("EmptyState/Default", State="Default")
@@ -145,15 +145,15 @@ class EmptyStateTest(unittest.TestCase):
         self.assertEqual(self.state["align"], ("start", "center"), "the column centres the 380 px block under the title")
 
     def test_the_wrap_width_citations_point_at_the_line_that_holds_the_380(self):
-        """`BODY_W` and the module docstring cite the line of `380.0_f32.min(area.width() - 48.0)` in home/mod.rs: that is 2410-2411 (2409 is the title's `p.text`)."""
+        """`BODY_W` and the module docstring cite the line of `380.0_f32.min(area.width() - 48.0)` in home/mod.rs: that is 2470-2471 (2469 is the title's `p.text`)."""
         source = (HERE.parent / "studio_ui_file" / "components" / "cards_templates.py").read_text(encoding="utf-8")
         rust = (REPO / "crates" / "designos-app" / "src" / "home" / "mod.rs").read_text(encoding="utf-8").splitlines()
         cited = re.findall(r"(?:home/mod\.rs|:)(\d+)-(\d+)", "\n".join(l for l in source.splitlines() if "380" in l and ("area.width()" in l or "min(380" in l)))
         self.assertEqual(len(cited), 2, "the docstring and BODY_W each cite the wrap width's lines")
         for first, last in cited:
-            self.assertEqual((first, last), ("2410", "2411"))
+            self.assertEqual((first, last), ("2470", "2471"))
             self.assertIn("380.0_f32.min(area.width() - 48.0)", " ".join(rust[int(first) - 1:int(last)]))
-        self.assertNotIn("2409", "\n".join(l for l in source.splitlines() if "380" in l and "area.width()" in l))
+        self.assertNotIn("2469", "\n".join(l for l in source.splitlines() if "380" in l and "area.width()" in l))
 
     def test_every_style_exists_and_the_props_are_declared(self):
         self.assertLessEqual({k["style"] for k in walk(self.state) if k["t"] == "T"}, STYLES)

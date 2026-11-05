@@ -1,0 +1,26 @@
+# cargo test -p designos-app --bin designos --release --locked --no-run on HEAD 9f541fe58 (plain release, no debug-assertions override)
+error[E0609]: no field `debug` on type `&mut egui::Style`
+    --> crates/designos-app/src/layout_snapshot.rs:1110:34
+error[E0609]: no field `debug` on type `&mut egui::Style`
+    --> crates/designos-app/src/layout_snapshot.rs:2174:42
+error[E0609]: no field `debug` on type `&mut egui::Style`
+    --> crates/designos-app/src/layout_snapshot.rs:2328:38
+error[E0609]: no field `debug` on type `&mut egui::Style`
+    --> crates/designos-app/src/layout_snapshot.rs:2399:34
+error[E0609]: no field `debug` on type `&mut egui::Style`
+    --> crates/designos-app/src/layout_snapshot.rs:2438:34
+error[E0609]: no field `debug` on type `&mut egui::Style`
+    --> crates/designos-app/src/layout_snapshot.rs:2479:42
+error[E0609]: no field `debug` on type `&mut egui::Style`
+  --> crates/designos-app/src/shell/tests/agent_simplified_panel.rs:80:34
+error[E0609]: no field `debug` on type `&mut egui::Style`
+   --> crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:387:42
+error: could not compile `designos-app` (bin "designos" test) due to 8 previous errors
+rc=101
+# git diff --stat 7f2f7f49e HEAD -- crates/designos-app   (7f2f7f49e = the main this branch merged; only Cargo.toml (the PR's dev-dependency line) and hit.rs appear, so the failing test code in layout_snapshot.rs and shell/tests is main's)
+ crates/designos-app/Cargo.toml        |   1 +
+ crates/designos-app/src/canvas/hit.rs | 278 +++++++++++++++++++++++++++++++++-
+ 2 files changed, 275 insertions(+), 4 deletions(-)
+# git diff --stat 7f2f7f49e HEAD -- crates/designos-app/src/shell crates/designos-app/src/layout_snapshot.rs   (empty = untouched)
+diff_stat_done
+# main has moved since the merge: origin/main = 56f08c5c1; git merge-tree --write-tree --name-only HEAD origin/main exits 0 (clean) and 'git diff --name-only HEAD...origin/main' lists none of index.rs, canvas/hit.rs, connector_perf.rs

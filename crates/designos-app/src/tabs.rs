@@ -17,6 +17,10 @@ use std::path::{Path, PathBuf};
 
 mod agent_document;
 
+// Declared here, not in `main.rs`: the Project tab is a kind of tab, and this keeps the wiring in one owned file.
+#[path = "project_tab/mod.rs"]
+pub mod project_tab;
+
 /// Exact height of the 1:1 Figma UI3 Top Window Tab Bar (`32px`).
 pub const TOP_TAB_BAR_HEIGHT: f32 = 32.0;
 
@@ -30,6 +34,8 @@ pub enum ProjectTabKind {
     Board,
     Deck,
     Spec,
+    /// A library project's docs (tree, reading page, contents); its state lives in `TabsState::project_states`.
+    Project,
 }
 
 impl ProjectTabKind {
@@ -47,6 +53,7 @@ impl ProjectTabKind {
             Self::Board => Icon::Sticky,
             Self::Deck => Icon::Page,
             Self::Spec => Icon::Specs,
+            Self::Project => Icon::BookOpen,
         }
     }
 }
@@ -137,6 +144,8 @@ pub struct TabsState {
     pub parked_in_home: bool,
     /// Tracks whether `entries[active_idx]`'s live `History` currently resides in `app.hist`.
     hist_in_app: bool,
+    /// The state of every open Project tab, by tab id. It stays with the tab while another tab shows.
+    pub project_states: std::collections::HashMap<u64, project_tab::ProjectTabState>,
 }
 
 impl Default for TabsState {
@@ -151,6 +160,7 @@ impl Default for TabsState {
             always_visible: false,
             parked_in_home: false,
             hist_in_app: true,
+            project_states: std::collections::HashMap::new(),
         }
     }
 }
@@ -214,8 +224,10 @@ impl TabsState {
             self.active_idx = self.entries.len() - 1;
         }
         let tab = &mut self.entries[self.active_idx];
-        tab.title = ProjectTab::derive_title(app);
-        if tab.kind != ProjectTabKind::Spec {
+        if tab.kind != ProjectTabKind::Project {
+            tab.title = ProjectTab::derive_title(app);
+        }
+        if !matches!(tab.kind, ProjectTabKind::Spec | ProjectTabKind::Project) {
             tab.kind = ProjectTabKind::from_doc(&app.doc);
         }
         tab.page = app.page;
@@ -374,6 +386,10 @@ impl TabsState {
             app.ui.rail = Some(RailItem::Specs);
             app.specs.open = true;
             app.specs.ensure_loaded();
+        } else if tab_kind == ProjectTabKind::Project {
+            // The doc tree is the File panel of this tab: the rail shows File as the selected tile.
+            app.ui.rail = Some(RailItem::File);
+            app.specs.open = false;
         } else if app.specs.open && app.ui.rail == Some(RailItem::Specs) {
             app.specs.open = false;
         }
@@ -548,7 +564,7 @@ impl TabsState {
         doc.kind = match kind {
             ProjectTabKind::Board => DocumentKind::Board,
             ProjectTabKind::Deck => DocumentKind::Deck,
-            ProjectTabKind::Design | ProjectTabKind::Spec => DocumentKind::Design,
+            ProjectTabKind::Design | ProjectTabKind::Spec | ProjectTabKind::Project => DocumentKind::Design,
         };
         crate::io::ensure_page(&mut doc);
         // Before any page hydrates. `open_new_design_tab` and `open_new_board_tab` come through here.
@@ -622,6 +638,44 @@ impl TabsState {
         doc.kind = DocumentKind::Deck;
         doc.add_page("Slide 1");
         self.open_new_tab(app, "Untitled", doc, ProjectTabKind::Deck)
+    }
+
+    /// Whether the tab on screen is a Project tab (not the Home screen, not a parked tab).
+    pub fn active_is_project(&self) -> bool {
+        !self.parked_in_home && self.entries.get(self.active_idx).is_some_and(|t| t.kind == ProjectTabKind::Project)
+    }
+
+    /// Focuses the Project tab of library project `project_id`, or opens one at the end of the strip.
+    /// `shot` is what a screenshot run asked the new tab to show.
+    pub fn open_project_tab(&mut self, app: &mut App, project_id: &str, shot: Option<project_tab::shot::ShotSpec>) -> Option<usize> {
+        let existing =
+            self.entries.iter().position(|t| t.kind == ProjectTabKind::Project && self.project_states.get(&t.id).is_some_and(|s| s.project_id == project_id));
+        if let Some(idx) = existing {
+            self.switch_to(idx, app);
+            return Some(idx);
+        }
+        let name = match app.lib.as_ref().map(|l| l.project(project_id)) {
+            Some(Ok(project)) => project.name,
+            Some(Err(e)) => {
+                app.show_toast(format!("Cannot open this project: {e}"), true);
+                return None;
+            }
+            None => {
+                app.show_toast("Studio has no library open", true);
+                return None;
+            }
+        };
+        let title = project_tab::tab_title(&name);
+        let mut doc = Document::new(&title);
+        doc.add_page("Page 1");
+        let idx = self.open_new_tab(app, &title, doc, ProjectTabKind::Project);
+        let id = self.entries[idx].id;
+        let state = match shot {
+            Some(spec) => project_tab::ProjectTabState::with_shot(project_id, &name, spec),
+            None => project_tab::ProjectTabState::new(project_id, &name),
+        };
+        self.project_states.insert(id, state);
+        Some(idx)
     }
 
     /// Focuses an existing tab with `file_path == Some(path)`, or opens `path` in a new tab.
@@ -744,6 +798,7 @@ impl TabsState {
             app.agent_changes_chip.clear();
         }
         let mut removed = self.entries.remove(idx);
+        self.project_states.remove(&removed.id);
         removed.image_jobs.cancel_and_cleanup(Some(removed.terminal.session_dir.join("image-jobs")));
         removed.terminal.shutdown();
         if self.entries.is_empty() {
@@ -821,6 +876,7 @@ impl TabsState {
             }
         }
         self.entries.retain(|t| t.id == keep_id || t.pinned);
+        self.project_states.retain(|id, _| self.entries.iter().any(|t| t.id == *id));
         if let Some(new_idx) = self.entries.iter().position(|t| t.id == keep_id) {
             let tab_id = self.entries[new_idx].id;
             let sid = self.session_id_for_tab(tab_id);
@@ -846,6 +902,7 @@ impl TabsState {
             self.park_active_from_app(app);
         }
         let src = &self.entries[idx];
+        let src_id = src.id;
         let copy_title = format!("{} (Copy)", src.title);
         let mut copy_doc = src.doc.clone();
         copy_doc.name = copy_title.clone();
@@ -883,6 +940,12 @@ impl TabsState {
         };
         let insert_idx = (idx + 1).min(self.entries.len());
         self.entries.insert(insert_idx, new_tab);
+        if copy_kind == ProjectTabKind::Project {
+            if let Some(src_state) = self.project_states.get(&src_id) {
+                let copy_state = project_tab::ProjectTabState::new(&src_state.project_id, &src_state.project_name);
+                self.project_states.insert(new_id, copy_state);
+            }
+        }
         self.active_idx = insert_idx;
         self.parked_in_home = false;
         self.apply_to_app(insert_idx, app);
@@ -955,6 +1018,18 @@ pub fn show_top_tab_bar(ui: &mut Ui, app: &mut App) {
         let rect = ui.max_rect();
         show_top_tab_bar_ui(ui, rect, app);
     });
+}
+
+/// Draws the Project tab on screen (rail included) into `full`. Returns false when the tab on screen is not one.
+pub fn show_active_project(app: &mut App, ui: &mut Ui, full: Rect) -> bool {
+    if !app.tabs.active_is_project() {
+        return false;
+    }
+    let Some(id) = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id) else { return false };
+    let Some(mut state) = app.tabs.project_states.remove(&id) else { return false };
+    project_tab::show(app, ui, full, &mut state);
+    app.tabs.project_states.insert(id, state);
+    true
 }
 
 /// Renders the 1:1 Figma UI3 Top Window Tab Bar (`32px` height) inside `bar_rect`.
@@ -1084,7 +1159,7 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
                 ProjectTabKind::Design => crate::widgets::kit::TileKind::Design,
                 ProjectTabKind::Board => crate::widgets::kit::TileKind::Board,
                 ProjectTabKind::Deck => crate::widgets::kit::TileKind::Deck,
-                ProjectTabKind::Spec => crate::widgets::kit::TileKind::Spec,
+                ProjectTabKind::Spec | ProjectTabKind::Project => crate::widgets::kit::TileKind::Spec,
             };
             let tile = crate::widgets::kit::tile_look(kind);
             crate::widgets::kit::paint_frame(&p, badge_rect, theme::RADIUS_MARK, &tile);

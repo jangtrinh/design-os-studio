@@ -9,7 +9,7 @@ use crate::mesh::{tessellate, Mesh};
 use designos_doc as d;
 use designos_doc::{Document, Node, NodeId, NodeKind, Vec2};
 use designos_render::tiny_skia as sk;
-use designos_render::{font_generation, outline_of, stroke_outline, stroke_plan, text_outlines, NodeShape, StrokeClip};
+use designos_render::{font_generation, outline_of, stroke_plan, text_outlines, NodeShape, StrokeClip};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
@@ -237,11 +237,12 @@ pub struct TextGeom {
     pub mesh: Arc<Mesh>,
     pub fills: Vec<d::Paint>,
     path: sk::Path,
-    /// Centered stroke outline of the glyphs (text strokes are always centered).
-    stroke: RefCell<Option<Option<Arc<Mesh>>>>,
+    /// Stroke outline of the glyphs and the clip needed for its alignment.
+    stroke: RefCell<CachedStrokeMesh>,
 }
 
 type StrokeMesh = Option<(Arc<Mesh>, StrokeClip)>;
+type CachedStrokeMesh = Option<StrokeMesh>;
 
 /// Cached geometry of one node at one zoom bucket.
 pub struct NodeGeom {
@@ -276,14 +277,21 @@ impl NodeGeom {
         built
     }
 
-    /// Centered stroke outline of text style `i`.
-    pub fn text_stroke(&self, i: usize, n: &Node) -> Option<Arc<Mesh>> {
+    /// Stroke outline of text style `i`, with the same alignment plan as shapes.
+    pub fn text_stroke(&self, i: usize, n: &Node) -> Option<(Arc<Mesh>, StrokeClip)> {
         let t = self.text.get(i)?;
         if let Some(c) = t.stroke.borrow().as_ref() {
             return c.clone();
         }
-        let st = designos_render::node_stroke_style(n, n.stroke.weight);
-        let built = stroke_outline(&t.path, &st, self.scale).and_then(|p| tessellate(&[(p, sk::FillRule::Winding)], 0.1 / self.scale)).map(Arc::new);
+        let shape = NodeShape {
+            paths: vec![(t.path.clone(), sk::FillRule::Winding)],
+            closed: true,
+            fillable: true,
+            is_rect: false,
+            stroke_paths: None,
+            fill_only: None,
+        };
+        let built = stroke_plan(n, &shape, self.scale).and_then(|plan| tessellate(&plan.outline, 0.1 / self.scale).map(|mesh| (Arc::new(mesh), plan.clip)));
         *t.stroke.borrow_mut() = Some(built.clone());
         built
     }

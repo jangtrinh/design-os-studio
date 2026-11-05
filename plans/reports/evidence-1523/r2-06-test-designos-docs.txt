@@ -1,0 +1,29 @@
+     Running unittests src/lib.rs (target/debug/deps/designos_docs-f0b3de04663d2080)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/edit_blocks.rs (target/debug/deps/edit_blocks-b4949b74cfad121a)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/escape_plain.rs (target/debug/deps/escape_plain-7af7527244a8a6c4)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+     Running tests/front_matter.rs (target/debug/deps/front_matter-dbe357bddc1dc5f6)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/manifest.rs (target/debug/deps/manifest-fd354c16dfc9de96)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/nested_lists.rs (target/debug/deps/nested_lists-87d9d79475ed6365)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/page_api.rs (target/debug/deps/page_api-07ce29c8cfa413e2)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/roundtrip.rs (target/debug/deps/roundtrip-771ee4c300f2d6e2)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/soup.rs (target/debug/deps/soup-f3428b25b5c7f329)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+     Running tests/store.rs (target/debug/deps/store-eacd7d2a077f8a34)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+     Running tests/touch_deep.rs (target/debug/deps/touch_deep-b57a0b09d91f6556)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+     Running tests/watch.rs (target/debug/deps/watch-fdd30da3d983a392)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+     Running tests/watch_idle_cpu.rs (target/debug/deps/watch_idle_cpu-f0dfa04e2f3c0fdb)
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/watch_robustness.rs (target/debug/deps/watch_robustness-e38c55de98971080)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.12s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

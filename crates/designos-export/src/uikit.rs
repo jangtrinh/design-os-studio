@@ -146,7 +146,7 @@ impl Cx<'_> {
     fn emit(&mut self, id: NodeId, parent: Parent<'_>, host: Option<Host>) {
         let doc = self.doc;
         let Some(n) = doc.get(id) else { return };
-        if !n.visible {
+        if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
             return;
         }
         let sz = sizes(n, parent);
