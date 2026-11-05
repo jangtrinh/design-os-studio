@@ -7,6 +7,8 @@ use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::Deref;
 
 #[cfg(test)]
+mod reroute_candidate_tests;
+#[cfg(test)]
 mod scale_tests;
 
 const MAX_INDEXED_DOCS: usize = 4;
@@ -36,6 +38,7 @@ impl Hasher for IdHasher {
 }
 
 type IdSet = HashSet<NodeId, BuildHasherDefault<IdHasher>>;
+type IdMap<V> = HashMap<NodeId, V, BuildHasherDefault<IdHasher>>;
 
 /// Inline-first small vector holding up to 4 items on the stack before spilling to a heap [`Vec`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,6 +143,8 @@ pub struct ConnectorIndexStats {
     pub rebuilds: u64,
     pub refreshes: u64,
     pub node_reads: u64,
+    /// Connectors [`plan_reroute`] went on to read and route, i.e. not ruled out as lying inside a moved subtree.
+    pub candidates: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -168,7 +173,7 @@ struct IndexPool {
 thread_local! {
     static POOL: RefCell<IndexPool> = RefCell::new(IndexPool::default());
     static STATS: Cell<ConnectorIndexStats> = const {
-        Cell::new(ConnectorIndexStats { rebuilds: 0, refreshes: 0, node_reads: 0 })
+        Cell::new(ConnectorIndexStats { rebuilds: 0, refreshes: 0, node_reads: 0, candidates: 0 })
     };
 }
 
@@ -186,6 +191,15 @@ fn record_rebuild() {
     STATS.with(|s| {
         let mut cur = s.get();
         cur.rebuilds += 1;
+        s.set(cur);
+    });
+}
+
+#[inline]
+fn record_candidate() {
+    STATS.with(|s| {
+        let mut cur = s.get();
+        cur.candidates += 1;
         s.set(cur);
     });
 }
@@ -364,51 +378,66 @@ impl ConnectorIndex {
         self.nodes_len = doc.nodes.len();
     }
 
-    /// Returns all connectors with an attached end on, or inside the subtree of, any node in `touched`.
-    pub fn connectors_touching(&self, doc: &Document, touched: &[NodeId]) -> Vec<NodeId> {
-        if touched.is_empty() || self.is_empty() {
-            return Vec::new();
-        }
+    /// Walks the touched nodes and their non-connector descendants, stopping at connectors.
+    ///
+    /// Returns `None` when the walk would visit more nodes than a scan of every connector costs;
+    /// callers then scan the connectors instead. With `track`, the walk also records the deepest
+    /// touched node above each walked node and the connector children of walked nodes, which is
+    /// what lets the reroute planner rule out connectors without visiting them one by one.
+    fn walk_touched(&self, doc: &Document, touched: &[NodeId], track: bool) -> Option<TouchedWalk> {
         let cap = self.connectors.len().saturating_mul(4).saturating_add(64);
-        let mut out = Vec::new();
-        let mut stack: Vec<NodeId> = Vec::with_capacity(touched.len().min(64));
-        let mut seen: HashSet<NodeId> = HashSet::new();
+        let mut walk = TouchedWalk { nodes: Vec::new(), root_of: IdMap::default(), inner: Vec::new() };
+        let mut stack: Vec<(NodeId, NodeId)> = Vec::with_capacity(touched.len().min(64));
+        let mut seen = IdSet::default();
         for &t in touched {
             if seen.insert(t) {
-                stack.push(t);
+                stack.push((t, t));
             }
         }
         let mut visited = 0usize;
-        let mut exceeded_cap = false;
-        while let Some(id) = stack.pop() {
-            out.extend_from_slice(self.connectors_for_end(id));
+        while let Some((id, root)) = stack.pop() {
+            walk.nodes.push(id);
+            if track {
+                walk.root_of.insert(id, root);
+            }
             if self.connectors.contains_key(&id) {
                 continue;
             }
             visited += 1;
             if visited > cap {
-                exceeded_cap = true;
-                break;
+                return None;
             }
-            if let Some(n) = read_node(doc, id) {
-                if !n.children.is_empty() {
-                    if visited + n.children.len() > cap {
-                        exceeded_cap = true;
-                        break;
+            let Some(n) = read_node(doc, id) else { continue };
+            if n.children.is_empty() {
+                continue;
+            }
+            if visited + n.children.len() > cap {
+                return None;
+            }
+            for &child in &n.children {
+                if let Some(&entry) = self.connectors.get(&child) {
+                    if track && entry.parent == Some(id) {
+                        walk.inner.push((child, entry, root));
                     }
-                    for &child in &n.children {
-                        if self.connectors.contains_key(&child) {
-                            continue;
-                        }
-                        if seen.insert(child) {
-                            stack.push(child);
-                        }
-                    }
+                } else if seen.insert(child) {
+                    stack.push((child, root));
                 }
             }
         }
-        if exceeded_cap {
-            out.clear();
+        Some(walk)
+    }
+
+    /// Returns all connectors with an attached end on, or inside the subtree of, any node in `touched`.
+    pub fn connectors_touching(&self, doc: &Document, touched: &[NodeId]) -> Vec<NodeId> {
+        if touched.is_empty() || self.is_empty() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        if let Some(walk) = self.walk_touched(doc, touched, false) {
+            for &id in &walk.nodes {
+                out.extend_from_slice(self.connectors_for_end(id));
+            }
+        } else {
             let touched_set: HashSet<NodeId> = touched.iter().copied().collect();
             let mut anc_cache: HashMap<NodeId, bool> = HashMap::new();
             for (&cid, entry) in &self.connectors {
@@ -422,6 +451,126 @@ impl ConnectorIndex {
         out.sort_unstable();
         out.dedup();
         out
+    }
+
+    /// Returns, in id order, the connectors a move of `touched` can change: the touched connectors
+    /// themselves and those with an attached end on, or inside the subtree of, a touched node,
+    /// except connectors lying entirely inside one moved subtree (parent and both ends strictly
+    /// inside it), which move rigidly with it and keep their stored geometry.
+    ///
+    /// Connectors that are children of a walked node are classified straight from the walk, one
+    /// index entry each. The per-end-node lists are only read when some attached connector is not
+    /// such a child, which the list lengths reveal without visiting any connector.
+    fn reroute_candidates(&self, doc: &Document, touched: &[NodeId]) -> Vec<NodeId> {
+        let mut out: Vec<NodeId> = Vec::new();
+        let walk = self.walk_touched(doc, touched, true);
+        let mut inside = InsideCheck::new(self, doc, touched, walk.as_ref().map(|w| &w.root_of));
+        match &walk {
+            Some(walk) => {
+                let mut accounted = 0usize;
+                for &(cid, entry, parent_root) in &walk.inner {
+                    let ends_on_walked = match (entry.start, entry.end) {
+                        (Some(s), Some(e)) if s != e => usize::from(walk.root_of.contains_key(&s)) + usize::from(walk.root_of.contains_key(&e)),
+                        (Some(x), _) | (_, Some(x)) => usize::from(walk.root_of.contains_key(&x)),
+                        (None, None) => 0,
+                    };
+                    if ends_on_walked == 0 {
+                        continue;
+                    }
+                    accounted += ends_on_walked;
+                    if !inside.is_inside(entry, Some(parent_root)) {
+                        out.push(cid);
+                    }
+                }
+                let listed: usize = walk.nodes.iter().map(|&x| self.connectors_for_end(x).len()).sum();
+                // Connector children are listed once each when the children lists agree with `per_parent`.
+                let children_agree = || walk.nodes.iter().map(|&x| self.children_connectors(x).len()).sum::<usize>() == walk.inner.len();
+                if listed != accounted || (!walk.inner.is_empty() && !children_agree()) {
+                    let inner: IdSet = walk.inner.iter().map(|&(cid, ..)| cid).collect();
+                    for &x in &walk.nodes {
+                        for &cid in self.connectors_for_end(x) {
+                            let Some(&entry) = self.connectors.get(&cid) else { continue };
+                            if !inner.contains(&cid) && !inside.is_inside_resolving_parent(entry) {
+                                out.push(cid);
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                for cid in self.connectors_touching(doc, touched) {
+                    let Some(&entry) = self.connectors.get(&cid) else { continue };
+                    if !inside.is_inside_resolving_parent(entry) {
+                        out.push(cid);
+                    }
+                }
+            }
+        }
+        out.extend(touched.iter().copied().filter(|t| self.connectors.contains_key(t)));
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
+/// The touched nodes and their non-connector descendants, as found by [`ConnectorIndex::walk_touched`].
+struct TouchedWalk {
+    /// Every walked node, touched ones included.
+    nodes: Vec<NodeId>,
+    /// The deepest touched node at or above each walked node (only when tracked).
+    root_of: IdMap<NodeId>,
+    /// Connector children of walked nodes with their entries and the root above their parent (only when tracked).
+    inner: Vec<(NodeId, ConnectorEntry, NodeId)>,
+}
+
+/// Decides whether a connector lies entirely inside one moved subtree: its parent and both
+/// attached ends sit strictly below the same touched node.
+struct InsideCheck<'a> {
+    index: &'a ConnectorIndex,
+    doc: &'a Document,
+    touched: &'a [NodeId],
+    /// Walked-node roots; ends missing from it are resolved by climbing parents.
+    roots: Option<&'a IdMap<NodeId>>,
+    touched_set: Option<HashSet<NodeId>>,
+    climbed: HashMap<NodeId, Option<NodeId>>,
+}
+
+impl<'a> InsideCheck<'a> {
+    fn new(index: &'a ConnectorIndex, doc: &'a Document, touched: &'a [NodeId], roots: Option<&'a IdMap<NodeId>>) -> Self {
+        Self { index, doc, touched, roots, touched_set: None, climbed: HashMap::new() }
+    }
+
+    /// Deepest touched node at or above `id`, found by climbing parents.
+    fn climb(&mut self, id: NodeId) -> Option<NodeId> {
+        let touched = self.touched;
+        let touched_set = self.touched_set.get_or_insert_with(|| touched.iter().copied().collect());
+        deepest_touched_ancestor(self.doc, id, touched_set, &mut self.climbed)
+    }
+
+    /// Deepest touched node at or above `id`. Nodes the walk did not reach have no touched ancestor,
+    /// except connectors (the walk never enters them), which are climbed.
+    fn root_of(&mut self, id: NodeId) -> Option<NodeId> {
+        let Some(roots) = self.roots else { return self.climb(id) };
+        match roots.get(&id) {
+            Some(&root) => Some(root),
+            None if self.index.connectors.contains_key(&id) => self.climb(id),
+            None => None,
+        }
+    }
+
+    /// `parent_root` is the deepest touched node at or above the connector's parent, if any.
+    fn is_inside(&mut self, entry: ConnectorEntry, parent_root: Option<NodeId>) -> bool {
+        let (Some(start), Some(end)) = (entry.start, entry.end) else { return false };
+        let Some(root) = parent_root else { return false };
+        if start == root || end == root {
+            return false;
+        }
+        self.root_of(start) == Some(root) && self.root_of(end) == Some(root)
+    }
+
+    fn is_inside_resolving_parent(&mut self, entry: ConnectorEntry) -> bool {
+        let parent_root = entry.parent.and_then(|p| self.root_of(p));
+        self.is_inside(entry, parent_root)
     }
 }
 
@@ -552,44 +701,15 @@ pub fn plan_reroute(doc: &Document, touched: &[NodeId], viewport: Option<Rect>) 
     if touched.is_empty() {
         return ReroutePlan::default();
     }
-    let candidates: Vec<(NodeId, ConnectorEntry)> = with_index(doc, |idx| {
-        if idx.is_empty() {
-            return Vec::new();
-        }
-        let mut ids = idx.connectors_touching(doc, touched);
-        for &t in touched {
-            if idx.contains_connector(t) {
-                ids.push(t);
-            }
-        }
-        ids.sort_unstable();
-        ids.dedup();
-        ids.into_iter().filter_map(|cid| idx.connectors.get(&cid).copied().map(|e| (cid, e))).collect()
-    });
+    let candidates = with_index(doc, |idx| if idx.is_empty() { Vec::new() } else { idx.reroute_candidates(doc, touched) });
     if candidates.is_empty() {
         return ReroutePlan::default();
     }
 
-    let touched_set: HashSet<NodeId> = touched.iter().copied().collect();
-    let mut anc_cache: HashMap<NodeId, Option<NodeId>> = HashMap::new();
     let mut plan = ReroutePlan::default();
 
-    for (cid, entry) in candidates {
-        if !touched_set.contains(&cid) {
-            if let (Some(p), Some(s), Some(e)) = (entry.parent, entry.start, entry.end) {
-                let tp = deepest_touched_ancestor(doc, p, &touched_set, &mut anc_cache);
-                if let Some(root) = tp {
-                    if s != root && e != root {
-                        let ts = deepest_touched_ancestor(doc, s, &touched_set, &mut anc_cache);
-                        let te = deepest_touched_ancestor(doc, e, &touched_set, &mut anc_cache);
-                        if ts == Some(root) && te == Some(root) {
-                            continue;
-                        }
-                    }
-                }
-            }
-        }
-
+    for cid in candidates {
+        record_candidate();
         let Some(n) = read_node(doc, cid) else { continue };
         let NodeKind::Connector(c) = &n.kind else { continue };
         let parent_world = n.parent.map(|p| doc.world_transform(p)).unwrap_or(Affine::IDENTITY);

@@ -25,6 +25,9 @@ const REFRESH_CONNECTORS: usize = 4_000;
 /// rerouted connector), kept below the dirty log's capacity so the refresh stays incremental.
 const EDITED_CONNECTORS: usize = 400;
 
+/// Connectors inside the frame moved by the internal-connector checks.
+const INTERNAL_CONNECTORS: usize = 1_000;
+
 struct Fixture {
     doc: Document,
     /// Container that holds every connector.
@@ -193,6 +196,37 @@ fn refresh_after_editing_connector_geometry_in_a_big_parent_stays_incremental_an
     assert_eq!((stats.rebuilds, stats.refreshes), (0, 1), "a geometry edit must refresh the index, not rebuild it");
     assert!(elapsed < REFRESH_BOUND, "refresh after editing {EDITED_CONNECTORS} connectors under one parent took {elapsed:?} (bound {REFRESH_BOUND:?})");
     with_index(&fx.doc, |idx| assert_index_matches(idx, &fx));
+}
+
+#[test]
+fn moving_a_frame_leaves_connectors_inside_it_unexamined() {
+    clear_connector_index();
+    let mut doc = Document::new("connector_index_internal_connectors");
+    let page = doc.add_page("Page 1");
+    let frame = doc.alloc_id();
+    doc.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 2_000.0, 2_000.0))).unwrap();
+    let inner = [add_rect(&mut doc, frame, 0), add_rect(&mut doc, frame, 1)];
+    add_connectors(&mut doc, frame, &inner, INTERNAL_CONNECTORS, false);
+    let outside = add_rect(&mut doc, page, 2);
+    let crossing = doc.alloc_id();
+    let props =
+        ConnectorProps { start: ConnectorEnd::attached(inner[0], Magnet::Auto), end: ConnectorEnd::attached(outside, Magnet::Auto), ..Default::default() };
+    doc.insert(page, Node::connector(crossing, props)).unwrap();
+    with_index(&doc, |idx| assert_eq!(idx.connectors.len(), INTERNAL_CONNECTORS + 1));
+
+    // Moving a node that is one end of many connectors examines every one of them.
+    reset_connector_index_stats();
+    plan_reroute(&doc, &[inner[0]], None);
+    let attached = connectors_touching(&doc, &[inner[0]]).len();
+    assert!(attached > INTERNAL_CONNECTORS / 2, "fixture must attach many connectors to one node, got {attached}");
+    assert_eq!(connector_index_stats().candidates, attached as u64);
+
+    // Moving the frame carries all of its inner connectors along; only the one crossing out is examined.
+    reset_connector_index_stats();
+    doc.get_mut(frame).unwrap().transform.tx += 5.0;
+    let plan = plan_reroute(&doc, &[frame], None);
+    assert_eq!(connector_index_stats().candidates, 1, "only the connector leaving the frame needs a look");
+    assert!(plan.updates.iter().all(|(id, _)| *id == crossing));
 }
 
 #[test]
