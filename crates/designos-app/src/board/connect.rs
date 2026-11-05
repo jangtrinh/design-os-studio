@@ -175,13 +175,13 @@ fn keep_out_of_flow(board: bool, n: &mut Node) {
 }
 
 /// Ink of a new connector homed in `home`: the colour picked in the board toolbar in a board file;
-/// in a design file the dark ink, or white where that ink would fall below 3:1 against the surface
-/// behind the connector (see [`designos_doc::default_connector_ink`]).
+/// in a design file the dark ink, or the light one where the dark ink would fall below 3:1 against
+/// the surface behind the connector (see [`designos_doc::connector_ink_on`]).
 fn default_connector_ink(app: &App, home: NodeId) -> Color {
     if app.wb_board_targeting() {
         app.board.ink
     } else {
-        designos_doc::default_connector_ink(&app.doc, home)
+        super::connector_ink_on(&app.doc, home)
     }
 }
 

@@ -140,16 +140,23 @@ fn surface_behind(doc: &Document, home: NodeId) -> Option<Color> {
 }
 
 /// The ink of a new connector homed in `home` when nobody picked one: the dark board ink, or
-/// white when that ink would fall below 3:1 contrast against [`surface_behind`] (a dark page, or a
-/// dark screen). A board file is drawn on its own light canvas, so it keeps the dark ink.
+/// white when that ink would fall below 3:1 contrast against the surface behind the connector (a
+/// dark page, or a dark screen). See [`connector_ink_on`].
 pub fn default_connector_ink(doc: &Document, home: NodeId) -> Color {
-    let dark = connector_ink_on_light();
+    connector_ink_on(doc, home, connector_ink_on_light(), Color::WHITE)
+}
+
+/// Picks `on_light`, or `on_dark` when `on_light` would fall below 3:1 contrast against the
+/// surface a connector homed in `home` is drawn on: the nearest ancestor of the connector, from
+/// `home` upward, with a mostly opaque solid fill, else the page background. A board file is drawn
+/// on its own light canvas, so it always gets `on_light`.
+pub fn connector_ink_on(doc: &Document, home: NodeId, on_light: Color, on_dark: Color) -> Color {
     if doc.kind == DocumentKind::Board {
-        return dark;
+        return on_light;
     }
     match surface_behind(doc, home) {
-        Some(surface) if contrast_ratio(dark, surface) < CONNECTOR_INK_MIN_CONTRAST => Color::WHITE,
-        _ => dark,
+        Some(surface) if contrast_ratio(on_light, surface) < CONNECTOR_INK_MIN_CONTRAST => on_dark,
+        _ => on_light,
     }
 }
 
@@ -475,5 +482,15 @@ mod tests {
         doc.kind = DocumentKind::Board;
         let page = doc.add_page("Page 1");
         assert_eq!(default_connector_ink(&doc, page), Color::rgb(0x1E, 0x1E, 0x1E), "a board is drawn on its own light canvas");
+    }
+
+    #[test]
+    fn connector_ink_on_picks_between_the_inks_the_caller_passes() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (light_ink, dark_ink) = (Color::rgb(0x10, 0x20, 0x30), Color::rgb(0xF0, 0xE0, 0xD0));
+        assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink), dark_ink, "the near-black ink is below 3:1 on the dark default page");
+        set_page_background(&mut doc, page, Color::WHITE);
+        assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink), light_ink);
     }
 }
