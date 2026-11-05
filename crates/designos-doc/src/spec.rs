@@ -1388,21 +1388,19 @@ impl Document {
                 // layout solver clamps the box without ever recomputing the line height.
                 let hug_max_width =
                     spec.width.is_none() && spec.max_width.is_some() && spec.width_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
-                if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") || hug_max_width {
+                if hug_max_width {
+                    tp.auto_resize = TextAutoResize::Height;
+                    let intrinsic = ctx.text_size(tp, None);
+                    let max_w = spec.max_width.unwrap_or(intrinsic.x).max(1.0);
+                    let wrap_width = intrinsic.x.min(max_w).max(1.0);
+                    n.size.x = wrap_width;
+                    if spec.height.is_none() {
+                        n.size.y = if intrinsic.x > max_w { ctx.text_size(tp, Some(wrap_width)).y } else { intrinsic.y };
+                    }
+                } else if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") {
                     tp.auto_resize = TextAutoResize::Height;
                     if spec.height.is_none() {
-                        let wrap_width = if hug_max_width {
-                            let intrinsic = ctx.text_size(tp, None);
-                            n.size.x = intrinsic.x;
-                            intrinsic.x.min(spec.max_width.unwrap_or(intrinsic.x)).max(1.0)
-                        } else {
-                            n.size.x.max(20.0)
-                        };
-                        let measured = ctx.text_size(tp, Some(wrap_width));
-                        n.size.y = measured.y;
-                        if hug_max_width {
-                            n.size.x = n.size.x.min(wrap_width);
-                        }
+                        n.size.y = ctx.text_size(tp, Some(n.size.x.max(20.0))).y;
                     }
                 } else {
                     let sz = ctx.text_size(tp, None);
@@ -2051,6 +2049,19 @@ mod tests {
         let report = doc.apply_spec_with_measure(page, &spec, &[], Some(&Measure)).unwrap();
         let node = doc.get(report.root_node_id).unwrap();
         assert_eq!(node.size, Vec2::new(200.0, 85.0));
+
+        // Without max_width, hug text keeps its intrinsic single-line dimensions.
+        let un_clamped: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "text",
+            "name": "SingleLine",
+            "text": "A long paragraph that stays on one line without max_width",
+            "font_size": 14,
+            "width_sizing": "hug"
+        }))
+        .unwrap();
+        let report_unclamped = doc.apply_spec_with_measure(page, &un_clamped, &[], Some(&Measure)).unwrap();
+        let node_unclamped = doc.get(report_unclamped.root_node_id).unwrap();
+        assert_eq!(node_unclamped.size, Vec2::new(500.0, 17.0));
     }
 
     #[test]

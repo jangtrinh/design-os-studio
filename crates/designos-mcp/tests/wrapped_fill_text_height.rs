@@ -72,3 +72,75 @@ fn apply_spec_then_set_width_matches_qa_table() {
         assert_card(&mut e, card, body, width, body_h, frame_h);
     }
 }
+
+#[test]
+fn apply_spec_hug_text_with_max_width_wraps_and_without_max_width_stays_single_line() {
+    let mut e = Engine::new();
+    let page = page(&e);
+    let long_copy = "A very long paragraph of body copy that should wrap once it hits the two hundred pixel maximum width limit instead of growing forever on a single line.";
+
+    let wrapped = e
+        .call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page,
+                "spec": {
+                    "kind": "frame",
+                    "name": "Wrap",
+                    "width_sizing": "hug",
+                    "height_sizing": "hug",
+                    "layout": {"direction": "column"},
+                    "children": [
+                        {
+                            "kind": "text",
+                            "name": "Limited",
+                            "text": long_copy,
+                            "font_size": 14,
+                            "width_sizing": "hug",
+                            "max_width": 200
+                        }
+                    ]
+                }
+            }),
+        )
+        .expect("apply_spec with max_width");
+    let wrap_frame = wrapped["root_node_id"].as_u64().unwrap();
+    let limited_text = wrapped["name_to_id"]["Wrap/Limited"].as_u64().or_else(|| wrapped["name_to_id"]["Limited"].as_u64()).expect("Limited text id");
+
+    let (tw, th) = get_size(&mut e, limited_text);
+    let (fw, fh) = get_size(&mut e, wrap_frame);
+    assert_near(tw, 200.0, "hug text with max_width width");
+    assert!(th >= 85.0, "hug text with max_width must wrap and grow in height, got {th}");
+    assert_near(fw, 200.0, "enclosing hug frame width");
+    assert_near(fh, th, "enclosing hug frame height matches wrapped text height");
+
+    let unclamped = e
+        .call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page,
+                "spec": {
+                    "kind": "frame",
+                    "name": "UnclampedWrap",
+                    "width_sizing": "hug",
+                    "height_sizing": "hug",
+                    "layout": {"direction": "column"},
+                    "children": [
+                        {
+                            "kind": "text",
+                            "name": "Unclamped",
+                            "text": long_copy,
+                            "font_size": 14,
+                            "width_sizing": "hug"
+                        }
+                    ]
+                }
+            }),
+        )
+        .expect("apply_spec without max_width");
+    let unclamped_text =
+        unclamped["name_to_id"]["UnclampedWrap/Unclamped"].as_u64().or_else(|| unclamped["name_to_id"]["Unclamped"].as_u64()).expect("Unclamped text id");
+    let (uw, uh) = get_size(&mut e, unclamped_text);
+    assert!(uw > 600.0, "hug text without max_width stays single-line wide, got {uw}");
+    assert_near(uh, 17.0, "hug text without max_width stays single-line height");
+}
