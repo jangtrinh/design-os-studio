@@ -1624,18 +1624,20 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
         let reference_component = if matches!(reference.kind, NodeKind::Component(_)) { Some(reference.id) } else { instance_component(reference) };
         instance_component(parent) != reference_component
     });
+    let eff_constraints = if inode.component.overrides.contains(&OverrideField::Layout) { inode.constraints } else { rn.constraints };
+    let eff_layout_child = if inode.component.overrides.contains(&OverrideField::Layout) { inode.layout_child } else { rn.layout_child };
     let preserve_stretch_x = !top
         && !swapped_here
         && !parent_swapped
         && matches!(inode.kind, NodeKind::Instance { .. })
         && parent_expanded.0
-        && matches!(inode.constraints.horizontal, Constraint::Stretch);
+        && (matches!(eff_constraints.horizontal, Constraint::Stretch) || eff_layout_child.horizontal == Sizing::Fill);
     let preserve_stretch_y = !top
         && !swapped_here
         && !parent_swapped
         && matches!(inode.kind, NodeKind::Instance { .. })
         && parent_expanded.1
-        && matches!(inode.constraints.vertical, Constraint::Stretch);
+        && (matches!(eff_constraints.vertical, Constraint::Stretch) || eff_layout_child.vertical == Sizing::Fill);
     if !top && instance_component(&inode) != slot_comp {
         if let Some(mut node_ref) = c.s.get(r).cloned() {
             let orig_slot_comp = slot_comp.and_then(|oc| c.s.get(oc));
@@ -1767,7 +1769,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
             c.push(Command::Reparent { id: *id, parent: i, index: k });
         }
     }
-    if !top && instance_component(&inode) != slot_comp {
+    if !top && (instance_component(&inode) != slot_comp || preserve_stretch_x || preserve_stretch_y) {
         if let Some(slot_after) = c.s.get(i).map(|x| x.size).filter(|&sz| sz != rn.size) {
             let plan = crate::layout_constraints::plan_constraint_pass(&c.s, i, rn.size, slot_after, 8);
             for (cid, new_tf, new_sz) in plan {
@@ -6657,20 +6659,72 @@ mod tests {
             apply(&mut d, Command::Update { node: Box::new(n) });
         }
         let widened = d.get(si).unwrap().size.x;
+        let bg = d.get(si).unwrap().children[0];
         assert!(widened > 200.0, "fixture must widen the nested Stretch instance, got {widened}");
+        assert_eq!(d.get(bg).unwrap().size.x, widened);
 
         // An unrelated edit to the Card main still triggers a full sync.
         let mut card_main = d.get(card).unwrap().clone();
         card_main.opacity = 0.5;
         apply(&mut d, Command::Update { node: Box::new(card_main) });
+        let before_sync = d.nodes.clone();
         let c = sync_instances(&mut d, card);
-        apply(&mut d, c);
+        let mut history = History::default();
+        history.exec(&mut d, c).unwrap();
 
+        assert_eq!(d.get(ci).unwrap().opacity, 0.5);
         assert_eq!(d.get(si).unwrap().size.x, widened, "sync must preserve the resized nested Stretch width");
+        assert_eq!(d.get(bg).unwrap().size.x, widened, "sync must preserve stretched child width inside nested Stretch instance");
+
+        // Undo of the sync restores the exact pre-sync state.
+        assert!(history.undo(&mut d).unwrap());
+        assert_eq!(d.nodes, before_sync);
+        assert!(history.redo(&mut d).unwrap());
+        assert_eq!(d.get(ci).unwrap().opacity, 0.5);
+        assert_eq!(d.get(si).unwrap().size.x, widened);
+        assert_eq!(d.get(bg).unwrap().size.x, widened);
+
         // Repeating the same sync must be idempotent.
         let c = sync_instances(&mut d, card);
         apply(&mut d, c);
         assert_eq!(d.get(si).unwrap().size.x, widened);
+        assert_eq!(d.get(bg).unwrap().size.x, widened);
+    }
+
+    #[test]
+    fn nested_fixed_instance_takes_main_size_when_parent_syncs() {
+        let mut d = Document::new("nested-fixed-sync");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![btn], false);
+        let slot = d.get(card).unwrap().children[0];
+
+        // Configure the nested slot as Fixed (Constraint::Min) rather than Stretch.
+        for id in [slot, si] {
+            let mut n = d.get(id).unwrap().clone();
+            n.constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+
+        // Widen the Card instance and give the nested instance a transient non-overridden width.
+        let mut card_instance = d.get(ci).unwrap().clone();
+        card_instance.size = Vec2::new(300.0, 100.0);
+        card_instance.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(card_instance) });
+        let mut nested = d.get(si).unwrap().clone();
+        nested.size.x = 280.0;
+        apply(&mut d, Command::Update { node: Box::new(nested) });
+
+        // Syncing the Card main snaps the Fixed nested instance back to the main slot's width (80.0).
+        let before_sync = d.nodes.clone();
+        let c = sync_instances(&mut d, card);
+        let mut history = History::default();
+        history.exec(&mut d, c).unwrap();
+        assert_eq!(d.get(si).unwrap().size, Vec2::new(80.0, 40.0), "Fixed nested instance must take the main's size");
+
+        // Undoing the sync restores the pre-sync state.
+        assert!(history.undo(&mut d).unwrap());
+        assert_eq!(d.nodes, before_sync);
     }
 
     #[test]
