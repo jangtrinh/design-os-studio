@@ -26,6 +26,7 @@ mod comments;
 #[cfg(test)]
 mod component_cycle_tests;
 mod components;
+mod connector_home;
 mod connector_index;
 mod connector_route_cache;
 mod dev;
@@ -93,6 +94,7 @@ pub use changelog_features::*;
 pub use color_space::*;
 pub use comments::*;
 pub use components::*;
+pub use connector_home::*;
 pub use connector_index::*;
 pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
 #[cfg(any(test, feature = "fixtures"))]
