@@ -97,7 +97,7 @@ pub fn silhouette_source(n: &Node, shape_fillable: Option<bool>, mode: Silhouett
         }
     }
     if has_children {
-        if mode == SilhouetteMode::Knockout {
+        if mode == SilhouetteMode::Opaque || mode == SilhouetteMode::Knockout {
             match FILLLESS_KNOCKOUT {
                 FilllessKnockout::None => SilhouetteSource::Nothing,
                 FilllessKnockout::ChildrenOpaque => SilhouetteSource::ChildrenOpaque,
