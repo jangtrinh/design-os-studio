@@ -5,6 +5,7 @@ mod common;
 
 use common::*;
 use designos_doc::*;
+use designos_render::tiny_skia::Pixmap;
 use designos_render::Viewport;
 use std::sync::Arc;
 
@@ -18,6 +19,130 @@ fn simple_shapes() {
     let c = compare(&mut g, "simple", &t.doc, t.page, Viewport::default(), (160, 80), 8);
     // tiny scene: nearly all of its mismatches are edge pixels
     assert!(c.report.ratio < 0.03, "{:?}", c.report);
+}
+
+#[test]
+fn background_blur_without_a_visible_fill_leaves_backdrop_sharp() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), Color::BLACK);
+    let pane = t.add(None, |id| {
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.fills.clear();
+        n.effects = vec![Effect::BackgroundBlur { radius: 8.0, visible: true }];
+        n
+    });
+    let c = compare(&mut g, "background_blur_fill_less", &t.doc, t.page, Viewport::default(), (60, 40), 2);
+    let stripe_cpu = c.cpu.pixel(15, 20).unwrap();
+    let stripe_gpu = c.gpu.pixel(15, 20).unwrap();
+    assert_eq!([stripe_cpu.red(), stripe_cpu.green(), stripe_cpu.blue(), stripe_cpu.alpha()], [0, 0, 0, 255]);
+    assert_eq!([stripe_gpu.red(), stripe_gpu.green(), stripe_gpu.blue(), stripe_gpu.alpha()], [0, 0, 0, 255]);
+    let clear_cpu = c.cpu.pixel(25, 20).unwrap();
+    let clear_gpu = c.gpu.pixel(25, 20).unwrap();
+    assert_eq!([clear_cpu.red(), clear_cpu.green(), clear_cpu.blue(), clear_cpu.alpha()], [255, 255, 255, 255]);
+    assert_eq!([clear_gpu.red(), clear_gpu.green(), clear_gpu.blue(), clear_gpu.alpha()], [255, 255, 255, 255]);
+
+    t.node(pane).fills = vec![Paint { opacity: 0.0, ..Paint::solid(Color::WHITE) }];
+    g.compiler.geom.clear();
+    let c_zero = compare(&mut g, "background_blur_zero_opacity_fill", &t.doc, t.page, Viewport::default(), (60, 40), 2);
+    let zero_cpu = c_zero.cpu.pixel(15, 20).unwrap();
+    let zero_gpu = c_zero.gpu.pixel(15, 20).unwrap();
+    assert!(zero_cpu.red() > 40 && zero_cpu.red() < 200, "CPU zero-opacity fill blurs backdrop: {zero_cpu:?}");
+    assert!(zero_gpu.red() > 40 && zero_gpu.red() < 200, "GPU zero-opacity fill blurs backdrop: {zero_gpu:?}");
+
+    t.node(pane).fills.clear();
+    t.node(pane).stroke.paints = vec![Paint::solid(Color::BLACK)];
+    t.node(pane).stroke.weight = 2.0;
+    g.compiler.geom.clear();
+    let c_stroke = compare(&mut g, "background_blur_stroke_only", &t.doc, t.page, Viewport::default(), (60, 40), 2);
+    let stroke_cpu = c_stroke.cpu.pixel(15, 20).unwrap();
+    let stroke_gpu = c_stroke.gpu.pixel(15, 20).unwrap();
+    assert!(stroke_cpu.red() > 40 && stroke_cpu.red() < 200, "CPU stroke-only layer blurs backdrop: {stroke_cpu:?}");
+    assert!(stroke_gpu.red() > 40 && stroke_gpu.red() < 200, "GPU stroke-only layer blurs backdrop: {stroke_gpu:?}");
+}
+
+/// White page, black stripe at x 10..20, and a group without any paint of its own that holds a
+/// 40x40 rectangle filled white at 0.4 opacity. `blur` puts a background blur on the group.
+fn paintless_group_over_stripe(blur: bool) -> T {
+    let mut t = T::new();
+    t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), Color::BLACK);
+    let group = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Group);
+        n.size = Vec2::new(40.0, 40.0);
+        if blur {
+            n.effects = vec![Effect::BackgroundBlur { radius: 8.0, visible: true }];
+        }
+        n
+    });
+    t.add(Some(group), |id| {
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.fills = vec![Paint { opacity: 0.4, ..Paint::solid(Color::WHITE) }];
+        n
+    });
+    t
+}
+
+#[test]
+fn background_blur_on_a_paintless_group_blurs_through_its_children() {
+    let Some(mut g) = gpu() else { return };
+    let sharp_scene = paintless_group_over_stripe(false);
+    let blur_scene = paintless_group_over_stripe(true);
+    g.compiler.geom.clear();
+    let sharp = compare(&mut g, "background_blur_group_without_effect", &sharp_scene.doc, sharp_scene.page, Viewport::default(), (60, 40), 2);
+    g.compiler.geom.clear();
+    let blurred = compare(&mut g, "background_blur_paintless_group", &blur_scene.doc, blur_scene.page, Viewport::default(), (60, 40), 2);
+    let stripe = |sharp: &Pixmap, blurred: &Pixmap| (sharp.pixel(15, 20).unwrap().red(), blurred.pixel(15, 20).unwrap().red());
+    let (cpu_before, cpu_after) = stripe(&sharp.cpu, &blurred.cpu);
+    let (gpu_before, gpu_after) = stripe(&sharp.gpu, &blurred.gpu);
+    assert!(
+        cpu_after >= cpu_before + 8 && gpu_after >= gpu_before + 8,
+        "the stripe under the child must be blurred: CPU {cpu_before} -> {cpu_after}, GPU {gpu_before} -> {gpu_after}"
+    );
+    for (who, pm) in [("CPU", &blurred.cpu), ("GPU", &blurred.gpu)] {
+        let outside = pm.pixel(55, 20).unwrap();
+        assert_eq!([outside.red(), outside.green(), outside.blue(), outside.alpha()], [255, 255, 255, 255], "{who}: outside the group the page is untouched");
+    }
+}
+
+/// White page, black stripe at x 10..20, and a text node with no fill on its base style. The
+/// only fill sits on the run covering the whole string. `blur` puts a background blur on it.
+fn text_with_run_fill_over_stripe(run_fill: Paint, blur: bool) -> T {
+    let mut t = T::new();
+    t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), Color::BLACK);
+    t.add(None, |id| {
+        let base = TextStyle { font_size: 40.0, font_weight: 800, fills: Vec::new(), ..Default::default() };
+        let mut n = Node::text(id, Rect::new(0.0, 0.0, 60.0, 40.0), "MM", base.clone());
+        let NodeKind::Text(tp) = &mut n.kind else { unreachable!() };
+        tp.runs = vec![TextRun { start: 0, end: 2, style: TextStyle { fills: vec![run_fill], ..base } }];
+        if blur {
+            n.effects = vec![Effect::BackgroundBlur { radius: 8.0, visible: true }];
+        }
+        n
+    });
+    t
+}
+
+/// The brightest red channel on the stripe columns, which are black unless something paints over them.
+fn brightest_on_stripe(pm: &Pixmap) -> u8 {
+    (10..20).flat_map(|x| (0..40).map(move |y| (x, y))).map(|(x, y)| pm.pixel(x, y).unwrap().red()).max().unwrap()
+}
+
+#[test]
+fn background_blur_on_text_counts_a_visible_run_fill() {
+    let Some(mut g) = gpu() else { return };
+    let mut run = |name: &str, fill: &Paint, blur: bool| {
+        let t = text_with_run_fill_over_stripe(fill.clone(), blur);
+        g.compiler.geom.clear();
+        let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), (60, 40), 2);
+        (brightest_on_stripe(&c.cpu), brightest_on_stripe(&c.gpu))
+    };
+    let invisible_ink = Paint { opacity: 0.0, ..Paint::solid(Color::WHITE) };
+    assert_eq!(run("background_blur_text_without_effect", &invisible_ink, false), (0, 0), "fixture: nothing paints on the stripe");
+    let (cpu, gpu) = run("background_blur_text_run_fill", &invisible_ink, true);
+    assert!(cpu > 40 && gpu > 40, "the stripe under the glyphs must be blurred: brightest CPU {cpu}, GPU {gpu}");
+
+    let hidden = Paint { visible: false, ..Paint::solid(Color::WHITE) };
+    assert_eq!(run("background_blur_text_hidden_run_fill", &hidden, true), (0, 0), "a hidden run fill leaves the text with no paint: the stripe stays sharp");
 }
 
 #[test]
