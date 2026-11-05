@@ -39,3 +39,10 @@ Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU re
 - [Voice UX](https://jangtrinh.github.io/design-os-voice-ux/): Voice and conversational AI knowledge base with state machines, latency budgets and usability protocols.
 - [Code2Flow](https://jangtrinh.github.io/design-os-code2flow/): Turns a Next.js codebase into a living user-flow canvas with real screenshots, lint and diff. 100% local.
 - [Generative UI](https://jangtrinh.github.io/design-os-generative-ui/): Streaming interactive visual runtime with morphdom & WebGL.
+
+## Videos
+
+- [DESIGN:OS Studio v0.6.0 — Recap](https://www.youtube.com/watch?v=V76BySt9WOs): 30-second recap of DESIGN:OS Studio v0.6.0: a FREE native design studio with an Agents panel and MCP server. Source-available under PolyForm Shield.
+- [DESIGN:OS Studio: Figma alternative miễn phí, Native Terminal, không tốn AI credits](https://www.youtube.com/watch?v=LDzKn-GSwUk): Why Studio exists: a FREE native design studio with a built-in Native Terminal that runs your own coding agent (Claude Code, Codex, Grok) on the open file, with no extra AI credits. Vietnamese, with English terms. Source-available under PolyForm Shield.
+- [Autonomous Design Agent · Tập 03: Model + Harness và 6 trụ cột DESIGN:OS](https://www.youtube.com/watch?v=OYWsj7Jt8aw): Agent = Model + Harness: the six pillars of DESIGN:OS (single source of truth, Ontology Graph RAG, dual-layer spec, 126 CI gates, 9-verb patch, watchers). Vietnamese, with English terms.
+- [design:os by Jang on YouTube](https://www.youtube.com/@designosbyjang): channel, Autonomous Design Agent series.
