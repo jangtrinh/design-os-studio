@@ -137,7 +137,6 @@ fn background_blur_on_a_paintless_group_blurs_through_its_children() {
     let blurred = px(&pm, 15, 20);
     assert!(blurred[0] >= sharp[0] + 8, "the stripe under the child must be blurred: sharp {sharp:?}, with blur {blurred:?}");
     assert_eq!(blurred[3], 255, "the translucent child over an opaque page must remain opaque: {blurred:?}");
-    assert_eq!(px(&pm, 15, 20)[3], 255, "the blurred stripe must remain opaque");
     assert_eq!(px(&pm, 55, 20), WHITE, "outside the group the page is untouched");
 }
 
