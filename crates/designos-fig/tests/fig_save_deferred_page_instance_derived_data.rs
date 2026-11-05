@@ -11,13 +11,15 @@ use designos_fig::{export_fig, import_fig};
 use serde_json::{json, Value};
 
 const DOT: (u64, u64) = (1, 13);
+const SECOND_DOT: (u64, u64) = (1, 14);
 const WANTED_BLOB: usize = 3;
 
 fn matrix(tx: f64, ty: f64) -> Value {
     json!({"m00": 1.0, "m01": 0.0, "m02": tx, "m10": 0.0, "m11": 1.0, "m12": ty})
 }
 
-/// Sizes and transforms for the label and the dot of the button, and an outline for the dot (blob 3 of the file).
+/// Sizes and transforms for the label and two dots of the button, and an outline for each dot: both name blob 3 of the
+/// file.
 fn derived_data() -> Value {
     json!([
         {"guidPath": {"guids": [guid(LABEL.0, LABEL.1)]}, "size": {"x": 90.0, "y": 20.0}, "transform": matrix(10.0, 14.0)},
@@ -26,12 +28,21 @@ fn derived_data() -> Value {
             "size": {"x": 12.0, "y": 12.0},
             "transform": matrix(4.0, 4.0),
             "strokeGeometry": [{"windingRule": "NONZERO", "commandsBlob": WANTED_BLOB}]
+        },
+        {
+            "guidPath": {"guids": [guid(SECOND_DOT.0, SECOND_DOT.1)]},
+            "size": {"x": 6.0, "y": 6.0},
+            "transform": matrix(20.0, 4.0),
+            "strokeGeometry": [{"windingRule": "NONZERO", "commandsBlob": WANTED_BLOB}]
         }
     ])
 }
 
-fn dot() -> Value {
-    fig_node(DOT, BUTTON, "ELLIPSE", "Dot", json!({"size": {"x": 8.0, "y": 8.0}}))
+fn dots() -> Vec<Value> {
+    [(DOT, "Dot"), (SECOND_DOT, "Second dot")]
+        .into_iter()
+        .map(|(id, name)| fig_node(id, BUTTON, "ELLIPSE", name, json!({"size": {"x": 8.0, "y": 8.0}})))
+        .collect()
 }
 
 fn blobs() -> Vec<Vec<u8>> {
@@ -39,7 +50,7 @@ fn blobs() -> Vec<Vec<u8>> {
 }
 
 fn derived_fixture(extra: Vec<Value>) -> Vec<u8> {
-    let mut nodes = vec![dot()];
+    let mut nodes = dots();
     nodes.extend(extra);
     fixture_with(json!({"derivedSymbolData": derived_data()}), text_and_stroke_overrides(), nodes, blobs())
 }
@@ -66,7 +77,7 @@ fn edit_size(doc: &mut Document, name: &str, parent_name: &str) {
 fn a_deferred_instance_keeps_its_derived_data_through_a_save() {
     let fig = derived_fixture(Vec::new());
     let original = saved_derived(&fig, INSTANCE);
-    assert_eq!(original.len(), 2, "the fixture states two entries");
+    assert_eq!(original.len(), 3, "the fixture states three entries");
 
     let live = import_fig(&fig).expect("import");
     let page = page_named(&live, "404 pages");
@@ -84,8 +95,9 @@ fn a_deferred_instance_keeps_its_derived_data_through_a_save() {
     let in_original = blob_of(&original[1], &|i| saved_blob(&fig, i));
     let in_saved = blob_of(&kept[1], &|i| saved_blob(&saved, i));
     assert_eq!(in_saved, in_original, "the outline is the one the file stated, wherever the saved table keeps it");
+    assert_eq!(kept[1]["strokeGeometry"][0]["commandsBlob"], kept[2]["strokeGeometry"][0]["commandsBlob"], "an outline that two entries share is stored once");
 
-    let without = fixture_with(json!({}), text_and_stroke_overrides(), vec![dot()], blobs());
+    let without = fixture_with(json!({}), text_and_stroke_overrides(), dots(), blobs());
     assert_ne!(reopened_label_size(&fig), reopened_label_size(&without), "the derived data changes what a reader shows");
     assert_eq!(reopened_label_size(&saved), reopened_label_size(&fig), "a reopened save shows the instance as the original does");
 }
@@ -130,7 +142,7 @@ fn after_a_main_component_inside_its_main_is_edited_the_derived_data_of_that_ins
     live.get_mut(badge).expect("badge").size.x += 5.0;
     let saved = export_fig(&live).expect("export");
     assert!(saved_derived(&saved, (1, 50)).is_empty(), "the card contains the edited main");
-    assert_eq!(saved_derived(&saved, INSTANCE).len(), 2, "the button does not, so its instance keeps its derived data");
+    assert_eq!(saved_derived(&saved, INSTANCE).len(), 3, "the button does not, so its instance keeps its derived data");
 }
 
 #[test]
@@ -150,7 +162,7 @@ fn opening_another_page_keeps_the_derived_data_of_instances_on_pages_still_unope
     assert!(!page_hydrated(&live, page_3), "page 3 does not");
 
     let saved = export_fig(&live).expect("export");
-    assert_eq!(saved_derived(&saved, INSTANCE).len(), 2, "the instance on the unopened page keeps its derived data");
+    assert_eq!(saved_derived(&saved, INSTANCE).len(), 3, "the instance on the unopened page keeps its derived data");
     assert!(saved_derived(&saved, (1, 60)).is_empty(), "the instance on the opened page is written from its children");
     assert!(children_written_under(&saved, (1, 60)) > 0);
 }

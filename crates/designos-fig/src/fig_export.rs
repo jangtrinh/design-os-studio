@@ -249,6 +249,8 @@ struct ExportCtx<'a> {
     nodes_by_guid: Option<BTreeMap<(u32, u32), NodeId>>,
     /// Fingerprints of the main components whose instances are checked for stale derived data.
     fingerprints: crate::component_fingerprint::Fingerprints,
+    /// Outline id (see `PendingOutline`) -> its index in `blobs`, so an outline several entries share is stored once.
+    shared_blobs: BTreeMap<u64, u32>,
     coll_guids: BTreeMap<String, (u32, u32)>,
     mode_guids: BTreeMap<String, (u32, u32)>,
     var_guids: BTreeMap<String, (u32, u32)>,
@@ -317,6 +319,7 @@ impl<'a> ExportCtx<'a> {
             node_guids: BTreeMap::new(),
             nodes_by_guid: None,
             fingerprints: Default::default(),
+            shared_blobs: BTreeMap::new(),
             coll_guids: BTreeMap::new(),
             mode_guids: BTreeMap::new(),
             var_guids: BTreeMap::new(),

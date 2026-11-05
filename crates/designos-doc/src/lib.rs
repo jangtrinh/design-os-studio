@@ -553,9 +553,42 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     /// The derived data (the sizes, transforms and outlines the producing app computed for the nodes inside the
     /// instance) the file stated for `instance` while its page has not been loaded, with the same rules as
     /// [`Self::pending_instance_overrides`].
-    fn pending_instance_derived(&self, _instance: NodeId) -> Option<String> {
+    fn pending_instance_derived(&self, _instance: NodeId) -> Option<PendingDerived> {
         None
     }
+}
+
+/// One outline of a [`PendingDerivedEntry`]: the path commands as a `.fig` stores them.
+#[derive(Clone, Debug)]
+pub struct PendingOutline {
+    /// Which outline of the file this is: two outlines with the same id have the same bytes, so a writer can store them
+    /// once.
+    pub id: u64,
+    pub even_odd: bool,
+    pub bytes: std::sync::Arc<[u8]>,
+}
+
+/// What the file computed for one node inside an instance, as the page loader holds it.
+#[derive(Clone, Debug, Default)]
+pub struct PendingDerivedEntry {
+    /// Ids (`session:local`) of the nodes from the instance's main component down to the node.
+    pub path: Vec<String>,
+    pub size: Option<[f32; 2]>,
+    /// The node's transform as `[a, b, c, d, tx, ty]`.
+    pub transform: Option<[f32; 6]>,
+    pub fill: Vec<PendingOutline>,
+    pub stroke: Vec<PendingOutline>,
+}
+
+/// The derived data of an instance on a page that is not loaded, and what it was computed from.
+#[derive(Clone, Debug)]
+pub struct PendingDerived {
+    /// The main component the data was computed for.
+    pub main: NodeId,
+    /// A fingerprint of that main component, and of the mains inside it, as they were when the file was opened. The loader
+    /// and the format writer share its definition; the document does not interpret it.
+    pub fingerprint: u64,
+    pub entries: Vec<PendingDerivedEntry>,
 }
 
 mod serde_images {
@@ -759,7 +792,7 @@ impl Document {
 
     /// The derived data the file stated for `instance` while its page has not been loaded (see
     /// [`PageHydrator::pending_instance_derived`]). Read-only, like [`Self::pending_instance_overrides`].
-    pub fn pending_instance_derived(&self, instance: NodeId) -> Option<String> {
+    pub fn pending_instance_derived(&self, instance: NodeId) -> Option<PendingDerived> {
         let h = self.page_hydrator.as_ref()?;
         let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.pending_instance_derived(instance)

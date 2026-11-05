@@ -7,7 +7,7 @@ use crate::effect_units;
 use crate::svgpath::parse_path;
 use crate::FigError;
 use designos_doc::*;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 const MAX_DEPTH: usize = 300;
@@ -1967,6 +1967,17 @@ impl<'a> Ctx<'a> {
             }
         }
         drop(fingerprints);
+        let mut derived_outlines: HashMap<usize, std::sync::Arc<[u8]>> = HashMap::new();
+        for inst in pending_by_page.values().flatten() {
+            let Some(ov) = self.overrides.get(inst) else { continue };
+            for d in &ov.fast_derived {
+                for &(idx, odd) in d.fill_geometry.iter().chain(d.stroke_geometry.iter()).flatten() {
+                    if let (std::collections::hash_map::Entry::Vacant(slot), Some(path)) = (derived_outlines.entry(idx), self.blob_cache.get(&(idx, odd))) {
+                        slot.insert(crate::fig_export::path_to_commands_blob(path).into());
+                    }
+                }
+            }
+        }
         let hydrator = DeferredFigHydrator {
             pending_by_page,
             hydrated_pages,
@@ -1991,6 +2002,7 @@ impl<'a> Ctx<'a> {
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
             main_fingerprints,
+            derived_outlines,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
     }
@@ -3605,6 +3617,8 @@ struct DeferredFigHydrator {
     /// Main component -> its fingerprint when the file was opened, for the mains of the instances that still have
     /// derived data here (see [`crate::component_fingerprint`]).
     main_fingerprints: HashMap<NodeId, u64>,
+    /// Blob index -> the bytes of the outline, for the outlines the derived data of the held instances names.
+    derived_outlines: HashMap<usize, std::sync::Arc<[u8]>>,
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -3778,46 +3792,29 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.overrides.get(&instance)?.kept.as_deref().map(String::from)
     }
 
-    fn pending_instance_derived(&self, instance: NodeId) -> Option<String> {
+    fn pending_instance_derived(&self, instance: NodeId) -> Option<designos_doc::PendingDerived> {
         let derived = &self.overrides.get(&instance)?.fast_derived;
         let main = *self.targets.get(&instance)?;
         let fingerprint = *self.main_fingerprints.get(&main)?;
-        let entries: Vec<Value> = derived.iter().filter_map(|d| derived_entry_json(d, &self.blob_cache)).collect();
-        if entries.is_empty() {
-            return None;
-        }
-        Some(json!({"main": main.0, "fingerprint": fingerprint.to_string(), "entries": entries}).to_string())
+        let outlines = |list: &Option<Vec<(usize, bool)>>| -> Vec<designos_doc::PendingOutline> {
+            list.iter()
+                .flatten()
+                .filter_map(|&(idx, even_odd)| Some(designos_doc::PendingOutline { id: idx as u64, even_odd, bytes: self.derived_outlines.get(&idx)?.clone() }))
+                .collect()
+        };
+        let entries: Vec<designos_doc::PendingDerivedEntry> = derived
+            .iter()
+            .map(|d| designos_doc::PendingDerivedEntry {
+                path: d.path.clone(),
+                size: d.size.map(|s| [s.x, s.y]),
+                transform: d.transform.map(|t| [t.a, t.b, t.c, t.d, t.tx, t.ty]),
+                fill: outlines(&d.fill_geometry),
+                stroke: outlines(&d.stroke_geometry),
+            })
+            .filter(|e| e.size.is_some() || e.transform.is_some() || !e.fill.is_empty() || !e.stroke.is_empty())
+            .collect();
+        (!entries.is_empty()).then_some(designos_doc::PendingDerived { main, fingerprint, entries })
     }
-}
-
-/// One entry of derived data as text a `.fig` writer reads: its path, size, transform and the bytes of its geometry
-/// (the loader keeps the parsed outlines, which write back to the same bytes).
-fn derived_entry_json(d: &crate::fig::FastDerivedEntry, blobs: &HashMap<(usize, bool), Path>) -> Option<Value> {
-    let geometry = |list: &Option<Vec<(usize, bool)>>| -> Vec<Value> {
-        list.iter()
-            .flatten()
-            .filter_map(|key| blobs.get(key).map(|p| json!({"odd": key.1, "bytes": crate::kiwi::hex(&crate::fig_export::path_to_commands_blob(p))})))
-            .collect()
-    };
-    let (fill, stroke) = (geometry(&d.fill_geometry), geometry(&d.stroke_geometry));
-    if d.size.is_none() && d.transform.is_none() && fill.is_empty() && stroke.is_empty() {
-        return None;
-    }
-    let mut m = serde_json::Map::new();
-    m.insert("path".into(), json!(d.path));
-    if let Some(s) = d.size {
-        m.insert("size".into(), json!([s.x, s.y]));
-    }
-    if let Some(t) = d.transform {
-        m.insert("transform".into(), json!([t.a, t.b, t.c, t.d, t.tx, t.ty]));
-    }
-    if !fill.is_empty() {
-        m.insert("fill".into(), Value::Array(fill));
-    }
-    if !stroke.is_empty() {
-        m.insert("stroke".into(), Value::Array(stroke));
-    }
-    Some(Value::Object(m))
 }
 
 /// Style values that the file states on the style node (`.fig` imports put them in the `styles`
@@ -4855,6 +4852,7 @@ mod expand_depth_tests {
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
             main_fingerprints: HashMap::new(),
+            derived_outlines: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -4896,6 +4894,7 @@ mod expand_depth_tests {
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
             main_fingerprints: HashMap::new(),
+            derived_outlines: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));
