@@ -384,3 +384,35 @@ fn a_connector_the_user_moved_by_hand_is_not_pulled_back_by_an_unrelated_reparen
     assert_eq!(s.app().doc.get(l).unwrap().parent, Some(g));
     assert_eq!(s.app().doc.get(c).unwrap().parent, Some(f), "the connector stays where the user put it");
 }
+
+#[test]
+fn x_over_the_align_row_leaves_a_pen_path_in_progress_alone() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let f = add(&mut s, page, |id| Node::frame(id, DRect::new(200.0, 200.0, 240.0, 120.0)), "AL");
+    if let Some(fp) = s.shell.app.doc.get_mut(f).unwrap().kind.frame_props_mut() {
+        fp.auto_layout = Some(designos_doc::AutoLayout::default());
+    }
+    // a pen path with two points is in progress on empty canvas
+    s.shell.app.set_tool(Tool::Pen);
+    s.click(s.screen(600.0, 100.0));
+    s.click(s.screen(700.0, 160.0));
+    assert!(s.app().canvas.pen.is_some(), "the pen path is in progress");
+    let nodes_before = s.app().doc.nodes.len();
+
+    s.shell.app.select_only(f);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let ph = s.field_rect("al-ph");
+    let align_dy =
+        (crate::theme::FIELD_HEIGHT + 4.0) + (crate::theme::SPACE_GROUP - crate::theme::SPACE_ROW) + crate::theme::LABEL_BOX_H + crate::theme::SPACE_FACT;
+    s.mv(Pos2::new(ph.center().x, ph.center().y + align_dy));
+    s.key(Key::X);
+
+    let al = s.app().doc.get(f).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(al.primary_align, designos_doc::LayoutAlign::SpaceBetween, "X over the align row toggles auto spacing");
+    assert_eq!(s.app().tool, Tool::Pen, "X over the align row does not touch the tool");
+    assert!(s.app().canvas.pen.is_some(), "the pen path is still in progress");
+    assert_eq!(s.app().doc.nodes.len(), nodes_before, "no layer was made from the pen path");
+}
