@@ -15,6 +15,7 @@
 //!     claude-plugin/             0700  Studio's session skill as a plugin, what Ask mode's `--plugin-dir` names
 //!     mcp-config.json            0600  the MCP servers Claude starts, what Ask mode's `--mcp-config` names
 //!     tab-<id>/                  0700  `<request id>.request.json` and `<request id>.answer` of one tab
+//!   workspaces/studio-<pid>/     0700  the folder `designos-mcp` serves for an untitled design
 //! ```
 //!
 //! The path is short on purpose: the Codex app-server socket is meant to sit next to `approve-hook.sh`, and a unix
@@ -185,19 +186,33 @@ pub fn create_private_dir_all(path: &Path) -> io::Result<()> {
     builder.create(path)
 }
 
-/// Requires `path` to be a real folder (not a link) that only its owner can use, tightening a looser mode.
-fn require_private_dir(path: &Path) -> io::Result<()> {
+/// Requires `path` to be a real folder (not a link) that belongs to the user running Studio and that only its owner can use,
+/// tightening a looser mode. A folder of another user is refused as it is: it is not Studio's to keep private.
+pub(crate) fn require_private_dir(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    // SAFETY: `geteuid` takes no arguments and cannot fail.
+    let own_uid = unsafe { libc::geteuid() };
+    #[cfg(not(unix))]
+    let own_uid = 0;
+    require_private_dir_for(path, own_uid)
+}
+
+/// [`require_private_dir`] for the user `own_uid`.
+fn require_private_dir_for(path: &Path, own_uid: u32) -> io::Result<()> {
     let meta = std::fs::symlink_metadata(path)?;
     if !meta.is_dir() {
         return Err(io::Error::other(format!("{} is not a folder", path.display())));
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        crate::agent_session_files::check_owner(path, meta.uid(), own_uid)?;
         if meta.permissions().mode() & 0o077 != 0 {
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
         }
     }
+    #[cfg(not(unix))]
+    let _ = own_uid;
     Ok(())
 }
 
@@ -327,6 +342,48 @@ mod tests {
         create_private_dir_all(&tab).unwrap();
         assert_eq!(std::fs::metadata(&tab).unwrap().permissions().mode() & 0o777, 0o700);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_of_another_user_is_refused_before_its_mode_is_touched() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let base = std::env::temp_dir().join(format!("designos-channel-owner-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let own = base.join("own");
+        let loose = base.join("loose");
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::create_dir_all(&loose).unwrap();
+        std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&loose, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let uid = std::fs::metadata(&own).unwrap().uid();
+
+        // The same folder is private for its owner and not for another user, even with no group or other bits.
+        require_private_dir_for(&own, uid).expect("a folder of the user");
+        let err = require_private_dir_for(&own, uid.wrapping_add(1)).expect_err("a folder of another user");
+        assert!(err.to_string().contains("belongs to another user"), "{err}");
+        // A looser folder of another user is refused as it is: its mode is not changed to look private.
+        let err = require_private_dir_for(&loose, uid.wrapping_add(1)).expect_err("a looser folder of another user");
+        assert!(err.to_string().contains("belongs to another user"), "{err}");
+        assert_eq!(std::fs::metadata(&loose).unwrap().permissions().mode() & 0o777, 0o755);
+        // Through the channel: the user's own folder is made as before.
+        require_private_dir(&own).expect("the user's own folder");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A real folder of another user that every system has, when Studio is not run by that user.
+    #[cfg(unix)]
+    #[test]
+    fn a_real_folder_of_another_user_is_refused() {
+        use std::os::unix::fs::MetadataExt;
+        let scratch = std::env::temp_dir();
+        let foreign = Path::new("/usr");
+        if foreign.is_dir() && std::fs::metadata(foreign).unwrap().uid() != std::fs::metadata(&scratch).unwrap().uid() {
+            let err = require_private_dir(foreign).expect_err("a folder of another user");
+            assert!(err.to_string().contains("belongs to another user"), "{err}");
+            let err = prepare_channel_dir_in(foreign, &session("foreign")).expect_err("a root of another user");
+            assert!(err.to_string().contains("belongs to another user"), "{err}");
+        }
     }
 
     #[cfg(unix)]

@@ -1,0 +1,12 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.9 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-p1-bugs/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.03s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-ddcab0b658edb7be)
+
+running 1 test
+test variables_dtcg::tests::dtcg_export_case_insensitive_collection_names_keep_unique_files_and_round_trip ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.01s
+
