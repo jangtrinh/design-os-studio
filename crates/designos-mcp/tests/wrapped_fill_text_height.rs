@@ -144,3 +144,103 @@ fn apply_spec_hug_text_with_max_width_wraps_and_without_max_width_stays_single_l
     assert!(uw > 600.0, "hug text without max_width stays single-line wide, got {uw}");
     assert_near(uh, 17.0, "hug text without max_width stays single-line height");
 }
+
+#[test]
+fn hug_text_with_max_width_grows_when_the_text_gets_longer() {
+    let mut e = Engine::new();
+    let page = page(&e);
+    let long_copy = "The agent read 14 layers, renamed the card titles, and moved the badge into the header row so the layout matches the kit. It did not change any colours.";
+
+    let created = e
+        .call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page,
+                "spec": {
+                    "kind": "frame",
+                    "name": "ShortThenLong",
+                    "width_sizing": "hug",
+                    "height_sizing": "hug",
+                    "layout": {"direction": "column", "padding": [16, 16, 16, 16]},
+                    "children": [
+                        {
+                            "kind": "text",
+                            "name": "Label",
+                            "text": "Hi",
+                            "font_size": 14,
+                            "width_sizing": "hug",
+                            "max_width": 200
+                        }
+                    ]
+                }
+            }),
+        )
+        .expect("apply_spec short text with max_width");
+    let frame_id = created["root_node_id"].as_u64().unwrap();
+    let text_id = created["name_to_id"]["ShortThenLong/Label"].as_u64().or_else(|| created["name_to_id"]["Label"].as_u64()).expect("Label text id");
+
+    let (w0, h0) = get_size(&mut e, text_id);
+    assert!(w0 < 40.0, "short text starts at its natural width, got {w0}");
+    assert_near(h0, 17.0, "short text starts on a single line");
+
+    e.call("designos_update_node", json!({"node_id": text_id, "text": long_copy})).expect("update_node to long text");
+
+    let (w1, h1) = get_size(&mut e, text_id);
+    let (fw1, fh1) = get_size(&mut e, frame_id);
+    assert_near(w1, 200.0, "long text widens to max_width");
+    assert!(h1 >= 85.0 && h1 < 300.0, "long text wraps at max_width rather than a narrow column, got {h1}");
+    assert_near(fw1, 232.0, "enclosing hug frame widens with text + padding");
+    assert_near(fh1, h1 + 32.0, "enclosing hug frame grows in height with wrapped text + padding");
+    let updated_node = e.call("designos_get_node", json!({"node_id": text_id})).expect("get_node")["node"].clone();
+    assert_eq!(updated_node["kind"]["Text"]["auto_resize"], "WidthAndHeight");
+}
+
+#[test]
+fn hug_text_with_max_width_shrinks_when_the_text_gets_shorter() {
+    let mut e = Engine::new();
+    let page = page(&e);
+    let long_copy = "The agent read 14 layers, renamed the card titles, and moved the badge into the header row so the layout matches the kit. It did not change any colours.";
+
+    let created = e
+        .call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page,
+                "spec": {
+                    "kind": "frame",
+                    "name": "LongThenShort",
+                    "width_sizing": "hug",
+                    "height_sizing": "hug",
+                    "layout": {"direction": "column", "padding": [16, 16, 16, 16]},
+                    "children": [
+                        {
+                            "kind": "text",
+                            "name": "Label",
+                            "text": long_copy,
+                            "font_size": 14,
+                            "width_sizing": "hug",
+                            "max_width": 200
+                        }
+                    ]
+                }
+            }),
+        )
+        .expect("apply_spec long text with max_width");
+    let frame_id = created["root_node_id"].as_u64().unwrap();
+    let text_id = created["name_to_id"]["LongThenShort/Label"].as_u64().or_else(|| created["name_to_id"]["Label"].as_u64()).expect("Label text id");
+
+    let (w0, h0) = get_size(&mut e, text_id);
+    assert_near(w0, 200.0, "long text starts clamped at max_width");
+    assert!(h0 >= 85.0, "long text starts wrapped across multiple lines, got {h0}");
+
+    e.call("designos_update_node", json!({"node_id": text_id, "text": "Hi"})).expect("update_node to short text");
+
+    let (w1, h1) = get_size(&mut e, text_id);
+    let (fw1, fh1) = get_size(&mut e, frame_id);
+    assert!(w1 < 40.0, "shortened text hugs back down to its natural width, got {w1}");
+    assert_near(h1, 17.0, "shortened text returns to a single line");
+    assert_near(fw1, w1 + 32.0, "enclosing hug frame shrinks to natural width + padding");
+    assert_near(fh1, 49.0, "enclosing hug frame shrinks to single-line height + padding");
+    let updated_node = e.call("designos_get_node", json!({"node_id": text_id})).expect("get_node")["node"].clone();
+    assert_eq!(updated_node["kind"]["Text"]["auto_resize"], "WidthAndHeight");
+}

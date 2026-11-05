@@ -58,13 +58,32 @@ pub fn layout_measurer() -> Option<Arc<dyn TextMeasure>> {
     }
 }
 
-/// Height of wrapping `TextAutoResize::Height` text at `width`, or `None` when `n` is not that text.
+/// Measures a hug-width (`TextAutoResize::WidthAndHeight`) text layer that may carry a
+/// `max_width` cap (`layout_child.max_w`).
+///
+/// The text keeps `TextAutoResize::WidthAndHeight`; its width is `min(natural_width, max_w)`
+/// and when `natural_width > max_w` the text wraps at `max_w`.
+pub fn measure_hug_text_with(tp: &TextProps, max_w: Option<f32>, mut measure: impl FnMut(&TextProps, Option<f32>) -> Vec2) -> Vec2 {
+    let natural = measure(tp, None);
+    if let Some(limit) = max_w.map(|w| w.max(1.0)).filter(|&limit| natural.x > limit) {
+        let wrapped = measure(tp, Some(limit));
+        Vec2::new(limit, wrapped.y)
+    } else {
+        natural
+    }
+}
+
+/// Height of wrapping `TextAutoResize::Height` text (or `TextAutoResize::WidthAndHeight` text
+/// clamped by `max_w`) at `width`, or `None` when `n` does not wrap its height.
 pub fn height_resize_text_height(n: &Node, width: f32, measure: &dyn TextMeasure) -> Option<f32> {
     let NodeKind::Text(t) = &n.kind else { return None };
-    if t.auto_resize != TextAutoResize::Height {
-        return None;
+    match t.auto_resize {
+        TextAutoResize::Height => Some(measure.measure(t, Some(width.max(1.0))).y),
+        TextAutoResize::WidthAndHeight if n.layout_child.max_w.is_some() => {
+            Some(measure_hug_text_with(t, Some(width.max(1.0)), |tp, w| measure.measure(tp, w)).y)
+        }
+        _ => None,
     }
-    Some(measure.measure(t, Some(width.max(1.0))).y)
 }
 
 /// Measure `tp` with `measure` when the caller has a renderer, otherwise the
