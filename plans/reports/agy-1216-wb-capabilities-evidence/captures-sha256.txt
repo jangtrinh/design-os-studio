@@ -1,0 +1,4 @@
+88bffecc53c2f42874975850773d3708eaac74c22b0feac285055b026310fbbf  out/evidence/board-before.png
+88bffecc53c2f42874975850773d3708eaac74c22b0feac285055b026310fbbf  out/evidence/board-after.png
+b2eb8173307579d9e01f08290c5979102ea8e36de49367ccafca554671acfff6  out/evidence/kit-before.png
+b2eb8173307579d9e01f08290c5979102ea8e36de49367ccafca554671acfff6  out/evidence/kit-after.png

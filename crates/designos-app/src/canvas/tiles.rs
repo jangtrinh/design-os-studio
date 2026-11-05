@@ -120,7 +120,7 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) {
     let start = std::time::Instant::now();
     let bg = page_background(app);
     let painter = ui.painter().with_clip_rect(rect);
-    if !app.is_board() {
+    if !app.wb_dotted_background() {
         painter.rect_filled(rect, 0.0, bg);
     }
 

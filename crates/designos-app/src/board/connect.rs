@@ -42,7 +42,7 @@ pub fn dot_hit(app: &App, rect: egui::Rect, pos: egui::Pos2) -> Option<(NodeId, 
 
 /// Keeps `board.dots` on the node under the pointer (or the one whose dots the pointer is reaching for).
 pub fn update_hover(app: &mut App, page: Option<Vec2>) {
-    if !app.is_board() || !matches!(app.tool, crate::canvas::tools::Tool::Move | crate::canvas::tools::Tool::Connector) {
+    if !app.wb_connectors_enabled() || !matches!(app.tool, crate::canvas::tools::Tool::Move | crate::canvas::tools::Tool::Connector) {
         app.board.dots = None;
         return;
     }

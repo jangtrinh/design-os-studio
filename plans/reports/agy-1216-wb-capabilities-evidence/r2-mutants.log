@@ -1,0 +1,88 @@
+capabilities (11): ['wb_tools_enabled', 'board_key_map', 'wb_contextual_bar_enabled', 'wb_connectors_enabled', 'wb_section_defaults', 'wb_text_defaults', 'wb_dotted_background', 'board_chrome', 'dev_mode_available', 'frame_stepping_available', 'ruler_strip_skips_canvas_menu']
+
+== flip wb_tools_enabled: table=KILLED | behaviour_failures=1 | test result: FAILED. 49 passed; 2 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 9.33s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::tab_works_on_a_selected_note_too_and_undoes
+
+== flip board_key_map: table=KILLED | behaviour_failures=10 | test result: FAILED. 40 passed; 11 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 8.74s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::a_typed_sticky_text_shrinks_instead_of_overflowing_the_note
+   FAILED: shell::tests::board::facilitator_timer_runs_while_canvas_is_in_use
+   FAILED: shell::tests::board::highlighter_is_wide_and_translucent
+   FAILED: shell::tests::board::marker_draws_thick_round_strokes_and_stays_active
+   FAILED: shell::tests::board::section_tool_makes_a_section_that_adopts_notes_dropped_into_it
+   FAILED: shell::tests::board::sticky_creation_and_text_undo
+   FAILED: shell::tests::board::sticky_tool_places_a_note_and_typing_goes_into_it
+   FAILED: shell::tests::board::tab_makes_the_next_sticky_to_the_right
+   FAILED: shell::tests::board::the_connector_tool_connects_two_notes_and_the_connector_survives_a_move_of_either_end
+   FAILED: shell::tests::board::toolbar_buttons_pick_tools_and_shortcuts_follow_the_board_keys
+
+== flip wb_contextual_bar_enabled: table=KILLED | behaviour_failures=7 | test result: FAILED. 43 passed; 8 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 8.80s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::author_line_toggle_on_the_bar
+   FAILED: shell::tests::board::contextual_bar_for_connectors_has_line_style_and_caps
+   FAILED: shell::tests::board::contextual_bar_for_shapes_swaps_the_shape
+   FAILED: shell::tests::board::contextual_bar_recolors_notes_and_undoes
+   FAILED: shell::tests::board::contextual_bar_text_size_and_alignment
+   FAILED: shell::tests::board::facilitator_timer_hud_stays_usable_over_a_selection_bar_pinned_to_the_bottom
+   FAILED: shell::tests::board::undo_and_redo_cover_every_board_edit_in_one_history
+
+== flip wb_connectors_enabled: table=KILLED | behaviour_failures=5 | test result: FAILED. 45 passed; 6 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 8.51s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::dragging_from_a_dot_to_another_shape_attaches_a_connector_and_moving_reroutes_it
+   FAILED: shell::tests::board::dropping_a_connector_on_empty_canvas_leaves_a_free_end
+   FAILED: shell::tests::board::hovering_a_shape_shows_four_magnet_dots
+   FAILED: shell::tests::board::moving_a_free_connector_carries_its_loose_ends
+   FAILED: shell::tests::board::undo_and_redo_cover_every_board_edit_in_one_history
+
+== flip wb_section_defaults: table=KILLED | behaviour_failures=1 | test result: FAILED. 49 passed; 2 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 10.37s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::section_and_text_creation_defaults_across_document_kinds
+
+== flip wb_text_defaults: table=KILLED | behaviour_failures=2 | test result: FAILED. 48 passed; 3 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 9.91s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::section_and_text_creation_defaults_across_document_kinds
+   FAILED: shell::tests::board::text_tool_in_a_board_makes_larger_text
+
+== flip wb_dotted_background: table=KILLED | behaviour_failures=1 | test result: FAILED. 49 passed; 2 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 9.72s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+
+== flip board_chrome: table=KILLED | behaviour_failures=20 | test result: FAILED. 30 passed; 21 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 7.64s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::author_line_toggle_on_the_bar
+   FAILED: shell::tests::board::board_files_get_the_board_ui
+   FAILED: shell::tests::board::contextual_bar_for_connectors_has_line_style_and_caps
+   FAILED: shell::tests::board::contextual_bar_for_shapes_swaps_the_shape
+   FAILED: shell::tests::board::contextual_bar_recolors_notes_and_undoes
+   FAILED: shell::tests::board::contextual_bar_text_size_and_alignment
+   FAILED: shell::tests::board::facilitator_timer_chrome_sits_on_the_four_pixel_grid
+   FAILED: shell::tests::board::facilitator_timer_hud_stays_usable_over_a_selection_bar_pinned_to_the_bottom
+   FAILED: shell::tests::board::facilitator_timer_keeps_requesting_frames_after_start_and_stops_when_paused
+   FAILED: shell::tests::board::facilitator_timer_label_uses_tabular_digits
+   FAILED: shell::tests::board::facilitator_timer_runs_while_canvas_is_in_use
+   FAILED: shell::tests::board::facilitator_timer_stops_asking_for_frames_at_zero
+   FAILED: shell::tests::board::plus_one_minute_extends_the_countdown_but_reset_returns_to_the_preset
+   FAILED: shell::tests::board::shapes_are_created_with_text_and_the_shape_picker_changes_what_is_placed
+   FAILED: shell::tests::board::stamp_tool_places_stamps
+   FAILED: shell::tests::board::tool_popovers_stay_above_the_timer_hud
+   FAILED: shell::tests::board::toolbar_buttons_pick_tools_and_shortcuts_follow_the_board_keys
+   FAILED: shell::tests::board::undo_and_redo_cover_every_board_edit_in_one_history
+   FAILED: shell::tests::dev_mode_shortcut::shift_d_enters_dev_mode_like_the_toolbar_button
+   FAILED: shell::tests::dev_mode_shortcut::shift_d_leaves_dev_mode_like_the_exit_button
+
+== flip dev_mode_available: table=KILLED | behaviour_failures=3 | test result: FAILED. 47 passed; 4 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 9.69s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::dev_mode_shortcut::shift_d_does_nothing_on_a_board
+   FAILED: shell::tests::dev_mode_shortcut::shift_d_enters_dev_mode_like_the_toolbar_button
+   FAILED: shell::tests::dev_mode_shortcut::shift_d_leaves_dev_mode_like_the_exit_button
+
+== flip frame_stepping_available: table=KILLED | behaviour_failures=1 | test result: FAILED. 49 passed; 2 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 9.98s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available
+
+== flip ruler_strip_skips_canvas_menu: table=KILLED | behaviour_failures=1 | test result: FAILED. 49 passed; 2 failed; 0 ignored; 0 measured; 3936 filtered out; finished in 9.83s
+   FAILED: board::caps::tests::wb_capabilities_table_for_board_design_and_deck
+   FAILED: shell::tests::board::right_click_on_ruler_strip_skips_canvas_menu_only_when_enabled
+
+restored caps.rs
