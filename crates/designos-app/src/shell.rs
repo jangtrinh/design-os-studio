@@ -147,6 +147,8 @@ impl Shell {
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(w as f32, h as f32));
             menus::preset_menu(&cc.egui_ctx, &mut shell.app, spec, screen);
         }
+        #[cfg(target_os = "macos")]
+        crate::macos_terminate::sync(&cc.egui_ctx, &shell.app);
         shell
     }
 
@@ -665,6 +667,8 @@ impl Shell {
             open_failed: shot_open_failed || select_miss.is_some(),
             layout_json,
         });
+        #[cfg(target_os = "macos")]
+        crate::macos_terminate::sync(ctx, &app);
         Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file }
     }
 
@@ -1638,7 +1642,10 @@ impl eframe::App for Shell {
         // macOS: a Quit chosen while the window is hidden waits a few seconds for it. The wait starts at the first frame
         // after the request, and eframe runs this hook for hidden frames too; `ctx.input` still shows the previous one.
         #[cfg(target_os = "macos")]
-        crate::macos_menu::stamp_pending_quit(ctx, raw.time);
+        {
+            crate::macos_menu::stamp_pending_quit(ctx, raw.time);
+            crate::macos_terminate::sync(ctx, &self.app);
+        }
         if self.app.plugins.open {
             return;
         }
@@ -1677,6 +1684,10 @@ impl eframe::App for Shell {
                 ui.ctx().request_repaint();
             }
         }
+    }
+
+    fn on_exit(&mut self) {
+        self.finish_quit();
     }
 }
 
@@ -1802,6 +1813,20 @@ impl Shell {
         // the canvas starts its refine only after a frame that was light on work (a document
         // that has just opened is not): tell it what this frame cost
         self.app.canvas.gpu.note_frame_work(began.elapsed().as_secs_f32() * 1000.0);
+        #[cfg(target_os = "macos")]
+        crate::macos_terminate::sync(&ctx, &self.app);
+    }
+
+    fn finish_quit(&mut self) {
+        if self.shot.is_none() {
+            crate::decks::ui::flush_notes(&mut self.app);
+            self.app.save_close_version();
+            self.app.flush_autosave();
+        }
+        self.app.terminal.shutdown();
+        for tab in &mut self.app.tabs.entries {
+            tab.terminal.shutdown();
+        }
     }
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {
@@ -1821,22 +1846,11 @@ impl Shell {
         #[cfg(target_os = "macos")]
         crate::macos_menu::send_pending_quit(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
-            if self.shot.is_some() {
-                self.app.terminal.shutdown();
-                for tab in &mut self.app.tabs.entries {
-                    tab.terminal.shutdown();
-                }
-            } else if !self.app.may_quit(&ctx) {
+            if self.shot.is_some() || self.app.may_quit(&ctx) {
+                self.finish_quit();
+            } else {
                 // Edits no save has written are being asked about: the window stays open, and the close comes round again.
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            } else {
-                crate::decks::ui::flush_notes(&mut self.app);
-                self.app.save_close_version();
-                self.app.flush_autosave();
-                self.app.terminal.shutdown();
-                for tab in &mut self.app.tabs.entries {
-                    tab.terminal.shutdown();
-                }
             }
         }
         self.app.scrub_sync(&ctx);
