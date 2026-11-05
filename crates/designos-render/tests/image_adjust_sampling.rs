@@ -189,6 +189,68 @@ fn the_letterbox_and_the_area_outside_a_turned_crop_stay_transparent_when_the_pi
     }
 }
 
+#[test]
+fn fit_fill_renders_identical_pixels_across_all_image_adjustments() {
+    let mut doc = Document::new("t");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::TRANSPARENT };
+    doc.images.insert(
+        "gradient".into(),
+        png_bytes(16, 16, |x, y| [((x * 15 + 20) % 240) as u8, ((y * 13 + 40) % 230) as u8, (((x + y) * 11 + 60) % 220) as u8, 255]),
+    );
+    let id = doc.alloc_id();
+    let mut node = Node::rectangle(id, Rect::new(0.0, 0.0, 64.0, 32.0));
+    let make_paint = |adjust| Paint {
+        kind: PaintKind::Image { image_ref: "gradient".into(), scale_mode: ImageScaleMode::Fit, params: ImageParams { adjust, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    node.fills = vec![make_paint(ImageAdjust::default())];
+    doc.insert(page, node).unwrap();
+    let mut plain = Pixmap::new(64, 32).unwrap();
+    render_page(&doc, page, &Viewport::default(), &mut plain);
+
+    let cases = [
+        ("exposure", ImageAdjust { exposure: 0.45, ..Default::default() }),
+        ("contrast", ImageAdjust { contrast: 0.35, ..Default::default() }),
+        ("saturation", ImageAdjust { vibrance: 0.5, ..Default::default() }),
+        ("temperature", ImageAdjust { temperature: 0.4, ..Default::default() }),
+        ("tint", ImageAdjust { tint: -0.35, ..Default::default() }),
+        ("highlights", ImageAdjust { highlights: -0.4, ..Default::default() }),
+        ("shadows", ImageAdjust { shadows: 0.45, ..Default::default() }),
+        (
+            "all_seven",
+            ImageAdjust { exposure: 0.25, contrast: 0.2, vibrance: 0.3, temperature: 0.25, tint: -0.2, highlights: -0.25, shadows: 0.3, ..Default::default() },
+        ),
+    ];
+
+    for (label, adjust) in cases {
+        doc.get_mut(id).unwrap().fills = vec![make_paint(adjust)];
+        let mut adjusted = Pixmap::new(64, 32).unwrap();
+        render_page(&doc, page, &Viewport::default(), &mut adjusted);
+        let mut moved = false;
+        for y in 0..32 {
+            for x in (0..14).chain(50..64) {
+                assert_eq!(px(&adjusted, x, y), [0, 0, 0, 0], "{label}: letterbox at ({x}, {y}) must stay transparent");
+            }
+            if !(4..28).contains(&y) {
+                continue;
+            }
+            for x in 20..44 {
+                let sample = px(&plain, x, y);
+                let want = adjust_rgba(sample, &adjust);
+                let got = px(&adjusted, x, y);
+                for k in 0..4 {
+                    assert!(want[k].abs_diff(got[k]) <= 1, "{label}: ({x}, {y}) channel {k} got {got:?}, want {want:?}");
+                }
+                moved |= sample[..3] != got[..3];
+            }
+        }
+        assert!(moved, "{label}: adjustment must alter visible Fit pixels");
+    }
+}
+
 /// One 256x256 tile in the middle of a 4032x3024 picture fitted into a 4032x4032 node at a device pixel ratio of 2.
 /// Run with `cargo test -p designos-render --release --test image_adjust_sampling -- --ignored --nocapture`.
 #[test]
