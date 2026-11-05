@@ -38,15 +38,16 @@ fn add_rect(doc: &mut Document, parent: NodeId, i: usize) -> NodeId {
     doc.insert(parent, Node::rectangle(id, Rect::new((i % 40) as f32 * 100.0, (i / 40) as f32 * 100.0, 80.0, 60.0))).unwrap()
 }
 
-/// Adds `count` connectors under `parent`, spread over `targets`. Every 11th connector starts
-/// and ends on the same node, every 13th has a free start, every 17th a free end.
-fn add_connectors(doc: &mut Document, parent: NodeId, targets: &[NodeId], count: usize) -> Vec<(NodeId, Option<NodeId>, Option<NodeId>)> {
+/// Adds `count` connectors under `parent`, spread over `targets`, every one attached at both
+/// ends. Every 11th connector starts and ends on the same node. With `free_ends`, every 13th
+/// connector also has a free start and every 17th a free end.
+fn add_connectors(doc: &mut Document, parent: NodeId, targets: &[NodeId], count: usize, free_ends: bool) -> Vec<(NodeId, Option<NodeId>, Option<NodeId>)> {
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let a = targets[i % targets.len()];
         let b = if i % 11 == 0 { a } else { targets[(i * 7 + 3) % targets.len()] };
-        let start = (i % 13 != 5).then_some(a);
-        let end = (i % 17 != 9).then_some(b);
+        let start = (!free_ends || i % 13 != 5).then_some(a);
+        let end = (!free_ends || i % 17 != 9).then_some(b);
         let props = ConnectorProps {
             start: start.map_or_else(|| ConnectorEnd::free(Vec2::new(i as f32, 0.0)), |n| ConnectorEnd::attached(n, Magnet::Auto)),
             end: end.map_or_else(|| ConnectorEnd::free(Vec2::new(0.0, i as f32)), |n| ConnectorEnd::attached(n, Magnet::Auto)),
@@ -63,7 +64,7 @@ fn fixture(count: usize) -> Fixture {
     let mut doc = Document::new("connector_index_scale");
     let page = doc.add_page("Page 1");
     let targets: Vec<NodeId> = (0..TARGETS).map(|i| add_rect(&mut doc, page, i)).collect();
-    let connectors = add_connectors(&mut doc, page, &targets, count);
+    let connectors = add_connectors(&mut doc, page, &targets, count, false);
     Fixture { doc, parent: page, connectors }
 }
 
@@ -84,6 +85,12 @@ fn assert_index_matches(idx: &ConnectorIndex, fx: &Fixture) {
     for (node, want) in &want_by_end {
         let want: Vec<NodeId> = want.iter().copied().collect();
         assert_eq!(idx.connectors_for_end(*node), want.as_slice(), "connectors attached to {node:?}");
+    }
+
+    for &(id, start, end) in &fx.connectors {
+        for node in [start, end].into_iter().flatten() {
+            assert!(idx.connectors_for_end(node).contains(&id), "connector {id:?} missing from the list of {node:?}");
+        }
     }
 
     let all: Vec<NodeId> = fx.connectors.iter().map(|c| c.0).collect();
@@ -145,7 +152,7 @@ fn inserting_into_a_frame_with_many_connectors_refreshes_incrementally_and_fast(
     let frame = doc.alloc_id();
     doc.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 4_000.0, 4_000.0))).unwrap();
     let targets: Vec<NodeId> = (0..TARGETS).map(|i| add_rect(&mut doc, frame, i)).collect();
-    let connectors = add_connectors(&mut doc, frame, &targets, REFRESH_CONNECTORS);
+    let connectors = add_connectors(&mut doc, frame, &targets, REFRESH_CONNECTORS, false);
     let mut fx = Fixture { doc, parent: frame, connectors };
 
     with_index(&fx.doc, |idx| assert_eq!(idx.connectors.len(), REFRESH_CONNECTORS));
@@ -194,7 +201,7 @@ fn refresh_after_rewiring_and_geometry_edits_equals_a_full_scan() {
     let mut doc = Document::new("connector_index_rewire");
     let page = doc.add_page("Page 1");
     let nodes: Vec<NodeId> = (0..8).map(|i| add_rect(&mut doc, page, i)).collect();
-    let connectors = add_connectors(&mut doc, page, &nodes, 40);
+    let connectors = add_connectors(&mut doc, page, &nodes, 40, true);
     with_index(&doc, |idx| assert_index_equals_scan(idx, &doc));
     reset_connector_index_stats();
 
@@ -209,7 +216,7 @@ fn refresh_after_rewiring_and_geometry_edits_equals_a_full_scan() {
     if let NodeKind::Connector(props) = &mut doc.get_mut(connectors[20].0).unwrap().kind {
         props.start = ConnectorEnd::free(Vec2::new(5.0, 5.0));
     }
-    let late = add_connectors(&mut doc, page, &nodes, 3);
+    let late = add_connectors(&mut doc, page, &nodes, 3, true);
 
     with_index(&doc, |idx| {
         let stats = connector_index_stats();
