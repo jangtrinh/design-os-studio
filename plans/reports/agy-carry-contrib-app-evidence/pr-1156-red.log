@@ -1,0 +1,28 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.99s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 2 tests
+
+thread 'panels::export::tests::export_error_toast_uses_the_sanitized_layer_path' (5648680) panicked at crates/designos-app/src/panels/export.rs:808:9:
+No save dialog. Export failed: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T//designos-test.rAfcTw/tmp/designos_export_94230_error_sanitized/missing/-Notes.png: No such file or directory (os error 2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'panels::export::tests::export_error_toast_uses_the_cut_layer_path' (5648679) panicked at crates/designos-app/src/panels/export.rs:822:9:
+No save dialog. Export failed: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T//designos-test.rAfcTw/tmp/designos_export_94230_error_long/missing/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png: No such file or directory (os error 2)
+test panels::export::tests::export_error_toast_uses_the_cut_layer_path ... FAILED
+test panels::export::tests::export_error_toast_uses_the_sanitized_layer_path ... FAILED
+
+failures:
+
+failures:
+    panels::export::tests::export_error_toast_uses_the_cut_layer_path
+    panels::export::tests::export_error_toast_uses_the_sanitized_layer_path
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4388 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,96 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.72s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 6 tests
+designos: --select 7 is ambiguous: layer "7" (id 3) and node id 7, which is per session and not stable across runs; use name:7
+designos: id 2 was created in this session and is not stable across runs; use fig:<id> or a name
+designos: id 7 was created in this session and is not stable across runs; use fig:<id> or a name
+{
+  "exported_node_id": 3,
+  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.Qya1YF/tmp/designos_select_gui_overlap_watermark_6799/spec.json"
+}
+test shell::tests::select_cli_watermark::gui_overlap_with_a_page0_hydrated_id_names_only_the_name_and_the_cli_takes_the_layer ... ok
+test shell::tests::select_cli_watermark::gui_rejects_a_page0_hydrated_id_like_the_cli ... ok
+test shell::tests::select_cli_watermark::import_capture_leaves_the_window_the_watermark_the_agent_cli_records ... ok
+{
+  "kind": "Design",
+  "name": "Pricing Card Fixture",
+  "node_count": 17,
+  "pages": [
+    {
+      "child_count": 1,
+      "id": 1,
+      "name": "Page 1",
+      "screens": [
+        {
+          "dev_status": null,
+          "height": 800.0,
+          "id": 2,
+          "kind": "Frame",
+          "name": "Pricing Card Fixture",
+          "source_id": null,
+          "width": 1280.0
+        }
+      ]
+    }
+  ],
+  "selection": {
+    "height": 800.0,
+    "id": 2,
+    "id_stable": true,
+    "kind": "Frame",
+    "name": "Pricing Card Fixture",
+    "page_id": 1,
+    "source_id": null,
+    "width": 1280.0,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "unresolved_comments": 0
+}
+test shell::tests::select_cli_watermark::a_web_capture_opened_at_startup_is_addressed_by_id_in_the_window_and_the_cli_alike ... ok
+test shell::tests::select_cli_watermark::an_agent_document_that_replaces_the_shown_one_brings_its_own_watermark ... ok
+test shell::tests::select_cli_watermark::a_document_read_back_from_its_file_brings_that_files_watermark ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4375 filtered out; finished in 0.79s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.86s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 22 tests
+test select_target::tests::name_order_prefers_page_then_screen_then_walk ... ok
+test select_target::tests::duplicate_names_report_count_while_selecting_first ... ok
+test select_target::tests::a_figma_id_miss_explains_a_document_without_figma_ids ... ok
+test select_target::tests_edges::a_bare_number_that_misses_expands_once_and_retries_the_name_only ... ok
+test select_target::tests::resolve_by_id_fig_and_name ... ok
+test select_target::tests::miss_hydrates_lazy_pages_once ... ok
+test select_target::tests::a_malformed_id_is_an_error_not_a_name ... ok
+test select_target::tests::id_selector_never_hydrates ... ok
+test select_target::tests::several_layers_with_one_name_select_the_first_and_say_how_many ... ok
+test select_target::tests::hydrated_ids_are_reported_unstable ... ok
+test select_target::tests_edges::a_missing_id_says_no_node_has_it_and_an_expanded_one_says_it_is_per_session ... ok
+test select_target::tests_edges::bare_id_resolves_without_hydrating ... ok
+test select_target::tests_edges::a_miss_claims_the_pages_were_expanded_only_when_an_expansion_ran ... ok
+test select_target::tests_edges::an_overlap_with_a_per_session_id_stays_an_error_and_names_only_the_name ... ok
+test select_target::tests::bare_number_matching_name_and_id_is_ambiguous ... ok
+test select_target::tests::duplicate_figma_ids_are_rejected ... ok
+test select_target::tests_edges::every_miss_says_ids_of_expanded_content_are_per_session ... ok
+test select_target::tests::a_miss_says_what_was_searched ... ok
+test select_target::tests::fig_id_duplicates_are_an_error ... ok
+test select_target::tests::a_figma_id_miss_in_a_big_file_explains_instance_sublayers ... ok
+test select_target::tests::fig_on_a_large_file_does_not_hydrate ... ok
+test select_target::tests_edges::fig_treats_exactly_10000_nodes_as_a_large_file ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 4359 filtered out; finished in 0.08s
+
+GREEN_EXIT=0

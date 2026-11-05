@@ -6,7 +6,7 @@
 //! spans give the style. Chunks that look like the lines of one paragraph
 //! (same x, even spacing) merge into one multi-line Text node.
 
-use crate::convert::{Attrs, Conv};
+use crate::convert::{layer_name, Attrs, Conv};
 use crate::paint::Frame;
 use designos_doc::*;
 use usvg::{FontFamily, FontStyle, TextAnchor, TextFlow, TextSpan, WritingMode};
@@ -23,7 +23,7 @@ struct Line<'a> {
 
 pub(crate) fn convert_text(c: &mut Conv, t: &usvg::Text, parent: usize, a: Attrs) {
     match collect(t) {
-        Some(lines) if !lines.is_empty() => emit(c, lines, parent, a),
+        Some(lines) if !lines.is_empty() => emit(c, lines, parent, a, t.id()),
         // Text on a path, rotated glyphs, vertical text: keep the look as outlines.
         _ => c.convert_group(t.flattened(), parent, a),
     }
@@ -134,7 +134,7 @@ fn pitch_of(lines: &[Line]) -> Option<f32> {
     ok.then_some(pitch)
 }
 
-fn emit(c: &mut Conv, lines: Vec<Line>, parent: usize, a: Attrs) {
+fn emit(c: &mut Conv, lines: Vec<Line>, parent: usize, a: Attrs, id: &str) {
     let groups: Vec<(Vec<Line>, Option<f32>)> = match pitch_of(&lines) {
         Some(p) => vec![(lines, Some(p))],
         None => lines.into_iter().map(|l| (vec![l], None)).collect(),
@@ -147,11 +147,11 @@ fn emit(c: &mut Conv, lines: Vec<Line>, parent: usize, a: Attrs) {
         (parent, a)
     };
     for (lines, pitch) in groups {
-        emit_node(c, &lines, pitch, parent, &a);
+        emit_node(c, &lines, pitch, parent, &a, id);
     }
 }
 
-fn emit_node(c: &mut Conv, lines: &[Line], pitch: Option<f32>, parent: usize, a: &Attrs) {
+fn emit_node(c: &mut Conv, lines: &[Line], pitch: Option<f32>, parent: usize, a: &Attrs, id: &str) {
     let first = &lines[0];
     let align = match first.anchor {
         TextAnchor::Start => TextAlignH::Left,
@@ -216,6 +216,6 @@ fn emit_node(c: &mut Conv, lines: &[Line], pitch: Option<f32>, parent: usize, a:
     node.transform = a.pre * Affine::translate(x, y);
     node.size = Vec2::new(w, h);
     let label: String = content.lines().next().unwrap_or("").chars().take(40).collect();
-    node.name = label.trim().to_string();
+    node.name = layer_name(id).unwrap_or_else(|| label.trim().to_string());
     c.push(node, parent);
 }
