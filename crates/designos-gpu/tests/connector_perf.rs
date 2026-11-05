@@ -233,6 +233,7 @@ fn perf_scene_whiteboard_2000_budgets() {
     let (hits_after_pan, misses_after_pan) = route_cache_stats();
     let pan_hits = hits_after_pan - hits_before_pan;
     let pan_misses = misses_after_pan - misses_before_pan;
+    trace_samples("2 pan/zoom", &pan_samples_us);
     let (pan_p50_us, pan_p95_us) = percentiles_us(pan_samples_us);
 
     // 3. Dragging 1 node with 4 attached connectors
@@ -410,6 +411,7 @@ fn perf_scene_whiteboard_2000_budgets() {
         assert!(plan.updates.is_empty());
         frame1000_samples_us.push(us);
     }
+    trace_samples("9 move frame 1000 internal", &frame1000_samples_us);
     let (frame1000_p50_us, frame1000_p95_us) = percentiles_us(frame1000_samples_us);
 
     // 10. Index refresh after 1 node edit
