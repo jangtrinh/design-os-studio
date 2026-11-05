@@ -275,3 +275,112 @@ fn a_second_quit_starts_the_wait_again() {
     assert!(!eframe_frame(&mut s, false).ends_app);
     assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
 }
+
+/// Sends `terminate:` through `applicationShouldTerminate:` on the delegate class, as Dock Quit, logout, shutdown and
+/// the `quit` Apple Event do, and runs the close request it posts into the window.
+fn request_terminate(s: &mut Sim) -> objc2_app_kit::NSApplicationTerminateReply {
+    crate::macos_terminate::sync(&s.ctx, &s.shell.app);
+    s.sent_commands.clear();
+    let reply = crate::macos_terminate::tests::send_terminate_to_delegate(&s.ctx);
+    if reply == objc2_app_kit::NSApplicationTerminateReply::TerminateCancel {
+        s.frame(vec![]);
+        assert!(s.sent_commands.contains(&egui::ViewportCommand::Close), "TerminateCancel asks for the close of the window");
+        s.close_frame();
+    }
+    reply
+}
+
+#[test]
+fn terminate_from_dock_or_system_asks_about_unsaved_edits_and_cancel_keeps_the_app_open() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    let (edited, on_disk) = (s.app().doc.nodes.len(), nodes_on_disk(&path));
+    assert_eq!(request_terminate(&mut s), objc2_app_kit::NSApplicationTerminateReply::TerminateCancel);
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+    assert!(s.commands.contains(&egui::ViewportCommand::CancelClose), "the window stays open for the question");
+    s.sent_commands.clear();
+    click(&mut s, "dialog-cancel");
+    wait(&mut s, SETTLED);
+    assert!(s.app().dialog.is_none(), "answered");
+    assert!(!s.sent_commands.contains(&egui::ViewportCommand::Close), "Cancel keeps the app open");
+    assert_eq!(s.app().doc.nodes.len(), edited, "the edit is still there");
+    assert!(dot(&s), "still unsaved");
+    assert_eq!(nodes_on_disk(&path), on_disk, "nothing was written");
+    // asked again by the next terminate:; Save writes the file and approves the quit
+    assert_eq!(request_terminate(&mut s), objc2_app_kit::NSApplicationTerminateReply::TerminateCancel);
+    assert!(asks_about(&s, "Outside"));
+    s.sent_commands.clear();
+    click(&mut s, "dialog-ok");
+    assert_eq!(nodes_on_disk(&path), edited, "Save wrote the edit");
+    assert!(s.sent_commands.contains(&egui::ViewportCommand::Close), "and the quit went on");
+    s.close_frame();
+    assert!(!s.commands.contains(&egui::ViewportCommand::CancelClose), "the close goes through");
+    assert_eq!(
+        crate::macos_terminate::tests::send_terminate_to_delegate(&s.ctx),
+        objc2_app_kit::NSApplicationTerminateReply::TerminateNow,
+        "once approved, immediate termination is allowed"
+    );
+}
+
+#[test]
+fn terminate_from_dock_or_system_discards_unsaved_edits_when_dont_save_is_chosen() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    let on_disk = nodes_on_disk(&path);
+    assert_eq!(request_terminate(&mut s), objc2_app_kit::NSApplicationTerminateReply::TerminateCancel);
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+    s.sent_commands.clear();
+    click(&mut s, "dialog-alt");
+    assert_eq!(nodes_on_disk(&path), on_disk, "Don't save leaves the file on disk untouched");
+    assert!(s.sent_commands.contains(&egui::ViewportCommand::Close), "and the quit goes on");
+    s.close_frame();
+    assert!(!s.commands.contains(&egui::ViewportCommand::CancelClose), "the close goes through");
+}
+
+#[test]
+fn terminate_from_dock_or_system_flushes_the_autosave_of_a_library_file_without_asking() {
+    let (mut s, _d) = library_sim();
+    let id = s.app().lib_file.as_ref().unwrap().id.clone();
+    let on_disk = lib(&s).load_file(&id).unwrap().nodes.len();
+    edit_now(&mut s);
+    let edited = s.app().doc.nodes.len();
+    assert_ne!(edited, on_disk, "the edit is in the document");
+    assert_eq!(lib(&s).load_file(&id).unwrap().nodes.len(), on_disk, "and autosave has not written it yet");
+    assert_eq!(request_terminate(&mut s), objc2_app_kit::NSApplicationTerminateReply::TerminateCancel);
+    assert!(s.app().dialog.is_none(), "{:?}", dialog_title(&s));
+    assert!(!s.commands.contains(&egui::ViewportCommand::CancelClose), "the close goes through without a question");
+    assert_eq!(lib(&s).load_file(&id).unwrap().nodes.len(), edited, "the edit was written before the app ended");
+}
+
+#[test]
+fn terminate_from_dock_or_system_with_nothing_unsaved_quits_at_once() {
+    let (mut s, _d, _path) = external_sim_with(&two_rects());
+    assert_eq!(crate::macos_terminate::tests::send_terminate_to_delegate(&s.ctx), objc2_app_kit::NSApplicationTerminateReply::TerminateNow);
+    assert!(s.app().dialog.is_none());
+    eframe::App::on_exit(&mut s.shell);
+}
+
+#[test]
+fn terminate_while_the_window_is_hidden_brings_it_back_and_asks_once_it_is_visible() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    let (edited, on_disk) = (s.app().doc.nodes.len(), nodes_on_disk(&path));
+    keep_running(&mut s, true, 1, "minimized");
+    s.sent_commands.clear();
+    assert_eq!(crate::macos_terminate::tests::send_terminate_to_delegate(&s.ctx), objc2_app_kit::NSApplicationTerminateReply::TerminateCancel);
+    let waiting = keep_running(&mut s, true, 2, "the app stays alive while the window is hidden");
+    assert_eq!(sent(&s, &ViewportCommand::Close), 0, "no close is asked for while no frame can draw the question");
+    assert!(sent(&s, &ViewportCommand::Minimized(false)) >= 1, "terminate: brings the window back");
+    assert!(waiting[1..].iter().all(|after| *after == Duration::MAX), "waiting for the window repaints nothing: {waiting:?}");
+    s.sent_commands.clear();
+    assert!(!eframe_frame(&mut s, false).ends_app);
+    assert_eq!(sent(&s, &ViewportCommand::Close), 1, "once visible, the close request goes out");
+    assert!(!eframe_frame(&mut s, false).ends_app, "the close waits for the answer");
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+    assert!(s.commands.contains(&ViewportCommand::CancelClose), "the window stays open for the question");
+    click(&mut s, "dialog-cancel");
+    keep_running(&mut s, false, 3, "Cancel keeps the app open");
+    assert!(s.app().dialog.is_none(), "answered");
+    assert_eq!(s.app().doc.nodes.len(), edited, "the edit is still there");
+    assert_eq!(nodes_on_disk(&path), on_disk, "nothing was written");
+}
