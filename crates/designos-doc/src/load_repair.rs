@@ -36,6 +36,11 @@ pub struct RepairReport {
     /// their neutral value; see [`crate::finite_json`]. Not a node-graph defect, so
     /// [`RepairReport::structural_summary`] leaves it out.
     pub non_finite_numbers: usize,
+    /// Connectors that sat in an auto-layout frame as part of its flow and are now positioned
+    /// absolutely, as every connector made since connectors joined design files is. Not a
+    /// node-graph defect, so [`RepairReport::structural_summary`] leaves it out: nothing was
+    /// guessed or lost, and a caller that refuses repaired graphs still opens the file.
+    pub connectors_made_absolute: usize,
 }
 
 impl RepairReport {
@@ -162,8 +167,9 @@ impl Document {
                         c.parent = Some(id);
                         report.parents_rebuilt += 1;
                     }
-                    if parent_is_auto_layout && matches!(c.kind, crate::NodeKind::Connector(_)) {
+                    if parent_is_auto_layout && matches!(c.kind, crate::NodeKind::Connector(_)) && !c.layout_child.absolute {
                         c.layout_child.absolute = true;
+                        report.connectors_made_absolute += 1;
                     }
                 }
             }

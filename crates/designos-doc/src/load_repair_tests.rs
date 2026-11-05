@@ -220,3 +220,55 @@ fn headroom_below_the_limit_is_not_flagged() {
     let (_, report) = Document::from_json_with_report(&d.to_json().unwrap()).unwrap();
     assert!(!report.id_space_exhausted && report.is_clean());
 }
+
+/// A frame with an auto-layout `flow` that holds two rectangles and `connectors` connectors joining
+/// them, each stored the way an older release wrote it: part of the flow, not absolute.
+fn auto_layout_frame_with_flowing_connectors(connectors: usize) -> (Document, Vec<NodeId>) {
+    let mut d = Document::new("Flowing connectors");
+    let page = d.add_page("P");
+    let frame = d.alloc_id();
+    let mut f = Node::frame(frame, Rect::new(0.0, 0.0, 300.0, 120.0));
+    if let Some(fp) = f.kind.frame_props_mut() {
+        fp.auto_layout = Some(crate::AutoLayout::default());
+    }
+    d.insert(page, f).unwrap();
+    let a = d.alloc_id();
+    d.insert(frame, Node::rectangle(a, Rect::new(10.0, 10.0, 60.0, 40.0))).unwrap();
+    let b = d.alloc_id();
+    d.insert(frame, Node::rectangle(b, Rect::new(150.0, 10.0, 60.0, 40.0))).unwrap();
+    let mut ids = Vec::new();
+    for _ in 0..connectors {
+        let c = d.alloc_id();
+        let props = crate::ConnectorProps {
+            start: crate::ConnectorEnd::attached(a, crate::Magnet::Auto),
+            end: crate::ConnectorEnd::attached(b, crate::Magnet::Auto),
+            ..Default::default()
+        };
+        let mut conn = Node::connector(c, props);
+        conn.layout_child.absolute = false;
+        d.insert(frame, conn).unwrap();
+        ids.push(c);
+    }
+    (d, ids)
+}
+
+#[test]
+fn a_connector_flowing_in_an_auto_layout_parent_is_repaired_on_load_and_reported() {
+    let (d, ids) = auto_layout_frame_with_flowing_connectors(1);
+    let (mut back, report) = Document::from_json_with_report(&d.to_json().unwrap()).unwrap();
+    assert!(back.nodes[&ids[0]].layout_child.absolute, "the connector is taken out of the flow");
+    assert!(!report.is_clean(), "the repair shows in the report: {report:?}");
+    assert_eq!(report.structural_summary(), None, "nothing was guessed or lost, so a caller that refuses repaired graphs still opens the file");
+    assert!(back.validate_and_repair().is_clean(), "a second pass over the repaired document finds nothing");
+    let (_, resaved) = Document::from_json_with_report(&back.to_json().unwrap()).unwrap();
+    assert!(resaved.is_clean(), "what a save writes needs no repair");
+}
+
+#[test]
+fn load_repair_counts_each_flowing_connector_once() {
+    let (d, ids) = auto_layout_frame_with_flowing_connectors(3);
+    let (mut back, report) = Document::from_json_with_report(&d.to_json().unwrap()).unwrap();
+    assert_eq!(report.connectors_made_absolute, 3);
+    assert!(ids.iter().all(|id| back.nodes[id].layout_child.absolute));
+    assert_eq!(back.validate_and_repair().connectors_made_absolute, 0, "a connector already out of the flow is not counted again");
+}
