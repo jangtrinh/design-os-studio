@@ -1,0 +1,32 @@
+1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+MUTANT 3: toggling the lock on an instance records no override
+change (git diff -U0 crates/designos-doc/src/components.rs, changed lines only):
+-    add(before.lock_aspect != after.lock_aspect, OverrideField::LockAspect);
+/dev/disk3s1s1   926Gi    12Gi   121Gi     9%    459k  1.3G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.85s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 3 tests
+test comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock ... ok
+test comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main ... ok
+test comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main ... FAILED
+
+failures:
+
+---- comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main stdout ----
+
+thread 'comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main' (73093963) panicked at crates/designos-app/src/comp_ops.rs:765:9:
+an instance that set its own lock must keep it when the main is unlocked
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant3_done

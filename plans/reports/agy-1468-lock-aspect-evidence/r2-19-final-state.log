@@ -1,0 +1,14 @@
+$ git rev-parse HEAD origin/main
+1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+$ git log --oneline origin/main..HEAD   (at the gated code commit; commits after it carry only plans/)
+1462d2db test(inspector): check the lock toggle with a line first and with a rectangle first in separate tests
+044bb5ef docs(plans): add the evidence and report for the aspect lock follow-up
+7cc90b29 feat(inspector): carry the aspect lock through multi-selection drags, instances, snapping and a link glyph
+81a197c5 feat(inspector): lock aspect ratio toggle next to W and H (#1468)
+$ git log --oneline HEAD..origin/main | wc -l   (commits on main not in the branch)
+       0
+$ gh pr view 1540 --json url,state,isDraft,headRefOid   (before the push of this round)
+{"headRefOid":"81a197c5064d7aa019a2e12c3cd27c904e494332","isDraft":true,"state":"OPEN","url":"https://github.com/jangtrinh/design-os-studio/pull/1540"}
+$ git branch --show-current
+jangtrinh/agy-1468-lock-aspect

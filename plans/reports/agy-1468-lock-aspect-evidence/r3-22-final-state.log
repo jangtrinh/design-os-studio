@@ -1,0 +1,14 @@
+$ git rev-parse HEAD origin/main
+ed4d2e96123d39a033a018843ca74e9741ee3f29
+a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+$ git log --oneline origin/main..HEAD   (at the gated code commit; the commit carrying this report follows)
+ed4d2e96 fix(fig): read an instance's aspect lock override back from .fig and REST files
+d297959c docs(plans): rerun the lock aspect evidence on the final code and rebuild the report
+1462d2db test(inspector): check the lock toggle with a line first and with a rectangle first in separate tests
+044bb5ef docs(plans): add the evidence and report for the aspect lock follow-up
+7cc90b29 feat(inspector): carry the aspect lock through multi-selection drags, instances, snapping and a link glyph
+81a197c5 feat(inspector): lock aspect ratio toggle next to W and H (#1468)
+$ git log --oneline HEAD..origin/main | wc -l
+       0
+$ gh pr view 1540 --json url,state,isDraft,headRefOid   (before the Round 3 push)
+{"headRefOid":"d297959cb663e1cc225855df2cdde89a7e656c3c","isDraft":true,"state":"OPEN","url":"https://github.com/jangtrinh/design-os-studio/pull/1540"}

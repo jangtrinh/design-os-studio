@@ -54,7 +54,7 @@ fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 #[test]
 fn without_a_private_data_folder_no_cli_gets_a_hook_in_ask_or_in_skip_mode() {
     without_private_root(|| {
-        for mode in [PermissionMode::Ask, PermissionMode::Skip] {
+        for mode in [PermissionMode::Ask, PermissionMode::AskRisky, PermissionMode::Skip] {
             let mut st = tab_state_in(mode);
             assert!(st.reset_agent_run(None).is_none(), "{mode:?}: the agent files are written");
 
@@ -74,7 +74,7 @@ fn without_a_private_data_folder_no_cli_gets_a_hook_in_ask_or_in_skip_mode() {
 
 #[test]
 fn when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file() {
-    for mode in [PermissionMode::Ask, PermissionMode::Skip] {
+    for mode in [PermissionMode::Ask, PermissionMode::AskRisky, PermissionMode::Skip] {
         let mut st = tab_state_in(mode);
         // A file where the hook folder goes: the approval channel is made, the hook folder cannot be.
         let channel = prepare_channel_dir(&st.session_dir).expect("the approval channel");
@@ -85,7 +85,7 @@ fn when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook
         assert!(installed.is_empty(), "{mode:?}: a hook is installed in the session folder, where an agent can write: {installed:#?}");
         let approval = channel_hooks(&st.session_dir);
         match mode {
-            PermissionMode::Ask => {
+            PermissionMode::Ask | PermissionMode::AskRisky => {
                 assert_eq!(approval.len(), 1, "Ask keeps the approval handler and nothing else: {approval:#?}");
                 assert!(approval[0].contains("approve-hook.sh"), "{approval:#?}");
                 assert!(!approval[0].contains(st.session_dir.to_str().expect("a UTF-8 path")), "the handler names the session folder: {approval:#?}");

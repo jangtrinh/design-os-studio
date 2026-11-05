@@ -1,0 +1,23 @@
+warning: /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/base-r2/crates/designos-app/Cargo.toml: file `/private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad/base-r2/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+error[E0425]: cannot find function `set_expose_nested_instance` in this scope
+    --> crates/designos-fig/tests/fig_roundtrip.rs:4391:5
+     |
+4391 |     set_expose_nested_instance(&mut doc, exposed_in_card, true).apply(&mut doc).unwrap();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-fig/tests/fig_roundtrip.rs:4413:16
+     |
+4413 |     assert_eq!(exposed_nested_instances(&fig_rt, card_inst_rt.id), vec![inst_exposed_rt.id]);
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `exposed_nested_instances` in this scope
+    --> crates/designos-fig/tests/fig_roundtrip.rs:4432:16
+     |
+4432 |     assert_eq!(exposed_nested_instances(&rest_rt, rest_inst.id), vec![rest_inst_exposed.id]);
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `designos-fig` (test "fig_roundtrip") due to 3 previous errors

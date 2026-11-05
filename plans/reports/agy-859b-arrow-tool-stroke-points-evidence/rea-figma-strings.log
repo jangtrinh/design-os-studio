@@ -1,0 +1,261 @@
+=== Endpoints & StrokeCap UI (46637-4697778861f9cb3c.min.js.br): /Users/jangtrinh/Library/Application Support/Figma/DesktopProfile/v43/Code Cache/js/056b3d15fd1334a0_0 (size=365656, url=https://www.figma.com/webpack-artifacts/assets/46637-4697778861f9cb3c.min.js.br) [103500..108500] ===
+  0x019545 (103749): EaS~
+  0x0197b8 (104376): .n.d.OA
+  0x01982f (104495): .n.d.D4
+  0x0198a3 (104611): .n.d.ob
+  0x019910 (104720): 410919.n.d.Ta
+  0x01994d (104781): 0PjN7
+  0x019958 (104792): endpoints--adjustedGridLayout---LcmV
+  0x01997d (104829): 0PjJ
+  0x019988 (104840): endpoints--ui3EndpointFlipped--KMfar
+  0x0199ca (104906): NONE
+  0x0199da (104922): ROUND
+  0x0199ee (104942): SQUARE
+  0x019a12 (104978): ARROW_LINES
+  0x019a2a (105002): ARROW_EQUILATERAL
+  0x019a4a (105034): TRIANGLE_FILLED
+  0x019a66 (105062): CIRCLE_FILLED
+  0x019a82 (105090): DIAMOND_FILLED
+  0x019aae (105134): XH`^
+  0x019bb3 (105395): .format
+  0x019c7b (105595): XH`^
+  0x019d80 (105856): .format
+  0x019e70 (106096): XH`^
+  0x019eef (106223): defaultSelectiona
+  0x019f59 (106329): Pdz=:
+  0x019f63 (106339): allowEmpty
+  0x019f7c (106364): autoValue
+  0x019fa2 (106402): Pcz-
+  0x019fac (106412): units
+  0x019fda (106458): smallPixelNudgeAmount
+  0x01a003 (106499): bigPixelNudgeAmount
+  0x01a01d (106525): (Ph.U
+  0x01a028 (106536): smallPercentageNudgeAmount
+  0x01a04a (106570): $Pgv
+  0x01a055 (106581): bigPercentageNudgeAmount`
+  0x01a115 (106773): Ea6r
+  0x01a14a (106826): Ea}r
+  0x01a4c4 (107716): o%'1
+  0x01a4ca (107722): p%'2
+=== Tool Actions (set-tool-arrow / set-tool-line): /Users/jangtrinh/Library/Application Support/Figma/DesktopProfile/v43/Code Cache/js/0ae67ddbf410865d_0 (size=959992, url=unknown) [174200..176500] ===
+  0x02a878 (174200): ggle-publish
+  0x02a887 (174215):  Pf>>V
+  0x02a892 (174226): toggle-layer-hover
+  0x02a8b2 (174258): toggle-flip-during-resize
+  0x02a8da (174298): select-inverse
+  0x02a8f6 (174326): text-toggle-strikethrough
+  0x02a91e (174366): align-left
+  0x02a936 (174390): distribute-vertical-spacing
+  0x02a953 (174419):  Pf>m
+  0x02a95e (174430): text-toggle-italic
+  0x02a97e (174462): select-same-effect
+  0x02a99e (174494): toggle-annotations
+  0x02a9be (174526): live-boolean-intersect
+  0x02a9e2 (174562): set-tool-arrow
+  0x02a9fe (174590): swap-fill-and-stroke
+  0x02aa13 (174611):  Pf>
+  0x02aa1e (174622): open-release-notes
+  0x02aa3e (174654): page-next
+  0x02aa56 (174678): resize-to-fit
+  0x02aa67 (174695): $PgZ
+  0x02aa72 (174706): text-font-size-decrease
+  0x02aa96 (174742): align-top
+  0x02aaae (174766): live-boolean-xor
+  0x02aabf (174783): 0Pjr
+  0x02aaca (174794): add-transform-modifier-to-selection
+  0x02aafa (174842): set-tool-slice
+  0x02ab16 (174870): join-selection
+  0x02ab32 (174898): toggle-copy-renaming
+  0x02ab52 (174930): page-previous
+  0x02ab64 (174948): PdJO
+  0x02ab6e (174958): remove-fill
+  0x02ab86 (174982): remove-interactions-on-selection
+  0x02abb2 (175026): toggle-library
+  0x02abc3 (175043):  Pf2e
+  0x02abce (175054): previous-artboard
+  0x02abee (175086): republish-selected-components
+  0x02ac1a (175130): open-legal-summary
+  0x02ac3a (175162): smooth-join-selection
+  0x02ac5e (175198): distribute-horizontal-center
+  0x02ac7b (175227):  Pf"
+  0x02ac86 (175238): set-tool-comments
+  0x02aca6 (175270): toggle-smart-quotes
+  0x02acc6 (175302): toggle-smart-text-substitution
+  0x02acf2 (175346): align-bottom
+  0x02ad00 (175360): PeNQ1
+  0x02ad0a (175370): set-tool-type
+  0x02ad26 (175398): set-tool-text-path
+  0x02ad46 (175430): focus-mode
+  0x02ad5e (175454): focus-mode-exit
+  0x02ad7a (175482): canvas-search
+  0x02ad96 (175510): canvas-search-next
+  0x02adab (175531):  PfJ
+  0x02adb6 (175542): canvas-search-prev
+  0x02add6 (175574): canvas-search-replace
+  0x02adfa (175610): next-artboard-same-zoom
+  0x02ae1e (175646): next-artboard
+  0x02ae3a (175674): align-right
+  0x02ae47 (175687): (Ph~
+  0x02ae52 (175698): text-line-height-increase
+  0x02ae6f (175727):  PfN
+  0x02ae7a (175738): text-bold-increase
+  0x02ae9a (175770): remove-stroke
+  0x02aeb6 (175798): unhide-all
+  0x02aece (175822): set-tool-rectangle
+  0x02aeee (175854): text-letter-spacing-increase
+  0x02af16 (175894): distribute-vertical-center
+  0x02af3e (175934): text-align-center
+  0x02af53 (175955): (Ph^
+  0x02af5e (175966): text-line-height-decrease
+  0x02af86 (176006): set-tool-line
+  0x02afa2 (176034): distribute-left
+  0x02afb3 (176051): (Phf
+  0x02afbe (176062): text-letter-spacing-decrease
+  0x02afe6 (176102): text-bold-decrease
+  0x02b006 (176134): toggle-help-widget
+  0x02b026 (176166): hide-sibling-layers
+  0x02b046 (176198): set-tool-star
+  0x02b062 (176226): text-align-justified
+  0x02b082 (176258): text-align-left
+  0x02b093 (176275):  Pf~=T
+  0x02b09e (176286): distribute-bottom
+  0x02b0be (176318): toggle-frame-clipping
+  0x02b0e2 (176354): distribute-top
+  0x02b0fe (176382): text-align-middle
+  0x02b11e (176414): distribute-right
+  0x02b13a (176442): text-align-top
+  0x02b14b (176459):  PfF
+  0x02b156 (176470): open-support-forum
+01c31ad7089499b6_0 @ 0x55b073 (5615731) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+01c31ad7089499b6_0 @ 0x55b0d7 (5615831) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+01c31ad7089499b6_0 @ 0x1a006 (106502) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+01c31ad7089499b6_0 @ 0x76ca92 (7785106) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+042dfe9f44e9cc5f_0 @ 0x2a5b7 (173495) [set-tool-arrow]: ['italic', 'select-same-effect', 'toggle-annotations', 'live-boolean-intersect', 'set-tool-arrow', 'swap-fill-and-stroke', ' Pf>', 'open-release-notes', 'page-next', 'resize-to-fit', '$PgZ', 'text-font-size-decrease']
+052d30b7129db6a5_0 @ 0x2e66e (190062) [set-tool-arrow]: ['italic', 'select-same-effect', 'toggle-annotations', 'live-boolean-intersect', 'set-tool-arrow', 'swap-fill-and-stroke', ' Pf>', 'open-release-notes', 'page-next', 'resize-to-fit', '$PgZ', 'text-font-size-decrease']
+056b3d15fd1334a0_0 @ 0x19958 (104792) [endpoint]: ['410919.n.d.Ta', '0PjN7', 'endpoints--adjustedGridLayout---LcmV', '0PjJ', 'endpoints--ui3EndpointFlipped--KMfar', 'NONE', 'ROUND', 'SQUARE']
+056b3d15fd1334a0_0 @ 0x19988 (104840) [endpoint]: ['410919.n.d.Ta', '0PjN7', 'endpoints--adjustedGridLayout---LcmV', '0PjJ', 'endpoints--ui3EndpointFlipped--KMfar', 'NONE', 'ROUND', 'SQUARE', 'ARROW_LINES', 'ARROW_EQUILATERAL']
+0ae67ddbf410865d_0 @ 0x2a9e2 (174562) [set-tool-arrow]: ['italic', 'select-same-effect', 'toggle-annotations', 'live-boolean-intersect', 'set-tool-arrow', 'swap-fill-and-stroke', ' Pf>', 'open-release-notes', 'page-next', 'resize-to-fit', '$PgZ', 'text-font-size-decrease']
+156e17fba3e601ea_0 @ 0x46770a (4617994) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+156e17fba3e601ea_0 @ 0x46776e (4618094) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+156e17fba3e601ea_0 @ 0x1a005 (106501) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+156e17fba3e601ea_0 @ 0x640b4f (6556495) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+2277844b4bdd7562_0 @ 0x198814 (1673236) [set-tool-arrow]: [',Pi^', 'set-tool-mindmap-tree-nucleus', 'set-tool-arrow', '$Pg~', 'set-tool-default-figjam']
+2277844b4bdd7562_0 @ 0x1a665d (1730141) [set-tool-arrow]: ['set-tool-shape-whiteboard-internal-storage', '(Phv`', 'set-tool-type-description', 'set-tool-arrow-desc', 'set-tool-code-block-description', 'set-tool-default-desc-figjam', 'set-tool-default-desc-figma', 'set-tool-ellips']
+2277844b4bdd7562_0 @ 0x1b1ee8 (1777384) [set-tool-arrow]: ['toggle-inline-preview', 'fullscreen_actions.toggle-inline-html-preview', '0Pj~', 'fullscreen_actions.set-tool-arrow', ',Pi"', 'fullscreen_actions.set-tool-bend', 'fullscreen_actions.set-tool-cut', '8Pl&', 'fullscreen_actions.set-tool-code-component']
+2277844b4bdd7562_0 @ 0x520857 (5376087) [end_point]: ['Values Network Call', 'client_values_network_call_latency_ms', 'end_point', 'getCaughtError', 'getError']
+2277844b4bdd7562_0 @ 0x30a7ef (3188719) [endpoint]: ['ConnectorMagnet', 'endpointNodeId', 'magnet', 'ConnectorEndpoint', 'ELBOWED', 'Pcnb', 'STRAIGHT']
+2277844b4bdd7562_0 @ 0x4aa9f8 (4893176) [endpoint]: ['deqG@', '_trackingEnabled', '_endpointHasResponded', ',Piv', '_desktopVisibilityUnsubscribe', '_storage']
+2277844b4bdd7562_0 @ 0x4e2bfe (5123070) [endpoint]: ['send', 'getClientVersion', 'PcNM', 'endpoint', 'metricName', 'compress', '/api/web_logger/E', '(Ph~', 'crossOriginPostCompressed']
+2277844b4bdd7562_0 @ 0xc94829 (13191209) [endpoint]: ['ONE=0;AUTO=1;TOP=2;LEFT=3;BOTTOM=4;RIGHT=5;CENTER=6;AUTO_HORIZONTAL=7;EDGE=8;ABSOLUTE=9;}message ConnectorEndpoint{GUID endpointNodeID=1;Vector position=2;ConnectorMagnet magnet=3;Vector relativePosition=4;}message ConnectorControlPoint{Vector position=1;Vector axis=2;}enum ConnectorTextSection{MIDD']
+2277844b4bdd7562_0 @ 0xdcbbb3 (14465971) [endpoint]: ['ensembleConfig', 'endpointName', 'magic-link-v29', 'acceptAllGptInteractionsC', 'Pc"K', 'features', 'area_source', 'area_target', 'aspect']
+33b39603b20f6bf2_0 @ 0xb3d0c (736524) [endpoint]: ['development', 'endpointType', '.553447.s', 'route', 'requestSchema']
+35d7e8ee8ac4a8d0_0 @ 0x4676e3 (4617955) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+35d7e8ee8ac4a8d0_0 @ 0x467747 (4618055) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+35d7e8ee8ac4a8d0_0 @ 0x1a004 (106500) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+35d7e8ee8ac4a8d0_0 @ 0x640b9d (6556573) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+37ebc67e966030fc_0 @ 0x468c07 (4623367) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+37ebc67e966030fc_0 @ 0x468c6b (4623467) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+37ebc67e966030fc_0 @ 0x19ffa (106490) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+37ebc67e966030fc_0 @ 0x63fe96 (6553238) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+40db9bfa0b49438b_0 @ 0x5de97c (6154620) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+40db9bfa0b49438b_0 @ 0x5de9e0 (6154720) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+40db9bfa0b49438b_0 @ 0x1a004 (106500) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+40db9bfa0b49438b_0 @ 0x8102e4 (8454884) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+4b4afe5bd1671d5b_0 @ 0xf339c (996252) [endpoint]: ['786320', 'PcNM', 'endpoint']
+4b4afe5bd1671d5b_0 @ 0xffe5e (1048158) [endpoint]: ['endpointDnsKey', 'defaultUrl']
+4b4afe5bd1671d5b_0 @ 0x17ed2e (1568046) [endpoint]: ['unsubscribe', 'endpoints', '.25749.stop']
+5ba614875e17bf62_0 @ 0x4613e8 (4592616) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+5ba614875e17bf62_0 @ 0x46144c (4592716) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+5ba614875e17bf62_0 @ 0x19ecb (106187) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+5ba614875e17bf62_0 @ 0x63037d (6488957) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+5e6d8cb072fd0844_0 @ 0x47527f (4674175) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+5e6d8cb072fd0844_0 @ 0x4752e3 (4674275) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+5e6d8cb072fd0844_0 @ 0x1b797 (112535) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+5e6d8cb072fd0844_0 @ 0x65bec9 (6667977) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+67d07e9f02f72148_0 @ 0xf3073 (995443) [endpoint]: ['786320', 'PcNM', 'endpoint']
+67d07e9f02f72148_0 @ 0xffb29 (1047337) [endpoint]: ['endpointDnsKey', 'defaultUrl']
+67d07e9f02f72148_0 @ 0x17eedc (1568476) [endpoint]: ['unsubscribe', 'endpoints', '.25749.stop']
+683d6fc865a0063d_0 @ 0x197ad (104365) [endpoint]: ['410919.n.d.Ta', '0PjN7', 'endpoints--adjustedGridLayout---LcmV', '0PjJ', 'endpoints--ui3EndpointFlipped--KMfar', 'NONE', 'ROUND', 'SQUARE']
+683d6fc865a0063d_0 @ 0x197dd (104413) [endpoint]: ['410919.n.d.Ta', '0PjN7', 'endpoints--adjustedGridLayout---LcmV', '0PjJ', 'endpoints--ui3EndpointFlipped--KMfar', 'NONE', 'ROUND', 'SQUARE', 'ARROW_LINES', 'ARROW_EQUILATERAL']
+863428f9f1fc41c2_0 @ 0x46a03b (4628539) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+863428f9f1fc41c2_0 @ 0x46a09f (4628639) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+863428f9f1fc41c2_0 @ 0x19f7e (106366) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+863428f9f1fc41c2_0 @ 0x63d7a0 (6543264) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+923b609b900c5718_0 @ 0x1b2c6 (111302) [endpoint]: ['getQuickAddInteraction', 'Pb6H=', 'PcF@k7', 'CLICK', "Pbv'", 'DRAG', 'connectorStart', 'endpointNodeID']
+99c0d04484387ada_0 @ 0x46a027 (4628519) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+99c0d04484387ada_0 @ 0x46a08b (4628619) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+99c0d04484387ada_0 @ 0x19f7e (106366) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+99c0d04484387ada_0 @ 0x63d738 (6543160) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+9d6bf08f87819448_0 @ 0x45e6a5 (4581029) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+9d6bf08f87819448_0 @ 0x45e709 (4581129) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+9d6bf08f87819448_0 @ 0x19ed1 (106193) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+9d6bf08f87819448_0 @ 0x62d534 (6477108) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+a33ef329de279fa7_0 @ 0x47247f (4662399) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+a33ef329de279fa7_0 @ 0x4724e3 (4662499) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+a33ef329de279fa7_0 @ 0x1b5ad (112045) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+a33ef329de279fa7_0 @ 0x65552e (6640942) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+a3ef57d6869cb5f7_0 @ 0x467340 (4617024) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+a3ef57d6869cb5f7_0 @ 0x4673a4 (4617124) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+a3ef57d6869cb5f7_0 @ 0x1a0b0 (106672) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+a3ef57d6869cb5f7_0 @ 0x642b28 (6564648) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+b2a27de926761ff6_0 @ 0x46797a (4618618) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+b2a27de926761ff6_0 @ 0x4679de (4618718) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+b2a27de926761ff6_0 @ 0x1ac73 (109683) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+b2a27de926761ff6_0 @ 0x642127 (6562087) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+b5566aecd3ea69ab_0 @ 0x463e79 (4603513) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+b5566aecd3ea69ab_0 @ 0x463edd (4603613) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+b5566aecd3ea69ab_0 @ 0x1a0b0 (106672) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+b5566aecd3ea69ab_0 @ 0x63f43e (6550590) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+da4e4ce7d797be93_0 @ 0xb7c99 (752793) [endpoint]: ['development', 'endpointType', '.553447.s', 'route', 'requestSchema']
+ecbbdd05aca67203_0 @ 0x4618be (4593854) [end_point]: ['nd_edit_controller/use_tree_panel_callbacks.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_a']
+ecbbdd05aca67203_0 @ 0x461922 (4593954) [end_point]: ['dit_controller/use_send_point_and_edit_control', 'hPxN', './internal/code_nodes/figmake/point_and_edit_controller/use_send_point_and_edit_control.ts', './internal/code_nodes/figmake/point_and_edit_controller/use_disable_point_and_edit', './internal/code_nodes/figmake/point_and_e']
+ecbbdd05aca67203_0 @ 0x19ed1 (106193) [endpoint]: ['paint_panels--ui3SelectionColorsSummary--9pSIO', ',PiN', 'paint_panels--endpointRow--GLS-0', 'paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqO']
+ecbbdd05aca67203_0 @ 0x6308c3 (6490307) [endpoint]: ['ai_opt_out_error`&', 'unauthorized`&', '$Pg>j', 'client_canceled_request', ' Pfj', 'endpoint_disabled', 'external_rate_limit_exceeded`Z', 'image_request_error', 'first_draft_preflight_error', '$Pgr', 'make_changes_uns']
+f2284f599876fa51_0 @ 0x4bdeb1 (4972209) [end_point]: ['Values Network Call', 'client_values_network_call_latency_ms', 'end_point', 'getCaughtError', 'getError']
+f2284f599876fa51_0 @ 0x2b8087 (2850951) [endpoint]: ['ConnectorMagnet', 'endpointNodeId', 'magnet', 'ConnectorEndpoint', 'ELBOWED', 'Pcnb', 'STRAIGHT']
+f2284f599876fa51_0 @ 0x44a344 (4498244) [endpoint]: ['deqG@', '_trackingEnabled', '_endpointHasResponded', ',Piv', '_desktopVisibilityUnsubscribe', '_storage']
+f2284f599876fa51_0 @ 0x47f7ea (4716522) [endpoint]: ['send', 'getClientVersion', 'PcNM', 'endpoint', 'metricName', 'compress', '/api/web_logger/E', '(Ph~', 'crossOriginPostCompressed']
+f2284f599876fa51_0 @ 0xc3ab22 (12823330) [endpoint]: ['ONE=0;AUTO=1;TOP=2;LEFT=3;BOTTOM=4;RIGHT=5;CENTER=6;AUTO_HORIZONTAL=7;EDGE=8;ABSOLUTE=9;}message ConnectorEndpoint{GUID endpointNodeID=1;Vector position=2;ConnectorMagnet magnet=3;Vector relativePosition=4;}message ConnectorControlPoint{Vector position=1;Vector axis=2;}enum ConnectorTextSection{MIDD']
+f2284f599876fa51_0 @ 0xd6edcb (14085579) [endpoint]: ['ensembleConfig', 'endpointName', 'magic-link-v29', 'acceptAllGptInteractionsC', 'Pc"K', 'features', 'area_source', 'area_target', 'aspect']
+=== 01c31ad7089499b6_0 around paint_panels--endpointRow--GLS-0 [105500..108500] ===
+  0x019c1c (105500): StyleInput--edWTe
+  0x019c4a (105546): paint_panels--flexGrow--hK280
+  0x019c86 (105606): paint_panels--overflowButtonContainer--VEOqI
+  0x019cc3 (105667): 8Pln
+  0x019cce (105678): paint_panels--selectionPaintsButton--8rZn5
+  0x019d16 (105750): paint_panels--noMargin--jO7jg
+  0x019d47 (105799): 8Pl~
+  0x019d52 (105810): paint_panels--opacityInputContainer--LK8S2
+  0x019d9d (105885): paint_panels--fitToSizePaintPanelColorValueContainer--D9Pye paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqOz paint_panels--_baseColorValueContainer--cxyAg raw_components--base--kNKR5 raw_components--singleRowHeight--qGJa-
+  0x019eac (106156): paint_panels--paintRowIcons--MiO3S
+  0x019eec (106220): paint_panels--strokeWeightNew--BaWqY raw_components--borderFocusWithin--ZAqOz
+  0x019f58 (106328): paint_panels--ui3SelectionColorsSummaryElement--8pGCb
+  0x019fac (106412): paint_panels--ui3SelectionColorsSummary--9pSIO
+  0x019fed (106477): ,PiN
+  0x019ff8 (106488): paint_panels--endpointRow--GLS-0
+  0x01a037 (106551): paint_panels--paintPanelColorValueContainer--VbfwY paint_panels--colorValueContainer--TiPud raw_components--borderFocusWithin--ZAqOz paint_panels--_baseColorValueContainer--cxyAg raw_components--base--kNKR5 raw_components--singleRowHeight--qGJa-
+  0x01a133 (106803): TPsn
+  0x01a13e (106814): paint_panels--colorInputHidden--qab-D paint_panels--colorInput--unG3G
+  0x01a195 (106901): paint_panels--chit--0pnHd
+  0x01a1b3 (106931): PbZG
+  0x01a1c2 (106946): <Pmz
+  0x01a1cd (106957): paint_panels--weavePaintValueContainer--tljd6
+  0x01a20c (107020): paint_panels--iconVisibleOnHover--mF5Q4
+  0x01a250 (107088): paint_panels--overflowLabel--tTQm7
+  0x01a2be (107198): Pc 4+
+  0x01a34c (107340): ,Pifu%
+  0x01a357 (107351): panel_title--hoverable--S9DJn
+  0x01a388 (107400): ,Piz
+  0x01a393 (107411): panel_title--panelTitle--zUhAR
+  0x01a3b7 (107447): 0Pj>{
+  0x01a3c2 (107458): panel_title--panelTitleFaded--r2CNo
+  0x01a3f5 (107509): panel_title--legendAsPanelTitle--JvNxB
+  0x01a439 (107577): panel_title--collapsiblePanelTitle--c45MB
+  0x01a481 (107649): panel_title--panelTitleExtended--oMnwC
+  0x01a4b8 (107704): panel_title--panelTitleWithoutChevron--kSm5Wi(
+  0x01a5d4 (107988): panel_title_input--originalValue--uoWNS
+  0x01a618 (108056): panel_title_input--originalValueText---x2-X sf_pro--uiFontWithSFProFallback--gCBf-
+  0x01a67b (108155): panel_title_input--icon--2aI93
+  0x01a6ac (108204): hPx6i
+  0x01a6b7 (108215): panel_title_input--uneditableOriginalValue----8iA panel_title_input--originalValue--uoWNS
+  0x01a723 (108323): panel_title_input--input--szsJU raw_components--base--kNKR5 raw_components--border--j0kls raw_components--input--qLYVi raw_components--singleRowHeight--qGJa- sf_pro--uiFontWithS

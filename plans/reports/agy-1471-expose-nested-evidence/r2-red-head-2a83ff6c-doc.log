@@ -1,0 +1,64 @@
+# head 2a83ff6c + new tests only (tests added, no production edit)
+$ cargo test -p designos-doc --lib --locked -- same_named one_nested_instance nested_variant_values nested_values_are deeper_exposed_names_of
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 7 tests
+test components::tests::one_nested_instance_per_variant_stays_one_row_that_sets_every_variant ... ok
+test components::tests::same_named_nested_instances_in_one_component_are_exposed_one_by_one ... FAILED
+test branch_merge::tests::same_named_variables_with_different_ids_kept_and_renamed ... ok
+test components::tests::same_named_nested_instances_connect_across_variants_by_their_position_among_same_names ... FAILED
+test components::tests::deeper_exposed_names_of_a_row_are_the_union_over_its_variants ... FAILED
+test components::tests::nested_variant_values_do_not_switch_a_nested_instance_while_expose_is_off ... FAILED
+test components::tests::nested_values_are_overrides_only_while_the_nested_instance_is_exposed ... FAILED
+
+failures:
+
+---- components::tests::same_named_nested_instances_in_one_component_are_exposed_one_by_one stdout ----
+
+thread 'components::tests::same_named_nested_instances_in_one_component_are_exposed_one_by_one' (80280203) panicked at crates/designos-doc/src/components.rs:7037:9:
+assertion `left == right` failed: each same-named nested instance is its own row
+  left: [NodeId(10)]
+ right: [NodeId(10), NodeId(13)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- components::tests::same_named_nested_instances_connect_across_variants_by_their_position_among_same_names stdout ----
+
+thread 'components::tests::same_named_nested_instances_connect_across_variants_by_their_position_among_same_names' (80280202) panicked at crates/designos-doc/src/components.rs:7089:9:
+assertion `left == right` failed: two Icons per variant make two rows
+  left: 1
+ right: 2
+
+---- components::tests::deeper_exposed_names_of_a_row_are_the_union_over_its_variants stdout ----
+
+thread 'components::tests::deeper_exposed_names_of_a_row_are_the_union_over_its_variants' (80280198) panicked at crates/designos-doc/src/components.rs:7178:9:
+assertion `left == right` failed: the names below a row come from every variant it connects
+  left: ["Alpha badge"]
+ right: ["Alpha badge", "Beta badge"]
+
+---- components::tests::nested_variant_values_do_not_switch_a_nested_instance_while_expose_is_off stdout ----
+
+thread 'components::tests::nested_variant_values_do_not_switch_a_nested_instance_while_expose_is_off' (80280200) panicked at crates/designos-doc/src/components.rs:7116:9:
+assertion `left == right` failed: a nested variant value is inert until the nested instance is swapped
+  left: Some(NodeId(5))
+ right: Some(NodeId(2))
+
+---- components::tests::nested_values_are_overrides_only_while_the_nested_instance_is_exposed stdout ----
+
+thread 'components::tests::nested_values_are_overrides_only_while_the_nested_instance_is_exposed' (80280199) panicked at crates/designos-doc/src/components.rs:7138:9:
+assertion `left == right` failed: Reset all changes leaves the values of an unexposed nested instance
+  left: 0
+ right: 2
+
+
+failures:
+    components::tests::deeper_exposed_names_of_a_row_are_the_union_over_its_variants
+    components::tests::nested_values_are_overrides_only_while_the_nested_instance_is_exposed
+    components::tests::nested_variant_values_do_not_switch_a_nested_instance_while_expose_is_off
+    components::tests::same_named_nested_instances_connect_across_variants_by_their_position_among_same_names
+    components::tests::same_named_nested_instances_in_one_component_are_exposed_one_by_one
+
+test result: FAILED. 2 passed; 5 failed; 0 ignored; 0 measured; 724 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

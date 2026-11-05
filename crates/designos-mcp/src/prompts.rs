@@ -729,6 +729,7 @@ fn format_paints(paints: &[Paint]) -> String {
                 format!("diamond-gradient({} stops)", stops.len())
             }
             PaintKind::Image { image_ref, .. } => format!("image({image_ref})"),
+            PaintKind::Shader(_) => "shader".into(),
         })
         .collect();
     if visible.is_empty() {
@@ -783,6 +784,7 @@ fn format_effects(effects: &[Effect]) -> String {
             Effect::Noise(n) => format!("noise(density {})", format_number(n.density)),
             Effect::Texture(t) => format!("texture(radius {}px)", format_number(t.radius)),
             Effect::Glass(g) => format!("glass(refraction {})", format_number(g.refraction)),
+            Effect::Shader { .. } => "shader".into(),
         })
         .collect();
     if list.is_empty() {

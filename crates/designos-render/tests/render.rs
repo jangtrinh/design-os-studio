@@ -451,7 +451,6 @@ fn layer_blur_and_background_blur() {
     let mut t = T::new();
     t.rect(None, Rect::new(0.0, 0.0, 30.0, 60.0), Color::BLACK);
     let g = t.rect(None, Rect::new(10.0, 10.0, 40.0, 40.0), Color::rgba(255, 255, 255, 0));
-    t.node(g).fills.clear();
     t.node(g).effects = vec![Effect::BackgroundBlur { radius: 12.0, visible: true }];
     let pm = t.render(60, 60);
     let inside = px(&pm, 29, 30);
@@ -512,7 +511,7 @@ fn image_fill_modes() {
     // 20x10 image: left half red, right half blue
     t.doc.images.insert("img".into(), png_bytes(20, 10, |x, _| if x < 10 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
     let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), RED);
-    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "img".into(), scale_mode: ImageScaleMode::Fill })];
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "img".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() })];
     let pm = t.render(40, 40);
     // cover: scale 4 -> 80x40 centred, so the red/blue split is at x=20 and the left 20px are cropped
     assert!(near(px(&pm, 5, 20), [255, 0, 0, 255], 4), "{:?}", px(&pm, 5, 20));
@@ -674,4 +673,380 @@ fn auto_layout_reverse_z_paints_first_child_on_top() {
     t.node(row).kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().reverse_z = false;
     let pm_normal = t.render(40, 20);
     assert_eq!(px(&pm_normal, 14, 10), [0, 0, 255, 255], "overlap without reverse_z paints child 1 (blue) on top");
+}
+
+#[test]
+fn dashed_rect_round_dash_cap_renders_round_dash_ends() {
+    let mut t = T::new();
+    // 1. Rectangle with default StrokeAlign::Inside, weight 8, dashes [20, 20].
+    // The 8px inside stroke band along the top edge occupies y = 20..28 (centerline y = 24, radius 4).
+    // Inset centerline runs x = 24..76, so the first 20px dash runs x = 24..44.
+    let r = t.add(None, |id| {
+        let mut n = Node::rectangle(id, Rect::new(20.0, 20.0, 60.0, 40.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(RED)];
+        n.stroke.weight = 8.0;
+        n.stroke.align = StrokeAlign::Inside;
+        n.stroke.dashes = vec![20.0, 20.0];
+        n.stroke.cap = StrokeCap::None;
+        n
+    });
+    let pm_none = t.render(100, 80);
+    assert_eq!(px(&pm_none, 34, 24), [255, 0, 0, 255], "dash body painted on midline");
+    assert_eq!(px(&pm_none, 46, 24), WHITE, "butt dash cap stops at x=44");
+
+    t.node(r).stroke.cap = StrokeCap::Round;
+    let pm_round = t.render(100, 80);
+    assert_eq!(px(&pm_round, 46, 24), [255, 0, 0, 255], "round dash cap extends +2px along midline y=24");
+    assert_eq!(px(&pm_round, 47, 20), WHITE, "round dash cap curves away from outer corner (47, 20) instead of painting a square or 2x-radius shelf");
+
+    t.node(r).stroke.cap = StrokeCap::Square;
+    let pm_square = t.render(100, 80);
+    assert_eq!(px(&pm_square, 46, 24), [255, 0, 0, 255], "square dash cap extends along midline");
+    assert_eq!(px(&pm_square, 47, 20), [255, 0, 0, 255], "square dash cap fills outer corner (47, 20)");
+
+    // Outside alignment: outset centerline runs x = 16..84, y = 16..64 (stroke band y = 12..20 along top edge).
+    // First 20px dash along top edge runs x = 16..36, with round cap of radius 4 centered at (36, 16).
+    t.node(r).stroke.align = StrokeAlign::Outside;
+    t.node(r).stroke.cap = StrokeCap::Round;
+    let pm_outside = t.render(100, 80);
+    assert_eq!(px(&pm_outside, 26, 16), [255, 0, 0, 255], "outside dash body painted on outset midline (26, 16)");
+    assert_eq!(px(&pm_outside, 38, 16), [255, 0, 0, 255], "outside round dash cap extends +2px along outset midline (38, 16)");
+    assert_eq!(px(&pm_outside, 39, 12), WHITE, "outside round dash cap curves away from outer corner (39, 12)");
+    assert_eq!(px(&pm_outside, 46, 16), WHITE, "outside dash gap is unpainted at (46, 16)");
+    assert_eq!(px(&pm_outside, 26, 22), WHITE, "outside alignment clips interior of rectangle at (26, 22)");
+}
+
+/// An open vector line from (20, 20) to (100, 20) with dashes `[20, 20]` (dashes at x = 20..40 and 60..80, the path ends
+/// in the gap after the second one), weight 8, `Stroke::cap` Round, whose end vertices carry `vertex_caps`.
+fn dashed_round_line_with_end_caps(t: &mut T, vertex_caps: (Option<StrokeCap>, Option<StrokeCap>)) -> NodeId {
+    t.add(None, |id| {
+        let p = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(80.0, 0.0))], fill_rule: FillRule::NonZero };
+        let mut v0 = vector::Vertex::new(Vec2::new(0.0, 0.0));
+        v0.cap = vertex_caps.0;
+        let mut v1 = vector::Vertex::new(Vec2::new(80.0, 0.0));
+        v1.cap = vertex_caps.1;
+        let mut n = Node::new(
+            id,
+            NodeKind::Vector {
+                paths: vec![p],
+                network: Some(VectorNetwork {
+                    vertices: vec![v0, v1],
+                    segments: vec![vector::Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
+                    regions: Vec::new(),
+                }),
+            },
+        );
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(80.0, 0.0);
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(RED)];
+        n.stroke.weight = 8.0;
+        n.stroke.align = StrokeAlign::Center;
+        n.stroke.dashes = vec![20.0, 20.0];
+        n.stroke.cap = StrokeCap::Round;
+        n
+    })
+}
+
+#[test]
+fn dashed_open_line_uses_stroke_cap_on_every_dash_that_reaches_no_end_point() {
+    let mut t = T::new();
+    // end vertices without a cap of their own: every dash, the first one at the start of the path included, uses Stroke::cap (Round)
+    let line = dashed_round_line_with_end_caps(&mut t, (None, None));
+    let pm = t.render(120, 40);
+    // Start of first dash at x=20 and end of first dash at x=40 both get round caps of radius 4:
+    assert_eq!(px(&pm, 18, 20), [255, 0, 0, 255], "first dash start cap is round at midline (18, 20)");
+    assert_eq!(px(&pm, 16, 16), WHITE, "first dash start cap corner (16, 16) is unpainted");
+    assert_eq!(px(&pm, 42, 20), [255, 0, 0, 255], "inner dash end cap is round at midline (42, 20)");
+    assert_eq!(px(&pm, 43, 16), WHITE, "inner dash end cap corner (43, 16) is unpainted");
+
+    t.node(line).stroke.cap = StrokeCap::None;
+    let pm_butt = t.render(120, 40);
+    assert_eq!(px(&pm_butt, 18, 20), WHITE, "butt cap leaves x < 20 unpainted");
+    assert_eq!(px(&pm_butt, 42, 20), WHITE, "butt cap leaves x > 40 unpainted on first dash");
+}
+
+#[test]
+fn an_explicit_butt_end_vertex_cap_leaves_only_the_start_of_a_dashed_round_line_butt() {
+    let mut t = T::new();
+    dashed_round_line_with_end_caps(&mut t, (Some(StrokeCap::None), Some(StrokeCap::None)));
+    let pm = t.render(120, 40);
+    assert_eq!(px(&pm, 18, 20), WHITE, "the start of the path takes the butt cap of its vertex: x < 20 is unpainted at (18, 20)");
+    assert_eq!(px(&pm, 22, 20), [255, 0, 0, 255], "the first dash is painted from the start of the path");
+    assert_eq!(px(&pm, 42, 20), [255, 0, 0, 255], "the inner end of the first dash keeps the round Stroke::cap at (42, 20)");
+    assert_eq!(px(&pm, 43, 16), WHITE, "the inner end of the first dash is round: corner (43, 16) is unpainted");
+    assert_eq!(px(&pm, 58, 20), [255, 0, 0, 255], "the inner start of the second dash keeps the round Stroke::cap at (58, 20)");
+}
+
+#[test]
+fn solid_open_line_all_butt_vertex_caps_stay_butt() {
+    let mut t = T::new();
+    t.add(None, |id| {
+        let p = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(80.0, 0.0))], fill_rule: FillRule::NonZero };
+        let mut v0 = vector::Vertex::new(Vec2::new(0.0, 0.0));
+        v0.cap = Some(StrokeCap::None);
+        let mut v1 = vector::Vertex::new(Vec2::new(80.0, 0.0));
+        v1.cap = Some(StrokeCap::None);
+        let mut n = Node::new(
+            id,
+            NodeKind::Vector {
+                paths: vec![p],
+                network: Some(VectorNetwork {
+                    vertices: vec![v0, v1],
+                    segments: vec![vector::Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
+                    regions: Vec::new(),
+                }),
+            },
+        );
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(80.0, 0.0);
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(RED)];
+        n.stroke.weight = 8.0;
+        n.stroke.align = StrokeAlign::Center;
+        n.stroke.cap = StrokeCap::Round;
+        n
+    });
+    let pm = t.render(120, 40);
+    assert_eq!(px(&pm, 60, 20), [255, 0, 0, 255], "solid line interior is painted");
+    assert_eq!(px(&pm, 18, 20), WHITE, "explicit butt vertex cap overrides round stroke cap before start end (18, 20)");
+    assert_eq!(px(&pm, 102, 20), WHITE, "explicit butt vertex cap overrides round stroke cap past finish end (102, 20)");
+}
+
+#[test]
+fn thin_inside_dashed_rect_keeps_stroke() {
+    let mut t = T::new();
+    // The inset centerline of a 4px tall rectangle with weight 4 collapses, so the stroke is drawn on the
+    // outline at twice the weight and clipped to the inside. The first dash covers x = 10..18 along the top edge
+    // and its round end cap, radius 4, is centered at (18, 10). The dash period is 68 and the outline is 408 long,
+    // so the first dash on the bottom edge sits at x = 66..74, far from that cap and from the gap middle.
+    t.add(None, |id| {
+        let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 200.0, 4.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(RED)];
+        n.stroke.weight = 4.0;
+        n.stroke.align = StrokeAlign::Inside;
+        n.stroke.dashes = vec![8.0, 60.0];
+        n.stroke.cap = StrokeCap::Round;
+        n
+    });
+    let pm = t.render(220, 24);
+    assert_eq!(px(&pm, 14, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints the first dash at (14, 12)");
+    assert_eq!(px(&pm, 19, 11), [255, 0, 0, 255], "thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)");
+    assert_eq!(px(&pm, 40, 12), WHITE, "thin inside dashed rectangle leaves the middle of the gap unpainted at (40, 12)");
+}
+
+#[test]
+fn inside_dashed_ellipse_round_cap_extends_past_dash_end() {
+    let mut t = T::new();
+    // Circle of radius 40 centered at (50, 50). The dash path starts at (90, 50) and runs clockwise, so the first
+    // 40px dash ends at (71.6, 83.7). The gap, 20px, is longer than twice the weight.
+    let e = t.add(None, |id| {
+        let mut n = Node::ellipse(id, Rect::new(10.0, 10.0, 80.0, 80.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(RED)];
+        n.stroke.weight = 4.0;
+        n.stroke.align = StrokeAlign::Inside;
+        n.stroke.dashes = vec![40.0, 20.0];
+        n.stroke.cap = StrokeCap::Round;
+        n
+    });
+    let pm_round = t.render(100, 100);
+    assert_eq!(px(&pm_round, 83, 68), [255, 0, 0, 255], "inside dash body is painted at (83, 68)");
+    assert_eq!(px(&pm_round, 68, 83), [255, 0, 0, 255], "round cap is painted 2.6px past the dash end at (68, 83)");
+    assert_eq!(px(&pm_round, 61, 86), WHITE, "middle of the gap is unpainted at (61, 86)");
+
+    t.node(e).stroke.cap = StrokeCap::None;
+    let pm_butt = t.render(100, 100);
+    assert_eq!(px(&pm_butt, 83, 68), [255, 0, 0, 255], "butt dash body is painted at (83, 68)");
+    assert_eq!(px(&pm_butt, 68, 83), WHITE, "butt dash ends at the dash end so (68, 83) is unpainted");
+}
+
+#[test]
+fn rotation_90_is_exact_on_a_2x2_image() {
+    let mut t = T::new();
+    t.doc.images.insert(
+        "quad".into(),
+        png_bytes(2, 2, |x, y| match (x, y) {
+            (0, 0) => [255, 0, 0, 255],
+            (1, 0) => [0, 255, 0, 255],
+            (0, 1) => [0, 0, 255, 255],
+            _ => [255, 255, 0, 255],
+        }),
+    );
+    let r = t.rect(None, Rect::new(0.0, 0.0, 2.0, 2.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "quad".into(),
+        scale_mode: ImageScaleMode::Fill,
+        params: ImageParams { rotation: 90.0, ..Default::default() },
+    })];
+    let pm = t.render(2, 2);
+    assert_eq!(px(&pm, 0, 0), [0, 0, 255, 255]);
+    assert_eq!(px(&pm, 1, 0), [255, 0, 0, 255]);
+    assert_eq!(px(&pm, 0, 1), [255, 255, 0, 255]);
+    assert_eq!(px(&pm, 1, 1), [0, 255, 0, 255]);
+}
+
+#[test]
+fn tile_scale_2_doubles_the_tile_size() {
+    let mut t = T::new();
+    t.doc.images.insert("tile_rb".into(), png_bytes(20, 10, |x, _| if (5..15).contains(&x) { [0, 0, 255, 255] } else { [255, 0, 0, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "tile_rb".into(),
+        scale_mode: ImageScaleMode::Tile,
+        params: ImageParams { tile_scale: 2.0, ..Default::default() },
+    })];
+    let pm = t.render(40, 20);
+    assert!(near(px(&pm, 7, 5), [255, 0, 0, 255], 4), "x=7 is inside the doubled red band (0..10): {:?}", px(&pm, 7, 5));
+    assert!(near(px(&pm, 20, 5), [0, 0, 255, 255], 4), "x=20 is inside the doubled blue band (10..30): {:?}", px(&pm, 20, 5));
+}
+
+#[test]
+fn crop_with_identity_transform_stretches_the_image() {
+    let mut t = T::new();
+    t.doc.images.insert(
+        "bands".into(),
+        png_bytes(40, 40, |x, _| {
+            if x < 8 {
+                [255, 0, 0, 255]
+            } else if x < 32 {
+                [0, 255, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            }
+        }),
+    );
+    let r = t.rect(None, Rect::new(0.0, 0.0, 20.0, 40.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "bands".into(), scale_mode: ImageScaleMode::Crop, params: ImageParams::default() })];
+    let pm = t.render(20, 40);
+    assert!(near(px(&pm, 1, 20), [255, 0, 0, 255], 4), "left edge of stretched crop shows red band: {:?}", px(&pm, 1, 20));
+    assert!(near(px(&pm, 19, 20), [0, 0, 255, 255], 4), "right edge of stretched crop shows blue band: {:?}", px(&pm, 19, 20));
+}
+
+#[test]
+fn crop_transform_maps_uv_through_the_affine() {
+    let mut t = T::new();
+    t.doc.images.insert("half_rb".into(), png_bytes(20, 20, |x, _| if x < 10 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), WHITE.into_iter().collect::<Vec<_>>().as_slice().first().map(|_| Color::TRANSPARENT).unwrap());
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "half_rb".into(),
+        scale_mode: ImageScaleMode::Crop,
+        params: ImageParams { transform: Some([2.0, 0.0, -0.5, 0.0, 2.0, -0.5]), ..Default::default() },
+    })];
+    let pm = t.render(40, 40);
+    assert_eq!(px(&pm, 3, 20), WHITE, "UV < 0 outside cropped image is transparent over white page");
+    assert_eq!(px(&pm, 37, 20), WHITE, "UV > 1 outside cropped image is transparent over white page");
+    assert!(near(px(&pm, 15, 20), [255, 0, 0, 255], 4), "inner left is red: {:?}", px(&pm, 15, 20));
+    assert!(near(px(&pm, 25, 20), [0, 0, 255, 255], 4), "inner right is blue: {:?}", px(&pm, 25, 20));
+}
+
+#[test]
+fn singular_crop_transform_draws_nothing() {
+    let mut t = T::new();
+    t.doc.images.insert("solid_red".into(), png_bytes(20, 20, |_, _| [255, 0, 0, 255]));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), Color::TRANSPARENT);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "solid_red".into(),
+        scale_mode: ImageScaleMode::Crop,
+        params: ImageParams { transform: Some([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ..Default::default() },
+    })];
+    let pm = t.render(40, 40);
+    assert_eq!(px(&pm, 20, 20), WHITE, "singular crop transform draws nothing");
+}
+
+/// A 2000x1000 picture whose left half is red and right half is blue, tiled on a 40x20 node.
+fn tiled_halves_scene(tile_scale: f32) -> Pixmap {
+    let mut t = T::new();
+    t.doc.images.insert("halves".into(), png_bytes(2000, 1000, |x, _| if x < 1000 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), Color::TRANSPARENT);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "halves".into(),
+        scale_mode: ImageScaleMode::Tile,
+        params: ImageParams { tile_scale, ..Default::default() },
+    })];
+    t.render(40, 20)
+}
+
+#[test]
+fn tile_scale_zero_and_negative_render_at_the_minimum() {
+    let minimum = tiled_halves_scene(0.01);
+    // 0.01 of a 2000x1000 picture is a 20x10 tile: red on the left half, blue on the right half, twice across.
+    assert!(near(px(&minimum, 5, 5), [255, 0, 0, 255], 8), "first tile red half: {:?}", px(&minimum, 5, 5));
+    assert!(near(px(&minimum, 15, 5), [0, 0, 255, 255], 8), "first tile blue half: {:?}", px(&minimum, 15, 5));
+    assert!(near(px(&minimum, 25, 5), [255, 0, 0, 255], 8), "second tile red half: {:?}", px(&minimum, 25, 5));
+    for raw in [0.0, -0.0, -3.0, 0.001] {
+        assert!(tiled_halves_scene(raw).data() == minimum.data(), "tile scale {raw} renders as 0.01");
+    }
+}
+
+#[test]
+fn tile_scale_above_the_maximum_and_non_finite_values_clamp() {
+    assert!(tiled_halves_scene(1000.0).data() == tiled_halves_scene(100.0).data(), "tile scale above 100 renders as 100");
+    let native = tiled_halves_scene(1.0);
+    for raw in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(tiled_halves_scene(raw).data() == native.data(), "tile scale {raw} renders at native size");
+    }
+}
+
+#[test]
+fn fit_letterbox_and_out_of_bounds_crop_remain_transparent_under_positive_adjustments() {
+    let adjust = ImageAdjust { exposure: 1.0, shadows: 1.0, ..Default::default() };
+
+    // Fit letterbox: 100x100 image inside 200x100 rect over a transparent page.
+    let mut t_fit = T::new();
+    t_fit.node(t_fit.page).kind = NodeKind::Page { background: Color::TRANSPARENT };
+    t_fit.doc.images.insert("sq".into(), png_bytes(100, 100, |_, _| [128, 128, 128, 255]));
+    let r = t_fit.rect(None, Rect::new(0.0, 0.0, 200.0, 100.0), Color::TRANSPARENT);
+    t_fit.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: "sq".into(), scale_mode: ImageScaleMode::Fit, params: ImageParams { adjust, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let pm_fit = t_fit.render(200, 100);
+    assert_eq!(px(&pm_fit, 10, 50), [0, 0, 0, 0], "left letterbox must remain transparent");
+    assert_eq!(px(&pm_fit, 190, 50), [0, 0, 0, 0], "right letterbox must remain transparent");
+    assert!(px(&pm_fit, 100, 50)[0] > 128, "centre of Fit image must be brightened");
+
+    // Out-of-bounds Crop: uv shifted by +0.5 so left half of rect is outside [0, 1].
+    let mut t_crop = T::new();
+    t_crop.node(t_crop.page).kind = NodeKind::Page { background: Color::TRANSPARENT };
+    t_crop.doc.images.insert("sq".into(), png_bytes(100, 100, |_, _| [128, 128, 128, 255]));
+    let rc = t_crop.rect(None, Rect::new(0.0, 0.0, 100.0, 100.0), Color::TRANSPARENT);
+    t_crop.node(rc).fills = vec![Paint {
+        kind: PaintKind::Image {
+            image_ref: "sq".into(),
+            scale_mode: ImageScaleMode::Crop,
+            params: ImageParams { transform: Some([1.0, 0.0, -0.5, 0.0, 1.0, 0.0]), adjust, ..Default::default() },
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let pm_crop = t_crop.render(100, 100);
+    assert_eq!(px(&pm_crop, 10, 50), [0, 0, 0, 0], "out-of-bounds crop region must remain transparent");
+    assert!(px(&pm_crop, 75, 50)[0] > 128, "in-bounds crop region must be brightened");
+}
+
+#[test]
+fn blend_mode_and_opacity_apply_after_image_adjustments() {
+    let adjust = ImageAdjust { exposure: 1.0, ..Default::default() };
+    let adjusted_full = designos_render::image_adjust::adjust_rgba([128, 128, 128, 255], &adjust);
+
+    let mut t = T::new();
+    t.node(t.page).kind = NodeKind::Page { background: Color::BLACK };
+    t.doc.images.insert("grey".into(), png_bytes(16, 16, |_, _| [128, 128, 128, 255]));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 16.0, 16.0), Color::BLACK);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: "grey".into(), scale_mode: ImageScaleMode::Fill, params: ImageParams { adjust, ..Default::default() } },
+        opacity: 0.5,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let pm = t.render(16, 16);
+    let expected_half = (adjusted_full[0] as f32 * 0.5).round() as u8;
+    let p = px(&pm, 8, 8);
+    assert!(p[0].abs_diff(expected_half) <= 1, "opacity 0.5 must scale the adjusted pixel ({expected_half}), got {p:?}");
 }

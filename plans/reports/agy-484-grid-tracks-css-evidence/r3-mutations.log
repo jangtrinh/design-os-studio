@@ -1,0 +1,12 @@
+R1_drop_with_stroke_in_resolved_grid_col_tracks: KILLED (exit=101)
+R1b_drop_effective_padding_for_box_sizing: KILLED (exit=101)
+R3_flex_zero_auto_row_boundary: KILLED (exit=101)
+N1_ignore_explicit_rows_in_grid_packs_auto_rows: KILLED (exit=101)
+N2_drop_hug_column_check_in_resolved_grid_col_tracks: KILLED (exit=101)
+M4_disable_min_w_extra_distribution: KILLED (exit=101)
+M6_flow_child_input_horiz_false: KILLED (exit=101)
+M7_drop_non_fill_precedence_in_widest_in_column: KILLED (exit=101)
+M11_always_pack_auto_rows_in_grid_packs_auto_rows: KILLED (exit=101)
+M13_drop_hug_gate_in_resolved_grid_col_tracks: KILLED (exit=101)
+M14_flex_unit_tolerance_50px: KILLED (exit=101)
+Summary: 11/11 mutations KILLED

@@ -1,0 +1,32 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 21s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 2 tests
+
+thread 'agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft' (58003959) panicked at crates/designos-app/src/agent_composer.rs:3190:9:
+assertion `left == right` failed: Skill-limit refusal on entry 2 of 3 must return entries 2 and 3 to the draft in order
+  left: "entry two"
+ right: "entry two\n\nentry three"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft ... FAILED
+
+thread 'agent_composer::tests::flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft' (58003958) panicked at crates/designos-app/src/agent_composer.rs:3518:9:
+assertion `left == right` failed: skill-limit refusal returns remaining queued entries and preserves the typed draft
+  left: "entry three\n\ntyped later"
+ right: "entry three\n\nentry four\n\ntyped later"
+test agent_composer::tests::flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft ... FAILED
+
+failures:
+
+failures:
+    agent_composer::tests::flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft
+    agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4050 filtered out; finished in 1.24s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

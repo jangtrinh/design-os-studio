@@ -1,0 +1,130 @@
+=== Item 1 (NEW-1) RED ===
+
+running 2 tests
+test components::tests::r4_swapped_slot_follows_new_main_resize_prop ... FAILED
+test components::tests::r4_swapped_slot_follows_new_main_resize_direct ... FAILED
+
+failures:
+
+---- components::tests::r4_swapped_slot_follows_new_main_resize_prop stdout ----
+
+thread 'components::tests::r4_swapped_slot_follows_new_main_resize_prop' (44085781) panicked at crates/designos-doc/src/components.rs:6034:9:
+assertion `left == right` failed: an unresized swapped slot follows its new main's resize
+  left: (Vec2 { x: 80.0, y: 40.0 }, Vec2 { x: 80.0, y: 40.0 })
+ right: (Vec2 { x: 80.0, y: 48.0 }, Vec2 { x: 80.0, y: 48.0 })
+
+---- components::tests::r4_swapped_slot_follows_new_main_resize_direct stdout ----
+
+thread 'components::tests::r4_swapped_slot_follows_new_main_resize_direct' (44085780) panicked at crates/designos-doc/src/components.rs:6055:9:
+assertion `left == right` failed: an unresized swapped slot follows its new main's resize
+  left: (Vec2 { x: 80.0, y: 40.0 }, Vec2 { x: 80.0, y: 40.0 })
+ right: (Vec2 { x: 80.0, y: 48.0 }, Vec2 { x: 80.0, y: 48.0 })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::r4_swapped_slot_follows_new_main_resize_direct
+    components::tests::r4_swapped_slot_follows_new_main_resize_prop
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 698 filtered out; finished in 0.00s
+
+
+running 1 test
+test components::tests::r4_reswap_takes_new_main_size ... FAILED
+
+failures:
+
+---- components::tests::r4_reswap_takes_new_main_size stdout ----
+
+thread 'components::tests::r4_reswap_takes_new_main_size' (44085828) panicked at crates/designos-doc/src/components.rs:6076:9:
+assertion `left == right` failed: B -> C on an unresized slot takes C's size
+  left: (Vec2 { x: 80.0, y: 40.0 }, Vec2 { x: 80.0, y: 40.0 })
+ right: (Vec2 { x: 80.0, y: 48.0 }, Vec2 { x: 80.0, y: 48.0 })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::r4_reswap_takes_new_main_size
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 699 filtered out; finished in 0.00s
+
+
+running 1 test
+test panels::components::props_panel_tests::review_r4_app_swapped_slot_follows_new_main_height_edit ... FAILED
+
+failures:
+
+---- panels::components::props_panel_tests::review_r4_app_swapped_slot_follows_new_main_height_edit stdout ----
+
+thread 'panels::components::props_panel_tests::review_r4_app_swapped_slot_follows_new_main_height_edit' (44117489) panicked at crates/designos-app/src/panels/components.rs:609:9:
+assertion `left == right` failed: the swapped slot was never resized: it follows its main's height edit
+  left: 40.0
+ right: 48.0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::components::props_panel_tests::review_r4_app_swapped_slot_follows_new_main_height_edit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3963 filtered out; finished in 0.01s
+
+=== Item 2 (NEW-2) RED ===
+
+running 1 test
+test components::tests::r4_cross_kind_size_carry_matrix ... FAILED
+
+failures:
+
+---- components::tests::r4_cross_kind_size_carry_matrix stdout ----
+
+thread 'components::tests::r4_cross_kind_size_carry_matrix' (44138733) panicked at crates/designos-doc/src/components.rs:6216:9:
+cross-kind Size carry draws the wrong outline: ["vector->boolean sync#0", "vector->boolean sync#1", "vector->boolean sync#3", "boolean->vector sync#0", "boolean->vector sync#1", "boolean->vector sync#3", "vector->ellipse sync#0", "vector->ellipse sync#1", "vector->ellipse sync#3", "vector->frame sync#0", "vector->frame sync#1", "vector->frame sync#3", "ellipse->vector sync#0", "ellipse->vector sync#1", "ellipse->vector sync#3"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::r4_cross_kind_size_carry_matrix
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 700 filtered out; finished in 0.01s
+
+=== Item 3 (MIN-1) RED ===
+
+running 1 test
+test components::tests::r3_inner_swap_below_swapped_slot_by_index ... FAILED
+
+failures:
+
+---- components::tests::r3_inner_swap_below_swapped_slot_by_index stdout ----
+
+thread 'components::tests::r3_inner_swap_below_swapped_slot_by_index' (44174289) panicked at crates/designos-doc/src/components.rs:5727:9:
+assertion `left == right` failed: swap must return the dropped inner swap count below the swapped slot
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::r3_inner_swap_below_swapped_slot_by_index
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 702 filtered out; finished in 0.01s
+
+
+running 2 tests
+test components::tests::r4c_count_unswapped_nested_chain_is_zero ... ok
+test components::tests::r4c_count_two_inner_swaps_then_overwrite ... FAILED
+
+failures:
+
+---- components::tests::r4c_count_two_inner_swaps_then_overwrite stdout ----
+
+thread 'components::tests::r4c_count_two_inner_swaps_then_overwrite' (44174310) panicked at crates/designos-doc/src/components.rs:5802:9:
+assertion `left == right` failed: two inner swaps dropped and returned per call
+  left: 0
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::r4c_count_two_inner_swaps_then_overwrite
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 701 filtered out; finished in 0.00s

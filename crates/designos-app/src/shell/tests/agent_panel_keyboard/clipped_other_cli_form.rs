@@ -1,16 +1,9 @@
-//! #1001: a form that is out of view holds no keys. In a short window the new-session list ends above the composer, and the
-//! `Other CLI…` form, which sits under the list's last rows, is clipped away: Tab must not walk into it.
+//! #1001: a form that is out of view holds no keys. In a short window the agent menu ends above the pill, and the
+//! `Other CLI…` form, which sits under the menu's last rows, is clipped away: Tab must not walk into it.
 
-use super::hidden_other_cli_form::{form_ids, frames, list_sim, LABEL_FIELD};
+use super::hidden_other_cli_form::{form_ids, list_sim, LABEL_FIELD};
 use super::*;
-use crate::agent_cli_catalog::PickerRowKind;
-use crate::agent_picker::rows_for_state;
 use egui::Id;
-
-/// The window height where the whole form lies below the end of the list's area.
-const FORM_OUT_OF_VIEW: f32 = 480.0;
-/// The window height where the label is in view and the command field below it is not.
-const COMMAND_FIELD_OUT_OF_VIEW: f32 = 540.0;
 
 /// One frame in a window `height` points tall, like `Sim::frame`.
 fn frame_at(s: &mut Sim, height: f32, events: Vec<Event>) {
@@ -29,15 +22,6 @@ fn frames_at(s: &mut Sim, height: f32, n: usize) {
     }
 }
 
-fn click_at(s: &mut Sim, height: f32, p: Pos2) {
-    let mods = s.mods;
-    frame_at(s, height, vec![Event::PointerMoved(p)]);
-    for pressed in [true, false] {
-        frame_at(s, height, vec![Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: mods }]);
-    }
-    frame_at(s, height, vec![]);
-}
-
 fn press_tab(s: &mut Sim, height: f32) {
     let mods = s.mods;
     for pressed in [true, false] {
@@ -45,15 +29,14 @@ fn press_tab(s: &mut Sim, height: f32) {
     }
 }
 
-/// The new-session list in a window `height` points tall, with the `Other CLI…` form opened from its row.
+/// The New chat state in a window `height` points tall, with the agent menu open, `More…` expanded and the `Other CLI…` form open.
 fn window_with_the_form_open(height: f32) -> Sim {
     let mut s = list_sim();
     frames_at(&mut s, height, 3);
-    let other = rows_for_state(&mut s.shell.app.terminal).into_iter().find(|r| r.kind == PickerRowKind::OtherCli).expect("the Other CLI row");
-    let row = s.rect_of(&format!("picker-row-{}", other.id));
-    click_at(&mut s, height, row.center());
-    frames_at(&mut s, height, 3);
-    assert!(s.app().terminal.picker.other_form_open, "precondition: the form is open");
+    s.shell.app.terminal.runtime_dropdown_open = true;
+    s.shell.app.terminal.picker.menu_more_open = true;
+    s.shell.app.terminal.picker.open_other_form();
+    frames_at(&mut s, height, 4);
     s
 }
 
@@ -67,38 +50,56 @@ fn assert_tab_never_reaches(s: &mut Sim, height: f32, ids: &[Id]) {
 }
 
 #[test]
-fn tab_does_not_walk_into_a_form_that_is_out_of_view() {
-    let height = FORM_OUT_OF_VIEW;
-    let mut s = window_with_the_form_open(height);
-    let (form, composer) = (s.rect_of("agents-other-cli-form"), s.rect_of("agents-composer-input"));
-    assert!(form.top() > composer.top(), "precondition: the form lies below the end of the list, under the composer: form {form:?}, composer {composer:?}");
-    assert_tab_never_reaches(&mut s, height, &form_ids());
-    frame_at(&mut s, height, vec![Event::Text("zz".into())]);
-    let picker = &s.app().terminal.picker;
-    assert!(picker.other_label_input.is_empty() && picker.other_command_input.is_empty(), "the form took letters it cannot show");
-    finish(s);
+fn a_form_clipped_out_of_the_menu_holds_no_keys() {
+    let mut clipped = 0;
+    for height in [240.0, 270.0, 300.0, 330.0, 360.0, 420.0, 480.0] {
+        let mut s = window_with_the_form_open(height);
+        let (menu, form) = (s.rect_of("agents-agent-menu"), s.rect_of("agents-other-cli-form"));
+        // The label field starts one pad under the form's top, the command field one field and a gap below that.
+        let label_top = form.top() + crate::theme::INSET_FRAME;
+        let command_top = label_top + 22.0 + crate::theme::SPACE_ROW;
+        let hidden: Vec<Id> = form_ids().into_iter().zip([label_top, command_top]).filter(|(_, top)| *top >= menu.bottom()).map(|(id, _)| id).collect();
+        if !hidden.is_empty() {
+            clipped += 1;
+            assert_tab_never_reaches(&mut s, height, &hidden);
+        }
+        if hidden.len() == 2 {
+            frame_at(&mut s, height, vec![Event::Text("zz".into())]);
+            let picker = &s.app().terminal.picker;
+            assert!(picker.other_label_input.is_empty() && picker.other_command_input.is_empty(), "at {height}: the form took letters it cannot show");
+        }
+        finish(s);
+    }
+    assert!(clipped >= 2, "some window heights clip a field or the whole form out of the menu: {clipped}");
 }
 
 #[test]
-fn tab_does_not_walk_into_the_field_of_a_form_that_is_out_of_view() {
-    let height = COMMAND_FIELD_OUT_OF_VIEW;
-    let mut s = window_with_the_form_open(height);
-    let (label, command, composer) = (s.rect_of(LABEL_FIELD), s.rect_of("agents-other-cli-command-input"), s.rect_of("agents-composer-input"));
-    assert!(label.top() < composer.top() && command.top() > composer.top(), "precondition: only the label is in view: {label:?}, {command:?}, {composer:?}");
-    assert_tab_never_reaches(&mut s, height, &form_ids()[1..]);
-    finish(s);
-}
-
-#[test]
-fn the_form_takes_letters_once_it_is_scrolled_into_view() {
-    let height = FORM_OUT_OF_VIEW;
-    let mut s = window_with_the_form_open(height);
-    s.shell.app.terminal.left_scroll = 300.0;
-    frames_at(&mut s, height, 3);
-    let label = s.rect_of(LABEL_FIELD);
-    click_at(&mut s, height, label.center());
-    frame_at(&mut s, height, vec![Event::Text("ab".into())]);
-    assert_eq!(s.app().terminal.picker.other_label_input, "ab", "the form is usable where it can be seen");
-    frames(&mut s, 1);
-    finish(s);
+fn the_form_takes_letters_once_the_menu_is_scrolled_to_it() {
+    let mut scrolled = 0;
+    for height in [300.0, 330.0, 360.0, 420.0] {
+        let mut s = window_with_the_form_open(height);
+        let (menu, form) = (s.rect_of("agents-agent-menu"), s.rect_of("agents-other-cli-form"));
+        if form.top() + crate::theme::INSET_FRAME < menu.bottom() {
+            finish(s);
+            continue;
+        }
+        scrolled += 1;
+        // The menu scrolls when it is taller than the room above the pill: scrolled by the form's distance below the menu's top
+        // edge, the form comes into view. A field that is not drawn records no rect, so the form's own rect is the measure.
+        s.shell.app.terminal.picker.menu_scroll = form.top() - menu.top();
+        frames_at(&mut s, height, 3);
+        let label = s.rect_of(LABEL_FIELD);
+        let menu = s.rect_of("agents-agent-menu");
+        assert!(menu.contains(label.center()), "at {height}: scrolling brought the label field into the menu: {label:?} in {menu:?}");
+        let (pos, mods) = (label.center(), s.mods);
+        frame_at(&mut s, height, vec![Event::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            frame_at(&mut s, height, vec![Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: mods }]);
+        }
+        frame_at(&mut s, height, vec![]);
+        frame_at(&mut s, height, vec![Event::Text("ab".into())]);
+        assert_eq!(s.app().terminal.picker.other_label_input, "ab", "at {height}: the form is usable where it can be seen");
+        finish(s);
+    }
+    assert!(scrolled >= 1, "some window height hides the form until the menu scrolls: {scrolled}");
 }

@@ -1,0 +1,10 @@
+I added the "Draft" frame, but I couldn't open `other.designos`, so I don't have its frame names.
+
+The Draft frame is on Page 1 of the current document and is unsaved. Opening another file would throw away that unsaved frame, so DesignOS refused with `UNSAVED_CHANGES`. I didn't override it, because discarding needs your explicit OK and you told me not to save yet.
+
+To finish, tell me which you want:
+1. **Discard the Draft frame** and open `other.designos`.
+2. **Save the current document** to a path you choose, then open `other.designos`.
+
+I've written the same status in `answer.md`.
+claude exit 0

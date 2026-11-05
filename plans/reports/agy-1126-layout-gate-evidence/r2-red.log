@@ -1,0 +1,80 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.86s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 17 tests
+test cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host ... ok
+test cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands ... ok
+
+thread 'cli_resolve::tests::hermetic_mode_refuses_background_redirect_and_unexpanded_vars' (70647744) panicked at crates/designos-app/src/cli_resolve.rs:727:28:
+hermetic mode must refuse "claude & /usr/bin/true", got argv ["/bin/sh", "-c", "exec /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/designos-1126-r2-8d-52528-8/claude & /usr/bin/true"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case ... ok
+test cli_resolve::tests::hermetic_mode_refuses_background_redirect_and_unexpanded_vars ... FAILED
+
+thread 'cli_resolve::tests::hermetic_startup_refuses_relative_or_dotdot_dir' (70647751) panicked at crates/designos-app/src/cli_resolve.rs:711:74:
+.. in DESIGNOS_AGENT_CLI_DIR must be denied: ()
+test cli_resolve::tests::version_warmer_resolves_on_the_calling_thread ... ok
+test cli_resolve::tests::every_resolver_uses_resolve_in ... ok
+
+thread 'cli_resolve::tests::hermetic_mode_refuses_symlink_outside_stub_dir' (70647746) panicked at crates/designos-app/src/cli_resolve.rs:668:9:
+assertion `left == right` failed: resolve_in in hermetic/stub dir must refuse a symlink pointing outside the stub dir
+  left: Some("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/designos-1126-r2-8b-52528-13/stubs/claude")
+ right: None
+test cli_resolve::tests::hermetic_mode_refuses_symlink_outside_stub_dir ... FAILED
+test cli_resolve::tests::hermetic_startup_refuses_relative_or_dotdot_dir ... FAILED
+test cli_resolve::tests::hermetic_pty_env_is_stub_path_only ... ok
+
+thread 'cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags' (70647750) panicked at crates/designos-app/src/cli_resolve.rs:271:13:
+assertion `left == right` failed: preset Claude argv must exec canonical binary directly without /bin/sh -c, -l, or -i
+  left: ["/bin/sh", "-c", "exec /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/designos-1126-h1-52528-3/claude --dangerously-skip-permissions"]
+ right: ["/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/designos-1126-h1-52528-3/claude", "--dangerously-skip-permissions"]
+test cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags ... FAILED
+test cli_resolve::tests::hermetic_mode_writes_the_acknowledgement ... ok
+test cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement ... 
+thread 'cli_resolve::tests::grok_usage_caller_with_no_grok_stub_spawns_nothing' (70647742) panicked at crates/designos-app/src/cli_resolve.rs:758:9:
+refresh_tab_usage must not trigger grok usage subprocess when grok binary is absent from stub dir
+ok
+test cli_resolve::tests::grok_usage_caller_with_no_grok_stub_spawns_nothing ... FAILED
+{
+  "root_node_id": 2,
+  "saved": true
+}
+
+thread 'cli_resolve::tests::startup_check_runs_before_seed_library_and_agent_cli' (70647755) panicked at crates/designos-app/src/cli_resolve.rs:611:49:
+--apply-spec with invalid hermetic env must fail: ExitZero
+test cli_resolve::tests::startup_check_runs_before_seed_library_and_agent_cli ... FAILED
+test cli_resolve::tests::stub_scripts_behave ... ok
+
+thread 'cli_resolve::tests::non_hermetic_catalog_path_prepends_install_and_extra_before_host_path' (70647752) panicked at crates/designos-app/src/cli_resolve.rs:786:9:
+assertion `left == right` failed: non-hermetic catalog child PATH must prepend install_folders + extra_cli_path_dirs() before process PATH
+  left: "/usr/bin:/bin:/usr/sbin:/sbin:/Users/jangtrinh/.cargo/bin:/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/designos-1126-r2-8f-install-52528-11:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.cargo/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.local/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.antigravity/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.antigravity/antigravity/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.grok/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.npm-global/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.opencode/bin:/opt/homebrew/bin:/usr/local/bin"
+ right: "/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/designos-1126-r2-8f-install-52528-11:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.cargo/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.local/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.antigravity/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.antigravity/antigravity/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.grok/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.npm-global/bin:/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NwxslC/home/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/jangtrinh/.cargo/bin"
+test cli_resolve::tests::non_hermetic_catalog_path_prepends_install_and_extra_before_host_path ... FAILED
+
+thread 'cli_resolve::tests::hermetic_resolver_census' (70647749) panicked at crates/designos-app/src/cli_resolve.rs:575:9:
+found unallowed PATH or bare-agent lookup outside cli_resolve.rs:
+terminal.rs:3038: let grok_bin = crate::agent_usage::resolve_grok_binary(&sources).unwrap_or_else(|| PathBuf::from("grok"));
+terminal.rs:4971: let current_path = std::env::var("PATH").unwrap_or_default();
+terminal.rs:8859: let mut list_cmd = std::process::Command::new("gemini");
+test cli_resolve::tests::hermetic_resolver_census ... FAILED
+
+failures:
+
+failures:
+    cli_resolve::tests::grok_usage_caller_with_no_grok_stub_spawns_nothing
+    cli_resolve::tests::hermetic_mode_refuses_background_redirect_and_unexpanded_vars
+    cli_resolve::tests::hermetic_mode_refuses_symlink_outside_stub_dir
+    cli_resolve::tests::hermetic_resolver_census
+    cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags
+    cli_resolve::tests::hermetic_startup_refuses_relative_or_dotdot_dir
+    cli_resolve::tests::non_hermetic_catalog_path_prepends_install_and_extra_before_host_path
+    cli_resolve::tests::startup_check_runs_before_seed_library_and_agent_cli
+
+test result: FAILED. 9 passed; 8 failed; 0 ignored; 0 measured; 2971 filtered out; finished in 0.31s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

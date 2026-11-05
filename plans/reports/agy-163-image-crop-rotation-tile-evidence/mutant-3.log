@@ -1,0 +1,44 @@
+=== Mutant 3: transform dropped in convert_paint in crates/designos-fig/src/fig.rs ===
+diff --git a/crates/designos-fig/src/fig.rs b/crates/designos-fig/src/fig.rs
+index 4facd24c..bf6b0a15 100644
+--- a/crates/designos-fig/src/fig.rs
++++ b/crates/designos-fig/src/fig.rs
+@@ -2761,9 +2761,7 @@ fn convert_paint(p: &Value) -> Option<Value> {
+                 .or_else(|| image.and_then(|i| fstr(i, "name")))?;
+             m.insert("imageRef".into(), hash.into());
+             enum_map(&mut m, p, "imageScaleMode", "scaleMode", &[]);
+-            if let Some(t) = p.get("transform") {
+-                m.insert("imageTransform".into(), matrix_json(t));
+-            }
++            // mutant 3: transform dropped
+             copy(&mut m, p, "rotation", "rotation");
+             copy(&mut m, p, "scale", "scalingFactor");
+             if let Some(pf) = p.get("paintFilter").or_else(|| p.get("filterColorAdjust")) {
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.62s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 1 test
+test fig_round_trip_keeps_transform_rotation_scale_filters_and_flags ... FAILED
+
+failures:
+
+---- fig_round_trip_keeps_transform_rotation_scale_filters_and_flags stdout ----
+
+thread 'fig_round_trip_keeps_transform_rotation_scale_filters_and_flags' (87470679) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4857:5:
+assertion `left == right` failed
+  left: ImageParams { transform: None, rotation: 90.0, tile_scale: 0.4, adjust: ImageAdjust { tint: 0.1, shadows: -0.2, highlights: 0.3, detail: 0.4, exposure: -0.5, vignette: 0.6, temperature: -0.7, vibrance: 0.8, contrast: -0.9, brightness: 0.25 }, color_manage: Some(true), original_size: Some((1440, 960)) }
+ right: ImageParams { transform: Some([0.6, 0.0, 0.15, 0.0, 0.75, 0.1]), rotation: 90.0, tile_scale: 0.4, adjust: ImageAdjust { tint: 0.1, shadows: -0.2, highlights: 0.3, detail: 0.4, exposure: -0.5, vignette: 0.6, temperature: -0.7, vibrance: 0.8, contrast: -0.9, brightness: 0.25 }, color_manage: Some(true), original_size: Some((1440, 960)) }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    fig_round_trip_keeps_transform_rotation_scale_filters_and_flags
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+exit_code=101

@@ -125,13 +125,7 @@ pub fn tool_descriptor() -> Value {
                 "hidden": {"type": "boolean"}
             }),
             &["node_id", "language", "code", "truncated", "screenshot"],
-        ),
-        "annotations": {
-            "readOnlyHint": true,
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false
-        }
+        )
     })
 }
 

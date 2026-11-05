@@ -612,7 +612,7 @@ fn edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn
 fn agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled() {
     // 1. `agents-approval-open-tab` is a #1126 layout-gate preset and must have no scrollback.
     let mut st_open = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
-    st_open.open_approval_fixture("agents-approval-open-tab", None);
+    st_open.open_approval_fixture("agents-approval-open-tab", None, crate::agent_permissions::AgentPermissionMode::Ask);
     let (open_sb_len, open_sb_offset) = {
         let tab = st_open.active_tab().expect("active tab for agents-approval-open-tab");
         let mut p = tab.parser.lock().unwrap();
@@ -628,7 +628,7 @@ fn agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_sc
     assert_eq!(parsed.panel.as_deref(), Some("agents-scrollback"));
 
     let mut st_sb = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
-    st_sb.open_approval_fixture("agents-scrollback", None);
+    st_sb.open_approval_fixture("agents-scrollback", None, crate::agent_permissions::AgentPermissionMode::Ask);
     let (sb_len, sb_offset, lines) = {
         let tab = st_sb.active_tab().expect("active tab for agents-scrollback");
         let mut p = tab.parser.lock().unwrap();

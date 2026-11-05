@@ -770,7 +770,7 @@ impl Schema {
                         }
                     }
                     let v: serde_json::Value = serde_json::from_str(trimmed).ok()?;
-                    return self.def_from_json(d, &v, depth + 1);
+                    return self.def_from_json(d, &v, depth + 1, false);
                 }
             }
         }
@@ -785,13 +785,24 @@ impl Schema {
         self.field_from_json(f, &v, depth + 1)
     }
 
-    /// Reconstructs a `KiwiValue` for field `f` from a `serde_json::Value`.
+    /// Reconstructs a `KiwiValue` for field `f` from a `serde_json::Value`. Lenient: an array element or a message field
+    /// that does not convert is left out and the rest is kept (a passthrough value stays usable with one bad part).
     pub fn field_from_json(&self, f: &Field, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+        self.field_from_json_mode(f, v, depth, false)
+    }
+
+    /// Like [`Self::field_from_json`], but every non-null part of `v` must convert: a value that does not fails the whole
+    /// conversion, so the caller never writes a shortened value. For data that is written back whole.
+    pub fn field_from_json_strict(&self, f: &Field, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+        self.field_from_json_mode(f, v, depth, true)
+    }
+
+    fn field_from_json_mode(&self, f: &Field, v: &serde_json::Value, depth: usize, strict: bool) -> Option<KiwiValue> {
         if depth > MAX_DEPTH {
             return None;
         }
         if !f.is_array {
-            return self.type_from_json(f.ty, v, depth + 1);
+            return self.type_from_json(f.ty, v, depth + 1, strict);
         }
         if f.ty == FieldType::Native(Native::Byte) {
             if let Some(s) = v.as_str() {
@@ -806,17 +817,65 @@ impl Schema {
         let arr = v.as_array()?;
         let mut out = Vec::with_capacity(arr.len());
         for item in arr {
-            if let Some(elem) = self.type_from_json(f.ty, item, depth + 1) {
-                out.push(elem);
+            match self.type_from_json(f.ty, item, depth + 1, strict) {
+                Some(elem) => out.push(elem),
+                None if strict => return None,
+                None => {}
             }
         }
-        if out.is_empty() && !arr.is_empty() {
+        if !strict && out.is_empty() && !arr.is_empty() {
             return None;
         }
         Some(KiwiValue::Array(out))
     }
 
-    fn type_from_json(&self, ty: FieldType, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+    /// The first key of `v` that is not a field of the definition `f` reads it against, as a path from the field's own
+    /// name (`customEffectId.futureFlag`, `componentPropAssignments[1].value.future`), or `None` when every key is named.
+    /// Messages, structs and arrays of them are walked at every depth. [`Self::field_from_json_strict`] builds only the
+    /// fields a definition names, so a key reported here would not survive an encode.
+    pub fn first_unknown_json_key(&self, f: &Field, v: &serde_json::Value) -> Option<String> {
+        if v.is_null() {
+            return None;
+        }
+        let FieldType::Def(idx) = f.ty else { return None };
+        if !f.is_array {
+            return self.unknown_key_in_def(idx, v, &f.name, 0);
+        }
+        v.as_array()?.iter().enumerate().find_map(|(i, item)| self.unknown_key_in_def(idx, item, &format!("{}[{i}]", f.name), 0))
+    }
+
+    fn unknown_key_in_def(&self, idx: usize, v: &serde_json::Value, path: &str, depth: usize) -> Option<String> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        let def = self.defs.get(idx)?;
+        if def.kind == DefKind::Enum {
+            return None;
+        }
+        // A GUID or a widget pointer may also be written as a "session:local" string: no keys to read.
+        let obj = v.as_object()?;
+        for (key, value) in obj {
+            if value.is_null() {
+                continue;
+            }
+            let child = format!("{path}.{key}");
+            let Some(field) = def.fields.iter().find(|sf| &*sf.name == key.as_str()) else { return Some(child) };
+            let FieldType::Def(inner) = field.ty else { continue };
+            let found = if field.is_array {
+                value
+                    .as_array()
+                    .and_then(|items| items.iter().enumerate().find_map(|(i, item)| self.unknown_key_in_def(inner, item, &format!("{child}[{i}]"), depth + 1)))
+            } else {
+                self.unknown_key_in_def(inner, value, &child, depth + 1)
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+
+    fn type_from_json(&self, ty: FieldType, v: &serde_json::Value, depth: usize, strict: bool) -> Option<KiwiValue> {
         if depth > MAX_DEPTH {
             return None;
         }
@@ -834,11 +893,11 @@ impl Schema {
             FieldType::Native(Native::String) => v.as_str().map(|s| KiwiValue::String(s.to_string())),
             FieldType::Native(Native::Int64) => v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok())).map(KiwiValue::Int64),
             FieldType::Native(Native::Uint64) => v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())).map(KiwiValue::Uint64),
-            FieldType::Def(idx) => self.def_from_json(idx, v, depth + 1),
+            FieldType::Def(idx) => self.def_from_json(idx, v, depth + 1, strict),
         }
     }
 
-    fn def_from_json(&self, idx: usize, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+    fn def_from_json(&self, idx: usize, v: &serde_json::Value, depth: usize, strict: bool) -> Option<KiwiValue> {
         if depth > MAX_DEPTH {
             return None;
         }
@@ -868,7 +927,7 @@ impl Schema {
                 let mut fs = Vec::with_capacity(def.fields.len());
                 for sf in &def.fields {
                     let kv = match obj.get(&*sf.name) {
-                        Some(fv) if !fv.is_null() => self.field_from_json(sf, fv, depth + 1)?,
+                        Some(fv) if !fv.is_null() => self.field_from_json_mode(sf, fv, depth + 1, strict)?,
                         _ => self.struct_field_default(&def.name, sf, depth + 1)?,
                     };
                     fs.push((sf.name.clone(), kv));
@@ -888,8 +947,10 @@ impl Schema {
                 for sf in &def.fields {
                     if let Some(fv) = obj.get(&*sf.name) {
                         if !fv.is_null() {
-                            if let Some(kv) = self.field_from_json(sf, fv, depth + 1) {
-                                fs.push((sf.name.clone(), kv));
+                            match self.field_from_json_mode(sf, fv, depth + 1, strict) {
+                                Some(kv) => fs.push((sf.name.clone(), kv)),
+                                None if strict => return None,
+                                None => {}
                             }
                         }
                     }
@@ -1602,5 +1663,70 @@ mod tests {
         let old_10_byte_wire = [0xe2, 0x03, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0x00];
         let err = s.decode_message(nc, &old_10_byte_wire).unwrap_err();
         assert!(err.to_string().contains("malformed data: unknown field id 1 in NodeChange"), "{err}");
+    }
+
+    #[test]
+    fn field_from_json_reconstructs_code_component_id_and_prop_assignments() {
+        let s = crate::testkit::figma_like_schema();
+        let effect_idx = s.find("Effect").expect("Effect in schema");
+        let custom_eff_field = s.defs[effect_idx].fields.iter().find(|f| &*f.name == "customEffectId").expect("customEffectId field");
+        let props_field = s.defs[effect_idx].fields.iter().find(|f| &*f.name == "componentPropAssignments").expect("componentPropAssignments field");
+
+        let custom_eff_json = serde_json::json!({
+            "guid": {"sessionID": 10, "localID": 25},
+            "assetRef": {"key": "shader_key_abc", "version": "1"}
+        });
+        let custom_eff_kv = s.field_from_json(custom_eff_field, &custom_eff_json, 0).expect("CodeComponentId from json");
+        assert_eq!(to_json(&custom_eff_kv), custom_eff_json);
+
+        let props_json = serde_json::json!([
+            {
+                "defID": {"sessionID": 1, "localID": 2},
+                "value": {"floatValue": 0.75}
+            },
+            {
+                "defID": {"sessionID": 1, "localID": 3},
+                "value": {"boolValue": true}
+            }
+        ]);
+        let props_kv = s.field_from_json(props_field, &props_json, 0).expect("ComponentPropAssignment[] from json");
+        assert_eq!(to_json(&props_kv), props_json);
+
+        let bad_custom_eff = serde_json::json!({
+            "guid": {"sessionID": "not-a-uint", "localID": 25},
+            "assetRef": {"key": "shader_key_abc", "version": "1"}
+        });
+        assert!(s.field_from_json_strict(custom_eff_field, &bad_custom_eff, 0).is_none());
+        // the lenient conversion keeps what converts, as it does for a passthrough value
+        let kept = s.field_from_json(custom_eff_field, &bad_custom_eff, 0).expect("the asset reference converts");
+        assert_eq!(to_json(&kept), serde_json::json!({"assetRef": {"key": "shader_key_abc", "version": "1"}}));
+    }
+    #[test]
+    fn first_unknown_json_key_names_the_path_of_a_key_the_schema_does_not_name() {
+        use serde_json::json;
+        let s = crate::testkit::figma_like_schema();
+        let effect = s.find("Effect").expect("Effect in schema");
+        let field = |name: &str| s.defs[effect].fields.iter().find(|f| &*f.name == name).unwrap_or_else(|| panic!("{name} field"));
+        let unknown = |name: &str, v: serde_json::Value| s.first_unknown_json_key(field(name), &v);
+
+        let id = json!({"guid": {"sessionID": 1, "localID": 2}, "assetRef": {"key": "k", "version": "1"}});
+        assert_eq!(unknown("customEffectId", id.clone()), None, "every key is named");
+        // a message, a struct inside a message, and a struct on its own
+        assert_eq!(
+            unknown("customEffectId", json!({"guid": {"sessionID": 1, "localID": 2}, "futureFlag": true})).as_deref(),
+            Some("customEffectId.futureFlag")
+        );
+        assert_eq!(unknown("customEffectId", json!({"guid": {"sessionID": 1, "localID": 2, "epoch": 3}})).as_deref(), Some("customEffectId.guid.epoch"));
+        assert_eq!(unknown("offset", json!({"x": 1.0, "y": 2.0, "future": 1})).as_deref(), Some("offset.future"));
+        // an array of messages names the index; a message nested in a message is reached
+        let props = json!([
+            {"defID": {"sessionID": 1, "localID": 2}, "value": {"floatValue": 0.5}},
+            {"defID": {"sessionID": 1, "localID": 3}, "value": {"boolValue": true, "future": 1}}
+        ]);
+        assert_eq!(unknown("componentPropAssignments", props).as_deref(), Some("componentPropAssignments[1].value.future"));
+        // a null value carries nothing, a GUID string and a scalar have no keys to read
+        assert_eq!(unknown("customEffectId", json!({"guid": "1:2", "futureFlag": null})), None);
+        assert_eq!(unknown("radius", json!(4.0)), None);
+        assert_eq!(unknown("visible", serde_json::Value::Null), None);
     }
 }

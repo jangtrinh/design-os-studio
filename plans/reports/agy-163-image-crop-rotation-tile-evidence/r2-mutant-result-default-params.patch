@@ -1,0 +1,13 @@
+diff --git a/crates/designos-app/src/image_jobs.rs b/crates/designos-app/src/image_jobs.rs
+index b05187a8..268aa563 100644
+--- a/crates/designos-app/src/image_jobs.rs
++++ b/crates/designos-app/src/image_jobs.rs
+@@ -1108,7 +1108,7 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
+         orig.fills.get(job.fill_index).filter(|p| matches!(p.kind, PaintKind::Image { .. })).map(|p| (p.opacity, p.blend)).unwrap_or((1.0, BlendMode::Normal));
+ 
+     // The result bitmap replaces the picture, so the recorded original size follows it.
+-    let mut params = job.frame.params;
++    let mut params: designos_doc::ImageParams = Default::default();
+     if params.original_size.is_some() {
+         params.original_size = image_dimensions(&png_bytes);
+     }

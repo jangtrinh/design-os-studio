@@ -1,0 +1,24 @@
+$ cargo test -p designos-app --bin designos --locked -- --exact vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.16s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 1.55s
+
+rc=0
+$ cargo test -p designos-app --bin designos --locked -- --exact vecops::tests::two_deferred_text_commands_both_convert_in_order
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.23s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 1.55s
+
+rc=0

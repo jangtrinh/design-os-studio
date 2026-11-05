@@ -1,0 +1,24 @@
+# r2 merge check and cleanup
+date=2026-11-02T17:11:19Z
+$ git fetch origin main
+From github.com:jangtrinh/design-os-studio
+ * branch              main       -> FETCH_HEAD
+$ git merge origin/main
+Already up to date.
+$ git rev-parse origin/main
+a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+$ git merge-base HEAD origin/main
+a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+$ git diff --name-only origin/main HEAD -- crates
+crates/designos-app/src/panels/typography.rs
+crates/designos-app/src/shell/tests/typography.rs
+crates/designos-mcp/tests/text_truncation_roundtrip.rs
+$ du -sh out/cargo (before)
+ 15G	out/cargo
+$ rm -rf out/cargo
+rm_rc=0
+$ ls out/cargo
+ls: out/cargo: No such file or directory
+ls_rc=1
+$ ls out
+evidence

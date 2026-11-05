@@ -1,0 +1,1307 @@
+{
+  "bless_sha": "dd53ba7a982e0b45ebded31e4d6c5fa86e588c76",
+  "cases": [
+    {
+      "id": "d-editor-default",
+      "spec": "D",
+      "args": [
+        "--rulers"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "d-editor-selected",
+      "spec": "D",
+      "args": [
+        "--rulers"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "d-menu-main",
+      "spec": "D",
+      "args": [
+        "--menu",
+        "main"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "d-menu-main-file",
+      "spec": "D",
+      "args": [
+        "--menu",
+        "main/File"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "d-menu-shape",
+      "spec": "D",
+      "args": [
+        "--menu",
+        "shape"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "d-menu-zoom",
+      "spec": "D",
+      "args": [
+        "--menu",
+        "zoom"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "d-window-chrome",
+      "spec": "D",
+      "args": [],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "x-present",
+      "spec": "D",
+      "args": [
+        "--present"
+      ],
+      "tier_a": {
+        "select": "id:636047",
+        "name": "01 Onboarding",
+        "prep": "prototype_link"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "x-board",
+      "spec": "D",
+      "args": [],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Board",
+        "prep": "blank_board"
+      },
+      "tier_b": {
+        "not_applicable": "blank board shows no kit content; Tier A captures the same surface"
+      }
+    },
+    {
+      "id": "x-deck",
+      "spec": "D",
+      "args": [],
+      "tier_a": {
+        "select": "id:2",
+        "name": "Slide 1",
+        "prep": "blank_deck"
+      },
+      "tier_b": {
+        "not_applicable": "blank deck shows no kit content; Tier A captures the same surface"
+      }
+    },
+    {
+      "id": "micro-scale-tool",
+      "spec": "D",
+      "args": [
+        "--panel",
+        "micro-scale-tool"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-vector-edit",
+      "spec": "D",
+      "args": [
+        "--panel",
+        "micro-vector-edit"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "e-layers-selected",
+      "spec": "E",
+      "args": [],
+      "tier_a": {
+        "select": "id:636210",
+        "name": "Button",
+        "prep": "component_instance"
+      },
+      "tier_b": {
+        "select": "id:44624",
+        "name": "Page header",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "e-no-selection",
+      "spec": "E",
+      "args": [],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "f-prototype-tab",
+      "spec": "F",
+      "args": [
+        "--tab",
+        "prototype",
+        "--panel",
+        "interaction"
+      ],
+      "tier_a": {
+        "select": "id:636200",
+        "name": "Add",
+        "prep": "prototype_link"
+      },
+      "tier_b": {
+        "select": "id:77742",
+        "name": "State=Open inactive filter, Orientation=Left aligned",
+        "page": "id:77652 (      ↳ Filters)"
+      }
+    },
+    {
+      "id": "f-picker",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "picker"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "f-picker-gradient",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "picker-gradient"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "f-effects-menu",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "effects-menu"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "f-stroke-settings",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "stroke-settings"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "f-type-details",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "type-details"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "f-effect-styles",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "effect-styles"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "f-edit-style-color",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "edit-style-color"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "edit-style-text",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "edit-style-text"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "edit-style-effect",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "edit-style-effect"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "edit-style-grid",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "edit-style-grid"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button",
+        "prep": "grid_style"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "grid-styles",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "grid-styles"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button",
+        "prep": "grid_style"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "effect-noise",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "effect-noise"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "effect-texture",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "effect-texture"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "effect-glass",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "effect-glass"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "picker-page",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "picker-page"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "fill-d9",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "fill-d9"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-autolayout",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "micro-autolayout"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-css-grid",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "micro-css-grid"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-inspector-math",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "micro-inspector-math"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-selection-corner",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "micro-selection-corner"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-shape-controls",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "micro-shape-controls"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-smart-selection",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "micro-smart-selection"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-typography-multiedit",
+      "spec": "F",
+      "args": [
+        "--panel",
+        "micro-typography-multiedit"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "g-dev-react",
+      "spec": "G",
+      "args": [
+        "--dev",
+        "react",
+        "--dev-demo"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "g-dev-annotate",
+      "spec": "G",
+      "args": [
+        "--dev",
+        "css",
+        "--panel",
+        "dev-annotate"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "g-dev-compare",
+      "spec": "G",
+      "args": [
+        "--dev",
+        "css",
+        "--panel",
+        "dev-compare"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "g-spec-reader",
+      "spec": "G",
+      "args": [
+        "--panel",
+        "specs"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-dev-boxmodel",
+      "spec": "G",
+      "args": [
+        "--panel",
+        "micro-dev-boxmodel"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "h-home",
+      "spec": "H",
+      "args": [
+        "--library",
+        "{LIB}",
+        "--home"
+      ],
+      "tier_a": {
+        "select": null
+      },
+      "tier_b": {
+        "select": null
+      }
+    },
+    {
+      "id": "i-agents",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agents"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "i-agents-chat",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agents-chat"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      },
+      "spawns": true
+    },
+    {
+      "id": "i-agents-picker",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agents-picker"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "i-agents-start-failure",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agents-start-failure"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      },
+      "spawns": true
+    },
+    {
+      "id": "i-agents-approval-command",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agents-approval-command"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "i-agent-permissions",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agent-permissions"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "i-terminal",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "terminal"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "agents-skills",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agents-skills"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "agents-approval-queued",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agents-approval-queued"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "agents-approval-open-tab",
+      "spec": "I",
+      "args": [
+        "--panel",
+        "agents-approval-open-tab"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "j-palette",
+      "spec": "J",
+      "args": [
+        "--menu",
+        "palette"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "j-cmdk",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "cmdk"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "j-find",
+      "spec": "J",
+      "args": [
+        "--find",
+        "Button"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "j-comments",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "comments"
+      ],
+      "tier_a": {
+        "select": "id:636047",
+        "name": "01 Onboarding",
+        "prep": "comment_thread"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)",
+        "prep": "comment_thread"
+      }
+    },
+    {
+      "id": "j-version-history",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "version-history"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "j-plugins",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "plugins"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "j-check-designs",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "check-designs"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button",
+        "prep": "check_designs_findings"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)",
+        "prep": "check_designs_findings"
+      }
+    },
+    {
+      "id": "check-designs-fixed",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "check-designs-fixed"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button",
+        "prep": "check_designs_findings"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)",
+        "prep": "check_designs_findings"
+      }
+    },
+    {
+      "id": "plugin-install",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "plugin-install"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "ai-image-menu",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "ai-image-menu"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "ai-image-expand",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "ai-image-expand"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "ai-image-erase",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "ai-image-erase"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "web-capture-report",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "web-capture-report"
+      ],
+      "tier_a": {
+        "select": "id:1",
+        "name": "Starter screens"
+      },
+      "tier_b": {
+        "select": "id:44616",
+        "name": "      ❖ Dashboards 01",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-layer-picker",
+      "spec": "J",
+      "args": [
+        "--panel",
+        "micro-layer-picker"
+      ],
+      "tier_a": {
+        "select": "id:262794",
+        "name": "Button"
+      },
+      "tier_b": {
+        "select": "id:49152",
+        "name": "CTA",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "k-assets",
+      "spec": "K",
+      "args": [
+        "--panel",
+        "assets"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies",
+        "prep": "component_instance"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "k-variables",
+      "spec": "K",
+      "args": [
+        "--panel",
+        "variables"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "k-variables-floating",
+      "spec": "K",
+      "args": [
+        "--panel",
+        "variables-floating"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "k-libraries",
+      "spec": "K",
+      "args": [
+        "--panel",
+        "libraries"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies",
+        "prep": "published_library"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)",
+        "note": "subscribed badge covered in Tier A"
+      }
+    },
+    {
+      "id": "present-variables",
+      "spec": "K",
+      "args": [
+        "--present",
+        "--panel",
+        "present-variables"
+      ],
+      "tier_a": {
+        "select": "id:636047",
+        "name": "01 Onboarding",
+        "prep": "prototype_link"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "micro-components-variables",
+      "spec": "K",
+      "args": [
+        "--panel",
+        "micro-components-variables"
+      ],
+      "tier_a": {
+        "select": "id:12873",
+        "name": "03 Console - All studies",
+        "prep": "component_instance"
+      },
+      "tier_b": {
+        "select": "id:44757",
+        "name": "Desktop",
+        "page": "id:44616 (      ❖ Dashboards 01)"
+      }
+    },
+    {
+      "id": "kit-editor",
+      "spec": "D",
+      "args": [
+        "--zoom",
+        "100",
+        "--gpu"
+      ],
+      "tier_a": {
+        "select": "id:12877",
+        "name": "Page title area"
+      },
+      "tier_b": {
+        "select": "id:81959",
+        "name": "Page header",
+        "page": "id:81958 (      ↳ Page headers)"
+      },
+      "kit": true
+    },
+    {
+      "id": "kit-agents",
+      "spec": "I",
+      "args": [
+        "--zoom",
+        "100",
+        "--panel",
+        "agents",
+        "--gpu"
+      ],
+      "tier_a": {
+        "select": "id:262661",
+        "name": "Avatar"
+      },
+      "tier_b": {
+        "select": "id:21627",
+        "name": "Avatar users",
+        "page": "id:21626 (      ↳ Avatars)"
+      },
+      "kit": true
+    }
+  ]
+}

@@ -458,6 +458,23 @@ impl App {
         }
     }
 
+    /// Sets (or with `None` resets) a component property on an instance nested in an outer instance: an edit made from
+    /// the outer instance's panel of exposed properties. Text that grew or shrank is refitted in the outer instance.
+    pub fn set_nested_instance_prop(&mut self, nested: NodeId, name: &str, value: Option<PropValue>) {
+        let mut tx = Tx::new();
+        let cmd = set_nested_instance_prop(&mut self.doc, nested, name, value);
+        if self.push_cmd(&mut tx, cmd) {
+            let outer = instance_root_of(&self.doc, nested).unwrap_or(nested);
+            self.refit_texts(&mut tx, outer);
+            self.run_tx(tx);
+        }
+    }
+
+    /// Sets whether a primary nested instance inside a main component exposes its properties on outer instances.
+    pub fn set_expose_nested_instance(&mut self, nested_inst: NodeId, expose: bool) {
+        self.comp_edit(|d| set_expose_nested_instance(d, nested_inst, expose));
+    }
+
     /// Swaps an instance to another component.
     pub fn swap_instance(&mut self, inst: NodeId, comp: NodeId) {
         let mut tx = Tx::new();
@@ -713,5 +730,84 @@ mod tests {
         assert!(!node.plugin_data.contains_key("pen:explicit_height"));
         assert!(node.component.overrides.contains(&OverrideField::Stroke));
         assert!(node.component.overrides.contains(&OverrideField::Size));
+    }
+
+    /// An app holding a 100x50 main component and `count` instances of it, none locked.
+    fn app_with_main_and_instances(count: usize) -> (App, NodeId, Vec<NodeId>) {
+        let mut doc = Document::new("aspect-lock");
+        let page = doc.add_page("Page 1");
+        let frame_id = doc.alloc_id();
+        let main = doc.insert(page, Node::frame(frame_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
+        create_component(&mut doc, main).apply(&mut doc).unwrap();
+        let mut instances = Vec::new();
+        for i in 0..count {
+            create_instance(&mut doc, main, page, Vec2::new(200.0 + 150.0 * i as f32, 0.0)).apply(&mut doc).unwrap();
+            instances.push(*doc.get(page).unwrap().children.last().unwrap());
+        }
+        (App::new(doc), main, instances)
+    }
+
+    fn aspect_locked(app: &App, id: NodeId) -> bool {
+        app.doc.get(id).unwrap().lock_aspect
+    }
+
+    #[test]
+    fn an_instance_follows_a_change_of_its_main_aspect_lock() {
+        let (mut app, main, instances) = app_with_main_and_instances(1);
+        let inst = instances[0];
+        assert!(!aspect_locked(&app, inst));
+
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, inst), "locking the main must lock an instance that did not set its own lock");
+
+        app.edit_nodes(&[main], |n| n.lock_aspect = false);
+        assert!(!aspect_locked(&app, inst), "unlocking the main must unlock an instance that did not set its own lock");
+    }
+
+    #[test]
+    fn an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main() {
+        let (mut app, main, instances) = app_with_main_and_instances(2);
+        let (own, follower) = (instances[0], instances[1]);
+
+        app.edit_nodes(&[own], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, own));
+        assert!(!aspect_locked(&app, follower));
+
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, follower), "the main's lock must reach the instance that has no lock of its own");
+        assert!(aspect_locked(&app, own));
+
+        app.edit_nodes(&[main], |n| n.lock_aspect = false);
+        assert!(!aspect_locked(&app, follower), "the main's unlock must reach the instance that has no lock of its own");
+        assert!(aspect_locked(&app, own), "an instance that set its own lock must keep it when the main is unlocked");
+
+        // The other direction: an instance that unlocked itself stays unlocked under a locked main.
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        app.edit_nodes(&[own], |n| n.lock_aspect = false);
+        app.edit_nodes(&[main], |n| n.lock_aspect = false);
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        assert!(!aspect_locked(&app, own), "an instance that unlocked itself must stay unlocked when the main is locked again");
+        assert!(aspect_locked(&app, follower));
+    }
+
+    #[test]
+    fn resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main() {
+        let (mut app, main, instances) = app_with_main_and_instances(1);
+        let inst = instances[0];
+
+        app.edit_nodes(&[inst], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, inst) && !aspect_locked(&app, main));
+        app.reset_node_overrides(inst, &OverrideField::ALL);
+        assert!(!aspect_locked(&app, inst), "reset must give an instance the lock of an unlocked main");
+
+        // Once reset, the instance follows the main again.
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, inst), "a reset instance follows the main's lock again");
+
+        // Reset also restores a locked main's value over an instance that unlocked itself.
+        app.edit_nodes(&[inst], |n| n.lock_aspect = false);
+        assert!(!aspect_locked(&app, inst));
+        app.reset_node_overrides(inst, &OverrideField::ALL);
+        assert!(aspect_locked(&app, inst), "reset must give an instance the lock of a locked main");
     }
 }

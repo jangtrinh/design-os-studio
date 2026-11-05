@@ -1,0 +1,34 @@
+RED CONTROL: dimensions_ui at 81a197c5 (git show 81a197c5:crates/designos-app/src/panels/properties.rs), everything else at the working tree on top of 044bb5ef651678e8a54bd9e5e4969fa6b2ef7706
+/dev/disk3s1s1   926Gi    12Gi   123Gi     9%    459k  1.3G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 55s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 2 tests
+test panels::properties::tests::lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first ... FAILED
+test panels::properties::tests::lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first ... FAILED
+
+failures:
+
+---- panels::properties::tests::lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first stdout ----
+
+thread 'panels::properties::tests::lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first' (72361377) panicked at crates/designos-app/src/panels/properties.rs:3536:71:
+the toggle must show when any selected node has width and height (line first)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- panels::properties::tests::lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first stdout ----
+
+thread 'panels::properties::tests::lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first' (72361376) panicked at crates/designos-app/src/panels/properties.rs:3540:9:
+a line must never get an aspect lock (rectangle first)
+
+
+failures:
+    panels::properties::tests::lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first
+    panels::properties::tests::lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4208 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+red_line_first_rc=0

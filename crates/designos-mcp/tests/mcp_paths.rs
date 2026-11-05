@@ -196,7 +196,7 @@ fn export_fig_validates_extension_case_insensitively() {
 
     for bad in ["out.txt", "out.designos", "out"] {
         let err = s.call("designos_export_fig_file", json!({"output_path": bad})).expect_err("non-.fig extension must be refused");
-        assert_eq!(err.code, ErrorCode::InvalidArguments, "{bad}: {err}");
+        assert_eq!(err.code, ErrorCode::UnsupportedExtension, "{bad}: {err}");
     }
 
     for good in ["UPPER.FIG", "Mixed.Fig"] {
@@ -848,11 +848,11 @@ fn trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first() 
     assert!(!trailing_engine.with_file_name("engine.fig").exists());
 
     let save_ext = s.call("designos_save_file", json!({"path": "wrong.txt"})).expect_err("save_file must refuse wrong extension");
-    assert_eq!(save_ext.code, ErrorCode::InvalidArguments);
+    assert_eq!(save_ext.code, ErrorCode::UnsupportedExtension);
     assert_eq!(save_ext.message, "wrong.txt does not end with .designos. Choose a path ending with .designos, then try again.");
 
     let png_ext = s.call("designos_render_png", json!({"path": "wrong.txt", "node_id": rect_id})).expect_err("render_png must refuse wrong extension");
-    assert_eq!(png_ext.code, ErrorCode::InvalidArguments);
+    assert_eq!(png_ext.code, ErrorCode::UnsupportedExtension);
     assert_eq!(png_ext.message, "wrong.txt does not end with .png. Choose a path ending with .png, then try again.");
 
     for bidi_mark in ["lrm\u{200E}x.fig", "rlm\u{200F}x.fig", "alm\u{061C}x.fig"] {
@@ -860,4 +860,30 @@ fn trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first() 
         assert_eq!(err.code.as_str(), "INVALID_NAME");
         assert_eq!(err.message, format!("{bidi_mark} has a name with a line break or a direction-control character. Rename it, then try again."));
     }
+}
+
+/// A write the user's permissions refuse is `needs_human`: the agent stops and tells the user, and is never told it is safe to retry.
+#[test]
+fn a_save_into_a_read_only_folder_is_needs_human_and_not_safe_to_retry() {
+    let ws = TempDir::new("readonly-save");
+    let locked = ws.0.join("locked");
+    fs::create_dir_all(&locked).unwrap();
+    let mut s = Session::new(&ws.0).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    let probe = fs::write(locked.join("probe"), b"x");
+    if probe.is_ok() {
+        // Running as a user the mode does not bind (root): the refusal cannot be produced here.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let res = s.call("designos_save_file", json!({"path": "locked/doc.designos"}));
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let err = res.expect_err("a read-only folder must refuse the save");
+    let wire = err.to_json_value();
+    assert_eq!(wire["error_kind"], "needs_human", "{wire}");
+    assert_eq!(wire["safe_to_retry"], false, "{wire}");
+    let step = wire["next_step"].as_str().unwrap();
+    assert!(step.starts_with("Stop and tell the user"), "{step}");
+    assert!(!step.contains("before retrying"), "{step}");
+    assert!(!locked.join("doc.designos").exists(), "nothing was written");
 }

@@ -1,0 +1,16 @@
+# Backticked spans in the 0.7.5 notes (CHANGELOG.md, README.md): where each is a string a user sees
+# span | kind | first quoted-literal hit on HEAD (*.rs) | PR diff hit (open PRs #1378, #1380)
+
+`+ Design file` | sees | crates/designos-app/src/home/mod.rs:1258:            let r = button(ui, &p, &mut right, head.center().y, "+ Design file", Kind::PrimaryBlue, "home-new | #1378
+`Assets` | sees | crates/designos-app/src/cmdk.rs:248:        section: "Assets", | #1378,#1380
+`Changed` | sees | crates/designos-app/src/libraries/review.rs:159:                        UpdateKind::Changed => ("Changed", theme::TEXT_SECONDARY), | #1380
+`Check designs` | sees | crates/designos-app/src/check_designs/fixture.rs:40:    let mut d = Document::new("Check designs"); | #1380
+`Create variable` | sees | crates/designos-app/src/variables/library.rs:100:/// Label of the note that takes the place of "Create variable" while a library collection is open. | #1380
+`Details` | sees | crates/designos-app/src/shell.rs:1226:        let details_slot = details.then_some(("toast-details", "Details")); | -
+`Layers` | sees | crates/designos-app/src/agent_mention.rs:64:            Self::Layers => "Layers", | -
+`Libraries` | sees | crates/designos-app/src/libraries/modal.rs:167:        let closed = header(ui, m, "Libraries", "libraries-close"); | #1378,#1380
+`Missing from library` | sees | crates/designos-app/src/libraries/review.rs:161:                        UpdateKind::Removed => ("Missing from library", theme::DANGER), | #1380
+`New` | sees | crates/designos-app/src/libraries/modal.rs:148:        UpdateKind::Added => ("New", theme::TEXT_BRAND), | #1378,#1380
+`Pages` | sees | crates/designos-app/src/agent_mention.rs:65:            Self::Pages => "Pages", | -
+`Plugins` | sees | crates/designos-app/src/panels/menus.rs:559:        leaf("Plugins", "", Action::Plugins), | #1378,#1380
+`Variables` | sees | crates/designos-app/src/agent_mention.rs:67:            Self::Variables => "Variables", | #1378,#1380

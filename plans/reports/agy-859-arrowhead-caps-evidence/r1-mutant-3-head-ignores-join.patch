@@ -1,0 +1,13 @@
+diff --git a/crates/designos-render/src/vectorops.rs b/crates/designos-render/src/vectorops.rs
+index 6989decdc..c010f7f83 100644
+--- a/crates/designos-render/src/vectorops.rs
++++ b/crates/designos-render/src/vectorops.rs
+@@ -437,7 +437,7 @@ fn append_polygon_with_rounded_corners(pb: &mut sk::PathBuilder, pts: &[Pt2], ra
+ /// Appends the head of `cap` at `p`, pointing along `outward`, for a stroke of weight `w`. A `Round` `join` rounds the
+ /// corners of the filled polygon heads with a radius of a third of the weight.
+ fn append_cap_outline(pb: &mut sk::PathBuilder, p: Vec2, outward: Vec2, w: f32, cap: d::StrokeCap, join: d::StrokeJoin) {
+-    let corner = if join == d::StrokeJoin::Round { w / 3.0 } else { 0.0 };
++    let corner = if join == d::StrokeJoin::Round && false { w / 3.0 } else { 0.0 };
+     let f = outward;
+     let n = Vec2::new(-f.y, f.x);
+     let pt = |a: f32, b: f32| -> (f32, f32) { (p.x + n.x * a + f.x * b, p.y + n.y * a + f.y * b) };

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project docs workspace: mockup viewer</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text-secondary); overflow: clip;
+    font: var(--w-regular) var(--fs-xs)/var(--lh-xs) var(--font-ui); font-optical-sizing: auto; -webkit-font-smoothing: antialiased; }
+  .layout { display: flex; height: 100%; }
+  nav { width: 240px; flex: none; height: 100%; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg); }
+  nav .head { height: 65px; padding: 16px; border-bottom: 1px solid var(--border); flex: none; }
+  nav .head .t { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--w-strong); color: var(--text); }
+  nav .head .s { color: var(--text-tertiary); margin-top: 4px; }
+  nav ul { list-style: none; padding: 8px; overflow-y: auto; flex: 1; }
+  nav a { display: block; min-height: 40px; padding: 4px 8px; border-radius: var(--radius-control); color: var(--text-secondary); text-decoration: none; }
+  @media (hover: hover) { nav a:hover { background: var(--bg-hover); } }
+  nav a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  nav a[aria-current="page"] { background: var(--bg-selected); color: var(--text-secondary-hover); }
+  nav a .n { font-weight: var(--w-medium); color: inherit; }
+  nav a[aria-current="page"] .n { font-weight: var(--w-strong); }
+  nav a .sec { color: var(--text-tertiary); }
+  nav a .row1 { display: flex; justify-content: space-between; gap: 8px; }
+  main { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; }
+  .bar { height: var(--control-md); flex: none; padding: 0 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
+  .bar .ttl { flex: 1; min-width: 0; font-weight: var(--w-medium); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .ttl span { color: var(--text-tertiary); font-weight: var(--w-regular); }
+  .btn { height: var(--control-xs); padding: 0 12px; display: inline-flex; align-items: center; border-radius: var(--radius-control); background: var(--bg); border: 1px solid var(--border-strong); color: var(--text-secondary); font-weight: var(--w-strong); text-decoration: none; font-family: inherit; font-size: var(--fs-sm); line-height: var(--lh-sm); cursor: pointer; white-space: nowrap; }
+  @media (hover: hover) { .btn:hover { background: var(--bg-hover); color: var(--text-secondary-hover); } }
+  .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .stage { flex: 1; min-height: 0; padding: 16px; overflow: hidden; }
+  .frame-box { position: relative; overflow: hidden; border: 1px solid var(--border-translucent); border-radius: var(--radius-xl); }
+  .frame-box iframe { position: absolute; left: 0; top: 0; width: 1440px; height: 900px; border: 0; transform-origin: 0 0; background: var(--bg); }
+  .hint { color: var(--text-tertiary); margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav aria-label="Mockups">
+    <div class="head"><div class="t">Project docs workspace</div><div class="s">Mockups M01 to M13b · 1440 × 900</div></div>
+    <ul id="list"></ul>
+  </nav>
+  <main>
+    <div class="bar">
+      <div class="ttl" id="ttl"></div>
+      <button class="btn" id="prev" type="button" aria-label="Previous mockup">Prev</button>
+      <button class="btn" id="next" type="button" aria-label="Next mockup">Next</button>
+      <a class="btn" id="full" href="#" target="_blank" rel="noopener">Open full size</a>
+    </div>
+    <div class="stage" id="stage">
+      <div class="frame-box" id="box"><iframe id="fr" title="Selected mockup" scrolling="no"></iframe></div>
+      <div class="hint">Left and Right arrow keys move between mockups. The address hash (for example #m07) selects one.</div>
+    </div>
+  </main>
+</div>
+<script>
+(function () {
+  var M = [
+    ['m01', 'Home: open project', '§1', 'm01-home-open-project.html'],
+    ['m01b', 'Home: project file grid', '§1', 'm01b-home-project-header.html'],
+    ['m02', 'First open, empty states', '§2', 'm02-first-open-empty-states.html'],
+    ['m03', 'Reading page, block menu', '§3.1', 'm03-reading-block-menu.html'],
+    ['m04', 'Slash menu, filtered', '§3.2', 'm04-slash-menu-filtered.html'],
+    ['m04b', 'Slash menu, top of the list', '§3.2', 'm04b-slash-menu-unfiltered.html'],
+    ['m04c', 'Slash menu, scrolled to end', '§3.2', 'm04c-slash-menu-scrolled-to-end.html'],
+    ['m05', 'Inline toolbar, link popover', '§3.3', 'm05-inline-toolbar-link-popover.html'],
+    ['m06', 'Table editing', '§4', 'm06-table-editing.html'],
+    ['m06b', 'Table scrolled to the end', '§4', 'm06b-table-scrolled-to-end.html'],
+    ['m07', 'Pin frame', '§5', 'm07-pin-frame-modal.html'],
+    ['m08', 'Suggest from canvas', '§5', 'm08-suggest-from-canvas.html'],
+    ['m09', 'Embed and diagram states', '§6, §7', 'm09-embed-and-diagram-states.html'],
+    ['m09full', 'Embed and diagram states, full page', '§6, §7', 'm09-embed-and-diagram-states-full.html', 2630],
+    ['m10', 'Conflict banner, saves held', '§8', 'm10-conflict-banner-saving.html'],
+    ['m10b', 'Saving in the tree header', '§8', 'm10b-saving-header.html'],
+    ['m10c', 'Save failed banner', '§8', 'm10c-save-failed.html'],
+    ['m11', 'Agent writing', '§9', 'm11-agent-co-editing.html'],
+    ['m11b', 'Agent changes off-screen', '§9', 'm11b-agent-offscreen-chip.html'],
+    ['m11c', 'Agent held while typing', '§9', 'm11c-agent-held-while-typing.html'],
+    ['m12', 'Overview, KPI, Copy cho AI', '§10', 'm12-overview-kpi-copy-for-ai.html'],
+    ['m13', 'Tree interactions', '§12', 'm13-tree-interactions.html'],
+    ['m13b', 'Delete page', '§12', 'm13b-delete-page-modal.html']
+  ];
+  var list = document.getElementById('list'), fr = document.getElementById('fr'), box = document.getElementById('box'),
+      stage = document.getElementById('stage'), ttl = document.getElementById('ttl'), full = document.getElementById('full');
+  var cur = 0;
+  M.forEach(function (m, i) {
+    var li = document.createElement('li'), a = document.createElement('a');
+    a.href = '#' + m[0];
+    a.innerHTML = '<span class="row1"><span class="n">' + m[0].charAt(0).toUpperCase() + m[0].slice(1) + ' ' + m[1] + '</span></span><span class="sec">Spec ' + m[2] + '</span>';
+    li.appendChild(a); list.appendChild(li);
+  });
+  function fit() {
+    var hint = stage.querySelector('.hint');
+    var H = M[cur][4] || 900;
+    var availW = stage.clientWidth - 32, availH = stage.clientHeight - 32 - hint.offsetHeight - 8;
+    var s = Math.min(availW / 1440, availH / H);
+    box.style.width = Math.floor(1440 * s) + 2 + 'px';
+    box.style.height = Math.floor(H * s) + 2 + 'px';
+    fr.style.height = H + 'px';
+    fr.style.transform = 'scale(' + s + ')';
+  }
+  function show(i) {
+    cur = (i + M.length) % M.length;
+    var m = M[cur];
+    fr.src = m[3];
+    full.href = m[3];
+    ttl.innerHTML = m[0].charAt(0).toUpperCase() + m[0].slice(1) + ' ' + m[1] + ' <span>· Spec ' + m[2] + '</span>';
+    Array.prototype.forEach.call(list.querySelectorAll('a'), function (a, j) {
+      if (j === cur) { a.setAttribute('aria-current', 'page'); a.scrollIntoView({ block: 'nearest' }); } else { a.removeAttribute('aria-current'); }
+    });
+    fit();
+  }
+  function fromHash() {
+    var id = location.hash.replace('#', '').toLowerCase();
+    var i = M.findIndex(function (m) { return m[0] === id; });
+    show(i < 0 ? 0 : i);
+  }
+  function go(i) { location.hash = M[(i + M.length) % M.length][0]; }
+  document.getElementById('prev').addEventListener('click', function () { go(cur - 1); });
+  document.getElementById('next').addEventListener('click', function () { go(cur + 1); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowLeft') { go(cur - 1); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { go(cur + 1); e.preventDefault(); }
+  });
+  window.addEventListener('hashchange', fromHash);
+  window.addEventListener('resize', fit);
+  fromHash();
+})();
+</script>
+</body>
+</html>

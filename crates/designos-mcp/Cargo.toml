@@ -15,6 +15,7 @@ path = "src/bin/gen-tool-docs.rs"
 
 [dependencies]
 designos-diff.workspace = true
+designos-docs.workspace = true
 designos-doc = { workspace = true, features = ["schema"] }
 designos-export.workspace = true
 designos-fig.workspace = true
@@ -34,4 +35,5 @@ libc = "0.2"
 [dev-dependencies]
 jsonschema = { version = "0.59", default-features = false }
 quick-xml = "0.41"
+tempfile = "3"
 rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-child-process"] }

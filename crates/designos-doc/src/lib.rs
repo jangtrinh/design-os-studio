@@ -21,10 +21,13 @@ pub mod branch_diff;
 mod branch_diff_tests;
 pub mod branch_merge;
 pub mod changelog_features;
+mod color_space;
 mod comments;
 #[cfg(test)]
 mod component_cycle_tests;
 mod components;
+mod connector_index;
+mod connector_route_cache;
 mod dev;
 pub mod diff;
 pub mod find;
@@ -39,6 +42,8 @@ pub mod layout_solver;
 mod layout_solver_grid;
 mod layout_solver_grid_placement;
 mod layout_solver_types;
+#[cfg(test)]
+mod layout_wrapped_text_tests;
 mod library;
 mod library_ops;
 pub mod lint;
@@ -70,6 +75,7 @@ pub mod spec_instance;
 mod styles_ops;
 mod text_fills;
 pub mod text_measure;
+pub mod text_style_ops;
 mod textmodel;
 mod variables;
 mod variables_apply;
@@ -84,8 +90,13 @@ pub use branch_merge::{
     merge, merge_branch, validate_merged_references, ConflictSide, DanglingReference, MergeError, MergePlan, MergeReport, Resolution, Side, UnresolvedItem,
 };
 pub use changelog_features::*;
+pub use color_space::*;
 pub use comments::*;
 pub use components::*;
+pub use connector_index::*;
+pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
+#[cfg(any(test, feature = "fixtures"))]
+pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
 pub use dev::*;
 pub use diff::*;
 pub use geom::*;
@@ -106,6 +117,7 @@ pub use spec_bind::*;
 pub use spec_instance::*;
 pub use styles_ops::*;
 pub use text_fills::set_text_fills_everywhere;
+pub use text_style_ops::*;
 pub use textmodel::*;
 pub use variables::*;
 pub use variables_apply::*;
@@ -116,6 +128,8 @@ pub use writer_command::*;
 
 /// Shared spec test fixtures (`tokens_doc`, `button_library`, `card_with_slots`).
 pub mod fixtures {
+    #[cfg(any(test, feature = "fixtures"))]
+    pub use crate::connector_route_cache::{perf_whiteboard_2000, PerfWhiteboardScene};
     pub use crate::spec_bind::fixtures::*;
     pub use crate::spec_instance::fixtures::*;
 }
@@ -142,6 +156,22 @@ const DIRTY_RING_CAP: usize = 512;
 const REMOVED_RING_CAP: usize = 64;
 
 static NEXT_DOC_RUNTIME_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static NEXT_DOC_DERIVED_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+#[derive(Debug)]
+struct DerivedId(u64);
+
+impl Default for DerivedId {
+    fn default() -> Self {
+        Self(NEXT_DOC_DERIVED_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
+impl Clone for DerivedId {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
 
 #[derive(Clone, Debug)]
 struct DirtyLog {
@@ -184,6 +214,7 @@ pub struct Document {
     pub nodes: BTreeMap<NodeId, Node>,
     /// Page node ids in display order. Each page is a node with [`NodeKind::Page`].
     pub pages: Vec<NodeId>,
+    #[serde(deserialize_with = "read_styles_noting_paragraph_fields")]
     pub styles: BTreeMap<String, Style>,
     /// Display metadata for entries of `styles`, same keys.
     #[serde(default)]
@@ -241,6 +272,9 @@ pub struct Document {
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
+    /// Fresh per-instance and per-clone identifier used to key derived caches.
+    #[serde(skip)]
+    derived_id: DerivedId,
 }
 
 /// Default staleness threshold for [`InProgress`] flags in minutes (`agent.in_progress_stale_minutes`, E15-7 §3.3).
@@ -634,6 +668,7 @@ impl Document {
             pending_relayout: self.pending_relayout.clone(),
             layout_epoch: self.layout_epoch,
             page_hydrator: self.page_hydrator.clone(),
+            derived_id: DerivedId::default(),
         }
     }
 
@@ -896,8 +931,15 @@ impl Document {
         self.dirty.runtime_id
     }
 
+    #[inline]
+    pub fn derived_id(&self) -> u64 {
+        self.derived_id.0
+    }
+
     /// Gives this document an id of its own, for a clone that is opened as a file of its own (a duplicated tab):
-    /// a clone otherwise has the id of the document it came from.
+    /// a clone otherwise has the id of the document it came from. A clone installed as the live document must
+    /// renew its id too: a cache keyed on the id and `mutation_epoch` cannot tell apart two clones that took
+    /// the same number of edits.
     pub fn renew_runtime_id(&mut self) {
         self.dirty.runtime_id = NEXT_DOC_RUNTIME_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
@@ -1502,6 +1544,11 @@ impl Document {
         // A `null` in a number slot is how older versions saved a NaN or infinity; it is read as the
         // neutral value and counted (see [`finite_json`]).
         let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
+        for (key, bits) in take_styles_paragraph_fields() {
+            if let Some(meta) = text_style_meta_mut(&doc.styles, &mut doc.style_meta, &key) {
+                meta.text_paragraph_fields = Some(meta.text_paragraph_fields.unwrap_or(0) | bits);
+            }
+        }
         let mut report = doc.validate_and_repair();
         let now = now_ms();
         doc.in_progress.retain(|id, _| doc.nodes.contains_key(id));
@@ -1578,6 +1625,32 @@ pub struct StyleMeta {
     /// Figma `sortPosition` fractional-indexing key ordering styles within a property.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_position: Option<String>,
+    /// Presence bits for paragraph fields in text styles loaded from legacy JSON (1=indent, 2=list spacing, 4=leading trim).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_paragraph_fields: Option<u8>,
+}
+
+/// Returns paragraph-field ownership after replacing a text style.
+///
+/// `Some(0)` means an old style did not store any of the fields introduced after
+/// the original text-style format. A newly-created style owns all three. For
+/// an old style, changing one of the fields promotes only that field, so an
+/// unrelated style edit keeps legacy consumer values intact.
+pub fn text_style_paragraph_fields_after_update(previous: Option<&Style>, next: &Style, existing: Option<u8>) -> Option<u8> {
+    let Style::Text(next) = next else { return existing };
+    let Some(previous) = previous else { return existing };
+    let Style::Text(previous) = previous else { return existing };
+    let Some(mut bits) = existing else { return Some(0b111) };
+    if previous.paragraph_indent != next.paragraph_indent {
+        bits |= 0b001;
+    }
+    if previous.list_spacing != next.list_spacing {
+        bits |= 0b010;
+    }
+    if previous.leading_trim != next.leading_trim {
+        bits |= 0b100;
+    }
+    Some(bits)
 }
 
 /// Shared (library) style referenced by nodes via `style_refs`.
@@ -1587,6 +1660,164 @@ pub enum Style {
     Text(TextStyle),
     Effect(Vec<Effect>),
     Grid(Vec<LayoutGrid>),
+}
+
+std::thread_local! {
+    static STYLES_PARAGRAPH_FIELDS: std::cell::RefCell<BTreeMap<String, u8>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// Hands over the paragraph fields (1 = indent, 2 = list spacing, 4 = leading trim) that each text style
+/// of the `styles` object read last on this thread had in its JSON. A document read before text styles
+/// stored these fields has none of them, and the decoded values alone cannot tell an omitted field from an
+/// explicit default.
+fn take_styles_paragraph_fields() -> BTreeMap<String, u8> {
+    STYLES_PARAGRAPH_FIELDS.with(|fields| std::mem::take(&mut *fields.borrow_mut()))
+}
+
+/// Reads the `styles` object as `BTreeMap<String, Style>` would, noting for each text style which paragraph
+/// fields its JSON holds, so the load needs no second pass over the document text.
+fn read_styles_noting_paragraph_fields<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<BTreeMap<String, Style>, D::Error> {
+    let (styles, fields) = deserializer.deserialize_map(NotingStyles)?;
+    STYLES_PARAGRAPH_FIELDS.with(|slot| *slot.borrow_mut() = fields);
+    Ok(styles)
+}
+
+struct NotingStyles;
+
+impl<'de> serde::de::Visitor<'de> for NotingStyles {
+    type Value = (BTreeMap<String, Style>, BTreeMap<String, u8>);
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a map of styles")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let (mut styles, mut fields) = (BTreeMap::new(), BTreeMap::new());
+        while let Some(key) = map.next_key::<String>()? {
+            let NotedStyle(style, bits) = map.next_value()?;
+            if let Some(bits) = bits {
+                fields.insert(key.clone(), bits);
+            }
+            styles.insert(key, style);
+        }
+        Ok((styles, fields))
+    }
+}
+
+/// A [`Style`] and, for a text style, the paragraph fields its JSON holds.
+struct NotedStyle(Style, Option<u8>);
+
+impl<'de> Deserialize<'de> for NotedStyle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_enum("Style", &["Fill", "Text", "Effect", "Grid"], NotedStyleVisitor)
+    }
+}
+
+#[derive(Deserialize)]
+enum StyleKind {
+    Fill,
+    Text,
+    Effect,
+    Grid,
+}
+
+struct NotedStyleVisitor;
+
+impl<'de> serde::de::Visitor<'de> for NotedStyleVisitor {
+    type Value = NotedStyle;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a style")
+    }
+
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, data: A) -> Result<NotedStyle, A::Error> {
+        use serde::de::VariantAccess;
+        let (kind, variant) = data.variant::<StyleKind>()?;
+        Ok(match kind {
+            StyleKind::Fill => NotedStyle(Style::Fill(variant.newtype_variant()?), None),
+            StyleKind::Effect => NotedStyle(Style::Effect(variant.newtype_variant()?), None),
+            StyleKind::Grid => NotedStyle(Style::Grid(variant.newtype_variant()?), None),
+            StyleKind::Text => {
+                let (style, bits) = variant.newtype_variant_seed(NotingTextStyle)?;
+                NotedStyle(Style::Text(style), Some(bits))
+            }
+        })
+    }
+}
+
+struct NotingTextStyle;
+
+impl<'de> serde::de::DeserializeSeed<'de> for NotingTextStyle {
+    type Value = (TextStyle, u8);
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_struct("TextStyle", &[], self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for NotingTextStyle {
+    type Value = (TextStyle, u8);
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a text style")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        let mut keys = NotingKeys { inner: map, bits: 0 };
+        let style = TextStyle::deserialize(serde::de::value::MapAccessDeserializer::new(&mut keys))?;
+        Ok((style, keys.bits))
+    }
+}
+
+/// A map access that passes everything through and records which paragraph fields appeared as keys.
+struct NotingKeys<A> {
+    inner: A,
+    bits: u8,
+}
+
+impl<'de, A: serde::de::MapAccess<'de>> serde::de::MapAccess<'de> for NotingKeys<A> {
+    type Error = A::Error;
+
+    fn next_key_seed<K: serde::de::DeserializeSeed<'de>>(&mut self, seed: K) -> Result<Option<K::Value>, A::Error> {
+        let Some(key) = self.inner.next_key::<String>()? else { return Ok(None) };
+        self.bits |= match key.as_str() {
+            "paragraph_indent" => 0b001,
+            "list_spacing" => 0b010,
+            "leading_trim" => 0b100,
+            _ => 0,
+        };
+        seed.deserialize(serde::de::IntoDeserializer::<A::Error>::into_deserializer(key)).map(Some)
+    }
+
+    fn next_value_seed<V: serde::de::DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, A::Error> {
+        self.inner.next_value_seed(seed)
+    }
+
+    fn size_hint(&self) -> Option<usize> {
+        self.inner.size_hint()
+    }
+}
+
+/// Paragraph fields a text style owns before an edit: those recorded in its metadata (`None` = all), or
+/// none when it has no metadata, because such a style predates field ownership.
+pub fn recorded_text_paragraph_fields(meta: Option<&StyleMeta>) -> Option<u8> {
+    meta.map_or(Some(0), |m| m.text_paragraph_fields)
+}
+
+/// The metadata of text style `key`. A table text style stored without any gets its own key as name
+/// and the text property; an orphan reference or a style of another kind gets none.
+pub(crate) fn text_style_meta_mut<'a>(
+    styles: &BTreeMap<String, Style>,
+    style_meta: &'a mut BTreeMap<String, StyleMeta>,
+    key: &str,
+) -> Option<&'a mut StyleMeta> {
+    if !style_meta.contains_key(key) {
+        if !matches!(styles.get(key), Some(Style::Text(_))) || is_orphan_style_in(styles, style_meta, key) {
+            return None;
+        }
+        style_meta.insert(key.to_string(), StyleMeta { name: key.to_string(), property: StyleProperty::Text, ..Default::default() });
+    }
+    style_meta.get_mut(key)
 }
 
 /// Decides whether `key` is an orphan style reference from the style tables alone,

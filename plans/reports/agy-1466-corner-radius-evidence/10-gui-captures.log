@@ -1,0 +1,6 @@
+Capture 1 HIDIdleTime=31765
+Capture 2 HIDIdleTime=31790
+Capture 3 HIDIdleTime=31814
+-rw-r--r--@ 1 jangtrinh  staff  228575 Nov  2 16:36 out/evidence/1466-individual-corners-off-smoothing-0.png
+-rw-r--r--@ 1 jangtrinh  staff  226679 Nov  2 16:37 out/evidence/1466-individual-corners-on.png
+-rw-r--r--@ 1 jangtrinh  staff  230220 Nov  2 16:37 out/evidence/1466-smoothing-60-ios.png

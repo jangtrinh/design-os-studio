@@ -4,7 +4,8 @@
 //! `Stretch`, and `Scale` across both unrotated and rotated/skewed children,
 //! including half-away-from-zero extent rounding and sub-1px sizes.
 
-use crate::{Affine, Constraint, Constraints, Document, Node, NodeId, NodeKind, Path, PathCmd, Vec2};
+use crate::{Affine, Constraint, Constraints, Document, Node, NodeId, NodeKind, Path, PathCmd, Stroke, StrokeAlign, StrokeCap, Vec2, VectorNetwork};
+use std::collections::BTreeMap;
 
 /// Minimum axis extent (`2^-12`) below which per-axis scale falls back to `1.0`.
 const MIN_EXTENT: f64 = 1.0 / 4096.0;
@@ -175,6 +176,33 @@ fn scale_paths(paths: &mut [Path], kx: f32, ky: f32) {
     }
 }
 
+/// Whether stroking the centerline `net` live, at the node's own stroke, draws what the baked
+/// `stroke_geometry` draws. Only then may a plain resize drop the bake and let the renderers stroke
+/// the scaled centerline at the unscaled weight; otherwise the bake is scaled with the shape.
+///
+/// The live stroke honours per-subpath alignment (closed regions keep `Inside` or `Outside`; open
+/// chains stroke `Center`), per-vertex joins, and arrowhead caps (node or per-vertex) whatever the
+/// alignment: an open chain gets its head at the centered stroke and a closed region gets none. It
+/// cannot reproduce side weights, a brush, a cap Figma draws that the stroke model still has no name
+/// for (recorded at import in `fig_metadata["strokeCap"]`, on the node or on any vertex), a vertex
+/// with its own non-arrow cap that differs from the node's, dashes with an arrowhead, dashes on an
+/// inside or outside stroke, or dashes on a stroke with a vertex join that differs from the node's
+/// (dashes are stroked with the node's join alone).
+fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>, net: &VectorNetwork) -> bool {
+    let centered = stroke.align == StrokeAlign::Center;
+    let is_arrow = |c: StrokeCap| {
+        matches!(c, StrokeCap::ArrowLines | StrokeCap::ArrowEquilateral | StrokeCap::TriangleFilled | StrokeCap::DiamondFilled | StrokeCap::CircleFilled)
+    };
+    let has_arrow = is_arrow(stroke.cap) || net.vertices.iter().any(|v| v.cap.is_some_and(is_arrow));
+    !net.is_empty()
+        && net.is_valid()
+        && stroke.side_weights.is_none()
+        && !meta.contains_key("brushType")
+        && !meta.contains_key("strokeCap")
+        && (has_arrow || net.vertices.iter().all(|v| v.cap.is_none_or(|c| c == stroke.cap)))
+        && (stroke.dashes.is_empty() || (centered && !has_arrow && net.vertices.iter().all(|v| v.join.is_none_or(|j| j == stroke.join))))
+}
+
 /// Applies `(new_transform, new_size)` from [`constrain_child`] / [`plan_constraint_pass`]
 /// to `node`, scaling local vector/boolean path geometry or clearing stale analytical outlines
 /// whenever `node.size` changes.
@@ -190,6 +218,9 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
     let ky = if old_size.y.abs() > 1e-6 { new_size.y / old_size.y } else { 1.0 };
     match &mut node.kind {
         NodeKind::Vector { paths, network } => {
+            // Decided on the geometry as it is before any scaling.
+            let drop_bake =
+                node.stroke_geometry.is_some() && network.as_ref().is_some_and(|net| live_stroke_reproduces_bake(&node.stroke, &node.fig_metadata, net));
             scale_paths(paths, kx, ky);
             if let Some(net) = network {
                 for v in &mut net.vertices {
@@ -199,14 +230,16 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                     s.ta = scale_vec2(s.ta, kx, ky);
                     s.tb = scale_vec2(s.tb, kx, ky);
                 }
-                if net.vertices.iter().any(|v| v.corner_radius > 0.0) && net.is_valid() {
+                if net.is_valid() && (drop_bake || net.vertices.iter().any(|v| v.corner_radius > 0.0)) {
                     *paths = net.to_paths();
                 }
             }
             if let Some(fg) = &mut node.fill_geometry {
                 scale_paths(fg, kx, ky);
             }
-            if let Some(sg) = &mut node.stroke_geometry {
+            if drop_bake {
+                node.stroke_geometry = None;
+            } else if let Some(sg) = &mut node.stroke_geometry {
                 scale_paths(sg, kx, ky);
             }
         }
@@ -267,10 +300,120 @@ fn plan_constraint_pass_inner(doc: &Document, parent: NodeId, old: Vec2, new: Ve
     }
 }
 
+/// Whether `kind` is a container that supports "Resize to fit" (`Frame`, `Group`, `Component`, `ComponentSet`).
+pub fn is_resize_to_fit_kind(kind: &NodeKind) -> bool {
+    matches!(kind, NodeKind::Frame(_) | NodeKind::Group | NodeKind::Component(_) | NodeKind::ComponentSet(_))
+}
+
+/// Bounding box of `container_id`'s visible direct children in `container_id`'s own coordinate space.
+/// Returns `None` when `container_id` is not a resize-to-fit container or has no visible children.
+pub fn visible_children_bounds(doc: &Document, container_id: NodeId) -> Option<crate::Rect> {
+    let container = doc.get(container_id)?;
+    if !is_resize_to_fit_kind(&container.kind) {
+        return None;
+    }
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut any = false;
+    for &cid in &container.children {
+        let Some(raw) = doc.get(cid) else { continue };
+        let k = crate::resolve_node(doc, raw);
+        if !k.visible {
+            continue;
+        }
+        any = true;
+        let corners = [Vec2::new(0.0, 0.0), Vec2::new(k.size.x, 0.0), Vec2::new(k.size.x, k.size.y), Vec2::new(0.0, k.size.y)];
+        for p in corners {
+            let q = k.transform.apply(p);
+            min_x = min_x.min(q.x);
+            min_y = min_y.min(q.y);
+            max_x = max_x.max(q.x);
+            max_y = max_y.max(q.y);
+        }
+    }
+    if !any || !min_x.is_finite() || !min_y.is_finite() || !max_x.is_finite() || !max_y.is_finite() {
+        return None;
+    }
+    Some(crate::Rect::new(min_x, min_y, (max_x - min_x).max(0.0), (max_y - min_y).max(0.0)))
+}
+
+/// Whether at least one node in `ids` is a resize-to-fit container with at least one visible child.
+pub fn can_resize_to_fit(doc: &Document, ids: &[NodeId]) -> bool {
+    ids.iter().any(|&id| visible_children_bounds(doc, id).is_some())
+}
+
+/// Returns the eligible resize-to-fit targets from `ids`, deduplicated and ordered deepest-first so nested
+/// selected containers fit before their enclosing ancestors.
+pub fn ordered_resize_to_fit_targets(doc: &Document, ids: &[NodeId]) -> Vec<NodeId> {
+    let depth = |id: NodeId| {
+        let mut d = 0usize;
+        let mut cur = doc.get(id).and_then(|n| n.parent);
+        while let Some(p) = cur {
+            d += 1;
+            cur = doc.get(p).and_then(|n| n.parent);
+        }
+        d
+    };
+    let mut unique: Vec<(usize, usize, NodeId)> = Vec::new();
+    for (idx, &id) in ids.iter().enumerate() {
+        if visible_children_bounds(doc, id).is_some() && !unique.iter().any(|(_, _, existing)| *existing == id) {
+            unique.push((depth(id), idx, id));
+        }
+    }
+    unique.sort_by_key(|&(d, idx, _)| (std::cmp::Reverse(d), idx));
+    unique.into_iter().map(|(_, _, id)| id).collect()
+}
+
+/// Applies "Resize to fit" to a single container `id` without running auto-layout relayout.
+/// Calls `touch(doc, node_id)` before mutating any node so callers can snapshot `before` states.
+/// Returns `Some(true)` if `id` is an auto-layout frame (updated to `Sizing::Hug` on both axes),
+/// `Some(false)` if `id`'s bounds and children offsets were updated directly, or `None` if `id` was skipped.
+pub fn apply_resize_to_fit_one(doc: &mut Document, id: NodeId, mut touch: impl FnMut(&Document, NodeId)) -> Option<bool> {
+    let bb = visible_children_bounds(doc, id)?;
+    let counter_horiz = doc.get(id).and_then(|n| n.parent).and_then(|p| doc.get(p)).and_then(crate::LayoutChild::counter_axis_is_horizontal);
+    let is_al = doc.get(id)?.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
+    if is_al {
+        touch(doc, id);
+        let n = doc.get_mut(id)?;
+        n.layout_child.set_axis_sizing(true, crate::Sizing::Fixed, counter_horiz);
+        n.layout_child.set_axis_sizing(false, crate::Sizing::Fixed, counter_horiz);
+        let al = n.kind.frame_props_mut()?.auto_layout.as_mut()?;
+        al.primary_sizing = crate::Sizing::Hug;
+        al.counter_sizing = crate::Sizing::Hug;
+        Some(true)
+    } else {
+        let children = doc.get(id)?.children.clone();
+        touch(doc, id);
+        for &cid in &children {
+            touch(doc, cid);
+        }
+        if let Some(n) = doc.get_mut(id) {
+            n.layout_child.set_axis_sizing(true, crate::Sizing::Fixed, counter_horiz);
+            n.layout_child.set_axis_sizing(false, crate::Sizing::Fixed, counter_horiz);
+            let new_size = Vec2::new(bb.w, bb.h);
+            if (n.size.x - new_size.x).abs() > 1e-5 || (n.size.y - new_size.y).abs() > 1e-5 {
+                n.fill_geometry = None;
+                n.stroke_geometry = None;
+            }
+            n.transform = n.transform * Affine::translate(bb.x, bb.y);
+            n.size = new_size;
+        }
+        for cid in children {
+            if let Some(k) = doc.get_mut(cid) {
+                k.transform.tx -= bb.x;
+                k.transform.ty -= bb.y;
+            }
+        }
+        Some(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Constraints, NodeKind, Rect};
+    use crate::{Constraints, NodeKind, Rect, StrokeJoin};
 
     #[test]
     fn half_away_from_zero_rounding_table() {
@@ -456,5 +599,102 @@ mod tests {
         let plan = plan_constraint_pass(&doc, union_id, Vec2::new(100.0, 80.0), Vec2::new(200.0, 40.0), 64);
         let (_, t, sz) = plan.iter().find(|(n, ..)| *n == rect_id).copied().expect("the rectangle is in the plan");
         assert_eq!((t.tx, t.ty, sz), (10.0, 20.0, Vec2::new(40.0, 40.0)), "Min / Min leaves the layer where it was");
+    }
+
+    #[test]
+    fn resizing_imported_stroked_vector_rebuilds_centerline_and_drops_baked_stroke() {
+        let stroke_ring = vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(1.0, 1.0)),
+                crate::PathCmd::LineTo(Vec2::new(19.0, 1.0)),
+                crate::PathCmd::LineTo(Vec2::new(19.0, 19.0)),
+                crate::PathCmd::LineTo(Vec2::new(1.0, 19.0)),
+                crate::PathCmd::Close,
+            ],
+            fill_rule: crate::FillRule::NonZero,
+        }];
+        let centerline = vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(2.0, 2.0)),
+                crate::PathCmd::LineTo(Vec2::new(18.0, 2.0)),
+                crate::PathCmd::LineTo(Vec2::new(18.0, 18.0)),
+                crate::PathCmd::LineTo(Vec2::new(2.0, 18.0)),
+                crate::PathCmd::Close,
+            ],
+            fill_rule: crate::FillRule::NonZero,
+        }];
+        let net = crate::VectorNetwork::from_paths(&centerline);
+
+        // Case 1: valid network -> stroke_geometry dropped, paths rebuilt from scaled network.
+        let mut v = Node::new(NodeId(10), NodeKind::Vector { paths: stroke_ring.clone(), network: Some(net) });
+        v.size = Vec2::new(20.0, 20.0);
+        v.stroke.weight = 2.0;
+        v.stroke_geometry = Some(stroke_ring.clone());
+        let tf = v.transform;
+        apply_constrained_geometry(&mut v, tf, Vec2::new(40.0, 20.0));
+        assert_eq!(v.size, Vec2::new(40.0, 20.0));
+        assert_eq!(v.stroke.weight, 2.0);
+        assert!(v.stroke_geometry.is_none());
+        let NodeKind::Vector { paths, network: Some(net_after) } = &v.kind else { panic!("expected Vector") };
+        assert_eq!(paths, &net_after.to_paths());
+
+        // Case 2: outline-only (network is None and paths == stroke_geometry) -> stroke_geometry scaled with paths.
+        let mut outline_only = Node::new(NodeId(11), NodeKind::Vector { paths: stroke_ring.clone(), network: None });
+        outline_only.size = Vec2::new(20.0, 20.0);
+        outline_only.stroke.weight = 2.0;
+        outline_only.stroke_geometry = Some(stroke_ring);
+        let tf = outline_only.transform;
+        apply_constrained_geometry(&mut outline_only, tf, Vec2::new(40.0, 40.0));
+        let NodeKind::Vector { paths: outline_paths, .. } = &outline_only.kind else { panic!("expected Vector") };
+        assert_eq!(outline_only.stroke_geometry.as_ref(), Some(outline_paths));
+    }
+
+    /// A centered, dashed stroke of the square outline icon with the join of its first vertex set to `vertex_join`;
+    /// the node's own join is Round.
+    fn dashed_icon(vertex_join: StrokeJoin) -> Node {
+        let ring = vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(1.0, 1.0)),
+                crate::PathCmd::LineTo(Vec2::new(19.0, 1.0)),
+                crate::PathCmd::LineTo(Vec2::new(19.0, 19.0)),
+                crate::PathCmd::LineTo(Vec2::new(1.0, 19.0)),
+                crate::PathCmd::Close,
+            ],
+            fill_rule: crate::FillRule::NonZero,
+        }];
+        let centerline = vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(2.0, 2.0)),
+                crate::PathCmd::LineTo(Vec2::new(18.0, 2.0)),
+                crate::PathCmd::LineTo(Vec2::new(18.0, 18.0)),
+                crate::PathCmd::LineTo(Vec2::new(2.0, 18.0)),
+                crate::PathCmd::Close,
+            ],
+            fill_rule: crate::FillRule::NonZero,
+        }];
+        let mut net = crate::VectorNetwork::from_paths(&centerline);
+        net.vertices[0].join = Some(vertex_join);
+        let mut v = Node::new(NodeId(12), NodeKind::Vector { paths: ring.clone(), network: Some(net) });
+        v.size = Vec2::new(20.0, 20.0);
+        v.stroke.weight = 2.0;
+        v.stroke.align = StrokeAlign::Center;
+        v.stroke.join = StrokeJoin::Round;
+        v.stroke.dashes = vec![4.0, 2.0];
+        v.stroke_geometry = Some(ring);
+        v
+    }
+
+    #[test]
+    fn a_dashed_stroke_with_a_vertex_join_of_its_own_keeps_its_bake_on_resize() {
+        let mut v = dashed_icon(StrokeJoin::Miter);
+        let tf = v.transform;
+        apply_constrained_geometry(&mut v, tf, Vec2::new(40.0, 40.0));
+        let bake = v.stroke_geometry.as_ref().expect("the baked outline is kept");
+        assert_eq!(bake[0].cmds[0], crate::PathCmd::MoveTo(Vec2::new(2.0, 2.0)), "the outline is scaled with the shape");
+
+        let mut equal = dashed_icon(StrokeJoin::Round);
+        let tf = equal.transform;
+        apply_constrained_geometry(&mut equal, tf, Vec2::new(40.0, 40.0));
+        assert!(equal.stroke_geometry.is_none(), "a vertex join equal to the node's leaves the dashes drawable live");
     }
 }

@@ -1,0 +1,219 @@
+=== ITEM 1 (BLK-1) RED ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.154
+   Compiling regex-syntax v0.8.11
+   Compiling thiserror v2.0.21
+   Compiling serde v1.0.229
+   Compiling itoa v1.0.18
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling regex v1.13.1
+   Compiling syn v3.0.9
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.57s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::r3_copy_field_size_on_imported_shapes_after_main_resize' (43193649) panicked at crates/designos-doc/src/components.rs:5221:9:
+after resizing the main from 10 to 24 and syncing, instance fill_geometry / stroke_geometry must match the main (24 px, not 10 px); stale: [("rect", Some((0.0, 0.0, 10.0, 10.0)), None), ("ellipse", Some((0.0, 0.0, 10.0, 10.0)), None), ("star", Some((0.0, 0.0, 10.0, 10.0)), None)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::r3_copy_field_size_on_imported_shapes_after_main_resize ... FAILED
+
+failures:
+
+failures:
+    components::tests::r3_copy_field_size_on_imported_shapes_after_main_resize
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 683 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== ITEM 2 (BLK-2) RED ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling zmij v1.0.23
+   Compiling regex-syntax v0.8.11
+   Compiling thiserror v2.0.21
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling itoa v1.0.18
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling regex v1.13.1
+   Compiling syn v3.0.9
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.42s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::r3_m1_nested_slot_widened_by_outer_instance' (43207497) panicked at crates/designos-doc/src/components.rs:5342:9:
+assertion `left == right` failed: nested slot widened by outer instance keeps width 280 and takes new main height 40
+  left: Vec2 { x: 80.0, y: 40.0 }
+ right: Vec2 { x: 280.0, y: 40.0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::r3_m1_nested_slot_widened_by_outer_instance ... FAILED
+
+failures:
+
+failures:
+    components::tests::r3_m1_nested_slot_widened_by_outer_instance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 685 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== ITEM 3 (MAJ-1 / M4) RED ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.35s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 3 tests
+
+thread 'components::tests::r3_m4_minmin_logo_distorts_on_per_axis_kept_width' (43225811) panicked at crates/designos-doc/src/components.rs:5508:9:
+assertion `left == right` failed: a pinned (Min/Min) logo keeps its 24x24 size; got Vec2 { x: 36.0, y: 24.0 }
+  left: Vec2 { x: 36.0, y: 24.0 }
+ right: Vec2 { x: 24.0, y: 24.0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::r3_m4_minmin_logo_distorts_on_user_resized_card ... ok
+test components::tests::r3_m4_minmin_logo_distorts_on_per_axis_kept_width ... FAILED
+test components::tests::r3_m4_minmin_glyph_swap_vs_shared_solver ... ok
+
+failures:
+
+failures:
+    components::tests::r3_m4_minmin_logo_distorts_on_per_axis_kept_width
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 686 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== ITEM 3 (MAJ-1 / M4) RED (ALL 3) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 3 tests
+
+thread 'components::tests::r3_m4_minmin_logo_distorts_on_user_resized_card' (43230707) panicked at crates/designos-doc/src/components.rs:5558:9:
+assertion `left == right` failed: a pinned (Min/Min) logo keeps its 24x24 size after swap; got Vec2 { x: 36.0, y: 24.0 }
+  left: Vec2 { x: 36.0, y: 24.0 }
+ right: Vec2 { x: 24.0, y: 24.0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'components::tests::r3_m4_minmin_logo_distorts_on_per_axis_kept_width' (43230706) panicked at crates/designos-doc/src/components.rs:5520:9:
+assertion `left == right` failed: a pinned (Min/Min) logo keeps its 24x24 size; got Vec2 { x: 36.0, y: 24.0 }
+  left: Vec2 { x: 36.0, y: 24.0 }
+ right: Vec2 { x: 24.0, y: 24.0 }
+test components::tests::r3_m4_minmin_logo_distorts_on_user_resized_card ... FAILED
+test components::tests::r3_m4_minmin_logo_distorts_on_per_axis_kept_width ... FAILED
+
+thread 'components::tests::r3_m4_minmin_glyph_swap_vs_shared_solver' (43230705) panicked at crates/designos-doc/src/components.rs:5484:9:
+Scale scales 1.25x, pinned (Min/Min) glyph keeps (2,2) 12x12; off: [("minmin", 2.5, 2.5, Vec2 { x: 15.0, y: 15.0 })]
+test components::tests::r3_m4_minmin_glyph_swap_vs_shared_solver ... FAILED
+
+failures:
+
+failures:
+    components::tests::r3_m4_minmin_glyph_swap_vs_shared_solver
+    components::tests::r3_m4_minmin_logo_distorts_on_per_axis_kept_width
+    components::tests::r3_m4_minmin_logo_distorts_on_user_resized_card
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 686 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== ITEM 4 (MIN-4) RED ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.91s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards' (43234948) panicked at crates/designos-doc/src/components.rs:4953:9:
+swap_main copies the new main's FrameProps onto the instance root (base behaviour)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards ... FAILED
+
+failures:
+
+failures:
+    components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 688 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== ITEM 5 (MIN-1) RED ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.28s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::r3_name_rule_variant_instance_cross_family' (43242063) panicked at crates/designos-doc/src/components.rs:5575:9:
+assertion `left == right` failed: an auto-named (set-named) instance takes the new main's name
+  left: "Button"
+ right: "Badge"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::r3_name_rule_variant_instance_cross_family ... FAILED
+
+failures:
+
+failures:
+    components::tests::r3_name_rule_variant_instance_cross_family
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 689 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== ITEM 6 (MIN-2) RED ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.63s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+
+thread 'components::tests::r3_inner_swap_below_swapped_slot_by_index' (43252051) panicked at crates/designos-doc/src/components.rs:5687:9:
+assertion `left == right` failed: swap must count the dropped inner swap below the swapped slot
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test components::tests::r3_inner_swap_below_swapped_slot_by_index ... FAILED
+
+failures:
+
+failures:
+    components::tests::r3_inner_swap_below_swapped_slot_by_index
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 690 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

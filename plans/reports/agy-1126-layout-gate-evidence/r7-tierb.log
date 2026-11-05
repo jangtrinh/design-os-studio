@@ -1,0 +1,9 @@
+=== Part C Step 2: Capture headless Tier B cases ===
+SKIP kit-editor: no --kit
+SKIP kit-agents: no --kit
+Every case has its acknowledgement.
+Every spawns case logged a stub line.
+Every $0 in invocations.log starts with the stub dir (/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-2an_jetj/run/stubs/).
+Cases: 74 captured, 2 skipped (76 total), wall time 437.87s
+=== Part C Step 3: Self-compare Tier B directory ===
+G6: 0 mismatches.

@@ -174,7 +174,7 @@ fn click_selects_one_shape_component_and_double_click_enters_shape() {
         shape.size = DVec2::new(80.0, 60.0);
         if idx == 7 {
             shape.fills = vec![Paint {
-                kind: PaintKind::Image { image_ref: "img_test".into(), scale_mode: ImageScaleMode::Fill },
+                kind: PaintKind::Image { image_ref: "img_test".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
                 opacity: 1.0,
                 visible: true,
                 blend: BlendMode::Normal,
@@ -867,7 +867,8 @@ fn frame_label_hit_testing_covered_part_ignores_label_and_visible_part_selects_f
 #[test]
 fn frame_label_measures_with_app_egui_context_fonts() {
     let mut s = Sim::new();
-    // Replace the app Context's proportional font with a 2x-scaled font tweak while keeping the studio's custom families bound.
+    // Replace the app Context's proportional font with a 2x-scaled font tweak while keeping the studio's custom families bound
+    // (strong, medium and the canvas-label family).
     // If label_rects / label_entries measures with the app's own egui::Context instead of a hidden
     // thread-local Context, it will see the 2x glyph widths and elide "Wide context check" inside a 110px frame.
     let mut fonts = egui::FontDefinitions::default();
@@ -877,7 +878,9 @@ fn frame_label_measures_with_app_egui_context_fonts() {
     fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "ui-wide".into());
     let prop_chain = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
     fonts.families.insert(egui::FontFamily::Name("designos-strong".into()), prop_chain.clone());
-    fonts.families.insert(egui::FontFamily::Name("designos-medium".into()), prop_chain);
+    fonts.families.insert(egui::FontFamily::Name("designos-medium".into()), prop_chain.clone());
+    // The canvas frame labels have their own family; it must resolve in this context too, still through the 2x font.
+    fonts.families.insert(egui::FontFamily::Name(crate::theme::FAMILY_CANVAS_LABEL.into()), prop_chain);
     s.ctx.set_fonts(fonts);
 
     let mut doc = Document::new("Issue 1197 Context");

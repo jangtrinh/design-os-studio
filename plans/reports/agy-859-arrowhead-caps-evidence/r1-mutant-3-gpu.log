@@ -1,0 +1,88 @@
+$ cargo test --locked -p designos-gpu --test resized_shapes
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-doc)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.18s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 19 tests
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu ... ok
+test file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu ... ok
+test equal_cap_open_stroke_draws_identically_on_cpu_and_gpu ... ok
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+test resized_imported_ellipse_and_star_match_cpu ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu ... ok
+test per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu ... ok
+test a_resized_inside_or_outside_open_arrow_stroke_drops_its_bake_and_keeps_a_head_of_five_weights_on_cpu_and_gpu ... ok
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test resized_union_matches_cpu ... ok
+test resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu ... ok
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu ... ok
+test kit_arrow_vectors_match_figma_bake_at_1x_and_keep_head_size_when_resized_2x_on_cpu_and_gpu ... ok
+test resized_2x_arrow_vectors_drop_bake_keep_head_size_and_match_cpu ... ok
+test a_round_join_rounds_the_corners_of_the_filled_heads_and_a_miter_join_keeps_them_sharp_on_cpu_and_gpu ... FAILED
+test all_five_arrow_caps_match_cpu_on_lines_and_open_vectors ... ok
+test a_filled_arrow_head_overlaps_its_shaft_with_no_gap_on_cpu_and_gpu ... ok
+
+failures:
+
+---- a_round_join_rounds_the_corners_of_the_filled_heads_and_a_miter_join_keeps_them_sharp_on_cpu_and_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+equilateral_head_miter: mismatch 0.2390% (87 px of 36400) at tolerance 8, ssim 0.9996
+equilateral_head_miter: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+equilateral_head_round: mismatch 0.2390% (87 px of 36400) at tolerance 8, ssim 0.9996
+equilateral_head_round: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+diamond_head_miter: mismatch 0.2555% (93 px of 36400) at tolerance 8, ssim 0.9996
+diamond_head_miter: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+diamond_head_round: mismatch 0.2555% (93 px of 36400) at tolerance 8, ssim 0.9996
+diamond_head_round: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+triangle_head_miter: mismatch 0.2225% (81 px of 36400) at tolerance 8, ssim 0.9994
+triangle_head_miter: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+triangle_head_round: mismatch 0.2225% (81 px of 36400) at tolerance 8, ssim 0.9994
+triangle_head_round: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'a_round_join_rounds_the_corners_of_the_filled_heads_and_a_miter_join_keeps_them_sharp_on_cpu_and_gpu' (92078435) panicked at crates/designos-gpu/tests/resized_shapes.rs:1176:5:
+CPU equilateral, Round: the pixel at the sharp corner (118, 50) is painted
+CPU equilateral tip: Round takes 0.00px of ink off the corner, expected 6.16
+CPU equilateral upper base corner: Round takes 0.00px of ink off the corner, expected 6.16
+CPU equilateral lower base corner: Round takes 0.00px of ink off the corner, expected 6.16
+GPU equilateral, Round: the pixel at the sharp corner (118, 50) is painted
+GPU equilateral tip: Round takes 0.00px of ink off the corner, expected 6.16
+GPU equilateral upper base corner: Round takes 0.00px of ink off the corner, expected 6.16
+GPU equilateral lower base corner: Round takes 0.00px of ink off the corner, expected 6.16
+CPU diamond, Round: the pixel at the sharp corner (144, 50) is painted
+CPU diamond front: Round takes 0.00px of ink off the corner, expected 1.93
+CPU diamond top: Round takes 0.00px of ink off the corner, expected 1.93
+CPU diamond bottom: Round takes 0.00px of ink off the corner, expected 1.93
+GPU diamond, Round: the pixel at the sharp corner (144, 50) is painted
+GPU diamond front: Round takes 0.00px of ink off the corner, expected 1.93
+GPU diamond top: Round takes 0.00px of ink off the corner, expected 1.93
+GPU diamond bottom: Round takes 0.00px of ink off the corner, expected 1.93
+CPU triangle upper outer corner: Round takes 0.00px of ink off the corner, expected 5.20
+CPU triangle lower outer corner: Round takes 0.00px of ink off the corner, expected 5.20
+GPU triangle upper outer corner: Round takes 0.00px of ink off the corner, expected 5.20
+GPU triangle lower outer corner: Round takes 0.00px of ink off the corner, expected 5.20
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_round_join_rounds_the_corners_of_the_filled_heads_and_a_miter_join_keeps_them_sharp_on_cpu_and_gpu
+
+test result: FAILED. 18 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+error: test failed, to rerun pass `-p designos-gpu --test resized_shapes`
+exit code: 101

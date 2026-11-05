@@ -1,0 +1,59 @@
+# HEAD a0b4f32bf4d30b053500b8b240607a3222826035
+     Running tests/pdf_vector_fidelity.rs (out/cargo/debug/deps/pdf_vector_fidelity-12a7ae03698f8b86)
+test degenerate_dash_pattern_is_not_written ... ok
+test gradient_fading_to_transparent_matches_the_canvas ... ok
+test frame_opacity_fades_its_page ... ok
+test blend_modes_match_the_canvas ... ok
+test group_opacity_flattens_before_fading ... ok
+test gradient_stop_a_hair_after_the_start_keeps_valid_stitching_bounds ... ok
+test gradient_stops_a_hair_apart_keep_distinct_stitching_bounds ... ok
+test gradient_stops_keep_their_positions ... ok
+test gradient_stroke_matches_the_canvas ... ok
+test image_filled_shape_appears_on_the_page ... ok
+test image_stroke_appears_on_the_page ... ok
+test drop_shadow_appears_on_the_page ... ok
+test miter_limit_of_the_stroke_is_honoured ... ok
+test elliptical_radial_gradient_follows_its_handles ... ok
+test flattened_and_vector_pages_share_one_unicode_font_and_a_valid_object_table ... ok
+test outside_gradient_stroke_around_a_self_overlapping_path_matches_the_canvas ... ok
+test outside_stroke_around_a_self_overlapping_path_leaves_the_overlap_unstroked ... ok
+test intersect_boolean_fills_only_the_overlap ... ok
+test bound_variables_size_color_and_caption_the_page_like_the_canvas ... ok
+test ancestor_mode_switches_the_bound_values_on_the_page ... ok
+test inside_and_centered_strokes_match_the_canvas ... ok
+test paint_blend_modes_match_the_canvas ... ok
+test angular_and_diamond_gradients_match_the_canvas ... ok
+test precomputed_stroke_outline_is_filled_like_the_canvas ... ok
+test outlined_text_matches_the_canvas ... ok
+test ascii_text_keeps_its_plain_text_run ... ok
+test outside_stroke_stays_outside_the_shape ... ok
+test flattened_page_leaves_clipped_away_text_out_of_its_text_layer ... ok
+test outside_stroke_around_a_simple_vector_outline_stays_vector ... ok
+test outside_stroke_around_a_star_node_matches_the_canvas ... ok
+test rounded_root_frame_without_clipping_shows_children_in_its_corners ... ok
+test second_mask_narrows_the_first ... ok
+test outside_stroke_around_an_even_odd_path_follows_the_even_odd_rule ... ok
+test translucent_mask_fades_the_content_it_masks ... ok
+test side_weight_stroke_draws_only_the_weighted_sides ... ok
+test corner_smoothing_matches_the_canvas ... ok
+test subtract_boolean_fills_the_remainder_of_the_first_shape ... ok
+test skewed_linear_gradient_follows_its_width_handle ... ok
+test text_beyond_the_frame_bounds_is_not_extractable ... ok
+test raster_fallback_page_keeps_selectable_text ... ok
+test text_a_mask_hides_is_not_extractable ... ok
+test text_mask_clips_to_its_glyphs ... ok
+test text_a_clipping_frame_hides_is_not_extractable ... ok
+test non_latin_text_is_extractable_as_written ... ok
+test card_with_text_gradient_and_strokes_matches_the_canvas ... ok
+test union_and_exclude_booleans_match_the_canvas ... ok
+test sticky_note_shadow_appears_on_the_page ... ok
+test randomised_frames_of_supported_features_are_vector_and_match_the_canvas ... FAILED
+test randomised_frames_with_unsupported_features_still_match_the_canvas ... ok
+thread 'randomised_frames_of_supported_features_are_vector_and_match_the_canvas' (77603347) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:1198:5:
+5 of 150 random frames differ from the canvas:
+seed 6: 65/9600 sampled pixels differ on the Vector page
+seed 17: 70/9600 sampled pixels differ on the Vector page
+seed 49: 105/9600 sampled pixels differ on the Vector page
+seed 69: 202/9600 sampled pixels differ on the Vector page
+seed 83: 126/9600 sampled pixels differ on the Vector page
+test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.16s

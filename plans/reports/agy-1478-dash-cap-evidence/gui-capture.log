@@ -1,0 +1,13 @@
+b3693b5247bc76612cb8b3f6dd96ec1f12d662711062426744dbe58207e561c8  out/evidence/1478-dash-cap-none.png
+4912e87f8ca786f4560e3e826df83323b7e08da359f3424a499e98dc5a662e77  out/evidence/1478-dash-cap-round.png
+78c347259627de742c11d216ab8c8611b1c2386276991305ddacaacbb0e0f32a  plans/reports/agy-1478-dash-cap-evidence/stroke-panel-dash-cap-none.png
+8d7aad591985d21b74b964e09898735b0a05c47f420f10cec48b7beeeb6add87  plans/reports/agy-1478-dash-cap-evidence/stroke-panel-dash-cap-round.png
+out/evidence/1478-dash-cap-none.png: 1600x1088 mode=RGBA
+out/evidence/1478-dash-cap-round.png: 1600x1088 mode=RGBA
+plans/reports/agy-1478-dash-cap-evidence/stroke-panel-dash-cap-none.png: 265x270 mode=RGBA
+plans/reports/agy-1478-dash-cap-evidence/stroke-panel-dash-cap-round.png: 265x270 mode=RGBA
+ls: out/cargo: No such file or directory
+HIDIdleTime before 1478-dash-cap-none.png capture: IDLE_SECONDS=4610 (>= 300)
+HIDIdleTime before 1478-dash-cap-round.png capture: IDLE_SECONDS=4852 (>= 300)
+Kit copy: /tmp/untitled-1478-gui.designos (from /Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig)
+Selected frame: Press logo (source_id=1345:407), dashed child: Card (source_id=I1345:415;1345:61, dashes=[16.0, 12.0], weight=6.0)

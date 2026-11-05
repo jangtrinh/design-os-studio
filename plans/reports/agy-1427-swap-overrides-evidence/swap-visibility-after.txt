@@ -1,0 +1,6 @@
+off-swap True 2388
+off-noswap True 2393
+on-swap True 2397
+off-swap Leading icon visible= False bindings= {'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'} glyph=#A3A3A3 w= {'x': 60.75, 'y': 36.0}
+off-noswap Leading icon visible= False bindings= {'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'} glyph=#A3A3A3 w= {'x': 60.75, 'y': 36.0}
+on-swap Leading icon visible= True bindings= {'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'} glyph=#A3A3A3 w= {'x': 84.75, 'y': 36.0}

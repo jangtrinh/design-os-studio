@@ -49,6 +49,7 @@ class SpacingRatchetTest(unittest.TestCase):
             ("bad_radius.rs", "radius_literals"),
             ("bad_font.rs", "font_literals"),
             ("bad_pair.rs", "nonconcentric_pairs"),
+            ("bad_legacy.rs", "legacy_control_refs"),
         ):
             self.assertIn(expected, got)
         self.assertNotIn("theme.rs", {f for f, _ in got})  # theme.rs may hold literals
@@ -92,6 +93,79 @@ class SpacingRatchetTest(unittest.TestCase):
                 fh.write("fn b() -> FontId {\n    FontId::proportional(13.0)\n}\n")
             proc = run(src, baseline, "--write-baseline")
             self.assertEqual(proc.returncode, 1)
+            self.assertEqual(baseline.read_text(encoding="utf-8"), before)
+
+    def test_a_new_legacy_control_reference_fails_and_cannot_be_locked_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src, baseline = tmp / "src", tmp / "baseline.json"
+            shutil.copytree(FIXTURES / "dirty", src)
+            self.assertEqual(run(src, baseline, "--write-baseline").returncode, 0)
+            self.assertEqual(run(src, baseline).returncode, 0)
+            with open(src / "bad_legacy.rs", "a", encoding="utf-8") as fh:
+                fh.write("fn chip() -> f32 {\n    theme::CONTROL_STANDARD\n}\n")
+            proc, rep = report(src, baseline)
+            self.assertEqual(proc.returncode, 1)
+            self.assertEqual(
+                rep["violations"],
+                [{"file": "bad_legacy.rs", "category": "legacy_control_refs", "baseline": 1, "current": 2}],
+            )
+            before = baseline.read_text(encoding="utf-8")
+            self.assertEqual(run(src, baseline, "--write-baseline").returncode, 1)
+            self.assertEqual(baseline.read_text(encoding="utf-8"), before)
+
+    def test_legacy_control_references_count_code_only_and_whole_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            (src / "a.rs").write_text(
+                "// theme::CONTROL_DENSE in a comment\n"
+                'fn s() -> &\'static str { "CONTROL_STANDARD" }\n'
+                "fn other() -> f32 { CONTROL_STANDARD_EXTRA + MY_CONTROL_DENSE }\n"
+                "#[cfg(test)]\nmod tests {\n    fn t() -> f32 { CONTROL_DENSE }\n}\n"
+                "fn code() -> f32 { CONTROL_DENSE + CONTROL_STANDARD }\n",
+                encoding="utf-8",
+            )
+            (src / "theme.rs").write_text("pub const CONTROL_DENSE: f32 = 24.0;\n", encoding="utf-8")
+            proc, rep = report(src, EMPTY_BASELINE)
+            self.assertEqual(rep["totals"]["legacy_control_refs"], 2, proc.stdout)
+
+    def test_a_category_the_baseline_never_recorded_is_seeded_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src, baseline = tmp / "src", tmp / "baseline.json"
+            shutil.copytree(FIXTURES / "dirty", src)
+            # A baseline written before legacy_control_refs existed: no such entry, no category list.
+            run(src, baseline, "--write-baseline")
+            old = json.loads(baseline.read_text(encoding="utf-8"))
+            old.pop("categories", None)
+            for per in old["files"].values():
+                per.pop("legacy_control_refs", None)
+            old["files"] = {f: per for f, per in old["files"].items() if per}
+            baseline.write_text(json.dumps(old), encoding="utf-8")
+            self.assertEqual(run(src, baseline).returncode, 1)  # unrecorded refs read as a rise
+            self.assertEqual(run(src, baseline, "--write-baseline").returncode, 0)  # the seed
+            self.assertEqual(run(src, baseline).returncode, 0)
+            seeded = json.loads(baseline.read_text(encoding="utf-8"))
+            self.assertEqual(seeded["files"]["bad_legacy.rs"]["legacy_control_refs"], 1)
+            # Seeded once: from now on the category refuses a rise like every other.
+            with open(src / "bad_legacy.rs", "a", encoding="utf-8") as fh:
+                fh.write("fn chip() -> f32 {\n    theme::CONTROL_STANDARD\n}\n")
+            self.assertEqual(run(src, baseline, "--write-baseline").returncode, 1)
+
+    def test_deleting_a_category_name_from_the_baseline_does_not_reopen_seeding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src, baseline = tmp / "src", tmp / "baseline.json"
+            shutil.copytree(FIXTURES / "dirty", src)
+            run(src, baseline, "--write-baseline")
+            doc = json.loads(baseline.read_text(encoding="utf-8"))
+            doc["categories"].remove("legacy_control_refs")  # the entries below still hold counts for it
+            baseline.write_text(json.dumps(doc), encoding="utf-8")
+            with open(src / "bad_legacy.rs", "a", encoding="utf-8") as fh:
+                fh.write("fn chip() -> f32 {\n    theme::CONTROL_STANDARD\n}\n")
+            before = baseline.read_text(encoding="utf-8")
+            self.assertEqual(run(src, baseline, "--write-baseline").returncode, 1, "a category with counts on file is recorded")
             self.assertEqual(baseline.read_text(encoding="utf-8"), before)
 
     def test_missing_baseline_is_a_usage_error_not_a_pass(self):

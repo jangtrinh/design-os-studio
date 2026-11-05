@@ -1,0 +1,31 @@
+warning: /Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-docs v0.7.6 (/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-docs)
+    Finished `release` profile [optimized] target(s) in 2.53s
+     Running tests/roundtrip.rs (target/release/deps/roundtrip-0165f25d0dfb5c0a)
+
+running 1 test
+test random_markdown_soup_is_always_lossless_and_the_canonical_form_is_stable ... FAILED
+
+failures:
+
+---- random_markdown_soup_is_always_lossless_and_the_canonical_form_is_stable stdout ----
+
+thread 'random_markdown_soup_is_always_lossless_and_the_canonical_form_is_stable' (96233151) panicked at crates/designos-docs/tests/roundtrip.rs:364:5:
+1 inputs whose canonical form changes when read and written again, first: [
+    (
+        "http://a.b😀)\r\n日本\\- a\n  - b\n*    日本- a\n  - b\n- a\n  - b\n",
+        "http://a.b😀)\r\n日本\\- a\n\n  - b\n\n* 日本- a\n\n  - b\n- a\n  - b\n",
+    ),
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    random_markdown_soup_is_always_lossless_and_the_canonical_form_is_stable
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 18 filtered out; finished in 6.87s
+
+error: test failed, to rerun pass `-p designos-docs --test roundtrip`
+exit=101

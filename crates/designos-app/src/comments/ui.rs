@@ -4,7 +4,7 @@ use super::model;
 use crate::icons::{self, Icon};
 use crate::theme;
 use crate::widgets;
-use egui::{Align, Align2, Color32, Id, Margin, Painter, Pos2, Rect, Response, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
+use egui::{Align, Align2, Color32, Id, Margin, Painter, Pos2, Rect, Response, Sense, TextEdit, Ui, Vec2};
 
 pub fn avatar_color(name: &str) -> Color32 {
     theme::AVATAR_COLORS[model::avatar_index(name, theme::AVATAR_COLORS.len())]
@@ -61,11 +61,7 @@ pub fn box_height(p: &Painter, text: &str, width: f32) -> f32 {
 
 /// A multi-line text field with the standard field background. Returns the edit response.
 pub fn text_box(ui: &mut Ui, rect: Rect, id: Id, text: &mut String, hint: &str, focus: bool) -> Response {
-    let focused = ui.memory(|m| m.has_focus(id));
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    if focused {
-        ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-    }
+    crate::widgets::kit::paint_field(ui, rect, id, crate::widgets::kit::Size::Xs, false);
     let font = theme::font_body();
     let te = TextEdit::multiline(text)
         .id(id)
@@ -73,10 +69,14 @@ pub fn text_box(ui: &mut Ui, rect: Rect, id: Id, text: &mut String, hint: &str, 
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE.inner_margin(Margin::symmetric(10, 10)))
         .vertical_align(Align::Min)
-        .hint_text(egui::RichText::new(hint).font(font).color(theme::TEXT_TERTIARY))
+        .hint_text(egui::RichText::new(hint).font(font).color(theme::TEXT_PLACEHOLDER))
         .desired_rows(1)
         .desired_width(rect.width());
-    let resp = crate::panels::clipped(ui, rect, |ui| ui.put(rect, te));
+    let resp = crate::panels::clipped(ui, rect, |ui| {
+        // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+        ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
+        ui.put(rect, te)
+    });
     if focus {
         resp.request_focus();
     }
@@ -108,17 +108,18 @@ pub fn button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, label: &str, prima
     resp
 }
 
-/// Width of a [`button`] for `label`.
-pub fn button_width(p: &Painter, label: &str) -> f32 {
-    widgets::text_width(p, label, &theme::font_body_strong()) + 2.0 * theme::INSET_BUTTON
+/// Width of a kit text button (`widgets::kit::button`, text-sm semibold) for `label`.
+pub fn kit_button_width(p: &Painter, label: &str) -> f32 {
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    widgets::text_width(p, label, &font) + 2.0 * theme::INSET_BUTTON
 }
 
 /// The "…" button.
 pub fn dots_button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, tip: &str) -> Response {
     let resp = ui.interact(rect, ui.id().with(id), Sense::click());
     let p = ui.painter();
-    widgets::button_bg(p, rect, &resp, false, theme::cr(theme::RADIUS_CONTROL));
-    let col = if resp.hovered() { theme::ICON } else { theme::ICON_SECONDARY };
+    crate::widgets::kit::paint_icon_bg(p, rect, &resp, false, theme::cr(theme::RADIUS_CONTROL));
+    let col = if resp.hovered() { theme::ICON } else { theme::ICON_TERTIARY };
     for dx in [-4.0, 0.0, 4.0] {
         p.circle_filled(rect.center() + Vec2::new(dx, 0.0), 1.2, col);
     }
@@ -131,22 +132,5 @@ pub fn dots_button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, tip: &str) ->
 
 /// A row of mutually exclusive options; returns the clicked index.
 pub fn segmented(ui: &mut Ui, rect: Rect, id: impl widgets::Key + Copy, labels: &[&str], selected: usize) -> Option<usize> {
-    let p = ui.painter().clone();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    let w = rect.width() / labels.len() as f32;
-    let mut out = None;
-    for (i, l) in labels.iter().enumerate() {
-        let r = Rect::from_min_size(Pos2::new(rect.left() + i as f32 * w, rect.top()), Vec2::new(w, rect.height()));
-        let resp = ui.interact(r, ui.id().with((id, i)), Sense::click());
-        if i == selected {
-            p.rect_filled(r.shrink(2.0), theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
-        } else if resp.hovered() {
-            p.rect_filled(r.shrink(2.0), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-        }
-        p.text(r.center(), Align2::CENTER_CENTER, l, if i == selected { theme::font_body_strong() } else { theme::font_body() }, theme::TEXT);
-        if resp.clicked() {
-            out = Some(i);
-        }
-    }
-    out
+    crate::widgets::kit::segmented(ui, rect, id, labels, selected, crate::widgets::kit::Size::Xs)
 }

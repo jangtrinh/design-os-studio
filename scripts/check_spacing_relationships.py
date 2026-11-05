@@ -10,6 +10,7 @@ not in the baseline gains a literal. Counts may only go down.
   python3 scripts/check_spacing_relationships.py --verbose    # list every site
   python3 scripts/check_spacing_relationships.py --write-baseline
                           # lower the baseline to today's counts; refuses a rise
+                          # (a category the baseline has never recorded is seeded once)
   python3 scripts/check_spacing_relationships.py --src DIR --baseline FILE
                           # run against another tree (the test fixtures do)
 
@@ -37,6 +38,14 @@ THEME_FILE = "theme.rs"
 OWN_PALETTE = ("specs.rs", "terminal.rs")
 
 Counts = Dict[str, Dict[str, int]]
+# The categories a baseline recorded before it listed them: anything newer is seeded once.
+ORIGINAL_CATEGORIES = (
+    "offset_literals",
+    "inset_literals",
+    "radius_literals",
+    "font_literals",
+    "nonconcentric_pairs",
+)
 
 
 def is_test_file(rel: str) -> bool:
@@ -108,9 +117,18 @@ def load_baseline(path: Path) -> Counts:
     return files
 
 
+def recorded_categories(path: Path) -> tuple:
+    """Categories the baseline file already holds counts for: the ones it lists, and every one that any file
+    entry carries (so deleting a name from the list cannot reopen seeding)."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    listed = set(data.get("categories", ORIGINAL_CATEGORIES))
+    return tuple(listed | {c for per in data.get("files", {}).values() for c in per})
+
+
 def write_baseline(path: Path, counts: Counts) -> None:
     doc = {
         "version": 1,
+        "categories": list(CATEGORIES),
         "note": (
             "Ratchet baseline for scripts/check_spacing_relationships.py. Per-file counts of "
             "literal geometry outside theme.rs. Counts may only fall: lower them with "
@@ -145,7 +163,9 @@ def main(argv: List[str] | None = None) -> int:
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 2
-            rises = compare(current, baseline)["rises"]
+            recorded = recorded_categories(args.baseline)
+            # A category the baseline never recorded starts from 0 everywhere; its first write is the seed.
+            rises = [r for r in compare(current, baseline)["rises"] if r[1] in recorded]
             if rises:
                 print("refusing to raise the baseline:", file=sys.stderr)
                 for rel, c, old, new in rises:

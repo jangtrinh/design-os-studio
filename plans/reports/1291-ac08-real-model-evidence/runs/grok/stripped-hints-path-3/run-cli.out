@@ -1,0 +1,26 @@
+run-cli-netproxy listening on unix:/tmp/run-cli-snap.GMlegH/run-cli-proxy.sock
+PROXY_FIRST_REQ ts_ms=1793290915584 CONNECT auth.x.ai:443
+UNCHECKED_AREAS:
+- outbound net only via CONNECT proxy (no raw sockets; loopback/private blocked by resolved IP)
+- host processes outside the bwrap pid namespace (after --die-with-parent cleanup)
+- filesystem areas outside: repo toplevel (/workspace/dev/ac08/slot-grok-2), maintenance/ (/workspace/projects/maintenance), and exact --frozen file paths
+- .git object store / pack files / reflogs (only HEAD, packed-refs, config, index, hooks/, info/, refs/ are checked)
+- /proc /sys /dev contents beyond sandbox setup
+- file owners/xattrs/timestamps (mtime); only mode+sha256 (files), symlink targets, empty dirs
+- kernel memory, swap, and other hosts' disks
+- CLI home paths under RW allowlist (sessions/tmp/sqlite/locks/auth) — intentional; NEW/CHANGED elsewhere are checked
+- host loopback/RFC1918/CGNAT/ULA/docker/metadata: blocked via CONNECT proxy (resolved-IP)
+UNCHECKED_AREAS:
+- outbound net only via CONNECT proxy (no raw sockets; loopback/private blocked by resolved IP)
+- host processes outside the bwrap pid namespace (after --die-with-parent cleanup)
+- filesystem areas outside: repo toplevel (/workspace/dev/ac08/slot-grok-2), maintenance/ (/workspace/projects/maintenance), and exact --frozen file paths
+- .git object store / pack files / reflogs (only HEAD, packed-refs, config, index, hooks/, info/, refs/ are checked)
+- /proc /sys /dev contents beyond sandbox setup
+- file owners/xattrs/timestamps (mtime); only mode+sha256 (files), symlink targets, empty dirs
+- kernel memory, swap, and other hosts' disks
+- CLI home paths under RW allowlist (sessions/tmp/sqlite/locks/auth) — intentional; NEW/CHANGED elsewhere are checked
+SANDBOX_MOUNTS:
+  ro-bind / /
+  bind /workspace/dev/ac08/slot-grok-2 (RW); .git RO; tmpfs /tmp /run + ~/.cache + ~/.config/blender + XDG_RUNTIME_DIR; CLI home RO except explicit RW allowlist; grok cache eph
+VERDICT: YES
+run-cli exit 0

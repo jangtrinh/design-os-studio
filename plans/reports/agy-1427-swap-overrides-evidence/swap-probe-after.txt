@@ -1,0 +1,9 @@
+{"tool-sel-noswap": 2388, "tool-sel-swap": 2391, "tool-hover-swap": 2395, "prim-dis-noswap": 2399, "prim-dis-swap": 2403, "close-hover-swap": 2408, "sd-hover-swap": 2412}
+saved True
+tool-sel-noswap png True 
+tool-sel-swap png True 
+tool-hover-swap png True 
+prim-dis-noswap png True 
+prim-dis-swap png True 
+close-hover-swap png True 
+sd-hover-swap png True 

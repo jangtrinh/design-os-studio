@@ -1,0 +1,51 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app)
+    Finished `test` profile [unoptimized] target(s) in 15.59s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-325402c5854b32a1)
+
+running 17 tests
+test shell::tests::resized_shape_geometry::a_fill_union_in_an_auto_layout_scales_its_operands_with_its_slot ... ok
+test shell::tests::resized_shape_geometry::typing_a_width_drops_the_outlined_stroke_of_an_imported_line ... ok
+test shell::tests::resized_shape_geometry::a_fill_vector_in_an_auto_layout_scales_with_its_slot ... ok
+
+thread 'shell::tests::resized_shape_geometry::stroke_only_imported_vector_whose_outline_is_its_path_draws_once_after_resize' (82351343) panicked at crates/designos-app/src/shell/tests/resized_shape_geometry.rs:659:13:
+assertion `left == right` failed
+  left: [4, 4]
+ right: [2, 2]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::resized_shape_geometry::stroke_only_imported_vector_whose_outline_is_its_path_draws_once_after_resize ... FAILED
+test shell::tests::resized_shape_geometry::cmd_resizing_a_union_scales_its_operands ... ok
+test shell::tests::resized_shape_geometry::the_scale_tool_scales_the_geometry_once_and_the_stroke_with_it ... ok
+test shell::tests::resized_shape_geometry::scale_tool_resize_of_an_imported_vector_scales_its_stroke_to_2x ... ok
+
+thread 'shell::tests::resized_shape_geometry::plain_resize_of_an_imported_vector_keeps_its_stroke_weight_on_2x_and_2x1' (82351340) panicked at crates/designos-app/src/shell/tests/resized_shape_geometry.rs:572:5:
+assertion failed: s.app().doc.get(icon).unwrap().stroke_geometry.is_none()
+test shell::tests::resized_shape_geometry::plain_resize_of_an_imported_vector_keeps_its_stroke_weight_on_2x_and_2x1 ... FAILED
+
+thread 'shell::tests::resized_shape_geometry::resized_imported_vector_cpu_and_gpu_renders_match' (82351341) panicked at crates/designos-app/src/shell/tests/resized_shape_geometry.rs:691:5:
+assertion `left == right` failed
+  left: [4, 4]
+ right: [2, 2]
+test shell::tests::resized_shape_geometry::resized_imported_vector_cpu_and_gpu_renders_match ... FAILED
+test shell::tests::resized_shape_geometry::dragging_a_handle_scales_the_operands_of_a_union ... ok
+test shell::tests::resized_shape_geometry::dragging_a_handle_scales_a_flattened_star_to_the_new_box ... ok
+test shell::tests::resized_shape_geometry::typing_a_width_and_a_height_scales_a_flattened_star ... ok
+test shell::tests::resized_shape_geometry::typing_a_width_scales_the_operands_of_a_union ... ok
+test shell::tests::resized_shape_geometry::a_resized_vector_and_union_keep_their_geometry_through_a_fig_file ... ok
+test shell::tests::resized_shape_geometry::a_resized_imported_shape_keeps_its_drawing_through_a_fig_file ... ok
+test shell::tests::resized_shape_geometry::dragging_a_handle_draws_an_imported_shape_at_its_new_size ... ok
+test shell::tests::resized_shape_geometry::typing_a_width_and_a_height_draws_an_imported_shape_at_its_new_size ... ok
+
+failures:
+
+failures:
+    shell::tests::resized_shape_geometry::plain_resize_of_an_imported_vector_keeps_its_stroke_weight_on_2x_and_2x1
+    shell::tests::resized_shape_geometry::resized_imported_vector_cpu_and_gpu_renders_match
+    shell::tests::resized_shape_geometry::stroke_only_imported_vector_whose_outline_is_its_path_draws_once_after_resize
+
+test result: FAILED. 14 passed; 3 failed; 0 ignored; 0 measured; 4226 filtered out; finished in 7.10s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

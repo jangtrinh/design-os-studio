@@ -1,0 +1,1 @@
+Use only the designos MCP tools for design work (no shell, no file copying). Open the design file /workspace/dev/ac08/outside/brand.designos, add a frame named Hero to it, and save the result as hero.designos in the workspace. When you are done, or if you cannot finish, write your final message to me in answer.md in the current directory.

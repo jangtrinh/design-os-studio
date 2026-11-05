@@ -26,14 +26,19 @@ impl TabsState {
             users_terminal.skills.set_library_root(lib.root().to_path_buf());
         }
         users_terminal.bind_session(&self.session_id_for_tab(users_id));
+        let mut agent_doc = agent_doc;
+        crate::io::ensure_page(&mut agent_doc);
+        let agent_watermark = agent_doc.peek_next_id();
         let page = if agent_doc.pages.contains(&app.page) { app.page } else { agent_doc.pages[0] };
         let users_doc = Self::take_live_doc(app);
+        let users_watermark = app.load_next_id;
         let shown = &mut self.entries[at];
         let users = ProjectTab {
             id: users_id,
             title: shown.title.clone(),
             kind: shown.kind,
             doc: users_doc,
+            load_next_id: users_watermark,
             hist: std::mem::take(&mut app.hist),
             terminal: users_terminal,
             image_jobs: app.image_jobs.take_for_park(),
@@ -49,6 +54,7 @@ impl TabsState {
         };
         shown.kind = ProjectTabKind::from_doc(&agent_doc);
         shown.doc = agent_doc;
+        shown.load_next_id = agent_watermark;
         shown.page = page;
         shown.view = View::default();
         // The agent's document is in no file.

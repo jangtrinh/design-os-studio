@@ -985,7 +985,7 @@ fn image_fill_relative_path_scale_modes_and_traversal_refusal() {
 
     let ok_node = find_by_source_id(&report.doc, "img-ok");
     match &ok_node.fills[0].kind {
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, .. } => {
             assert_eq!(*scale_mode, ImageScaleMode::Fit);
             assert_eq!(report.doc.images.get(image_ref).map(Vec::as_slice), Some(sample_bytes.as_slice()));
         }

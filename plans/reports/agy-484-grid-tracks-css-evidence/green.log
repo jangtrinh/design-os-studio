@@ -1,0 +1,17 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.01s
+     Running tests/grid_chrome_fixtures.rs (out/cargo/debug/deps/grid_chrome_fixtures-68e44f521f53a4ec)
+
+running 6 tests
+test row_and_column_spans_css_and_tailwind ... ok
+test hugging_grid_css_and_tailwind ... ok
+test fixed_height_auto_rows_css_and_tailwind ... ok
+test equal_tracks_css_and_tailwind ... ok
+test fixed_first_column_css_and_tailwind ... ok
+test unequal_tracks_css_and_tailwind ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

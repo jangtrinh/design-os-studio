@@ -14,7 +14,7 @@ use designos_doc as d;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 use designos_render::board;
 use designos_render::tiny_skia as sk;
-use designos_render::{mask_frame_box, mask_stencil, node_margin, render_node_into, SceneIndex, StrokeClip, Viewport};
+use designos_render::{mask_frame_box, mask_stencil, node_margin, render_node_into, vector_mask_descendant_stencil, SceneIndex, StrokeClip, Viewport};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -67,6 +67,12 @@ pub struct CompileOptions {
     /// Lifts the offscreen-program caps of interactive mode, for the one
     /// full-quality compile of an idle view. Headless compiles never cap.
     pub uncap_programs: bool,
+    /// Turns off the zoom-out level of detail of interactive compiles (sub-pixel
+    /// culling, text greeking, leaf and small-container shortcuts, tiny-effect
+    /// skips), for the one compile of a view that is still: only a moving view
+    /// may simplify for speed. Independent of `uncap_programs`, and changes
+    /// nothing for headless compiles, which never simplify.
+    pub full_detail: bool,
     /// With `uncap_programs`: offscreen programs are only opened while the
     /// accounted GPU bytes of all targets of the frame (including the root
     /// output target) stay within this budget (see `program_bytes`); past it
@@ -89,6 +95,7 @@ impl Default for CompileOptions {
             force_fallback: None,
             supersample: 0,
             uncap_programs: false,
+            full_detail: false,
             refine_vram_budget_bytes: DEFAULT_REFINE_VRAM_BUDGET_BYTES,
             refine_max_programs: DEFAULT_REFINE_MAX_PROGRAMS,
             runtime_node_opacities: Vec::new(),
@@ -113,13 +120,65 @@ impl SceneCompiler {
         Self::default()
     }
 
+    /// Builds the geometry the last compile left deferred (uncached text, vectors and
+    /// boolean operations, and nodes still on the previous zoom's flattening), newest
+    /// first, until this frame's `geom.budget` of wall time is spent (at least one node a
+    /// call: the budget is counted from the call, so it covers resolving the node and
+    /// hashing its shape as well as the tessellation). Returns how many are left. Walks no
+    /// scene: the next compile finds what it needs in the cache.
+    pub fn warm_deferred(&mut self, doc: &Document, rev: u64) -> usize {
+        let start = std::time::Instant::now();
+        // the wall clock below is the budget: the cache must not defer what it is asked to build
+        let budget = self.geom.budget.take();
+        let mut first = true;
+        self.geom.begin_warm();
+        while let Some(&(id, bucket)) = self.geom.deferred.last() {
+            if !first && budget.is_some_and(|b| start.elapsed() >= b) {
+                break;
+            }
+            first = false;
+            self.geom.deferred.pop();
+            let Some(node) = board::get(doc, id) else { continue };
+            let node = resolve_node(doc, &node);
+            let _ = self.geom.get(doc, &node, bucket, rev);
+        }
+        self.geom.budget = budget;
+        self.geom.deferred.len()
+    }
+
+    /// The top-level nodes of `page` that `compile` would draw for this view, in paint
+    /// order, when the page is drawn from the spatial index; `None` when it is not (a
+    /// small page, a mask among the top-level nodes, a rotated view). Cut into slices
+    /// (`slice_top_level`), compiled one by one (`compile_slice`) and drawn in order they
+    /// paint the page `compile` paints.
+    pub fn visible_top_level(&mut self, doc: &Document, page: NodeId, rev: u64, vp: &Viewport, size: (u32, u32)) -> Option<Vec<NodeId>> {
+        self.index.ensure(doc, page, rev);
+        let s = vp.zoom * vp.dpr;
+        let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
+        let ss = self.opts.supersample.clamp(1, 4);
+        let root_ts = ts.post_scale(ss as f32, ss as f32);
+        let root_rect = IRect::new(0, 0, (size.0 * ss) as i32, (size.1 * ss) as i32);
+        let n = doc.get(page)?;
+        top_level_in_view(&self.index, n, &root_ts, root_rect)
+    }
+
+    /// Compiles only `children` (a slice of `visible_top_level`) of `page` over the page
+    /// background: a frame whose root program holds just their ops. Rendered with
+    /// `Renderer::render_chunk` after the slices before it, the slices make up the page.
+    pub fn compile_slice(&mut self, doc: &Document, page: NodeId, rev: u64, vp: &Viewport, size: (u32, u32), children: &[NodeId]) -> Frame {
+        self.index.ensure(doc, page, rev);
+        let s = vp.zoom * vp.dpr;
+        let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
+        self.compile_with(doc, page, rev, ts, size, false, Some(children))
+    }
+
     /// Compiles the visible part of `page` seen through `vp` into a frame of
     /// `size` device pixels. `rev` must change whenever the document does.
     pub fn compile(&mut self, doc: &Document, page: NodeId, rev: u64, vp: &Viewport, size: (u32, u32)) -> Frame {
         self.index.ensure(doc, page, rev);
         let s = vp.zoom * vp.dpr;
         let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
-        self.compile_with(doc, page, rev, ts, size, false)
+        self.compile_with(doc, page, rev, ts, size, false, None)
     }
 
     /// Compiles one node (a page: its children over the page background) with
@@ -127,10 +186,20 @@ impl SceneCompiler {
     /// `designos_render::render_node` (used for Present frames and exports).
     pub fn compile_node(&mut self, doc: &Document, node: NodeId, rev: u64, scale: f32, size: (u32, u32)) -> Frame {
         let ts = sk::Transform::from_scale(scale, scale);
-        self.compile_with(doc, node, rev, ts, size, true)
+        self.compile_with(doc, node, rev, ts, size, true, None)
     }
 
-    fn compile_with(&mut self, doc: &Document, root_node: NodeId, rev: u64, logical_ts: sk::Transform, size: (u32, u32), single: bool) -> Frame {
+    #[allow(clippy::too_many_arguments)]
+    fn compile_with(
+        &mut self,
+        doc: &Document,
+        root_node: NodeId,
+        rev: u64,
+        logical_ts: sk::Transform,
+        size: (u32, u32),
+        single: bool,
+        only: Option<&[NodeId]>,
+    ) -> Frame {
         self.geom.trim(rev);
         self.geom.begin_frame();
         let unit = self.unit_rect.get_or_insert_with(|| Arc::new(Mesh::rect(0.0, 0.0, 1.0, 1.0))).clone();
@@ -177,22 +246,11 @@ impl SceneCompiler {
         cx.stack.push(0);
         let full = cx.clip_for(ClipDesc { scissor: root_rect, mask: None });
         if let Some(n) = node.as_deref() {
-            if single && !matches!(n.kind, NodeKind::Page { .. }) {
+            if let Some(children) = only {
+                cx.draw_children(children, root_ts, full);
+            } else if single && !matches!(n.kind, NodeKind::Page { .. }) {
                 cx.draw_node(n, root_ts, full);
-            } else if cx.cull
-                && n.children.len() > 8
-                && !cx.index.has_top_mask()
-                && root_ts.kx == 0.0
-                && root_ts.ky == 0.0
-                && root_ts.sx > 0.0
-                && root_ts.sy > 0.0
-            {
-                let wx0 = -root_ts.tx / root_ts.sx - 64.0;
-                let wy0 = -root_ts.ty / root_ts.sy - 64.0;
-                let wx1 = (root_rect.w() as f32 - root_ts.tx) / root_ts.sx + 64.0;
-                let wy1 = (root_rect.h() as f32 - root_ts.ty) / root_ts.sy + 64.0;
-                let mut children = Vec::new();
-                cx.index.query_top_level((wx0, wy0, wx1, wy1), &mut children);
+            } else if let Some(children) = cx.cull.then(|| top_level_in_view(cx.index, n, &root_ts, root_rect)).flatten() {
                 cx.draw_children(&children, root_ts, full);
             } else {
                 cx.draw_children(&n.children, root_ts, full);
@@ -202,6 +260,63 @@ impl SceneCompiler {
         let frame = Frame { size, out_size, ss, root: 0, programs: cx.progs, clips: cx.clips };
         self.last_vram_bytes = vram;
         frame
+    }
+}
+
+/// The top-level nodes of the page `n` in view, in paint order, when the page is drawn from the
+/// spatial index: more than 8 of them, none a mask, an axis-aligned view.
+fn top_level_in_view(index: &SceneIndex, n: &Node, root_ts: &sk::Transform, root_rect: IRect) -> Option<Vec<NodeId>> {
+    if n.children.len() <= 8 || index.has_top_mask() || root_ts.kx != 0.0 || root_ts.ky != 0.0 || root_ts.sx <= 0.0 || root_ts.sy <= 0.0 {
+        return None;
+    }
+    let wx0 = -root_ts.tx / root_ts.sx - 64.0;
+    let wy0 = -root_ts.ty / root_ts.sy - 64.0;
+    let wx1 = (root_rect.w() as f32 - root_ts.tx) / root_ts.sx + 64.0;
+    let wy1 = (root_rect.h() as f32 - root_ts.ty) / root_ts.sy + 64.0;
+    let mut children = Vec::new();
+    index.query_top_level((wx0, wy0, wx1, wy1), &mut children);
+    Some(children)
+}
+
+/// One slice of a page's top-level nodes (see [`next_slice`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SliceCut {
+    /// The slice: indices into the top-level nodes.
+    pub range: std::ops::Range<usize>,
+    /// Document nodes counted to find it: its own, plus those of the node that did not fit.
+    pub counted: usize,
+}
+
+/// The slice of `top` (from `SceneCompiler::visible_top_level`) that starts at `start`: as many
+/// consecutive nodes as fit `max_nodes` document nodes, at least one (a node with more than
+/// that is a slice of its own). Counts nodes only until the slice is full, so the first slice
+/// of a page costs the nodes of that slice, not of the page.
+pub fn next_slice(doc: &Document, top: &[NodeId], start: usize, max_nodes: usize) -> SliceCut {
+    let (mut acc, mut counted, mut end) = (0usize, 0usize, start);
+    for id in &top[start.min(top.len())..] {
+        let w = doc.page_node_count(*id);
+        counted += w;
+        if acc > 0 && acc + w > max_nodes {
+            break;
+        }
+        acc += w;
+        end += 1;
+    }
+    SliceCut { range: start..end, counted }
+}
+
+/// Cuts all of `top` into consecutive slices of at most `max_nodes` document nodes each (the
+/// repeated [`next_slice`]).
+pub fn slice_top_level(doc: &Document, top: &[NodeId], max_nodes: usize) -> Vec<std::ops::Range<usize>> {
+    let mut slices = Vec::new();
+    let mut start = 0;
+    loop {
+        let cut = next_slice(doc, top, start, max_nodes);
+        start = cut.range.end;
+        slices.push(cut.range);
+        if start >= top.len() {
+            return slices;
+        }
     }
 }
 
@@ -534,11 +649,13 @@ impl Ctx<'_> {
     // ----- tree -------------------------------------------------------------
 
     /// Interactive approximations (greeking, sub-pixel culling, effect skips)
-    /// apply to index-culled drawing only: a silhouette draws its children at
-    /// full detail. The offscreen-program and VRAM limits do not follow this
-    /// switch: they follow `live` (see `prog_cap_hit` and `over_budget`).
+    /// apply to index-culled drawing of a moving view only: a silhouette draws
+    /// its children at full detail, and so does the compile of a still view
+    /// (`CompileOptions::full_detail`). The offscreen-program and VRAM limits do
+    /// not follow this switch: they follow `live` (see `prog_cap_hit` and
+    /// `over_budget`).
     fn interactive(&self) -> bool {
-        self.cull && self.geom.budget.is_some()
+        self.cull && self.geom.budget.is_some() && !self.opts.full_detail
     }
 
     /// The idle refine compile: interactive mode with its program cap lifted
@@ -674,7 +791,11 @@ impl Ctx<'_> {
         let deferred = self.geom.deferred_empty;
         let enclosing = (self.stencil_root.replace(mask.id), std::mem::take(&mut self.stencil_children_skipped));
         self.with_prog(mprog, |c| {
-            c.draw_node(&mask_node, ts, mclip);
+            if mask.mask_type == d::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
+                c.draw_vector_group_children(&mask_node.children, ts, mclip);
+            } else {
+                c.draw_node(&mask_node, ts, mclip);
+            }
             // A frame mask takes its alpha from its children. If this frame left
             // them out (geometry not built yet, or a frame too small for its
             // children) and nothing else drew into the stencil, it is empty and
@@ -688,15 +809,34 @@ impl Ctx<'_> {
         });
         (self.stencil_root, self.stencil_children_skipped) = enclosing;
         let pclip = self.full_clip(rect);
+        let aux_mode = if mask.mask_type == d::MaskType::Luminance { AuxMode::MulLum } else { AuxMode::Mul };
         self.push_op(Op::Composite(Box::new(CompositeOp {
             src: layer,
             rect,
             opacity: 1.0,
             tint: None,
-            aux: Some((mprog, AuxMode::Mul)),
+            aux: Some((mprog, aux_mode)),
             mode: CompMode::Over,
             clip: pclip,
         })));
+    }
+
+    fn draw_vector_group_children(&mut self, children: &[NodeId], parent_ts: sk::Transform, clip: ClipId) {
+        let doc = self.doc;
+        for cid in children {
+            let Some(child) = board::get(doc, *cid) else { continue };
+            let child = resolve_node(doc, &child);
+            if !child.visible {
+                continue;
+            }
+            let ts = parent_ts.pre_concat(to_sk(&child.transform));
+            let stencil_child = vector_mask_descendant_stencil(&child);
+            if matches!(stencil_child.kind, NodeKind::Group) {
+                self.draw_vector_group_children(&stencil_child.children, ts, clip);
+            } else {
+                self.draw_node(&stencil_child, ts, clip);
+            }
+        }
     }
 
     /// Whether `n` or any drawn descendant has a visible background blur.
@@ -705,9 +845,10 @@ impl Ctx<'_> {
             return false;
         }
         (!matches!(n.kind, NodeKind::Unknown { .. })
-            && n.effects
-                .iter()
-                .any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible)))
+            && n.effects.iter().any(|e| {
+                (matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) && n.background_blur_has_surface())
+                    || matches!(e, Effect::Glass(g) if g.visible)
+            }))
             || (draws_children(n) && n.children.iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c))))
     }
 
@@ -978,7 +1119,7 @@ impl Ctx<'_> {
                             self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha);
                         }
                     }
-                    Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
+                    Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 && n.background_blur_has_surface() => {
                         self.background_blur(n, &g, ts, clip, inner_bb, scale, *radius);
                     }
                     Effect::Glass(gl) if gl.visible => self.glass(n, &g, ts, clip, inner_bb, scale, gl),
@@ -1100,9 +1241,21 @@ impl Ctx<'_> {
                 self.fill_with(&t.mesh, ts, n.size, p, alpha, clip);
             }
             if has_strokes {
-                if let Some(sm) = g.text_stroke(i, n) {
+                if let Some((sm, how)) = g.text_stroke(i, n) {
+                    let sclip = match how {
+                        StrokeClip::None => clip,
+                        StrokeClip::Inside | StrokeClip::Outside if (self.zoom_lod() && n.stroke.weight * ts_scale(&ts) <= 1.25) || self.prog_cap_hit(48) => {
+                            clip
+                        }
+                        StrokeClip::Inside | StrokeClip::Outside => {
+                            let b = sm.bounds;
+                            let roi = IRect::outward(xform_bounds(&ts, b.0, b.1, b.2 - b.0, b.3 - b.1)).grow(1);
+                            let Some(c) = self.mask_clip(&t.mesh, ts, clip, how == StrokeClip::Outside, roi, Degrade::Keep) else { continue };
+                            c
+                        }
+                    };
                     for p in visible_strokes(n) {
-                        self.fill_with(&sm, ts, n.size, p, alpha, clip);
+                        self.fill_with(&sm, ts, n.size, p, alpha, sclip);
                     }
                 }
             }
@@ -1154,7 +1307,11 @@ impl Ctx<'_> {
         match d::silhouette_source(n, g.shape.as_ref().map(|sh| sh.fillable), mode) {
             d::SilhouetteSource::Text => {
                 for t in g.text.iter() {
-                    let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(d::Paint::silhouette_alpha).fold(0.0, f32::max) };
+                    let a = mode.text_run_alpha(n, &t.fills);
+                    // a run that paints nothing removes nothing from a knockout
+                    if a <= 0.0 && mode == d::SilhouetteMode::Knockout {
+                        continue;
+                    }
                     self.draw_mesh(&t.mesh, ts2, black(a), DrawBlend::Over, clip);
                 }
             }
@@ -1235,17 +1392,77 @@ impl Ctx<'_> {
     /// hidden and fully transparent children add nothing.
     fn knockout_children(&mut self, children: &[NodeId], parent_ts: sk::Transform, clip: ClipId) {
         let doc = self.doc;
-        for cid in children {
+        for (i, cid) in children.iter().enumerate() {
             let Some(child) = board::get(doc, *cid) else { continue };
             let child = resolve_node(doc, &child);
             let child: &Node = &child;
-            if !child.visible || child.is_mask || matches!(child.kind, NodeKind::Page { .. }) || child.opacity <= 0.0 {
+            if !child.visible || matches!(child.kind, NodeKind::Page { .. }) {
                 continue;
             }
             let ts = parent_ts.pre_concat(to_sk(&child.transform));
+            if child.is_mask {
+                self.knockout_mask(child, children, i, parent_ts, ts, clip);
+                return;
+            }
+            let runtime_mul = self.opts.runtime_node_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+            if child.opacity * runtime_mul <= 0.0 {
+                continue;
+            }
             let g = self.geom_of(child, &ts);
             self.silhouette(child, &g, ts, 0.0, 0.0, 0.0, d::SilhouetteMode::Knockout, clip);
         }
+    }
+
+    fn knockout_mask(&mut self, mask: &Node, siblings: &[NodeId], i: usize, parent_ts: sk::Transform, ts: sk::Transform, clip: ClipId) {
+        let vis = self.visible(clip);
+        let mut rect = vis;
+        if self.cull {
+            if let Some(b) = self.index.bounds_of(mask.id) {
+                rect = rect.intersect(IRect::outward(xform_bounds(&self.root_ts, b.0, b.1, b.2 - b.0, b.3 - b.1)).grow(1));
+            }
+        }
+        if rect.is_empty() {
+            return;
+        }
+        let rest = &siblings[i + 1..];
+        if self.prog_cap_hit(64) || self.over_budget(2, 2 * self.program_cost(rect)) {
+            let lclip = self.narrow_clip(clip, rect);
+            self.knockout_children(rest, parent_ts, lclip);
+            return;
+        }
+        let mask_cost = self.program_cost(rect);
+        let layer = self.new_prog(rect);
+        let lclip = self.narrow_clip(clip, rect);
+        self.reserving(1, mask_cost, |c| c.with_prog(layer, |c| c.knockout_children(rest, parent_ts, lclip)));
+        let mask_node = mask_stencil(mask);
+        let mprog = self.new_prog(rect);
+        let mclip = self.full_clip(rect);
+        let deferred = self.geom.deferred_empty;
+        let enclosing = (self.stencil_root.replace(mask.id), std::mem::take(&mut self.stencil_children_skipped));
+        self.with_prog(mprog, |c| {
+            if mask.mask_type == d::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
+                c.draw_vector_group_children(&mask_node.children, ts, mclip);
+            } else {
+                c.draw_node(&mask_node, ts, mclip);
+            }
+            if !c.prog_has_draws(mprog) && (c.geom.deferred_empty != deferred || c.stencil_children_skipped) {
+                if let Some(frame_box) = mask_frame_box(mask) {
+                    c.draw_node(&frame_box, ts, mclip);
+                }
+            }
+        });
+        (self.stencil_root, self.stencil_children_skipped) = enclosing;
+        let pclip = self.full_clip(rect);
+        let aux_mode = if mask.mask_type == d::MaskType::Luminance { AuxMode::MulLum } else { AuxMode::Mul };
+        self.push_op(Op::Composite(Box::new(CompositeOp {
+            src: layer,
+            rect,
+            opacity: 1.0,
+            tint: None,
+            aux: Some((mprog, aux_mode)),
+            mode: CompMode::Over,
+            clip: pclip,
+        })));
     }
 
     // ----- effects ----------------------------------------------------------------

@@ -320,11 +320,13 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         })
         .collect();
     let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
+    let dropped_variable_bindings = dropped_effect_variable_bindings(&entries);
     let rest = entries_to_rest(entries, &blob_refs, &name);
     if large {
         release_os_memory();
     }
-    let (mut doc, report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
+    let (mut doc, mut report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
+    report.dropped_variable_bindings += dropped_variable_bindings;
     for (sid, sp) in style_sort_positions {
         if let Some(meta) = doc.style_meta.get_mut(&sid) {
             meta.sort_position = Some(sp);
@@ -338,6 +340,31 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         release_os_memory();
     }
     Ok((doc, report))
+}
+
+/// Effect fields whose variable binding Studio does not carry: the glass fields other than the frost radius,
+/// and the noise size (both sides), density and second colour. The noise colour, its opacity and the radius,
+/// spread and offsets of the other effects are carried as bindings (`bound_variables`).
+const UNCARRIED_EFFECT_BINDINGS: [&str; 10] = [
+    "refractionRadiusVar",
+    "specularAngleVar",
+    "specularIntensityVar",
+    "chromaticAberrationVar",
+    "splayVar",
+    "refractionIntensityVar",
+    "noiseSizeXVar",
+    "noiseSizeYVar",
+    "densityVar",
+    "secondaryColorVar",
+];
+
+/// How many bindings of [`UNCARRIED_EFFECT_BINDINGS`] the effects of `entries` (layers and effect styles) hold.
+fn dropped_effect_variable_bindings(entries: &[Entry]) -> usize {
+    entries
+        .iter()
+        .flat_map(|e| rest_import::farr(&e.json, "effects"))
+        .map(|fx| UNCARRIED_EFFECT_BINDINGS.iter().filter(|k| fx.get(**k).is_some_and(|v| !v.is_null())).count())
+        .sum()
 }
 
 // ------------------------------------------------------------------ tree
@@ -877,6 +904,7 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "blendMode",
     "mask",
     "isMask",
+    "maskType",
     "internalOnly",
     "isStateGroup",
     "backgroundColor",
@@ -1049,7 +1077,7 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "connectorEnd",
     "connectorLineType",
     "connectorLineStyle",
-    "connectorType",
+    "studioConnector",
     "connectorStartStrokeCap",
     "connectorEndStrokeCap",
     "connectorStartCap",
@@ -1094,6 +1122,10 @@ fn clean_json_floats(v: &Value) -> Value {
     }
 }
 
+fn is_modelled_stroke_cap(c: &str) -> bool {
+    c.is_empty() || crate::vecnet::cap_from(c).is_some()
+}
+
 fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<Value> {
     let obj = nc.as_object()?;
     let mut meta = Map::new();
@@ -1122,6 +1154,20 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                     has_swt = true;
                 }
             }
+            // The arrow caps are mapped to NONE for the stroke model; the baked outline keeps the arrowhead,
+            // so the name stays in the metadata for the resize to see (on the node, or on any vertex).
+            "strokeCap" if matches!(orig_ty, "VECTOR" | "BRUSH") => {
+                if let Some(c) = val.as_str().filter(|c| !is_modelled_stroke_cap(c)) {
+                    meta.insert("strokeCap".into(), Value::String(c.to_string()));
+                }
+            }
+            "vectorData" => {
+                let table = val.get("styleOverrideTable").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+                let on_vertex = table.iter().filter_map(|e| fstr(e, "strokeCap")).find(|c| !is_modelled_stroke_cap(c));
+                if let Some(c) = on_vertex {
+                    meta.entry("strokeCap".to_string()).or_insert_with(|| Value::String(c.to_string()));
+                }
+            }
             "shapeType" if orig_ty == "SHAPE_WITH_TEXT" && !has_swt => {
                 if let Some(swt) = val.as_str().filter(|s| !s.is_empty()) {
                     meta.insert("shapeWithTextType".into(), Value::String(swt.to_string()));
@@ -1131,7 +1177,6 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             | "sharedSymbolVersion"
             | "publishedVersion"
             | "version"
-            | "maskType"
             | "scrollDirection"
             | "lockMode"
             | "codeExportName"
@@ -1227,6 +1272,20 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
     }
     if orig_ty == "BRUSH" && !has_brush_type {
         meta.insert("brushType".into(), Value::String("STRETCH".into()));
+    }
+    for (ep_key, mag_key, rp_key) in
+        [("connectorStart", "connectorStartMagnet", "connectorStartRelativePosition"), ("connectorEnd", "connectorEndMagnet", "connectorEndRelativePosition")]
+    {
+        if let Some(ep) = nc.get(ep_key) {
+            if let Some(m) = fstr(ep, "magnet").filter(|m| matches!(*m, "NONE" | "AUTO_HORIZONTAL" | "EDGE" | "ABSOLUTE")) {
+                meta.insert(mag_key.into(), Value::String(m.to_string()));
+            }
+            if let Some(rp) = ep.get("relativePosition").filter(|v| v.is_object()) {
+                if let Ok(s) = serde_json::to_string(&clean_json_floats(rp)) {
+                    meta.insert(rp_key.into(), Value::String(s));
+                }
+            }
+        }
     }
     (!meta.is_empty()).then_some(Value::Object(meta))
 }
@@ -1420,6 +1479,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     copy(&mut m, nc, "name", "name");
     copy(&mut m, nc, "componentKey", "componentKey");
+    copy(&mut m, nc, "studioConnector", "studioConnector");
     // A symbol or state group indexed by its publish `key` (see `Lk::new`) keeps that key the way
     // `componentKey` is kept, so export writes it back. An explicit `componentKey` wins.
     if !m.contains_key("componentKey") && matches!(ty, "COMPONENT" | "COMPONENT_SET") {
@@ -1457,11 +1517,15 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     copy(&mut m, nc, "opacity", "opacity");
     copy(&mut m, nc, "blendMode", "blendMode");
     copy(&mut m, nc, "mask", "isMask");
+    copy(&mut m, nc, "maskType", "maskType");
     if nc.get("proportionsConstrained").and_then(Value::as_bool) == Some(true)
         || nc.get("targetAspectRatio").and_then(|v| v.get("value")).is_some()
         || nc.get("targetAspectRatio").and_then(Value::as_object).is_some_and(|o| !o.is_empty())
     {
         m.insert("preserveRatio".into(), Value::Bool(true));
+    } else if let Some(locked) = nc.get("proportionsConstrained").and_then(Value::as_bool) {
+        // `false` is meaningful on an instance node: it can clear a locked main.
+        m.insert("preserveRatio".into(), Value::Bool(locked));
     } else {
         copy(&mut m, nc, "preserveRatio", "preserveRatio");
     }
@@ -1550,7 +1614,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     copy(&mut m, nc, "strokeWeight", "strokeWeight");
     copy(&mut m, nc, "strokeAlign", "strokeAlign");
-    enum_map(&mut m, nc, "strokeCap", "strokeCap", &[("ARROW_LINES", "NONE"), ("ARROW_EQUILATERAL", "NONE")]);
+    copy(&mut m, nc, "strokeCap", "strokeCap");
     copy(&mut m, nc, "strokeJoin", "strokeJoin");
     copy(&mut m, nc, "dashPattern", "strokeDashes");
     copy(&mut m, nc, "strokeMiterAngle", "strokeMiterAngle");
@@ -1751,7 +1815,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             if let Some(e) = nc.get("connectorEnd") {
                 m.insert("connectorEnd".into(), conv_ep(e));
             }
-            if let Some(lt) = fstr(nc, "connectorLineType").or_else(|| fstr(nc, "connectorLineStyle")).or_else(|| fstr(nc, "connectorType")) {
+            if let Some(lt) = fstr(nc, "connectorLineType").or_else(|| fstr(nc, "connectorLineStyle")) {
                 m.insert("connectorLineType".into(), lt.into());
             }
             if let Some(sc) = nc.get("connectorStartStrokeCap").or_else(|| nc.get("connectorStartCap")) {
@@ -1864,19 +1928,24 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
             out.insert((*k).into(), a.clone());
         }
     }
-    for (src, dst, opacity_dst, stops_dst) in
-        [("fillPaints", "fills", "fillOpacities", "fillStops"), ("strokePaints", "strokes", "strokeOpacities", "strokeStops")]
-    {
-        let list: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
+    for (src, style_key, dst, opacity_dst, stops_dst) in [
+        ("fillPaints", "styleIdForFill", "fills", "fillOpacities", "fillStops"),
+        ("strokePaints", "styleIdForStrokeFill", "strokes", "strokeOpacities", "strokeStops"),
+    ] {
+        let own = rest_import::farr(nc, src);
+        if nc.get(style_key).and_then(|r| lk.style_node(r)).is_some() && !own.iter().any(|p| p.get("colorVar").is_some()) {
+            continue;
+        }
+        let list: Vec<Value> = own.iter().map(|p| p.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
         if list.iter().any(|v| !v.is_null()) {
             out.insert(dst.into(), Value::Array(list));
         }
         // `Paint.opacityVar`: REST has no field for it, `variables::parse_node_variables` reads this key.
-        let opacities: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("opacityVar").and_then(alias).unwrap_or(Value::Null)).collect();
+        let opacities: Vec<Value> = own.iter().map(|p| p.get("opacityVar").and_then(alias).unwrap_or(Value::Null)).collect();
         if opacities.iter().any(|v| !v.is_null()) {
             out.insert(opacity_dst.into(), Value::Array(opacities));
         }
-        let stops_list: Vec<Value> = rest_import::farr(nc, src)
+        let stops_list: Vec<Value> = own
             .iter()
             .map(|p| {
                 let sv: Vec<Value> = rest_import::farr(p, "stopsVar").iter().map(|st| st.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
@@ -2185,11 +2254,28 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     let mut has_text = false;
     for (k, val) in obj {
         match k.as_str() {
-            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" | "slotContent" => {
+            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "strokeCap" | "strokeJoin"
+            | "strokeMiterAngle" | "cornerRadius" | "slotContent" => {
                 m.insert(k.clone(), val.clone());
+            }
+            "miterLimit" => {
+                m.insert("strokeMiterLimit".into(), val.clone());
+            }
+            "dashPattern" => {
+                if let Some(arr) = val.as_array() {
+                    m.insert("strokeDashes".into(), Value::Array(arr.clone()));
+                }
+            }
+            "proportionsConstrained" => {
+                if let Some(locked) = val.as_bool() {
+                    m.insert("preserveRatio".into(), locked.into());
+                }
             }
             "mask" => {
                 m.insert("isMask".into(), val.clone());
+            }
+            "maskType" | "isMaskOutline" => {
+                m.insert(k.clone(), val.clone());
             }
             "overrideLevel" => {
                 if let Some(lvl) = val.as_i64() {
@@ -2331,12 +2417,23 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             _ => {}
         }
     }
-    for (src, dst, style) in [("fillPaints", "fills", "styleIdForFill"), ("strokePaints", "strokes", "styleIdForStrokeFill")] {
-        if obj.contains_key(src) {
-            m.insert(dst.into(), Value::Array(rest_import::farr(o, src).iter().filter_map(convert_paint).collect()));
-        } else if let Some(sn) = obj.get(style).and_then(|r| lk.style_node(r)) {
-            // An override that only names a library style: the style supplies the paints.
+    // Entries in `symbolOverrides` apply in list order, so a later paints-only entry on the same
+    // `guidPath` clears an earlier style link on that path while non-paint entries keep it.
+    for (src, dst, style, slot, clear_key) in [
+        ("fillPaints", "fills", "styleIdForFill", "fill", "_clearFillStyle"),
+        ("strokePaints", "strokes", "styleIdForStrokeFill", "stroke", "_clearStrokeStyle"),
+    ] {
+        let own = rest_import::farr(o, src);
+        let from_style = obj.get(style).and_then(|r| lk.style_node(r)).filter(|_| !own.iter().any(|p| p.get("colorVar").is_some()));
+        if let Some(sn) = from_style {
             m.insert(dst.into(), Value::Array(rest_import::farr(sn, "fillPaints").iter().filter_map(convert_paint).collect()));
+        } else if obj.contains_key(src) {
+            m.insert(dst.into(), Value::Array(own.iter().filter_map(convert_paint).collect()));
+        }
+        if obj.contains_key(style) {
+            insert_style_override_link(&mut m, obj, lk, style, slot, clear_key);
+        } else if obj.contains_key(src) {
+            m.insert(clear_key.into(), Value::Bool(true));
         }
     }
     if has_borders {
@@ -2506,8 +2603,19 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             }
             text_overrides(&mut m, td, base_sz, lk);
         }
+        insert_style_override_link(&mut m, obj, lk, "styleIdForText", "text", "_clearTextStyle");
     }
     m
+}
+
+/// `style_key` naming a style relinks `slot`; a null or unresolved reference clears the link (Figma's detach); every other override keeps the inherited link.
+fn insert_style_override_link(m: &mut Map<String, Value>, obj: &Map<String, Value>, lk: &Lk, style_key: &str, slot: &str, clear_key: &str) {
+    let Some(r) = obj.get(style_key) else { return };
+    if let Some(id) = lk.style_id(r).filter(|id| lk.style_node(r).is_some() || id.starts_with("key:")) {
+        m.entry("styles".to_string()).or_insert_with(|| Value::Object(Map::new())).as_object_mut().unwrap().insert(slot.into(), Value::String(id));
+    } else {
+        m.insert(clear_key.into(), Value::Bool(true));
+    }
 }
 
 fn convert_derived_override(o: &Value, lk: &Lk) -> Map<String, Value> {
@@ -2594,6 +2702,19 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
             return None;
         }
         let path = guid_path(o);
+        if !derived && path.len() == 1 {
+            let own = [instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str), instance.get("guid").and_then(guid_str)];
+            if own.iter().flatten().any(|g| *g == path[0]) {
+                // A self entry that restates paints without a style key keeps the style the instance itself names.
+                if let Some(inst_obj) = instance.as_object() {
+                    for (style, slot, clear_key) in [("styleIdForFill", "fill", "_clearFillStyle"), ("styleIdForStrokeFill", "stroke", "_clearStrokeStyle")] {
+                        if o.get(style).is_none() && inst_obj.contains_key(style) && set.remove(clear_key).is_some() {
+                            insert_style_override_link(&mut set, inst_obj, lk, style, slot, clear_key);
+                        }
+                    }
+                }
+            }
+        }
         if !derived {
             let parent = path.split_last().and_then(|(_, up)| restated.get(up));
             resolve_override_grid_anchor(&mut set, "gridColumnAnchorIndex", "_gridColumnAnchorGuid", parent.map(|p| p.0.as_slice()), &lk.grid_column_index);
@@ -2700,6 +2821,32 @@ fn convert_paint(p: &Value) -> Option<Value> {
                 .or_else(|| image.and_then(|i| fstr(i, "name")))?;
             m.insert("imageRef".into(), hash.into());
             enum_map(&mut m, p, "imageScaleMode", "scaleMode", &[]);
+            if let Some(t) = p.get("transform") {
+                m.insert("imageTransform".into(), matrix_json(t));
+            }
+            copy(&mut m, p, "rotation", "rotation");
+            copy(&mut m, p, "scale", "scalingFactor");
+            if let Some(pf) = p.get("paintFilter").or_else(|| p.get("filterColorAdjust")) {
+                let mut flt = Map::new();
+                for k in ["tint", "shadows", "highlights", "detail", "exposure", "vignette", "temperature", "vibrance", "contrast", "brightness"] {
+                    copy(&mut flt, pf, k, k);
+                }
+                if !flt.is_empty() {
+                    m.insert("filters".into(), Value::Object(flt));
+                }
+            }
+            copy(&mut m, p, "imageShouldColorManage", "imageShouldColorManage");
+            copy(&mut m, p, "originalImageWidth", "originalImageWidth");
+            copy(&mut m, p, "originalImageHeight", "originalImageHeight");
+        }
+        "CUSTOM" => {
+            if let Some(obj) = p.as_object() {
+                for (k, v) in obj {
+                    if !matches!(k.as_str(), "type" | "opacity" | "visible" | "blendMode") {
+                        m.insert(k.clone(), v.clone());
+                    }
+                }
+            }
         }
         _ => return None,
     }
@@ -2712,6 +2859,16 @@ fn convert_effect(e: &Value) -> Option<Value> {
         "GRAIN" => "TEXTURE",
         other => other,
     };
+    if ty == "CUSTOM" {
+        let mut m = Map::new();
+        if let Some(obj) = e.as_object() {
+            for (k, v) in obj {
+                m.insert(k.clone(), v.clone());
+            }
+        }
+        m.insert("type".into(), "CUSTOM".into());
+        return Some(Value::Object(m));
+    }
     let mut m = Map::new();
     m.insert("type".into(), ty.into());
     for k in
@@ -2728,11 +2885,20 @@ fn convert_effect(e: &Value) -> Option<Value> {
         };
         m.insert("noiseType".into(), norm.into());
     }
+    // The stored size is a vector: both sides are kept, and a side that is missing takes the other one.
     if let Some(ns) = e.get("noiseSize") {
         if ns.is_number() {
             m.insert("noiseSize".into(), ns.clone());
-        } else if let Some(sz) = fnum(ns, "x").or_else(|| fnum(ns, "y")) {
-            m.insert("noiseSize".into(), json!(kiwi::clean_f32(sz)));
+        } else {
+            match (fnum(ns, "x"), fnum(ns, "y")) {
+                (Some(x), Some(y)) => {
+                    m.insert("noiseSize".into(), json!({"x": kiwi::clean_f32(x), "y": kiwi::clean_f32(y)}));
+                }
+                (Some(one), None) | (None, Some(one)) => {
+                    m.insert("noiseSize".into(), json!(kiwi::clean_f32(one)));
+                }
+                (None, None) => {}
+            }
         }
     }
     for (kiwi_key, rest_key) in [
@@ -2741,6 +2907,8 @@ fn convert_effect(e: &Value) -> Option<Value> {
         ("refractionIntensity", "refraction"),
         ("refractionRadius", "depth"),
         ("chromaticAberration", "dispersion"),
+        ("reflectionDistance", "reflectionDistance"),
+        ("bevelSize", "bevelSize"),
     ] {
         if e.get(kiwi_key).is_some() {
             copy(&mut m, e, kiwi_key, rest_key);
@@ -3065,5 +3233,337 @@ mod tests {
         assert!(rt_parent.children.contains(&rt_child.id));
         let rt_sibling = rt.nodes.values().find(|n| n.name == "FreshSibling").expect("FreshSibling preserved");
         assert_eq!(rt_sibling.parent, Some(rt_parent.id));
+    }
+
+    fn custom_shader_test_fig(effects: Vec<kiwi::KiwiValue>, fills: Vec<kiwi::KiwiValue>) -> Vec<u8> {
+        use crate::container::{self, Compression};
+        use crate::kiwi::KiwiValue as V;
+        use crate::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, vec2};
+
+        let doc = msg(vec![("guid", guid(0, 0)), ("type", en("DOCUMENT")), ("name", V::String("ShaderDoc".into()))]);
+        let page = node((0, 1), (0, 0), "!", "CANVAS", "Page 1", vec![]);
+        let mut rect_extra = vec![("size", vec2(120.0, 80.0)), ("transform", matrix(10.0, 20.0)), ("opacity", fl(1.0)), ("visible", V::Bool(true))];
+        if !fills.is_empty() {
+            rect_extra.push(("fillPaints", V::Array(fills)));
+        }
+        if !effects.is_empty() {
+            rect_extra.push(("effects", V::Array(effects)));
+        }
+        let rect = node((1, 2), (0, 1), "!", "ROUNDED_RECTANGLE", "ShaderBox", rect_extra);
+        let root_msg = msg(vec![("nodeChanges", V::Array(vec![doc, page, rect])), ("blobs", V::Array(vec![]))]);
+        let schema = figma_like_schema();
+        let root = schema.find("Message").unwrap();
+        let body = schema.encode_message(root, &root_msg).unwrap();
+        container::write_container(&schema.encode(), &body, Compression::Zstd, 101)
+    }
+
+    #[test]
+    fn shader_effect_round_trips_through_fig() {
+        use crate::kiwi::KiwiValue as V;
+        use crate::testkit::{en, fl, guid, msg};
+        use designos_doc::Effect;
+
+        let effect_kv = msg(vec![
+            ("type", en("CUSTOM")),
+            ("visible", V::Bool(true)),
+            ("radius", fl(12.0)),
+            ("blendMode", en("MULTIPLY")),
+            (
+                "customEffectId",
+                msg(vec![("guid", guid(10, 25)), ("assetRef", msg(vec![("key", V::String("shader_key_abc".into())), ("version", V::String("1".into()))]))]),
+            ),
+            ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(1, 2)), ("value", msg(vec![("floatValue", fl(0.75))]))])])),
+        ]);
+
+        let fig_bytes = custom_shader_test_fig(vec![effect_kv], vec![]);
+        let doc = import_fig(&fig_bytes).expect("import_fig with custom shader effect");
+        let node = doc.nodes.values().find(|n| n.name == "ShaderBox").expect("ShaderBox node");
+        assert_eq!(node.effects.len(), 1);
+        match &node.effects[0] {
+            Effect::Shader { shader, visible } => {
+                assert!(*visible);
+                assert_eq!(shader.raw["customEffectId"]["assetRef"]["key"], json!("shader_key_abc"));
+                assert_eq!(shader.raw["componentPropAssignments"][0]["value"]["floatValue"], json!(0.75));
+            }
+            other => panic!("expected Effect::Shader, got {other:?}"),
+        }
+
+        let exported = crate::fig_export::export_fig(&doc).expect("export_fig with custom shader effect");
+        let decoded = decode_fig_to_json(&exported).expect("decode exported fig");
+        let changes = decoded["message"]["nodeChanges"].as_array().expect("nodeChanges array");
+        let rect_nc = changes.iter().find(|nc| nc["name"] == "ShaderBox").expect("ShaderBox in exported nodeChanges");
+        let eff = &rect_nc["effects"][0];
+        assert_eq!(eff["type"], json!("CUSTOM"));
+        assert_eq!(eff["visible"], json!(true));
+        assert_eq!(eff["radius"], json!(12.0));
+        assert_eq!(eff["blendMode"], json!("MULTIPLY"));
+        assert_eq!(
+            eff["customEffectId"],
+            json!({
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            })
+        );
+        assert_eq!(
+            eff["componentPropAssignments"],
+            json!([
+                {
+                    "defID": {"sessionID": 1, "localID": 2},
+                    "value": {"floatValue": 0.75}
+                }
+            ])
+        );
+
+        let rt = import_fig(&exported).expect("re-import exported fig");
+        let rt_node = rt.nodes.values().find(|n| n.name == "ShaderBox").expect("ShaderBox after round trip");
+        assert_eq!(rt_node.effects, node.effects);
+    }
+
+    #[test]
+    fn shader_paint_round_trips_through_fig() {
+        use crate::kiwi::KiwiValue as V;
+        use crate::testkit::{en, fl, guid, msg, vec2};
+        use designos_doc::{BlendMode, PaintKind};
+
+        let paint_kv = msg(vec![
+            ("type", en("CUSTOM")),
+            ("opacity", fl(0.75)),
+            ("visible", V::Bool(true)),
+            ("blendMode", en("SCREEN")),
+            ("sourceNodeId", guid(3, 44)),
+            ("patternSpacing", vec2(4.0, 8.0)),
+            (
+                "customEffectId",
+                msg(vec![("guid", guid(11, 26)), ("assetRef", msg(vec![("key", V::String("paint_shader_xyz".into())), ("version", V::String("2".into()))]))]),
+            ),
+            ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(2, 3)), ("value", msg(vec![("floatValue", fl(0.25))]))])])),
+        ]);
+
+        let fig_bytes = custom_shader_test_fig(vec![], vec![paint_kv]);
+        let doc = import_fig(&fig_bytes).expect("import_fig with custom shader paint");
+        let node = doc.nodes.values().find(|n| n.name == "ShaderBox").expect("ShaderBox node");
+        assert_eq!(node.fills.len(), 1);
+        let fill = &node.fills[0];
+        assert!((fill.opacity - 0.75).abs() < 1e-6);
+        assert!(fill.visible);
+        assert_eq!(fill.blend, BlendMode::Screen);
+        match &fill.kind {
+            PaintKind::Shader(shader) => {
+                assert_eq!(shader.raw["sourceNodeId"], json!({"sessionID": 3, "localID": 44}));
+                assert_eq!(shader.raw["patternSpacing"], json!({"x": 4.0, "y": 8.0}));
+                assert_eq!(shader.raw["customEffectId"]["assetRef"]["key"], json!("paint_shader_xyz"));
+            }
+            other => panic!("expected PaintKind::Shader, got {other:?}"),
+        }
+
+        let exported = crate::fig_export::export_fig(&doc).expect("export_fig with custom shader paint");
+        let decoded = decode_fig_to_json(&exported).expect("decode exported fig");
+        let changes = decoded["message"]["nodeChanges"].as_array().expect("nodeChanges array");
+        let rect_nc = changes.iter().find(|nc| nc["name"] == "ShaderBox").expect("ShaderBox in exported nodeChanges");
+        let p = &rect_nc["fillPaints"][0];
+        assert_eq!(p["type"], json!("CUSTOM"));
+        assert_eq!(p["opacity"], json!(0.75));
+        assert_eq!(p["visible"], json!(true));
+        assert_eq!(p["blendMode"], json!("SCREEN"));
+        assert_eq!(p["sourceNodeId"], json!({"sessionID": 3, "localID": 44}));
+        assert_eq!(p["patternSpacing"], json!({"x": 4.0, "y": 8.0}));
+        assert_eq!(
+            p["customEffectId"],
+            json!({
+                "guid": {"sessionID": 11, "localID": 26},
+                "assetRef": {"key": "paint_shader_xyz", "version": "2"}
+            })
+        );
+        assert_eq!(
+            p["componentPropAssignments"],
+            json!([
+                {
+                    "defID": {"sessionID": 2, "localID": 3},
+                    "value": {"floatValue": 0.25}
+                }
+            ])
+        );
+
+        let rt = import_fig(&exported).expect("re-import exported fig");
+        let rt_node = rt.nodes.values().find(|n| n.name == "ShaderBox").expect("ShaderBox after round trip");
+        assert_eq!(rt_node.fills, node.fills);
+    }
+
+    #[test]
+    fn shader_effect_and_paint_round_trip_through_rest_json() {
+        let effect_shader = json!({
+            "radius": 8.0,
+            "customEffectId": {
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            },
+            "componentPropAssignments": [{
+                "defID": {"sessionID": 1, "localID": 2},
+                "value": {"floatValue": 0.5}
+            }]
+        });
+        let fill_shader = json!({"sourceNodeId": {"sessionID": 7, "localID": 8}});
+        let rest_input = json!({
+            "name": "ShaderRestDoc",
+            "document": {
+                "id": "0:0",
+                "name": "Document",
+                "type": "DOCUMENT",
+                "children": [{
+                    "id": "0:1",
+                    "name": "Page 1",
+                    "type": "CANVAS",
+                    "children": [{
+                        "id": "1:2",
+                        "name": "ShaderLayer",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": {"x": 0.0, "y": 0.0, "width": 100.0, "height": 80.0},
+                        "fills": [{
+                            "type": "SHADER",
+                            "opacity": 0.5,
+                            "visible": true,
+                            "blendMode": "OVERLAY",
+                            "shader": fill_shader
+                        }],
+                        "effects": [{
+                            "type": "SHADER",
+                            "visible": false,
+                            "shader": effect_shader
+                        }]
+                    }]
+                }]
+            }
+        });
+
+        let doc = crate::import_rest_json(&rest_input.to_string()).expect("import_rest_json");
+        let exported_val = crate::export_rest_json(&doc);
+        let layer = &exported_val["document"]["children"][0]["children"][0];
+        assert_eq!(layer["name"], json!("ShaderLayer"));
+
+        let fill = &layer["fills"][0];
+        assert_eq!(fill["type"], json!("SHADER"));
+        assert_eq!(fill["opacity"], json!(0.5));
+        assert_eq!(fill["visible"], json!(true));
+        assert_eq!(fill["blendMode"], json!("OVERLAY"));
+        assert_eq!(fill["shader"], fill_shader);
+
+        let eff = &layer["effects"][0];
+        assert_eq!(eff["type"], json!("SHADER"));
+        assert_eq!(eff["visible"], json!(false));
+        assert_eq!(eff["shader"], effect_shader);
+    }
+
+    #[test]
+    fn shader_effect_and_paint_round_trip_through_designos_json() {
+        use designos_doc::{BlendMode, Effect, Node, Paint, PaintKind, Rect, ShaderRef};
+
+        let mut doc = Document::new("ShaderDesignosJson");
+        let page = doc.add_page("Page 1");
+        let nid = doc.alloc_id();
+        let mut rect = Node::rectangle(nid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        rect.name = "ShaderNode".into();
+        rect.fills = vec![Paint {
+            kind: PaintKind::Shader(ShaderRef {
+                raw: json!({
+                    "sourceNodeId": {"sessionID": 3, "localID": 44},
+                    "patternSpacing": {"x": 4.0, "y": 8.0}
+                }),
+            }),
+            opacity: 0.75,
+            visible: true,
+            blend: BlendMode::Screen,
+        }];
+        rect.effects = vec![Effect::Shader {
+            shader: ShaderRef {
+                raw: json!({
+                    "radius": 12.0,
+                    "customEffectId": {
+                        "guid": {"sessionID": 10, "localID": 25},
+                        "assetRef": {"key": "shader_key_abc", "version": "1"}
+                    }
+                }),
+            },
+            visible: true,
+        }];
+        doc.insert(page, rect).unwrap();
+
+        let serialized = doc.to_json().expect("Document::to_json");
+        let roundtripped = Document::from_json(&serialized).expect("Document::from_json");
+        let orig_node = doc.get(nid).unwrap();
+        let rt_node = roundtripped.get(nid).unwrap();
+        assert_eq!(rt_node.fills, orig_node.fills);
+        assert_eq!(rt_node.effects, orig_node.effects);
+    }
+
+    #[test]
+    fn shader_ref_malformed_json_errors_on_fig_export() {
+        use designos_doc::{BlendMode, Effect, Node, Paint, PaintKind, Rect, ShaderRef};
+
+        let mut doc = Document::new("MalformedShader");
+        let page = doc.add_page("Page 1");
+        let nid = doc.alloc_id();
+        let mut rect = Node::rectangle(nid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        rect.name = "BrokenShaderLayer".into();
+        rect.effects = vec![Effect::Shader {
+            shader: ShaderRef {
+                raw: json!({
+                    "customEffectId": {
+                        "guid": {"sessionID": "not-a-uint"}
+                    }
+                }),
+            },
+            visible: true,
+        }];
+        doc.insert(page, rect).unwrap();
+
+        let err = crate::fig_export::export_fig(&doc).expect_err("malformed customEffectId must fail export_fig");
+        let msg = err.to_string();
+        assert!(msg.contains("BrokenShaderLayer"), "error must name layer: {msg}");
+        assert!(msg.contains("customEffectId"), "error must name field: {msg}");
+
+        let mut doc_non_obj = Document::new("NonObjShader");
+        let page2 = doc_non_obj.add_page("Page 1");
+        let nid2 = doc_non_obj.alloc_id();
+        let mut rect2 = Node::rectangle(nid2, Rect::new(0.0, 0.0, 100.0, 100.0));
+        rect2.name = "NonObjectShaderFill".into();
+        rect2.fills = vec![Paint { kind: PaintKind::Shader(ShaderRef { raw: json!("not-an-object") }), opacity: 1.0, visible: true, blend: BlendMode::Normal }];
+        doc_non_obj.insert(page2, rect2).unwrap();
+
+        let err2 = crate::fig_export::export_fig(&doc_non_obj).expect_err("non-object shader raw must fail export_fig");
+        let msg2 = err2.to_string();
+        assert!(msg2.contains("NonObjectShaderFill"), "error must name layer: {msg2}");
+        assert!(msg2.contains("Paint"), "error must name field: {msg2}");
+    }
+
+    #[test]
+    fn scan_fig_file_for_custom_shader_effects_and_paints_when_requested() {
+        let Ok(path) = std::env::var("DESIGNOS_SCAN_FIG_PATH") else { return };
+        let bytes = std::fs::read(&path).expect("read DESIGNOS_SCAN_FIG_PATH");
+        let d = decode(&bytes).expect("decode fig");
+        let changes = d.message.get("nodeChanges").and_then(|v| v.as_array()).expect("nodeChanges");
+        let mut custom_effects = 0usize;
+        let mut custom_fills = 0usize;
+        let mut custom_strokes = 0usize;
+        let count_custom = |arr: &[kiwi::KiwiValue]| -> usize {
+            arr.iter().filter(|item| matches!(item.get("type"), Some(kiwi::KiwiValue::Enum(s)) if &**s == "CUSTOM")).count()
+        };
+        for nc in changes {
+            if let Some(arr) = nc.get("effects").and_then(|v| v.as_array()) {
+                custom_effects += count_custom(arr);
+            }
+            if let Some(arr) = nc.get("fillPaints").and_then(|v| v.as_array()) {
+                custom_fills += count_custom(arr);
+            }
+            if let Some(arr) = nc.get("strokePaints").and_then(|v| v.as_array()) {
+                custom_strokes += count_custom(arr);
+            }
+        }
+        println!(
+            "kit_scan: nodeChanges={} EffectType::CUSTOM={} PaintType::CUSTOM(fills)={} PaintType::CUSTOM(strokes)={}",
+            changes.len(),
+            custom_effects,
+            custom_fills,
+            custom_strokes
+        );
     }
 }

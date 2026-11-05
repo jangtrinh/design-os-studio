@@ -1,0 +1,74 @@
+=== designos-doc test (before fix) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 1 test
+test components::tests::swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo ... FAILED
+
+failures:
+
+---- components::tests::swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo stdout ----
+
+thread 'components::tests::swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo' (37944304) panicked at crates/designos-doc/src/components.rs:4146:9:
+assertion `left == right` failed
+  left: "Icon/Check"
+ right: "Leading icon"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 672 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== designos-app test (before fix) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.10s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 1 test
+test panels::components::props_panel_tests::properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo ... FAILED
+
+failures:
+
+---- panels::components::props_panel_tests::properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo stdout ----
+
+thread 'panels::components::props_panel_tests::properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo' (37953157) panicked at crates/designos-app/src/panels/components.rs:491:9:
+assertion `left == right` failed
+  left: "Icon/Check"
+ right: "Leading icon"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::components::props_panel_tests::properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3896 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

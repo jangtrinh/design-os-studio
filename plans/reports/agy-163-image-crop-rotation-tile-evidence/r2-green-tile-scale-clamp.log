@@ -1,0 +1,17 @@
+## render
+test tile_scale_2_doubles_the_tile_size ... ok
+test tile_scale_above_the_maximum_and_non_finite_values_clamp ... ok
+test tile_scale_zero_and_negative_render_at_the_minimum ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.35s
+## gpu
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+test tile_scale_2_doubles_the_tile_size ... ok
+test non_finite_tile_scale_renders_at_native_size_on_cpu_and_gpu ... ok
+test tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.46s
+## fig
+test rest_import_clamps_scaling_factor_into_the_tile_scale_range ... ok
+test fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.05s

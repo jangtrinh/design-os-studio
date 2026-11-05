@@ -329,7 +329,7 @@ fn overlay_on_image_within_0_05() {
             visible: true,
             opacity: 1.0,
             blend: designos_doc::BlendMode::Normal,
-            kind: PaintKind::Image { image_ref: "checker".into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: "checker".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
         },
         Paint::solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.4 }),
     ];

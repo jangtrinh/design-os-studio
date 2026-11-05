@@ -1,0 +1,100 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.74s
+     Running tests/kit_inspect_temp.rs (out/cargo/debug/deps/kit_inspect_temp-52d90e05cf56afdc)
+
+running 1 test
+initial_total_vectors=33325
+initial_valid_net_and_bake=17556
+initial_open_chain_aligned_count=83
+initial_mixed_vertex_joins_count=63
+initial_arrow_cap_meta=732
+initial_vertex_caps_differ=0
+initial_vertex_caps_equal_node=6352
+NodeId(12750) src=Some("4916:411661") name="File type=Image / IMG, Type=Default" kind=Discriminant(12) size=Vec2 { x: 40.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 16.0, ty: 232.0 } align=Inside weight=1 children=[12751, 12754]
+NodeId(12751) src=Some("4916:411443") name="Page" kind=Discriminant(1) size=Vec2 { x: 32.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 7.0, ty: 0.0 } align=Inside weight=1 children=[12752, 12753]
+NodeId(12752) src=Some("4916:411444") name="Page background" kind=Discriminant(9) size=Vec2 { x: 32.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 } align=Inside weight=1.5 children=[]
+  paths=1 v=7 s=7 r=1 open_ends=[]
+  v[0]: pos=(0.0000, 0.0000) cap=None join=None r=0
+  v[1]: pos=(32.0000, 40.0000) cap=None join=None r=0
+  v[2]: pos=(0.0000, 40.0000) cap=None join=None r=0
+  v[3]: pos=(20.5000, 0.0000) cap=None join=None r=0
+  v[4]: pos=(32.0000, 11.5000) cap=None join=None r=0
+  v[5]: pos=(20.0000, 0.0000) cap=None join=None r=0
+  v[6]: pos=(32.0000, 12.0000) cap=None join=None r=0
+  s[0]: 1 -> 2 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[1]: 2 -> 0 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[2]: 3 -> 4 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[3]: 0 -> 5 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[4]: 5 -> 3 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[5]: 4 -> 6 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[6]: 6 -> 1 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  sg[0] rule=NonZero: [MoveTo(Vec2 { x: 20.853554, y: 0.35355335 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), LineTo(Vec2 { x: 20.853554, y: 0.35355335 }), Close, MoveTo(Vec2 { x: 28.0, y: 38.5 }), LineTo(Vec2 { x: 4.0, y: 38.5 }), LineTo(Vec2 { x: 4.0, y: 41.5 }), LineTo(Vec2 { x: 28.0, y: 41.5 }), LineTo(Vec2 { x: 28.0, y: 38.5 }), Close, MoveTo(Vec2 { x: 1.5, y: 36.0 }), LineTo(Vec2 { x: 1.5, y: 4.000001 }), LineTo(Vec2 { x: -1.5, y: 4.000001 }), LineTo(Vec2 { x: -1.5, y: 36.0 }), LineTo(Vec2 { x: 1.5, y: 36.0 }), Close, MoveTo(Vec2 { x: 19.792892, y: 1.4142135 }), LineTo(Vec2 { x: 30.585785, y: 12.207106 }), LineTo(Vec2 { x: 32.707108, y: 10.085786 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), LineTo(Vec2 { x: 19.792892, y: 1.4142135 }), Close, MoveTo(Vec2 { x: 4.0, y: 1.5 }), LineTo(Vec2 { x: 20.0, y: 1.5 }), LineTo(Vec2 { x: 20.0, y: -1.5 }), LineTo(Vec2 { x: 4.0, y: -1.5 }), LineTo(Vec2 { x: 4.0, y: 1.5 }), Close, MoveTo(Vec2 { x: 30.5, y: 12.0 }), LineTo(Vec2 { x: 30.5, y: 36.0 }), LineTo(Vec2 { x: 33.5, y: 36.0 }), LineTo(Vec2 { x: 33.5, y: 12.0 }), LineTo(Vec2 { x: 30.5, y: 12.0 }), Close, MoveTo(Vec2 { x: 30.585785, y: 12.207106 }), CubicTo(Vec2 { x: 30.530859, y: 12.152179 }, Vec2 { x: 30.5, y: 12.077682 }, Vec2 { x: 30.5, y: 12.0 }), LineTo(Vec2 { x: 33.5, y: 12.0 }), CubicTo(Vec2 { x: 33.5, y: 11.282029 }, Vec2 { x: 33.214787, y: 10.593466 }, Vec2 { x: 32.707108, y: 10.085786 }), LineTo(Vec2 { x: 30.585785, y: 12.207106 }), Close, MoveTo(Vec2 { x: 21.914213, y: -0.7071068 }), CubicTo(Vec2 { x: 21.406532, y: -1.2147878 }, Vec2 { x: 20.71797, y: -1.5 }, Vec2 { x: 20.0, y: -1.5 }), LineTo(Vec2 { x: 20.0, y: 1.5 }), CubicTo(Vec2 { x: 19.92232, y: 1.5 }, Vec2 { x: 19.847822, y: 1.4691417 }, Vec2 { x: 19.792892, y: 1.4142135 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), Close, MoveTo(Vec2 { x: 4.0, y: 38.5 }), CubicTo(Vec2 { x: 2.6192882, y: 38.5 }, Vec2 { x: 1.5, y: 37.38071 }, Vec2 { x: 1.5, y: 36.0 }), LineTo(Vec2 { x: -1.5, y: 36.0 }), CubicTo(Vec2 { x: -1.5, y: 39.037567 }, Vec2 { x: 0.96243393, y: 41.5 }, Vec2 { x: 4.0, y: 41.5 }), LineTo(Vec2 { x: 4.0, y: 38.5 }), Close, MoveTo(Vec2 { x: 28.0, y: 41.5 }), CubicTo(Vec2 { x: 31.037565, y: 41.5 }, Vec2 { x: 33.5, y: 39.037567 }, Vec2 { x: 33.5, y: 36.0 }), LineTo(Vec2 { x: 30.5, y: 36.0 }), CubicTo(Vec2 { x: 30.5, y: 37.38071 }, Vec2 { x: 29.380713, y: 38.5 }, Vec2 { x: 28.0, y: 38.5 }), LineTo(Vec2 { x: 28.0, y: 41.5 }), Close, MoveTo(Vec2 { x: 1.5, y: 4.000001 }), CubicTo(Vec2 { x: 1.5, y: 2.6192887 }, Vec2 { x: 2.6192887, y: 1.5 }, Vec2 { x: 4.0, y: 1.5 }), LineTo(Vec2 { x: 4.0, y: -1.5 }), CubicTo(Vec2 { x: 0.9624336, y: -1.5 }, Vec2 { x: -1.5, y: 0.9624353 }, Vec2 { x: -1.5, y: 4.000001 }), LineTo(Vec2 { x: 1.5, y: 4.000001 }), Close]
+NodeId(12753) src=Some("4916:411445") name="Earmark" kind=Discriminant(9) size=Vec2 { x: 11.5, y: 11.5 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 20.0, ty: 0.5 } align=Inside weight=1.5 children=[]
+  paths=1 v=3 s=2 r=0 open_ends=[(0, 2)]
+  v[0]: pos=(0.0000, 0.0000) cap=None join=None r=0
+  v[1]: pos=(0.0000, 11.5000) cap=None join=None r=0
+  v[2]: pos=(11.5000, 11.5000) cap=None join=None r=0
+  s[0]: 0 -> 1 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[1]: 1 -> 2 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  sg[0] rule=NonZero: [MoveTo(Vec2 { x: -0.75, y: 0.0 }), LineTo(Vec2 { x: -0.75, y: 7.5000005 }), LineTo(Vec2 { x: 0.75, y: 7.5000005 }), LineTo(Vec2 { x: 0.75, y: 0.0 }), LineTo(Vec2 { x: -0.75, y: 0.0 }), Close, MoveTo(Vec2 { x: 4.0, y: 12.25 }), LineTo(Vec2 { x: 11.5, y: 12.25 }), LineTo(Vec2 { x: 11.5, y: 10.75 }), LineTo(Vec2 { x: 4.0, y: 10.75 }), LineTo(Vec2 { x: 4.0, y: 12.25 }), Close, MoveTo(Vec2 { x: -0.75, y: 7.5000005 }), CubicTo(Vec2 { x: -0.75, y: 10.123352 }, Vec2 { x: 1.3766476, y: 12.25 }, Vec2 { x: 4.0, y: 12.25 }), LineTo(Vec2 { x: 4.0, y: 10.75 }), CubicTo(Vec2 { x: 2.2050745, y: 10.75 }, Vec2 { x: 0.75, y: 9.294926 }, Vec2 { x: 0.75, y: 7.5000005 }), LineTo(Vec2 { x: -0.75, y: 7.5000005 }), Close]
+NodeId(12768) src=Some("4916:411659") name="File type=Image / JPG, Type=Default" kind=Discriminant(12) size=Vec2 { x: 40.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 88.0, ty: 232.0 } align=Inside weight=1 children=[12769, 12772]
+NodeId(12769) src=Some("4916:411431") name="Page" kind=Discriminant(1) size=Vec2 { x: 32.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 7.0, ty: 0.0 } align=Inside weight=1 children=[12770, 12771]
+NodeId(12770) src=Some("4916:411432") name="Page background" kind=Discriminant(9) size=Vec2 { x: 32.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 } align=Inside weight=1.5 children=[]
+  paths=1 v=7 s=7 r=1 open_ends=[]
+  v[0]: pos=(0.0000, 0.0000) cap=None join=None r=0
+  v[1]: pos=(32.0000, 40.0000) cap=None join=None r=0
+  v[2]: pos=(0.0000, 40.0000) cap=None join=None r=0
+  v[3]: pos=(20.5000, 0.0000) cap=None join=None r=0
+  v[4]: pos=(32.0000, 11.5000) cap=None join=None r=0
+  v[5]: pos=(20.0000, 0.0000) cap=None join=None r=0
+  v[6]: pos=(32.0000, 12.0000) cap=None join=None r=0
+  s[0]: 1 -> 2 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[1]: 2 -> 0 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[2]: 3 -> 4 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[3]: 0 -> 5 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[4]: 5 -> 3 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[5]: 4 -> 6 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[6]: 6 -> 1 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  sg[0] rule=NonZero: [MoveTo(Vec2 { x: 20.853554, y: 0.35355335 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), LineTo(Vec2 { x: 20.853554, y: 0.35355335 }), Close, MoveTo(Vec2 { x: 28.0, y: 38.5 }), LineTo(Vec2 { x: 4.0, y: 38.5 }), LineTo(Vec2 { x: 4.0, y: 41.5 }), LineTo(Vec2 { x: 28.0, y: 41.5 }), LineTo(Vec2 { x: 28.0, y: 38.5 }), Close, MoveTo(Vec2 { x: 1.5, y: 36.0 }), LineTo(Vec2 { x: 1.5, y: 4.000001 }), LineTo(Vec2 { x: -1.5, y: 4.000001 }), LineTo(Vec2 { x: -1.5, y: 36.0 }), LineTo(Vec2 { x: 1.5, y: 36.0 }), Close, MoveTo(Vec2 { x: 19.792892, y: 1.4142135 }), LineTo(Vec2 { x: 30.585785, y: 12.207106 }), LineTo(Vec2 { x: 32.707108, y: 10.085786 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), LineTo(Vec2 { x: 19.792892, y: 1.4142135 }), Close, MoveTo(Vec2 { x: 4.0, y: 1.5 }), LineTo(Vec2 { x: 20.0, y: 1.5 }), LineTo(Vec2 { x: 20.0, y: -1.5 }), LineTo(Vec2 { x: 4.0, y: -1.5 }), LineTo(Vec2 { x: 4.0, y: 1.5 }), Close, MoveTo(Vec2 { x: 30.5, y: 12.0 }), LineTo(Vec2 { x: 30.5, y: 36.0 }), LineTo(Vec2 { x: 33.5, y: 36.0 }), LineTo(Vec2 { x: 33.5, y: 12.0 }), LineTo(Vec2 { x: 30.5, y: 12.0 }), Close, MoveTo(Vec2 { x: 30.585785, y: 12.207106 }), CubicTo(Vec2 { x: 30.530859, y: 12.152179 }, Vec2 { x: 30.5, y: 12.077682 }, Vec2 { x: 30.5, y: 12.0 }), LineTo(Vec2 { x: 33.5, y: 12.0 }), CubicTo(Vec2 { x: 33.5, y: 11.282029 }, Vec2 { x: 33.214787, y: 10.593466 }, Vec2 { x: 32.707108, y: 10.085786 }), LineTo(Vec2 { x: 30.585785, y: 12.207106 }), Close, MoveTo(Vec2 { x: 21.914213, y: -0.7071068 }), CubicTo(Vec2 { x: 21.406532, y: -1.2147878 }, Vec2 { x: 20.71797, y: -1.5 }, Vec2 { x: 20.0, y: -1.5 }), LineTo(Vec2 { x: 20.0, y: 1.5 }), CubicTo(Vec2 { x: 19.92232, y: 1.5 }, Vec2 { x: 19.847822, y: 1.4691417 }, Vec2 { x: 19.792892, y: 1.4142135 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), Close, MoveTo(Vec2 { x: 4.0, y: 38.5 }), CubicTo(Vec2 { x: 2.6192882, y: 38.5 }, Vec2 { x: 1.5, y: 37.38071 }, Vec2 { x: 1.5, y: 36.0 }), LineTo(Vec2 { x: -1.5, y: 36.0 }), CubicTo(Vec2 { x: -1.5, y: 39.037567 }, Vec2 { x: 0.96243393, y: 41.5 }, Vec2 { x: 4.0, y: 41.5 }), LineTo(Vec2 { x: 4.0, y: 38.5 }), Close, MoveTo(Vec2 { x: 28.0, y: 41.5 }), CubicTo(Vec2 { x: 31.037565, y: 41.5 }, Vec2 { x: 33.5, y: 39.037567 }, Vec2 { x: 33.5, y: 36.0 }), LineTo(Vec2 { x: 30.5, y: 36.0 }), CubicTo(Vec2 { x: 30.5, y: 37.38071 }, Vec2 { x: 29.380713, y: 38.5 }, Vec2 { x: 28.0, y: 38.5 }), LineTo(Vec2 { x: 28.0, y: 41.5 }), Close, MoveTo(Vec2 { x: 1.5, y: 4.000001 }), CubicTo(Vec2 { x: 1.5, y: 2.6192887 }, Vec2 { x: 2.6192887, y: 1.5 }, Vec2 { x: 4.0, y: 1.5 }), LineTo(Vec2 { x: 4.0, y: -1.5 }), CubicTo(Vec2 { x: 0.9624336, y: -1.5 }, Vec2 { x: -1.5, y: 0.9624353 }, Vec2 { x: -1.5, y: 4.000001 }), LineTo(Vec2 { x: 1.5, y: 4.000001 }), Close]
+NodeId(12771) src=Some("4916:411433") name="Earmark" kind=Discriminant(9) size=Vec2 { x: 11.5, y: 11.5 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 20.0, ty: 0.5 } align=Inside weight=1.5 children=[]
+  paths=1 v=3 s=2 r=0 open_ends=[(0, 2)]
+  v[0]: pos=(0.0000, 0.0000) cap=None join=None r=0
+  v[1]: pos=(0.0000, 11.5000) cap=None join=None r=0
+  v[2]: pos=(11.5000, 11.5000) cap=None join=None r=0
+  s[0]: 0 -> 1 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[1]: 1 -> 2 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  sg[0] rule=NonZero: [MoveTo(Vec2 { x: -0.75, y: 0.0 }), LineTo(Vec2 { x: -0.75, y: 7.5000005 }), LineTo(Vec2 { x: 0.75, y: 7.5000005 }), LineTo(Vec2 { x: 0.75, y: 0.0 }), LineTo(Vec2 { x: -0.75, y: 0.0 }), Close, MoveTo(Vec2 { x: 4.0, y: 12.25 }), LineTo(Vec2 { x: 11.5, y: 12.25 }), LineTo(Vec2 { x: 11.5, y: 10.75 }), LineTo(Vec2 { x: 4.0, y: 10.75 }), LineTo(Vec2 { x: 4.0, y: 12.25 }), Close, MoveTo(Vec2 { x: -0.75, y: 7.5000005 }), CubicTo(Vec2 { x: -0.75, y: 10.123352 }, Vec2 { x: 1.3766476, y: 12.25 }, Vec2 { x: 4.0, y: 12.25 }), LineTo(Vec2 { x: 4.0, y: 10.75 }), CubicTo(Vec2 { x: 2.2050745, y: 10.75 }, Vec2 { x: 0.75, y: 9.294926 }, Vec2 { x: 0.75, y: 7.5000005 }), LineTo(Vec2 { x: -0.75, y: 7.5000005 }), Close]
+NodeId(13026) src=Some("4916:411568") name="File type=Simple / PDF, Type=Default" kind=Discriminant(12) size=Vec2 { x: 40.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 448.0, ty: 16.0 } align=Inside weight=1 children=[13027, 13030]
+NodeId(13027) src=Some("4902:412662") name="Page" kind=Discriminant(1) size=Vec2 { x: 32.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 4.0, ty: 0.0 } align=Inside weight=1 children=[13028, 13029]
+NodeId(13028) src=Some("4902:412663") name="Page background" kind=Discriminant(9) size=Vec2 { x: 32.0, y: 40.0 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 } align=Inside weight=1.5 children=[]
+  paths=1 v=7 s=7 r=1 open_ends=[]
+  v[0]: pos=(0.0000, 0.0000) cap=None join=None r=0
+  v[1]: pos=(32.0000, 40.0000) cap=None join=None r=0
+  v[2]: pos=(0.0000, 40.0000) cap=None join=None r=0
+  v[3]: pos=(20.5000, 0.0000) cap=None join=None r=0
+  v[4]: pos=(32.0000, 11.5000) cap=None join=None r=0
+  v[5]: pos=(20.0000, 0.0000) cap=None join=None r=0
+  v[6]: pos=(32.0000, 12.0000) cap=None join=None r=0
+  s[0]: 1 -> 2 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[1]: 2 -> 0 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[2]: 3 -> 4 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[3]: 0 -> 5 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[4]: 5 -> 3 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[5]: 4 -> 6 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[6]: 6 -> 1 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  sg[0] rule=NonZero: [MoveTo(Vec2 { x: 20.853554, y: 0.35355335 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), LineTo(Vec2 { x: 20.853554, y: 0.35355335 }), Close, MoveTo(Vec2 { x: 28.0, y: 38.5 }), LineTo(Vec2 { x: 4.0, y: 38.5 }), LineTo(Vec2 { x: 4.0, y: 41.5 }), LineTo(Vec2 { x: 28.0, y: 41.5 }), LineTo(Vec2 { x: 28.0, y: 38.5 }), Close, MoveTo(Vec2 { x: 1.5, y: 36.0 }), LineTo(Vec2 { x: 1.5, y: 4.000001 }), LineTo(Vec2 { x: -1.5, y: 4.000001 }), LineTo(Vec2 { x: -1.5, y: 36.0 }), LineTo(Vec2 { x: 1.5, y: 36.0 }), Close, MoveTo(Vec2 { x: 19.792892, y: 1.4142135 }), LineTo(Vec2 { x: 30.585785, y: 12.207106 }), LineTo(Vec2 { x: 32.707108, y: 10.085786 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), LineTo(Vec2 { x: 19.792892, y: 1.4142135 }), Close, MoveTo(Vec2 { x: 4.0, y: 1.5 }), LineTo(Vec2 { x: 20.0, y: 1.5 }), LineTo(Vec2 { x: 20.0, y: -1.5 }), LineTo(Vec2 { x: 4.0, y: -1.5 }), LineTo(Vec2 { x: 4.0, y: 1.5 }), Close, MoveTo(Vec2 { x: 30.5, y: 12.0 }), LineTo(Vec2 { x: 30.5, y: 36.0 }), LineTo(Vec2 { x: 33.5, y: 36.0 }), LineTo(Vec2 { x: 33.5, y: 12.0 }), LineTo(Vec2 { x: 30.5, y: 12.0 }), Close, MoveTo(Vec2 { x: 30.585785, y: 12.207106 }), CubicTo(Vec2 { x: 30.530859, y: 12.152179 }, Vec2 { x: 30.5, y: 12.077682 }, Vec2 { x: 30.5, y: 12.0 }), LineTo(Vec2 { x: 33.5, y: 12.0 }), CubicTo(Vec2 { x: 33.5, y: 11.282029 }, Vec2 { x: 33.214787, y: 10.593466 }, Vec2 { x: 32.707108, y: 10.085786 }), LineTo(Vec2 { x: 30.585785, y: 12.207106 }), Close, MoveTo(Vec2 { x: 21.914213, y: -0.7071068 }), CubicTo(Vec2 { x: 21.406532, y: -1.2147878 }, Vec2 { x: 20.71797, y: -1.5 }, Vec2 { x: 20.0, y: -1.5 }), LineTo(Vec2 { x: 20.0, y: 1.5 }), CubicTo(Vec2 { x: 19.92232, y: 1.5 }, Vec2 { x: 19.847822, y: 1.4691417 }, Vec2 { x: 19.792892, y: 1.4142135 }), LineTo(Vec2 { x: 21.914213, y: -0.7071068 }), Close, MoveTo(Vec2 { x: 4.0, y: 38.5 }), CubicTo(Vec2 { x: 2.6192882, y: 38.5 }, Vec2 { x: 1.5, y: 37.38071 }, Vec2 { x: 1.5, y: 36.0 }), LineTo(Vec2 { x: -1.5, y: 36.0 }), CubicTo(Vec2 { x: -1.5, y: 39.037567 }, Vec2 { x: 0.96243393, y: 41.5 }, Vec2 { x: 4.0, y: 41.5 }), LineTo(Vec2 { x: 4.0, y: 38.5 }), Close, MoveTo(Vec2 { x: 28.0, y: 41.5 }), CubicTo(Vec2 { x: 31.037565, y: 41.5 }, Vec2 { x: 33.5, y: 39.037567 }, Vec2 { x: 33.5, y: 36.0 }), LineTo(Vec2 { x: 30.5, y: 36.0 }), CubicTo(Vec2 { x: 30.5, y: 37.38071 }, Vec2 { x: 29.380713, y: 38.5 }, Vec2 { x: 28.0, y: 38.5 }), LineTo(Vec2 { x: 28.0, y: 41.5 }), Close, MoveTo(Vec2 { x: 1.5, y: 4.000001 }), CubicTo(Vec2 { x: 1.5, y: 2.6192887 }, Vec2 { x: 2.6192887, y: 1.5 }, Vec2 { x: 4.0, y: 1.5 }), LineTo(Vec2 { x: 4.0, y: -1.5 }), CubicTo(Vec2 { x: 0.9624336, y: -1.5 }, Vec2 { x: -1.5, y: 0.9624353 }, Vec2 { x: -1.5, y: 4.000001 }), LineTo(Vec2 { x: 1.5, y: 4.000001 }), Close]
+NodeId(13029) src=Some("4902:412664") name="Earmark" kind=Discriminant(9) size=Vec2 { x: 11.5, y: 11.5 } tf=Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 20.0, ty: 0.5 } align=Inside weight=1.5 children=[]
+  paths=1 v=3 s=2 r=0 open_ends=[(0, 2)]
+  v[0]: pos=(0.0000, 0.0000) cap=None join=None r=0
+  v[1]: pos=(0.0000, 11.5000) cap=None join=None r=0
+  v[2]: pos=(11.5000, 11.5000) cap=None join=None r=0
+  s[0]: 0 -> 1 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  s[1]: 1 -> 2 ta=(0.0000, 0.0000) tb=(0.0000, 0.0000)
+  sg[0] rule=NonZero: [MoveTo(Vec2 { x: -0.75, y: 0.0 }), LineTo(Vec2 { x: -0.75, y: 7.5000005 }), LineTo(Vec2 { x: 0.75, y: 7.5000005 }), LineTo(Vec2 { x: 0.75, y: 0.0 }), LineTo(Vec2 { x: -0.75, y: 0.0 }), Close, MoveTo(Vec2 { x: 4.0, y: 12.25 }), LineTo(Vec2 { x: 11.5, y: 12.25 }), LineTo(Vec2 { x: 11.5, y: 10.75 }), LineTo(Vec2 { x: 4.0, y: 10.75 }), LineTo(Vec2 { x: 4.0, y: 12.25 }), Close, MoveTo(Vec2 { x: -0.75, y: 7.5000005 }), CubicTo(Vec2 { x: -0.75, y: 10.123352 }, Vec2 { x: 1.3766476, y: 12.25 }, Vec2 { x: 4.0, y: 12.25 }), LineTo(Vec2 { x: 4.0, y: 10.75 }), CubicTo(Vec2 { x: 2.2050745, y: 10.75 }, Vec2 { x: 0.75, y: 9.294926 }, Vec2 { x: 0.75, y: 7.5000005 }), LineTo(Vec2 { x: -0.75, y: 7.5000005 }), Close]
+test inspect_kit_initial_counts_and_file_type_detail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.71s
+

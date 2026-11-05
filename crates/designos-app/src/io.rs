@@ -156,6 +156,21 @@ pub fn load_call_count(path: &Path) -> usize {
     load_counts().lock().ok().and_then(|m| m.get(path).copied()).unwrap_or(0)
 }
 
+/// Test seam: `f` runs once on the document the next [`load_path_with_clone_budget`] on this thread returns, so a test
+/// can give a file the page hydrator that no importer attaches to page 0.
+#[cfg(test)]
+pub fn after_next_load(f: impl FnOnce(&mut Document) + 'static) {
+    AFTER_NEXT_LOAD.with(|slot| *slot.borrow_mut() = Some(Box::new(f)));
+}
+
+#[cfg(test)]
+type AfterLoad = Box<dyn FnOnce(&mut Document)>;
+
+#[cfg(test)]
+thread_local! {
+    static AFTER_NEXT_LOAD: std::cell::RefCell<Option<AfterLoad>> = const { std::cell::RefCell::new(None) };
+}
+
 pub fn load_path_with_warning(path: &Path) -> Result<(Document, Option<String>), String> {
     load_path_with_clone_budget(path, designos_fig::MAX_IMPORT_CLONES)
 }
@@ -165,7 +180,22 @@ pub fn load_path_with_clone_budget(path: &Path, clone_budget: usize) -> Result<(
     if let Ok(mut m) = load_counts().lock() {
         *m.entry(path.to_path_buf()).or_insert(0) += 1;
     }
-    load_path_importing_pen_with_mode(path, import_pen_with_options, true, clone_budget)
+    after_load_seam(load_path_importing_pen_with_mode(path, import_pen_with_options, true, clone_budget))
+}
+
+#[cfg(test)]
+fn after_load_seam(loaded: Result<(Document, Option<String>), String>) -> Result<(Document, Option<String>), String> {
+    loaded.map(|(mut doc, warning)| {
+        if let Some(f) = AFTER_NEXT_LOAD.with(|slot| slot.borrow_mut().take()) {
+            f(&mut doc);
+        }
+        (doc, warning)
+    })
+}
+
+#[cfg(not(test))]
+fn after_load_seam(loaded: Result<(Document, Option<String>), String>) -> Result<(Document, Option<String>), String> {
+    loaded
 }
 
 /// [`load_path_with_warning`] with the `.pen` importer injected, so a test can produce a warning
@@ -193,6 +223,9 @@ fn load_path_importing_pen_with_mode(
             let (d, report) = designos_fig::import_fig_with_budget(&bytes, clone_budget).map_err(|e| format!("Cannot import .fig: {e}"))?;
             if report.instances_left_unexpanded > 0 {
                 warning = Some(clone_budget_notice(report.instances_left_unexpanded));
+            }
+            if report.missing_variable_bindings > 0 {
+                append_import_warning(&mut warning, missing_variable_bindings_notice(report.missing_variable_bindings));
             }
             d
         }
@@ -227,10 +260,10 @@ fn load_path_importing_pen_with_mode(
                         }
                         if report.instances_left_unexpanded > 0 {
                             let budget_msg = clone_budget_notice(report.instances_left_unexpanded);
-                            warning = Some(match warning {
-                                Some(prev) => format!("{prev} {budget_msg}"),
-                                None => budget_msg,
-                            });
+                            append_import_warning(&mut warning, budget_msg);
+                        }
+                        if report.missing_variable_bindings > 0 {
+                            append_import_warning(&mut warning, missing_variable_bindings_notice(report.missing_variable_bindings));
                         }
                         d
                     }
@@ -280,6 +313,23 @@ fn load_path_importing_pen_with_mode(
 /// because expanding them would exceed [`designos_fig::MAX_IMPORT_CLONES`].
 pub fn clone_budget_notice(unexpanded: usize) -> String {
     format!("This file has more nested component copies than Studio can expand (limit 8,000,000). {unexpanded} instances are shown empty.")
+}
+
+/// Formats the warning shown when `missing` variables that layers or styles are bound to are not in the opened
+/// file. The links stay attached, so importing the variables later resolves them.
+pub fn missing_variable_bindings_notice(missing: usize) -> String {
+    if missing == 1 {
+        "1 variable used in this file is missing; its link is kept and resolves when the variable is imported.".to_string()
+    } else {
+        format!("{missing} variables used in this file are missing; their links are kept and resolve when the variables are imported.")
+    }
+}
+
+fn append_import_warning(warning: &mut Option<String>, message: String) {
+    *warning = Some(match warning.take() {
+        Some(previous) => format!("{previous} {message}"),
+        None => message,
+    });
 }
 
 /// Toast text after a successful open; carries the import warning so it reaches the user.
@@ -389,7 +439,7 @@ pub fn comment_threads_left_out(doc: &Document, path: &Path) -> usize {
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
 /// This is the headless save (the Agent CLI), so what the file leaves out goes to stderr.
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
-    let (p, replaced) = save_path_counted(doc, path)?;
+    let (p, replaced) = save_path_counted(doc, path).map_err(|e| e.to_string())?;
     if replaced > 0 {
         eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
     }
@@ -401,7 +451,7 @@ pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
 
 /// [`save_path`], also returning how many non-finite numbers the native format wrote as their neutral
 /// value, counted by the one serialization the save performs (`.fig` and `.pen` exports replace none).
-pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize), String> {
+pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize), std::io::Error> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
@@ -409,19 +459,22 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
     let mut replaced = 0;
     let payload = match save_format(&p) {
         SaveFormat::Fig => {
-            let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
+            let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| std::io::Error::other(format!("Cannot export .fig: {e}")))?;
             bytes
         }
-        SaveFormat::Pen => designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes(),
+        SaveFormat::Pen => designos_fig::export_pen_json(doc).map_err(|e| std::io::Error::other(format!("Cannot export .pen: {e}")))?.into_bytes(),
         SaveFormat::Native => {
-            let (json, n) = doc.to_json_counted().map_err(|e| format!("Cannot serialize: {e}"))?;
+            let (json, n) = doc.to_json_counted().map_err(|e| std::io::Error::other(format!("Cannot serialize: {e}")))?;
             replaced = n;
             json.into_bytes()
         }
     };
 
-    let wrote_backup = write_pending_repair_backup(&p)?;
-    designos_library::write_atomic(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
+    let wrote_backup = write_pending_repair_backup(&p).map_err(std::io::Error::other)?;
+    designos_library::write_atomic(&p, &payload).map_err(|e| match e {
+        designos_library::LibraryError::Io(io) => std::io::Error::new(io.kind(), format!("Cannot write {}: {io}", p.display())),
+        other => std::io::Error::other(format!("Cannot write {}: {other}", p.display())),
+    })?;
     if wrote_backup {
         clear_pending_repair_backup(&p);
     }
@@ -458,7 +511,7 @@ pub fn export_request(default_name: &str) -> FileRequest {
 /// The app saves through [`save_path_counted`] so it can repair the open document; tests use this wrapper.
 #[cfg(test)]
 pub fn save_path_with_notice(doc: &Document, path: &Path) -> Result<(PathBuf, Option<String>), String> {
-    let (p, replaced) = save_path_counted(doc, path)?;
+    let (p, replaced) = save_path_counted(doc, path).map_err(|e| e.to_string())?;
     let notice = non_finite_notice_once(&p, replaced);
     Ok((p, notice))
 }
@@ -1269,6 +1322,72 @@ mod tests {
     fn clone_budget_notice_keeps_user_facing_8m_limit() {
         assert_eq!(designos_fig::MAX_IMPORT_CLONES, 8_000_000);
         assert_eq!(clone_budget_notice(5), "This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty.");
+    }
+
+    #[test]
+    fn missing_variables_notice_counts_the_variables_in_plain_words() {
+        assert_eq!(
+            missing_variable_bindings_notice(1),
+            "1 variable used in this file is missing; its link is kept and resolves when the variable is imported."
+        );
+        assert_eq!(
+            missing_variable_bindings_notice(3),
+            "3 variables used in this file are missing; their links are kept and resolve when the variables are imported."
+        );
+    }
+
+    #[test]
+    fn opening_rest_file_with_a_gradient_stop_bound_to_a_missing_variable_shows_the_notice() {
+        let p = tmp("missing_variable_gradient.json");
+        std::fs::write(
+            &p,
+            r#"{"name":"MissingVariable","document":{"type":"DOCUMENT","children":[{"type":"CANVAS","name":"P","children":[
+                {"id":"1:1","type":"RECTANGLE","name":"Gradient","absoluteBoundingBox":{"x":0,"y":0,"width":40,"height":40},
+                 "fills":[{"type":"GRADIENT_LINEAR","gradientHandlePositions":[{"x":0,"y":0.5},{"x":1,"y":0.5},{"x":0,"y":1}],
+                 "gradientStops":[{"position":0,"color":{"r":1,"g":0,"b":0,"a":1},"boundVariables":{"color":{"type":"VARIABLE_ALIAS","id":"VariableID:9:9"}}}]}]}
+            ]}]}}"#,
+        )
+        .unwrap();
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert!(!doc.pages.is_empty());
+        assert_eq!(warning.as_deref(), Some(missing_variable_bindings_notice(1).as_str()));
+    }
+
+    #[test]
+    fn opening_rest_file_with_a_solid_fill_bound_to_a_missing_variable_shows_the_notice_in_the_toast() {
+        let p = tmp("missing_variable_solid.json");
+        std::fs::write(
+            &p,
+            r#"{"name":"MissingVariable","document":{"type":"DOCUMENT","children":[{"type":"CANVAS","name":"P","children":[
+                {"id":"1:1","type":"RECTANGLE","name":"Solid","absoluteBoundingBox":{"x":0,"y":0,"width":40,"height":40},
+                 "fills":[{"type":"SOLID","color":{"r":1,"g":0,"b":0,"a":1},"boundVariables":{"color":{"type":"VARIABLE_ALIAS","id":"VariableID:9:9"}}}]},
+                {"id":"1:2","type":"RECTANGLE","name":"Other","absoluteBoundingBox":{"x":50,"y":0,"width":40,"height":40},
+                 "fills":[{"type":"SOLID","color":{"r":1,"g":0,"b":0,"a":1},"boundVariables":{"color":{"type":"VARIABLE_ALIAS","id":"VariableID:9:9"}}}]}
+            ]}]}}"#,
+        )
+        .unwrap();
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(warning.as_deref(), Some("1 variable used in this file is missing; its link is kept and resolves when the variable is imported."));
+        let toast = opened_toast_text(&doc.name, warning.as_deref());
+        assert!(toast.contains("1 variable used in this file is missing"), "{toast}");
+    }
+
+    #[test]
+    fn opening_fig_file_with_bindings_to_missing_variables_shows_the_notice() {
+        let mut d = Document::new("FigMissing");
+        let page = d.add_page("Page 1");
+        for (i, var) in ["VariableID:9:9", "VariableID:9:10"].into_iter().enumerate() {
+            let id = d.alloc_id();
+            let rect = d.insert(page, Node::rectangle(id, Rect::new(10.0 * i as f32, 0.0, 40.0, 40.0))).unwrap();
+            d.get_mut(rect).unwrap().variables.bindings.insert("fills/0".into(), var.into());
+        }
+        let p = save_path(&d, &tmp("missing_variables.fig")).unwrap();
+        let (back, warning) = load_path_with_warning(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert!(!back.pages.is_empty());
+        assert_eq!(warning.as_deref(), Some("2 variables used in this file are missing; their links are kept and resolve when the variables are imported."));
     }
 
     #[test]

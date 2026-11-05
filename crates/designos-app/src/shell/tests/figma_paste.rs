@@ -181,22 +181,77 @@ fn losing_window_focus_forgets_a_plain_v_press_whose_release_never_came() {
 }
 
 #[test]
-fn shift_cmd_v_is_an_ordinary_paste_as_egui_winit_ignores_shift() {
-    // Real sequences: with text, Event::Paste on the press; without, only the release. Either way it is the
-    // normal paste, once; there is no separate "paste over selection" behaviour.
+fn shift_cmd_v_uses_paste_over_selection_and_does_not_read_system_clipboard() {
+    // Real sequences: with text, Event::Paste on the press; without, only the release. Both events carry no
+    // modifiers, so the shell uses the frame modifiers to route Shift+Cmd+V to the in-app paste-over command.
+    // That command intentionally ignores system text/HTML and does nothing when no in-app copy exists.
     counted_figma_clipboard!(READS);
     let shift_cmd = Modifiers { shift: true, ..Modifiers::COMMAND };
     let mut s = Sim::new();
     s.shell.app.system_html = counted;
     let before = ids(&s);
     paste_chord(&mut s, Some("text"), shift_cmd, shift_cmd);
-    assert_eq!(button_count(&s, &before), 1);
-    assert_eq!(READS.load(Ordering::SeqCst), 1);
+    assert_eq!(button_count(&s, &before), 0, "Shift+Cmd+V must not import system text");
+    assert_eq!(READS.load(Ordering::SeqCst), 0, "Shift+Cmd+V must not read system HTML");
 
     let before = ids(&s);
     paste_chord(&mut s, None, shift_cmd, shift_cmd);
-    assert_eq!(button_count(&s, &before), 1, "{:?}", names_added(&s, &before));
-    assert_eq!(READS.load(Ordering::SeqCst), 2);
+    assert_eq!(button_count(&s, &before), 0, "Shift+Cmd+V must not import Figma HTML: {:?}", names_added(&s, &before));
+    assert_eq!(READS.load(Ordering::SeqCst), 0, "Shift+Cmd+V must not read system HTML");
+}
+
+#[test]
+fn shift_cmd_v_with_html_only_uses_the_in_app_copy_over_selection() {
+    counted_figma_clipboard!(READS);
+    let mut s = Sim::new();
+    let source = s.by_name("Button");
+    let target = s.by_name("Card");
+    s.shell.app.selection = vec![source];
+    s.shell.app.copy_selection().expect("copy source layers");
+    s.shell.app.system_html = counted;
+    s.shell.app.selection = vec![target];
+    let before = s.app().doc.nodes.len();
+
+    let shift_cmd = Modifiers { shift: true, ..Modifiers::COMMAND };
+    s.mods = shift_cmd;
+    s.frame(vec![]);
+    s.frame(vec![key_v(false, shift_cmd)]);
+    s.mods = Modifiers::NONE;
+
+    assert!(s.app().doc.nodes.len() > before, "Shift+Cmd+V uses the in-app copy");
+    assert_eq!(s.app().selection.len(), 1);
+    assert_eq!(s.app().doc.get(s.app().selection[0]).unwrap().parent, Some(target));
+    assert_eq!(READS.load(Ordering::SeqCst), 0, "Shift+Cmd+V must not read system HTML");
+}
+
+#[test]
+fn shift_let_go_before_v_on_a_figma_html_only_clipboard_is_a_plain_paste() {
+    // egui-winit never forwards the V press of a paste chord and pushes no text paste for an HTML-only clipboard, so
+    // "Cmd+Shift down, V down, Shift up, V up" reaches the app exactly as "Cmd+Shift down, Shift up, V down, V up" does:
+    // the release carries Cmd alone. That is a plain Cmd+V, and it must stay one: a later change that told the two
+    // apart would also have to leave a plain Cmd+V after a let-go Shift alone.
+    counted_figma_clipboard!(READS);
+    let mut s = Sim::new();
+    let source = s.by_name("Button");
+    let target = s.by_name("Card");
+    s.shell.app.selection = vec![source];
+    s.shell.app.copy_selection().expect("copy source layers");
+    s.shell.app.system_html = counted;
+    s.shell.app.selection = vec![target];
+    let before = ids(&s);
+
+    let shift_cmd = Modifiers { shift: true, ..Modifiers::COMMAND };
+    s.mods = shift_cmd;
+    s.frame(vec![]);
+    s.mods = Modifiers::COMMAND;
+    // winit's macOS backend queues a modifier's key event before the modifier change, so it is still stamped with it
+    let shift_up = Event::Key { key: Key::ShiftLeft, physical_key: Some(Key::ShiftLeft), pressed: false, repeat: false, modifiers: shift_cmd };
+    s.frame(vec![shift_up, key_v(false, Modifiers::COMMAND)]);
+    s.mods = Modifiers::NONE;
+
+    assert_eq!(READS.load(Ordering::SeqCst), 1, "a plain paste reads the system clipboard once");
+    let names = names_added(&s, &before);
+    assert!(names.iter().any(|n| n == "Button copy"), "the Figma layers were imported, not the in-app copy: {names:?}");
 }
 
 #[test]

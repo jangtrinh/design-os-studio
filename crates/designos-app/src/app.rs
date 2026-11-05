@@ -92,11 +92,27 @@ pub enum MenuKind {
     Palette,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ShellRegions {
+    pub title_bar: Option<egui::Rect>,
+    pub tab_bar: Option<egui::Rect>,
+    pub rail: Option<egui::Rect>,
+    pub left_panel: Option<egui::Rect>,
+    pub canvas: Option<egui::Rect>,
+    pub notes: Option<egui::Rect>,
+    pub right_panel: Option<egui::Rect>,
+    pub home: Option<egui::Rect>,
+    pub present: Option<egui::Rect>,
+    pub variables_full: Option<egui::Rect>,
+}
+
 #[derive(Default)]
 pub struct UiState {
     pub menu: Option<MenuKind>,
     pub menu_anchor: Option<egui::Rect>,
     pub left_collapsed: bool,
+    /// True while the window is too narrow for a left panel. Derived every frame by the shell, never the user's choice.
+    pub left_auto_collapsed: bool,
     pub left_panel_width: f32,
     pub pages_height: Option<f32>,
     pub ai_panel_width: f32,
@@ -105,6 +121,8 @@ pub struct UiState {
     pub dev_mode: bool,
     /// Selection context menu position (canvas or layers right-click).
     pub ctx_menu: Option<egui::Pos2>,
+    /// Page-space position where a canvas right-click opened `ctx_menu`.
+    pub ctx_menu_page: Option<Vec2>,
     /// Overlapping layer picker menu position and hit list (`Cmd/Ctrl + Right-Click` on canvas).
     pub layer_picker: Option<(egui::Pos2, Vec<NodeId>)>,
     /// Anchor of the instance "more" menu and of the add-property menu in the inspector.
@@ -122,8 +140,21 @@ pub struct UiState {
     pub hide_layout_grids: bool,
     /// Snap to pixel grid is off (it is on by default, as in Figma).
     pub no_pixel_snap: bool,
+    /// Highlight layers on hover is off (it is on by default, as in Figma).
+    pub hide_hover_highlight: bool,
     /// Whether the Preferences -> Agent permissions modal is open (`#656`).
     pub permissions_modal_open: bool,
+    /// Region rects copied every frame by `Shell::draw` (`#1126`).
+    pub regions: ShellRegions,
+    /// True when launched with `--screenshot` or `apply_launch_defaults(true)` (`#1126`).
+    pub screenshot_chrome: bool,
+}
+
+impl UiState {
+    /// True when no left panel is on screen: the user collapsed it, or the window is too narrow for it.
+    pub fn left_hidden(&self) -> bool {
+        self.left_collapsed || self.left_auto_collapsed
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -163,6 +194,9 @@ impl Toast {
 
 pub struct App {
     pub doc: Document,
+    /// [`Document::peek_next_id`] from when this document was opened, before page 0 expanded its instances.
+    /// Ids at or above it belong to that expansion and are not stable across runs.
+    pub load_next_id: designos_doc::NodeId,
     pub hist: History,
     pub page: NodeId,
     pub selection: Vec<NodeId>,
@@ -272,9 +306,12 @@ pub struct App {
 
 impl App {
     pub fn new(doc: Document) -> Self {
+        crate::textmeasure::install_layout_measurer();
         let page = doc.pages.first().copied().unwrap_or(NodeId(0));
+        let load_next_id = doc.peek_next_id();
         Self {
             doc,
+            load_next_id,
             hist: History::default(),
             page,
             selection: vec![],
@@ -359,6 +396,9 @@ impl App {
             }
         }
         self.step_text_refit();
+        if !self.fonts.is_loading() && !self.text_refit_pending() {
+            self.finish_pending_vecop();
+        }
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>, error: bool) {
@@ -455,10 +495,12 @@ impl App {
 
     pub fn select_only(&mut self, id: NodeId) {
         self.selection = vec![id];
+        self.canvas.last_hover_query = None;
     }
 
     pub fn clear_selection(&mut self) {
         self.selection.clear();
+        self.canvas.last_hover_query = None;
     }
 
     /// Refreshes the `#693` busy-frame banner state from the current selection and any active canvas edit gesture.

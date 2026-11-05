@@ -5,6 +5,7 @@ use designos_fig::container::{self, Compression};
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{color, en, figma_like_schema, fl, guid, msg, node, solid, vec2};
 use designos_fig::{export_fig, import_fig};
+use serde_json::{json, Value};
 
 fn find<'a>(doc: &'a Document, name: &str) -> &'a Node {
     doc.nodes.values().find(|n| n.name == name).unwrap_or_else(|| panic!("no node named {name}"))
@@ -292,6 +293,7 @@ fn noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport
     let expected_mono = Effect::Noise(NoiseEffect {
         mode: NoiseMode::Mono { color: Color { r: 0.25, g: 0.5, b: 0.75, a: 1.0 } },
         size: 3.5,
+        size_y: None,
         density: 0.65,
         opacity: 0.4,
         blend: BlendMode::Overlay,
@@ -301,17 +303,35 @@ fn noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport
     let expected_duo = Effect::Noise(NoiseEffect {
         mode: NoiseMode::Duo { color: Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }, secondary: Color { r: 0.0, g: 0.0, b: 1.0, a: 0.5 } },
         size: 2.0,
+        size_y: None,
         density: 0.35,
         opacity: 0.8,
         blend: BlendMode::Multiply,
         seed: 9,
         visible: false,
     });
-    let expected_multi =
-        Effect::Noise(NoiseEffect { mode: NoiseMode::Multi, size: 1.5, density: 0.9, opacity: 0.5, blend: BlendMode::Screen, seed: 77, visible: true });
-    let expected_texture = Effect::Texture(TextureEffect { size: 4.0, radius: 6.5, clip_to_shape: false, seed: 13, visible: false });
-    let expected_glass =
-        Effect::Glass(GlassEffect { light_angle: 135.0, light_intensity: 0.75, refraction: 0.6, depth: 18.0, dispersion: 0.3, frost: 8.0, visible: true });
+    let expected_multi = Effect::Noise(NoiseEffect {
+        mode: NoiseMode::Multi,
+        size: 1.5,
+        size_y: None,
+        density: 0.9,
+        opacity: 0.5,
+        blend: BlendMode::Screen,
+        seed: 77,
+        visible: true,
+    });
+    let expected_texture = Effect::Texture(TextureEffect { size: 4.0, size_y: None, radius: 6.5, clip_to_shape: false, seed: 13, visible: false });
+    let expected_glass = Effect::Glass(GlassEffect {
+        light_angle: 135.0,
+        light_intensity: 0.75,
+        refraction: 0.6,
+        depth: 18.0,
+        dispersion: 0.3,
+        frost: 8.0,
+        splay: 0.0,
+        bevel: 0.0,
+        visible: true,
+    });
 
     // 1. First import from .fig
     let d1 = import_fig(&fig_bytes).unwrap();
@@ -1097,4 +1117,128 @@ fn us01_ac04_empty_and_whitespace_style_names_use_typed_unnamed_fallbacks() {
     assert_eq!(d.style_name("2:203"), "Unnamed text style");
     assert_eq!(d.style_name("2:204"), "Unnamed effect style");
     assert_eq!(d.style_name("2:205"), "Unnamed grid style");
+}
+
+// ---- glass splay and bevel, noise and texture X/Y size. Effects are compared as the JSON they save
+// as, so the expectation is the saved shape itself.
+
+fn fig_of(nodes: Vec<V>) -> Vec<u8> {
+    let message = msg(vec![("nodeChanges", V::Array(nodes))]);
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &message).unwrap();
+    container::write_container(&schema.encode(), &body, Compression::Zstd, 38)
+}
+
+fn fx_json(effects: &[Effect]) -> Vec<Value> {
+    effects.iter().map(|e| serde_json::to_value(e).unwrap()).collect()
+}
+
+/// `effects` on a frame named `Direct` and on a frame linked to an effect style that holds the same list.
+fn fig_with_effects(effects: Vec<V>) -> Vec<u8> {
+    fig_of(vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", vec![("backgroundColor", color(1.0, 1.0, 1.0, 1.0))]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", vec![("internalOnly", V::Bool(true))]),
+        style_node(200, "FX/Pair", "EFFECT", "key-fx-pair", vec![("effects", V::Array(effects.clone()))]),
+        frame(10, "Direct", vec![("effects", V::Array(effects))]),
+        frame(11, "Styled", vec![("styleIdForEffect", sref(200)), ("effects", V::Array(vec![shadow(1.0)]))]),
+    ])
+}
+
+/// Asserts the two frames and the style hold `expected` after import, after export and re-import, and
+/// after a second round.
+fn assert_effects_survive_every_round(effects: Vec<V>, expected: Vec<Value>) {
+    let mut doc = import_fig(&fig_with_effects(effects)).unwrap();
+    for round in 0..3 {
+        assert_eq!(fx_json(&find(&doc, "Direct").effects), expected, "frame effects, round {round}");
+        let styled = find(&doc, "Styled");
+        assert_eq!(fx_json(&styled.effects), expected, "styled frame effects, round {round}");
+        let key = &styled.style_refs["effect"];
+        let Style::Effect(fx) = &doc.styles[key] else { panic!("not an effect style") };
+        assert_eq!(fx_json(fx), expected, "effect style, round {round}");
+        doc = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    }
+}
+
+#[test]
+fn fig_round_trip_keeps_glass_splay_and_bevel() {
+    let glass = msg(vec![
+        ("type", en("GLASS")),
+        ("specularAngle", fl(135.0)),
+        ("specularIntensity", fl(0.75)),
+        ("refractionIntensity", fl(0.5)),
+        ("refractionRadius", fl(20.0)),
+        ("chromaticAberration", fl(0.5)),
+        ("reflectionDistance", fl(0.25)),
+        ("bevelSize", fl(4.0)),
+        ("radius", fl(4.0)),
+        ("visible", V::Bool(true)),
+    ]);
+    let expected = json!({"Glass": {
+        "light_angle": 135.0, "light_intensity": 0.75, "refraction": 0.5, "depth": 20.0, "dispersion": 0.5,
+        "frost": 4.0, "splay": 0.25, "bevel": 4.0, "visible": true
+    }});
+    assert_effects_survive_every_round(vec![glass], vec![expected]);
+}
+
+#[test]
+fn fig_round_trip_keeps_noise_x_and_y_size() {
+    let noise = |ty: &str, extra: Vec<(&'static str, V)>| {
+        let mut f = vec![
+            ("type", en("NOISE")),
+            ("noiseType", en(ty)),
+            ("noiseSize", vec2(3.0, 7.0)),
+            ("density", fl(0.5)),
+            ("opacity", fl(0.5)),
+            ("blendMode", en("NORMAL")),
+            ("seed", V::Uint(42)),
+            ("visible", V::Bool(true)),
+        ];
+        f.extend(extra);
+        msg(f)
+    };
+    let mono = noise("MONOTONE", vec![("color", color(0.25, 0.5, 0.75, 1.0))]);
+    let duo = noise("DUOTONE", vec![("color", color(1.0, 0.0, 0.0, 1.0)), ("secondaryColor", color(0.0, 0.0, 1.0, 0.5))]);
+    let multi = noise("MULTITONE", vec![]);
+    let saved = |mode: Value| json!({"Noise": {"mode": mode, "size": 3.0, "size_y": 7.0, "density": 0.5, "opacity": 0.5, "blend": "Normal", "seed": 42, "visible": true}});
+    let expected = vec![
+        saved(json!({"Mono": {"color": {"r": 0.25, "g": 0.5, "b": 0.75, "a": 1.0}}})),
+        saved(json!({"Duo": {"color": {"r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0}, "secondary": {"r": 0.0, "g": 0.0, "b": 1.0, "a": 0.5}}})),
+        saved(json!("Multi")),
+    ];
+    assert_effects_survive_every_round(vec![mono, duo, multi], expected);
+}
+
+#[test]
+fn fig_round_trip_keeps_texture_x_and_y_size_clip_and_seed() {
+    let grain = msg(vec![
+        ("type", en("GRAIN")),
+        ("noiseSize", vec2(3.0, 7.0)),
+        ("radius", fl(6.5)),
+        ("clipToShape", V::Bool(false)),
+        ("seed", V::Uint(13)),
+        ("visible", V::Bool(true)),
+    ]);
+    let expected = json!({"Texture": {"size": 3.0, "size_y": 7.0, "radius": 6.5, "clip_to_shape": false, "seed": 13, "visible": true}});
+    assert_effects_survive_every_round(vec![grain], vec![expected]);
+}
+
+#[test]
+fn equal_x_and_y_sizes_stay_one_size() {
+    let sized = |x: f32, y: f32| {
+        msg(vec![
+            ("type", en("GRAIN")),
+            ("noiseSize", vec2(x, y)),
+            ("radius", fl(2.0)),
+            ("clipToShape", V::Bool(true)),
+            ("seed", V::Uint(1)),
+            ("visible", V::Bool(true)),
+        ])
+    };
+    let doc = import_fig(&fig_with_effects(vec![sized(4.0, 4.0)])).unwrap();
+    let saved = fx_json(&find(&doc, "Direct").effects);
+    assert_eq!(saved, vec![json!({"Texture": {"size": 4.0, "radius": 2.0, "clip_to_shape": true, "seed": 1, "visible": true}})]);
+    let again = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!(fx_json(&find(&again, "Direct").effects), saved);
 }

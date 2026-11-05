@@ -1,0 +1,596 @@
+=== GATE 1: df -h / && cargo fmt --all -- --check ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    19Gi    39%    459k  195M    0%   /
+FMT_EXIT=0
+=== GATE 2a: df -h / && cargo clippy --workspace --all-targets --locked -- -D warnings ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    19Gi    39%    459k  195M    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-mcp)
+    Checking designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app)
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1163:9
+     |
+1163 | ...   return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_return
+     = note: `-D clippy::needless-return` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_return)]`
+help: remove `return`
+     |
+1163 -         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+1163 +         std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"))
+     |
+
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1181:9
+     |
+1181 | ...   return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_return
+help: remove `return`
+     |
+1181 -         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+1181 +         std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"))
+     |
+
+error: writing `&mut Vec` instead of `&mut [_]` involves a new object where a slice will do
+   --> crates/designos-app/src/panels/components.rs:409:29
+    |
+409 | fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: change this to: `&mut [ComponentPropDef]`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#ptr_arg
+    = note: `-D clippy::ptr-arg` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::ptr_arg)]`
+
+error: could not compile `designos-app` (bin "designos-studio") due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `designos-app` (bin "designos") due to 3 previous errors
+error: items after a test module
+   --> crates/designos-app/src/panels/components.rs:263:1
+    |
+263 | mod props_panel_tests {
+    | ^^^^^^^^^^^^^^^^^^^^^
+...
+409 | fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+413 | fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+484 | fn instance_slot_content(app: &mut App, ui: &mut Ui, pane: &mut Pane, slot: NodeId) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+543 | pub fn show_slot_picker_popup(app: &mut App, ctx: &egui::Context) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+570 | fn overrides_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+593 | fn override_name(f: OverrideField) -> &'static str {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+615 | fn kind_label(k: &PropKind) -> &'static str {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+625 | fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+729 | fn parse_optional_u32(raw: &str) -> Option<Option<u32>> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+738 | fn slot_settings_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, owner: NodeId, prop_name: &str) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+858 | fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#items_after_test_module
+    = note: `-D clippy::items-after-test-module` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::items_after_test_module)]`
+    = help: move the items to before the test module was defined
+
+error: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `-D unused-must-use` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(unused_must_use)]`
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+error: could not compile `designos-app` (bin "designos-studio" test) due to 5 previous errors
+error: could not compile `designos-app` (bin "designos" test) due to 5 previous errors
+CLIPPY_WS_EXIT=101
+=== GATE 2b: df -h / && cargo clippy --workspace --exclude designos-app --all-targets --locked -- -D warnings ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    18Gi    39%    459k  193M    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Checking smallvec v1.16.3
+    Checking image v0.25.10
+    Checking rustc-hash v2.1.3
+    Checking either v1.19.0
+   Compiling ahash v0.8.12
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-mcp)
+    Checking objc2-core-foundation v0.3.2
+    Checking half v2.7.1
+    Checking wgpu-types v29.0.4
+   Compiling wgpu-hal v29.0.4
+   Compiling wgpu-core v29.0.4
+   Compiling wgpu v29.0.4
+    Checking icu_normalizer v2.3.0
+    Checking harfrust v0.5.2
+    Checking kurbo v0.11.3
+    Checking rustybuzz v0.20.1
+    Checking parking_lot_core v0.9.12
+    Checking rayon v1.12.0
+    Checking naga v29.0.4
+    Checking parking_lot v0.12.5
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking objc2-foundation v0.3.2
+    Checking svgtypes v0.15.3
+    Checking ureq v2.12.1
+    Checking designos-diff v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-diff)
+    Checking jsonschema-value v0.59.0
+    Checking referencing v0.59.0
+    Checking designos-fonts v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-fonts)
+    Checking usvg v0.45.1
+    Checking jsonschema v0.59.0
+    Checking objc2-metal v0.3.2
+    Checking cosmic-text v0.19.0
+    Checking resvg v0.45.1
+    Checking designos-render v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-render)
+    Checking objc2-quartz-core v0.3.2
+    Checking designos-svg v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-svg)
+    Checking designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-export)
+    Checking raw-window-metal v1.1.0
+    Checking wgpu-naga-bridge v29.0.4
+    Checking designos-webcapture v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-webcapture)
+    Checking designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-fig)
+    Checking wgpu-core-deps-apple v29.0.4
+    Checking designos-library v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-library)
+    Checking designos-eval v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-eval)
+    Checking designos-gpu v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-gpu)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.42s
+CLIPPY_NO_APP_EXIT=0
+=== GATE 3: df -h / && cargo test -p designos-export --locked ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    18Gi    40%    459k  185M    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-3f1ac65412ac9dbb)
+
+running 154 tests
+test agent_context::tests::missing_rules_pack_is_stated_not_left_blank ... ok
+test agent_context::tests::empty_variables_and_components_stated_explicitly_and_rules_pack_passes_through_unchanged ... ok
+test android_xml::tests::golden_card ... ok
+test bounds::tests::group_with_all_hidden_children_has_no_bounds ... ok
+test android_xml::tests::text_is_escaped_for_xml_and_android_resources ... ok
+test android_xml::tests::android_xml_grid_fill_child_exports_solved_height ... ok
+test bounds::tests::clipped_frame_counts_own_shadow_not_children ... ok
+test bounds::tests::date_picker_fit_328x540_negative_spread ... ok
+test agent_context::tests::first_turn_contains_every_section ... ok
+test bounds::tests::each_stroke_alignment_adds_0_half_or_full ... ok
+test agent_context::tests::selection_never_injected_unless_explicitly_requested ... ok
+test bounds::tests::child_rotated_30_degrees_contributes_its_bounding_box ... ok
+test android_xml::tests::android_xml_hugging_row_all_fill_children ... ok
+test bounds::tests::footer_badge_fit_304x36_additive_stroke_and_shadow ... ok
+test bounds::tests::group_with_offset_children_and_own_shadow ... ok
+test android_xml::tests::variables_spacing_and_shared_fixture_render ... ok
+test bounds::tests::negative_spread_larger_than_blur_adds_nothing ... ok
+test bounds::tests::opacity_zero_child_skipped_in_bounds ... ok
+test bounds::tests::outside_stroke_and_clipping ... ok
+test bounds::tests::per_side_stroke_weights_gate_and_outset_agree ... ok
+test bounds::tests::stroke_and_shadow_add_not_max ... ok
+test bounds::tests::render_bounds_svg_filter_region_matches_own_overflow ... ok
+test bounds::tests::width_bound_to_variable_resolved_in_bounds ... ok
+test bounds::tests::shadow_extends_bounds_with_offset ... ok
+test bounds::tests::two_shadows_take_the_union_not_the_sum ... ok
+test codegen::tests::identifier_helpers ... ok
+test codegen::tests::variable_names ... ok
+test bounds::tests::scales_0_5_and_1_5_on_odd_sizes_keep_ceil ... ok
+test codegen::tests::css_fallback_follows_the_node_mode ... ok
+test codegen::tests::grid_items_are_sized_as_a_column_by_the_stack_generators_and_along_the_width_by_the_web_ones ... ok
+test codegen::tests::css_prints_code_syntax_verbatim_else_name_with_resolved_fallback ... ok
+test codegen::tests::css_variable_names_follow_figmas_sanitizer ... ok
+test codegen::tests::css_uses_variable_references ... ok
+test codegen::tests::grid_stretch_child_solved_sizes ... ok
+test agent_context::tests::components_section_reports_omitted_libraries_and_retrim_uses_real_frame_id ... ok
+test compose::tests::grid_stretch_child_exports_its_solved_size ... ok
+test compose::tests::compose_hugging_row_all_fill_children ... ok
+test compose::tests::golden_card ... ok
+test css::tests::absolute_child_and_gradient ... ok
+test compose::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test compose::tests::compose_grid_fill_child_exports_solved_height ... ok
+test css::tests::auto_spacing_modes_and_wrap_content_map_to_css ... ok
+test css::tests::fixed_parent_stays_fill_only ... ok
+test css::tests::css_hugging_row_fill_text_children_print_the_solved_height ... ok
+test css::tests::fixed_grid_keeps_fractional_tracks_and_pixel_size ... ok
+test css::tests::css_hugging_row_all_fill_children_print_the_solved_height ... ok
+test css::tests::golden_auto_layout_and_children ... ok
+test css::tests::ellipse_and_radial ... ok
+test css::tests::golden_card_css ... ok
+test css::tests::css_grid_imported_fill_plus_stretch ... ok
+test css::tests::grid_child_horizontal_fill_unchanged ... ok
+test css::tests::grid_item_with_grow_stretches_across_its_cell_and_keeps_its_height ... ok
+test css::tests::css_grid_fill_child_exports_solved_height ... ok
+test css::tests::flex_child_align_self_exports_css_align_self_for_all_variants ... ok
+test css::tests::grid_item_with_hug_sizing_mode_keeps_its_pixel_size ... ok
+test css::tests::grid_stretch_child_exports_its_solved_size ... ok
+test css::tests::grid_frame_and_children_sizing_in_css_and_codegen ... ok
+test css::tests::hugging_grid_exports_the_solved_height_with_template_rows ... ok
+test css::tests::hugging_grid_exports_the_solved_width_for_a_small_child ... ok
+test css::tests::hugging_grid_exports_the_solved_width_when_the_widest_child_fills ... ok
+test css::tests::hugging_grid_exports_the_solved_width_when_a_child_spans_columns ... ok
+test css::tests::grid_tracks_placement_and_gaps_css ... ok
+test css::tests::hugging_grid_exports_the_solved_width_with_a_fixed_track ... ok
+test codegen::tests::icons_become_asset_references_in_every_language ... ok
+test css::tests::plain_sibling_sets_the_line ... ok
+test css::tests::imported_fill_plus_stretch_same_output ... ok
+test css::tests::stretch_child_leaves_the_cross_size_to_a_fixed_parent ... ok
+test css::tests::text_block_css ... ok
+test css::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test css::tests::text_features_direction_and_paragraph_settings_css ... ok
+test css::tests::text_wrap_maps_to_css ... ok
+test css::tests::vertical_stack_symmetric ... ok
+test design_context::tests::effective_cross_collection_alias_uses_the_inherited_target_mode ... ok
+test design_context::tests::effective_variables_resolve_each_binding_at_its_own_layer ... ok
+test design_context::tests::margins_are_the_gaps_to_neighbouring_siblings ... ok
+test design_context::tests::inspect_output_unchanged ... ok
+test design_context::tests::missing_variable_definitions_remain_visible_and_unresolved ... ok
+test design_context::tests::html_of_a_subtree_inlines_the_image_instead_of_the_placeholder ... ok
+test design_context::tests::padding_comes_from_the_layers_own_auto_layout ... ok
+test design_context::tests::missing_collections_broken_aliases_and_cycles_are_unresolved ... ok
+test design_context::tests::pinned_property_values ... ok
+test geo::tests::closed_detection ... ok
+test design_context::tests::subtree_copy_keeps_the_bytes_of_the_images_it_references ... ok
+test design_context::tests::variables_used_lists_every_mode_through_aliases ... ok
+test geo::tests::square_rect_path ... ok
+test html::tests::auto_layout_to_flex ... ok
+test html::tests::card_passes_html_validate ... ignored, needs html-validate (cargo test -p designos-export --lib card_passes_html_validate -- --ignored)
+test html::tests::escaping ... ok
+test language::tests::language_ids_round_trip_in_dropdown_order ... ok
+test pdf::tests::invalid_selection_and_dimensions_return_errors ... ok
+test html::tests::edge_cases_emoji_runs_rtl_rotation_images_hidden_and_fragment ... ok
+test html::tests::card_html_structure_is_well_formed ... ok
+test html::tests::language_listed_once ... ok
+test html::tests::root_fill_layer_emits_solved_size_and_drops_parent_flex_or_grid_placement ... ok
+test pdf::tests::transparent_slide_is_white_and_single_slide_exports_alone ... ok
+test pdf::tests::large_frame_keeps_media_box_aspect_without_raster_image ... ok
+test raster::tests::scale_parse_and_display ... ok
+test html::tests::card_snapshot ... ok
+test pdf::tests::pdf_has_valid_offsets_order_dimensions_and_vector_page_streams ... ok
+test html::tests::bound_variables_print_code_syntax ... ok
+test svg::tests::golden_ellipse_and_linear_gradient ... ok
+test svg::tests::golden_independent_radii_become_a_path ... ok
+test svg::tests::golden_inside_stroke_uses_clip_and_double_width ... ok
+test svg::tests::golden_rect_with_radius_and_opacity ... ok
+test svg::tests::frame_clips_children_and_groups_nest ... ok
+test html::tests::web_code_syntax_prefix_and_shared_bindings_do_not_corrupt_var_references ... ok
+test react::tests::golden_react_grid_inline_and_tailwind ... ok
+test svg::tests::golden_shadow_filter_and_blur ... ok
+test react::tests::golden_tailwind_card ... ok
+test svg::tests::image_fill_is_embedded_as_base64_pattern ... ok
+test svg::tests::mask_node_masks_following_siblings ... ok
+test svg::tests::noise_and_texture_become_filter_primitives_and_glass_is_skipped ... ok
+test svg::tests::outside_stroke_grows_viewbox_and_masks ... ok
+test svg::tests::star_vector_evenodd_and_image_fill ... ok
+test react::tests::golden_inline_card ... ok
+test svg::tests::union_boolean_joins_operands ... ok
+test swiftui::tests::grid_child_horizontal_fill_unchanged ... ok
+test swiftui::tests::grid_stretch_child_exports_its_solved_size ... ok
+test swiftui::tests::golden_card ... ok
+test swiftui::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test swiftui::tests::swiftui_hugging_row_all_fill_children ... ok
+test tailwind::tests::grid_item_with_grow_stretches_across_its_cell_and_keeps_its_height ... ok
+test tailwind::tests::stretch_child_leaves_the_cross_size_to_a_fixed_parent ... ok
+test tailwind::tests::exact_values_when_off_scale ... ok
+test tailwind::tests::grid_items_keep_their_size_and_only_content_sized_items_align_to_start ... ok
+test tailwind::tests::golden_card ... ok
+test tailwind::tests::hugging_grid_exports_its_solved_pixel_size_with_fractional_tracks ... ok
+test tailwind::tests::golden_grid_tracks_placement_and_gaps ... ok
+test tailwind::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test tailwind::tests::tailwind_grid_fill_child_exports_solved_height ... ok
+test tailwind::tests::tailwind_hugging_row_all_fill_children ... ok
+test bounds::tests::rectangle_100x40_with_drop_shadow_export_bounds_and_svg ... ok
+test swiftui::tests::swiftui_grid_fill_child_exports_solved_height ... ok
+test tests::setting_file_names ... ok
+test tests::png_at_2x_has_exact_size_and_pixels ... ok
+test tests::setting_render_uses_constraint ... ok
+test tests::jpg_flattens_on_white ... ok
+test uikit::tests::golden_card ... ok
+test util::tests::css_colors_match_figma_style ... ok
+test uikit::tests::strings_and_font_names_are_escaped_as_swift_literals ... ok
+test uikit::tests::uikit_hugging_row_all_fill_children ... ok
+test util::tests::numbers_are_trimmed ... ok
+test uikit::tests::uikit_grid_fill_child_exports_solved_height ... ok
+test uikit::tests::bound_variables_and_shared_fixture_render ... ok
+test tests::png_includes_shadow_overflow ... ok
+test tests::webp_lossless_decoded_output_equals_png_pixels ... ok
+test agent_context::tests::large_fixture_within_budget_with_markers ... ok
+test text::tests::list_markers_and_indent_are_exported ... ok
+test text::tests::lays_out_lines_with_outlines ... ok
+test svg::tests::text_as_text_element_and_as_outlines ... ok
+test pdf::tests::two_frame_pdf_has_selectable_text_and_no_full_page_image ... ok
+test swiftui::tests::slot_component_prop_defaults_and_font_names_escape_swift_literals ... ok
+test swiftui::tests::golden_text_and_prop_string_literals_escape_swift_special_chars ... ok
+test swiftui::tests::text_nodes_with_dollar_braces_and_swift_interpolation_parse_cleanly ... ok
+
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/board.rs (out/cargo/debug/deps/board-8752815cd19cbdc3)
+
+running 3 tests
+test svg_of_a_single_sticky_covers_its_shadow ... ok
+test svg_of_a_board_page_has_notes_shapes_connectors_and_text ... ok
+test png_of_board_nodes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/codegen_escapes_variable_code_syntax.rs (out/cargo/debug/deps/codegen_escapes_variable_code_syntax-9673c572b5a4b587)
+
+running 4 tests
+test android_xml_leaves_plain_code_syntax_untouched ... ok
+test android_xml_escapes_code_syntax_inside_attributes ... ok
+test react_escapes_quotes_and_backslashes_in_code_syntax ... ok
+test react_keeps_a_newline_in_code_syntax_inside_its_string_literal ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_chrome_fixtures.rs (out/cargo/debug/deps/grid_chrome_fixtures-68e44f521f53a4ec)
+
+running 27 tests
+test mutation_m11_fixed_height_grid_with_flex_auto_rows_omits_align_content_start ... ok
+test mutation_m4_hugging_grid_min_w_distributes_extra_across_flex_columns ... ok
+test mutation_m7_non_fill_child_width_wins_over_stale_wider_fill_child ... ok
+test mutation_m13_fixed_width_grid_with_weighted_flex_columns_keeps_fractional_tracks ... ok
+test mutation_r1_stroked_hug_grid_uses_effective_padding_for_column_tracks ... ok
+test mutation_m14_flex_unit_tolerance_distinguishes_unequal_and_weighted_equal_columns ... ok
+test mutation_r3_flex_zero_auto_tracks_packs_rows_at_top ... ok
+test one_column_flex_grid_keeps_minmax_0_1fr ... ok
+test fixed_first_column_css_and_tailwind ... ok
+test equal_tracks_css_and_tailwind ... ok
+test n1_explicit_hug_rows_flex_auto_css_and_tailwind ... ok
+test n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind ... ok
+test fixed_height_auto_rows_css_and_tailwind ... ok
+test n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind ... ok
+test n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind ... ok
+test c7_single_hug_col_min_w_fill_css_and_tailwind ... ok
+test hugging_grid_css_and_tailwind ... ok
+test n6c_stroke_v0_unpadded_fixed_css_and_tailwind ... ok
+test row_and_column_spans_css_and_tailwind ... ok
+test n6_stroke_v0_unpadded_hug_css_and_tailwind ... ok
+test s2_empty_hug_column_css_and_tailwind ... ok
+test s5_hug_height_min_h_css_and_tailwind ... ok
+test s1_stretch_child_hug_css_and_tailwind ... ok
+test s7_explicit_rows_hug_css_and_tailwind ... ok
+test s5b_hug_height_min_h_flex_auto_css_and_tailwind ... ok
+test s3_hug_grid_max_w_css_and_tailwind ... ok
+test unequal_tracks_css_and_tailwind ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_codegen_placement_normalisation.rs (out/cargo/debug/deps/grid_codegen_placement_normalisation-c2df63f1240b8b8a)
+
+running 3 tests
+test span_exceeding_grid_columns_clamps_to_column_count_and_span_clamping_to_one_is_omitted ... ok
+test wide_column_span_pulls_start_column_back_to_match_solver_cell ... ok
+test out_of_range_column_pin_is_dropped_while_keeping_row_pin_and_matching_relayout_cell ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_codegen_spacing_bindings.rs (out/cargo/debug/deps/grid_codegen_spacing_bindings-2c22f3444c608765)
+
+running 9 tests
+test css_unbound_gaps_keep_both_pixel_values ... ok
+test css_counter_spacing_binding_only_replaces_the_row_gap ... ok
+test css_both_bindings_replace_both_gaps ... ok
+test css_row_follows_the_item_variable_only_when_it_has_no_spacing_of_its_own ... ok
+test css_item_spacing_binding_only_replaces_the_column_gap ... ok
+test tailwind_splits_the_axes_for_an_equal_row_gap_of_its_own_and_joins_them_for_an_unset_one ... ok
+test react_inline_row_gap_with_the_same_pixels_as_the_column_gap_stays_its_own ... ok
+test tailwind_keeps_one_class_per_axis ... ok
+test react_inline_styles_follow_the_css_gap ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_codegen_tailwind_scale.rs (out/cargo/debug/deps/grid_codegen_tailwind_scale-02bcd175aa187585)
+
+running 5 tests
+test react_with_tailwind_writes_the_same_classes ... ok
+test uniform_rows_use_the_scale_up_to_six_and_an_arbitrary_value_past_it ... ok
+test column_and_row_pins_use_the_scale_up_to_thirteen_and_seven ... ok
+test spans_use_the_scale_up_to_twelve_and_six ... ok
+test uniform_columns_use_the_scale_up_to_twelve_and_an_arbitrary_value_past_it ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_codegen_track_counts.rs (out/cargo/debug/deps/grid_codegen_track_counts-e99d8448e156ad49)
+
+running 8 tests
+test an_unset_column_count_is_three_as_in_the_solver ... ok
+test a_huge_row_count_exports_in_constant_time ... ok
+test row_tracks_follow_the_same_rules ... ok
+test runs_of_default_tracks_fold_wherever_they_sit ... ok
+test a_default_grid_is_the_same_uniform_template_in_css_react_and_tailwind ... ok
+test flex_tracks_in_a_mixed_template_can_shrink_under_their_content ... ok
+test a_huge_column_count_exports_in_constant_time ... ok
+test a_column_count_past_the_solver_limit_exports_the_columns_the_solver_lays_out ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/kit_export_bounds.rs (out/cargo/debug/deps/kit_export_bounds-2f143fac71c960bf)
+
+running 1 test
+test kit_frames_export_bounds_match_figma ... ignored, needs the private reference Untitled UI kit file
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pdf_export.rs (out/cargo/debug/deps/pdf_export-8c4d931cc71337c6)
+
+running 6 tests
+test pdf_is_listed_with_label_and_extension_and_has_no_scale_suffix ... ok
+test oversized_frame_is_an_error_not_a_panic ... ok
+test page_limit_and_empty_selection_are_errors ... ok
+test non_pdf_formats_take_exactly_one_layer ... ok
+test two_frames_make_one_two_page_pdf ... ok
+test one_frame_makes_a_one_page_pdf ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pdf_vector_fidelity.rs (out/cargo/debug/deps/pdf_vector_fidelity-522c7aad2bd3041c)
+
+running 49 tests
+test degenerate_dash_pattern_is_not_written ... ok
+test gradient_fading_to_transparent_matches_the_canvas ... ok
+test frame_opacity_fades_its_page ... ok
+test blend_modes_match_the_canvas ... ok
+test gradient_stops_a_hair_apart_keep_distinct_stitching_bounds ... ok
+test image_filled_shape_appears_on_the_page ... ok
+test gradient_stops_keep_their_positions ... ok
+test group_opacity_flattens_before_fading ... ok
+test gradient_stop_a_hair_after_the_start_keeps_valid_stitching_bounds ... ok
+test drop_shadow_appears_on_the_page ... ok
+test gradient_stroke_matches_the_canvas ... ok
+test image_stroke_appears_on_the_page ... ok
+test elliptical_radial_gradient_follows_its_handles ... ok
+test bound_variables_size_color_and_caption_the_page_like_the_canvas ... ok
+test miter_limit_of_the_stroke_is_honoured ... ok
+test flattened_and_vector_pages_share_one_unicode_font_and_a_valid_object_table ... ok
+test intersect_boolean_fills_only_the_overlap ... ok
+test flattened_page_leaves_clipped_away_text_out_of_its_text_layer ... ok
+test angular_and_diamond_gradients_match_the_canvas ... ok
+test inside_and_centered_strokes_match_the_canvas ... ok
+test outside_stroke_around_a_self_overlapping_path_leaves_the_overlap_unstroked ... ok
+test ancestor_mode_switches_the_bound_values_on_the_page ... ok
+test outlined_text_matches_the_canvas ... ok
+test paint_blend_modes_match_the_canvas ... ok
+test precomputed_stroke_outline_is_filled_like_the_canvas ... ok
+test outside_gradient_stroke_around_a_self_overlapping_path_matches_the_canvas ... ok
+test outside_stroke_stays_outside_the_shape ... ok
+test ascii_text_keeps_its_plain_text_run ... ok
+test rounded_root_frame_without_clipping_shows_children_in_its_corners ... ok
+test side_weight_stroke_draws_only_the_weighted_sides ... ok
+test outside_stroke_around_a_star_node_matches_the_canvas ... ok
+test outside_stroke_around_a_simple_vector_outline_stays_vector ... ok
+test non_latin_text_is_extractable_as_written ... ok
+test second_mask_narrows_the_first ... ok
+test outside_stroke_around_an_even_odd_path_follows_the_even_odd_rule ... ok
+test corner_smoothing_matches_the_canvas ... ok
+test skewed_linear_gradient_follows_its_width_handle ... ok
+test translucent_mask_fades_the_content_it_masks ... ok
+test subtract_boolean_fills_the_remainder_of_the_first_shape ... ok
+test raster_fallback_page_keeps_selectable_text ... ok
+test text_beyond_the_frame_bounds_is_not_extractable ... ok
+test text_a_mask_hides_is_not_extractable ... ok
+test text_a_clipping_frame_hides_is_not_extractable ... ok
+test text_mask_clips_to_its_glyphs ... ok
+test card_with_text_gradient_and_strokes_matches_the_canvas ... ok
+test sticky_note_shadow_appears_on_the_page ... ok
+test union_and_exclude_booleans_match_the_canvas ... ok
+test randomised_frames_with_unsupported_features_still_match_the_canvas ... ok
+test randomised_frames_of_supported_features_are_vector_and_match_the_canvas ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.24s
+
+     Running tests/pixmap_size_cap.rs (out/cargo/debug/deps/pixmap_size_cap-3924592db9bb6111)
+
+running 4 tests
+test export_size_check_allows_large_legitimate_sizes_and_rejects_absurd_ones ... ok
+test page_and_effect_overflow_paths_are_capped_too ... ok
+test huge_node_at_4x_is_rejected ... ok
+test ordinary_export_still_works ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/slot_codegen.rs (out/cargo/debug/deps/slot_codegen-4403410596b6ad7e)
+
+running 31 tests
+test generated_react_parses ... ignored, needs npx and esbuild
+test generated_react_type_checks ... ignored, needs npx and typescript
+test generated_swiftui_type_checks ... ignored, needs swiftc and the macOS SDK
+test compose_function_without_root_styling_still_applies_the_modifier ... ok
+test compose_prop_named_modifier_is_renamed ... ok
+test compose_instance_with_emptied_slot_suppresses_the_default ... ok
+test react_component_with_props_and_no_slots_declares_them ... ok
+test plain_frame_has_empty_parameter_list ... ok
+test compose_instance_passes_a_named_lambda_per_slot ... ok
+test compose_definition_has_a_lambda_per_slot_with_the_default_content ... ok
+test react_instance_routes_content_per_slot ... ok
+test react_instance_with_emptied_slot_suppresses_the_default ... ok
+test compose_function_declares_every_argument_its_instance_passes ... ok
+test react_variant_prop_is_a_literal_union ... ok
+test react_slot_props_are_single_brace_jsx_expressions ... ok
+test react_function_declares_every_argument_its_instance_passes ... ok
+test react_definition_has_one_prop_per_slot_and_defaults_only_as_fallback ... ok
+test single_slot_uses_a_trailing_closure_in_swiftui ... ok
+test single_slot_uses_the_trailing_lambda_in_compose ... ok
+test instance_swap_pointing_at_variant_uses_component_set_view_name_and_uikit_keeps_colliding_props ... ok
+test react_set_root_declares_variant_level_props ... ok
+test react_reserved_and_colliding_prop_names_are_renamed ... ok
+test swiftui_instance_leaves_an_omitted_slot_empty ... ok
+test swiftui_instance_passes_a_closure_per_slot ... ok
+test react_tailwind_uses_the_same_signature ... ok
+test single_slot_uses_children_in_react ... ok
+test tailwind_html_keeps_default_content_once_and_routes_named_slots ... ok
+test swiftui_prop_keyword_is_renamed ... ok
+test swiftui_definition_is_a_generic_view_with_a_parameter_per_slot ... ok
+test swiftui_init_declares_every_argument_its_instance_passes ... ok
+test reserved_slot_names_are_renamed_in_every_language ... ok
+
+test result: ok. 28 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variable_code_syntax_per_platform.rs (out/cargo/debug/deps/variable_code_syntax_per_platform-33741a3e0e4bba03)
+
+running 3 tests
+test web_syntax_is_printed_by_css_only ... ok
+test ios_syntax_is_printed_by_swiftui_and_uikit ... ok
+test android_syntax_is_printed_by_compose_and_xml ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_export
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+TEST_EXPORT_EXIT=0
+=== GATE 4: python3 -m unittest discover -s scripts/tests ===
+...............................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 207 tests in 46.813s
+
+OK
+Chrome colour literal gate PASSED (33 files with findings, 263/263 baseline chrome sites).
+Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  tabs.rs [chrome_sites]: 1 > baseline 0 (L2257:Color32::from_rgb(1,)
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  unbaselined_chrome_surface.rs [chrome_sites]: 1 > baseline 0 (L2:Color32::from_rgb(1,)
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+PYTEST_EXIT=0

@@ -142,12 +142,12 @@ pub fn paint(app: &mut App, ui: &Ui, canvas_rect: ERect) {
             vec![tip, tip + Vec2::new(0.0, arm_long), tip + Vec2::new(arm_short * 0.55, arm_short * 1.15), tip + Vec2::new(arm_short * 1.25, arm_short * 1.15)];
         painter.add(Shape::convex_polygon(pts, fill_color, Stroke::new(theme::CANVAS_OUTLINE_WIDTH, with_alpha(theme::BG_PRIMARY, fade))));
 
-        // Label pill under-right of the cursor arrow (`CONTROL_DENSE` 24 px high, `radius_full`, dark label).
+        // Label pill under-right of the cursor arrow (`BADGE_MD` 24 px high, `radius_full`, dark label).
         let font = theme::font_caption_medium();
         let max_label_w = theme::PALETTE_TOP * 2.0;
         let elided = widgets::elide(&painter, &session.label, &font, max_label_w);
         let galley = painter.layout_no_wrap(elided, font, text_color);
-        let pill_h = theme::CONTROL_DENSE;
+        let pill_h = theme::BADGE_MD;
         let pill_w = (galley.size().x + theme::INSET_FRAME * 2.0).max(pill_h);
         let pill_offset = Vec2::new(theme::INSET_FRAME * arrow_scale, theme::INSET_BUTTON * arrow_scale);
         let mut pill_min = tip + pill_offset;

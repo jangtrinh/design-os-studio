@@ -1,0 +1,144 @@
+=== MUTANT 1: SVG EXPORT HARD-CODED NORMAL ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-export)
+warning: function `fe_blend_mode` is never used
+   --> crates/designos-export/src/svg.rs:115:4
+    |
+115 | fn fe_blend_mode(b: BlendMode) -> &'static str {
+    |    ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-export` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.09s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-953fff07de983bdc)
+
+running 1 test
+test svg::tests::shadow_filter_exports_multiply_and_screen_blend_modes ... FAILED
+
+failures:
+
+---- svg::tests::shadow_filter_exports_multiply_and_screen_blend_modes stdout ----
+
+thread 'svg::tests::shadow_filter_exports_multiply_and_screen_blend_modes' (85232107) panicked at crates/designos-export/src/svg.rs:1475:13:
+expected drop shadow feBlend mode=multiply in:
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="56" height="46" viewBox="-8 -4 56 46" fill="none">
+  <defs>
+    <filter id="shadow0" x="-8" y="-4" width="56" height="46" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset in="hardAlpha" dx="0" dy="4" result="offset0"/>
+      <feGaussianBlur in="offset0" stdDeviation="4" result="blur0"/>
+      <feComposite in="blur0" in2="hardAlpha" operator="out" result="knockout0"/>
+      <feColorMatrix in="knockout0" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.502 0" result="shadow0"/>
+      <feBlend mode="normal" in="shadow0" in2="BackgroundImageFix" result="shadow0"/>
+      <feMerge result="withShadows">
+        <feMergeNode in="shadow0"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+      <feOffset in="hardAlpha" dx="1" dy="2" result="innerOffset1"/>
+      <feGaussianBlur in="innerOffset1" stdDeviation="2" result="innerBlur1"/>
+      <feComposite in="hardAlpha" in2="innerBlur1" operator="arithmetic" k2="1" k3="-1" result="innerCut1"/>
+      <feColorMatrix in="innerCut1" type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.502 0" result="innerShadow1"/>
+      <feBlend mode="normal" in="innerShadow1" in2="withShadows" result="withInner1"/>
+    </filter>
+  </defs>
+  <g data-name="Rectangle">
+    <g filter="url(#shadow0)">
+      <rect width="40" height="30" fill="#D9D9D9"/>
+    </g>
+  </g>
+</svg>
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    svg::tests::shadow_filter_exports_multiply_and_screen_blend_modes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 167 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-export --lib`
+mutant1_export_rc=101
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-export)
+warning: function `fe_blend_mode` is never used
+   --> crates/designos-export/src/svg.rs:115:4
+    |
+115 | fn fe_blend_mode(b: BlendMode) -> &'static str {
+    |    ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-export` (lib) generated 1 warning
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-svg)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.55s
+     Running tests/shadow_blend_roundtrip.rs (out/cargo/debug/deps/shadow_blend_roundtrip-cb3dee6b5a01a34b)
+
+running 3 tests
+test svg_roundtrip_unsupported_shadow_blend_modes_fall_back_to_normal ... ok
+test svg_roundtrip_preserves_multiply_and_screen_shadow_blend_modes ... FAILED
+test cpu_render_of_svg_reimported_multiply_shadow_node_matches_original ... FAILED
+
+failures:
+
+---- svg_roundtrip_preserves_multiply_and_screen_shadow_blend_modes stdout ----
+
+thread 'svg_roundtrip_preserves_multiply_and_screen_shadow_blend_modes' (85232973) panicked at crates/designos-svg/tests/shadow_blend_roundtrip.rs:77:9:
+expected feBlend mode="multiply" in exported SVG:
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="160" height="120" viewBox="0 0 160 120" fill="none">
+  <defs>
+    <clipPath id="clip0">
+      <rect width="160" height="120"/>
+    </clipPath>
+    <filter id="shadow1" x="0" y="0" width="112" height="82" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset in="hardAlpha" dx="10" dy="12" result="offset0"/>
+      <feGaussianBlur in="offset0" stdDeviation="3" result="blur0"/>
+      <feComposite in="blur0" in2="hardAlpha" operator="out" result="knockout0"/>
+      <feColorMatrix in="knockout0" type="matrix" values="0 0 0 0 0.784 0 0 0 0 0.157 0 0 0 0 0.471 0 0 0 0.824 0" result="shadow0"/>
+      <feBlend mode="normal" in="shadow0" in2="BackgroundImageFix" result="shadow0"/>
+      <feMerge result="withShadows">
+        <feMergeNode in="shadow0"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+      <feOffset in="hardAlpha" dx="8" dy="10" result="innerOffset1"/>
+      <feGaussianBlur in="innerOffset1" stdDeviation="3" result="innerBlur1"/>
+      <feComposite in="hardAlpha" in2="innerBlur1" operator="arithmetic" k2="1" k3="-1" result="innerCut1"/>
+      <feColorMatrix in="innerCut1" type="matrix" values="0 0 0 0 0.157 0 0 0 0 0.314 0 0 0 0 0.863 0 0 0 0.824 0" result="innerShadow1"/>
+      <feBlend mode="normal" in="innerShadow1" in2="withShadows" result="withInner1"/>
+    </filter>
+  </defs>
+  <g data-name="Root">
+    <rect width="160" height="120" fill="#78C8F0"/>
+    <g clip-path="url(#clip0)">
+      <g data-name="Card" transform="translate(24 20)">
+        <g filter="url(#shadow1)">
+          <rect width="96" height="64" rx="8" fill="#F0B450"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- cpu_render_of_svg_reimported_multiply_shadow_node_matches_original stdout ----
+
+thread 'cpu_render_of_svg_reimported_multiply_shadow_node_matches_original' (85232972) panicked at crates/designos-svg/tests/shadow_blend_roundtrip.rs:131:5:
+expected SVG-reimported Multiply shadow CPU render to match original within 0.02, got mismatch=0.2217
+
+
+failures:
+    cpu_render_of_svg_reimported_multiply_shadow_node_matches_original
+    svg_roundtrip_preserves_multiply_and_screen_shadow_blend_modes
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-svg --test shadow_blend_roundtrip`
+mutant1_svg_rt_rc=101

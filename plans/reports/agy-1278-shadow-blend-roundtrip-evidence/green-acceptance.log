@@ -1,0 +1,80 @@
+=== GREEN ACCEPTANCE RUN ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.74s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-11e9f1ea5f7ddc4e)
+
+running 2 tests
+test pen::export::tests::normal_shadow_blend_omits_blend_mode_in_pen_export_and_defaults_on_import ... ok
+test pen::export::tests::shadow_blend_mode_survives_pen_roundtrip ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 143 filtered out; finished in 0.01s
+
+fig_green_rc=0
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-fig)
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.12s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-953fff07de983bdc)
+
+running 22 tests
+test svg::tests::frame_clips_children_and_groups_nest ... ok
+test svg::tests::golden_rect_with_radius_and_opacity ... ok
+test svg::tests::golden_inside_stroke_uses_clip_and_double_width ... ok
+test svg::tests::golden_shadow_filter_and_blur ... ok
+test svg::tests::outside_stroke_grows_viewbox_and_masks ... ok
+test svg::tests::noise_and_texture_become_filter_primitives_and_glass_is_skipped ... ok
+test svg::tests::normal_shadow_filter_output_is_byte_identical_to_base ... ok
+test svg::tests::dashed_rectangle_thinner_than_its_stroke_keeps_the_doubled_boundary_stroke ... ok
+test svg::tests::dashed_rectangle_with_imported_fill_geometry_takes_the_inset_outline_too ... ok
+test svg::tests::dashed_rectangle_with_rounded_corners_strokes_a_path_with_curves ... ok
+test svg::tests::mask_node_masks_following_siblings ... ok
+test svg::tests::golden_independent_radii_become_a_path ... ok
+test svg::tests::golden_ellipse_and_linear_gradient ... ok
+test svg::tests::image_fill_is_embedded_as_base64_pattern ... ok
+test svg::tests::dashed_inside_rectangle_strokes_its_inset_outline_at_its_own_weight_under_the_clip ... ok
+test svg::tests::dashed_outside_rectangle_strokes_its_outset_outline_at_its_own_weight_under_the_mask ... ok
+test svg::tests::shadow_filter_exports_multiply_and_screen_blend_modes ... ok
+test svg::tests::star_vector_evenodd_and_image_fill ... ok
+test svg::tests::shadow_filter_unsupported_svg_blend_modes_fall_back_to_normal ... ok
+test svg::tests::strokes_that_are_not_dashed_rectangle_layers_keep_the_boundary_stroke ... ok
+test svg::tests::union_boolean_joins_operands ... ok
+test svg::tests::text_as_text_element_and_as_outlines ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 146 filtered out; finished in 0.08s
+
+export_green_rc=0
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-svg)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.65s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-9e2bbb6c9bd808b6)
+
+running 1 test
+test effects::tests::parses_blend_mode_from_drop_and_inner_shadow_filter_chains ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+svg_lib_green_rc=0
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-svg)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+     Running tests/shadow_blend_roundtrip.rs (out/cargo/debug/deps/shadow_blend_roundtrip-cb3dee6b5a01a34b)
+
+running 3 tests
+test svg_roundtrip_unsupported_shadow_blend_modes_fall_back_to_normal ... ok
+test svg_roundtrip_preserves_multiply_and_screen_shadow_blend_modes ... ok
+test cpu_render_of_svg_reimported_multiply_shadow_node_matches_original ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+svg_rt_green_rc=0

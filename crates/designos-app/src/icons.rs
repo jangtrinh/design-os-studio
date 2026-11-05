@@ -19,6 +19,7 @@ pub enum Icon {
     Help,
     ChevronUp,
     ChevronDown,
+    Ellipsis,
     ChevronRight,
     Plus,
     Minus,
@@ -27,6 +28,7 @@ pub enum Icon {
     EyeOff,
     Lock,
     Unlock,
+    Link,
     Sidebar,
     Page,
     Check,
@@ -159,6 +161,7 @@ impl Icon {
         Icon::Book,
         Icon::ChevronUp,
         Icon::ChevronDown,
+        Icon::Ellipsis,
         Icon::ChevronRight,
         Icon::Plus,
         Icon::Minus,
@@ -167,6 +170,7 @@ impl Icon {
         Icon::EyeOff,
         Icon::Lock,
         Icon::Unlock,
+        Icon::Link,
         Icon::Sidebar,
         Icon::Page,
         Icon::Check,
@@ -282,6 +286,7 @@ impl Icon {
             Icon::Help => "question",
             Icon::ChevronUp => "caret-up",
             Icon::ChevronDown => "caret-down",
+            Icon::Ellipsis => "dots-three",
             Icon::ChevronRight => "caret-right",
             Icon::Plus => "plus",
             Icon::Minus => "minus",
@@ -290,6 +295,7 @@ impl Icon {
             Icon::EyeOff => "eye-slash",
             Icon::Lock => "lock",
             Icon::Unlock => "lock-open",
+            Icon::Link => "link",
             Icon::Sidebar => "sidebar-simple",
             Icon::Page => "file-text",
             Icon::Check => "check",
@@ -449,6 +455,7 @@ phosphor!(
     "dice-five",
     "dots-nine",
     "dots-six",
+    "dots-three",
     "download-simple",
     "drop",
     "eye",
@@ -471,6 +478,7 @@ phosphor!(
     "intersect-three",
     "knife",
     "line-segment",
+    "link",
     "list",
     "lock",
     "lock-open",
@@ -637,7 +645,17 @@ mod tests {
         for i in Icon::ALL {
             assert!(seen.insert(*i), "{i:?} listed twice");
         }
-        assert_eq!(seen.len(), 118);
+        assert_eq!(seen.len(), 120);
+    }
+
+    #[test]
+    fn link_maps_to_the_phosphor_chain_link() {
+        assert_eq!(Icon::Link.phosphor_name(), Some("link"));
+    }
+
+    #[test]
+    fn ellipsis_maps_to_phosphor_dots_three() {
+        assert_eq!(Icon::Ellipsis.phosphor_name(), Some("dots-three"));
     }
 
     #[test]

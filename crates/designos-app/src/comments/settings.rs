@@ -30,6 +30,17 @@ pub fn load_author(root: &Path) -> Option<String> {
     read(root).get("author").and_then(|v| v.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
+pub const AUTOSAVE_AI_KEY: &str = "agent.autosave_ai_changes";
+
+/// Auto-save after each agent tool batch, for documents outside the library. Missing means on.
+pub fn load_autosave_ai_changes(root: &Path) -> bool {
+    load_flag(root, AUTOSAVE_AI_KEY).unwrap_or(true)
+}
+
+pub fn save_autosave_ai_changes(root: &Path, on: bool) -> Result<(), String> {
+    save_flag(root, AUTOSAVE_AI_KEY, on)
+}
+
 /// A boolean app setting stored beside the author name.
 pub fn load_flag(root: &Path, key: &str) -> Option<bool> {
     read(root).get(key).and_then(|v| v.as_bool())
@@ -250,6 +261,19 @@ mod tests {
         assert_eq!(v["dock_open"], true, "a key an older build wrote survives a save");
         assert_eq!(v["dock_height"], 360);
         designos_doc::set_in_progress_stale_minutes(None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn autosave_ai_changes_defaults_on_and_roundtrips() {
+        let d = tmp("autosave-ai");
+        assert!(load_autosave_ai_changes(&d), "missing setting is on");
+        save_autosave_ai_changes(&d, false).unwrap();
+        assert!(!load_autosave_ai_changes(&d));
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(d.join(FILE)).unwrap()).unwrap();
+        assert_eq!(v[AUTOSAVE_AI_KEY], false);
+        save_autosave_ai_changes(&d, true).unwrap();
+        assert!(load_autosave_ai_changes(&d));
         let _ = std::fs::remove_dir_all(&d);
     }
 

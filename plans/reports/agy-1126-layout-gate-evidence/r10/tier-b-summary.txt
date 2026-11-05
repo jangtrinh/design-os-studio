@@ -1,0 +1,8 @@
+SKIP x-board: not applicable in Tier B (Tier A only: blank board shows no kit content; Tier A captures the same surface)
+SKIP x-deck: not applicable in Tier B (Tier A only: blank deck shows no kit content; Tier A captures the same surface)
+Every case has its acknowledgement.
+Every spawns case logged a stub line.
+Every $0 in invocations.log starts with the stub dir (/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-6yn01tt3/run/stubs/).
+Summary (reachable / not applicable / unreachable): Tier A 76 / 0 / 0, Tier B 74 / 2 / 0
+Tier A only (2): x-board, x-deck
+Cases: 74 captured, 2 skipped (76 total), wall time 684.43s

@@ -1,0 +1,89 @@
+
+running 15 tests
+test panels::stroke::tests::miter_angle_roundtrips ... ok
+test panels::stroke::endpoint_tests::the_endpoint_options_come_in_figmas_order ... FAILED
+test panels::stroke::endpoint_tests::the_endpoint_rows_sit_one_under_the_other_inside_the_panel_with_reachable_targets ... FAILED
+test panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo ... ok
+test panels::stroke::tests::stroke_panel_hides_endpoint_controls_for_closed_paths ... ok
+test panels::stroke::endpoint_tests::every_endpoint_option_is_readable_in_full_in_its_control_and_in_the_open_menu ... FAILED
+test panels::stroke::tests::stroke_panel_mixed_open_selection_shows_mixed_and_applies_to_all_in_one_undo_step ... ok
+test panels::stroke::endpoint_tests::the_dash_cap_row_writes_only_the_stroke_cap_of_a_dashed_open_line ... ok
+test panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step ... ok
+test panels::stroke::endpoint_tests::the_cap_row_gives_both_end_points_of_a_solid_open_line_the_same_cap_in_one_undo_step ... FAILED
+test panels::stroke::endpoint_tests::swapping_the_end_points_of_a_dashed_round_line_keeps_the_dashes_round_on_cpu_and_gpu ... FAILED
+test panels::stroke::endpoint_tests::a_none_end_point_on_a_dashed_round_line_leaves_the_last_dash_butt_and_keeps_the_dash_cap ... FAILED
+test panels::stroke::endpoint_tests::end_point_edits_on_a_dashed_round_line_keep_the_dash_cap_and_draw_each_terminal_on_cpu_and_gpu ... FAILED
+test panels::stroke::endpoint_tests::a_line_arrow_end_point_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu ... FAILED
+test panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu ... ok
+
+failures:
+
+---- panels::stroke::endpoint_tests::the_endpoint_options_come_in_figmas_order stdout ----
+
+thread 'panels::stroke::endpoint_tests::the_endpoint_options_come_in_figmas_order' (94600140) panicked at crates/designos-app/src/panels/tests_stroke_endpoints.rs:328:5:
+assertion `left == right` failed
+  left: [("None", None), ("Round", Round), ("Square", Square), ("Line arrow", ArrowLines), ("Triangle arrow", ArrowEquilateral), ("Reversed triangle", TriangleFilled), ("Diamond arrow", DiamondFilled), ("Circle arrow", CircleFilled)]
+ right: [("None", None), ("Line arrow", ArrowLines), ("Triangle arrow", ArrowEquilateral), ("Reversed triangle", TriangleFilled), ("Circle arrow", CircleFilled), ("Diamond arrow", DiamondFilled), ("Round", Round), ("Square", Square)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- panels::stroke::endpoint_tests::the_endpoint_rows_sit_one_under_the_other_inside_the_panel_with_reachable_targets stdout ----
+
+thread 'panels::stroke::endpoint_tests::the_endpoint_rows_sit_one_under_the_other_inside_the_panel_with_reachable_targets' (94600141) panicked at crates/designos-app/src/panels/tests_stroke_endpoints.rs:399:5:
+the End point row sits under the Start point row: [[16.0 630.0] - [104.0 662.0]] [[112.0 630.0] - [200.0 662.0]]
+
+---- panels::stroke::endpoint_tests::every_endpoint_option_is_readable_in_full_in_its_control_and_in_the_open_menu stdout ----
+
+thread 'panels::stroke::endpoint_tests::every_endpoint_option_is_readable_in_full_in_its_control_and_in_the_open_menu' (94600136) panicked at crates/designos-app/src/panels/tests_stroke_endpoints.rs:375:13:
+assertion `left == right` failed: Start point shows Line arrow in full
+  left: "Line arr…"
+ right: "Line arrow"
+
+---- panels::stroke::endpoint_tests::the_cap_row_gives_both_end_points_of_a_solid_open_line_the_same_cap_in_one_undo_step stdout ----
+
+thread 'panels::stroke::endpoint_tests::the_cap_row_gives_both_end_points_of_a_solid_open_line_the_same_cap_in_one_undo_step' (94600138) panicked at crates/designos-app/src/panels/tests_stroke_endpoints.rs:296:5:
+assertion `left == right` failed: both end points follow the Cap row
+  left: Some((Some(Round), Some(ArrowLines)))
+ right: Some((Some(Square), Some(Square)))
+
+---- panels::stroke::endpoint_tests::swapping_the_end_points_of_a_dashed_round_line_keeps_the_dashes_round_on_cpu_and_gpu stdout ----
+
+thread 'panels::stroke::endpoint_tests::swapping_the_end_points_of_a_dashed_round_line_keeps_the_dashes_round_on_cpu_and_gpu' (94600137) panicked at crates/designos-app/src/panels/tests_stroke_endpoints.rs:206:5:
+assertion `left == right` failed: swapping the end points keeps the dash cap
+  left: None
+ right: Round
+
+---- panels::stroke::endpoint_tests::a_none_end_point_on_a_dashed_round_line_leaves_the_last_dash_butt_and_keeps_the_dash_cap stdout ----
+
+thread 'panels::stroke::endpoint_tests::a_none_end_point_on_a_dashed_round_line_leaves_the_last_dash_butt_and_keeps_the_dash_cap' (94600134) panicked at crates/designos-app/src/panels/tests_stroke_endpoints.rs:218:5:
+assertion `left == right` failed
+  left: None
+ right: Round
+
+---- panels::stroke::endpoint_tests::end_point_edits_on_a_dashed_round_line_keep_the_dash_cap_and_draw_each_terminal_on_cpu_and_gpu stdout ----
+
+thread 'panels::stroke::endpoint_tests::end_point_edits_on_a_dashed_round_line_keep_the_dash_cap_and_draw_each_terminal_on_cpu_and_gpu' (94600135) panicked at crates/designos-app/src/panels/tests_stroke_endpoints.rs:150:5:
+assertion `left == right` failed: the dash cap is not touched by an end point edit
+  left: None
+ right: Round
+
+---- panels::stroke::endpoint_tests::a_line_arrow_end_point_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu stdout ----
+
+thread 'panels::stroke::endpoint_tests::a_line_arrow_end_point_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu' (94600133) panicked at crates/designos-app/src/panels/tests_stroke_endpoints.rs:187:5:
+assertion `left == right` failed
+  left: None
+ right: Round
+
+
+failures:
+    panels::stroke::endpoint_tests::a_line_arrow_end_point_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu
+    panels::stroke::endpoint_tests::a_none_end_point_on_a_dashed_round_line_leaves_the_last_dash_butt_and_keeps_the_dash_cap
+    panels::stroke::endpoint_tests::end_point_edits_on_a_dashed_round_line_keep_the_dash_cap_and_draw_each_terminal_on_cpu_and_gpu
+    panels::stroke::endpoint_tests::every_endpoint_option_is_readable_in_full_in_its_control_and_in_the_open_menu
+    panels::stroke::endpoint_tests::swapping_the_end_points_of_a_dashed_round_line_keeps_the_dashes_round_on_cpu_and_gpu
+    panels::stroke::endpoint_tests::the_cap_row_gives_both_end_points_of_a_solid_open_line_the_same_cap_in_one_undo_step
+    panels::stroke::endpoint_tests::the_endpoint_options_come_in_figmas_order
+    panels::stroke::endpoint_tests::the_endpoint_rows_sit_one_under_the_other_inside_the_panel_with_reachable_targets
+
+test result: FAILED. 7 passed; 8 failed; 0 ignored; 0 measured; 4323 filtered out; finished in 0.17s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

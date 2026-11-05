@@ -57,6 +57,11 @@ pub fn decoded_image(doc: &Document, image_ref: &str) -> Option<Rc<sk::Pixmap>> 
     crate::paint::load_image(doc, image_ref, None)
 }
 
+/// True when `s` carries a non-zero dash pattern.
+pub fn has_dashes(s: &d::Stroke) -> bool {
+    !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0
+}
+
 /// The stroke style the renderer uses for `n` at line width `width`.
 pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
     let s = &n.stroke;
@@ -64,7 +69,12 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
         width,
         miter_limit: s.miter_limit.max(1.0),
         line_cap: match s.cap {
-            d::StrokeCap::None => sk::LineCap::Butt,
+            d::StrokeCap::None
+            | d::StrokeCap::ArrowLines
+            | d::StrokeCap::ArrowEquilateral
+            | d::StrokeCap::TriangleFilled
+            | d::StrokeCap::DiamondFilled
+            | d::StrokeCap::CircleFilled => sk::LineCap::Butt,
             d::StrokeCap::Round => sk::LineCap::Round,
             d::StrokeCap::Square => sk::LineCap::Square,
         },
@@ -75,7 +85,7 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
         },
         dash: None,
     };
-    if !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0 {
+    if has_dashes(s) {
         let mut v = s.dashes.clone();
         if v.len() % 2 == 1 {
             v.extend_from_within(..);
@@ -210,6 +220,64 @@ pub fn per_side_stroke_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path>
     pb.finish()
 }
 
+/// The outline the canvas strokes, at the stroke's own weight, for a rectangle-like shape whose
+/// dashed stroke is aligned `Inside` or `Outside`: the inset or outset centerline, so each dash is
+/// `w` wide and its caps (`Round`, `Square`) sit centered in the `w`-wide stroke band instead of
+/// being half-clipped `2 * w` caps on the boundary. The stroke still has to be clipped to the
+/// matching side of the boundary.
+///
+/// `None` for every other stroke: precomputed stroke outlines, per-side weights, solid or
+/// centered strokes, shapes that are not rectangle-like, and rectangles too thin to have an
+/// inset outline. Those are stroked along the shape boundary, at twice the weight when aligned.
+/// Every consumer that draws or expands such a stroke (canvas, GPU plan, PDF, SVG, Outline
+/// stroke) asks here, so they agree on which shapes take this path.
+pub fn dashed_rect_stroke_path(n: &Node, sh: &Shape) -> Option<sk::Path> {
+    if sh.stroke_paths.is_some() || n.stroke.side_weights.is_some() || !sh.is_rect || !has_dashes(&n.stroke) {
+        return None;
+    }
+    let align = if sh.closed { n.stroke.align } else { d::StrokeAlign::Center };
+    dashed_rect_center_path(n, align)
+}
+
+fn dashed_rect_center_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path> {
+    let (w, h) = (n.size.x, n.size.y);
+    let sw = n.stroke.weight;
+    if w <= 0.0 || h <= 0.0 || sw <= 0.0 {
+        return None;
+    }
+    let half = sw * 0.5;
+    let [rtl, rtr, rbr, rbl] = if matches!(n.kind, d::NodeKind::Section) {
+        [0.0; 4]
+    } else {
+        let lim = w.min(h) / 2.0;
+        n.corner_radii.map(|v| v.max(0.0).min(lim))
+    };
+    let mut pb = sk::PathBuilder::new();
+    match align {
+        d::StrokeAlign::Inside => {
+            let (x0, y0, x1, y1) = (half, half, w - half, h - half);
+            if x1 <= x0 || y1 <= y0 {
+                return None;
+            }
+            let c = |r: f32| {
+                let v = (r - half).max(0.0);
+                (v, v)
+            };
+            push_elliptical_rrect(&mut pb, x0, y0, x1, y1, [c(rtl), c(rtr), c(rbr), c(rbl)], false);
+        }
+        d::StrokeAlign::Outside => {
+            let (x0, y0, x1, y1) = (-half, -half, w + half, h + half);
+            let c = |r: f32| {
+                let v = if r > 0.0 { r + half } else { 0.0 };
+                (v, v)
+            };
+            push_elliptical_rrect(&mut pb, x0, y0, x1, y1, [c(rtl), c(rtr), c(rbr), c(rbl)], false);
+        }
+        d::StrokeAlign::Center => return None,
+    }
+    pb.finish()
+}
+
 /// Stroke geometry of a node with a shape, mirroring the CPU renderer's
 /// handling of precomputed outlines, per-side weights and the three alignments.
 pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
@@ -228,11 +296,25 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
     if w <= 0.0 {
         return None;
     }
+    if let Some(center_path) = dashed_rect_stroke_path(n, sh) {
+        let st = node_stroke_style(n, w);
+        let outline = stroke_outline(&center_path, &st, res_scale)?;
+        let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
+        return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
+    }
+    if crate::vectorops::has_mixed_subpath_align(n, sh) {
+        let outline = crate::vectorops::mixed_subpath_stroke_outline(n, sh);
+        return (!outline.is_empty()).then_some(StrokePlan { outline, clip: StrokeClip::None });
+    }
     let (width, clip) = match align {
         d::StrokeAlign::Center => (w, StrokeClip::None),
         d::StrokeAlign::Inside => (w * 2.0, StrokeClip::Inside),
         d::StrokeAlign::Outside => (w * 2.0, StrokeClip::Outside),
     };
+    if crate::vectorops::has_per_vertex_joins(n) || crate::vectorops::has_arrow_caps(n) || crate::vectorops::vertex_caps(n).is_some() {
+        let outline = crate::vectorops::expand_node_subpaths(n, sh, width, res_scale);
+        return (!outline.is_empty()).then_some(StrokePlan { outline, clip });
+    }
     let st = node_stroke_style(n, width);
     let outline: Vec<_> = sh.paths.iter().filter_map(|(p, _)| stroke_outline(p, &st, res_scale)).map(|p| (p, sk::FillRule::Winding)).collect();
     (!outline.is_empty()).then_some(StrokePlan { outline, clip })

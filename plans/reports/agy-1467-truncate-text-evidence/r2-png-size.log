@@ -1,0 +1,6 @@
+# r2 crop sizes, measured this round on the committed crops (unchanged since 150fb411)
+head=b4a7470b7ed6fbd5ea56f1c9c56bf44e6e5bec0b
+git log --oneline -1 -- type-settings-truncate-off-crop.png type-settings-truncate-on-max-lines-2-crop.png: e28ae5f1 feat(typography): truncate text toggle and max lines in Type settings (#1467)
+type-settings-truncate-off-crop.png:            PNG image data, 312 x 760, 8-bit/color RGBA, non-interlaced
+type-settings-truncate-on-max-lines-2-crop.png: PNG image data, 312 x 792, 8-bit/color RGBA, non-interlaced
+popover height formula: HEADER_H 40 + 8 + details_rows * ROW_H 32 + 8; (760-56)/32 = 22 rows off, (792-56)/32 = 23 rows on

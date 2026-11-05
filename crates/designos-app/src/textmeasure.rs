@@ -5,30 +5,25 @@
 //! so carets and selections line up with the drawn glyphs. Positions are
 //! UTF-8 byte offsets into `TextProps::content` and node-local pixels.
 
-use designos_doc as d;
 use designos_doc::{TextProps, Vec2};
 use designos_render::{text_geometry, LineGeom, TextGeometry};
 use std::ops::Range;
 use std::rc::Rc;
 use unicode_segmentation::UnicodeSegmentation;
 
+/// Installs the renderer measurer on `Document::relayout_subtree`.
+pub fn install_layout_measurer() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        designos_doc::text_measure::set_layout_measurer(Some(std::sync::Arc::new(designos_render::RenderTextMeasure)));
+    });
+}
+
 /// Natural size of the text: widest line by total height. `width` wraps lines.
+/// Same whole-pixel box as [`designos_render::measure_text_box`].
 pub fn measure(props: &TextProps, width: Option<f32>) -> Vec2 {
-    let mut p = props.clone();
-    let size = match width {
-        Some(w) => {
-            if p.auto_resize == d::TextAutoResize::WidthAndHeight {
-                p.auto_resize = d::TextAutoResize::Height;
-            }
-            Vec2::new(w, 0.0)
-        }
-        None => {
-            p.auto_resize = d::TextAutoResize::WidthAndHeight;
-            Vec2::ZERO
-        }
-    };
-    let g = text_geometry(&p, size);
-    Vec2::new(g.width.ceil().max(1.0), g.height.ceil().max(1.0))
+    install_layout_measurer();
+    designos_render::measure_text_box(props, width)
 }
 
 /// Geometry for editing: laid out in the node's real box.
@@ -325,6 +320,7 @@ pub fn move_vertical(props: &TextProps, size: Vec2, at: usize, dir: i32, goal_x:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use designos_doc as d;
 
     fn props(s: &str, size: f32) -> TextProps {
         TextProps {

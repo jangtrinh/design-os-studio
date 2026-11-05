@@ -8,7 +8,15 @@ mod agent_cli_export_fig_tests;
 #[cfg(test)]
 mod agent_cli_select_tests;
 pub mod agent_composer;
+mod agent_composer_buttons;
+mod agent_composer_chip_layout;
+mod agent_composer_chips;
+mod agent_composer_menus;
+mod agent_composer_text;
+mod agent_composer_toolbar;
 mod agent_failure_redact;
+mod agent_header;
+mod agent_header_tabs;
 pub mod agent_hook_outputs;
 mod agent_mention;
 mod agent_mention_popup;
@@ -18,7 +26,6 @@ pub mod agent_permissions;
 pub mod agent_picker;
 mod agent_presence;
 mod agent_project_config;
-mod agent_sample_prompts;
 mod agent_selection_chip;
 mod agent_session_failure;
 pub mod agent_session_files;
@@ -37,7 +44,8 @@ mod board;
 mod canvas;
 mod check_designs;
 mod cli;
-mod cli_export_write;
+pub(crate) mod cli_export_write;
+pub mod cli_resolve;
 mod clipboard;
 mod cmdk;
 mod comments;
@@ -60,6 +68,7 @@ mod icons;
 mod image_jobs;
 mod io;
 mod layout;
+pub mod layout_snapshot;
 mod libraries;
 #[cfg(test)]
 mod lint;
@@ -128,8 +137,58 @@ fn window_icon() -> Option<egui::IconData> {
     Some(egui::IconData { rgba: img.into_raw(), width, height })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum StartupDisposition {
+    ContinueToWindow,
+    ExitZero,
+}
+
+/// Runs the pre-window startup checks and non-window CLI branches (`--help`, `--version`,
+/// `missing_file_message`, `--seed-library`, and `run_agent_cli`).
+pub(crate) fn run_startup_before_window<I, K, V>(opts: &cli::Options, env_os: I, pid: u32) -> Result<StartupDisposition, (i32, String)>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<std::ffi::OsString>,
+    V: Into<std::ffi::OsString>,
+{
+    cli_resolve::enforce_hermetic_startup_os(env_os, opts, pid).map_err(|e| (2, format!("designos: {e}")))?;
+    if opts.help {
+        println!("{}", cli::USAGE);
+        return Ok(StartupDisposition::ExitZero);
+    }
+    if opts.version {
+        println!("{}", cli::version_line());
+        return Ok(StartupDisposition::ExitZero);
+    }
+    // Before any window or command: a name that is not a file (`designos doctor`) must not open an empty editor.
+    if let Some(message) = cli::missing_file_message(opts) {
+        return Err((2, message));
+    }
+    if let Some(dir) = &opts.seed_library {
+        #[cfg(any(test, feature = "fixtures"))]
+        match showcase::seed_library(dir) {
+            Ok(()) => {
+                println!("designos: wrote the showcase sample files to {}", dir.display());
+                return Ok(StartupDisposition::ExitZero);
+            }
+            Err(e) => {
+                return Err((1, format!("designos: cannot seed {}: {e}", dir.display())));
+            }
+        }
+        #[cfg(not(any(test, feature = "fixtures")))]
+        {
+            let _ = dir;
+            return Err((2, "designos: --seed-library requires a build with the 'fixtures' feature".to_string()));
+        }
+    }
+    if opts.is_agent_cli() {
+        run_agent_cli(opts).map_err(|e| (2, format!("designos: {e}")))?;
+        return Ok(StartupDisposition::ExitZero);
+    }
+    Ok(StartupDisposition::ContinueToWindow)
+}
+
 fn main() {
-    designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
     let opts = match cli::parse(std::env::args().skip(1)) {
         Ok(o) => o,
         Err(e) => {
@@ -137,43 +196,13 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if opts.help {
-        println!("{}", cli::USAGE);
-        return;
-    }
-    if opts.version {
-        println!("{}", cli::version_line());
-        return;
-    }
-    // Before any window or command: a name that is not a file (`designos doctor`) must not open an empty editor.
-    if let Some(message) = cli::missing_file_message(&opts) {
-        eprintln!("{message}");
-        std::process::exit(2);
-    }
-    if let Some(dir) = &opts.seed_library {
-        #[cfg(any(test, feature = "fixtures"))]
-        match showcase::seed_library(dir) {
-            Ok(()) => println!("designos: wrote the showcase sample files to {}", dir.display()),
-            Err(e) => {
-                eprintln!("designos: cannot seed {}: {e}", dir.display());
-                std::process::exit(1);
-            }
+    match run_startup_before_window(&opts, std::env::vars_os(), std::process::id()) {
+        Ok(StartupDisposition::ContinueToWindow) => {}
+        Ok(StartupDisposition::ExitZero) => return,
+        Err((code, msg)) => {
+            eprintln!("{msg}");
+            std::process::exit(code);
         }
-        #[cfg(not(any(test, feature = "fixtures")))]
-        {
-            let _ = dir;
-            eprintln!("designos: --seed-library requires a build with the 'fixtures' feature");
-            std::process::exit(2);
-        }
-        #[cfg(any(test, feature = "fixtures"))]
-        return;
-    }
-    if opts.is_agent_cli() {
-        if let Err(e) = run_agent_cli(&opts) {
-            eprintln!("designos: {e}");
-            std::process::exit(2);
-        }
-        return;
     }
     agent_session_files::spawn_startup_sweep();
     let (w, h) = opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
@@ -335,9 +364,12 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         return Err("Agent CLI requires a file path, --out <path>, or --open-id <id>".into());
     };
 
+    // The next id, before any page is expanded. Ids from that expansion are per session.
+    let load_next_id = doc.peek_next_id();
     // Resolve --select before anything is imported, applied or saved: a miss must leave the file as it was.
-    let selected_target = select_target::resolve_flag(&mut doc, opts.select.as_deref())?;
+    let selected_target = select_target::resolve_flag(&mut doc, opts.select.as_deref(), load_next_id)?;
     let selected_node = selected_target.and_then(|t| t.node);
+    let id_stable = selected_target.is_some_and(|t| t.id_stable);
     if let (Some(target), Some(raw)) = (selected_target, opts.select.as_deref()) {
         if let Some(note) = target.note(raw.trim()) {
             eprintln!("designos: {note}");
@@ -372,7 +404,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
         let spec = cli::parse_spec_json(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
         let parent = selected_node.or_else(|| doc.pages.first().copied()).ok_or("Document has no pages")?;
-        let root_id = doc.apply_spec(parent, &spec)?;
+        let root_id = doc.apply_spec_with_measure(parent, &spec, &[], Some(&designos_render::RenderTextMeasure)).map_err(|e| e.to_string())?.root_node_id;
         // no window drains the deferred layout here, and the queue is not part of the file
         doc.flush_pending_relayout();
         save_target.save(&doc)?;
@@ -592,7 +624,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     }
 
     if opts.inspect_json {
-        println!("{}", serde_json::to_string_pretty(&inspect_json(&doc, selected_node)).unwrap());
+        println!("{}", serde_json::to_string_pretty(&inspect_json(&doc, selected_node, id_stable)).unwrap());
     }
 
     Ok(())
@@ -600,7 +632,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
 
 /// What `--inspect-json` prints: the pages and screens of the document (with their Figma ids), plus the node that
 /// `--select` addressed, in page coordinates, so an agent can read where it is without a second command.
-fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::NodeId>) -> serde_json::Value {
+fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::NodeId>, id_stable: bool) -> serde_json::Value {
     let mut out = serde_json::json!({
         "name": doc.name,
         "kind": doc.kind,
@@ -625,6 +657,7 @@ fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::Nod
         let b = designos_doc::node_world_bounds(doc, n.id);
         out["selection"] = serde_json::json!({
             "id": n.id.0,
+            "id_stable": id_stable,
             "name": n.name,
             "kind": n.kind.default_name(),
             "page_id": doc.page_of(n.id).map(|p| p.0),
@@ -649,7 +682,10 @@ mod icon_tests {
         node.source_id = Some("12:34".into());
         doc.insert(page, node).unwrap();
 
-        let resolve = |doc: &mut designos_doc::Document, select: Option<&str>| super::select_target::resolve_flag(doc, select).map(|t| t.and_then(|t| t.node));
+        let resolve = |doc: &mut designos_doc::Document, select: Option<&str>| {
+            let load_next_id = doc.peek_next_id();
+            super::select_target::resolve_flag(doc, select, load_next_id).map(|t| t.and_then(|t| t.node))
+        };
         assert_eq!(resolve(&mut doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
         assert_eq!(resolve(&mut doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
         assert_eq!(resolve(&mut doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));

@@ -261,6 +261,7 @@ fn layout_guides_are_stripes_on_an_axis_and_round_trip() {
 fn every_connector_cap_round_trips_on_figmas_stroke_cap_values() {
     let caps = [ConnectorCap::None, ConnectorCap::Arrow, ConnectorCap::Triangle, ConnectorCap::Circle, ConnectorCap::Diamond];
     let mut doc = Document::new("caps");
+    doc.kind = DocumentKind::Board;
     let page = doc.add_page("P");
     let mut expect = Vec::new();
     for (i, start) in caps.iter().enumerate() {

@@ -2,7 +2,7 @@
 
 use crate::codegen::*;
 use crate::slots::*;
-use crate::util::num;
+use crate::util::{num, split_overlay_children};
 use designos_doc::*;
 
 /// A SwiftUI view for `node` and its descendants. Auto layout becomes `HStack`/`VStack` with
@@ -144,6 +144,7 @@ fn fill_expr(doc: &Document, n: &Node, key: &str, p: &Paint) -> String {
             format!("AngularGradient(stops: {}, center: {})", gradient_stops(doc, n, stops, p.opacity), unit_point(handles[0]))
         }
         PaintKind::Image { image_ref, .. } => format!("Color.gray /* image fill {} */", &image_ref.chars().take(8).collect::<String>()),
+        PaintKind::Shader(_) => "Color.clear".into(),
     }
 }
 
@@ -189,7 +190,7 @@ fn shape(doc: &Document, n: &Node) -> String {
 }
 
 fn stroke_expr(doc: &Document, n: &Node) -> Option<String> {
-    let p = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0)?;
+    let p = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))?;
     if n.stroke.weight <= 0.0 {
         return None;
     }
@@ -209,13 +210,28 @@ fn stroke_expr(doc: &Document, n: &Node) -> Option<String> {
 
 fn frame_args(w: Dim, h: Dim, align: Option<&str>, n: &Node, doc: &Document) -> Option<String> {
     let mut a: Vec<String> = Vec::new();
+    let has_fill = matches!(w, Dim::Fill) || matches!(h, Dim::Fill);
     match w {
-        Dim::Fixed(px) => a.push(format!("width: {}", dimension(doc, n, "width", px))),
+        Dim::Fixed(px) => {
+            let expr = dimension(doc, n, "width", px);
+            if has_fill {
+                a.push(format!("minWidth: {expr}, maxWidth: {expr}"));
+            } else {
+                a.push(format!("width: {expr}"));
+            }
+        }
         Dim::Fill => a.push("maxWidth: .infinity".into()),
         Dim::Hug => {}
     }
     match h {
-        Dim::Fixed(px) => a.push(format!("height: {}", dimension(doc, n, "height", px))),
+        Dim::Fixed(px) => {
+            let expr = dimension(doc, n, "height", px);
+            if has_fill {
+                a.push(format!("minHeight: {expr}, maxHeight: {expr}"));
+            } else {
+                a.push(format!("height: {expr}"));
+            }
+        }
         Dim::Fill => a.push("maxHeight: .infinity".into()),
         Dim::Hug => {}
     }
@@ -289,6 +305,54 @@ fn alignment(h: &str, v: &str) -> String {
     }
 }
 
+fn cell_alignment(ah: GridChildAlign, av: GridChildAlign) -> String {
+    let h = match ah {
+        GridChildAlign::Center => "center",
+        GridChildAlign::End => "trailing",
+        _ => "leading",
+    };
+    let v = match av {
+        GridChildAlign::Center => "center",
+        GridChildAlign::End => "bottom",
+        _ => "top",
+    };
+    alignment(h, v)
+}
+
+fn layout_frame_align(al: &AutoLayout, horizontal: bool) -> Option<String> {
+    let pos = |a: LayoutAlign| match a {
+        LayoutAlign::Center => 1,
+        LayoutAlign::End => 2,
+        _ => 0,
+    };
+    let (hp, vp) = if horizontal { (pos(al.primary_align), pos(al.counter_align)) } else { (pos(al.counter_align), pos(al.primary_align)) };
+    let (h, v) = (["leading", "center", "trailing"][hp], ["top", "center", "bottom"][vp]);
+    let al_s = alignment(h, v);
+    (al_s != ".center").then_some(al_s)
+}
+
+/// Padding and frame modifiers of an auto layout frame, as `(outer, inner)`: `outer` sits on the frame's
+/// view and `inner` on its in-flow content.
+///
+/// A frame that overlays absolute children (`overlay`) is a `ZStack` around that content. The content
+/// carries the padding and a frame that fills the `ZStack` and places the content by the layout
+/// alignment `align`, so the `ZStack` keeps the frame's size and an absolute child's offset reads from
+/// the frame's top-left whatever the alignment. An axis the frame hugs does not fill. The `ZStack`
+/// itself is placed at the frame's top-left. Otherwise padding and alignment sit on the frame itself.
+fn layout_frame_mods(doc: &Document, n: &Node, al: &AutoLayout, sz: &Sizes, align: Option<String>, overlay: bool) -> (Vec<String>, Vec<String>) {
+    let (mut outer, mut inner) = (Vec::new(), Vec::new());
+    if overlay {
+        padding_mods(doc, n, al, &mut inner);
+        let fill = |d: Dim| if d == Dim::Hug { Dim::Hug } else { Dim::Fill };
+        inner.extend(frame_args(fill(sz.w), fill(sz.h), align.as_deref(), n, doc));
+        outer.extend(frame_args(sz.w, sz.h, Some(".topLeading"), n, doc));
+    } else {
+        padding_mods(doc, n, al, &mut outer);
+        outer.extend(frame_args(sz.w, sz.h, align.as_deref(), n, doc));
+    }
+    (outer, inner)
+}
+
 fn padding_mods(doc: &Document, n: &Node, al: &AutoLayout, m: &mut Vec<String>) {
     let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     let p = al.padding;
@@ -330,7 +394,7 @@ fn call(name: &str, args: &[String]) -> String {
 
 fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
-    if !n.visible {
+    if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
     let sz = sizes(n, parent);
@@ -341,6 +405,10 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let mut head: Vec<String> = Vec::new(); // lines of the view expression before modifiers
     let mut body: Option<Vec<NodeId>> = None; // children inside braces
     let mut stack: Option<String> = None; // "HStack(...) {"
+    let mut behind_ids: Vec<NodeId> = Vec::new(); // absolute children that paint behind the in-flow content
+    let mut front_ids: Vec<NodeId> = Vec::new(); // absolute children that paint over it
+    let mut inner_mods: Vec<String> = Vec::new();
+    let mut grid_body: Option<(&AutoLayout, SolvedGrid, String, String)> = None;
     let mut spacers = (false, false, false); // before, between, after
     let radius_shape = shape(doc, n);
 
@@ -397,8 +465,21 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         if let Some(f) = frame_args(sz.w, sz.h, None, n, doc) {
             mods.push(f);
         }
+    } else if let Some((al, grid)) = own_al.filter(|_| site.is_none()).and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
+        let col_gap_s = dimension(doc, n, "itemSpacing", grid.col_gap);
+        let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
+        let split = split_overlay_children(&kids);
+        behind_ids = split.behind.iter().map(|k| k.id).collect();
+        front_ids = split.front.iter().map(|k| k.id).collect();
+        let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
+        let (outer, inner) = layout_frame_mods(doc, n, al, &sz, layout_frame_align(al, true), overlay);
+        mods.extend(outer);
+        inner_mods = inner;
+        grid_body = Some((al, grid, col_gap_s, row_gap_s));
+        container_style(doc, n, &radius_shape, &mut mods);
     } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
+        let split = split_overlay_children(&kids);
         let counter = match (al.counter_align, horizontal) {
             (LayoutAlign::Center, _) => "center",
             (LayoutAlign::End, true) => "bottom",
@@ -427,20 +508,13 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             LayoutAlign::SpaceBetween => (false, true, false),
             _ => (false, false, false),
         };
-        body = Some(kids.iter().map(|k| k.id).collect());
-        padding_mods(doc, n, al, &mut mods);
-        let pos = |a: LayoutAlign| match a {
-            LayoutAlign::Center => 1,
-            LayoutAlign::End => 2,
-            _ => 0,
-        };
-        let (hp, vp) = if horizontal { (pos(al.primary_align), pos(al.counter_align)) } else { (pos(al.counter_align), pos(al.primary_align)) };
-        let (h, v) = (["leading", "center", "trailing"][hp], ["top", "center", "bottom"][vp]);
-        let al_s = alignment(h, v);
-        let align = (al_s != ".center").then_some(al_s);
-        if let Some(f) = frame_args(sz.w, sz.h, align.as_deref(), n, doc) {
-            mods.push(f);
-        }
+        body = Some(split.flow.iter().map(|k| k.id).collect());
+        behind_ids = split.behind.iter().map(|k| k.id).collect();
+        front_ids = split.front.iter().map(|k| k.id).collect();
+        let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
+        let (outer, inner) = layout_frame_mods(doc, n, al, &sz, layout_frame_align(al, horizontal), overlay);
+        mods.extend(outer);
+        inner_mods = inner;
         container_style(doc, n, &radius_shape, &mut mods);
     } else if n.kind.is_container() && (!kids.is_empty() || site.is_some()) {
         stack = Some("ZStack(alignment: .topLeading) {".into());
@@ -458,7 +532,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     } else {
         // leaf shape
         head.push(radius_shape.clone());
-        let fill = n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0);
+        let fill = n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)));
         let stroke = stroke_expr(doc, n);
         match (fill, &stroke) {
             (Some((i, p)), _) => mods.push(format!(".fill({})", fill_expr(doc, n, &format!("fills/{i}"), p))),
@@ -504,36 +578,152 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     for h in &head {
         o.line(depth, h);
     }
-    if let (Some(open), Some(children)) = (&stack, &body) {
-        o.line(depth, open);
+    if let Some((al, grid, col_gap_s, row_gap_s)) = &grid_body {
+        let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
         let me = Parent::of(n);
-        if spacers.0 {
-            o.line(depth + 1, "Spacer()");
-        }
-        if let Some(site) = &site {
-            let name = slot_ident_for(doc, site.comp, &site.name, site.single, Lang::Swift);
-            o.line(depth + 1, format!("if let {name} {{"));
-            o.line(depth + 2, &name);
-            if site.defaults.is_empty() {
-                o.line(depth + 1, "}");
-            } else {
-                o.line(depth + 1, "} else {");
-                for c in &site.defaults {
-                    view(doc, *c, me, depth + 2, o);
+        let g_depth = if overlay {
+            o.line(depth, "ZStack(alignment: .topLeading) {");
+            for cid in &behind_ids {
+                view(doc, *cid, me, depth + 1, o);
+            }
+            depth + 1
+        } else {
+            depth
+        };
+        o.line(g_depth, format!("Grid(alignment: .topLeading, horizontalSpacing: {col_gap_s}, verticalSpacing: {row_gap_s}) {{"));
+        let cols = grid.widths.len();
+        for r in 0..grid.rows.len() {
+            o.line(g_depth + 1, "GridRow {");
+            let groups = grid.row_cells(r);
+            let mut c = 0usize;
+            while c < cols {
+                if let Some(group) = groups.iter().find(|g| g.placed.col == c) {
+                    let cid = group.id;
+                    let p = &group.placed;
+                    if p.row_span > 1 {
+                        let cname = doc.get(cid).map(|cn| cn.name.as_str()).unwrap_or("");
+                        o.line(g_depth + 2, format!("// \"{}\": row span {} is not supported by SwiftUI Grid; placed in row {}", cname, p.row_span, p.row + 1));
+                    }
+                    for s in &group.stacked {
+                        if s.placed.row_span > 1 {
+                            let sname = doc.get(s.id).map(|cn| cn.name.as_str()).unwrap_or("");
+                            o.line(
+                                g_depth + 2,
+                                format!(
+                                    "// \"{}\": row span {} is not supported by SwiftUI Grid; placed in row {}",
+                                    sname,
+                                    s.placed.row_span,
+                                    s.placed.row + 1
+                                ),
+                            );
+                        }
+                    }
+                    if let Some(comment) = SolvedGrid::overlap_comment(doc, group) {
+                        o.line(g_depth + 2, comment);
+                    }
+                    let cell_w = grid.cell_width(p);
+                    let cell_h = grid.cell_height(p, false);
+                    let (ah, av) = grid_cell_align(doc, cid, al);
+                    let cell_align = cell_alignment(ah, av);
+                    if group.stacked.is_empty() {
+                        view(doc, cid, me, g_depth + 2, o);
+                        o.line(g_depth + 3, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                    } else {
+                        o.line(g_depth + 2, "ZStack(alignment: .topLeading) {");
+                        view(doc, cid, me, g_depth + 3, o);
+                        o.line(g_depth + 4, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                        for s in &group.stacked {
+                            view(doc, s.id, me, g_depth + 3, o);
+                            let sw = grid.cell_width(&s.placed);
+                            let sh = grid.cell_height(&s.placed, false);
+                            let (sah, sav) = grid_cell_align(doc, s.id, al);
+                            let s_align = cell_alignment(sah, sav);
+                            o.line(g_depth + 4, format!(".frame(width: {}, height: {}, alignment: {s_align})", num(sw), num(sh)));
+                            if s.offset.0 != 0.0 || s.offset.1 != 0.0 {
+                                o.line(g_depth + 4, format!(".offset(x: {}, y: {})", num(s.offset.0), num(s.offset.1)));
+                            }
+                        }
+                        o.line(g_depth + 2, "}");
+                        o.line(g_depth + 3, format!(".frame(width: {}, height: {}, alignment: .topLeading)", num(cell_w), num(cell_h)));
+                    }
+                    if p.col_span > 1 {
+                        o.line(g_depth + 3, format!(".gridCellColumns({})", p.col_span));
+                    }
+                    c += p.col_span;
+                } else {
+                    o.line(g_depth + 2, format!("Color.clear.frame(width: {}, height: {})", num(grid.widths[c]), num(grid.rows[r])));
+                    c += 1;
                 }
-                o.line(depth + 1, "}");
+            }
+            o.line(g_depth + 1, "}");
+        }
+        // A child the grid does not place and no absolute position takes out of the flow (a variable
+        // hides it) stays a row of the grid.
+        for k in kids.iter().filter(|k| !k.layout_child.absolute && !grid.children.iter().any(|(cid, _)| *cid == k.id)) {
+            view(doc, k.id, me, g_depth + 1, o);
+        }
+        o.line(g_depth, "}");
+        for m in &inner_mods {
+            o.line(g_depth + 1, m);
+        }
+        if overlay {
+            for cid in &front_ids {
+                view(doc, *cid, me, depth + 1, o);
+            }
+            o.line(depth, "}");
+        }
+    }
+    if let (Some(open), Some(children)) = (&stack, &body) {
+        let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
+        let me = Parent::of(n);
+        let s_depth = if overlay {
+            o.line(depth, "ZStack(alignment: .topLeading) {");
+            for cid in &behind_ids {
+                view(doc, *cid, me, depth + 1, o);
+            }
+            depth + 1
+        } else {
+            depth
+        };
+        if !overlay || !children.is_empty() || site.is_some() {
+            o.line(s_depth, open);
+            if spacers.0 {
+                o.line(s_depth + 1, "Spacer()");
+            }
+            if let Some(site) = &site {
+                let name = slot_ident_for(doc, site.comp, &site.name, site.single, Lang::Swift);
+                o.line(s_depth + 1, format!("if let {name} {{"));
+                o.line(s_depth + 2, &name);
+                if site.defaults.is_empty() {
+                    o.line(s_depth + 1, "}");
+                } else {
+                    o.line(s_depth + 1, "} else {");
+                    for c in &site.defaults {
+                        view(doc, *c, me, s_depth + 2, o);
+                    }
+                    o.line(s_depth + 1, "}");
+                }
+            }
+            for (i, c) in children.iter().enumerate() {
+                if i > 0 && spacers.1 {
+                    o.line(s_depth + 1, "Spacer()");
+                }
+                view(doc, *c, me, s_depth + 1, o);
+            }
+            if spacers.2 {
+                o.line(s_depth + 1, "Spacer()");
+            }
+            o.line(s_depth, "}");
+            for m in &inner_mods {
+                o.line(s_depth + 1, m);
             }
         }
-        for (i, c) in children.iter().enumerate() {
-            if i > 0 && spacers.1 {
-                o.line(depth + 1, "Spacer()");
+        if overlay {
+            for cid in &front_ids {
+                view(doc, *cid, me, depth + 1, o);
             }
-            view(doc, *c, me, depth + 1, o);
+            o.line(depth, "}");
         }
-        if spacers.2 {
-            o.line(depth + 1, "Spacer()");
-        }
-        o.line(depth, "}");
     }
     for m in mods {
         o.line(depth + 1, m);
@@ -541,7 +731,8 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
 }
 
 fn container_style(doc: &Document, n: &Node, shape: &str, m: &mut Vec<String>) {
-    let fills: Vec<(usize, &Paint)> = n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0).collect();
+    let fills: Vec<(usize, &Paint)> =
+        n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))).collect();
     if let Some((i, p)) = fills.last() {
         let f = fill_expr(doc, n, &format!("fills/{i}"), p);
         if shape == "Rectangle()" {
@@ -799,5 +990,37 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
             assert!(parse.status.success(), "swiftc -parse failed:\n{}\n---\n{swift_src}", String::from_utf8_lossy(&parse.stderr));
         }
+    }
+
+    #[test]
+    fn grid_emits_swiftui_grid_rows_spans_holes_and_abs_child() {
+        let al = AutoLayout {
+            grid_columns: 2,
+            item_spacing: 10.0,
+            counter_spacing: 8.0,
+            grid_col_tracks: vec![GridTrack::Fixed(100.0), GridTrack::Fixed(120.0)].into(),
+            grid_row_tracks: vec![GridTrack::Fixed(40.0), GridTrack::Fixed(50.0)].into(),
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..Default::default()
+        };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(230.0, 98.0));
+        let a = fixture::add_rect(&mut d, grid, Vec2::new(100.0, 40.0));
+        d.get_mut(a).unwrap().name = "Hero".into();
+        d.get_mut(a).unwrap().layout_child.row_span = 2;
+        let b = fixture::add_rect(&mut d, grid, Vec2::new(120.0, 40.0));
+        d.get_mut(b).unwrap().name = "Side".into();
+        let abs = fixture::add_rect(&mut d, grid, Vec2::new(16.0, 16.0));
+        d.get_mut(abs).unwrap().layout_child.absolute = true;
+        d.get_mut(abs).unwrap().transform.tx = 200.0;
+        d.get_mut(abs).unwrap().transform.ty = 4.0;
+        d.relayout_subtree(grid);
+
+        let out = swiftui_for(&d, grid);
+        assert!(out.contains("Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 8)"), "{out}");
+        assert_eq!(out.matches("GridRow {").count(), 2, "{out}");
+        assert!(out.contains("// \"Hero\": row span 2 is not supported by SwiftUI Grid; placed in row 1"), "{out}");
+        assert!(out.contains("Color.clear.frame(width: 100, height: 50)"), "{out}");
+        assert!(out.contains(".offset(x: 200, y: 4)"), "{out}");
     }
 }

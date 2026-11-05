@@ -11,6 +11,8 @@ pub struct Edit {
     /// [`Document::layout_epoch`] when this edit first touched the document: the baseline for
     /// telling whether layout was written outside every step while the edit stayed open.
     opened_at: Option<u64>,
+    /// Visible page-space viewport during a live drag, so offscreen connectors defer re-routing until commit.
+    pub reroute_viewport: Option<designos_doc::Rect>,
 }
 
 impl Edit {
@@ -134,6 +136,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         constraints,
         layout_child,
         is_mask,
+        mask_type,
         style_refs,
         fill_geometry,
         stroke_geometry,
@@ -160,6 +163,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         || *constraints != cur.constraints
         || *layout_child != cur.layout_child
         || *is_mask != cur.is_mask
+        || *mask_type != cur.mask_type
         || *lock_aspect != cur.lock_aspect
         || *name != cur.name
         || *fills != cur.fills
@@ -275,7 +279,9 @@ impl Tx {
             self.cancel(doc);
             return Err(DocError::NotFound(designos_doc::NodeId(0)));
         }
+        self.ed.retain_changed(doc);
         // connectors follow the nodes they join (and a moved connector its free ends)
+        self.ed.reroute_viewport = None;
         crate::board::connect::reroute_touched(doc, &mut self.ed);
         self.ed.retain_changed(doc);
         let mut updates = self.ed.updates_retained(doc);

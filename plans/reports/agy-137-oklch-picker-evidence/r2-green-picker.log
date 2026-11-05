@@ -1,0 +1,26 @@
+
+running 21 tests
+test widgets::picker::tests::solid_to_gradient_keeps_color_as_first_stop ... ok
+test widgets::picker::tests::hsb_is_computed_in_gamma_space ... ok
+test widgets::picker::tests::active_color_edits_the_selected_stop ... ok
+test widgets::picker::tests::gradient_to_solid_takes_first_stop ... ok
+test widgets::picker::tests::gradient_shape_switch_keeps_stops ... ok
+test widgets::picker::tests::oklch_and_oklab_format_list_and_default ... ok
+test widgets::picker::tests::hue_survives_grey ... ok
+test widgets::picker::tests::stop_color_interpolates ... ok
+test widgets::picker::tests::procedural_png_presets_generate_valid_png_headers_and_distinct_textures ... ok
+test widgets::picker::tests::css_and_hsl_roundtrip ... ok
+test widgets::picker::tests::visible_text_oklab_mode ... ok
+test widgets::picker::tests::visible_text_oklch_mode ... ok
+test widgets::picker::tests::visible_text_hex_mode ... ok
+test widgets::picker::tests::visible_text_rgb_at_255_255_255 ... ok
+test widgets::picker::tests::visible_text_hsl_mode ... ok
+test widgets::picker::tests::visible_text_css_mode ... ok
+test widgets::picker::tests::visible_text_hsb_at_full_s_b ... ok
+test widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps ... ok
+test widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells ... ok
+test widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue ... ok
+test widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 3971 filtered out; finished in 0.02s
+

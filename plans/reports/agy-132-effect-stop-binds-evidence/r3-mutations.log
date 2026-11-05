@@ -1,0 +1,62 @@
+=== canvas_insert_remap ===
+diff --git a/crates/designos-app/src/panels/properties.rs b/crates/designos-app/src/panels/properties.rs
+index 99fd47f3..0b0be54d 100644
+--- a/crates/designos-app/src/panels/properties.rs
++++ b/crates/designos-app/src/panels/properties.rs
+@@ -2410,7 +2410,7 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
+                 pk.state.sel = idx;
+             }
+             *stops = pairs.iter().map(|(s, _)| *s).collect();
+-            pk.state.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
++            pk.state.stop_origins = (0..stops.len()).map(Some).collect();
+             *changed = true;
+             *stop_list_changed = true;
+         }
+canvas_insert_remap: status=KILLED build_error=False pr_tests_failed=['shell::tests::effect_stop_binds::canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step'] test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 4.51s
+
+=== stop_dragging ===
+diff --git a/crates/designos-app/src/widgets/picker.rs b/crates/designos-app/src/widgets/picker.rs
+index 4a47cd8d..82420efd 100644
+--- a/crates/designos-app/src/widgets/picker.rs
++++ b/crates/designos-app/src/widgets/picker.rs
+@@ -1598,7 +1598,6 @@ fn gradient_bar(ui: &mut Ui, bar: Rect, st: &mut State, paint: &mut Paint, out:
+                 }
+                 sv.remove(i);
+                 st.stop_origins.remove(i);
+-                ui.ctx().stop_dragging();
+                 st.sel = st.sel.saturating_sub(1).min(sv.len() - 1);
+                 out.changed = true;
+                 out.stop_list_changed = true;
+stop_dragging: status=KILLED build_error=False pr_tests_failed=['shell::tests::effect_stop_binds::dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag'] test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 4.75s
+
+=== m1_sync_back_in_effects ===
+diff --git a/crates/designos-app/src/panels/effects.rs b/crates/designos-app/src/panels/effects.rs
+index 56d9fb22..c9262279 100644
+--- a/crates/designos-app/src/panels/effects.rs
++++ b/crates/designos-app/src/panels/effects.rs
+@@ -194,6 +194,7 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
+ }
+ 
+ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], effects: &[Effect]) {
++    super::var_bind::sync_picker_context(app, ui.ctx());
+     let linked = style_picker::linked_style(app, sel, StyleProperty::Effect);
+     header(app, ui, pane, sel, effects.is_empty() && linked.is_none());
+     style_picker::header_button(app, ui, pane, sel, StyleProperty::Effect);
+m1_sync_back_in_effects: status=KILLED build_error=False pr_tests_failed=['shell::tests::effect_stop_binds::picker_resync_runs_in_picker_popup_not_unrelated_sections'] test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 3.99s
+
+=== eye_shift_token ===
+diff --git a/crates/designos-app/src/panels/properties.rs b/crates/designos-app/src/panels/properties.rs
+index 99fd47f3..0477d85b 100644
+--- a/crates/designos-app/src/panels/properties.rs
++++ b/crates/designos-app/src/panels/properties.rs
+@@ -2100,7 +2100,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
+         } else if let (true, Some(p)) = (clicked, ptr) {
+             if app.canvas_rect.contains(p) && !panel.contains(p) {
+                 let ids = pk.ids.clone();
+-                if !stop_bound && shift && try_sample_color_token(app, p, pk.target, &ids) {
++                if shift && try_sample_color_token(app, p, pk.target, &ids) {
+                     pk.eyedrop = false;
+                     app.props.eyedropper = None;
+                 } else {
+eye_shift_token: status=KILLED build_error=False pr_tests_failed=['shell::tests::effect_stop_binds::bound_gradient_stop_locks_color_controls_until_detached'] test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 3.83s
+

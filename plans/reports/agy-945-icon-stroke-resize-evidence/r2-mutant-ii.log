@@ -1,0 +1,30 @@
+=== green control on HEAD ===
+### ctl-ii
+test an_arrow_cap_on_a_vertex_keeps_the_scaled_bake ... ok
+test the_kit_icon_drops_its_bake_and_draws_its_own_weight ... ok
+test an_arrow_cap_on_the_node_keeps_the_scaled_bake ... ok
+test fig_icon_without_an_arrow_cap_drops_its_bake ... ok
+test a_vertex_cap_equal_to_the_nodes_and_dashes_on_a_centered_stroke_still_drop_the_bake ... ok
+test a_brush_and_side_weights_keep_the_scaled_bake ... ok
+test fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake ... ok
+test a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake ... ok
+test an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+=== mutant (ii) ===
+### mut-ii
+test a_brush_and_side_weights_keep_the_scaled_bake ... FAILED
+test the_kit_icon_drops_its_bake_and_draws_its_own_weight ... ok
+test an_arrow_cap_on_a_vertex_keeps_the_scaled_bake ... FAILED
+test fig_icon_without_an_arrow_cap_drops_its_bake ... ok
+test a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake ... FAILED
+test an_arrow_cap_on_the_node_keeps_the_scaled_bake ... FAILED
+test a_vertex_cap_equal_to_the_nodes_and_dashes_on_a_centered_stroke_still_drop_the_bake ... ok
+test fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake ... FAILED
+test an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized ... FAILED
+thread 'a_brush_and_side_weights_keep_the_scaled_bake' (83497596) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:95:59:
+thread 'an_arrow_cap_on_a_vertex_keeps_the_scaled_bake' (83497599) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:95:59:
+thread 'a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake' (83497598) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:95:59:
+thread 'an_arrow_cap_on_the_node_keeps_the_scaled_bake' (83497600) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:95:59:
+thread 'fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake' (83497602) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:95:59:
+thread 'an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized' (83497601) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:354:63:
+test result: FAILED. 3 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s

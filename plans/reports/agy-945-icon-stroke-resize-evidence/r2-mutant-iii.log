@@ -1,0 +1,17 @@
+=== green control on HEAD ===
+### ctl-iii-cpu
+test stroke_follows_the_network_while_the_fill_keeps_the_outline ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+### ctl-iii-gpu
+GPU: Apple M4 Max (Metal)
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.24s
+=== mutant (iii) ===
+### mut-iii-cpu
+test stroke_follows_the_network_while_the_fill_keeps_the_outline ... FAILED
+thread 'stroke_follows_the_network_while_the_fill_keeps_the_outline' (83502426) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:320:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+### mut-iii-gpu
+thread 'resized_vector_strokes_its_network_and_fills_its_outline_like_cpu' (83503671) panicked at crates/designos-gpu/tests/resized_shapes.rs:321:5:
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s

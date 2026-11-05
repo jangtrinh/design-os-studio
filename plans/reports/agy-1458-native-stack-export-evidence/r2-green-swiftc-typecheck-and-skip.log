@@ -1,0 +1,19 @@
+# swiftc typecheck test, source at 284444ea (code commit; later commits only add logs), swiftc present on macOS
+
+running 1 test
+swiftc_typecheck_summary: checked=19 passed=19 failed=0
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 4.34s
+
+swiftc_present_rc=0
+
+# same test binary with /usr/bin/swiftc hidden and unexecutable by: sandbox-exec -p '(version 1)(allow default)(deny file-read* (literal "/usr/bin/swiftc"))(deny process-exec* (literal "/usr/bin/swiftc"))'
+
+running 1 test
+swiftc_typecheck_summary: skipped, /usr/bin/swiftc is not installed on this machine
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+swiftc_missing_rc=0

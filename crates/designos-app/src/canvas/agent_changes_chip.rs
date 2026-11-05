@@ -424,7 +424,7 @@ pub fn paint(app: &mut App, ui: &mut Ui, canvas_rect: ERect) {
         let noun_galley = painter.layout_no_wrap(elided_noun.clone(), body_font, theme::AGENT_LABEL_TEXT);
         let noun_part_w = if elided_noun.is_empty() { 0.0 } else { noun_galley.size().x + theme::SPACE_FACT };
 
-        let pill_h = theme::CONTROL_STANDARD.max(theme::TARGET_MIN);
+        let pill_h = theme::CONTROL_XS;
         let pill_w = (theme::INSET_FRAME * 2.0 + badge_w + theme::SPACE_FACT + noun_part_w + show_galley.size().x + theme::SPACE_FACT + icon_w)
             .max(theme::TARGET_MIN)
             .min(max_chip_w);
@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn placement_uses_the_edge_nearest_the_changes() {
         let canvas_rect = ERect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
-        let chip_size = Vec2::new(140.0, theme::CONTROL_STANDARD);
+        let chip_size = Vec2::new(140.0, theme::CONTROL_XS);
 
         let (e_right, r_right) = place_chip_rect(canvas_rect, Pos2::new(3000.0, 450.0), chip_size, 0);
         assert_eq!(e_right, ChipEdge::Right);

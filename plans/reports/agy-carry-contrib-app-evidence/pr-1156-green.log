@@ -1,0 +1,39 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.42s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 2 tests
+test panels::export::tests::export_error_toast_uses_the_cut_layer_path ... ok
+test panels::export::tests::export_error_toast_uses_the_sanitized_layer_path ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4390 filtered out; finished in 0.01s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.06s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 13 tests
+test io::fallback_save::tests::the_fallback_is_downloads_when_it_exists ... ok
+test io::fallback_save::tests::an_error_names_the_cleaned_path_that_was_tried ... ok
+test io::fallback_save::tests::a_long_name_error_uses_the_cut_stem ... ok
+test io::fallback_save::tests::the_fallback_is_always_downloads_and_never_home ... ok
+test io::fallback_save::tests::a_long_name_is_cut_to_fit_the_file_system ... ok
+test io::fallback_save::tests::a_missing_folder_is_an_error_not_a_panic ... ok
+test io::fallback_save::tests::a_name_without_an_extension_gets_a_plain_number ... ok
+test io::fallback_save::tests::a_long_tail_after_a_dot_is_not_kept_as_an_extension ... ok
+test io::fallback_save::tests::a_name_cannot_leave_the_folder ... ok
+test io::fallback_save::tests::a_long_name_of_wide_characters_is_cut_on_a_character_boundary_within_the_byte_limit ... ok
+test io::fallback_save::tests::a_free_name_is_used_as_is ... ok
+test io::fallback_save::tests::a_cut_name_still_never_overwrites ... ok
+test io::fallback_save::tests::taken_names_get_a_number_before_the_extension ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 0.01s
+

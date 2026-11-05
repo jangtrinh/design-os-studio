@@ -1,0 +1,274 @@
+=== Finding 1 (Major 1) RED (db075f22): unnamed_rows_shift_by_cumulative_row_box_dh ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.47s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::unnamed_rows_shift_by_cumulative_row_box_dh ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::unnamed_rows_shift_by_cumulative_row_box_dh stdout ----
+
+thread 'layout_snapshot::tests::unnamed_rows_shift_by_cumulative_row_box_dh' (73858474) panicked at crates/designos-app/src/layout_snapshot.rs:909:60:
+unnamed rows shifting by cumulative row-box dh (+0, +8, +16) must pass G4: "G4 unnamed widget #2 rect drift in case f-inspector region 'right_panel': baseline=[1210.0, 90.0, 200.0, 24.0], current=[1210.0, 98.0, 200.0, 32.0]"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::unnamed_rows_shift_by_cumulative_row_box_dh
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3017 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 2 (Major 2) RED (073eb69c): gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.99s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance stdout ----
+
+thread 'layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance' (73875861) panicked at crates/designos-app/src/layout_snapshot.rs:994:9:
+widget with 0 rows above it must not be allowed to move +8pt under gap_dy=8
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3018 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 3 (Major 3) RED (12354bce): inventory_max_delta_forgives_count_only_and_compares_shared_prefix ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.71s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::inventory_max_delta_forgives_count_only_and_compares_shared_prefix ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::inventory_max_delta_forgives_count_only_and_compares_shared_prefix stdout ----
+
+thread 'layout_snapshot::tests::inventory_max_delta_forgives_count_only_and_compares_shared_prefix' (73903554) panicked at crates/designos-app/src/layout_snapshot.rs:1056:14:
+moving a widget in the shared prefix under inventory_max_delta must fail G4: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {0} }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::inventory_max_delta_forgives_count_only_and_compares_shared_prefix
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3019 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 4 (Major 4) RED (6cbc2ced): stale_check_counts_covering_entries_and_runs_over_union_of_run ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.58s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run stdout ----
+
+thread 'layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run' (73929036) panicked at crates/designos-app/src/layout_snapshot.rs:1086:14:
+covering entry for existing widgets with 0 drift must not be flagged as stale: "stale allow.json[0] entry (case='d-editor-default', region='right_panel', spec='F'): matched 0 widgets"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3020 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 5 (Minor 5) RED (1b3fba3d): overlay_names_use_areas_order_and_omit_egui_id ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.24s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::overlay_names_use_areas_order_and_omit_egui_id ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::overlay_names_use_areas_order_and_omit_egui_id stdout ----
+
+thread 'layout_snapshot::tests::overlay_names_use_areas_order_and_omit_egui_id' (73972403) panicked at crates/designos-app/src/layout_snapshot.rs:1195:9:
+assertion `left == right` failed: overlay names must follow areas().order() as overlay:{order}/{index} with no egui Id
+  left: ["Foreground:Id::new(\"popup-fg-beta\")", "Foreground:Id::new(\"popup-fg-gamma\")", "Middle:Id::new(\"popup-mid-alpha\")"]
+ right: ["overlay:Middle/0", "overlay:Foreground/0", "overlay:Foreground/1"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::overlay_names_use_areas_order_and_omit_egui_id
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3021 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 6 (Minor 6) RED: scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.59s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release stdout ----
+
+thread 'layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release' (74185547) panicked at crates/designos-app/src/layout_snapshot.rs:1565:9:
+assertion `left == right` failed: with widget_info enabled, only the overflowing ScrollArea in right_panel should emit ScrollGeom(y, maybe=false); got [ScrollGeom { region: "left_panel", axis: "v", maybe: false }]
+  left: [ScrollGeom { region: "left_panel", axis: "v", maybe: false }]
+ right: [ScrollGeom { region: "right_panel", axis: "y", maybe: false }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3022 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 7 (Minor 7) RED: g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.87s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact stdout ----
+
+thread 'layout_snapshot::tests::g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact' (74318280) panicked at crates/designos-app/src/layout_snapshot.rs:1653:60:
+covered region y/h changes must pass G1: "G1 region mismatch in case c-title-bar on tab_bar.h: baseline=40, current=44"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3023 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 9 (Minor 9) RED: open_failed_start_fixture_does_not_block_waiting_for_exit ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.51s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit stdout ----
+
+thread 'layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit' (74407342) panicked at crates/designos-app/src/layout_snapshot.rs:1713:9:
+open_failed_start_fixture must not block in a 5s sleep loop; took 5.088045292s
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3024 filtered out; finished in 5.17s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 10 (Nit 10) RED: negative_dw_or_dh_requires_r5_in_reason ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.03s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason stdout ----
+
+thread 'layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason' (74545514) panicked at crates/designos-app/src/layout_snapshot.rs:1832:10:
+negative min_dh without R5 in reason must fail validate_allow_entries: AllowList { entries: [AllowEntry { case: "f-inspector", region: "right_panel", name_prefix: Some("prop-row-0"), h_base: None, anchor_x: None, anchor_y: None, min_dw: None, max_dw: None, min_dh: Some(-4.0), max_dh: None, dx: None, dy: None, gap_dy: None, inventory_max_delta: None, spec: "F", reason: "tighten inspector row" }] }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3025 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Finding 12 (Nit 12) RED: g3_checks_row_name_sequence_with_underscore_for_unnamed ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.59s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::g3_checks_row_name_sequence_with_underscore_for_unnamed ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::g3_checks_row_name_sequence_with_underscore_for_unnamed stdout ----
+
+thread 'layout_snapshot::tests::g3_checks_row_name_sequence_with_underscore_for_unnamed' (74582140) panicked at crates/designos-app/src/layout_snapshot.rs:1900:53:
+swapping named and unnamed widget order on a row must fail G3 Order: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {0, 1} }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_snapshot::tests::g3_checks_row_name_sequence_with_underscore_for_unnamed
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3026 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

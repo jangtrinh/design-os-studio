@@ -417,6 +417,7 @@ pub fn vector_paths(paths: &[d::Path]) -> Shape {
 /// precedence over geometry derived from the node kind.
 pub fn node_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
     let given = n.fill_geometry.as_deref().map(vector_paths).filter(|s| !s.paths.is_empty());
+    let has_fill_geometry = given.is_some();
     let mut shape = match given {
         Some(s) => Some(s),
         None => derived_shape(doc, n, tol),
@@ -429,8 +430,28 @@ pub fn node_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
     }
     if let Some(sg) = n.stroke_geometry.as_deref().map(vector_paths).filter(|s| !s.paths.is_empty()) {
         shape.stroke_paths = Some(sg.paths);
+    } else if has_fill_geometry {
+        stroke_network_not_fill_outline(n, &mut shape);
     }
     Some(shape)
+}
+
+/// A vector that keeps Figma's fill outline but whose own `paths` are no longer that outline (a resize
+/// rebuilt them from the centerline network and dropped the baked stroke) strokes those paths: the
+/// stroke follows the network, chains that are only stroked included, while the fill keeps the
+/// outline with its winding, regions and open-path fills.
+fn stroke_network_not_fill_outline(n: &Node, shape: &mut Shape) {
+    let NodeKind::Vector { paths, network: Some(net) } = &n.kind else { return };
+    let Some(fill) = n.fill_geometry.as_deref() else { return };
+    if paths.is_empty() || paths == fill || net.is_empty() || !net.is_valid() {
+        return;
+    }
+    let stroke = vector_paths(paths);
+    if stroke.paths.is_empty() {
+        return;
+    }
+    shape.fill_only = Some(std::mem::replace(&mut shape.paths, stroke.paths));
+    shape.closed = stroke.closed;
 }
 
 fn derived_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {

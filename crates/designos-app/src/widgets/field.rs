@@ -71,8 +71,7 @@ pub fn edit_text_hint(
         .id(id)
         .font(font.clone())
         .text_color(if focused { color } else { Color32::TRANSPARENT })
-        .frame(egui::Frame::NONE)
-        .margin(Margin::symmetric(pad_x as i8, 0))
+        .frame(egui::Frame::NONE.inner_margin(Margin::symmetric(pad_x as i8, 0)))
         .vertical_align(Align::Center)
         .min_size(rect.size())
         .desired_width(rect.width());
@@ -136,7 +135,7 @@ pub fn edit_num_text(
     pad_x: f32,
     hint: Option<(&str, Color32)>,
 ) -> Option<f32> {
-    let display = value.map(fmt_num).unwrap_or_default();
+    let display = value.map(super::numeric_field_value).unwrap_or_default();
     let mut stepped: Option<(f32, String)> = None;
     if ui.memory(|m| m.has_focus(id)) {
         let mut key_step: Option<(f32, f32)> = None;
@@ -561,31 +560,61 @@ pub(crate) fn parse_number(s: &str) -> Option<f32> {
 /// `text_secondary`, value at x+24 (x+8 without a prefix), suffix right after the value
 /// in `text_secondary`. Integers print without decimals, other values with at most two.
 pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
+    num_field_inner(ui, rect, key, prefix, value, suffix, false)
+}
+
+/// Like [`num_field`], with the value placed at the prefix label's measured right edge plus [`theme::SPACE_FACT`].
+pub fn num_field_prefix_gap(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
+    num_field_inner(ui, rect, key, prefix, value, suffix, true)
+}
+
+fn num_field_inner(
+    ui: &mut Ui,
+    rect: Rect,
+    key: impl crate::widgets::Key,
+    prefix: Prefix,
+    value: Option<f32>,
+    suffix: &str,
+    tight_prefix_gap: bool,
+) -> Option<f32> {
     #[cfg(test)]
-    ui.ctx().data_mut(|d| {
+    {
         let k = format!("{key:?}");
-        d.insert_temp(Id::new(("field-rect", k.clone())), rect);
-        d.insert_temp(Id::new(("field-prefix", k)), prefix);
-    });
+        let rect_id = Id::new(("field-rect", k.clone()));
+        let prefix_id = Id::new(("field-prefix", k));
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(rect_id, rect);
+            d.insert_temp(prefix_id, prefix);
+        });
+    }
     let id = ui.id().with(("num", key));
-    let display = value.map(fmt_num).unwrap_or_default();
+    let display = value.map(super::numeric_field_value).unwrap_or_default();
     let has_prefix = !matches!(prefix, Prefix::None);
-    let pw = if has_prefix { theme::FIELD_PREFIX_W } else { 0.0 };
+    let mut pw = if has_prefix { theme::FIELD_PREFIX_W } else { 0.0 };
     field_bg(ui, rect, id);
     let p = ui.painter().clone();
     match prefix {
         Prefix::None => {}
         Prefix::Text(s) => {
-            // 8px in; the value starts 24px in.
-            super::field_text(
+            // 8px in; the value starts 24px in. A prefix is one or two glyphs and is never worth eliding: at the 12px
+            // step "CS" is 16.5px and the arrow 16.1px, so the slot takes one border width of slack rather than
+            // shrinking them to a bare ellipsis, and a prefix that then ends past the 24px line pushes the value
+            // to the next whole pixel plus a 4px gap, so the two never read as one string.
+            let painted = super::field_text(
                 &p,
                 rect,
                 theme::FIELD_PREFIX_X,
-                rect.width() - theme::FIELD_PREFIX_X - theme::FIELD_PREFIX_ICON,
+                rect.width() - theme::FIELD_PREFIX_X - theme::FIELD_PREFIX_ICON - theme::BORDER_WIDTH,
                 s,
                 theme::font_body(),
                 theme::TEXT_SECONDARY,
             );
+            let prefix_right = painted.right() - rect.left();
+            if tight_prefix_gap {
+                pw = prefix_right + theme::SPACE_FACT;
+            } else if prefix_right > theme::FIELD_PREFIX_W {
+                pw = prefix_right.ceil() + theme::SPACE_FACT;
+            }
         }
         Prefix::Icon(i) => {
             let slot = Rect::from_min_size(
@@ -653,7 +682,7 @@ fn scrub_prefix(ui: &mut Ui, prefix: Rect, id: Id, value: Option<f32>) -> Option
     }
     if ui.rect_contains_pointer(prefix) && ui.input(|i| i.pointer.primary_clicked()) && !resp.dragged() {
         ui.memory_mut(|m| m.request_focus(id));
-        let display = value.map(fmt_num).unwrap_or_default();
+        let display = value.map(super::numeric_field_value).unwrap_or_default();
         ui.data_mut(|d| d.insert_temp(id, display.clone()));
         let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
         state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(display.chars().count()))));
@@ -691,16 +720,9 @@ fn scrub_prefix(ui: &mut Ui, prefix: Rect, id: Id, value: Option<f32>) -> Option
     out
 }
 
-/// Paints the standard field background with hover/focus border.
+/// Paints the standard field background. Focus widens the border; hover does not.
 pub fn field_bg(ui: &Ui, rect: Rect, id: Id) {
-    let focused = ui.memory(|m| m.has_focus(id));
-    let hovered = ui.rect_contains_pointer(rect);
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    if focused {
-        ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-    } else if hovered {
-        ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
-    }
+    kit::paint_field(ui, rect, id, kit::Size::Xs, false);
 }
 
 /// Plain text field with standard background; returns committed text.
@@ -803,6 +825,84 @@ mod tests {
         assert_eq!(eval_number_expr(&format!("{}1", "-".repeat(10)), None, false), Some(1.0));
         assert_eq!(eval_number_expr(&format!("{}5{}", "(".repeat(20), ")".repeat(20)), None, false), Some(5.0));
         assert_eq!(eval_number_expr("2^2^3", None, false), Some(256.0));
+    }
+
+    #[test]
+    fn focused_text_starts_after_the_requested_horizontal_inset() {
+        let ctx = egui::Context::default();
+        theme::apply(&ctx);
+        theme::install_fonts(&ctx);
+        let rect = Rect::from_min_size(Pos2::new(24.0, 24.0), Vec2::new(120.0, theme::FIELD_HEIGHT));
+        let id = Id::new("focused-inset");
+        let mut text_shape = None;
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() }, |ui| {
+                ui.memory_mut(|m| m.request_focus(id));
+                edit_text_hint(ui, rect, id, "123", theme::font_body(), theme::TEXT, 8.0, None);
+            });
+            text_shape = out.shapes.iter().find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) if shape.galley.text() == "123" => Some(shape.clone()),
+                _ => None,
+            });
+        }
+        let shape = text_shape.expect("focused field text is painted");
+        assert!((shape.pos.x - (rect.left() + 8.0)).abs() < 0.1, "text starts at {}, expected {}", shape.pos.x, rect.left() + 8.0);
+    }
+
+    #[test]
+    fn one_and_two_glyph_prefixes_are_painted_whole() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let rect = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(theme::FIELD_WIDTH_HALF, theme::FIELD_HEIGHT));
+        for prefix in ["W", "px", "CS", "RS", "\u{2194}", "\u{2195}"] {
+            let mut painted = Vec::new();
+            for _ in 0..2 {
+                let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    num_field(ui, rect, "prefix-test", Prefix::Text(prefix), Some(0.0), "");
+                });
+                painted.clear();
+                for cs in &out.shapes {
+                    if let egui::Shape::Text(t) = &cs.shape {
+                        painted.push(t.galley.text().to_string());
+                    }
+                }
+            }
+            assert!(painted.iter().any(|t| t == prefix), "prefix {prefix:?} was not painted whole: {painted:?}");
+        }
+    }
+
+    #[test]
+    fn the_value_never_starts_before_the_prefix_ends() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let rect = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(theme::FIELD_WIDTH_HALF, theme::FIELD_HEIGHT));
+        for prefix in ["W", "px", "CS", "RS", "\u{2194}", "\u{2195}"] {
+            let mut runs = Vec::new();
+            for _ in 0..2 {
+                let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    num_field(ui, rect, "prefix-gap-test", Prefix::Text(prefix), Some(100.0), "");
+                });
+                runs.clear();
+                for cs in &out.shapes {
+                    if let egui::Shape::Text(t) = &cs.shape {
+                        runs.push((t.galley.text().to_string(), t.pos.x, t.pos.x + t.galley.size().x));
+                    }
+                }
+            }
+            let prefix_run = runs.iter().find(|r| r.0 == prefix).unwrap_or_else(|| panic!("prefix {prefix:?} not painted: {runs:?}"));
+            let value_run = runs.iter().find(|r| r.0 == "100").unwrap_or_else(|| panic!("value not painted: {runs:?}"));
+            assert!(
+                prefix_run.2 <= value_run.1,
+                "prefix {prefix:?} ends at {} but the value starts at {}",
+                prefix_run.2 - rect.left(),
+                value_run.1 - rect.left()
+            );
+            if prefix_run.2 - rect.left() <= theme::FIELD_PREFIX_W {
+                assert_eq!(value_run.1 - rect.left(), theme::FIELD_PREFIX_W, "a prefix that fits keeps the value 24 px in ({prefix:?})");
+            }
+        }
     }
 
     #[test]

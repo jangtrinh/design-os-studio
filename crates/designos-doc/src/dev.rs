@@ -285,6 +285,7 @@ fn paints_text(p: &[Paint]) -> String {
                 PaintKind::AngularGradient { .. } => "angular gradient".into(),
                 PaintKind::DiamondGradient { .. } => "diamond gradient".into(),
                 PaintKind::Image { .. } => "image".into(),
+                PaintKind::Shader(_) => "shader".into(),
             };
             let mut s = base;
             if !p.visible {
@@ -312,6 +313,7 @@ fn effects_text(e: &[Effect]) -> String {
             Effect::Noise(_) => "noise".into(),
             Effect::Texture(_) => "texture".into(),
             Effect::Glass(_) => "glass".into(),
+            Effect::Shader { .. } => "shader".into(),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -354,6 +356,9 @@ pub fn diff_node(old: &Node, new: &Node) -> Vec<PropChange> {
     add("Stroke weight", n2(old.stroke.weight), n2(new.stroke.weight));
     add("Effects", effects_text(&old.effects), effects_text(&new.effects));
     add("Mask", old.is_mask.to_string(), new.is_mask.to_string());
+    if old.is_mask || new.is_mask || old.mask_type != new.mask_type {
+        add("Mask type", old.mask_type.label().to_string(), new.mask_type.label().to_string());
+    }
     if let (Some(a), Some(b)) = (old.kind.frame_props(), new.kind.frame_props()) {
         add("Clip content", a.clips_content.to_string(), b.clips_content.to_string());
         match (&a.auto_layout, &b.auto_layout) {

@@ -1,0 +1,59 @@
+=== PART 1: The Three New Tests (Red on Review Mutant -> Green on Head) ===
+
+--- V-COUNT-ASSIGN :: property_swap_accumulates_dropped_inner_swaps_across_bound_slots ---
+[mutant applied] exit=101
+  running 1 test
+  test components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots ... FAILED
+  thread 'components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots' (45232889) panicked at crates/designos-doc/src/components.rs:5862:9:
+  assertion `left == right` failed
+    left: (1, 0, 1, 0)
+   right: (1, 0, 2, 0)
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+[head] exit=0
+  running 1 test
+  test components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots ... ok
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+
+--- V-CLEAR-NO-SIZE :: direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync ---
+[mutant applied] exit=101
+  running 1 test
+  test components::tests::direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync ... FAILED
+  thread 'components::tests::direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync' (45234755) panicked at crates/designos-doc/src/components.rs:6406:13:
+  assertion `left == right` failed: vector->frame Fills-only direct swap must keep new main's imported outline before sync
+    left: None
+   right: Some((3.0, 2.0, 13.0, 14.0))
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+[head] exit=0
+  running 1 test
+  test components::tests::direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync ... ok
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+
+--- V-CLEAR-FILL-ONLY :: cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph ---
+[mutant applied] exit=101
+  running 1 test
+  test components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph ... FAILED
+  thread 'components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph' (45236387) panicked at crates/designos-doc/src/components.rs:6443:9:
+  assertion `left == right` failed: vector->frame with carried Size must clear stroke_geometry at swap
+    left: Some([Path { cmds: [MoveTo(Vec2 { x: 0.0, y: 0.0 }), LineTo(Vec2 { x: 20.0, y: 0.0 }), LineTo(Vec2 { x: 20.0, y: 20.0 }), LineTo(Vec2 { x: 0.0, y: 20.0 }), Close], fill_rule: NonZero }])
+   right: None
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+[head] exit=0
+  running 1 test
+  test components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph ... ok
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+
+=== PART 2: All 11 Round-5 Worker Mutants + 3 MINOR-2 Review Mutants ===
+KILLED        R-AXIS-SYNC sync_pair whole-vector keep on later syncs  (14.9s) ['components::tests::nested_slot_size_rule_is_per_axis_across_swap_and_sync']
+KILLED        R-COPYFIELD r3 Vector/BooleanOp guard back in shared copy_field  (15.3s) ['components::tests::copy_field_size_on_imported_shapes_after_main_resize']
+KILLED        R-M2 top-level swaps carry diff-derived overrides  (16.5s) ['components::tests::top_level_swap_does_not_carry_diff_derived_overrides']
+KILLED        R-PROMO Min/Min -> Scale promotion added back  (16.1s) ['components::tests::pinned_logo_keeps_size_on_user_resized_card_after_swap_and_sync', 'components::tests::pinned_logo_keeps_size_when_outer_width_is_kept_per_axis', 'components::tests::pinned_and_scale_glyphs_follow_constraint_solver_on_slot_swap']
+KILLED        N-STAMP constraint pass stamps Size/Transform overrides again  (15.0s) ['components::tests::nested_slot_widened_by_outer_instance_keeps_width_on_swap', 'components::tests::slot_swap_scales_inset_glyph_by_scale_not_slot_size']
+KILLED        N-NO-POSTPASS drop sync_pair's post-children constraint pass  (15.2s) ['components::tests::nested_slot_widened_by_outer_instance_keeps_width_on_swap', 'components::tests::pinned_and_scale_glyphs_follow_constraint_solver_on_slot_swap', 'components::tests::slot_swap_scales_inset_glyph_by_scale_not_slot_size']
+KILLED        N-NO-RESTORE drop the kinds_differ geometry clear  (14.6s) ['components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph', 'components::tests::swap_drops_override_when_old_and_new_mains_differ', 'components::tests::glyph_type_change_with_carried_size_draws_new_outline']
+KILLED        N-SLOTRN swap sync uses the MAIN's slot reference too (r3)  (14.8s) ['components::tests::nested_slot_widened_by_outer_instance_keeps_width_on_swap']
+KILLED        N-COUNT-OFF dropped inner swaps never counted  (15.7s) ['components::tests::inner_swap_below_swapped_slot_is_dropped_and_counted', 'components::tests::swap_reports_dropped_inner_swaps_per_call', 'components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots']
+KILLED        N-SETNAME auto-name ignores the set name  (16.2s) ['components::tests::set_named_variant_instance_takes_new_main_name_on_cross_family_swap']
+KILLED        N-LAYOUT root Layout override survives a swap again  (15.8s) ['components::tests::swap_transfers_matching_overrides_across_node_types_and_preserves_slot_bindings']
+KILLED        V-COUNT-ASSIGN per-call count overwritten instead of accumulated  (15.7s) ['components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots']
+KILLED        V-CLEAR-NO-SIZE clear geometry on any cross-kind non-vector target, Size carried or not  (14.9s) ['components::tests::direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync']
+KILLED        V-CLEAR-FILL-ONLY stroke_geometry kept on the cleared target  (15.5s) ['components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph']

@@ -226,12 +226,6 @@ pub fn tool_descriptor() -> Value {
                 "auto_fix": {"type": "object"}
             }),
             &["issues", "auto_fix"],
-        ),
-        "annotations": {
-            "readOnlyHint": false,
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false
-        }
+        )
     })
 }

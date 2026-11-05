@@ -1,0 +1,27 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.28s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test shell::tests::vector::shift_dragging_edge_scale_handles_locks_the_aspect_ratio_and_undoes_in_one_step ... FAILED
+
+failures:
+
+---- shell::tests::vector::shift_dragging_edge_scale_handles_locks_the_aspect_ratio_and_undoes_in_one_step stdout ----
+
+thread 'shell::tests::vector::shift_dragging_edge_scale_handles_locks_the_aspect_ratio_and_undoes_in_one_step' (80273443) panicked at crates/designos-app/src/shell/tests/vector.rs:447:5:
+Shift+R kept square 150x150, got 100x100 ([300,800]..[400,900])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::vector::shift_dragging_edge_scale_handles_locks_the_aspect_ratio_and_undoes_in_one_step
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4226 filtered out; finished in 2.36s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant2_rc=101

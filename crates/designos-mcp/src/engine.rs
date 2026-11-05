@@ -1,5 +1,5 @@
 //! Typed, local document operations shared by the MCP transport and future bridges.
-use crate::tools::errors::{tool_output_schema, ErrorCode, ToolError};
+use crate::tools::errors::{tool_output_schema, ErrorCode, ErrorKind, ToolError};
 use designos_doc::live_patch::{live_ops_for_command, live_ops_for_independent, LiveOp};
 use designos_doc::{Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Vec2};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -126,7 +126,7 @@ impl Engine {
 
 impl Default for Engine {
     fn default() -> Self {
-        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
+        designos_doc::text_measure::set_layout_measurer(Some(std::sync::Arc::new(designos_render::RenderTextMeasure)));
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
         Self {
@@ -202,6 +202,8 @@ pub const DISPATCHED: &[&str] = &[
     "designos_redo",
     "designos_apply_batch",
     "designos_configure_session",
+    "designos_docs_list",
+    "designos_docs_read",
 ];
 
 /// Non-prefixed compatibility aliases accepted by [`Engine::call`].
@@ -719,8 +721,9 @@ impl Engine {
                 let baseline =
                     crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent, &self.session_options.issues, a.lint, self.lint_env());
                 let snapshots = self.collect_library_snapshots(&a.spec);
-                let (cmd, report) = designos_doc::apply_spec_command(&mut self.doc, parent, &a.spec, &snapshots)
-                    .map_err(|e| crate::tools::errors::from_spec_error(e, "/spec"))?;
+                let (cmd, report) =
+                    designos_doc::apply_spec_command_with(&mut self.doc, parent, &a.spec, &snapshots, Some(&designos_render::RenderTextMeasure))
+                        .map_err(|e| crate::tools::errors::from_spec_error(e, "/spec"))?;
                 self.exec(cmd)?;
                 for (id, ip) in &report.in_progress {
                     if self.doc.in_progress.get(id) != Some(ip) {
@@ -1091,8 +1094,20 @@ impl Engine {
                 });
                 Ok(value)
             }
-            "designos_apply_batch" => crate::tools::batch::apply(self, args),
+            "designos_apply_batch" => {
+                let depth_before = self.history.undo_depth();
+                let epoch_before = self.doc.mutation_epoch();
+                let res = crate::tools::batch::apply(self, args)?;
+                if self.history.undo_depth() > depth_before {
+                    if let Some(inv) = self.history.peek_undo().cloned() {
+                        self.reroute_after_batch_layout(&inv, epoch_before)?;
+                    }
+                }
+                Ok(res)
+            }
             "designos_configure_session" => self.session_options.apply_patch(args).map_err(ToolError::from),
+            "designos_docs_list" => crate::tools::docs::docs_list(&crate::tools::library_source::resolve_library_root(), self.file_path.as_deref(), args),
+            "designos_docs_read" => crate::tools::docs::docs_read(&crate::tools::library_source::resolve_library_root(), self.file_path.as_deref(), args),
             "designos_import_web_capture" | "import_web_capture" => {
                 let a: ImportWebCaptureArgs = parse(args)?;
                 let page = a
@@ -1174,8 +1189,86 @@ impl Engine {
     /// drains deferred layout a step per frame; this engine has no window, and its document is
     /// read, saved and exported as is.
     pub(crate) fn relayout(&mut self, root: NodeId) {
+        let ep = self.doc.mutation_epoch();
         self.doc.relayout_subtree(root);
         self.doc.flush_pending_relayout();
+        if self.doc.mutation_epoch() != ep && designos_doc::with_index(&self.doc, |idx| !idx.is_empty()) {
+            let mut dirty = Vec::new();
+            let mut removed = Vec::new();
+            let touched = if self.doc.dirty_changes_since(ep, &mut dirty, &mut removed) { dirty } else { vec![root] };
+            if !touched.is_empty() && !designos_doc::plan_reroute(&self.doc, &touched, None).updates.is_empty() {
+                let _ = self.reroute_in_last_step(&touched);
+                self.doc.relayout_subtree(root);
+                self.doc.flush_pending_relayout();
+            }
+        }
+    }
+
+    /// Re-routes the connectors a committed `designos_apply_batch` left behind, in the batch's own
+    /// undo step. The batch has already been solved by the time it commits, so connectors are
+    /// planned against where layout left the nodes: the batch's own targets, and every node the
+    /// solve wrote (the siblings of a resized or deleted child move without being a target).
+    /// Passing those nodes also keeps a reflow from being taken for a rigid move of a subtree.
+    /// When the change log cannot name them, that is everything under the auto-layout containers
+    /// the batch reached: the ones holding its targets now, and the ones its inserts, removals and
+    /// moves left (a moved child's old parent reflows although the child is no longer in it).
+    ///
+    /// A fold is followed by one more solve, because re-routing resizes connectors and one that is
+    /// itself a flow child of an auto-layout frame is measured by the solver, which also moves its
+    /// siblings and rewrites its transform. Routing has the last word: the nodes that solve wrote
+    /// are planned once more and folded, and there is no loop. A further solve would put the
+    /// connector back in its flow slot, so a plan would never come back empty; the cap is one
+    /// extra plan and one extra fold per batch.
+    fn reroute_after_batch_layout(&mut self, inverse: &Command, epoch_before: u64) -> Result<(), ToolError> {
+        if designos_doc::with_index(&self.doc, |idx| idx.is_empty()) {
+            return Ok(());
+        }
+        let mut targets = Vec::new();
+        collect_cmd_touched_nodes(inverse, &mut targets);
+        let mut anchors = targets.clone();
+        collect_cmd_container_parents(inverse, &mut anchors);
+        for id in &targets {
+            if let Some(parent) = self.doc.get(*id).and_then(|n| n.parent) {
+                if !anchors.contains(&parent) {
+                    anchors.push(parent);
+                }
+            }
+        }
+        let mut touched = targets;
+        let mut seen: std::collections::HashSet<NodeId> = touched.iter().copied().collect();
+        touched.extend(self.layout_written_since(epoch_before, &anchors).into_iter().filter(|id| seen.insert(*id)));
+        if self.reroute_in_last_step(&touched)? {
+            let epoch = self.doc.mutation_epoch();
+            let tops: std::collections::BTreeSet<NodeId> =
+                anchors.iter().filter_map(|id| crate::tools::batch::top_container_under_page(&self.doc, *id)).collect();
+            for top in tops {
+                crate::tools::batch::relayout_for_node(&mut self.doc, top);
+            }
+            self.settle_layout();
+            let written = self.layout_written_since(epoch, &anchors);
+            if !written.is_empty() {
+                self.reroute_in_last_step(&written)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The nodes layout wrote since `epoch`: what the change log lists, or, when it cannot say, every
+    /// node under the outermost auto-layout frame holding any of `anchors`.
+    fn layout_written_since(&self, epoch: u64, anchors: &[NodeId]) -> Vec<NodeId> {
+        if self.doc.mutation_epoch() == epoch {
+            return Vec::new();
+        }
+        let (mut written, mut removed) = (Vec::new(), Vec::new());
+        if self.doc.dirty_changes_since(epoch, &mut written, &mut removed) {
+            return written;
+        }
+        let roots: std::collections::BTreeSet<NodeId> = anchors.iter().filter_map(|id| auto_layout_root(&self.doc, *id)).collect();
+        let mut scope = Vec::new();
+        for root in roots {
+            self.doc.walk(root, |n, _| scope.push(n.id));
+        }
+        scope
     }
 
     /// Finishes any auto-layout the document still has deferred. Callers that serialize or
@@ -1201,11 +1294,58 @@ impl Engine {
 
     pub fn exec(&mut self, command: Command) -> Result<(), ToolError> {
         let w = designos_doc::writer_command(&self.doc, command);
+        let mut touched = Vec::new();
+        for p in &w.parts {
+            collect_cmd_touched_nodes(p, &mut touched);
+        }
         let ops = self.live_ops_for_parts(&w.parts)?;
         self.history.exec(&mut self.doc, w.cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
         self.revision = self.revision.wrapping_add(1);
         self.record(ops);
+        self.reroute_in_last_step(&touched)?;
         Ok(())
+    }
+
+    /// Folds the re-route of the connectors `touched` nodes leave stale into the last undo step.
+    /// Returns whether it wrote anything.
+    pub(crate) fn reroute_in_last_step(&mut self, touched: &[NodeId]) -> Result<bool, ToolError> {
+        if touched.is_empty() || designos_doc::with_index(&self.doc, |idx| idx.is_empty()) {
+            return Ok(false);
+        }
+        let plan = designos_doc::plan_reroute(&self.doc, touched, None);
+        if plan.updates.is_empty() {
+            return Ok(false);
+        }
+        let mut reroute_parts = Vec::with_capacity(plan.updates.len());
+        for (cid, g) in plan.updates {
+            if let Some(cur) = self.doc.get(cid) {
+                let mut updated = cur.clone();
+                g.apply(&mut updated);
+                reroute_parts.push(Command::Update { node: Box::new(updated) });
+            }
+        }
+        if reroute_parts.is_empty() {
+            return Ok(false);
+        }
+        let ops = self.live_ops_for_parts(&reroute_parts)?;
+        let depth = self.history.undo_depth();
+        if let Some(inv_prev) = self.history.peek_undo().cloned() {
+            let label = self.history.peek_undo_label().map(str::to_owned);
+            let fwd_prev = inv_prev.apply(&mut self.doc).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            self.history.drop_undo_steps_after(depth - 1);
+            let mut cmds = match fwd_prev {
+                Command::Batch(v) => v,
+                other => vec![other],
+            };
+            cmds.extend(reroute_parts);
+            let combined = if cmds.len() == 1 { cmds.pop().unwrap() } else { Command::Batch(cmds) };
+            self.history.exec_labeled(&mut self.doc, combined, label).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        } else {
+            let cmd = if reroute_parts.len() == 1 { reroute_parts.pop().unwrap() } else { Command::Batch(reroute_parts) };
+            self.history.exec(&mut self.doc, cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        }
+        self.record(ops);
+        Ok(true)
     }
 
     /// The ops `command` will perform, when recording; refuses edits the editor cannot replay.
@@ -1258,7 +1398,7 @@ impl Engine {
         let mut warnings = Vec::new();
         let mut measured_with_fallback = Vec::new();
         if let NodeKind::Text(tp) = &node.kind {
-            if (a.width.is_none() || a.height.is_none()) && designos_doc::text_measure::uses_fallback_font(tp) {
+            if (a.width.is_none() || a.height.is_none()) && crate::tools::text_fell_back(tp) {
                 measured_with_fallback.push(id.0);
                 warnings.push(designos_doc::SpecWarning {
                     code: "TEXT_MEASURED_WITH_FALLBACK_FONT".to_string(),
@@ -1322,6 +1462,65 @@ impl Engine {
         }
         Ok(out)
     }
+}
+
+fn collect_cmd_touched_nodes(cmd: &Command, out: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Insert { nodes, .. } | Command::InsertPage { nodes, .. } => {
+            for n in nodes {
+                if !out.contains(&n.id) {
+                    out.push(n.id);
+                }
+            }
+        }
+        Command::Remove { id } | Command::Reparent { id, .. } | Command::RemovePage { id } => {
+            if !out.contains(id) {
+                out.push(*id);
+            }
+        }
+        Command::Update { node } => {
+            if !out.contains(&node.id) {
+                out.push(node.id);
+            }
+        }
+        Command::Batch(cmds) => {
+            for c in cmds {
+                collect_cmd_touched_nodes(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The containers an inverse command puts nodes back into: the parent of an `Insert` (where a
+/// deleted child's siblings reflow) and of a `Reparent` (the container a moved node left).
+fn collect_cmd_container_parents(cmd: &Command, out: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Insert { parent, .. } | Command::Reparent { parent, .. } => {
+            if !out.contains(parent) {
+                out.push(*parent);
+            }
+        }
+        Command::Batch(cmds) => {
+            for c in cmds {
+                collect_cmd_container_parents(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The outermost auto-layout frame of the unbroken chain that holds `id` (or is `id`): the frame
+/// whose solve can move `id`'s siblings and resize what hugs it.
+fn auto_layout_root(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let is_auto = |id: NodeId| doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some());
+    let mut top = is_auto(id).then_some(id);
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(c) = cur.filter(|c| is_auto(*c)) {
+        top = Some(c);
+        cur = doc.get(c).and_then(|n| n.parent);
+    }
+    top
 }
 
 /// Adds the bind warnings (such as a variable that has no value in the node's mode) to a write reply, as `apply_spec` does.
@@ -1598,6 +1797,9 @@ pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), 
     Ok(())
 }
 
+/// File name endings `designos_open_file` imports (any case), matching `designos_library::load_external`.
+pub const OPEN_IMPORT_EXTENSIONS: [&str; 5] = ["designos", "fig", "svg", "json", "webcapture"];
+
 /// The one file name ending `designos_save_file` writes below the workspace.
 pub const SAVE_EXTENSION: &str = "designos";
 /// The one file name ending `designos_render_png` writes below the workspace.
@@ -1614,6 +1816,24 @@ pub const WORKSPACE_WRITE_EXTENSIONS: [&str; 3] = [SAVE_EXTENSION, RENDER_EXTENS
 /// The start of the name of the temporary file an overwrite is written to before it replaces its target (`<prefix><pid>-<n>.tmp`,
 /// made with `create_new`, so it never replaces an existing file).
 pub const OUTPUT_TEMP_PREFIX: &str = ".designos-out-";
+
+pub(crate) fn open_import_extension_ok(display_path: &str) -> bool {
+    std::path::Path::new(display_path)
+        .extension()
+        .and_then(|x| x.to_str())
+        .is_some_and(|actual| OPEN_IMPORT_EXTENSIONS.iter().any(|ok| actual.eq_ignore_ascii_case(ok)))
+}
+
+pub(crate) fn unsupported_open_file_type(display_path: &str) -> ToolError {
+    ToolError::new(
+        ErrorCode::UnsupportedFileType,
+        "/path",
+        format!("{display_path} is not a supported design file. Open a .designos, .fig, .svg, .json, or .webcapture file, or a file that holds native design JSON."),
+    )
+    .with_received(json!(display_path))
+    .with_expected(".designos, .fig, .svg, .json, .webcapture")
+    .with_next_step("Stop and tell the user: this file type is not supported. Supported extensions are .designos, .fig, .svg, .json, and .webcapture. Do not retry with the same path.")
+}
 
 pub(crate) fn validate_existing_output_target(
     target_meta: Option<(bool, bool, bool, bool, bool)>,
@@ -1648,7 +1868,7 @@ pub(crate) fn validate_existing_output_target(
     });
     if !ext_ok {
         return Err(ToolError::new(
-            ErrorCode::InvalidArguments,
+            ErrorCode::UnsupportedExtension,
             ptr,
             format!("{display_path} does not end with .{ext}. Choose a path ending with .{ext}, then try again."),
         )
@@ -1689,6 +1909,12 @@ pub(crate) fn validate_existing_output_target(
     Ok(())
 }
 
+/// Whether a failed write is something only the user can fix (see `write_checked_output_file`).
+pub(crate) fn write_needs_human(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind as Io;
+    matches!(e.kind(), Io::PermissionDenied | Io::StorageFull | Io::ReadOnlyFilesystem | Io::FileTooLarge)
+}
+
 pub(crate) fn write_checked_output_file(
     resolved: &std::path::Path,
     display_path: &str,
@@ -1710,6 +1936,12 @@ pub(crate) fn write_checked_output_file(
         Some(crate::session_file_io::Refusal::NotPlainFile) => {
             ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
                 .with_received(json!(display_path))
+        }
+        // Permissions, a full disk, a read-only disk or a size limit: only the user can change those, so the agent stops.
+        None if write_needs_human(&e) => {
+            ToolError::new(ErrorCode::InternalError, ptr, format!("{display_path} can't be written: {e}. Check its permissions and free space."))
+                .with_error_kind(ErrorKind::NeedsHuman)
+                .with_next_step("Stop and tell the user: this file can't be written (permissions, free space, or a size limit). Do not retry.")
         }
         None => ToolError::new(
             ErrorCode::InternalError,
@@ -1875,13 +2107,11 @@ pub fn tools() -> Vec<Value> {
         "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session."
     });
     let mut out = Vec::new();
-    let mut add =
-        |tool: &str, description: &str, properties: Value, required: Vec<&str>, out_props: Value, out_req: &[&str], read_only: bool, idempotent: bool| {
-            out.push(json!({"name":format!("designos_{tool}"),"description":description,
-            "inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},
-            "outputSchema":tool_output_schema(out_props, out_req),
-            "annotations":{"readOnlyHint":read_only,"destructiveHint":!read_only,"idempotentHint":idempotent,"openWorldHint":false}}));
-        };
+    let mut add = |tool: &str, description: &str, properties: Value, required: Vec<&str>, out_props: Value, out_req: &[&str]| {
+        out.push(json!({"name":format!("designos_{tool}"),"description":description,
+        "inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},
+        "outputSchema":tool_output_schema(out_props, out_req)}));
+    };
     add(
         "get_document",
         "Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with their values, and undo state.",
@@ -1901,8 +2131,6 @@ pub fn tools() -> Vec<Value> {
             "can_redo": {"type": "boolean"}
         }),
         &["name", "pages", "node_count", "can_undo", "can_redo"],
-        true,
-        true,
     );
     add(
         "get_libraries",
@@ -1911,8 +2139,6 @@ pub fn tools() -> Vec<Value> {
         vec![],
         json!({ "libraries": {"type": "array"} }),
         &["libraries"],
-        true,
-        true,
     );
     add(
         "get_metadata",
@@ -1930,8 +2156,6 @@ pub fn tools() -> Vec<Value> {
             "scoped": {"type": "boolean"}
         }),
         &["root_id", "xml", "node_count", "truncated", "remaining_estimate", "hidden_omitted", "lint_ran"],
-        true,
-        true,
     );
     add(
         "search_design_system",
@@ -1949,8 +2173,6 @@ pub fn tools() -> Vec<Value> {
             "libraries_searched": {"type": "array"}
         }),
         &["results", "total", "libraries_searched"],
-        true,
-        true,
     );
     add(
         "list_nodes",
@@ -1964,8 +2186,6 @@ pub fn tools() -> Vec<Value> {
             "next_offset": {"type": ["integer", "null"]}
         }),
         &["nodes", "total", "offset"],
-        true,
-        true,
     );
     add(
         "get_node",
@@ -1974,8 +2194,6 @@ pub fn tools() -> Vec<Value> {
         vec!["node_id"],
         json!({ "node": {"type": "object"} }),
         &["node"],
-        true,
-        true,
     );
     add(
         "get_variables",
@@ -1988,8 +2206,6 @@ pub fn tools() -> Vec<Value> {
             "effective_bindings": {"type": ["array", "null"]}
         }),
         &["variables", "collections"],
-        true,
-        true,
     );
     let code_langs: Vec<&str> = designos_export::CodeLanguage::ALL.iter().map(|l| l.id()).chain(std::iter::once("svg")).collect();
     add(
@@ -2003,8 +2219,6 @@ pub fn tools() -> Vec<Value> {
             "code": {"type": "string"}
         }),
         &["node_id", "language", "code"],
-        true,
-        true,
     );
     add(
         "create_node",
@@ -2017,8 +2231,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["node", "parent_id", "changed"],
-        false,
-        false,
     );
     add(
         "update_node",
@@ -2030,8 +2242,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["node", "changed"],
-        false,
-        true,
     );
     add(
         "delete_node",
@@ -2043,8 +2253,6 @@ pub fn tools() -> Vec<Value> {
             "deleted": {"type": "boolean"}
         }),
         &["node_id", "deleted"],
-        false,
-        false,
     );
     add(
         "list_comments",
@@ -2056,8 +2264,6 @@ pub fn tools() -> Vec<Value> {
             "total": {"type": "integer"}
         }),
         &["comments", "total"],
-        true,
-        true,
     );
     add(
         "add_comment",
@@ -2070,8 +2276,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["id", "thread", "changed"],
-        false,
-        false,
     );
     add(
         "reply_comment",
@@ -2083,8 +2287,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["thread", "changed"],
-        false,
-        false,
     );
     add(
         "resolve_comment",
@@ -2097,8 +2299,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["thread_id", "resolved", "changed"],
-        false,
-        true,
     );
     add(
         "apply_spec",
@@ -2128,8 +2328,6 @@ pub fn tools() -> Vec<Value> {
             "warnings": {"type": "array"}
         }),
         &["root_node_id", "parent_id", "node", "changed", "name_to_id", "instances", "issues"],
-        false,
-        false,
     );
     add(
         "export_spec",
@@ -2141,8 +2339,6 @@ pub fn tools() -> Vec<Value> {
             "spec": {"type": "object"}
         }),
         &["node_id", "spec"],
-        true,
-        true,
     );
     add(
         "set_dev_status",
@@ -2155,8 +2351,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["node_id", "dev", "changed"],
-        false,
-        false,
     );
     add(
         "export_fig_file",
@@ -2170,8 +2364,6 @@ pub fn tools() -> Vec<Value> {
             "saved": {"type": "boolean"}
         }),
         &["output_path", "bytes", "saved"],
-        false,
-        true,
     );
     let (q_props, q_req) = crate::tools::query::tool_schema(&id);
     add(
@@ -2201,8 +2393,6 @@ pub fn tools() -> Vec<Value> {
             "cursor": {"type": ["string", "null"]}
         }),
         &["columns", "rows", "count", "scanned", "done", "complete"],
-        true,
-        true,
     );
     add(
         "lint",
@@ -2224,8 +2414,6 @@ pub fn tools() -> Vec<Value> {
             "passed": {"type": "boolean"}
         }),
         &["findings", "total"],
-        true,
-        true,
     );
     add(
         "get_guidelines",
@@ -2248,8 +2436,6 @@ pub fn tools() -> Vec<Value> {
             "sources": {"type": "array"}
         }),
         &[],
-        true,
-        true,
     );
     add(
         "import_web_capture",
@@ -2273,8 +2459,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["root_node_id", "page_id", "report", "changed"],
-        false,
-        false,
     );
     add(
         "undo",
@@ -2287,8 +2471,6 @@ pub fn tools() -> Vec<Value> {
             "can_redo": {"type": "boolean"}
         }),
         &["changed", "can_undo", "can_redo"],
-        false,
-        false,
     );
     add(
         "lint_fix",
@@ -2307,8 +2489,6 @@ pub fn tools() -> Vec<Value> {
             "changes": {"type": "array"}
         }),
         &["changed", "fixed_count", "changes"],
-        false,
-        false,
     );
     add(
         "redo",
@@ -2321,8 +2501,6 @@ pub fn tools() -> Vec<Value> {
             "can_redo": {"type": "boolean"}
         }),
         &["changed", "can_undo", "can_redo"],
-        false,
-        false,
     );
     out.push(crate::tools::screenshot::tool_descriptor());
     out.push(json!({
@@ -2351,18 +2529,16 @@ pub fn tools() -> Vec<Value> {
                 "changed": {"type": "boolean"}
             }),
             &["updated", "changed"],
-        ),
-        "annotations": {
-            "readOnlyHint": false,
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false
-        }
+        )
     }));
     out.push(crate::tools::batch::tool_descriptor());
     out.push(crate::tools::design_context::tool_descriptor());
     out.push(crate::tools::session_options::tool_descriptor());
     out.push(crate::tools::bootstrap::tool_definition());
+    out.extend(crate::tools::docs_descriptors::tool_descriptors());
+    for tool in &mut out {
+        crate::risk::stamp_tool_json(tool);
+    }
     out
 }
 
@@ -4214,8 +4390,8 @@ mod tests {
         let NodeKind::Text(tp) = &label.kind else { panic!("expected text node") };
         let measured = designos_render::measure_text_box(tp, None);
         assert!(
-            (label.size.x - measured.x).abs() <= 0.5 && label.size.x < 145.0,
-            "instance override label width ({}) must match measured ({}) within 0.5px and be < 145.0 (not 157.0)",
+            (label.size.x - measured.x).abs() <= 0.5 && label.size.x <= 145.0,
+            "instance override label width ({}) must match measured ({}) within 0.5px and be <= 145.0 (not 157.0)",
             label.size.x,
             measured.x
         );
@@ -4298,5 +4474,836 @@ mod tests {
             warnings.iter().any(|w| w["code"] == "TEXT_MEASURED_WITH_FALLBACK_FONT"),
             "warnings must include TEXT_MEASURED_WITH_FALLBACK_FONT, got {warnings:?}"
         );
+    }
+
+    fn assert_whole_hug(node: &designos_doc::Node, label: &str) {
+        let NodeKind::Text(tp) = &node.kind else { panic!("{label} is not a text node") };
+        let measured = designos_render::measure_text_box(tp, None);
+        assert_eq!(node.size.x.fract(), 0.0, "{label} width {} is not a whole pixel", node.size.x);
+        assert_eq!(node.size.y.fract(), 0.0, "{label} height {} is not a whole pixel", node.size.y);
+        assert!(node.size.x >= 1.0 && node.size.y >= 1.0, "{label} must be at least 1px, got {:?}", node.size);
+        assert_eq!(node.size, measured, "{label} size {:?} must equal measure_text_box {:?}", node.size, measured);
+    }
+
+    fn text_style_json(font_size: f32) -> serde_json::Value {
+        json!({
+            "font_family": "Inter",
+            "font_weight": 600,
+            "italic": false,
+            "font_size": font_size,
+            "line_height": "Auto",
+            "letter_spacing": 0.0,
+            "paragraph_spacing": 0.0,
+            "align_h": "Left",
+            "align_v": "Top",
+            "case": "Original",
+            "decoration": "None",
+            "fills": []
+        })
+    }
+
+    /// Hug width and height are whole pixels on every agent path (spec text, generated
+    /// label, instance override, create, update, set_style, set_variables).
+    #[test]
+    fn hug_text_sizes_are_whole_pixels() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+
+        let spec_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "text",
+                        "name": "SpecLabel",
+                        "text": "Delete",
+                        "font_size": 14.0,
+                        "font_weight": 600
+                    }
+                }),
+            )
+            .unwrap();
+        let spec_id = NodeId(spec_res["root_node_id"].as_u64().unwrap());
+        assert_whole_hug(e.doc.get(spec_id).unwrap(), "spec text");
+
+        let gen_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "GenBtn",
+                        "width_sizing": "hug",
+                        "height_sizing": "hug",
+                        "text": "Delete",
+                        "font_size": 14.0,
+                        "font_weight": 600
+                    }
+                }),
+            )
+            .unwrap();
+        let gen_id = NodeId(gen_res["name_to_id"]["GenBtn/Delete"].as_u64().unwrap());
+        assert_whole_hug(e.doc.get(gen_id).unwrap(), "generated label");
+
+        let _comp = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "component",
+                        "name": "WholeBtn",
+                        "width_sizing": "hug",
+                        "height_sizing": "hug",
+                        "layout": { "direction": "row", "align": "center" },
+                        "children": [{
+                            "kind": "text",
+                            "name": "Label",
+                            "text": "OK",
+                            "font_size": 14.0,
+                            "font_weight": 600
+                        }]
+                    }
+                }),
+            )
+            .unwrap();
+        let inst = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "WholeInst",
+                        "component": "WholeBtn",
+                        "overrides": [{ "path": "Label", "text": "Delete" }]
+                    }
+                }),
+            )
+            .unwrap();
+        let inst_label = NodeId(inst["name_to_id"]["WholeInst/Label"].as_u64().unwrap());
+        assert_whole_hug(e.doc.get(inst_label).unwrap(), "instance override");
+
+        let created = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": page.0,
+                    "kind": "text",
+                    "name": "Created",
+                    "text": "Delete"
+                }),
+            )
+            .unwrap();
+        let created_id = NodeId(created["node"]["id"].as_u64().unwrap());
+        assert_whole_hug(e.doc.get(created_id).unwrap(), "create_node");
+
+        let height_only = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": page.0,
+                    "kind": "text",
+                    "name": "HeightOnly",
+                    "text": "Delete",
+                    "height": 40.0
+                }),
+            )
+            .unwrap();
+        let height_id = NodeId(height_only["node"]["id"].as_u64().unwrap());
+        let height_node = e.doc.get(height_id).unwrap();
+        let NodeKind::Text(htp) = &height_node.kind else { panic!("height-only create is not text") };
+        assert_eq!(htp.auto_resize, designos_doc::TextAutoResize::None, "height-only create keeps the given height fixed");
+        assert_eq!(height_node.size.y, 40.0);
+        assert_eq!(height_node.size.x.fract(), 0.0, "height-only width {} is not a whole pixel", height_node.size.x);
+        assert!(height_node.size.x >= 1.0);
+
+        e.call("designos_update_node", json!({ "node_id": created_id.0, "text": "Save changes" })).unwrap();
+        assert_whole_hug(e.doc.get(created_id).unwrap(), "update_node");
+
+        let styled = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "text",
+                        "name": "Styled",
+                        "text": "Delete",
+                        "font_size": 14.0,
+                        "font_weight": 600
+                    }
+                }),
+            )
+            .unwrap();
+        let styled_id = NodeId(styled["root_node_id"].as_u64().unwrap());
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_style",
+                    "upsert": [{
+                        "key": "label_style",
+                        "name": "Label Style",
+                        "property": "text",
+                        "text_style": text_style_json(22.0)
+                    }],
+                    "apply": [{ "node": styled_id.0, "style": "label_style" }]
+                }]
+            }),
+        )
+        .unwrap();
+        assert_whole_hug(e.doc.get(styled_id).unwrap(), "set_style apply");
+
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_style",
+                    "upsert": [{
+                        "key": "label_style",
+                        "text_style": text_style_json(36.0)
+                    }]
+                }]
+            }),
+        )
+        .unwrap();
+        let styled_node = e.doc.get(styled_id).unwrap();
+        let NodeKind::Text(stp) = &styled_node.kind else { panic!("styled node is not text") };
+        assert_eq!(stp.style.font_size, 36.0, "upserting a linked text style must update the hug text");
+        assert_whole_hug(styled_node, "set_style upsert");
+
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_variables",
+                    "upsert_collections": [{
+                        "id": "type",
+                        "name": "Type",
+                        "modes": [{ "id": "m", "name": "Default" }],
+                        "default_mode": "m"
+                    }],
+                    "upsert_variables": [{
+                        "id": "type/body",
+                        "name": "Body",
+                        "collection": "type",
+                        "kind": "number",
+                        "values": { "m": 14.0 }
+                    }]
+                }]
+            }),
+        )
+        .unwrap();
+        let bound = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "text",
+                        "name": "Bound",
+                        "text": "Delete",
+                        "font_size": "var:type/Body",
+                        "font_weight": 600
+                    }
+                }),
+            )
+            .unwrap();
+        let bound_id = NodeId(bound["root_node_id"].as_u64().unwrap());
+        let before = e.doc.get(bound_id).unwrap().size;
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_variables",
+                    "upsert_variables": [{
+                        "id": "type/body",
+                        "values": { "m": 28.0 }
+                    }]
+                }]
+            }),
+        )
+        .unwrap();
+        let bound_node = e.doc.get(bound_id).unwrap();
+        let drawn = designos_doc::resolve_node(&e.doc, bound_node);
+        let NodeKind::Text(btp) = &drawn.kind else { panic!("bound node is not text") };
+        let expected = designos_render::measure_text_box(btp, None);
+        assert!(expected.x > before.x, "fontSize 14 -> 28 must widen the hug box ({before:?} -> {expected:?})");
+        assert_eq!(bound_node.size.x.fract(), 0.0, "set_variables width {} is not a whole pixel", bound_node.size.x);
+        assert_eq!(bound_node.size.y.fract(), 0.0, "set_variables height {} is not a whole pixel", bound_node.size.y);
+        assert_eq!(bound_node.size, expected, "set_variables size {:?} must match the resolved measure {:?}", bound_node.size, expected);
+    }
+
+    #[test]
+    fn apply_batch_and_apply_spec_instance_swap_name_and_override_rules() {
+        use designos_doc::{
+            add_prop, bind_prop, create_component, create_instance, Color, ComponentPropDef, OverrideField, Paint, PaintKind, PropKind, PropValue, Vec2,
+        };
+
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+
+        let make_icon = |e: &mut Engine, name: &str, fill: Color, x: f32| -> NodeId {
+            let id = e.doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = e.doc.insert(page, f).unwrap();
+            let gid = e.doc.alloc_id();
+            let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            g.name = "Glyph".into();
+            g.fills = vec![Paint::solid(fill)];
+            e.doc.insert(comp, g).unwrap();
+            create_component(&mut e.doc, comp).apply(&mut e.doc).unwrap();
+            comp
+        };
+
+        let icon_plus = make_icon(&mut e, "Icon/Plus", Color::rgb(255, 255, 255), 0.0);
+        let icon_check = make_icon(&mut e, "Icon/Check", Color::rgb(255, 255, 255), 40.0);
+        let icon_diff = make_icon(&mut e, "Icon/Diff", Color::rgb(0, 255, 0), 80.0);
+
+        let btn = {
+            let id = e.doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 60.0, 120.0, 40.0));
+            f.name = "Button/Primary".into();
+            let comp = e.doc.insert(page, f).unwrap();
+            create_component(&mut e.doc, comp).apply(&mut e.doc).unwrap();
+            create_instance(&mut e.doc, icon_plus, comp, Vec2::new(8.0, 10.0)).apply(&mut e.doc).unwrap();
+            let slot = e.doc.get(comp).unwrap().children[0];
+            {
+                let sn = e.doc.get_mut(slot).unwrap();
+                sn.name = "Leading icon".into();
+                sn.visible = false;
+                sn.size = Vec2::new(20.0, 20.0);
+            }
+            let glyph = e.doc.get(slot).unwrap().children[0];
+            {
+                let gn = e.doc.get_mut(glyph).unwrap();
+                gn.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+                gn.component.overrides.insert(OverrideField::Fills);
+            }
+            add_prop(&mut e.doc, comp, ComponentPropDef { name: "Has Leading Icon".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) })
+                .apply(&mut e.doc)
+                .unwrap();
+            add_prop(
+                &mut e.doc,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_plus, icon_check, icon_diff] },
+                    default: PropValue::Instance(icon_plus),
+                },
+            )
+            .apply(&mut e.doc)
+            .unwrap();
+            bind_prop(&mut e.doc, slot, OverrideField::Visible, Some("Has Leading Icon")).apply(&mut e.doc).unwrap();
+            bind_prop(&mut e.doc, slot, OverrideField::MainComponent, Some("Icon")).apply(&mut e.doc).unwrap();
+            comp
+        };
+
+        let _ = btn;
+
+        // 1. Button instance swapped via `designos_apply_batch` `apply_spec` with `props` and `overrides[].swap`:
+        // - keeps "Leading icon" name, hidden visibility, 20x20 size, and red fill override when swapping to Icon/Check (same default fill)
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "apply_spec",
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "component": "Button/Primary",
+                        "props": { "Icon": "Icon/Check" }
+                    }
+                }]
+            }),
+        )
+        .unwrap();
+        let btn_check = *e.doc.get(page).unwrap().children.last().unwrap();
+        let slot_check_id = e.doc.get(btn_check).unwrap().children[0];
+        let slot_check = e.doc.get(slot_check_id).unwrap();
+        assert_eq!(slot_check.name, "Leading icon");
+        assert!(!slot_check.visible);
+        assert_eq!(slot_check.size, Vec2::new(20.0, 20.0));
+        let glyph_check = e.doc.get(slot_check.children[0]).unwrap();
+        assert_eq!(glyph_check.fills[0].kind, PaintKind::Solid(Color::rgb(255, 0, 0)));
+
+        // 2. Button instance swapped via `designos_apply_spec` `overrides[].swap` to Icon/Diff (different default fill):
+        // - drops red fill override under the originally-matched gate.
+        let applied_diff = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "component": "Button/Primary",
+                        "overrides": [
+                            { "path": "Leading icon", "swap": "Icon/Diff" }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let btn_diff = NodeId(applied_diff["root_node_id"].as_u64().unwrap());
+        let slot_diff = e.doc.get(e.doc.get(btn_diff).unwrap().children[0]).unwrap();
+        assert_eq!(slot_diff.name, "Leading icon");
+        let glyph_diff = e.doc.get(slot_diff.children[0]).unwrap();
+        assert_eq!(glyph_diff.fills[0].kind, PaintKind::Solid(Color::rgb(0, 255, 0)), "non-matching default fill drops override on MCP apply_spec swap");
+    }
+
+    fn engine_with_connected_frames() -> (Engine, NodeId, NodeId, NodeId) {
+        use designos_doc::{sync_connector, ConnectorEnd, ConnectorProps, Magnet};
+        let mut doc = Document::new("mcp_connectors");
+        let page = doc.add_page("Page 1");
+        let a = doc.alloc_id();
+        doc.insert(page, Node::frame(a, Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(page, Node::frame(b, Rect::new(300.0, 0.0, 120.0, 80.0))).unwrap();
+        let c = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(c, props)).unwrap();
+        sync_connector(&mut doc, c);
+        let mut e = Engine::new();
+        e.doc = doc;
+        (e, a, b, c)
+    }
+
+    #[test]
+    fn mcp_move_of_a_frame_saves_rerouted_connectors() {
+        use designos_doc::connector_geometry;
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        let before_geom = connector_geometry(&e.doc, c).unwrap();
+
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 520.0, "y": -180.0 })).unwrap();
+
+        let expected = connector_geometry(&e.doc, c).unwrap();
+        assert_ne!(expected.transform, before_geom.transform);
+        let stored = e.doc.get(c).unwrap();
+        assert_eq!(stored.transform, expected.transform);
+        assert_eq!(stored.size, expected.size);
+        let cp = match &stored.kind {
+            NodeKind::Connector(cp) => cp,
+            _ => unreachable!(),
+        };
+        assert_eq!(cp.start.point, expected.start_point);
+        assert_eq!(cp.end.point, expected.end_point);
+    }
+
+    #[test]
+    fn mcp_update_node_move_undoes_in_one_step() {
+        use designos_doc::connector_geometry;
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        let orig_b_tx = e.doc.get(b).unwrap().transform;
+        let orig_c_geom = connector_geometry(&e.doc, c).unwrap();
+
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 500.0, "y": -140.0 })).unwrap();
+        assert_eq!(e.history.undo_depth(), 1);
+        assert_ne!(e.doc.get(c).unwrap().transform, orig_c_geom.transform);
+
+        let u = e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(u["changed"], json!(true));
+        assert_eq!(u["can_undo"], json!(false));
+        assert_eq!(e.history.undo_depth(), 0);
+        assert_eq!(e.doc.get(b).unwrap().transform, orig_b_tx);
+        assert_eq!(e.doc.get(c).unwrap().transform, orig_c_geom.transform);
+        assert_eq!(e.doc.get(c).unwrap().size, orig_c_geom.size);
+        let cp = match &e.doc.get(c).unwrap().kind {
+            NodeKind::Connector(cp) => cp,
+            _ => unreachable!(),
+        };
+        assert_eq!(cp.start.point, orig_c_geom.start_point);
+        assert_eq!(cp.end.point, orig_c_geom.end_point);
+    }
+
+    #[test]
+    fn mcp_undo_and_redo_add_no_reroute_step() {
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 480.0, "y": -120.0 })).unwrap();
+        let moved_c_tx = e.doc.get(c).unwrap().transform;
+        assert_eq!(e.history.undo_depth(), 1);
+
+        let u = e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(u["can_undo"], json!(false));
+        assert_eq!(u["can_redo"], json!(true));
+        assert_eq!(e.history.undo_depth(), 0);
+
+        let r = e.call("designos_redo", json!({})).unwrap();
+        assert_eq!(r["can_undo"], json!(true));
+        assert_eq!(r["can_redo"], json!(false));
+        assert_eq!(e.history.undo_depth(), 1);
+        assert_eq!(e.doc.get(c).unwrap().transform, moved_c_tx);
+    }
+
+    /// An auto-layout frame holding `a` then `b` (100x40 each), and a page-level connector from a
+    /// frame below it to `a` or to `b`. Layout is solved before the connector is routed.
+    struct ConnectedStack {
+        engine: Engine,
+        a: NodeId,
+        b: NodeId,
+        connector: NodeId,
+    }
+
+    fn connected_stack(
+        direction: designos_doc::LayoutDirection,
+        frame: (f32, f32),
+        counter_align: designos_doc::LayoutAlign,
+        connector_on_first: bool,
+    ) -> ConnectedStack {
+        use designos_doc::{sync_connector, AutoLayout, ConnectorEnd, ConnectorProps, Magnet, Sizing};
+        let mut doc = Document::new("mcp_stack_connectors");
+        let page = doc.add_page("Page 1");
+        let stack = doc.alloc_id();
+        let mut stack_node = Node::frame(stack, Rect::new(0.0, 0.0, frame.0, frame.1));
+        if let NodeKind::Frame(fp) = &mut stack_node.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction,
+                item_spacing: 0.0,
+                counter_align,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::v1()
+            });
+        }
+        doc.insert(page, stack_node).unwrap();
+        let a = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(a, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(b, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let outside = doc.alloc_id();
+        doc.insert(page, Node::frame(outside, Rect::new(0.0, 400.0, 100.0, 40.0))).unwrap();
+        doc.relayout_subtree(stack);
+        let connector = doc.alloc_id();
+        let target = if connector_on_first { a } else { b };
+        let props =
+            ConnectorProps { start: ConnectorEnd::attached(outside, Magnet::Auto), end: ConnectorEnd::attached(target, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(connector, props)).unwrap();
+        sync_connector(&mut doc, connector);
+        let mut engine = Engine::new();
+        engine.doc = doc;
+        ConnectedStack { engine, a, b, connector }
+    }
+
+    fn assert_connector_follows_its_ends(doc: &Document, connector: NodeId) {
+        let expected = designos_doc::connector_geometry(doc, connector).unwrap();
+        let stored = doc.get(connector).unwrap();
+        assert_eq!(stored.transform, expected.transform, "connector transform");
+        assert_eq!(stored.size, expected.size, "connector size");
+        let NodeKind::Connector(props) = &stored.kind else { unreachable!() };
+        assert_eq!(props.start.point, expected.start_point, "connector start");
+        assert_eq!(props.end.point, expected.end_point, "connector end");
+    }
+
+    fn vertical_stack_with_connector_on_second_child() -> ConnectedStack {
+        let s = connected_stack(designos_doc::LayoutDirection::Vertical, (100.0, 300.0), designos_doc::LayoutAlign::Start, false);
+        assert_eq!(s.engine.doc.get(s.b).unwrap().transform.ty, 40.0, "precondition: b sits under a");
+        assert_connector_follows_its_ends(&s.engine.doc, s.connector);
+        s
+    }
+
+    #[test]
+    fn mcp_batch_resizing_a_stack_child_reroutes_the_connector_on_the_sibling_the_solver_moves() {
+        let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+        let before = engine.doc.get(connector).unwrap().clone();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 80.0, "the solver moves b below the taller a");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_ne!(engine.doc.get(connector).unwrap().transform, before.transform);
+        assert_eq!(engine.history.undo_depth(), 1);
+
+        let saved = Document::from_json(&engine.doc.to_json().unwrap()).unwrap();
+        assert_eq!(saved.get(b).unwrap().transform.ty, 80.0);
+        assert_connector_follows_its_ends(&saved, connector);
+
+        engine.call("designos_undo", json!({})).unwrap();
+        assert_eq!(engine.doc.get(a).unwrap().size.y, 40.0);
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 40.0);
+        assert_eq!(engine.doc.get(connector).unwrap().transform, before.transform);
+        assert_eq!(engine.doc.get(connector).unwrap().kind, before.kind);
+    }
+
+    #[test]
+    fn mcp_batch_resize_keeps_a_centered_child_and_its_connector_in_agreement() {
+        let ConnectedStack { mut engine, a, connector, .. } =
+            connected_stack(designos_doc::LayoutDirection::Horizontal, (300.0, 100.0), designos_doc::LayoutAlign::Center, true);
+        assert_eq!(engine.doc.get(a).unwrap().transform.ty, 30.0, "precondition: a is centered across the frame");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        let before_a = engine.doc.get(a).unwrap().clone();
+        let before_connector = engine.doc.get(connector).unwrap().clone();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+        engine.settle_layout();
+
+        let grown = engine.doc.get(a).unwrap();
+        assert_eq!((grown.size.y, grown.transform.ty), (80.0, 10.0), "a stays centered after it grows");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        let NodeKind::Connector(props) = &engine.doc.get(connector).unwrap().kind else { unreachable!() };
+        assert_eq!(props.end.point.y, 90.0, "the connector leaves the bottom edge of the grown a");
+        assert_eq!(engine.history.undo_depth(), 1);
+
+        engine.call("designos_undo", json!({})).unwrap();
+        assert_eq!(engine.doc.get(a).unwrap().size, before_a.size);
+        assert_eq!(engine.doc.get(a).unwrap().transform, before_a.transform);
+        assert_eq!(engine.doc.get(connector).unwrap().transform, before_connector.transform);
+        assert_eq!(engine.doc.get(connector).unwrap().kind, before_connector.kind);
+        assert_connector_follows_its_ends(&engine.doc, connector);
+    }
+
+    #[test]
+    fn mcp_batch_deleting_a_stack_child_reroutes_the_connector_on_the_sibling_that_shifts() {
+        let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": a.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert!(engine.doc.get(a).is_none());
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 0.0, "b moves up into the gap");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_eq!(engine.history.undo_depth(), 1);
+    }
+
+    #[test]
+    fn mcp_batch_resizing_a_child_of_a_long_stack_reroutes_the_connector_on_the_last_child() {
+        // More children than the document's change log remembers, so the solve's writes cannot be listed.
+        let ConnectedStack { mut engine, a, connector, .. } = vertical_stack_with_connector_on_second_child();
+        let stack = engine.doc.get(a).unwrap().parent.unwrap();
+        let mut last = a;
+        for _ in 0..600 {
+            last = engine.doc.alloc_id();
+            engine.doc.insert(stack, Node::rectangle(last, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        }
+        engine.doc.get_mut(stack).unwrap().size.y = 40.0 * 603.0;
+        engine.doc.relayout_subtree(stack);
+        engine.doc.flush_pending_relayout();
+        if let NodeKind::Connector(props) = &mut engine.doc.get_mut(connector).unwrap().kind {
+            props.end.node = Some(last);
+        }
+        designos_doc::sync_connector(&mut engine.doc, connector);
+        let last_ty = engine.doc.get(last).unwrap().transform.ty;
+        assert_eq!(last_ty, 40.0 * 601.0, "precondition: the stack is laid out");
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert_eq!(engine.doc.get(last).unwrap().transform.ty, last_ty + 40.0);
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_eq!(engine.history.undo_depth(), 1);
+    }
+
+    #[test]
+    fn mcp_batch_deleting_a_large_stack_child_reroutes_the_connector_on_the_sibling_that_shifts() {
+        // Removing more nodes than the change log tracks one by one: it cannot name what the solve wrote.
+        let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+        let stack = engine.doc.get(a).unwrap().parent.unwrap();
+        let page = engine.doc.get(stack).unwrap().parent.unwrap();
+        let big = engine.doc.alloc_id();
+        engine.doc.insert(page, Node::frame(big, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        for _ in 0..70 {
+            let leaf = engine.doc.alloc_id();
+            engine.doc.insert(big, Node::rectangle(leaf, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        }
+        engine.doc.reparent(big, stack, 0).unwrap();
+        engine.doc.relayout_subtree(stack);
+        designos_doc::sync_connector(&mut engine.doc, connector);
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 80.0, "precondition: b sits under big and a");
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": big.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert!(engine.doc.get(big).is_none());
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 40.0, "b moves up into the gap");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_eq!(engine.history.undo_depth(), 1);
+    }
+
+    #[test]
+    fn mcp_batch_dry_run_resizing_a_stack_child_changes_nothing() {
+        let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+        let before = engine.doc.get(connector).unwrap().clone();
+        let epoch = engine.doc.mutation_epoch();
+
+        engine.call("designos_apply_batch", json!({ "dry_run": true, "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+
+        assert_eq!(engine.doc.mutation_epoch(), epoch);
+        assert_eq!(engine.history.undo_depth(), 0);
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 40.0);
+        assert_eq!(engine.doc.get(connector).unwrap(), &before);
+    }
+
+    /// The long vertical stack of 602 children (`a`, `b`, then 600 more) with the connector on the last
+    /// one. More children than the document's change log remembers, so a solve's writes cannot be listed.
+    fn long_stack_with_connector_on_last_child() -> (ConnectedStack, NodeId, f32) {
+        let mut s = vertical_stack_with_connector_on_second_child();
+        let stack = s.engine.doc.get(s.a).unwrap().parent.unwrap();
+        let mut last = s.b;
+        for _ in 0..600 {
+            last = s.engine.doc.alloc_id();
+            s.engine.doc.insert(stack, Node::rectangle(last, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        }
+        s.engine.doc.get_mut(stack).unwrap().size.y = 40.0 * 603.0;
+        s.engine.doc.relayout_subtree(stack);
+        s.engine.doc.flush_pending_relayout();
+        if let NodeKind::Connector(props) = &mut s.engine.doc.get_mut(s.connector).unwrap().kind {
+            props.end.node = Some(last);
+        }
+        designos_doc::sync_connector(&mut s.engine.doc, s.connector);
+        let last_ty = s.engine.doc.get(last).unwrap().transform.ty;
+        assert_eq!(last_ty, 40.0 * 601.0, "precondition: the stack is laid out");
+        (s, last, last_ty)
+    }
+
+    #[test]
+    fn mcp_batch_moving_the_first_child_of_a_long_stack_out_reroutes_the_connector_on_the_last_child() {
+        let (ConnectedStack { mut engine, a, connector, .. }, last, last_ty) = long_stack_with_connector_on_last_child();
+        let stack = engine.doc.get(a).unwrap().parent.unwrap();
+        let page = engine.doc.get(stack).unwrap().parent.unwrap();
+        let before = engine.doc.get(connector).unwrap().clone();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "move", "node": a.0, "parent": page.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert_eq!(engine.doc.get(a).unwrap().parent, Some(page));
+        assert_eq!(engine.doc.get(last).unwrap().transform.ty, last_ty - 40.0, "the rest of the stack closes the gap");
+        assert_connector_follows_its_ends(&engine.doc, connector);
+        assert_eq!(engine.history.undo_depth(), 1);
+
+        engine.call("designos_undo", json!({})).unwrap();
+        assert_eq!(engine.doc.get(a).unwrap().parent, Some(stack));
+        assert_eq!(engine.doc.get(last).unwrap().transform.ty, last_ty);
+        assert_eq!(engine.doc.get(connector).unwrap(), &before);
+    }
+
+    /// Document-wide edits fail the change log however small the document is.
+    fn document_wide_edits() -> [Value; 2] {
+        [
+            json!({
+                "op": "set_variables",
+                "upsert_collections": [{ "id": "brand", "name": "Brand", "modes": [{ "id": "light", "name": "Light" }], "default_mode": "light" }],
+                "upsert_variables": [{ "id": "brand/accent", "name": "Accent", "collection": "brand", "kind": "color", "values": { "light": "#E36323" } }]
+            }),
+            json!({ "op": "set_style", "upsert": [{ "key": "surface", "name": "Surface", "property": "fill", "fill": "#18181B" }] }),
+        ]
+    }
+
+    #[test]
+    fn mcp_batch_moving_a_stack_child_out_with_a_document_wide_edit_reroutes_the_connector_on_the_remaining_child() {
+        for edit in document_wide_edits() {
+            let op = edit["op"].clone();
+            let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+            let page = engine.doc.get(engine.doc.get(a).unwrap().parent.unwrap()).unwrap().parent.unwrap();
+
+            engine.call("designos_apply_batch", json!({ "ops": [{ "op": "move", "node": a.0, "parent": page.0 }, edit] })).unwrap();
+            engine.settle_layout();
+
+            assert_eq!(engine.doc.get(a).unwrap().parent, Some(page), "{op}");
+            assert_eq!(engine.doc.get(b).unwrap().transform.ty, 0.0, "{op}: b moves up into the gap");
+            assert_connector_follows_its_ends(&engine.doc, connector);
+            assert_eq!(engine.history.undo_depth(), 1, "{op}");
+        }
+    }
+
+    #[test]
+    fn mcp_batch_moving_a_child_between_stacks_reroutes_the_connectors_on_the_siblings_left_behind() {
+        use designos_doc::{AutoLayout, LayoutDirection};
+        for edit in document_wide_edits() {
+            let op = edit["op"].clone();
+            let ConnectedStack { mut engine, a, b, connector } = vertical_stack_with_connector_on_second_child();
+            let page = engine.doc.get(engine.doc.get(a).unwrap().parent.unwrap()).unwrap().parent.unwrap();
+            let dest = engine.doc.alloc_id();
+            let mut dest_node = Node::frame(dest, Rect::new(500.0, 0.0, 100.0, 300.0));
+            if let NodeKind::Frame(fp) = &mut dest_node.kind {
+                fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: 0.0, ..AutoLayout::v1() });
+            }
+            engine.doc.insert(page, dest_node).unwrap();
+            let resident = engine.doc.alloc_id();
+            engine.doc.insert(dest, Node::rectangle(resident, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+            engine.doc.relayout_subtree(dest);
+
+            engine.call("designos_apply_batch", json!({ "ops": [{ "op": "move", "node": a.0, "parent": dest.0 }, edit] })).unwrap();
+            engine.settle_layout();
+
+            assert_eq!(engine.doc.get(a).unwrap().parent, Some(dest), "{op}");
+            assert_eq!(engine.doc.get(a).unwrap().transform.ty, 40.0, "{op}: a lands under the resident");
+            assert_eq!(engine.doc.get(b).unwrap().transform.ty, 0.0, "{op}: b moves up into the gap a left");
+            assert_connector_follows_its_ends(&engine.doc, connector);
+            assert_eq!(engine.history.undo_depth(), 1, "{op}");
+        }
+    }
+
+    /// A vertical stack of `a`, a connector that is itself part of the flow (start on `a`, free end),
+    /// and `b`; a page-level connector runs from a frame below to `b`. The solver measures the flow
+    /// connector, and routing resizes it when `a` changes, so the two feed each other.
+    struct FlowConnectorStack {
+        engine: Engine,
+        a: NodeId,
+        b: NodeId,
+        flow_connector: NodeId,
+        page_connector: NodeId,
+    }
+
+    fn stack_with_a_connector_in_its_flow() -> FlowConnectorStack {
+        use designos_doc::{sync_connector, AutoLayout, ConnectorEnd, ConnectorProps, LayoutDirection, Magnet};
+        let mut doc = Document::new("mcp_flow_connector");
+        let page = doc.add_page("Page 1");
+        let stack = doc.alloc_id();
+        let mut stack_node = Node::frame(stack, Rect::new(0.0, 0.0, 100.0, 300.0));
+        if let NodeKind::Frame(fp) = &mut stack_node.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: 0.0, ..AutoLayout::v1() });
+        }
+        doc.insert(page, stack_node).unwrap();
+        let a = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(a, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let flow_connector = doc.alloc_id();
+        let flow_props =
+            ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::free(Vec2::new(250.0, 20.0)), ..Default::default() };
+        doc.insert(stack, Node::connector(flow_connector, flow_props)).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(b, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let far = doc.alloc_id();
+        doc.insert(page, Node::frame(far, Rect::new(300.0, 400.0, 100.0, 40.0))).unwrap();
+        let page_connector = doc.alloc_id();
+        let page_props =
+            ConnectorProps { start: ConnectorEnd::attached(far, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(page_connector, page_props)).unwrap();
+        // The flow connector is sized before layout measures it, and layout then leaves it in its slot.
+        sync_connector(&mut doc, flow_connector);
+        doc.relayout_subtree(stack);
+        sync_connector(&mut doc, page_connector);
+        let b_ty = doc.get(b).unwrap().transform.ty;
+        doc.relayout_subtree(stack);
+        assert_eq!(doc.get(b).unwrap().transform.ty, b_ty, "precondition: the stack is laid out");
+        assert_eq!(b_ty, 40.0 + doc.get(flow_connector).unwrap().size.y, "precondition: b sits under the flow connector");
+        let mut grown = doc.clone();
+        grown.get_mut(a).unwrap().size.y = 80.0;
+        sync_connector(&mut grown, flow_connector);
+        assert_ne!(grown.get(flow_connector).unwrap().size, doc.get(flow_connector).unwrap().size, "precondition: a taller a resizes the flow connector");
+        let mut engine = Engine::new();
+        engine.doc = doc;
+        FlowConnectorStack { engine, a, b, flow_connector, page_connector }
+    }
+
+    #[test]
+    fn mcp_batch_resizing_a_stack_child_leaves_a_flow_connector_and_a_page_connector_on_their_routes() {
+        let FlowConnectorStack { mut engine, a, b, flow_connector, page_connector } = stack_with_a_connector_in_its_flow();
+        let before: Vec<Node> = [a, b, flow_connector, page_connector].iter().map(|id| engine.doc.get(*id).unwrap().clone()).collect();
+
+        engine.call("designos_apply_batch", json!({ "ops": [{ "op": "update", "node": a.0, "height": 80.0 }] })).unwrap();
+        engine.settle_layout();
+
+        assert_connector_follows_its_ends(&engine.doc, flow_connector);
+        assert_connector_follows_its_ends(&engine.doc, page_connector);
+        assert_eq!(engine.doc.get(b).unwrap().transform.ty, 80.0 + engine.doc.get(flow_connector).unwrap().size.y, "b sits under the resized flow connector");
+        assert_eq!(engine.history.undo_depth(), 1);
+
+        engine.call("designos_undo", json!({})).unwrap();
+        for (id, was) in [a, b, flow_connector, page_connector].iter().zip(&before) {
+            assert_eq!(engine.doc.get(*id).unwrap(), was, "node {} after undo", id.0);
+        }
     }
 }

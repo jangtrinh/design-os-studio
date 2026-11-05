@@ -1,0 +1,47 @@
+# null control: 3-swiftui-fill-frame-removed (no mutation), HEAD 284444ea
+test row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them ... ok
+test grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place ... ok
+test variable_hidden_child_stays_in_the_stack_flow ... ok
+test hugging_frame_with_absolute_child_does_not_fill_its_container ... ok
+test variable_hidden_grid_child_exports_where_it_was_without_an_overlay ... ok
+test column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them ... ok
+test absolute_children_before_the_first_in_flow_child_paint_behind_the_stack ... ok
+test fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames ... ok
+test null_control_frames_without_abs_children_or_fill_fixed_pairs_export_identically ... ok
+test grid_absolute_child_before_the_cells_paints_behind_the_grid ... ok
+test frame_with_only_absolute_children_is_sized_to_the_frame ... ok
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.76s
+null_control_rc=0
+
+# mutation applied
+ crates/designos-export/src/swiftui.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+# mutant run
+test frame_with_only_absolute_children_is_sized_to_the_frame ... ok
+test fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames ... ok
+test null_control_frames_without_abs_children_or_fill_fixed_pairs_export_identically ... ok
+test column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them ... FAILED
+test variable_hidden_grid_child_exports_where_it_was_without_an_overlay ... ok
+test row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them ... FAILED
+test hugging_frame_with_absolute_child_does_not_fill_its_container ... FAILED
+test grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place ... FAILED
+test absolute_children_before_the_first_in_flow_child_paint_behind_the_stack ... FAILED
+test grid_absolute_child_before_the_cells_paints_behind_the_grid ... ok
+test variable_hidden_child_stays_in_the_stack_flow ... ok
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... ok
+thread 'column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them' (82318630) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+thread 'row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them' (82318638) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+thread 'hugging_frame_with_absolute_child_does_not_fill_its_container' (82318636) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+thread 'grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place' (82318635) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+thread 'absolute_children_before_the_first_in_flow_child_paint_behind_the_stack' (82318629) panicked at crates/designos-export/tests/native_stack_export.rs:112:21:
+    absolute_children_before_the_first_in_flow_child_paint_behind_the_stack
+    column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them
+    grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place
+    hugging_frame_with_absolute_child_does_not_fill_its_container
+    row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them
+test result: FAILED. 7 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.77s
+mutant_rc=killed (nonzero) raw_rc=101
+
+# reverted; modified files under crates: 0

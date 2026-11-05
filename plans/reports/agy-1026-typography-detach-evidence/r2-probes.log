@@ -1,0 +1,79 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.09s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-216412320a7d8d1f)
+
+running 29 tests
+test agent_cli_catalog::tests::available_only_when_the_probe_finds_the_binary ... ok
+test agent_cli_catalog::tests::probe_runs_off_the_ui_thread ... ok
+test agent_cli_catalog::tests::probe_timeout_degrades_to_unknown ... ok
+test agent_session_files::codex_probe_tests::probe_make_session_folder ... ignored, run by the Codex sandbox probe script
+test agent_session_files::codex_probe_tests::probe_write_session_files ... ignored, run by the Codex sandbox probe script
+test agent_session_files::folder_unit_tests::a_probe_that_cannot_write_names_the_folder_and_what_to_do ... ok
+test agent_picker::tests::clicking_row_mid_staggered_probe_starts_the_clicked_cli ... ok
+test io::dialog_probe::tests::nothing_picked_at_once_is_unavailable_even_when_the_probe_sees_a_backend ... ok
+test agent_usage::tests::failed_usage_probe_preserves_previous_reading_until_source_is_gone ... ok
+test io::dialog_probe::tests::portal_probe_result_mapping_covers_no_owner_error_timeout_and_ready ... ok
+test io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show ... ok
+test io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running ... ok
+test live_sync_interaction_tests::probe_agent_still_sees_its_held_edit_after_the_editor_republishes ... ok
+test live_sync_interaction_tests::probe_agent_move_survives_an_open_shape_builder ... ok
+test scratch_cli_home::tests::a_test_never_runs_a_cli_version_probe_against_the_users_home ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test live_sync_interaction_tests::probe_held_edit_does_not_land_on_a_document_the_agent_opened_later ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdB-in before: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=true
+PROBE cmdB-in after: content="Continue" size=16 weight=700 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=1 session=true
+test shell::tests::typography_style_detach::typography_review_probe_cmd_b_in_session ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdB-out before: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=false
+PROBE cmdB-out after: content="Continue" size=16 weight=700 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+test shell::tests::typography_style_detach::typography_review_probe_cmd_b_outside_session ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdI-out after: content="Continue" size=16 weight=400 italic=true deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+PROBE cmdShiftDot-in before: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=true
+PROBE cmdShiftDot-in after: content="Continue" size=18 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=1 session=true
+test shell::tests::typography_style_detach::typography_review_probe_cmd_shift_period_in_session ... ok
+PROBE cmdU-out after: content="Continue" size=16 weight=400 italic=true deco=Underline pspacing=0 indent=0 runs=[] link=None depth=3 session=false
+test shell::tests::typography_style_detach::typography_review_probe_cmd_i_u_outside_session ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE collapsed caret=8 anchor=8
+PROBE collapsed after-size: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=true
+PROBE collapsed after-type: content="Continuex" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[(8, 9, 24.0, 400, false)] link=Some("Body/Regular") depth=1 session=true
+PROBE cmdShiftDot-out after: content="Continue" size=17 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+test shell::tests::typography_style_detach::typography_review_probe_cmd_shift_period_outside_session ... ok
+PROBE collapsed after-escape: content="Continuex" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[(8, 9, 24.0, 400, false)] link=Some("Body/Regular") depth=2 session=false
+test shell::tests::typography_style_detach::typography_review_probe_collapsed_caret_then_type ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE pspacing after: content="Continue" size=16 weight=400 italic=false deco=None pspacing=12 indent=0 runs=[] link=None depth=2 session=false
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuSizeUp-out after: content="Continue" size=17 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+test shell::tests::typography_style_detach::typography_review_probe_menu_size_up_outside_session ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE indent after: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=8 runs=[] link=None depth=2 session=false
+test shell::tests::typography_style_detach::typography_review_probe_paragraph_fields ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE repick-same-family after: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=false
+test shell::tests::typography_style_detach::typography_review_probe_same_family_repick_keeps_link ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE commit after-escape: content="Continue" size=22 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+PROBE commit depth0=1
+PROBE coalesce before-undo fill=Some(Solid(Color { r: 0.0627451, g: 0.7254902, b: 0.5058824, a: 1.0 }))
+PROBE coalesce after-undo fill=Some(Solid(Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 })) size=16 link=Some("Body/Regular")
+test shell::tests::typography_style_detach::typography_review_probe_session_fill_size_coalesce ... ok
+test terminal::tests::probe_and_child_path_use_one_list ... ok
+test video::tests::probe_reads_codec_size_and_duration ... ok
+PROBE commit after-undo: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=false
+PROBE commit after-redo: content="Continue" size=22 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+test shell::tests::typography_style_detach::typography_review_probe_session_commit_then_app_undo ... ok
+
+test result: ok. 27 passed; 0 failed; 2 ignored; 0 measured; 3818 filtered out; finished in 2.69s
+

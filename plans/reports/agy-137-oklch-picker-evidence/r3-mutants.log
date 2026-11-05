@@ -1,0 +1,7 @@
+N01	KILLED	37.0s	failed=['test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... FAILED']
+N03	KILLED	48.3s	failed=['test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... FAILED']
+N05	KILLED	41.4s	failed=['test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... FAILED']
+N07	KILLED	20.7s	failed=['test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... FAILED']
+N15	KILLED	15.5s	failed=['test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... FAILED']
+N16	KILLED	14.1s	failed=['test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... FAILED']
+SUMMARY: 6/6 killed

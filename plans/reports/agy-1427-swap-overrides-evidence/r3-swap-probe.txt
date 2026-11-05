@@ -1,0 +1,34 @@
+=== 1. Swap Probe on studio-ui.designos (Before Re-Sync) ===
+tool-sel-noswap   size={'x': 32.0, 'y': 32.0} fills=[{'r': 0.14901961, 'g': 0.14901961, 'b': 0.14901961, 'a': 1.0}]
+  tool-sel-noswap nested 'Icon' size={'x': 20.0, 'y': 20.0} visible=True bindings={'MainComponent': 'Icon'}
+  tool-sel-noswap   glyph id=2398 size={'x': 20.0, 'y': 20.0} max_vec=19.3762 max_fill_geom=19.3762 max_stroke_geom=None fill=["{'r': 1.0, 'g': 1.0, 'b': 1.0, 'a': 1.0} op=1.00"] bind={'fills/0': 's.color.icon'} overrides=None
+tool-sel-swap     size={'x': 32.0, 'y': 32.0} fills=[{'r': 0.14901961, 'g': 0.14901961, 'b': 0.14901961, 'a': 1.0}]
+  tool-sel-swap   nested 'Icon' size={'x': 20.0, 'y': 20.0} visible=True bindings={'MainComponent': 'Icon'}
+  tool-sel-swap     glyph id=2402 size={'x': 20.0, 'y': 20.0} max_vec=17.5 max_fill_geom=17.5 max_stroke_geom=None fill=["{'r': 1.0, 'g': 1.0, 'b': 1.0, 'a': 1.0} op=1.00"] bind={'fills/0': 's.color.icon'} overrides=['Size', 'Fills']
+tool-hover-swap   size={'x': 32.0, 'y': 32.0} fills=[{'r': 0.09019608, 'g': 0.09019608, 'b': 0.09019608, 'a': 1.0}]
+  tool-hover-swap nested 'Icon' size={'x': 20.0, 'y': 20.0} visible=True bindings={'MainComponent': 'Icon'}
+  tool-hover-swap   glyph id=2406 size={'x': 20.0, 'y': 20.0} max_vec=17.5 max_fill_geom=17.5 max_stroke_geom=None fill=["{'r': 0.8980392, 'g': 0.8980392, 'b': 0.8980392, 'a': 1.0} op=1.00"] bind={'fills/0': 's.color.icon-secondary-hover'} overrides=['Size', 'Fills']
+prim-dis-noswap   size={'x': 60.75, 'y': 40.0} fills=[{'r': 0.8901961, 'g': 0.3882353, 'b': 0.13725491, 'a': 1.0}]
+  prim-dis-noswap nested 'Leading icon' size={'x': 20.0, 'y': 20.0} visible=False bindings={'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'}
+  prim-dis-noswap   glyph id=2409 size={'x': 20.0, 'y': 20.0} max_vec=17.5 max_fill_geom=17.5 max_stroke_geom=None fill=["{'r': 0.039215688, 'g': 0.039215688, 'b': 0.039215688, 'a': 1.0} op=0.50"] bind={'fills/0': 's.color.text-on-brand'} overrides=None
+prim-dis-swap     size={'x': 60.75, 'y': 40.0} fills=[{'r': 0.8901961, 'g': 0.3882353, 'b': 0.13725491, 'a': 1.0}]
+  prim-dis-swap   nested 'Leading icon' size={'x': 20.0, 'y': 20.0} visible=False bindings={'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'}
+  prim-dis-swap     glyph id=2415 size={'x': 20.0, 'y': 20.0} max_vec=18.1865 max_fill_geom=18.1865 max_stroke_geom=None fill=["{'r': 0.039215688, 'g': 0.039215688, 'b': 0.039215688, 'a': 1.0} op=0.50"] bind={'fills/0': 's.color.text-on-brand'} overrides=['Size', 'Fills']
+close-hover-swap  size={'x': 36.0, 'y': 36.0} fills=[{'r': 0.09019608, 'g': 0.09019608, 'b': 0.09019608, 'a': 1.0}]
+  close-hover-swap nested 'Icon' size={'x': 16.0, 'y': 16.0} visible=True bindings={'MainComponent': 'Icon'}
+  close-hover-swap   glyph id=2419 size={'x': 16.0, 'y': 16.0} max_vec=14.0 max_fill_geom=14.0 max_stroke_geom=None fill=["{'r': 0.6392157, 'g': 0.6392157, 'b': 0.6392157, 'a': 1.0} op=1.00"] bind={'fills/0': 's.color.icon-quaternary-hover'} overrides=['Fills']
+sd-hover-swap     size={'x': 60.75, 'y': 40.0} fills=[{'r': 0.27058825, 'g': 0.039215688, 'b': 0.039215688, 'a': 1.0}]
+  sd-hover-swap   nested 'Leading icon' size={'x': 20.0, 'y': 20.0} visible=False bindings={'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'}
+  sd-hover-swap     glyph id=2424 size={'x': 20.0, 'y': 20.0} max_vec=17.5 max_fill_geom=17.5 max_stroke_geom=None fill=["{'r': 0.9882353, 'g': 0.64705884, 'b': 0.64705884, 'a': 1.0} op=1.00"] bind={'fills/0': 's.color.text-error-hover'} overrides=['Size', 'Fills']
+
+=== 2. Visibility + Swap Probe (Has Leading Icon = false with Icon = Icon/Check) ===
+off-swap   slot='Leading icon' visible=False bindings={'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'} glyph_size={'x': 20.0, 'y': 20.0} btn_size={'x': 60.75, 'y': 40.0}
+off-noswap slot='Leading icon' visible=False bindings={'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'} glyph_size={'x': 20.0, 'y': 20.0} btn_size={'x': 60.75, 'y': 40.0}
+on-swap    slot='Leading icon' visible=True bindings={'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'} glyph_size={'x': 20.0, 'y': 20.0} btn_size={'x': 84.75, 'y': 40.0}
+
+=== 3. After Repeated Sync / Re-Sync (Checking fill_geometry / stroke_geometry / size stay 20x20, NOT 25) ===
+tool-sel-swap   slot_size={'x': 20.0, 'y': 20.0} glyph_size={'x': 20.0, 'y': 20.0} max_vec=17.5 max_fill_geom=17.5 max_stroke_geom=None (before re-sync=({'x': 20.0, 'y': 20.0}, 17.5, 17.5, None))
+tool-hover-swap slot_size={'x': 20.0, 'y': 20.0} glyph_size={'x': 20.0, 'y': 20.0} max_vec=17.5 max_fill_geom=17.5 max_stroke_geom=None (before re-sync=({'x': 20.0, 'y': 20.0}, 17.5, 17.5, None))
+prim-dis-swap   slot_size={'x': 20.0, 'y': 20.0} glyph_size={'x': 20.0, 'y': 20.0} max_vec=18.1865 max_fill_geom=18.1865 max_stroke_geom=None (before re-sync=({'x': 20.0, 'y': 20.0}, 18.1865, 18.1865, None))
+sd-hover-swap   slot_size={'x': 20.0, 'y': 20.0} glyph_size={'x': 20.0, 'y': 20.0} max_vec=17.5 max_fill_geom=17.5 max_stroke_geom=None (before re-sync=({'x': 20.0, 'y': 20.0}, 17.5, 17.5, None))
+ALL SWAP & RE-SYNC ASSERTIONS PASSED.

@@ -1,0 +1,23 @@
+render studio-window-075.png sha256 d21f35d862efd4d2dd7ddd3127f9275383485ba1aa32e789e17acbfb73953f30
+splits (source px) {'chrome_bottom': 64, 'rail_right': 98, 'layers_right': 580, 'ruler_left_right': 620, 'ruler_top_bottom': 104, 'inspector_left': 2398}
+toolbar src box (926, 1678, 1954, 1778)  size pill (1428, 1406, 1550, 1417)
+map px per layer {'file': 144283, 'canvas': 18809, 'layers': 11906, 'inspector': 19795, 'rail': 2920, 'chrome': 5467} sum 203180 union 203180 pairwise overlap px 0
+stroke pixel overlap between layers (rasterised drawings, 1 px) 0
+deliverables docs/images/v2/anatomy total bytes 99725 = 97.4 KB (svgs 92994 B)
+file 63502 B paths 2 subpaths(M) 2575 bars 960 bbox [315.5, 139.5, 883.0, 582.5] anchor [1198.5, 430.8]
+canvas 14438 B paths 2 subpaths(M) 729 bars 34 bbox [290.5, 32.5, 908.0, 866.0] anchor [744.5, 900]
+layers 3519 B paths 2 subpaths(M) 103 bars 24 bbox [49.5, 32.5, 240.5, 866.0] anchor [169.5, 900]
+inspector 8606 B paths 2 subpaths(M) 222 bars 27 bbox [1199.0, 32.5, 239.5, 866.0] anchor [1440, 450]
+rail 1749 B paths 1 subpaths(M) 39 bars 0 bbox [7.5, 32.5, 41.5, 866.0] anchor [0, 450]
+chrome 1180 B paths 2 subpaths(M) 29 bars 2 bbox [2.0, 3.0, 1436.5, 29.0] anchor [720, 0]
+gate tolerance 2 px (Chebyshev)
+  file      recall 100.00% precision 100.00%  shifted 6px dx R  89.0% P  89.5%  dy R  49.3% P  49.5%
+  canvas    recall 100.00% precision 100.00%  shifted 6px dx R  60.8% P  61.1%  dy R  38.4% P  38.2%
+  layers    recall 100.00% precision 100.00%  shifted 6px dx R  66.7% P  67.4%  dy R  32.2% P  32.0%
+  inspector recall 100.00% precision 100.00%  shifted 6px dx R  70.7% P  72.5%  dy R  25.1% P  25.1%
+  rail      recall 100.00% precision 100.00%  shifted 6px dx R  23.0% P  23.1%  dy R  74.7% P  75.6%
+  chrome    recall 100.00% precision 100.00%  shifted 6px dx R  93.9% P  94.4%  dy R  15.8% P  15.6%
+  ALL       recall 100.00% precision 100.00%  shifted 6px dx R  83.1% P  83.7%  dy R  44.6% P  44.7%
+source check (Sobel) {'P_src': 0.99914, 'R_src_strong15': 0.84656, 'R_src_strong15_outside_text_zones': 0.96477, 'R_src_text_zones_widened': 0.98228}
+webp docs/images/v2/anatomy/studio-window-075.webp 104180 B
+evidence plans/reports/anatomy-075-evidence

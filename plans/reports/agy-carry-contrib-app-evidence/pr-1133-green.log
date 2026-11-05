@@ -1,0 +1,122 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.44s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 43 tests
+test canvas::textsession::tests::backspace_at_item_start_unlists ... ok
+test canvas::textsession::tests::ctrl_a_and_clipboard_text ... ok
+test canvas::textsession::tests::backspace_deletes_graphemes_and_words ... ok
+test canvas::textsession::tests::arrows_follow_the_screen_in_right_to_left_text ... ok
+test canvas::textsession::tests::arrows_shift_select_and_collapse ... ok
+test canvas::textsession::tests::a_failed_face_is_reported_once_per_session_but_retried_when_the_document_reloads ... ok
+test canvas::textsession::tests::bold_set_before_typing_requests_the_face_once_the_bold_text_exists ... ok
+test canvas::textsession::tests::a_bold_typing_style_moves_the_wght_axis ... ok
+test canvas::textsession::tests::bold_leaves_text_without_a_wght_axis_free_of_axes ... ok
+test canvas::textsession::tests::a_family_installed_on_the_system_is_never_fetched_at_any_weight ... ok
+test canvas::textsession::tests::bold_on_bundled_inter_starts_no_load_while_another_face_has_failed ... ok
+test canvas::textsession::tests::a_face_added_in_a_document_too_large_to_scan_is_still_requested ... ok
+test canvas::textsession::tests::ctrl_b_requests_the_bold_face_of_a_downloaded_family ... ok
+test canvas::textsession::tests::size_and_spacing_edits_start_no_font_load ... ok
+test canvas::textsession::tests::entering_selects_all_and_typing_replaces ... ok
+test canvas::textsession::tests::finish_commits_one_document_undo_step ... ok
+test canvas::textsession::tests::ime_composition_is_previewed_then_committed ... ok
+test canvas::textsession::tests::caret_style_applies_to_next_typed_text_only ... ok
+test canvas::textsession::tests::picking_the_family_again_reaches_a_failed_face_on_a_large_document ... ok
+test canvas::textsession::tests::picking_the_family_again_retries_a_failed_face_and_reports_it_again ... ok
+test canvas::textsession::tests::an_edit_that_adds_a_face_does_not_refetch_or_report_a_failed_face_of_another_text ... ok
+test canvas::textsession::tests::back_to_back_edits_on_a_large_document_each_keep_their_face ... ok
+test canvas::textsession::tests::bold_moves_the_wght_axis_so_the_canvas_follows_the_panel ... ok
+test canvas::textsession::tests::typing_in_a_face_the_text_already_uses_requests_nothing ... ok
+test canvas::textsession::tests::ctrl_b_fetches_the_bold_face_after_the_regular_face_of_its_family_is_registered ... ok
+test canvas::textsession::tests::typography_edit_detaches_a_linked_text_style_in_the_same_undo_step ... ok
+test canvas::textsession::tests::edit_menu_bold_requests_the_bold_face_in_a_session_and_on_a_selected_layer ... ok
+test canvas::textsession::tests::undo_steps_follow_words_and_redo ... ok
+test canvas::textsession::tests::size_shortcuts_change_by_one ... ok
+test canvas::textsession::tests::the_inspector_weight_moves_the_wght_axis_in_a_session ... ok
+test canvas::textsession::tests::typing_right_to_left_text_keeps_the_caret_after_the_new_letters ... ok
+test canvas::textsession::tests::enter_continues_lists_and_toggles_work ... ok
+test canvas::textsession::tests::the_inspector_weight_moves_the_wght_axis_on_a_selected_layer ... ok
+test canvas::textsession::tests::typography_edit_detaches_a_linked_text_style_in_an_active_text_session ... ok
+test canvas::textsession::tests::inspector_style_edits_request_the_new_face_with_or_without_a_session ... ok
+test canvas::textsession::tests::the_family_picker_keeps_its_face_on_a_large_document ... ok
+test canvas::textsession::tests::per_range_bold_and_mixed_summary ... ok
+test canvas::textsession::tests::shortcuts_toggle_and_tab_nests ... ok
+test canvas::textsession::tests::word_jumps_and_end_of_line_in_right_to_left_text ... ok
+test canvas::textsession::tests::undo_does_not_restore_ime_preedit_as_committed_text ... ok
+test canvas::textsession::tests::toggling_bold_back_on_needs_no_second_load ... ok
+test canvas::textsession::tests::stepping_the_wght_field_costs_one_load_per_face ... ok
+test canvas::textsession::tests::undoing_a_second_quick_style_edit_finds_the_face_of_the_first ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 4340 filtered out; finished in 0.47s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-mcp)
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-app/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.38s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-e2777dbba587838c)
+
+running 34 tests
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::creating_a_style_on_a_new_empty_text_box_is_off_with_a_reason_and_deletes_nothing ... ok
+test shell::tests::text_styles::a_composition_in_a_new_box_is_not_text_so_applying_a_style_keeps_the_box ... ok
+test shell::tests::text_styles::a_composition_in_a_new_box_leaves_create_off_with_its_reason ... ok
+test shell::tests::text_styles::cmd_z_in_a_new_box_takes_back_the_picked_style_and_its_link_together ... ok
+test shell::tests::text_styles::cmd_z_after_a_pick_for_a_new_box_and_its_sibling_takes_back_the_box_style_only ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::a_layer_with_mixed_styles_has_no_single_style_to_create ... ok
+test shell::tests::text_styles::applying_and_detaching_end_a_text_session_first_too ... ok
+test shell::tests::text_styles::a_new_box_selected_with_another_layer_is_styled_alone_but_detached_together ... ok
+test shell::tests::text_styles::a_created_text_style_survives_a_designos_file ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::create_is_off_while_the_layer_is_linked ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::a_style_picked_for_a_new_box_and_its_sibling_styles_the_box_alone_and_undo_stays_exact ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::no_style_toast_shows_a_layer_id ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::creating_a_text_style_in_a_file_without_styles_links_the_layer_in_one_undo_step ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::detaching_and_editing_the_style_of_a_new_empty_text_box_never_delete_it ... ok
+test shell::tests::text_styles::a_second_text_style_is_text_style_2_with_the_values_of_its_own_layer ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::a_style_renamed_to_a_free_looking_name_is_not_named_again ... ok
+test shell::tests::text_styles::creating_from_several_text_layers_with_the_same_type_links_all_of_them_in_one_step ... ok
+test shell::tests::text_styles::escape_after_a_pick_for_a_new_box_and_its_sibling_leaves_the_sibling_and_the_history_alone ... ok
+test shell::tests::text_styles::the_menu_lists_the_text_styles_checks_the_linked_one_and_applies_one ... ok
+test shell::tests::text_styles::the_page_panel_has_no_styles_plus_that_does_nothing ... ok
+test shell::tests::text_styles::the_linked_row_opens_the_style_editor ... ok
+test shell::tests::text_styles::page_panel_export_plus_adds_a_page_export_row_and_exports_the_page ... ok
+test shell::tests::text_styles::picking_a_style_on_a_new_empty_text_box_keeps_the_box_and_the_typing_uses_the_style ... ok
+test shell::tests::text_styles::creating_from_text_being_edited_ends_the_session_and_styles_the_whole_layer ... ok
+test shell::tests::text_styles::runs_that_differ_only_in_colour_do_not_stop_creation ... ok
+test shell::tests::text_styles::the_styles_list_ends_a_text_session_before_it_applies_a_style ... ok
+test shell::tests::text_styles::the_styles_list_styles_a_new_box_inside_its_session ... ok
+test shell::tests::text_styles::several_text_layers_with_different_type_have_no_single_style_to_create ... ok
+test shell::tests::text_styles::renaming_and_detaching_from_the_linked_row ... ok
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+test shell::tests::text_styles::two_picks_undo_one_at_a_time_and_the_committed_box_matches_its_link ... ok
+test shell::tests::text_styles::undoing_a_style_picked_during_a_composition_never_restores_the_preview ... ok
+test shell::tests::text_styles::a_created_text_style_survives_a_fig_export_and_import_in_every_field ... ok
+test shell::tests::text_styles::editing_the_style_from_the_menu_while_typing_keeps_undo_exact ... ok
+test shell::tests::text_styles::editing_the_style_from_the_linked_row_while_typing_keeps_undo_exact ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4349 filtered out; finished in 6.92s
+
+GREEN_EXIT=0

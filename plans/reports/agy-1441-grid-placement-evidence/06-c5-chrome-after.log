@@ -1,0 +1,6 @@
+[PASS] C5_hug_span_across_hug_cols    (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[FAIL] C5_hug_span_across_hug_cols    (tailwind) max_item_err=infpx grid_err=(1226.00px, 68.00px)
+       item count mismatch: solver=5 vs chrome=0 (diff=5)
+[PASS] C5_hug_span_across_hug_cols_boxf (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] C5_hug_span_across_hug_cols_boxf (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+WORST=infpx

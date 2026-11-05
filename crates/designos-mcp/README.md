@@ -69,7 +69,7 @@ designos_save_file       {"path":"output-v2.designos","overwrite":true}
 
 `42` is illustrative: substitute an ID returned by the preceding queries. Relative paths resolve beneath `--workspace`. Absolute paths are accepted only within that same directory tree. Reads canonicalize paths and reject escapes; writes resolve the existing parent and refuse to overwrite an existing file unless `overwrite: true` is explicitly passed to `designos_save_file`.
 
-Edits remain in memory until saved. Restarting the server loses unsaved work. Opening another file or starting a new document resets undo history and refuses to discard pending edits unless `discard_changes: true` is explicitly supplied. Tool failures return an MCP error result with an explanatory message.
+Edits remain in memory until saved. Restarting the server loses unsaved work. Opening another file or starting a new document resets undo history and refuses to discard pending edits unless `discard_changes: true` is supplied, which needs the user's explicit confirmation. Tool failures return an MCP error result with an explanatory message.
 
 Imports are limited to 64 MiB per file, 100,000 layers, and 256 levels of nesting. The server validates the imported document graph before using it, rejecting malformed parent/child relationships and cycles.
 

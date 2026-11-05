@@ -1,0 +1,4 @@
+running 2 tests
+test touching_a_block_without_changing_it_leaves_the_blocks_as_they_were ... ok
+test random_markdown_soup_is_always_lossless_and_the_canonical_form_is_stable ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.05s

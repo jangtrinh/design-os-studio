@@ -1,0 +1,70 @@
+# r2 sticky-cleared-flag on commit b4a7470b7ed6fbd5ea56f1c9c56bf44e6e5bec0b
+git status --short before (must list only untracked evidence logs):
+?? plans/reports/agy-1467-truncate-text-evidence/r2-green-test.log
+?? plans/reports/agy-1467-truncate-text-evidence/r2-hug-outside-text-arm.log
+?? plans/reports/agy-1467-truncate-text-evidence/r2-null-control.log
+?? plans/reports/agy-1467-truncate-text-evidence/r2-red-test.log
+?? plans/reports/agy-1467-truncate-text-evidence/r2-sticky-cleared-flag.log
+mutation applied: git diff --stat
+ crates/designos-app/src/panels/typography.rs | 31 +++++++++++++++++++++-------
+ 1 file changed, 23 insertions(+), 8 deletions(-)
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.87s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 15 tests
+test shell::tests::typography::popover_lists_only_the_stylistic_sets_the_font_has ... ok
+test shell::tests::typography::typography_header_has_no_var_pill_and_clicking_left_of_style_button_changes_nothing ... ok
+test shell::tests::typography::features_follow_the_selected_range_while_editing ... ok
+test shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again ... FAILED
+test shell::tests::typography::tab_in_a_text_session_nests_list_items_and_never_moves_egui_focus ... ok
+test shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field ... FAILED
+test shell::tests::typography::max_lines_appears_only_while_truncating ... ok
+test shell::tests::typography::truncate_text_leaves_non_text_layers_in_the_selection_alone ... ok
+test shell::tests::typography::turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit ... ok
+test shell::tests::typography::setting_max_lines_clears_max_height_on_text_layer_in_same_undo_step ... ok
+test shell::tests::typography::max_lines_commits_integer_at_least_one_shows_mixed_and_clearing_stores_none ... ok
+test shell::tests::typography::truncate_text_toggle_shows_mixed_and_writes_every_selected_text_layer_in_one_undo_step ... ok
+test shell::tests::typography::paragraph_settings_apply_to_the_layer ... ok
+test shell::tests::typography::feature_checks_toggle_on_the_layer ... ok
+test shell::tests::typography::headless_popover_render_truncate_off_and_on_max_lines_2 ... ok
+
+failures:
+
+---- shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again stdout ----
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again' (73454474) panicked at crates/designos-app/src/shell/tests/typography.rs:427:5:
+assertion `left == right` failed: retyping the same digits leaves the limit alone
+  left: None
+ right: Some(12)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field stdout ----
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field' (73454475) panicked at crates/designos-app/src/shell/tests/typography.rs:448:5:
+assertion `left == right` failed
+  left: None
+ right: Some(2)
+
+
+failures:
+    shell::tests::typography::max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again
+    shell::tests::typography::mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field
+
+test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 4189 filtered out; finished in 3.87s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+rc=101
+after revert: git status --short
+?? plans/reports/agy-1467-truncate-text-evidence/r2-green-test.log
+?? plans/reports/agy-1467-truncate-text-evidence/r2-hug-outside-text-arm.log
+?? plans/reports/agy-1467-truncate-text-evidence/r2-null-control.log
+?? plans/reports/agy-1467-truncate-text-evidence/r2-red-test.log
+?? plans/reports/agy-1467-truncate-text-evidence/r2-sticky-cleared-flag.log
+git diff --stat (empty = clean):

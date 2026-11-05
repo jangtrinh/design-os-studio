@@ -1,0 +1,7 @@
+# failures in r3-gate-app.log, both known flaky under load (vecops slow-font and deferred-text). Rerun each alone on gated HEAD 72583762:
+## vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4288 filtered out; finished in 1.55s
+## vecops::tests::two_deferred_text_commands_both_convert_in_order
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4288 filtered out; finished in 1.46s

@@ -1,0 +1,289 @@
+=== Round 3 Part 1 Red Tests ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.64s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 2 tests
+
+thread 'cli_resolve::tests::hermetic_startup_dir_is_pinned_after_symlink_retarget' (71962822) panicked at crates/designos-app/src/cli_resolve.rs:1106:9:
+passing a retargeted symlink without .designos-hermetic must be refused, got argv: Ok(["/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-1126-r3-p1-retarget-28079-1/retargeted/claude", "--dangerously-skip-permissions"])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test cli_resolve::tests::hermetic_startup_dir_is_pinned_after_symlink_retarget ... FAILED
+
+thread 'cli_resolve::tests::hermetic_codex_expansion_uses_tab_env_not_parent_env' (71962821) panicked at crates/designos-app/src/cli_resolve.rs:1043:9:
+hermetic Codex argv must not use parent DESIGNOS_MCP_BIN=/usr/bin/true, got argv: ["/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-1126-r3-p1-codex-env-28079-2/stubs/codex", "-c", "mcp_servers.designos.command=\"/usr/bin/true\"", "-c", "mcp_servers.designos.args=[\"--workspace\",\"/tmp/conflicting-parent-workspace\"]", "-c", "mcp_servers.designos.env_vars=[\"DESIGNOS_SESSION_DIR\",\"DESIGNOS_MCP_CONFIG\",\"DESIGNOS_LIVE_CANVAS\",\"DESIGNOS_LIVE_DOC_SYNC\",\"DESIGNOS_LIVE_DOC_PATCH\",\"DESIGNOS_LIVE_SPEC\",\"DESIGNOS_CONTEXT_JSON\",\"DESIGNOS_TARGET_PAGE_ID\",\"DESIGNOS_TARGET_PAGE_NAME\",\"DESIGNOS_DOC_NAME\",\"DESIGNOS_FILE\",\"DESIGNOS_AGENT_RUN_ID\",\"DESIGNOS_AGENT_RUNTIME\",\"DESIGNOS_IN_PROGRESS_STALE_MINUTES\"]"]
+test cli_resolve::tests::hermetic_codex_expansion_uses_tab_env_not_parent_env ... FAILED
+
+failures:
+
+failures:
+    cli_resolve::tests::hermetic_codex_expansion_uses_tab_env_not_parent_env
+    cli_resolve::tests::hermetic_startup_dir_is_pinned_after_symlink_retarget
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 2989 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+
+
+=== Round 3 Step 4 Red Tests (1, 3-7, 4b-4e, 6b, 6c) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.58s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 12 tests
+test layout_snapshot::tests::region_wide_wildcard_entry_is_rejected ... FAILED
+test layout_snapshot::tests::equally_specific_entries_fail_to_parse ... FAILED
+test layout_snapshot::tests::widening_the_left_panel_fails_g1 ... FAILED
+test layout_snapshot::tests::stale_allow_entry_fails ... FAILED
+test layout_snapshot::tests::inspector_overflow_does_not_fail_g2 ... FAILED
+test layout_snapshot::tests::missing_baseline_fails ... FAILED
+test layout_snapshot::tests::growing_a_row_without_allow_fails_and_with_allow_passes ... FAILED
+test layout_snapshot::tests::centred_bar_widening_by_12_passes_with_anchor_x_centre ... FAILED
+test layout_snapshot::tests::reordering_two_buttons_fails_g3 ... FAILED
+test layout_snapshot::tests::palette_growing_above_bottom_anchor_passes_with_allow ... FAILED
+test layout_snapshot::tests::cumulative_shift_is_derived_not_a_range ... FAILED
+test layout_snapshot::tests::snapshot_reports_every_region_of_the_editor ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::region_wide_wildcard_entry_is_rejected stdout ----
+
+thread 'layout_snapshot::tests::region_wide_wildcard_entry_is_rejected' (72062512) panicked at crates/designos-app/src/layout_snapshot.rs:523:46:
+wildcard case '*' without name_prefix or h_base must be rejected: AllowList { entries: [] }
+
+---- layout_snapshot::tests::equally_specific_entries_fail_to_parse stdout ----
+
+thread 'layout_snapshot::tests::equally_specific_entries_fail_to_parse' (72062507) panicked at crates/designos-app/src/layout_snapshot.rs:534:9:
+two h_base=24 entries on the same case and region must fail to parse
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- layout_snapshot::tests::widening_the_left_panel_fails_g1 stdout ----
+
+thread 'layout_snapshot::tests::widening_the_left_panel_fails_g1' (72062516) panicked at crates/designos-app/src/layout_snapshot.rs:320:68:
+widening left_panel by +8 must fail G1: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {} }
+
+---- layout_snapshot::tests::stale_allow_entry_fails stdout ----
+
+thread 'layout_snapshot::tests::stale_allow_entry_fails' (72062515) panicked at crates/designos-app/src/layout_snapshot.rs:515:70:
+unmatched allow entry must fail as stale: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {} }
+
+---- layout_snapshot::tests::inspector_overflow_does_not_fail_g2 stdout ----
+
+thread 'layout_snapshot::tests::inspector_overflow_does_not_fail_g2' (72062509) panicked at crates/designos-app/src/layout_snapshot.rs:445:9:
+CompareReport must report scroll change without failing G2
+
+---- layout_snapshot::tests::missing_baseline_fails stdout ----
+
+thread 'layout_snapshot::tests::missing_baseline_fails' (72062510) panicked at crates/designos-app/src/layout_snapshot.rs:563:14:
+missing baseline file must fail: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {} }
+
+---- layout_snapshot::tests::growing_a_row_without_allow_fails_and_with_allow_passes stdout ----
+
+thread 'layout_snapshot::tests::growing_a_row_without_allow_fails_and_with_allow_passes' (72062508) panicked at crates/designos-app/src/layout_snapshot.rs:331:68:
+dh +8 without allow entry must fail: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {} }
+
+---- layout_snapshot::tests::centred_bar_widening_by_12_passes_with_anchor_x_centre stdout ----
+
+thread 'layout_snapshot::tests::centred_bar_widening_by_12_passes_with_anchor_x_centre' (72062505) panicked at crates/designos-app/src/layout_snapshot.rs:459:9:
+centred bar widening by 12 without allow entry must fail G4
+
+---- layout_snapshot::tests::reordering_two_buttons_fails_g3 stdout ----
+
+thread 'layout_snapshot::tests::reordering_two_buttons_fails_g3' (72062513) panicked at crates/designos-app/src/layout_snapshot.rs:495:68:
+swapping two buttons must fail G3: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {} }
+
+---- layout_snapshot::tests::palette_growing_above_bottom_anchor_passes_with_allow stdout ----
+
+thread 'layout_snapshot::tests::palette_growing_above_bottom_anchor_passes_with_allow' (72062511) panicked at crates/designos-app/src/layout_snapshot.rs:360:9:
+palette growing above bottom anchor without allow must fail
+
+---- layout_snapshot::tests::cumulative_shift_is_derived_not_a_range stdout ----
+
+thread 'layout_snapshot::tests::cumulative_shift_is_derived_not_a_range' (72062506) panicked at crates/designos-app/src/layout_snapshot.rs:412:71:
++16 row in a [8,8] region must fail on its own dh: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {} }
+
+---- layout_snapshot::tests::snapshot_reports_every_region_of_the_editor stdout ----
+
+thread 'layout_snapshot::tests::snapshot_reports_every_region_of_the_editor' (72062514) panicked at crates/designos-app/src/layout_snapshot.rs:290:9:
+assertion `left == right` failed
+  left: [0, 0]
+ right: [1440, 900]
+
+
+failures:
+    layout_snapshot::tests::centred_bar_widening_by_12_passes_with_anchor_x_centre
+    layout_snapshot::tests::cumulative_shift_is_derived_not_a_range
+    layout_snapshot::tests::equally_specific_entries_fail_to_parse
+    layout_snapshot::tests::growing_a_row_without_allow_fails_and_with_allow_passes
+    layout_snapshot::tests::inspector_overflow_does_not_fail_g2
+    layout_snapshot::tests::missing_baseline_fails
+    layout_snapshot::tests::palette_growing_above_bottom_anchor_passes_with_allow
+    layout_snapshot::tests::region_wide_wildcard_entry_is_rejected
+    layout_snapshot::tests::reordering_two_buttons_fails_g3
+    layout_snapshot::tests::snapshot_reports_every_region_of_the_editor
+    layout_snapshot::tests::stale_allow_entry_fails
+    layout_snapshot::tests::widening_the_left_panel_fails_g1
+
+test result: FAILED. 0 passed; 12 failed; 0 ignored; 0 measured; 2991 filtered out; finished in 0.31s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== Round 3 Step 5 Red Tests (8c, 8d) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.73s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 2 tests
+
+thread 'layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis' (72392662) panicked at crates/designos-app/src/layout_snapshot.rs:1051:57:
+Tier A seam must set app.libs.root on every case
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... FAILED
+
+thread 'layout_snapshot::tests::home_is_deterministic_with_fixed_clock' (72392663) panicked at crates/designos-app/src/layout_snapshot.rs:1153:9:
+at fixed_now = T + 60s, Home card label must show '1 minute ago', got: ["Home", "Personal Workspace", "v0.6.1", "Search", "Recents", "Templates & Specs", "P", "FILES & PROJECTS", "Drafts", "All folders", "Resources & Libraries", "Marlow", "Starred", "Trash", "Recents", "+ Design file", "+ FigJam board", "Import", "Filter: All files", "Sort: Last viewed", "Board", "Launch brainstorm", "Edited just now · In Marlow", "Design system", "Edited just now · In Marlow", "Web dashboard", "Edited just now · In Marlow", "Mobile banking app", "Edited just now · In Marlow", "click", "click", "click", "click", "click+drag", "click", "click", "click", "click", "click", "click", "click", "click", "click", "click", "click", "click", "click", "click", "click", "click", "click+drag", "click", "click+drag", "click", "click+drag", "click", "click+drag", "click", "/Users/jangtrinh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-0.35.0/src/context.rs:2488", "Widgets in order:\n"]
+test layout_snapshot::tests::home_is_deterministic_with_fixed_clock ... FAILED
+
+failures:
+
+failures:
+    layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis
+    layout_snapshot::tests::home_is_deterministic_with_fixed_clock
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3003 filtered out; finished in 1.38s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+
+
+=== Round 3 Step 6 Red Tests ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.35s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 9 tests
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... FAILED
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... FAILED
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... FAILED
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... FAILED
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... FAILED
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... FAILED
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... FAILED
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... FAILED
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... FAILED
+
+failures:
+
+---- shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract stdout ----
+
+thread 'shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract' (72859272) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+
+---- shell::tests::layout_unchanged::j::layout_unchanged_j stdout ----
+
+thread 'shell::tests::layout_unchanged::j::layout_unchanged_j' (72859279) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+
+---- shell::tests::layout_unchanged::g::layout_unchanged_g stdout ----
+
+thread 'shell::tests::layout_unchanged::g::layout_unchanged_g' (72859276) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+
+---- shell::tests::layout_unchanged::f::layout_unchanged_f stdout ----
+
+thread 'shell::tests::layout_unchanged::f::layout_unchanged_f' (72859275) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::layout_unchanged::d::layout_unchanged_d stdout ----
+
+thread 'shell::tests::layout_unchanged::d::layout_unchanged_d' (72859273) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+
+---- shell::tests::layout_unchanged::k::layout_unchanged_k stdout ----
+
+thread 'shell::tests::layout_unchanged::k::layout_unchanged_k' (72859280) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+
+---- shell::tests::layout_unchanged::e::layout_unchanged_e stdout ----
+
+thread 'shell::tests::layout_unchanged::e::layout_unchanged_e' (72859274) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+
+---- shell::tests::layout_unchanged::i::layout_unchanged_i stdout ----
+
+thread 'shell::tests::layout_unchanged::i::layout_unchanged_i' (72859278) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+
+---- shell::tests::layout_unchanged::h::layout_unchanged_h stdout ----
+
+thread 'shell::tests::layout_unchanged::h::layout_unchanged_h' (72859277) panicked at crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:40:29:
+failed to read /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json: No such file or directory (os error 2)
+
+
+failures:
+    shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract
+    shell::tests::layout_unchanged::d::layout_unchanged_d
+    shell::tests::layout_unchanged::e::layout_unchanged_e
+    shell::tests::layout_unchanged::f::layout_unchanged_f
+    shell::tests::layout_unchanged::g::layout_unchanged_g
+    shell::tests::layout_unchanged::h::layout_unchanged_h
+    shell::tests::layout_unchanged::i::layout_unchanged_i
+    shell::tests::layout_unchanged::j::layout_unchanged_j
+    shell::tests::layout_unchanged::k::layout_unchanged_k
+
+test result: FAILED. 0 passed; 9 failed; 0 ignored; 0 measured; 3005 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+
+
+=== Round 3 Step 7 Red Tests (8, 8b) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.76s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 2 tests
+test layout_snapshot::tests::layout_json_requires_screenshot ... FAILED
+test layout_snapshot::tests::layout_json_matches_headless_snapshot ... FAILED
+
+failures:
+
+---- layout_snapshot::tests::layout_json_requires_screenshot stdout ----
+
+thread 'layout_snapshot::tests::layout_json_requires_screenshot' (72946868) panicked at crates/designos-app/src/layout_snapshot.rs:1131:9:
+assertion `left == right` failed
+  left: "unknown option --layout-json"
+ right: "--layout-json needs --screenshot"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- layout_snapshot::tests::layout_json_matches_headless_snapshot stdout ----
+
+thread 'layout_snapshot::tests::layout_json_matches_headless_snapshot' (72946867) panicked at crates/designos-app/src/layout_snapshot.rs:1187:63:
+--layout-json file must be written when Event::Screenshot arrives: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+
+failures:
+    layout_snapshot::tests::layout_json_matches_headless_snapshot
+    layout_snapshot::tests::layout_json_requires_screenshot
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3014 filtered out; finished in 0.54s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

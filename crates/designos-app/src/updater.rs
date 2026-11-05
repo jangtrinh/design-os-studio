@@ -17,8 +17,8 @@
 
 use crate::icons::{self, Icon};
 use crate::theme;
-use crate::widgets;
-use egui::{Align2, Color32, Context, CornerRadius, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use crate::widgets::{self, kit};
+use egui::{Align2, Color32, Context, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -33,16 +33,6 @@ pub const SUPPORTED_KIWI_VERSION: u32 = 106;
 
 /// Verified 1:1 Figma UI3 & engine parity score percentage.
 pub const VERIFIED_PARITY_SCORE_PCT: f32 = 99.2;
-
-// Figma UI3 Dark Palette tokens
-const UI3_BG_PANEL: Color32 = Color32::from_rgb(0x1E, 0x1E, 0x1E);
-const UI3_BG_CARD: Color32 = Color32::from_rgb(0x2C, 0x2C, 0x2C);
-const UI3_BG_HOVER: Color32 = Color32::from_rgb(0x34, 0x34, 0x34);
-const UI3_BORDER: Color32 = Color32::from_rgb(0x38, 0x38, 0x38);
-const UI3_BLUE: Color32 = Color32::from_rgb(0x0D, 0x99, 0xFF);
-const UI3_EMERALD: Color32 = Color32::from_rgb(0x1B, 0xC4, 0x7D);
-const UI3_AMBER: Color32 = Color32::from_rgb(0xF5, 0x9E, 0x0B);
-const UI3_RED: Color32 = Color32::from_rgb(0xF2, 0x48, 0x22);
 
 /// Release update channel (`Stable`, `Beta`, `Nightly`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -572,17 +562,17 @@ pub fn show_sidebar_card_in_rect(ui: &mut Ui, rect: Rect, state: &mut UpdaterSta
     }
     let p = ui.painter().clone();
     let resp = ui.interact(rect, Id::new("home-updater-card"), Sense::click());
-    let bg = if resp.hovered() { UI3_BG_HOVER } else { UI3_BG_CARD };
-    p.rect_filled(rect, CornerRadius::same(6), bg);
-    p.rect_stroke(rect, CornerRadius::same(6), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
+    let bg = if resp.hovered() { theme::BG_SECONDARY_HOVER } else { theme::BG_SECONDARY };
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), bg);
+    p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_MENU), StrokeKind::Inside);
 
     // Status dot + Version & Channel row
     let (dot_col, status_text) = match &state.phase {
-        UpdatePhase::UpdateAvailable(m) => (UI3_BLUE, format!("Update v{} ready", m.version)),
-        UpdatePhase::StagedReadyToRestart { manifest, .. } => (UI3_EMERALD, format!("Staged v{} (Restart)", manifest.version)),
-        UpdatePhase::RolledBack { .. } => (UI3_AMBER, "Rolled back (.bak)".to_string()),
-        UpdatePhase::Failed(_) => (UI3_RED, "Update check error".to_string()),
-        _ => (UI3_EMERALD, format!("v{CURRENT_VERSION} \u{b7} {}", state.channel.label())),
+        UpdatePhase::UpdateAvailable(m) => (theme::INFO, format!("Update v{} ready", m.version)),
+        UpdatePhase::StagedReadyToRestart { manifest, .. } => (theme::SUCCESS, format!("Staged v{} (Restart)", manifest.version)),
+        UpdatePhase::RolledBack { .. } => (theme::WARNING, "Rolled back (.bak)".to_string()),
+        UpdatePhase::Failed(_) => (theme::DANGER, "Update check error".to_string()),
+        _ => (theme::SUCCESS, format!("v{CURRENT_VERSION} \u{b7} {}", state.channel.label())),
     };
 
     let dot_center = Pos2::new(rect.left() + 12.0, rect.top() + 13.0);
@@ -674,7 +664,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
 
     egui::Area::new(Id::new("updater-modal-backdrop")).order(egui::Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
         let p = ui.painter().clone();
-        p.rect_filled(screen, 0.0, Color32::from_black_alpha(150));
+        kit::modal_surface(&p, screen, modal_rect);
 
         let bg_resp = ui.interact(screen, Id::new("updater-backdrop-hit"), Sense::click());
         if bg_resp.clicked() && !ui.input(|i| i.pointer.interact_pos().is_some_and(|pos| modal_rect.contains(pos))) {
@@ -684,15 +674,13 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
 
     egui::Area::new(Id::new("updater-modal-card")).order(egui::Order::Tooltip).fixed_pos(modal_rect.min).show(ctx, |ui| {
         let p = ui.painter().clone();
-        p.rect_filled(modal_rect, CornerRadius::same(10), UI3_BG_PANEL);
-        p.rect_stroke(modal_rect, CornerRadius::same(10), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
 
-        let x0 = modal_rect.left() + 20.0;
-        let w = modal_rect.width() - 40.0;
-        let mut y = modal_rect.top() + 18.0;
+        let x0 = modal_rect.left() + theme::INSET_MODAL;
+        let w = modal_rect.width() - theme::INSET_MODAL * 2.0;
+        let mut y = modal_rect.top() + theme::INSET_MODAL;
 
         // Header (`DIR-12`: lowercase `design:os studio` with bold `design` + regular `:os studio`)
-        icons::paint(&p, Icon::Sparkle, Pos2::new(x0 + 8.0, y + 10.0), 16.0, UI3_BLUE);
+        icons::paint(&p, Icon::Sparkle, Pos2::new(x0 + 8.0, y + 10.0), 16.0, theme::INFO);
         let brand_w = paint_brand_wordmark(&p, Pos2::new(x0 + 24.0, y + 10.0), 13.0, theme::TEXT, theme::TEXT_SECONDARY);
         p.text(
             Pos2::new(x0 + 24.0 + brand_w + 6.0, y + 10.0),
@@ -706,7 +694,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
             state.modal_open = false;
         }
         y += 30.0;
-        widgets::hline(&p, modal_rect.left(), modal_rect.right(), y, UI3_BORDER);
+        widgets::hline(&p, modal_rect.left(), modal_rect.right(), y, theme::BORDER_MENU);
         y += 14.0;
 
         // Channel Selector strip (`Stable | Beta | Nightly`)
@@ -716,18 +704,15 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
             let active = state.channel == ch;
             let pill_r = Rect::from_min_size(Pos2::new(cx, y), Vec2::new(72.0, 26.0));
             let resp = ui.interact(pill_r, Id::new(("updater-channel", ch.label())), Sense::click());
-            p.rect_filled(
-                pill_r,
-                CornerRadius::same(6),
-                if active {
-                    UI3_BLUE
-                } else if resp.hovered() {
-                    UI3_BG_HOVER
-                } else {
-                    UI3_BG_CARD
-                },
-            );
-            p.text(pill_r.center(), Align2::CENTER_CENTER, ch.label(), theme::font_caption_strong(), if active { Color32::WHITE } else { theme::TEXT });
+            let fill = if active {
+                theme::BG_SELECTED
+            } else if resp.hovered() {
+                theme::BG_SECONDARY_HOVER
+            } else {
+                theme::BG_SECONDARY
+            };
+            p.rect_filled(pill_r, theme::cr(theme::RADIUS_CONTROL), fill);
+            p.text(pill_r.center(), Align2::CENTER_CENTER, ch.label(), theme::font_caption_strong(), theme::TEXT);
             if resp.clicked() {
                 state.channel = ch;
                 state.check_for_updates();
@@ -738,8 +723,8 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
 
         // Layer 1 Card: Native App & CLI Atomic Self-Updater
         let l1_rect = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(w, 136.0));
-        p.rect_filled(l1_rect, CornerRadius::same(8), UI3_BG_CARD);
-        p.rect_stroke(l1_rect, CornerRadius::same(8), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
+        p.rect_filled(l1_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        p.rect_stroke(l1_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_MENU), StrokeKind::Inside);
 
         p.text(
             Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 16.0),
@@ -763,7 +748,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                     Align2::LEFT_CENTER,
                     format!("New release v{} available \u{b7} SHA-256: {}…", m.version, &m.sha256[..12]),
                     theme::font_caption_strong(),
-                    UI3_BLUE,
+                    theme::INFO,
                 );
                 if let Some(note) = m.release_notes.first() {
                     p.text(
@@ -781,7 +766,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                     Align2::LEFT_CENTER,
                     format!("Verified SHA-256 & staged v{} (.bak backup ready)", manifest.version),
                     theme::font_caption_strong(),
-                    UI3_EMERALD,
+                    theme::SUCCESS,
                 );
                 p.text(
                     Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 74.0),
@@ -792,7 +777,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                 );
             }
             UpdatePhase::RolledBack { reason, .. } => {
-                p.text(Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 56.0), Align2::LEFT_CENTER, reason, theme::font_caption_strong(), UI3_AMBER);
+                p.text(Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 56.0), Align2::LEFT_CENTER, reason, theme::font_caption_strong(), theme::WARNING);
             }
             UpdatePhase::Failed(err) => {
                 p.text(
@@ -800,7 +785,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                     Align2::LEFT_CENTER,
                     widgets::elide(&p, err, &theme::font_caption_strong(), w - 28.0),
                     theme::font_caption_strong(),
-                    UI3_RED,
+                    theme::DANGER,
                 );
             }
             _ => {
@@ -809,36 +794,26 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                     Align2::LEFT_CENTER,
                     "Binary is up to date \u{b7} Atomic staging & .bak rollback active",
                     theme::font_caption(),
-                    UI3_EMERALD,
+                    theme::SUCCESS,
                 );
             }
         }
 
         // Action buttons inside Layer 1 card
-        let btn_y = l1_rect.bottom() - 36.0;
-        let check_r = Rect::from_min_size(Pos2::new(l1_rect.left() + 14.0, btn_y), Vec2::new(136.0, 26.0));
-        let check_resp = ui.interact(check_r, Id::new("updater-btn-check"), Sense::click());
-        p.rect_filled(check_r, CornerRadius::same(6), if check_resp.hovered() { UI3_BG_HOVER } else { UI3_BG_PANEL });
-        p.rect_stroke(check_r, CornerRadius::same(6), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
-        p.text(check_r.center(), Align2::CENTER_CENTER, "Check for Updates", theme::font_caption_strong(), theme::TEXT);
-        if check_resp.clicked() {
+        let btn_h = theme::CONTROL_MD;
+        let btn_y = l1_rect.bottom() - btn_h - theme::SPACE_INLINE;
+        let check_r = Rect::from_min_size(Pos2::new(l1_rect.left() + 14.0, btn_y), Vec2::new(136.0, btn_h));
+        if kit::button(ui, check_r, "updater-btn-check", "Check for Updates", kit::Hierarchy::Secondary, kit::Size::Md, true).clicked() {
             state.check_for_updates();
         }
 
-        let stage_r = Rect::from_min_size(Pos2::new(check_r.right() + 8.0, btn_y), Vec2::new(154.0, 26.0));
-        let stage_resp = ui.interact(stage_r, Id::new("updater-btn-stage"), Sense::click());
-        p.rect_filled(stage_r, CornerRadius::same(6), UI3_BLUE);
-        p.text(stage_r.center(), Align2::CENTER_CENTER, "Stage Atomic Update", theme::font_caption_strong(), Color32::WHITE);
-        if stage_resp.clicked() {
+        let stage_r = Rect::from_min_size(Pos2::new(check_r.right() + 8.0, btn_y), Vec2::new(154.0, btn_h));
+        if kit::button(ui, stage_r, "updater-btn-stage", "Stage Atomic Update", kit::Hierarchy::Primary, kit::Size::Md, true).clicked() {
             state.stage_available_update();
         }
 
-        let rb_r = Rect::from_min_size(Pos2::new(stage_r.right() + 8.0, btn_y), Vec2::new(118.0, 26.0));
-        let rb_resp = ui.interact(rb_r, Id::new("updater-btn-rollback"), Sense::click());
-        p.rect_filled(rb_r, CornerRadius::same(6), if rb_resp.hovered() { UI3_BG_HOVER } else { UI3_BG_PANEL });
-        p.rect_stroke(rb_r, CornerRadius::same(6), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
-        p.text(rb_r.center(), Align2::CENTER_CENTER, "Rollback (.bak)", theme::font_caption_strong(), theme::TEXT);
-        if rb_resp.clicked() {
+        let rb_r = Rect::from_min_size(Pos2::new(stage_r.right() + 8.0, btn_y), Vec2::new(118.0, btn_h));
+        if kit::button(ui, rb_r, "updater-btn-rollback", "Rollback (.bak)", kit::Hierarchy::Secondary, kit::Size::Md, true).clicked() {
             state.trigger_rollback();
         }
 
@@ -846,8 +821,8 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
 
         // Layer 2 Card: Upstream `/Applications/Figma.app` & `.fig` Kiwi Schema Watchdog
         let l2_rect = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(w, 118.0));
-        p.rect_filled(l2_rect, CornerRadius::same(8), UI3_BG_CARD);
-        p.rect_stroke(l2_rect, CornerRadius::same(8), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
+        p.rect_filled(l2_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        p.rect_stroke(l2_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_MENU), StrokeKind::Inside);
 
         p.text(
             Pos2::new(l2_rect.left() + 14.0, l2_rect.top() + 16.0),
@@ -872,7 +847,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                 state.upstream.supported_kiwi_version, state.upstream.parity_score_pct
             ),
             theme::font_caption_strong(),
-            UI3_EMERALD,
+            theme::SUCCESS,
         );
         p.text(
             Pos2::new(l2_rect.left() + 14.0, l2_rect.top() + 86.0),

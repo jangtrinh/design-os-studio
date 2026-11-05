@@ -1,0 +1,13 @@
+diff --git a/crates/designos-app/src/image_jobs.rs b/crates/designos-app/src/image_jobs.rs
+index b05187a8..3e26de02 100644
+--- a/crates/designos-app/src/image_jobs.rs
++++ b/crates/designos-app/src/image_jobs.rs
+@@ -73,7 +73,7 @@ mod framing {
+                 Some(ImageJobFrame { quarter_turns, window, params: ImageParams { rotation: 0.0, ..*params } })
+             }
+             ImageScaleMode::Tile => Some(ImageJobFrame { quarter_turns: 0, window: (0, 0, raw_w, raw_h), params: *params }),
+-            ImageScaleMode::Crop => crop_frame(raw_w, raw_h, size, params),
++            ImageScaleMode::Crop => Some(ImageJobFrame { quarter_turns: 0, window: cover_window(raw_w, raw_h, size), params: *params }),
+         }
+     }
+ 

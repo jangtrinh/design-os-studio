@@ -5,6 +5,7 @@
 //! against [`crate::testkit::figma_like_schema`].
 
 use crate::container::{self, Compression};
+use crate::effect_units;
 use crate::kiwi::KiwiValue as V;
 use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align};
 use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
@@ -110,12 +111,103 @@ pub fn path_to_commands_blob(path: &Path) -> Vec<u8> {
     out
 }
 
+fn export_schema() -> &'static crate::kiwi::Schema {
+    static SCHEMA: std::sync::OnceLock<crate::kiwi::Schema> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(figma_like_schema)
+}
+
+/// What a shader message that cannot be written whole tells the person saving: the layer, what is wrong, what to do.
+fn shader_refusal(owner_name: &str, problem: String) -> FigError {
+    FigError::Format(format!("layer {owner_name:?}: {problem}; save as .designos to keep it, or remove the shader"))
+}
+
+/// Rebuilds the fields of a shader message from its raw JSON, or refuses. The encoder writes only the fields a schema
+/// definition names, so a key it does not name, at any depth, would be dropped by a save that still reports success.
+fn decode_shader_ref(
+    schema: &crate::kiwi::Schema,
+    def_name: &str,
+    owner_name: &str,
+    shader: &ShaderRef,
+    skip: &[&str],
+) -> Result<Vec<(std::sync::Arc<str>, V)>, FigError> {
+    let Some(obj) = shader.raw.as_object() else {
+        return Err(shader_refusal(owner_name, format!("shader payload on {def_name} must be a JSON object")));
+    };
+    let def_idx = schema.find(def_name).ok_or_else(|| FigError::Format(format!("missing {def_name} in schema")))?;
+    let def = &schema.defs[def_idx];
+    let mut out = Vec::new();
+    for (k, v) in obj {
+        if skip.contains(&k.as_str()) || v.is_null() {
+            continue;
+        }
+        let Some(sf) = def.fields.iter().find(|f| &*f.name == k.as_str()) else {
+            return Err(shader_refusal(owner_name, format!("shader key {k:?} is not a field of {def_name} in the .fig schema")));
+        };
+        if let Some(path) = schema.first_unknown_json_key(sf, v) {
+            return Err(shader_refusal(owner_name, format!("shader key {path:?} is not a field of {def_name} in the .fig schema")));
+        }
+        let Some(kv) = schema.field_from_json_strict(sf, v, 0) else {
+            return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
+        };
+        if let (Some(arr), V::Array(items)) = (v.as_array(), &kv) {
+            if arr.len() != items.len() {
+                return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
+            }
+        }
+        out.push((sf.name.clone(), kv));
+    }
+    Ok(out)
+}
+
+fn validate_paint_list(schema: &crate::kiwi::Schema, owner_name: &str, paints: &[Paint]) -> Result<(), FigError> {
+    for p in paints {
+        if let PaintKind::Shader(shader) = &p.kind {
+            decode_shader_ref(schema, "Paint", owner_name, shader, &["type", "opacity", "visible", "blendMode"])?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_effect_list(schema: &crate::kiwi::Schema, owner_name: &str, effects: &[Effect]) -> Result<(), FigError> {
+    for e in effects {
+        if let Effect::Shader { shader, .. } = e {
+            decode_shader_ref(schema, "Effect", owner_name, shader, &["type", "visible"])?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_shader_refs(doc: &Document, schema: &crate::kiwi::Schema) -> Result<(), FigError> {
+    for node in doc.nodes.values() {
+        validate_paint_list(schema, &node.name, &node.fills)?;
+        validate_paint_list(schema, &node.name, &node.stroke.paints)?;
+        if let NodeKind::Text(tp) = &node.kind {
+            validate_paint_list(schema, &node.name, &tp.style.fills)?;
+            for r in &tp.runs {
+                validate_paint_list(schema, &node.name, &r.style.fills)?;
+            }
+        }
+        validate_effect_list(schema, &node.name, &node.effects)?;
+    }
+    for (sid, style) in &doc.styles {
+        let name = doc.style_name(sid);
+        match style {
+            Style::Fill(paints) => validate_paint_list(schema, name, paints)?,
+            Style::Text(ts) => validate_paint_list(schema, name, &ts.fills)?,
+            Style::Effect(effects) => validate_effect_list(schema, name, effects)?,
+            Style::Grid(_) => {}
+        }
+    }
+    Ok(())
+}
+
 /// Serializes `doc` into a `.fig` binary archive (ZIP containing `canvas.fig`,
 /// `meta.json`, and `images/<hash>`).
 pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
-    let schema = figma_like_schema();
+    let schema = export_schema();
+    validate_shader_refs(doc, schema)?;
     let root = schema.find("Message").ok_or_else(|| FigError::Format("missing Message in schema".into()))?;
-    let message = build_message(doc, &schema);
+    let message = build_message(doc, schema);
     let schema_bytes = schema.encode();
     let msg_bytes = schema.encode_message(root, &message).map_err(|e| FigError::Format(format!("kiwi encode: {e}")))?;
     let canvas = container::write_container(&schema_bytes, &msg_bytes, Compression::Zstd, 106);
@@ -613,7 +705,19 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
             };
             val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
         }
-        let scopes: Vec<V> = v.scopes.iter().filter(|s| cx.schema.has_enum_variant("VariableScope", s)).map(|s| en(s)).collect();
+        // The REST variable payload spells the stroke colour scope `STROKE_COLOR`,
+        // while the native `.fig` schema uses `STROKE`. Normalize before schema
+        // validation so stroke-only variables are not silently widened to all
+        // scopes, and preserve input order while removing duplicate spellings.
+        let mut seen_scopes = HashSet::new();
+        let scopes: Vec<V> = v
+            .scopes
+            .iter()
+            .filter_map(|scope| {
+                let fig_scope = if scope == "STROKE_COLOR" { "STROKE" } else { scope.as_str() };
+                (cx.schema.has_enum_variant("VariableScope", fig_scope) && seen_scopes.insert(fig_scope)).then(|| en(fig_scope))
+            })
+            .collect();
         let mut fields = vec![
             ("guid", guid(vguid.0, vguid.1)),
             ("phase", en("CREATED")),
@@ -722,6 +826,13 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
             }
             Style::Text(ts) => {
                 append_shared_text_style_fields(&mut fields, ts);
+                // The paints of the style are the text colour a layer takes from it; a style without paints writes no field.
+                if !ts.fills.is_empty() {
+                    fields.push((
+                        "fillPaints",
+                        V::Array(ts.fills.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect()),
+                    ));
+                }
                 let var_entries = encode_var_entries_from_bindings(cx, bindings);
                 if !var_entries.is_empty() {
                     fields.push(("variableConsumptionMap", msg(vec![("entries", V::Array(var_entries))])));
@@ -749,6 +860,16 @@ fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&
 fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibling_idx: usize, parent_dir: Option<LayoutDirection>, in_component: bool) {
     let Some(node) = cx.doc.get(id).cloned() else { return };
     let nguid = cx.node_guids[&id];
+    let lowered_conn = match (&node.kind, cx.doc.kind) {
+        (NodeKind::Connector(cp), k) if k != DocumentKind::Board => {
+            let fmt_guid = |nid: NodeId| cx.node_guids.get(&nid).map(|&(s, l)| format!("{s}:{l}"));
+            let carrier = crate::board::StudioConnectorCarrier::from_node(&node, cp, cp.start.node.and_then(fmt_guid), cp.end.node.and_then(fmt_guid));
+            let carrier_val = serde_json::to_value(&carrier).unwrap_or(serde_json::Value::Null);
+            let lowered = crate::board::lower_design_connector(cx.doc, id, &node, cp, true);
+            Some((lowered, carrier_val))
+        }
+        _ => None,
+    };
     let (ty, is_state_group) = match &node.kind {
         NodeKind::Page { .. } => ("CANVAS", false),
         NodeKind::Frame(_) => ("FRAME", false),
@@ -767,7 +888,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         NodeKind::Instance { .. } => ("INSTANCE", false),
         NodeKind::Sticky(_) => ("STICKY", false),
         NodeKind::ShapeWithText(_) => ("SHAPE_WITH_TEXT", false),
-        NodeKind::Connector(_) => ("CONNECTOR", false),
+        NodeKind::Connector(_) => match &lowered_conn {
+            Some((lc, _)) if lc.label_chip.is_some() => ("GROUP", false),
+            Some(_) => ("VECTOR", false),
+            None => ("CONNECTOR", false),
+        },
         NodeKind::Stamp { .. } => ("STAMP", false),
         NodeKind::Unknown { type_name } => (if cx.schema.has_enum_variant("NodeType", type_name) { type_name.as_str() } else { "FRAME" }, false),
     };
@@ -790,6 +915,19 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if node.is_mask {
         fields.push(("mask", V::Bool(true)));
+    }
+    if node.is_mask || node.mask_type != MaskType::Alpha {
+        // A type kept only in fig_metadata (imported before mask types were mapped) is written back.
+        let mt = match node.mask_type {
+            MaskType::Alpha => match node.fig_metadata.get("maskType").map(String::as_str) {
+                Some("OUTLINE" | "VECTOR") => "OUTLINE",
+                Some("LUMINANCE") => "LUMINANCE",
+                _ => "ALPHA",
+            },
+            MaskType::Vector => "OUTLINE",
+            MaskType::Luminance => "LUMINANCE",
+        };
+        fields.push(("maskType", en(mt)));
     }
     if node.lock_aspect {
         fields.push(("proportionsConstrained", V::Bool(true)));
@@ -886,10 +1024,14 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &node.variables.bindings)).collect();
     fields.push(("fillPaints", V::Array(fill_paints)));
 
-    let stroke_paints: Vec<V> =
-        node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect();
+    let is_lowered_conn_group = lowered_conn.as_ref().is_some_and(|(lc, _)| lc.label_chip.is_some());
+    let stroke_paints: Vec<V> = if is_lowered_conn_group {
+        Vec::new()
+    } else {
+        node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect()
+    };
     fields.push(("strokePaints", V::Array(stroke_paints)));
-    fields.push(("strokeWeight", fl(node.stroke.weight)));
+    fields.push(("strokeWeight", fl(if is_lowered_conn_group { 0.0 } else { node.stroke.weight })));
     fields.push((
         "strokeAlign",
         en(match node.stroke.align {
@@ -909,9 +1051,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     fields.push((
         "strokeCap",
         en(match node.stroke.cap {
-            StrokeCap::None => "NONE",
-            StrokeCap::Round => "ROUND",
-            StrokeCap::Square => "SQUARE",
+            StrokeCap::None => node.fig_metadata.get("strokeCap").map(String::as_str).filter(|s| cx.schema.has_enum_variant("StrokeCap", s)).unwrap_or("NONE"),
+            c => crate::vecnet::cap_name(c),
         }),
     ));
     if !node.stroke.dashes.is_empty() {
@@ -1385,45 +1526,84 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             encode_text_node(&mut fields, &sp.text);
         }
         NodeKind::Connector(cp) => {
-            let line_style = match cp.line {
-                ConnectorLine::Elbowed => "ELBOWED",
-                ConnectorLine::Straight => "STRAIGHT",
-                ConnectorLine::Curved => "CURVED",
-            };
-            fields.push(("connectorLineStyle", en(line_style)));
-            let cap_name = |c: ConnectorCap| match c {
-                ConnectorCap::None => "NONE",
-                ConnectorCap::Arrow => "ARROW_LINES",
-                ConnectorCap::Triangle => "ARROW_EQUILATERAL",
-                ConnectorCap::Circle => "CIRCLE_FILLED",
-                ConnectorCap::Diamond => "DIAMOND_FILLED",
-            };
-            fields.push(("connectorStartCap", en(cap_name(cp.start_cap))));
-            fields.push(("connectorEndCap", en(cap_name(cp.end_cap))));
-            let mag_name = |m: Magnet| match m {
-                Magnet::Auto => "AUTO",
-                Magnet::Top => "TOP",
-                Magnet::Right => "RIGHT",
-                Magnet::Bottom => "BOTTOM",
-                Magnet::Left => "LEFT",
-                Magnet::Center => "CENTER",
-            };
-            let end_msg = |ep: &ConnectorEnd| {
-                let mut ef = vec![("position", vec2(ep.point.x, ep.point.y)), ("magnet", en(mag_name(ep.magnet)))];
-                if let Some(tg) = ep.node.and_then(|nid| cx.node_guids.get(&nid).copied()) {
-                    ef.push(("endpointNodeID", guid(tg.0, tg.1)));
+            if let Some((lc, carrier_val)) = &lowered_conn {
+                carried.push(("studioConnector", carrier_val.clone()));
+                if lc.label_chip.is_none() {
+                    let sgs = encode_geometry_blobs(cx, std::slice::from_ref(&lc.local_route.path()));
+                    if !sgs.is_empty() {
+                        fields.push(("strokeGeometry", V::Array(sgs)));
+                    }
+                    let (blob_bytes, style_table) =
+                        encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap));
+                    let blob_idx = cx.add_blob(blob_bytes);
+                    let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
+                    if !style_table.is_empty() {
+                        vd.push(("styleOverrideTable", V::Array(style_table)));
+                    }
+                    fields.push(("vectorData", msg(vd)));
                 }
-                msg(ef)
-            };
-            fields.push(("connectorStart", end_msg(&cp.start)));
-            fields.push(("connectorEnd", end_msg(&cp.end)));
-            if let Some(lbl) = &cp.label {
-                encode_text_node(&mut fields, lbl);
+            } else {
+                let line_style = match cp.line {
+                    ConnectorLine::Elbowed => "ELBOWED",
+                    ConnectorLine::Straight => "STRAIGHT",
+                    ConnectorLine::Curved => "CURVED",
+                };
+                fields.push(("connectorLineStyle", en(line_style)));
+                let cap_name = |c: ConnectorCap| match c {
+                    ConnectorCap::None => "NONE",
+                    ConnectorCap::Arrow => "ARROW_LINES",
+                    ConnectorCap::Triangle => "ARROW_EQUILATERAL",
+                    ConnectorCap::Circle => "CIRCLE_FILLED",
+                    ConnectorCap::Diamond => "DIAMOND_FILLED",
+                };
+                fields.push(("connectorStartCap", en(cap_name(cp.start_cap))));
+                fields.push(("connectorEndCap", en(cap_name(cp.end_cap))));
+                let mag_name = |m: Magnet| match m {
+                    Magnet::Auto => "AUTO",
+                    Magnet::Top => "TOP",
+                    Magnet::Right => "RIGHT",
+                    Magnet::Bottom => "BOTTOM",
+                    Magnet::Left => "LEFT",
+                    Magnet::Center => "CENTER",
+                };
+                let end_msg = |ep: &ConnectorEnd, mag_meta_key: &str, rp_meta_key: &str| {
+                    let mag = if ep.magnet == Magnet::Auto {
+                        node.fig_metadata.get(mag_meta_key).map(String::as_str).filter(|s| cx.schema.has_enum_variant("ConnectorMagnet", s)).unwrap_or("AUTO")
+                    } else {
+                        mag_name(ep.magnet)
+                    };
+                    let mut ef = vec![("position", vec2(ep.point.x, ep.point.y)), ("magnet", en(mag))];
+                    if let Some(tg) = ep.node.and_then(|nid| cx.node_guids.get(&nid).copied()) {
+                        ef.push(("endpointNodeID", guid(tg.0, tg.1)));
+                    }
+                    if let Some(rp_str) = node.fig_metadata.get(rp_meta_key) {
+                        if let Ok(rp_val) = serde_json::from_str::<serde_json::Value>(rp_str) {
+                            if let (Some(rx), Some(ry)) =
+                                (rp_val.get("x").and_then(serde_json::Value::as_f64), rp_val.get("y").and_then(serde_json::Value::as_f64))
+                            {
+                                ef.push(("relativePosition", vec2(rx as f32, ry as f32)));
+                            }
+                        }
+                    }
+                    msg(ef)
+                };
+                fields.push(("connectorStart", end_msg(&cp.start, "connectorStartMagnet", "connectorStartRelativePosition")));
+                fields.push(("connectorEnd", end_msg(&cp.end, "connectorEndMagnet", "connectorEndRelativePosition")));
+                if let Some(lbl) = &cp.label {
+                    encode_text_node(&mut fields, lbl);
+                }
             }
         }
         _ => {}
     }
 
+    // The exported `strokeCap` is the modelled one. An arrow cap the stroke model has no name for rides along, so
+    // that the file read back still knows the baked outline carries it.
+    if let (NodeKind::Vector { .. }, Some(cap)) = (&node.kind, node.fig_metadata.get("strokeCap")) {
+        if !matches!(cap.as_str(), "" | "NONE" | "ROUND" | "SQUARE") {
+            carried.push(("figMetadata", json!({"strokeCap": cap})));
+        }
+    }
     pd_entries.extend(carrier::carrier_entries(&carried));
     if !pd_entries.is_empty() {
         fields.push(("pluginData", V::Array(pd_entries)));
@@ -1431,6 +1611,100 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     let mut msg_fields: Vec<(std::sync::Arc<str>, V)> = fields.into_iter().map(|(k, v)| (k.into(), v)).collect();
     append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
     cx.changes.push(V::Message(msg_fields));
+
+    if let Some((lc, carrier_val)) = lowered_conn {
+        if let Some((bg_rect, radius, text_rect, lbl)) = lc.label_chip {
+            let v_guid = cx.alloc_guid(1);
+            let sps: Vec<V> =
+                node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect();
+            let mut v_fields = vec![
+                ("guid", guid(v_guid.0, v_guid.1)),
+                ("phase", en("CREATED")),
+                ("parentIndex", st(vec![("guid", guid(nguid.0, nguid.1)), ("position", V::String(pos_str(0)))])),
+                ("type", en("VECTOR")),
+                ("name", V::String(node.name.clone())),
+                ("visible", V::Bool(true)),
+                ("locked", V::Bool(false)),
+                ("opacity", fl_one(1.0)),
+                ("size", vec2(node.size.x, node.size.y)),
+                ("transform", encode_matrix(&Affine::IDENTITY)),
+                ("blendMode", en("NORMAL")),
+                ("fillPaints", V::Array(Vec::new())),
+                ("strokePaints", V::Array(sps)),
+                ("strokeWeight", fl(node.stroke.weight)),
+                ("strokeAlign", en("CENTER")),
+                (
+                    "strokeJoin",
+                    en(match node.stroke.join {
+                        StrokeJoin::Miter => "MITER",
+                        StrokeJoin::Bevel => "BEVEL",
+                        StrokeJoin::Round => "ROUND",
+                    }),
+                ),
+                ("strokeCap", en(crate::vecnet::cap_name(node.stroke.cap))),
+            ];
+            if !node.stroke.dashes.is_empty() {
+                v_fields.push(("dashPattern", V::Array(node.stroke.dashes.iter().map(|&d| fl(d)).collect())));
+            }
+            let sgs = encode_geometry_blobs(cx, std::slice::from_ref(&lc.local_route.path()));
+            if !sgs.is_empty() {
+                v_fields.push(("strokeGeometry", V::Array(sgs)));
+            }
+            let (blob_bytes, style_table) = encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap));
+            let blob_idx = cx.add_blob(blob_bytes);
+            let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
+            if !style_table.is_empty() {
+                vd.push(("styleOverrideTable", V::Array(style_table)));
+            }
+            v_fields.push(("vectorData", msg(vd)));
+            v_fields.push(("pluginData", V::Array(carrier::carrier_entries(&[("studioConnector", carrier_val)]))));
+            cx.changes.push(msg(v_fields));
+
+            let r_guid = cx.alloc_guid(1);
+            let chip_fill = encode_paint_with_bindings(cx, &Paint::solid(Color::WHITE), "fills", 0, &BTreeMap::new());
+            let r_fields = vec![
+                ("guid", guid(r_guid.0, r_guid.1)),
+                ("phase", en("CREATED")),
+                ("parentIndex", st(vec![("guid", guid(nguid.0, nguid.1)), ("position", V::String(pos_str(1)))])),
+                ("type", en("ROUNDED_RECTANGLE")),
+                ("name", V::String("Label background".into())),
+                ("visible", V::Bool(true)),
+                ("locked", V::Bool(false)),
+                ("opacity", fl_one(1.0)),
+                ("size", vec2(bg_rect.w, bg_rect.h)),
+                ("transform", encode_matrix(&Affine::translate(bg_rect.x, bg_rect.y))),
+                ("blendMode", en("NORMAL")),
+                ("cornerRadius", fl(radius)),
+                ("fillPaints", V::Array(vec![chip_fill])),
+                ("strokePaints", V::Array(Vec::new())),
+                ("strokeWeight", fl(0.0)),
+                ("strokeAlign", en("INSIDE")),
+            ];
+            cx.changes.push(msg(r_fields));
+
+            let t_guid = cx.alloc_guid(1);
+            let t_fills: Vec<V> = lbl.style.fills.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &BTreeMap::new())).collect();
+            let mut t_fields = vec![
+                ("guid", guid(t_guid.0, t_guid.1)),
+                ("phase", en("CREATED")),
+                ("parentIndex", st(vec![("guid", guid(nguid.0, nguid.1)), ("position", V::String(pos_str(2)))])),
+                ("type", en("TEXT")),
+                ("name", V::String(lbl.content.clone())),
+                ("visible", V::Bool(true)),
+                ("locked", V::Bool(false)),
+                ("opacity", fl_one(1.0)),
+                ("size", vec2(text_rect.w, text_rect.h)),
+                ("transform", encode_matrix(&Affine::translate(text_rect.x, text_rect.y))),
+                ("blendMode", en("NORMAL")),
+                ("fillPaints", V::Array(t_fills)),
+                ("strokePaints", V::Array(Vec::new())),
+                ("strokeWeight", fl(0.0)),
+                ("strokeAlign", en("INSIDE")),
+            ];
+            encode_text_node(&mut t_fields, &lbl);
+            cx.changes.push(msg(t_fields));
+        }
+    }
 
     let child_in_comp = in_component || matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_));
     for (cidx, cid) in node.children.into_iter().enumerate() {
@@ -1591,30 +1865,57 @@ fn encode_node_mode_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     mode_entries
 }
 
-fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
+fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
     let mut out = Vec::new();
     let Some(inst) = cx.doc.get(inst_id) else { return out };
     let mut stack: Vec<(NodeId, Vec<(u32, u32)>)> = inst.children.iter().rev().map(|&cid| (cid, Vec::new())).collect();
+    // What the instance itself overrides is an entry whose path is its main's guid (its `symbolID`), ahead of the
+    // entries of its descendants. Without it a reopened instance follows its main again: the importer reads every key
+    // of that entry as an override flag of the instance.
+    if let NodeKind::Instance { component: Some(main), .. } = inst.kind {
+        if let Some(main_guid) = cx.node_guids.get(&main).copied() {
+            stack.push((inst_id, vec![main_guid]));
+        }
+    }
 
     while let Some((cid, mut path)) = stack.pop() {
         let Some(n) = cx.doc.get(cid) else { continue };
-        let step_g = n.component.source.and_then(|s| cx.node_guids.get(&s).copied()).or_else(|| cx.node_guids.get(&cid).copied()).unwrap_or((1, cid.0 as u32));
-        path.push(step_g);
+        let own = cid == inst_id;
+        if !own {
+            let step_g =
+                n.component.source.and_then(|s| cx.node_guids.get(&s).copied()).or_else(|| cx.node_guids.get(&cid).copied()).unwrap_or((1, cid.0 as u32));
+            path.push(step_g);
+        }
 
+        // Swapped, as far as the file can tell: both this instance and the one it mirrors in the main have a component,
+        // and they are not the same. A main-side instance with none is a gap, not a swap to write.
+        let nested_comp_differs = !own
+            && match (&n.kind, n.component.source.and_then(|s| cx.doc.get(s)).map(|sn| &sn.kind)) {
+                (NodeKind::Instance { component: Some(c), .. }, Some(NodeKind::Instance { component: Some(sc), .. })) => c != sc,
+                _ => false,
+            };
+        let has_nested_prop_ov =
+            !own && !n.component.values.is_empty() && n.component.source.and_then(|s| cx.doc.get(s)).is_none_or(|sn| sn.component.values != n.component.values);
+
+        // The instance's own bindings, override level and detached id are fields of its node change already, so
+        // only a flagged field makes an entry for it; they are left out of it below.
         if !n.component.overrides.is_empty()
-            || !n.variables.bindings.is_empty()
-            || !n.variables.modes.is_empty()
-            || n.component.override_level.is_some()
-            || n.component.detached_symbol_id.is_some()
+            || (!own
+                && (!n.variables.bindings.is_empty()
+                    || !n.variables.modes.is_empty()
+                    || n.component.override_level.is_some()
+                    || n.component.detached_symbol_id.is_some()
+                    || nested_comp_differs
+                    || has_nested_prop_ov))
         {
             let mut ov: Vec<(&'static str, V)> = Vec::new();
             let mut carried: carrier::Carried = Vec::new();
             let guids: Vec<V> = path.iter().map(|&(s, l)| guid(s, l)).collect();
             ov.push(("guidPath", msg(vec![("guids", V::Array(guids))])));
-            if let Some(lvl) = n.component.override_level {
+            if let Some(lvl) = n.component.override_level.filter(|_| !own) {
                 ov.push(("overrideLevel", V::Int(lvl)));
             }
-            if let Some(ds) = n.component.detached_symbol_id.as_deref().or(n.detached_symbol_id.as_deref()).filter(|s| !s.is_empty()) {
+            if let Some(ds) = n.component.detached_symbol_id.as_deref().or(n.detached_symbol_id.as_deref()).filter(|s| !own && !s.is_empty()) {
                 ov.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
             }
 
@@ -1628,6 +1929,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::Locked) {
                 ov.push(("locked", V::Bool(n.locked)));
             }
+            if ovs.contains(&OverrideField::LockAspect) {
+                ov.push(("proportionsConstrained", V::Bool(n.lock_aspect)));
+            }
             if ovs.contains(&OverrideField::Opacity) {
                 ov.push(("opacity", fl_one(n.opacity)));
             }
@@ -1640,36 +1944,50 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::Transform) {
                 ov.push(("transform", encode_matrix(&n.transform)));
             }
-            let has_fill_var = n.variables.bindings.keys().any(|k| k.starts_with("fills/"));
+            // A bound paint of a nested node is written whether or not it is flagged; the instance's own is not, or
+            // the reader would flag a paint the instance only inherits.
+            let has_fill_var = !own && n.variables.bindings.keys().any(|k| k.starts_with("fills/"));
             if ovs.contains(&OverrideField::Fills) || has_fill_var {
                 let fills_slice = match &n.kind {
                     NodeKind::Text(t) => &t.style.fills,
                     _ => &n.fills,
                 };
-                let fps: Vec<V> = fills_slice
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let cv = n.variables.bindings.get(&format!("fills/{i}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
-                        encode_paint(p, cv, cx.opacity_var_data(&n.variables, &format!("fills/{i}/opacity")))
-                    })
-                    .collect();
+                let fps: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &n.variables.bindings)).collect();
                 ov.push(("fillPaints", V::Array(fps)));
             }
-            let has_stroke_var = n.variables.bindings.keys().any(|k| k.starts_with("strokes/"));
+            let has_stroke_var = !own && n.variables.bindings.keys().any(|k| k.starts_with("strokes/"));
             if ovs.contains(&OverrideField::Stroke) || has_stroke_var {
-                let sps: Vec<V> = n
-                    .stroke
-                    .paints
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let cv = n.variables.bindings.get(&format!("strokes/{i}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
-                        encode_paint(p, cv, cx.opacity_var_data(&n.variables, &format!("strokes/{i}/opacity")))
-                    })
-                    .collect();
+                let sps: Vec<V> =
+                    n.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &n.variables.bindings)).collect();
                 ov.push(("strokePaints", V::Array(sps)));
                 ov.push(("strokeWeight", fl(n.stroke.weight)));
+                ov.push((
+                    "strokeAlign",
+                    en(match n.stroke.align {
+                        StrokeAlign::Inside => "INSIDE",
+                        StrokeAlign::Center => "CENTER",
+                        StrokeAlign::Outside => "OUTSIDE",
+                    }),
+                ));
+                ov.push((
+                    "strokeJoin",
+                    en(match n.stroke.join {
+                        StrokeJoin::Miter => "MITER",
+                        StrokeJoin::Bevel => "BEVEL",
+                        StrokeJoin::Round => "ROUND",
+                    }),
+                ));
+                ov.push(("strokeCap", en(crate::vecnet::cap_name(n.stroke.cap))));
+                ov.push(("dashPattern", V::Array(n.stroke.dashes.iter().map(|&d| fl(d)).collect())));
+                if n.stroke.miter_limit >= 1.0 {
+                    ov.push(("miterLimit", fl(n.stroke.miter_limit)));
+                }
+                if let Some(paths) = &n.stroke_geometry {
+                    let geometry = encode_geometry_blobs(cx, paths);
+                    if !geometry.is_empty() {
+                        ov.push(("strokeGeometry", V::Array(geometry)));
+                    }
+                }
                 if let Some([top, right, bottom, left]) = n.stroke.side_weights {
                     ov.push(("borderStrokeWeightsIndependent", V::Bool(true)));
                     ov.push(("borderTopWeight", fl(top)));
@@ -1693,6 +2011,17 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::CornerRadii) {
                 let r = n.corner_radii;
                 ov.push(("cornerRadius", fl(r[0])));
+                // The reader drops the baked fill outline of every other kind when a corner radius is overridden, so it is
+                // written again. For a vector or boolean node it keeps the outline, and a `fillGeometry` key would replace
+                // the vector network with that outline.
+                if !matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                    if let Some(paths) = &n.fill_geometry {
+                        let geometry = encode_geometry_blobs(cx, paths);
+                        if !geometry.is_empty() {
+                            ov.push(("fillGeometry", V::Array(geometry)));
+                        }
+                    }
+                }
                 if !r.iter().all(|&x| (x - r[0]).abs() < 1e-5) {
                     ov.push(("rectangleCornerRadiiIndependent", V::Bool(true)));
                     ov.push(("rectangleTopLeftCornerRadius", fl(r[0])));
@@ -1708,6 +2037,13 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             }
             if ovs.contains(&OverrideField::TextStyle) {
                 if let NodeKind::Text(tp) = &n.kind {
+                    // Figma applies an instance text-style relink/detach from the
+                    // override record. The ordinary node style reference is not
+                    // consulted while replaying symbolOverrides, so preserve the
+                    // effective reference whenever it differs from the source.
+                    if let Some(style_override) = instance_text_style_override(cx, n) {
+                        ov.push(("styleIdForText", style_override));
+                    }
                     append_text_style_fields(&mut ov, &tp.style);
                 }
             }
@@ -1763,6 +2099,10 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                         ov.push(("stackMode", en("NONE")));
                     }
                 }
+            }
+            // How a node sits in its parent. The instance's own is a field of its node change already, and the frame
+            // fields above keep its Layout flag.
+            if ovs.contains(&OverrideField::Layout) && !own {
                 let parent_dir =
                     n.parent.and_then(|p| cx.doc.get(p)).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
                 let lc = &n.layout_child;
@@ -1812,21 +2152,44 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 ov.push(("stackChildMarginBottom", fl(lc.margin[2])));
                 ov.push(("stackChildMarginLeft", fl(lc.margin[3])));
             }
-            if ovs.contains(&OverrideField::MainComponent) {
+            // The instance's own main is its `symbolID`; naming it again would make the reader swap it for itself.
+            if (ovs.contains(&OverrideField::MainComponent) || nested_comp_differs) && !own {
                 if let NodeKind::Instance { component: Some(comp_id), .. } = &n.kind {
                     if let Some(cg) = cx.node_guids.get(comp_id).copied() {
                         ov.push(("overriddenSymbolID", guid(cg.0, cg.1)));
                     }
                 }
             }
+            if has_nested_prop_ov {
+                let mut prop_assigns = Vec::new();
+                for (prop_name, pval) in &n.component.values {
+                    let def_g = cx.resolve_prop_guid(cid, prop_name);
+                    let val_msg = match pval {
+                        PropValue::Bool(b) => msg(vec![("boolValue", V::Bool(*b))]),
+                        PropValue::Text(s) | PropValue::Variant(s) => msg(vec![("textValue", msg(vec![("characters", V::String(s.clone()))]))]),
+                        PropValue::Instance(tid) => {
+                            let tg = cx.node_guids.get(tid).copied().unwrap_or((0, 0));
+                            msg(vec![("guidValue", guid(tg.0, tg.1))])
+                        }
+                        PropValue::Slot(ids) => {
+                            let s = ids.iter().filter_map(|i| cx.node_guids.get(i).map(|g| format!("{}:{}", g.0, g.1))).collect::<Vec<_>>().join(",");
+                            msg(vec![("textValue", msg(vec![("characters", V::String(s))]))])
+                        }
+                    };
+                    prop_assigns.push(msg(vec![("defID", guid(def_g.0, def_g.1)), ("value", val_msg)]));
+                }
+                if !prop_assigns.is_empty() {
+                    ov.push(("componentPropAssignments", V::Array(prop_assigns)));
+                }
+            }
             if ovs.contains(&OverrideField::SlotContent) {
                 carried.push(("slotContent", serde_json::Value::Bool(true)));
             }
-            let ve = encode_node_var_entries(cx, &n.variables);
+            let ve = if own { Vec::new() } else { encode_node_var_entries(cx, &n.variables) };
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));
             }
-            let me = encode_node_mode_entries(cx, &n.variables);
+            let me = if own { Vec::new() } else { encode_node_mode_entries(cx, &n.variables) };
             if !me.is_empty() {
                 ov.push(("variableModeBySetMap", msg(vec![("entries", V::Array(me))])));
             }
@@ -1838,8 +2201,10 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             }
         }
 
-        for &child in n.children.iter().rev() {
-            stack.push((child, path.clone()));
+        if !own {
+            for &child in n.children.iter().rev() {
+                stack.push((child, path.clone()));
+            }
         }
     }
     out
@@ -1874,14 +2239,7 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
             let id = (style_table.len() + 1) as u32;
             let mut so = vec![("styleID", V::Uint(id))];
             if let Some(c) = v.cap {
-                so.push((
-                    "strokeCap",
-                    en(match c {
-                        StrokeCap::None => "NONE",
-                        StrokeCap::Round => "ROUND",
-                        StrokeCap::Square => "SQUARE",
-                    }),
-                ));
+                so.push(("strokeCap", en(crate::vecnet::cap_name(c))));
             }
             if let Some(j) = v.join {
                 so.push((
@@ -2027,7 +2385,7 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
         PaintKind::RadialGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_RADIAL", handles, stops),
         PaintKind::AngularGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_ANGULAR", handles, stops),
         PaintKind::DiamondGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_DIAMOND", handles, stops),
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, params } => {
             fields.push(("type", en("IMAGE")));
             if let Some(raw) = unhex(image_ref) {
                 fields.push(("image", msg(vec![("hash", V::Bytes(raw))])));
@@ -2042,6 +2400,51 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
                 ImageScaleMode::Tile => "TILE",
             };
             fields.push(("imageScaleMode", en(sm)));
+            if let Some(m) = params.transform {
+                fields.push((
+                    "transform",
+                    st(vec![("m00", fl_one(m[0])), ("m01", fl(m[1])), ("m02", fl(m[2])), ("m10", fl(m[3])), ("m11", fl_one(m[4])), ("m12", fl(m[5]))]),
+                ));
+            }
+            if params.rotation != 0.0 {
+                fields.push(("rotation", fl(params.rotation)));
+            }
+            if (params.tile_scale - 1.0).abs() > 1e-6 {
+                fields.push(("scale", fl_one(params.tile_scale)));
+            }
+            if !params.adjust.is_default() {
+                let adj = &params.adjust;
+                let mut pf = Vec::new();
+                for (k, val) in [
+                    ("tint", adj.tint),
+                    ("shadows", adj.shadows),
+                    ("highlights", adj.highlights),
+                    ("detail", adj.detail),
+                    ("exposure", adj.exposure),
+                    ("vignette", adj.vignette),
+                    ("temperature", adj.temperature),
+                    ("vibrance", adj.vibrance),
+                    ("contrast", adj.contrast),
+                    ("brightness", adj.brightness),
+                ] {
+                    if val != 0.0 {
+                        pf.push((k, fl(val)));
+                    }
+                }
+                if !pf.is_empty() {
+                    fields.push(("paintFilter", msg(pf)));
+                }
+            }
+            if let Some(cm) = params.color_manage {
+                fields.push(("imageShouldColorManage", V::Bool(cm)));
+            }
+            if let Some((w, h)) = params.original_size {
+                fields.push(("originalImageWidth", V::Uint(w)));
+                fields.push(("originalImageHeight", V::Uint(h)));
+            }
+        }
+        PaintKind::Shader(_) => {
+            fields.push(("type", en("CUSTOM")));
         }
     }
     fields.push(("opacity", fl_one(p.opacity)));
@@ -2056,7 +2459,17 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
     if let Some(sv) = stops_var {
         fields.push(("stopsVar", sv));
     }
-    msg(fields)
+    let mut out = msg(fields);
+    if let (PaintKind::Shader(shader), V::Message(ref mut out_fields)) = (&p.kind, &mut out) {
+        if let Ok(extra) = decode_shader_ref(export_schema(), "Paint", "", shader, &["type", "opacity", "visible", "blendMode"]) {
+            for (k, v) in extra {
+                if !out_fields.iter().any(|(existing, _)| *existing == k) {
+                    out_fields.push((k, v));
+                }
+            }
+        }
+    }
+    out
 }
 
 fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V {
@@ -2070,6 +2483,12 @@ fn encode_effect_with_bindings(cx: &ExportCtx, e: &Effect, idx: usize, bindings:
         Some(alias_var_data(vg))
     };
     encode_effect_full(e, var_data("color"), var_data("opacity"), var_data("radius"), var_data("spread"), var_data("offsetX"), var_data("offsetY"))
+}
+
+/// The stored `noiseSize` vector of a noise or texture size.
+fn noise_size_vec(size: f32, size_y: Option<f32>) -> V {
+    let (x, y) = effect_units::noise_size_to_kiwi(size, size_y);
+    vec2(x, y)
 }
 
 fn encode_effect_full(
@@ -2106,7 +2525,7 @@ fn encode_effect_full(
         Effect::Noise(n) => {
             let mut f = vec![
                 ("type", en("NOISE")),
-                ("noiseSize", vec2(n.size, n.size)),
+                ("noiseSize", noise_size_vec(n.size, n.size_y)),
                 ("density", fl(n.density)),
                 ("opacity", fl_one(n.opacity)),
                 ("blendMode", en(blend_name(n.blend))),
@@ -2131,7 +2550,7 @@ fn encode_effect_full(
         }
         Effect::Texture(t) => vec![
             ("type", en("GRAIN")),
-            ("noiseSize", vec2(t.size, t.size)),
+            ("noiseSize", noise_size_vec(t.size, t.size_y)),
             ("radius", fl(t.radius)),
             ("clipToShape", V::Bool(t.clip_to_shape)),
             ("seed", V::Uint(t.seed)),
@@ -2139,14 +2558,17 @@ fn encode_effect_full(
         ],
         Effect::Glass(g) => vec![
             ("type", en("GLASS")),
-            ("specularAngle", fl(g.light_angle)),
+            ("specularAngle", fl(effect_units::specular_angle_to_kiwi(g.light_angle))),
             ("specularIntensity", fl(g.light_intensity)),
             ("refractionIntensity", fl(g.refraction)),
             ("refractionRadius", fl(g.depth)),
             ("chromaticAberration", fl(g.dispersion)),
+            ("reflectionDistance", fl(g.splay)),
+            ("bevelSize", fl(g.bevel)),
             ("radius", fl(g.frost)),
             ("visible", V::Bool(g.visible)),
         ],
+        Effect::Shader { visible, .. } => vec![("type", en("CUSTOM")), ("visible", V::Bool(*visible))],
     };
     if let Some(cv) = color_var {
         fields.push(("colorVar", cv));
@@ -2166,7 +2588,17 @@ fn encode_effect_full(
     if let Some(yv) = y_var {
         fields.push(("yVar", yv));
     }
-    msg(fields)
+    let mut out = msg(fields);
+    if let (Effect::Shader { shader, .. }, V::Message(ref mut out_fields)) = (e, &mut out) {
+        if let Ok(extra) = decode_shader_ref(export_schema(), "Effect", "", shader, &["type", "visible"]) {
+            for (k, v) in extra {
+                if !out_fields.iter().any(|(existing, _)| *existing == k) {
+                    out_fields.push((k, v));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A layout guide in Figma's own shape: a square grid is `pattern: GRID`, columns and rows are `pattern: STRIPES` on
@@ -2375,6 +2807,24 @@ fn append_ot_and_variation_fields(fields: &mut Vec<(&'static str, V)>, ts: &Text
             })
             .collect();
         fields.push(("fontVariations", V::Array(vars)));
+    }
+}
+
+fn instance_text_style_override(cx: &ExportCtx<'_>, n: &Node) -> Option<V> {
+    let source_style = n.component.source.and_then(|source| cx.doc.get(source)).and_then(|source| source.style_refs.get("text"));
+    let effective_style = n.style_refs.get("text");
+    if effective_style == source_style {
+        return None;
+    }
+    match effective_style {
+        Some(id) if id.starts_with("key:") => Some(msg(vec![("assetRef", msg(vec![("key", V::String(id[4..].to_string()))]))])),
+        Some(id) => cx
+            .style_guids
+            .get(id)
+            .copied()
+            .map(|(session, local)| msg(vec![("guid", guid(session, local))]))
+            .or_else(|| Some(msg(vec![("guid", guid(u32::MAX, u32::MAX))]))),
+        None => Some(msg(vec![("guid", guid(u32::MAX, u32::MAX))])),
     }
 }
 

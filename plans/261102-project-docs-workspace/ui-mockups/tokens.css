@@ -1,0 +1,141 @@
+/* Studio tokens for the project docs workspace mockups.
+   Every value is copied from crates/designos-app/src/theme.rs (worktree checkout, commit 9d1738df) or named in
+   ui-spec-ported-from-design-studio.md / ui-spec-part-2-editor-dialogs-and-states.md. The README "Token citations"
+   table lists the theme.rs line behind each name. This is the ONLY file allowed to contain colour literals. */
+
+/* Fonts: local files only, bundled with the repo (crates/designos-fonts/assets). */
+@font-face {
+  font-family: "Inter";
+  src: url("../../../crates/designos-fonts/assets/inter/Inter%5Bopsz,wght%5D.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Roboto Mono";
+  src: url("../../../crates/designos-fonts/assets/roboto-mono/RobotoMono%5Bwght%5D.ttf") format("truetype");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --page-h: 900px; /* artboard height; the tall M09 capture overrides it on <html> */
+  --d: 0; /* tree depth, overridden inline per row */
+  /* colours (theme.rs "Studio dark chrome") */
+  --bg: #0A0A0A;                                          /* BG */
+  --bg-secondary: #171717;                                /* BG_SECONDARY */
+  --bg-tertiary: #262626;                                 /* BG_TERTIARY */
+  --bg-hover: #171717;                                    /* BG_HOVER */
+  --bg-pressed: #404040;                                  /* BG_PRESSED */
+  --bg-secondary-hover: #262626;                          /* BG_SECONDARY_HOVER */
+  --bg-selected: #262626;                                 /* BG_SELECTED */
+  --bg-text-selection: #431407;                           /* BG_TEXT_SELECTION */
+  --bg-brand: #E36323;                                    /* BG_BRAND */
+  --bg-brand-hover: #F97316;                              /* BG_BRAND_HOVER */
+  --bg-brand-pressed: #EA580C;                            /* BG_BRAND_PRESSED */
+  --bg-error-solid: #DC2626;                              /* BG_ERROR_SOLID */
+  --bg-primary-alt: #171717;                              /* BG_PRIMARY_ALT (toast fill) */
+  --bg-primary-solid: #262626;                            /* BG_PRIMARY_SOLID (tooltip fill) */
+  --bg-overlay: rgba(38, 38, 38, 0.702);                  /* BG_OVERLAY 0x262626 @ 0xB3 (modal scrim) */
+  --bg-selected-area: rgba(53, 130, 255, 0.2);            /* BG_SELECTED_AREA 0x3582FF @ 0x33 */
+  --bg-tertiary-60: rgba(38, 38, 38, 0.6);                /* part 1: embed header = BG_TERTIARY at 60 % */
+  --agent-1-60: rgba(255, 166, 41, 0.6);                  /* part 2 §9 write flash: AGENT_1 at 60 % */
+  --border: #262626;                                      /* BORDER */
+  --border-menu: #262626;                                 /* BORDER_MENU */
+  --border-strong: #404040;                               /* BORDER_STRONG */
+  --border-selected: #FB923C;                             /* BORDER_SELECTED */
+  --border-translucent: rgba(255, 255, 255, 0.102);       /* BORDER_TRANSLUCENT 0xFFFFFF @ 0x1A */
+  --text: #FAFAFA;                                        /* TEXT */
+  --text-secondary: #D4D4D4;                              /* TEXT_SECONDARY */
+  --text-secondary-hover: #E5E5E5;                        /* TEXT_SECONDARY_HOVER */
+  --text-tertiary: #A3A3A3;                               /* TEXT_TERTIARY */
+  --text-quaternary: #A3A3A3;                             /* TEXT_QUATERNARY */
+  --text-placeholder: #737373;                            /* TEXT_PLACEHOLDER */
+  --text-error: #F87171;                                  /* TEXT_ERROR */
+  --text-on-brand: #0A0A0A;                               /* TEXT_ON_BRAND */
+  --text-white: #FFFFFF;                                  /* TEXT_WHITE */
+  --icon: #FFFFFF;                                        /* ICON */
+  --icon-secondary: #D4D4D4;                              /* ICON_SECONDARY */
+  --icon-secondary-hover: #E5E5E5;                        /* ICON_SECONDARY_HOVER */
+  --icon-tertiary: #A3A3A3;                               /* ICON_TERTIARY */
+  --icon-quaternary: #737373;                             /* ICON_QUATERNARY */
+  --icon-quaternary-hover: #A3A3A3;                       /* ICON_QUATERNARY_HOVER */
+  --icon-brand-primary: #F97316;                          /* ICON_BRAND_PRIMARY */
+  --danger: #EF4444;                                      /* DANGER */
+  --info: #0D99FF;                                        /* INFO */
+  --success: #22C55E;                                     /* SUCCESS */
+  --warning: #EAB308;                                     /* WARNING */
+  --focus-ring: #F97316;                                  /* FOCUS_RING */
+  --focus-ring-error: #EF4444;                            /* FOCUS_RING_ERROR */
+  --badge-neutral-bg: #171717;                            /* BADGE_NEUTRAL_BG */
+  --badge-neutral-border: #404040;                        /* BADGE_NEUTRAL_BORDER */
+  --badge-neutral-text: #D4D4D4;                          /* BADGE_NEUTRAL_TEXT */
+  --agent-1: #FFA629;                                     /* AGENT_1 */
+  --agent-label-text: #0A0A0A;                            /* AGENT_LABEL_TEXT */
+  --home-thumb-bg: #262626;                               /* HOME_THUMB_BG */
+  --tile-spec-bg: #431407;                                /* TILE_SPEC_BG */
+  --tile-spec-glyph: #FB923C;                             /* TILE_SPEC_GLYPH */
+  --tile-design-bg: #172554;                              /* TILE_DESIGN_BG */
+  --tile-design-glyph: #60A5FA;                           /* TILE_DESIGN_GLYPH */
+  --scroll-thumb: #737373;                                /* VAR_SCROLL_THUMB */
+
+  /* sample frame renders (READER_LIGHT_* values from theme.rs; --sample-danger = DANGER on light) */
+  --sample-sheet: #FFFFFF;                                /* READER_LIGHT_DOC_SHEET */
+  --sample-page: #FAFAFA;                                 /* READER_LIGHT_BG_PAGE */
+  --sample-surface: #F5F5F5;                              /* READER_LIGHT_SURFACE_2 */
+  --sample-border: #E5E5E5;                               /* READER_LIGHT_BORDER */
+  --sample-text: #171717;                                 /* READER_LIGHT_TEXT */
+  --sample-muted: #525252;                                /* READER_LIGHT_TEXT_SUBTLE */
+  --sample-ok: #16A34A;                                   /* READER_LIGHT_DOT_OK */
+
+  /* type */
+  --font-ui: "Inter", sans-serif;
+  --font-mono: "Roboto Mono", monospace;
+  --fs-xs: 12px;  --lh-xs: 18px;
+  --fs-sm: 14px;  --lh-sm: 20px;
+  --fs-md: 16px;  --lh-md: 24px;
+  --fs-lg: 18px;  --lh-lg: 28px;
+  --fs-xl: 20px;  --lh-xl: 30px;
+  --w-regular: 400; --w-medium: 500; --w-strong: 600;
+
+  /* radii (P4) */
+  --radius-mark: 2px;
+  --radius-segment: 6px;
+  --radius-control: 8px;
+  --radius-xl: 12px;
+  --radius-frame: 16px;
+
+  /* spacing + sizes */
+  --space-fact: 4px;
+  --space-inline: 8px;
+  --space-group: 12px;
+  --space-block: 16px;
+  --space-section: 24px;
+  --space-region: 48px;
+  --inset-control: 8px;
+  --inset-frame: 8px;
+  --inset-button: 12px;
+  --inset-panel: 16px;
+  --inset-modal: 24px;
+  --control-dense: 24px;
+  --control-xs: 32px;
+  --control-sm: 36px;
+  --control-md: 40px;
+  --badge-sm: 22px;
+  --badge-md: 24px;
+  --target-min: 24px;
+  --rail-width: 48px;
+  --left-panel-width: 240px;
+  --left-header-height: 65px;
+  --layer-row-height: 32px;
+  --layer-indent: 16px;
+  --home-sidebar-w: 264px;
+  --home-pad: 32px;
+  --home-header-h: 64px;
+  --home-card-w: 224px;
+  --home-thumb-h: 140px;
+  --home-card-gap: 24px;
+  --toast-height: 40px;
+  --toast-bottom: 72px;
+}

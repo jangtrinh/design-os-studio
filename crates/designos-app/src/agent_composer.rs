@@ -8,9 +8,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use designos_doc::{Document, NodeId, NodeKind};
-use egui::{Align2, Event, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
+use egui::{Align2, Event, Id, Key, Pos2, Rect, RichText, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
-use crate::icons::{self, Icon};
 use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalAction, TerminalState, TerminalTab};
 use crate::theme;
 use crate::widgets;
@@ -46,12 +45,9 @@ pub const READY_QUIET_OUTPUT: Duration = Duration::from_millis(180);
 pub const UNCONFIRMED_TIMEOUT: Duration = Duration::from_secs(10);
 
 const ZERO: f32 = 0.0;
-const HALF: f32 = 0.5;
-const FOCUS_RING_WIDTH: f32 = 1.5;
-const CHIP_MAX_WIDTH: f32 = 148.0;
-const CHIP_TEXT_PAD: f32 = theme::INSET_BUTTON * 2.0;
-const PRD_CHIP_WIDTH: f32 = theme::CONTROL_ROW;
-const MIN_CENTER_HEIGHT: f32 = theme::CONTROL_TOOL * 2.0;
+/// Stroke width of the composer box while its field has the caret.
+const FOCUS_STROKE_W: f32 = 2.0;
+const MIN_CENTER_HEIGHT: f32 = theme::CONTROL_XS * 2.0;
 
 /// Why [`TerminalState::send_to_agent`] refused to write a prompt (`#689` §3 rules 3, 7, 10 & §8).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,6 +116,19 @@ pub struct MentionScope<'a> {
     pub page: NodeId,
 }
 
+/// One prompt waiting in a composer's ordered send queue.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueuedSend {
+    pub text: String,
+    pub is_system: bool,
+}
+
+impl QueuedSend {
+    pub fn new(text: impl Into<String>, is_system: bool) -> Self {
+        Self { text: text.into(), is_system }
+    }
+}
+
 /// Per-tab composer state (`#689` §4).
 #[derive(Clone, Debug, Default)]
 pub struct ComposerState {
@@ -131,10 +140,9 @@ pub struct ComposerState {
     pub cursor: Option<usize>,
     /// Half-typed `draft` stashed when history browsing begins (`cursor: None -> Some(0)`).
     pub stash: String,
-    /// Prompt waiting for the tab's CLI to finish starting (`#689` §3 rule 2 & §4).
-    pub pending_send: Option<String>,
-    /// True when `pending_send` came from a system sender (image jobs): it never returns to the user's draft.
-    pub pending_send_is_system: bool,
+    /// Ordered queue of prompts waiting for the tab's CLI to be ready (`#689` §3 rule 2).
+    /// Every write site appends; none overwrites. Flushes one entry per ready state, oldest first.
+    pub pending_send: VecDeque<QueuedSend>,
     /// Pasted canvas layer reference chips (`#689` §3 rule 6 & §7).
     pub chips: Vec<LayerChip>,
     /// Receipt of the most recent send in this tab (`#689` §3 rule 7a).
@@ -151,8 +159,23 @@ pub struct ComposerState {
     pub awaiting_confirm_since: Option<Instant>,
     /// Length of `tab.raw_log` at the moment the prompt was written.
     pub log_len_at_send: usize,
-    /// Prompt written while the tab was still inside `START_FAILURE_WINDOW`, restored if start fails.
-    pub sent_in_start_window: Option<String>,
+    /// Prompts written while the tab was still inside `START_FAILURE_WINDOW`, restored in order if start fails.
+    pub sent_in_start_window: Vec<String>,
+    /// Set when `write_delayed_enter` held back `\r` because a permission prompt or Gemini dialog appeared after paste.
+    /// Pauses further queue flushing until the user submits the held prompt and a new turn starts.
+    pub flush_paused: bool,
+    /// True after a prompt has been written into this tab until the resulting turn finishes (`Working` -> `Idle`/`Done`
+    /// or post-`\r` PTY output settles for [`READY_QUIET_OUTPUT`]).
+    pub awaiting_turn_end: bool,
+    /// True once the tab's status entered `Working` after the most recent prompt write.
+    pub turn_started_since_send: bool,
+    /// Timestamp when the most recent delayed `\r` was written into the PTY.
+    pub enter_written_at: Option<Instant>,
+    /// Snapshot of `tab.last_output_at` at the moment the delayed `\r` was written, so post-Enter output can be distinguished.
+    pub output_at_enter: Option<Instant>,
+    /// Label recorded on the composer when `submit_system_image_prompt` queues an image task, kept off `agent_status`
+    /// so readiness never mistakes the app's own label for a running turn or overwrites a real `Working` status.
+    pub premark: Option<String>,
     /// Optional explicit gate set when the caller marks the tab as still starting (`not-ready`).
     pub not_ready_gate: bool,
     /// Total number of prompts routed through `send_to_agent` on this composer.
@@ -167,6 +190,10 @@ pub struct ComposerState {
     pub skills_hook_chunks: Vec<String>,
     /// When the prompt that carries `skills_hook_chunks` was seen submitted; the chunks leave the replies a moment after.
     pub skills_hook_submitted_at: Option<Instant>,
+    /// Prepend `@prd ` on the next send. The chip's dismiss clears it without sending.
+    pub attach_prd: bool,
+    /// Fingerprint of a selection chip the user dismissed. `None` shows the chip.
+    pub selection_chip_dismissed: Option<u64>,
 }
 
 impl ComposerState {
@@ -282,11 +309,47 @@ impl ComposerState {
         self.reset_send_receipt(notice, reason);
     }
 
+    /// Drains any undelivered entries (`sent_in_start_window` first when `include_start_window` is true,
+    /// followed by `pending_send` in queue order). User entries are returned to `draft` in order,
+    /// joined by `"\n\n"`, and system entries are discarded with `notice`.
+    pub fn recover_undelivered_queue(&mut self, include_start_window: bool, notice: impl Into<String>, reason: RefuseReason) -> bool {
+        let mut user_texts: Vec<String> = Vec::new();
+        let mut had_any = false;
+        if include_start_window && !self.sent_in_start_window.is_empty() {
+            had_any = true;
+            user_texts.append(&mut self.sent_in_start_window);
+        }
+        for entry in self.pending_send.drain(..) {
+            had_any = true;
+            if !entry.is_system {
+                user_texts.push(entry.text);
+            }
+        }
+        if !had_any {
+            return false;
+        }
+        if !user_texts.is_empty() {
+            if !self.draft.trim().is_empty() {
+                user_texts.push(std::mem::take(&mut self.draft));
+            }
+            self.restore_undelivered(user_texts.join("\n\n"), notice, reason);
+        } else {
+            self.discard_undelivered_system(notice, reason);
+        }
+        true
+    }
+
     fn reset_send_receipt(&mut self, notice: impl Into<String>, reason: RefuseReason) {
         self.pending_enter_deadline = None;
         self.pending_enter_delay = None;
         self.pending_enter_sim_time = None;
         self.awaiting_confirm_since = None;
+        self.flush_paused = false;
+        self.awaiting_turn_end = false;
+        self.turn_started_since_send = false;
+        self.enter_written_at = None;
+        self.output_at_enter = None;
+        self.premark = None;
         self.last_outcome = Some(SendOutcome::Refused(reason));
         self.notice = Some(notice.into());
     }
@@ -339,34 +402,62 @@ pub fn visible_line_count(text: &str) -> usize {
     raw_lines.clamp(MIN_COMPOSER_LINES, MAX_COMPOSER_LINES)
 }
 
-/// Height of the composer box for `text` and `has_chips` (`#689` §7 & §10 `field_grows_to_eight_lines_then_scrolls`).
-/// Minimum height is `CONTROL_ROW` (40 px) plus the control row (`CONTROL_ROW`, 40 px), growing by `LINE_BODY`
-/// per line from 1 to 8 lines and then capping while scrolling.
+/// Height of the composer box. `has_chips` is one chip row and no caption.
+/// Top inset, chip rows, input lines (one through eight), then the control row.
 pub fn composer_box_height(text: &str, has_chips: bool) -> f32 {
-    let lines = visible_line_count(text);
-    let extra_lines = (lines.saturating_sub(MIN_COMPOSER_LINES)) as f32;
-    let chips_h = if has_chips { theme::CONTROL_DENSE + theme::SPACE_ROW } else { ZERO };
-    theme::CONTROL_ROW + theme::CONTROL_ROW + extra_lines * theme::LINE_BODY + chips_h
+    composer_chrome_height(text, usize::from(has_chips), false)
+}
+
+/// Box height with an explicit chip-row count and an in-box caption.
+pub fn composer_chrome_height(text: &str, chip_rows: usize, caption: bool) -> f32 {
+    let lines = visible_line_count(text) as f32;
+    let chips = chip_rows as f32 * (theme::BADGE_MD + theme::SPACE_ROW);
+    let caption_h = if caption { theme::LINE_CAPTION } else { ZERO };
+    theme::INSET_FRAME + chips + lines * theme::LINE_BODY + caption_h + theme::SPACE_ROW + theme::CONTROL_XS + theme::SPACE_ROW
 }
 
 /// Total vertical space reserved at the bottom of `show_left` for the composer box and its margins/caption.
 pub fn composer_reserved_height(state: &TerminalState) -> f32 {
     let comp = state.active_composer();
-    let box_h = composer_box_height(&comp.draft, !comp.chips.is_empty());
-    let notice_h = if comp.notice.is_some() { theme::LINE_CAPTION + theme::SPACE_FACT } else { ZERO };
-    box_h + theme::SPACE_GROUP * 2.0 + notice_h
+    let caption = comp.notice.is_some() || state.still_running_notice_on_screen().is_some();
+    let chip_rows = usize::from(!comp.chips.is_empty() || comp.attach_prd);
+    let box_h = composer_chrome_height(&comp.draft, chip_rows, caption);
+    box_h + theme::SPACE_GROUP * 2.0
 }
 
 fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
     if tab.is_shell_process() || tab.start_failure.is_some() || !tab.is_alive() {
         return false;
     }
+    if tab.composer.pending_enter_deadline.is_some() {
+        return false;
+    }
+    if tab.composer.flush_paused {
+        return false;
+    }
     let explicit_status = tab.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
+    if matches!(explicit_status, AgentTabStatus::Working(_)) {
+        if tab.composer.awaiting_turn_end {
+            tab.composer.turn_started_since_send = true;
+        }
+        return false;
+    }
     if matches!(explicit_status, AgentTabStatus::WaitingForInput(_)) || tab.gemini_dialog_open() {
         return false;
     }
+    let current_out = tab.last_output_at.lock().ok().and_then(|g| *g);
+    if tab.composer.awaiting_turn_end {
+        if tab.composer.turn_started_since_send {
+            return true;
+        }
+        let Some(enter_at) = tab.composer.enter_written_at else {
+            return false;
+        };
+        return current_out
+            .is_some_and(|out_at| (out_at >= enter_at || tab.composer.output_at_enter != Some(out_at)) && out_at.elapsed() >= READY_QUIET_OUTPUT);
+    }
     let bracketed = tab.parser.lock().ok().map(|p| p.screen().bracketed_paste()).unwrap_or(false);
-    let last_out_elapsed = tab.last_output_at.lock().ok().and_then(|g| *g).map(|t| t.elapsed());
+    let last_out_elapsed = current_out.map(|t| t.elapsed());
     if bracketed && last_out_elapsed.is_some_and(|d| d >= READY_QUIET_BRACKETED) {
         return true;
     }
@@ -409,11 +500,18 @@ fn write_delayed_enter(tab: &mut TerminalTab) {
     }
     if holds_the_enter(tab) {
         tab.composer.awaiting_confirm_since = None;
+        tab.composer.flush_paused = true;
+        tab.composer.awaiting_turn_end = false;
+        tab.composer.turn_started_since_send = false;
+        tab.composer.enter_written_at = None;
+        tab.composer.output_at_enter = None;
         tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
         tab.composer.notice = Some(RefuseReason::Permission.message().to_string());
         return;
     }
     let _ = tab.try_write_bytes(b"\r");
+    tab.composer.enter_written_at = Some(Instant::now());
+    tab.composer.output_at_enter = tab.last_output_at.lock().ok().and_then(|g| *g);
 }
 
 /// Writes `prompt` into the live agent tab with the fenced `skills_block` in front of it (`#573`). The block is empty when this send
@@ -434,10 +532,22 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, skills_block: &
     };
     let paste_bytes = format_composer_paste_bytes(&payload_text);
     if tab.try_write_bytes(&paste_bytes).is_err() {
-        if system {
-            tab.composer.discard_undelivered_system(RefuseReason::NotWritable.message(), RefuseReason::NotWritable);
+        let mut user_texts = Vec::new();
+        if !system {
+            user_texts.push(prompt.to_string());
+        }
+        for tail in tab.composer.pending_send.drain(..) {
+            if !tail.is_system {
+                user_texts.push(tail.text);
+            }
+        }
+        if !user_texts.is_empty() {
+            if !tab.composer.draft.trim().is_empty() {
+                user_texts.push(std::mem::take(&mut tab.composer.draft));
+            }
+            tab.composer.restore_undelivered(user_texts.join("\n\n"), RefuseReason::NotWritable.message(), RefuseReason::NotWritable);
         } else {
-            tab.composer.restore_undelivered(prompt.to_string(), RefuseReason::NotWritable.message(), RefuseReason::NotWritable);
+            tab.composer.discard_undelivered_system(RefuseReason::NotWritable.message(), RefuseReason::NotWritable);
         }
         *status_msg = tab.composer.notice.clone();
         return SendOutcome::Refused(RefuseReason::NotWritable);
@@ -450,9 +560,17 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, skills_block: &
     tab.composer.pending_enter_deadline = Some(now + delay);
     tab.composer.pending_enter_delay = Some(delay);
     tab.composer.awaiting_confirm_since = Some(now);
+    tab.composer.flush_paused = false;
+    tab.composer.awaiting_turn_end = true;
+    tab.composer.turn_started_since_send = false;
+    tab.composer.enter_written_at = None;
+    tab.composer.output_at_enter = None;
     tab.composer.log_len_at_send = tab.raw_log.lock().ok().map(|l| l.len()).unwrap_or(0);
     if !system && tab.spawned_at.elapsed() <= crate::agent_start_failure::START_FAILURE_WINDOW {
-        tab.composer.sent_in_start_window = Some(prompt.to_string());
+        tab.composer.sent_in_start_window.push(prompt.to_string());
+    }
+    if system && tab.composer.pending_send.iter().all(|e| !e.is_system) {
+        tab.composer.premark = None;
     }
     // The sent text is what `Retry` resends (`#686`).
     tab.last_user_prompt = Some(prompt.to_string());
@@ -465,18 +583,43 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, skills_block: &
 /// Who is sending: the user's composer (consumes draft, chips, mentions, history) or a system sender (touches none of them).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SendSource {
+    /// A prompt entry point such as Cmd+K or Make design: it uses the composer's path, and with no live tab it resumes the last
+    /// session or holds the prompt for the agent menu. It brings its own text and takes nothing from the composer on screen.
     Composer,
+    /// Send or Enter in the composer box on screen. In the New chat state it starts the pill's agent.
+    ComposerBox,
     System,
 }
 
 impl TerminalState {
-    /// Returns a shared reference to the active tab's [`ComposerState`] (or `unattached_composer` when no tab is open).
+    /// True while the panel shows the New chat state: asked for with `+`, or no session is open. It has its own composer
+    /// (`unattached_composer`) and starts its own agent on Send; the tab it covers is not involved.
+    pub fn in_new_chat(&self) -> bool {
+        self.picker_open || self.tabs.is_empty()
+    }
+
+    /// The active tab's "still running" notice, while its composer is the one on screen. The New chat state covers that tab, so it
+    /// neither shows the notice nor makes room for it.
+    pub fn still_running_notice_on_screen(&self) -> Option<&str> {
+        if self.in_new_chat() {
+            return None;
+        }
+        self.active_tab().and_then(|t| t.still_running_notice.as_deref())
+    }
+
+    /// Returns a shared reference to the composer on screen: the active tab's, or `unattached_composer` in the New chat state.
     pub fn active_composer(&self) -> &ComposerState {
+        if self.in_new_chat() {
+            return &self.unattached_composer;
+        }
         self.active_tab().map(|t| &t.composer).unwrap_or(&self.unattached_composer)
     }
 
-    /// Returns a mutable reference to the active tab's [`ComposerState`] (or `unattached_composer` when no tab is open).
+    /// Returns a mutable reference to the composer on screen: the active tab's, or `unattached_composer` in the New chat state.
     pub fn active_composer_mut(&mut self) -> &mut ComposerState {
+        if self.in_new_chat() {
+            return &mut self.unattached_composer;
+        }
         let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
         if let Some(tab) = self.tabs.get_mut(idx) {
             &mut tab.composer
@@ -485,12 +628,12 @@ impl TerminalState {
         }
     }
 
-    /// Current draft text of the active tab's composer (or the unattached composer when no tab is open).
+    /// Current draft text of the composer on screen.
     pub fn composer_draft(&self) -> &str {
         &self.active_composer().draft
     }
 
-    /// Sets the draft text of the active tab's composer (or the unattached composer when no tab is open).
+    /// Sets the draft text of the composer on screen.
     pub fn set_composer_draft(&mut self, text: impl Into<String>) {
         self.active_composer_mut().set_draft(text);
     }
@@ -522,53 +665,59 @@ impl TerminalState {
         for tab in &mut self.tabs {
             // 1. Failed start or early exit recovery (`#689` §3 rules 2, 7a & §8 edge cases 4, 5).
             if tab.start_failure.is_some() {
-                if let Some(undelivered) = tab.composer.pending_send.take().or_else(|| tab.composer.sent_in_start_window.take()) {
-                    if std::mem::take(&mut tab.composer.pending_send_is_system) {
-                        tab.composer.discard_undelivered_system("Not delivered: check the terminal", RefuseReason::StartFailed);
-                    } else {
-                        tab.composer.restore_undelivered(undelivered, "Not delivered: check the terminal", RefuseReason::StartFailed);
-                    }
+                if tab.composer.recover_undelivered_queue(true, "Not delivered: check the terminal", RefuseReason::StartFailed) {
                     self.status_msg = tab.composer.notice.clone();
                 }
                 continue;
             }
             if !tab.is_shell_process() && !tab.is_alive() {
-                if let Some(undelivered) = tab.composer.pending_send.take() {
-                    if std::mem::take(&mut tab.composer.pending_send_is_system) {
-                        tab.composer.discard_undelivered_system("Not delivered: check the terminal", RefuseReason::StartFailed);
-                    } else {
-                        tab.composer.restore_undelivered(undelivered, "Not delivered: check the terminal", RefuseReason::StartFailed);
-                    }
+                if tab.composer.recover_undelivered_queue(false, "Not delivered: check the terminal", RefuseReason::StartFailed) {
                     self.status_msg = tab.composer.notice.clone();
                 }
                 continue;
             }
             if tab.spawned_at.elapsed() > crate::agent_start_failure::START_FAILURE_WINDOW {
-                tab.composer.sent_in_start_window = None;
+                tab.composer.sent_in_start_window.clear();
             }
 
-            // 2. Flush queued `pending_send` once the tab is ready (`#689` §3 rule 2).
-            if tab.composer.pending_send.is_some() && is_tab_ready_for_queued_send(tab) {
-                if let Some(queued) = tab.composer.pending_send.take() {
-                    let system = std::mem::take(&mut tab.composer.pending_send_is_system);
+            // 2. Flush one queued entry from `pending_send` once the tab is ready (`#689` §3 rule 2).
+            if !tab.composer.pending_send.is_empty() && is_tab_ready_for_queued_send(tab) {
+                if let Some(queued) = tab.composer.pending_send.pop_front() {
+                    let system = queued.is_system;
                     // The skills chosen now are the ones attached: the user may have changed or edited them while the CLI started.
                     if !system {
                         self.skills.reload_selected();
                     }
                     match (!system).then(|| self.skills.limit_violation()).flatten() {
                         Some(violation) => {
-                            tab.composer.restore_undelivered(queued, violation, RefuseReason::SkillLimit);
+                            let mut user_texts = vec![queued.text];
+                            for tail in tab.composer.pending_send.drain(..) {
+                                if !tail.is_system {
+                                    user_texts.push(tail.text);
+                                }
+                            }
+                            if !tab.composer.draft.trim().is_empty() {
+                                user_texts.push(std::mem::take(&mut tab.composer.draft));
+                            }
+                            tab.composer.restore_undelivered(user_texts.join("\n\n"), violation, RefuseReason::SkillLimit);
                             self.status_msg = tab.composer.notice.clone();
                         }
                         None => {
                             let attachment = if system { None } else { crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir) };
                             let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
-                            let outcome = write_prompt_to_live_tab(tab, &queued, skills_block, &mut self.status_msg, system);
+                            let outcome = write_prompt_to_live_tab(tab, &queued.text, skills_block, &mut self.status_msg, system);
                             if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
                                 if let Err(e) = crate::skills::delivery::commit_attachment(&self.skills, tab, &attachment, &self.session_dir, &self.session_id)
                                 {
                                     self.status_msg = Some(e);
                                 }
+                            }
+                            if matches!(outcome, SendOutcome::Written) && !tab.composer.pending_send.is_empty() {
+                                let remaining = tab.composer.pending_send.len();
+                                let notice =
+                                    if remaining == 1 { "1 message waiting to send".to_string() } else { format!("{remaining} messages waiting to send") };
+                                tab.composer.notice = Some(notice);
+                                tab.composer.last_outcome = Some(SendOutcome::Queued);
                             }
                         }
                     }
@@ -613,6 +762,12 @@ impl TerminalState {
         self.send_to_agent_from(text, file_path, SendSource::Composer)
     }
 
+    /// Send or Enter in the composer box. It is [`Self::send_to_agent`], except that in the New chat state it starts the pill's
+    /// agent in a new tab, never resumes an old session and, with no agent to start, keeps the draft.
+    pub fn send_from_composer_box(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
+        self.send_to_agent_from(text, file_path, SendSource::ComposerBox)
+    }
+
     /// Sends a system-generated prompt (image jobs) into the active agent tab. Unlike [`Self::send_to_agent`] it
     /// leaves the user's draft, layer chips, `@`-mentions and Up-arrow history alone, attaches none of their
     /// references, never starts a session by itself, and never returns an undelivered prompt to the draft.
@@ -640,10 +795,15 @@ impl TerminalState {
         let early_actions = self.poll_live_agent_bridge();
         self.deferred_bridge_actions.extend(early_actions);
         let system = source == SendSource::System;
+        // Only Send or Enter in the composer box (the classic chat's Send is the same call) spends the composer on screen: its draft,
+        // chips, mentions and PRD chip. A prompt entry point (Make design, Cmd+K, a spec Ask) brings its own text and leaves the
+        // composer as the user left it.
+        let from_box = source == SendSource::ComposerBox;
 
         let trimmed = text.trim();
-        let chips_snapshot = if system { Vec::new() } else { self.active_composer().chips.clone() };
-        if trimmed.is_empty() && chips_snapshot.is_empty() {
+        let chips_snapshot = if from_box { self.active_composer().chips.clone() } else { Vec::new() };
+        let prd_attached = from_box && self.active_composer().attach_prd;
+        if trimmed.is_empty() && chips_snapshot.is_empty() && !prd_attached {
             let comp = self.active_composer_mut();
             comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::Empty));
             return SendOutcome::Refused(RefuseReason::Empty);
@@ -671,9 +831,9 @@ impl TerminalState {
         }
 
         // Format payload including any `#655` `@`-mention references and layer chip references.
-        let mut live_mentions = if system { Vec::new() } else { self.active_mentions.clone() };
+        let mut live_mentions = if from_box { self.active_mentions.clone() } else { Vec::new() };
         crate::agent_mention::prune_deleted_mentions(trimmed, &mut live_mentions);
-        let mut payload = if system {
+        let mut payload = if !from_box {
             trimmed.to_string()
         } else if trimmed.is_empty() {
             chips_snapshot.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
@@ -688,71 +848,109 @@ impl TerminalState {
                 payload = format!("{payload}\n{footer}");
             }
         }
+        if prd_attached && !payload.contains("@prd") {
+            payload = if payload.is_empty() { "@prd".to_string() } else { format!("@prd {payload}") };
+        }
 
-        // Check active tab gates when a tab is already open (`#689` §3 rule 7 & §8 edge cases 5, 9).
+        // The New chat state starts its own session: the pill's agent in a new tab. It never resumes an old session and never
+        // writes into the tab underneath.
+        if source == SendSource::ComposerBox && self.in_new_chat() {
+            return self.start_new_chat_session(&payload, trimmed, file_path);
+        }
+
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
-        if let Some(tab) = self.tabs.get_mut(active_idx) {
-            if let Some(failure) = &tab.start_failure {
-                let headline = failure.headline();
-                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
-                tab.composer.notice = Some(headline.clone());
-                self.status_msg = Some(headline);
-                return SendOutcome::Refused(RefuseReason::StartFailed);
-            }
-            if tab.is_shell_process() {
-                let msg = RefuseReason::NoAgent.message().to_string();
-                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
-                tab.composer.notice = Some(msg.clone());
-                self.status_msg = Some(msg);
-                return SendOutcome::Refused(RefuseReason::NoAgent);
-            }
-            if tab.composer.not_ready_gate {
-                let msg = RefuseReason::NotReady.message().to_string();
-                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
-                tab.composer.notice = Some(msg.clone());
-                self.status_msg = Some(msg);
-                return SendOutcome::Refused(RefuseReason::NotReady);
-            }
-            // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
-            if waits_on_the_user(tab) {
-                let msg = RefuseReason::Permission.message().to_string();
-                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
-                tab.composer.notice = Some(msg.clone());
-                self.status_msg = Some(msg);
-                return SendOutcome::Refused(RefuseReason::Permission);
-            }
-            if tab.is_alive() {
-                if system {
-                    if is_tab_ready_for_queued_send(tab) {
+        if !self.in_new_chat() {
+            if let Some(tab) = self.tabs.get_mut(active_idx) {
+                if let Some(failure) = &tab.start_failure {
+                    let headline = failure.headline();
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
+                    tab.composer.notice = Some(headline.clone());
+                    self.status_msg = Some(headline);
+                    return SendOutcome::Refused(RefuseReason::StartFailed);
+                }
+                if tab.is_shell_process() {
+                    let msg = RefuseReason::NoAgent.message().to_string();
+                    if !system {
+                        if tab.composer.draft.trim().is_empty() {
+                            tab.composer.draft = text.to_string();
+                        } else if !from_box {
+                            tab.composer.draft = format!("{}\n\n{text}", tab.composer.draft);
+                        }
+                    }
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
+                    tab.composer.notice = Some(msg.clone());
+                    self.status_msg = Some(msg);
+                    return SendOutcome::Refused(RefuseReason::NoAgent);
+                }
+                if tab.composer.not_ready_gate {
+                    let msg = RefuseReason::NotReady.message().to_string();
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
+                    tab.composer.notice = Some(msg.clone());
+                    self.status_msg = Some(msg);
+                    return SendOutcome::Refused(RefuseReason::NotReady);
+                }
+                // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
+                if waits_on_the_user(tab) {
+                    let msg = RefuseReason::Permission.message().to_string();
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
+                    tab.composer.notice = Some(msg.clone());
+                    self.status_msg = Some(msg);
+                    return SendOutcome::Refused(RefuseReason::Permission);
+                }
+                if tab.is_alive() {
+                    let must_queue = !tab.composer.pending_send.is_empty() || tab.composer.flush_paused || (system && !is_tab_ready_for_queued_send(tab));
+                    if must_queue {
+                        if !system {
+                            tab.composer.send_count += 1;
+                            tab.composer.record_sent(trimmed);
+                            if from_box {
+                                tab.composer.draft.clear();
+                                tab.composer.chips.clear();
+                                tab.composer.attach_prd = false;
+                                self.active_mentions.clear();
+                                self.mention_popup.close();
+                            }
+                        }
+                        tab.composer.pending_send.push_back(QueuedSend::new(payload, system));
+                        let q_len = tab.composer.pending_send.len();
+                        if q_len >= 2 {
+                            let notice = format!("{q_len} messages waiting to send");
+                            tab.composer.notice = Some(notice.clone());
+                            self.status_msg = Some(notice);
+                        } else if !system {
+                            let agent_name = tab.spawn_preset.dropdown_entry().1;
+                            let notice = format!("Starting {agent_name}… your message will be sent");
+                            tab.composer.notice = Some(notice.clone());
+                            self.status_msg = Some(notice);
+                        }
+                        tab.composer.last_outcome = Some(SendOutcome::Queued);
+                        return SendOutcome::Queued;
+                    }
+                    if system {
                         return write_prompt_to_live_tab(tab, &payload, "", &mut self.status_msg, true);
                     }
-                    if tab.composer.pending_send.is_some() {
-                        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
-                        return SendOutcome::Refused(RefuseReason::NotReady);
+                    tab.composer.send_count += 1;
+                    tab.composer.record_sent(trimmed);
+                    if from_box {
+                        tab.composer.draft.clear();
+                        tab.composer.chips.clear();
+                        tab.composer.attach_prd = false;
+                        self.active_mentions.clear();
+                        self.mention_popup.close();
                     }
-                    tab.composer.pending_send = Some(payload);
-                    tab.composer.pending_send_is_system = true;
-                    tab.composer.last_outcome = Some(SendOutcome::Queued);
-                    return SendOutcome::Queued;
-                }
-                tab.composer.send_count += 1;
-                tab.composer.record_sent(trimmed);
-                tab.composer.draft.clear();
-                tab.composer.chips.clear();
-                self.active_mentions.clear();
-                self.mention_popup.close();
-                // A run's first send attaches the selected skills, and so does the first send after the set changed (`#573`).
-                let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir);
-                let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
-                let outcome = write_prompt_to_live_tab(tab, &payload, skills_block, &mut self.status_msg, false);
-                if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
-                    if let Err(e) = crate::skills::delivery::commit_attachment(&self.skills, tab, &attachment, &self.session_dir, &self.session_id) {
-                        self.status_msg = Some(e);
+                    // A run's first send attaches the selected skills, and so does the first send after the set changed (`#573`).
+                    let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir);
+                    let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
+                    let outcome = write_prompt_to_live_tab(tab, &payload, skills_block, &mut self.status_msg, false);
+                    if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
+                        if let Err(e) = crate::skills::delivery::commit_attachment(&self.skills, tab, &attachment, &self.session_dir, &self.session_id) {
+                            self.status_msg = Some(e);
+                        }
                     }
+                    // Skills for a Claude Code tab go into its hook reply now, before the delayed Enter submits the prompt.
+                    self.sync_hook_reply();
+                    return outcome;
                 }
-                // Skills for a Claude Code tab go into its hook reply now, before the delayed Enter submits the prompt.
-                self.sync_hook_reply();
-                return outcome;
             }
         }
 
@@ -763,27 +961,45 @@ impl TerminalState {
             return SendOutcome::Refused(RefuseReason::NoAgent);
         }
 
-        // Not running (`#689` §3 rule 2): record in history, clear draft, run `open_for_agent_use`, and queue until ready.
-        {
+        // Not running (`#689` §3 rule 2): record in history, clear draft, run `open_for_agent_use`, and queue until ready. A prompt
+        // entry point clears nothing: its text was never in the composer.
+        if from_box {
             let comp = self.active_composer_mut();
             comp.send_count += 1;
             comp.record_sent(trimmed);
             comp.draft.clear();
             comp.chips.clear();
+            comp.attach_prd = false;
+            self.active_mentions.clear();
+            self.mention_popup.close();
         }
-        self.active_mentions.clear();
-        self.mention_popup.close();
         let tabs_before = self.tabs.len();
         self.open_for_agent_use(file_path);
 
-        // If `open_for_agent_use` opened the picker because no previous session existed, but `active_runtime`
-        // was explicitly set to a registrable agent CLI that is installed on PATH, spawn it now so the queued
-        // prompt starts that agent.
+        // If `open_for_agent_use` did not leave us on a live non-shell agent tab (because no previous session
+        // existed, or it left us on a shell tab or an exited tab beside a live one), and `active_runtime` is a
+        // startable agent CLI installed on PATH, spawn it now so the prompt starts that agent.
         let runtime_installed = self.active_runtime.is_installed() || self.path_prepend.iter().any(|d| d.join(self.active_runtime.binary_name()).is_file());
-        if self.tabs.len() == tabs_before && crate::agent_sessions::is_registrable_cli(self.active_runtime) && runtime_installed {
+        let startable = !matches!(self.active_runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp);
+        let covered_agent = self.active_tab_mut().is_some_and(|t| t.is_alive() && !t.is_shell_process());
+        if !covered_agent && self.tabs.len() == tabs_before && startable && runtime_installed {
             let _ = self.spawn_tab(self.active_runtime, file_path);
         }
+        if !self.in_new_chat() && self.active_tab().is_some_and(|t| t.is_shell_process()) {
+            let msg = RefuseReason::NoAgent.message().to_string();
+            let comp = self.active_composer_mut();
+            if comp.draft.trim().is_empty() {
+                comp.draft = text.to_string();
+            } else if !from_box {
+                comp.draft = format!("{}\n\n{text}", comp.draft);
+            }
+            comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
+            comp.notice = Some(msg.clone());
+            self.status_msg = Some(msg);
+            return SendOutcome::Refused(RefuseReason::NoAgent);
+        }
 
+        let has_live_tab = self.active_tab_mut().is_some_and(|t| t.is_alive());
         let agent_name = self.active_tab().map(|t| t.spawn_preset.dropdown_entry().1).unwrap_or_else(|| {
             if crate::agent_sessions::is_registrable_cli(self.active_runtime) {
                 self.active_runtime.dropdown_entry().1
@@ -791,10 +1007,21 @@ impl TerminalState {
                 "agent"
             }
         });
-        let notice = format!("Starting {agent_name}… your message will be sent");
         let comp = self.active_composer_mut();
-        comp.pending_send = Some(payload);
-        comp.pending_send_is_system = false;
+        if !from_box {
+            // The prompt queues on the composer that now holds the session; that composer remembers it, the one that was on screen does not.
+            comp.send_count += 1;
+            comp.record_sent(trimmed);
+        }
+        comp.pending_send.push_back(QueuedSend::new(payload, false));
+        let q_len = comp.pending_send.len();
+        let notice = if q_len >= 2 {
+            format!("{q_len} messages waiting to send")
+        } else if !has_live_tab && !from_box {
+            "Waiting for an agent… your message will be sent".to_string()
+        } else {
+            format!("Starting {agent_name}… your message will be sent")
+        };
         comp.last_outcome = Some(SendOutcome::Queued);
         comp.notice = Some(notice.clone());
         self.status_msg = Some(notice);
@@ -802,8 +1029,45 @@ impl TerminalState {
     }
 }
 
+impl TerminalState {
+    /// A Send in the New chat state: starts the pill's agent in a new tab and queues `payload` there. Nothing is consumed before
+    /// that tab exists, so with no agent to start, or when the start fails, the draft, chips and history stay as they were.
+    fn start_new_chat_session(&mut self, payload: &str, trimmed: &str, file_path: Option<&Path>) -> SendOutcome {
+        let Some(preset) = crate::agent_picker::composer_pill(self).1 else {
+            self.unattached_composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
+            return SendOutcome::Refused(RefuseReason::NoAgent);
+        };
+        if self.spawn_tab(preset, file_path).is_err() {
+            let comp = &mut self.unattached_composer;
+            comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
+            comp.notice = Some(RefuseReason::StartFailed.message().to_string());
+            return SendOutcome::Refused(RefuseReason::StartFailed);
+        }
+        // The new tab took over the New chat composer: its draft, chips and PRD chip are the message being sent.
+        let comp = self.active_composer_mut();
+        comp.send_count += 1;
+        comp.record_sent(trimmed);
+        comp.draft.clear();
+        comp.chips.clear();
+        comp.attach_prd = false;
+        comp.pending_send.push_back(QueuedSend::new(payload, false));
+        let q_len = comp.pending_send.len();
+        let notice = if q_len >= 2 {
+            format!("{q_len} messages waiting to send")
+        } else {
+            format!("Starting {}… your message will be sent", preset.dropdown_entry().1)
+        };
+        comp.last_outcome = Some(SendOutcome::Queued);
+        comp.notice = Some(notice.clone());
+        self.active_mentions.clear();
+        self.mention_popup.close();
+        self.status_msg = Some(notice);
+        SendOutcome::Queued
+    }
+}
+
 fn composer_popup_open(state: &TerminalState) -> bool {
-    state.mention_popup.is_open() && state.mention_popup.mode == crate::agent_mention_popup::MentionPopupMode::Composer
+    state.mention_popup.is_open()
 }
 
 /// Runs `f` with the active composer draft, the `@`-mention popup and the active mentions as disjoint borrows.
@@ -872,14 +1136,22 @@ pub fn show_composer(
 
     let p = ui.painter().clone();
     let is_shell_tab = state.active_tab().is_some_and(|t| t.is_shell_process());
-    let has_chips = !state.active_composer().chips.is_empty();
+    let new_chat = state.in_new_chat();
+    let composer_live = !is_shell_tab || new_chat;
+    let (pill_label, pill_preset) = crate::agent_picker::composer_pill(state);
+    if state.picker.cache.is_probing() {
+        // The pill and the placeholder name the agent a Send would start. Probes finish on another thread and no input follows them, so
+        // poll until they are done: the pill then changes on its own and the window goes quiet again.
+        ui.ctx().request_repaint_after(crate::agent_picker::PROBE_REPAINT);
+    }
     let draft_snapshot = state.composer_draft().to_string();
-    let box_h = composer_box_height(&draft_snapshot, has_chips);
-    let notice_text = if is_shell_tab { Some(RefuseReason::NoAgent.message().to_string()) } else { state.active_composer().notice.clone() };
-    let notice_h = if notice_text.is_some() { theme::LINE_CAPTION + theme::SPACE_FACT } else { ZERO };
     let margin = theme::SPACE_GROUP;
-    let bottom_pad = margin + notice_h;
-    let comp_top = (panel_rect.bottom() - bottom_pad - box_h).max(min_top_y + MIN_CENTER_HEIGHT);
+    let inner_w = (panel_rect.width() - margin * 2.0 - theme::SPACE_ROW * 2.0).max(theme::CONTROL_MD);
+    let chip_widths = crate::agent_composer_chip_layout::chip_widths(&p, state);
+    let chip_row_n = crate::agent_composer_chip_layout::chip_rows(&chip_widths, inner_w);
+    let caption_text = crate::agent_composer_text::caption(state);
+    let box_h = composer_chrome_height(&draft_snapshot, chip_row_n, caption_text.is_some());
+    let comp_top = (panel_rect.bottom() - margin - box_h).max(min_top_y + MIN_CENTER_HEIGHT);
     let comp_bottom = (comp_top + box_h).min(panel_rect.bottom() - theme::SPACE_FACT);
     let composer_rect = Rect::from_min_max(Pos2::new(panel_rect.left() + margin, comp_top), Pos2::new(panel_rect.right() - margin, comp_bottom));
 
@@ -887,19 +1159,20 @@ pub fn show_composer(
     let was_focused = ui.memory(|m| m.has_focus(input_id));
 
     // `@`-mention picker keys (`#655`) are consumed before the composer reads Enter/Up/Down so a pick never also submits.
-    if !is_shell_tab {
+    if composer_live {
         let draft_now = state.composer_draft().to_string();
         let pre_cursor = composer_cursor_byte(ui, input_id, &draft_now, state.composer_cursor_byte);
         state.mention_popup.sync_from_composer_text(&draft_now, pre_cursor, doc, current_page);
         if composer_popup_open(state) {
             let ctx = ui.ctx().clone();
-            let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions, doc, current_page));
+            let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions));
             apply_post_pick_cursor(ui, state, input_id);
         }
     }
 
     let mut submit_composer = false;
-    if was_focused && !is_shell_tab {
+    let menu_owns_keys = state.runtime_dropdown_open || state.attach_menu_open || state.mode_menu_open;
+    if was_focused && composer_live && !menu_owns_keys {
         state.viewport_focused = false;
         let can_start_history = state.active_composer().draft.trim().is_empty() || state.active_composer().cursor.is_some();
         let browsing_history = state.active_composer().cursor.is_some();
@@ -951,57 +1224,61 @@ pub fn show_composer(
         }
     }
 
-    // Composer container (`RADIUS_FRAME`, `BG_SECONDARY`, `BORDER` hairline, `BG_BRAND` focus ring — `#689` §7).
-    p.rect_filled(composer_rect, theme::cr(theme::RADIUS_FRAME), theme::BG_SECONDARY);
-    let stroke = if was_focused && !is_shell_tab { Stroke::new(FOCUS_RING_WIDTH, theme::BG_BRAND) } else { Stroke::new(theme::BORDER_WIDTH, theme::BORDER) };
-    p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_FRAME), stroke, StrokeKind::Inside);
+    let focused_box = was_focused && composer_live;
+    p.rect_filled(composer_rect, theme::cr(theme::RADIUS_XL), theme::BG_SECONDARY);
+    let stroke = if focused_box { Stroke::new(FOCUS_STROKE_W, theme::BORDER_SELECTED) } else { Stroke::new(theme::BORDER_WIDTH, theme::BORDER) };
+    p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_XL), stroke, StrokeKind::Inside);
     widgets::record(ui, "agents-composer-box", composer_rect);
 
-    let mut content_top = composer_rect.top() + theme::INSET_CONTROL;
+    let mut content_top = composer_rect.top() + theme::INSET_FRAME;
+    let mut skills_anchor = None;
 
-    // Optional reference chip row (`CONTROL_DENSE` 24 px, `cr_pill`, `BG_TERTIARY`, `theme::COMPONENT` cyan for components).
-    let chips_snapshot = state.active_composer().chips.clone();
-    let mut chip_to_remove: Option<NodeId> = None;
-    if !chips_snapshot.is_empty() {
-        let mut chip_x = composer_rect.left() + theme::INSET_BUTTON;
-        let max_chip_right = composer_rect.right() - theme::INSET_BUTTON;
-        for chip in &chips_snapshot {
-            let text_w = widgets::text_width(&p, &chip.name, &theme::font_caption());
-            let pill_w = (text_w + CHIP_TEXT_PAD).min(CHIP_MAX_WIDTH).min((max_chip_right - chip_x).max(theme::CONTROL_ROW));
-            if chip_x + pill_w > max_chip_right {
-                break;
-            }
-            let chip_rect = Rect::from_min_size(Pos2::new(chip_x, content_top), Vec2::new(pill_w, theme::CONTROL_DENSE));
-            let chip_resp = ui.interact(chip_rect, Id::new(("agents-composer-chip", chip.node_id.0)), Sense::click());
-            p.rect_filled(chip_rect, theme::cr_pill(theme::CONTROL_DENSE), theme::BG_TERTIARY);
-            let fg = if chip.is_component { theme::COMPONENT } else { theme::TEXT };
-            if chip.is_component {
-                p.rect_stroke(chip_rect, theme::cr_pill(theme::CONTROL_DENSE), Stroke::new(theme::BORDER_WIDTH, theme::COMPONENT), StrokeKind::Inside);
-            }
-            let max_label_w = (pill_w - theme::INSET_BUTTON * 2.0).max(theme::SPACE_BLOCK);
-            let elided = widgets::elide(&p, &chip.name, &theme::font_caption(), max_label_w);
-            p.text(Pos2::new(chip_rect.left() + theme::INSET_CONTROL, chip_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), fg);
-            widgets::record(ui, "agents-composer-chip", chip_rect);
-            widgets::record(ui, &format!("agents-composer-chip-{}", chip.node_id.0), chip_rect);
-            if chip_resp.clicked() {
-                chip_to_remove = Some(chip.node_id);
-            }
-            chip_x = chip_rect.right() + theme::SPACE_FACT;
+    if chip_row_n > 0 {
+        let chip_h = chip_row_n as f32 * (theme::BADGE_MD + theme::SPACE_ROW);
+        let chip_row = Rect::from_min_size(Pos2::new(composer_rect.left() + theme::SPACE_ROW, content_top), Vec2::new(inner_w, chip_h));
+        let chips = crate::agent_composer_chips::paint_chips(ui, state, chip_row, &chip_widths);
+        skills_anchor = chips.skills_rect;
+        if chips.select_hide {
+            let finger = crate::agent_selection_chip::selection_fingerprint(&state.composer_selection);
+            state.active_composer_mut().selection_chip_dismissed = Some(finger);
         }
-        if let Some(rm_id) = chip_to_remove {
+        if chips.select_send {
+            actions.push(TerminalAction::SendSelectionToAgent);
+        }
+        if chips.prd_hide {
+            state.active_composer_mut().attach_prd = false;
+        }
+        if chips.skills_clear {
+            state.skills.set_selected_skills(Vec::new());
+        }
+        if chips.skills_open {
+            if state.skills.picker_open {
+                state.skills.picker_open = false;
+            } else {
+                state.skills.open_picker();
+            }
+        }
+        if let Some(rm_id) = chips.drop_layer {
             state.active_composer_mut().chips.retain(|c| c.node_id != rm_id);
         }
-        content_top += theme::CONTROL_DENSE + theme::SPACE_ROW;
+        content_top += chip_h;
     }
+    // Once per frame, `None` when no chip row is drawn: a rect left over from the chip that went away would keep swallowing presses.
+    crate::skills::remember_picker_anchor(ui.ctx(), skills_anchor);
 
-    let control_row_top = composer_rect.bottom() - theme::CONTROL_ROW;
+    let control_row_top = composer_rect.bottom() - theme::SPACE_ROW - theme::CONTROL_XS - if caption_text.is_some() { theme::LINE_CAPTION } else { ZERO };
     let input_rect = Rect::from_min_max(
         Pos2::new(composer_rect.left() + theme::INSET_BUTTON, content_top),
         Pos2::new(composer_rect.right() - theme::INSET_BUTTON, control_row_top.max(content_top + theme::LINE_BODY)),
     );
     widgets::record(ui, "agents-composer-input", input_rect);
 
-    let hint = if is_shell_tab { "Select an agent tab" } else { "Ask for changes" };
+    let hint_owned = if state.composer_draft().is_empty() {
+        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current();
+        crate::agent_composer_text::placeholder(state, pill_label, is_shell_tab, any_cli)
+    } else {
+        String::new()
+    };
     let prev_draft = state.composer_draft().to_string();
     ui.scope_builder(egui::UiBuilder::new().max_rect(input_rect), |ui| {
         egui::ScrollArea::vertical().id_salt("agents-composer-scroll").max_height(input_rect.height()).show(ui, |ui| {
@@ -1012,10 +1289,13 @@ pub fn show_composer(
                 .desired_rows(1)
                 .frame(egui::Frame::NONE)
                 .font(theme::font_body())
-                .text_color(if is_shell_tab { theme::TEXT_DISABLED } else { theme::TEXT })
-                .interactive(!is_shell_tab)
-                .hint_text(RichText::new(hint).font(theme::font_body()).color(theme::TEXT_TERTIARY));
+                .text_color(if composer_live { theme::TEXT } else { theme::TEXT_DISABLED })
+                .interactive(composer_live)
+                .hint_text(RichText::new(hint_owned).font(theme::font_body()).color(theme::TEXT_TERTIARY));
             let out = te.show(ui);
+            if std::mem::take(&mut state.pending_composer_focus) {
+                out.response.request_focus();
+            }
             // After `show`: a click elsewhere has already taken the focus by now, which is what the next frame starts from.
             state.record_composer_focus(ui.memory(|m| m.has_focus(input_id)));
             if let Some(cr) = out.cursor_range {
@@ -1027,7 +1307,7 @@ pub fn show_composer(
             }
         });
     });
-    if !is_shell_tab {
+    if composer_live {
         let draft_after = state.composer_draft().to_string();
         let post_cursor = state.composer_cursor_byte.unwrap_or(draft_after.len()).min(draft_after.len());
         state.mention_popup.sync_from_composer_text(&draft_after, post_cursor, doc, current_page);
@@ -1045,126 +1325,54 @@ pub fn show_composer(
         }
     }
 
-    let icon_y = composer_rect.bottom() - theme::CONTROL_ROW * HALF;
-
-    // Bottom-left `+` attach button (`agents-composer-plus` / `agents-composer-attach`).
-    let plus_center = Pos2::new(composer_rect.left() + theme::INSET_PANEL + theme::SPACE_FACT, icon_y);
-    let plus_r = Rect::from_center_size(plus_center, Vec2::splat(theme::CONTROL_DENSE));
-    let plus_resp = ui.interact(plus_r, Id::new("agents-composer-plus"), Sense::click());
-    if plus_resp.hovered() {
-        p.rect_filled(plus_r, theme::cr(theme::RADIUS_SEGMENT), theme::BG_HOVER);
-    }
-    icons::paint(&p, Icon::Plus, plus_r.center(), theme::LINE_CAPTION, theme::ICON_SECONDARY);
-    widgets::record(ui, "agents-composer-plus", plus_r);
-    widgets::record(ui, "agents-composer-attach", plus_r);
-    if plus_resp.clicked() {
-        let cur = state.composer_draft().trim().to_string();
-        if !cur.contains("@selection") {
-            let next = if cur.is_empty() { "@selection @prd ".to_string() } else { format!("@selection @prd {cur}") };
-            state.set_composer_draft(next);
-        }
-        actions.push(TerminalAction::ExportSelectionToTerminal);
-    }
-
-    // Bottom-left open-book button (`agents-composer-book`).
-    let book_center = Pos2::new(plus_r.right() + theme::SPACE_FACT + theme::CONTROL_DENSE * HALF, icon_y);
-    let book_r = Rect::from_center_size(book_center, Vec2::splat(theme::CONTROL_DENSE));
-    let book_resp = ui.interact(book_r, Id::new("agents-composer-book"), Sense::click());
-    if book_resp.hovered() {
-        p.rect_filled(book_r, theme::cr(theme::RADIUS_SEGMENT), theme::BG_HOVER);
-    }
-    icons::paint(&p, Icon::BookOpen, book_r.center(), theme::LINE_CAPTION, theme::ICON_SECONDARY);
-    widgets::record(ui, "agents-composer-book", book_r);
-    if book_resp.clicked() {
-        state.side_panel_pty_open = !state.side_panel_pty_open;
-    }
-
-    // Bottom-left `PRD` context chip button (`agents-composer-prd` / `agents-composer-context`).
-    let prd_center = Pos2::new(book_r.right() + theme::SPACE_INLINE + PRD_CHIP_WIDTH * HALF, icon_y);
-    let prd_r = Rect::from_center_size(prd_center, Vec2::new(PRD_CHIP_WIDTH, theme::CONTROL_DENSE));
-    let prd_resp = ui.interact(prd_r, Id::new("agents-composer-prd"), Sense::click());
-    let lower_in = state.composer_draft().to_ascii_lowercase();
-    let has_prd_tag = lower_in.contains("@prd") || lower_in.contains("@selection") || lower_in.contains("@tokens");
-    let prd_bg = if has_prd_tag {
-        theme::BG_SELECTED
-    } else if prd_resp.hovered() {
-        theme::BG_HOVER
-    } else {
-        theme::BG_TERTIARY
-    };
-    p.rect_filled(prd_r, theme::cr(theme::RADIUS_CONTROL), prd_bg);
-    p.rect_stroke(
-        prd_r,
-        theme::cr(theme::RADIUS_CONTROL),
-        Stroke::new(theme::BORDER_WIDTH, if has_prd_tag { theme::BORDER_SELECTED } else { theme::BORDER }),
-        StrokeKind::Inside,
-    );
-    p.text(prd_r.center(), Align2::CENTER_CENTER, "PRD", theme::font_caption_strong(), if has_prd_tag { theme::TEXT_BRAND } else { theme::TEXT_SECONDARY });
-    widgets::record(ui, "agents-composer-prd", prd_r);
-    widgets::record(ui, "agents-composer-context", prd_r);
-    if prd_resp.clicked() {
-        let next_tag = if !lower_in.contains("@prd") {
-            "@prd"
-        } else if !lower_in.contains("@selection") {
-            "@selection"
-        } else {
-            "@tokens"
-        };
-        let cur = state.composer_draft().trim().to_string();
-        if cur.is_empty() {
-            state.set_composer_draft(format!("{next_tag} "));
-        } else if !lower_in.contains(next_tag) {
-            state.set_composer_draft(format!("{next_tag} {cur}"));
-        }
-    }
-
-    // `Skills` chip (`#573`) right of `PRD`: opens the picker of built-in and user `SKILL.md` files attached to a run.
-    let skills_w = state.skills.chip_width(&p).max(PRD_CHIP_WIDTH);
-    let skills_r = Rect::from_min_size(Pos2::new(prd_r.right() + theme::SPACE_ROW, prd_r.top()), Vec2::new(skills_w, prd_r.height()));
-    state.skills.paint_chip(ui, &p, skills_r, "agents-composer-skills");
-
-    // Bottom-right Send circle button (`CONTROL_STANDARD` 28 px, `BG_BRAND` with dark arrow; disabled and `TEXT_SECONDARY` when empty — `#689` §7).
-    // Over the skill limit the circle turns red and stops being a button (hover only, with the reason); Enter still runs the send,
-    // which names the limit in the notice and keeps the draft (`RD-4` §3.3: the start action is disabled).
+    let choose_agent = new_chat && pill_preset.is_none();
     let skills_violation = state.skills.limit_violation();
-    let skills_over_limit = skills_violation.is_some();
-    let has_sendable = !is_shell_tab && (!state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty());
-    let send_radius = theme::radius_full(theme::CONTROL_STANDARD);
-    let send_center = Pos2::new(composer_rect.right() - theme::INSET_CONTROL - send_radius, icon_y);
-    let send_r = Rect::from_center_size(send_center, Vec2::splat(theme::CONTROL_STANDARD));
-    let send_resp = ui.interact(send_r, Id::new("agents-composer-send"), if skills_over_limit { Sense::hover() } else { Sense::click() });
-    let send_resp = match &skills_violation {
-        Some(reason) => send_resp.on_hover_text(reason.as_str()),
-        None => send_resp,
-    };
-    let send_bg = if skills_over_limit {
-        crate::terminal::STATUS_BAD_BG
-    } else if has_sendable {
-        if send_resp.hovered() {
-            theme::BG_BRAND_HOVER
-        } else {
-            theme::BG_BRAND
+    // The selection chip is a suggestion, not a message. An attached PRD is: Send then sends its reference alone.
+    let has_payload = !state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty() || state.active_composer().attach_prd;
+    let send_on = composer_live && !choose_agent && skills_violation.is_none() && has_payload;
+    let bar = crate::agent_composer_toolbar::toolbar(ui, state, composer_rect, pill_label, send_on, skills_violation.as_deref());
+    if let Some(pick) = bar.attach {
+        match pick {
+            crate::agent_composer_menus::AttachPick::Selection => {
+                let cur = state.composer_draft().to_string();
+                if !cur.contains("@selection") {
+                    let next = if cur.trim().is_empty() { "@selection ".to_string() } else { format!("@selection {cur}") };
+                    state.set_composer_draft(next);
+                }
+                actions.push(TerminalAction::ExportSelectionToTerminal);
+            }
+            crate::agent_composer_menus::AttachPick::Prd => {
+                let on = state.active_composer().attach_prd;
+                state.active_composer_mut().attach_prd = !on;
+            }
+            crate::agent_composer_menus::AttachPick::Skills => state.skills.open_picker(),
         }
-    } else {
-        theme::BG_TERTIARY
-    };
-    let send_fg = if skills_over_limit {
-        crate::terminal::STATUS_BAD_TEXT
-    } else if has_sendable {
-        theme::TEXT_ON_LIGHT_CANVAS
-    } else {
-        theme::TEXT_SECONDARY
-    };
-    p.circle_filled(send_center, send_radius, send_bg);
-    icons::paint(&p, Icon::ArrowUp, send_center, theme::LINE_CAPTION, send_fg);
-    widgets::record(ui, "agents-composer-send", send_r);
-    if send_resp.clicked() && has_sendable {
+    }
+    if let Some(mode) = bar.mode_pick {
+        actions.push(TerminalAction::SetAgentPermissionMode(mode));
+    }
+    if bar.send {
         submit_composer = true;
+    }
+    if let Some(note) = caption_text.as_deref() {
+        let note_top = composer_rect.bottom() - theme::SPACE_ROW - theme::CONTROL_XS - theme::LINE_CAPTION;
+        let note_rect = Rect::from_min_size(
+            Pos2::new(composer_rect.left() + theme::SPACE_ROW, note_top),
+            Vec2::new((composer_rect.width() - theme::SPACE_ROW * 2.0).max(theme::CONTROL_MD), theme::LINE_CAPTION),
+        );
+        let elided = widgets::elide(&p, note, &theme::font_caption(), note_rect.width());
+        p.text(Pos2::new(note_rect.left(), note_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_WARNING);
+        widgets::record(ui, "agents-composer-notice", note_rect);
     }
 
     if submit_composer {
+        if new_chat {
+            if let Some(preset) = pill_preset {
+                state.active_runtime = preset;
+            }
+        }
         let prompt = state.composer_draft().to_string();
-        let outcome = state.send_to_agent(&prompt, file_path);
+        let outcome = state.send_from_composer_box(&prompt, file_path);
         if outcome == SendOutcome::Written {
             if let Some(tab) = state.active_tab_mut() {
                 if tab.composer.pending_enter_deadline.is_some() {
@@ -1174,17 +1382,6 @@ pub fn show_composer(
         }
     }
 
-    // Caption under the field for queued messages, refusal reasons, or unconfirmed receipts (`#689` §3 rules 7, 7a & §7).
-    if let Some(note) = notice_text {
-        let note_rect = Rect::from_min_size(
-            Pos2::new(composer_rect.left() + theme::INSET_CONTROL, composer_rect.bottom() + theme::SPACE_FACT * HALF),
-            Vec2::new(composer_rect.width() - theme::INSET_CONTROL * 2.0, theme::LINE_CAPTION),
-        );
-        let elided = widgets::elide(&p, &note, &theme::font_caption(), note_rect.width().max(theme::CONTROL_ROW));
-        p.text(Pos2::new(note_rect.left(), note_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_SECONDARY);
-        widgets::record(ui, "agents-composer-notice", note_rect);
-    }
-
     // Schedule repaint when any tab has a pending delayed `\r` or queued send (`#689` §3 rule 1 & §11).
     let now = Instant::now();
     let mut earliest_wait: Option<Duration> = None;
@@ -1192,7 +1389,7 @@ pub fn show_composer(
         if let Some(deadline) = tab.composer.pending_enter_deadline {
             let rem = deadline.saturating_duration_since(now);
             earliest_wait = Some(earliest_wait.map_or(rem, |cur| cur.min(rem)));
-        } else if tab.composer.pending_send.is_some() {
+        } else if !tab.composer.pending_send.is_empty() {
             let poll_wait = READY_QUIET_BRACKETED;
             earliest_wait = Some(earliest_wait.map_or(poll_wait, |cur| cur.min(poll_wait)));
         }
@@ -1212,6 +1409,11 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn composer_box_is_66_with_one_line_and_nothing_else() {
+        assert_eq!(composer_box_height("", false), 66.0);
+    }
 
     struct SharedBufferWriter {
         buf: Arc<Mutex<Vec<u8>>>,
@@ -1687,7 +1889,7 @@ mod tests {
         let outcome = st.send_to_agent("Build hero card when ready", None);
         assert_eq!(outcome, SendOutcome::Queued);
         assert_eq!(st.tabs.len(), 1, "Sending while not running must start the agent tab");
-        assert_eq!(st.active_composer().pending_send.as_deref(), Some("Build hero card when ready"));
+        assert_eq!(st.active_composer().pending_send.front().map(|e| e.text.as_str()), Some("Build hero card when ready"));
         assert_eq!(st.active_composer().notice.as_deref(), Some("Starting Claude Code… your message will be sent"));
 
         // Poll bridge until the newly spawned agent becomes ready, receives the queued message, and gets `\r`.
@@ -1697,7 +1899,7 @@ mod tests {
             delivered.contains("Build hero card when ready")
         });
         let raw_out = st.active_tab().and_then(|t| t.raw_log.lock().ok().map(|g| g.clone())).unwrap_or_default();
-        assert!(st.active_composer().pending_send.is_none(), "Queued message must be flushed once ready (raw_out={raw_out:?})");
+        assert!(st.active_composer().pending_send.is_empty(), "Queued message must be flushed once ready (raw_out={raw_out:?})");
         assert!(delivered.contains("Build hero card when ready"), "Queued message must reach the started CLI: {delivered:?}, raw_out={raw_out:?}");
 
         st.shutdown();
@@ -1771,12 +1973,59 @@ mod tests {
         assert!(st.composer_draft().contains("Primary Button"), "Plain layer name must be inserted into the draft");
 
         let prompt = format!("{} — align spacing", st.composer_draft());
-        assert_eq!(st.send_to_agent(&prompt, None), SendOutcome::Written);
+        assert_eq!(st.send_from_composer_box(&prompt, None), SendOutcome::Written);
         st.flush_pending_enter_now();
         let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
         assert!(sent.contains("designos:node/42"), "Sent payload must include #655 layer reference: {sent}");
         assert!(sent.contains("designos:node/99 (component)"), "Sent payload must include component reference: {sent}");
 
+        st.shutdown();
+    }
+
+    fn claude_tab_with_recorder() -> (crate::test_timing::ScopedTerminalState, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
+        let mut st = crate::test_timing::ScopedTerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+            if let Ok(mut p) = tab.parser.lock() {
+                p.process(b"\x1b[?2004h");
+            }
+        }
+        let rec = attach_recording_writer(st.active_tab_mut().unwrap());
+        (st, rec)
+    }
+
+    // `attached_prd_chip_sends_the_prd_tag_first`
+    #[test]
+    fn attached_prd_chip_sends_the_prd_tag_first() {
+        let (mut st, rec) = claude_tab_with_recorder();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_from_composer_box("fix it", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(sent.contains("@prd fix it"), "the PRD tag leads the message: {sent:?}");
+        assert!(!sent.contains("fix it @prd"), "and is not appended: {sent:?}");
+        assert!(!st.active_composer().attach_prd, "the chip is spent by the send");
+
+        // A `@prd` the user typed is sent once, as typed.
+        rec.lock().unwrap().clear();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_from_composer_box("@prd review REQ-01", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert_eq!(sent.matches("@prd").count(), 1, "a typed @prd is not doubled by the chip: {sent:?}");
+        assert!(sent.contains("@prd review REQ-01"), "{sent:?}");
+
+        // A prompt entry point brings its own text: the chip stays attached and the tag is not added.
+        rec.lock().unwrap().clear();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_to_agent("pricing card", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(!sent.contains("@prd"), "Make design does not carry the composer's PRD tag: {sent:?}");
+        assert!(st.active_composer().attach_prd, "and leaves the chip where it was");
         st.shutdown();
     }
 
@@ -1833,7 +2082,7 @@ mod tests {
         st.flush_pending_enter_now();
         assert_eq!(st.active_composer().send_count, 3);
 
-        // Entry point 4: a sample prompt row fills the composer, and the Send button then sends it through the same path.
+        // Entry point 4: a draft typed into the composer, sent with the Send button through the same path.
         st.side_panel_pty_open = false;
         let frame = |st: &mut TerminalState, events: Vec<Event>| {
             let _ = ctx.run_ui(
@@ -1850,12 +2099,8 @@ mod tests {
                 Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
             ]
         };
-        frame(&mut st, Vec::new());
-        let sample_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-sample-prompt-0".to_string())))).expect("agents-sample-prompt-0 rect");
-        frame(&mut st, click(sample_rect));
-        let sample_text = crate::agent_sample_prompts::sample_prompts(st.prompt_context)[0].text.clone();
-        assert_eq!(st.composer_draft(), sample_text, "the sample prompt row must only fill the composer");
-        assert_eq!(st.active_composer().send_count, 3, "filling the composer must not send");
+        let typed_text = "Entry 4 typed in the composer".to_string();
+        st.set_composer_draft(typed_text.clone());
         frame(&mut st, Vec::new());
         let send_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-composer-send".to_string())))).expect("agents-composer-send rect");
         frame(&mut st, click(send_rect));
@@ -1863,7 +2108,7 @@ mod tests {
         assert_eq!(st.active_composer().send_count, 4);
 
         let all_written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
-        for expected in ["Entry 1 from composer button", "Entry 2 from submit_chat_prompt", "Entry 3 from dispatch_figma_ai_prompt", sample_text.as_str()] {
+        for expected in ["Entry 1 from composer button", "Entry 2 from submit_chat_prompt", "Entry 3 from dispatch_figma_ai_prompt", typed_text.as_str()] {
             assert!(all_written.contains(expected), "Entry point prompt `{expected}` missing from PTY stream: {all_written:?}");
             assert!(st.active_composer().history.iter().any(|h| h.contains(expected)), "Entry point prompt `{expected}` missing from composer history");
         }
@@ -2013,7 +2258,7 @@ mod tests {
         assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "the stub CLI fails to start");
         let _ = st.poll_live_agent_bridge();
         assert_eq!(st.composer_draft(), "", "a system prompt is dropped, never returned to the user's draft");
-        assert!(st.active_composer().pending_send.is_none());
+        assert!(st.active_composer().pending_send.is_empty());
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -2217,7 +2462,11 @@ mod tests {
         assert!(st.tabs.is_empty());
 
         assert_eq!(st.send_to_agent("Make a pricing card", None), SendOutcome::Queued);
-        assert_eq!(st.active_composer().pending_send.as_deref(), Some("Make a pricing card"), "the queue keeps the user's text, not the skill blocks");
+        assert_eq!(
+            st.active_composer().pending_send.front().map(|e| e.text.as_str()),
+            Some("Make a pricing card"),
+            "the queue keeps the user's text, not the skill blocks"
+        );
 
         let received = wait_for_file_containing(&mut st, &recv, "Make a pricing card");
         assert!(received.contains("designos-skill:queued-skill@1.0.0"), "the flushed prompt carries the skill block: {received:?}");
@@ -2767,34 +3016,939 @@ mod tests {
     }
 
     #[test]
-    fn the_agents_header_has_a_28px_skills_button_beside_the_runtime_selector_that_opens_the_picker() {
+    fn composer_plus_menu_holds_three_items() {
         let _turn = one_pty_test_at_a_time();
         let ctx = themed_context();
-        let dir = temp_composer_dir("skills-header-button");
-        let mut st = TerminalState::new_for_session("doc-skills-header", "Skill Send", Some(&dir));
-        assert!(st.side_panel_pty_open, "the default Agents panel is the PTY view with the `+` runtime selector");
+        let dir = temp_composer_dir("plus-menu-items");
+        let mut st = TerminalState::new_for_session("doc-plus-menu", "Plus Menu", Some(&dir));
+        assert!(st.side_panel_pty_open, "the default Agents panel is the PTY view");
 
         panel_frame(&ctx, &mut st, Vec::new());
-        let add = drawn_rect(&ctx, "agents-runtime-add-btn").expect("runtime selector");
-        let skills = drawn_rect(&ctx, "agents-header-skills").expect("header Skills button");
-        assert_eq!(skills.height(), theme::CONTROL_STANDARD, "RD-4 §7: a 28 px button");
-        assert!(skills.left() >= add.right() && skills.left() - add.right() <= theme::SPACE_GROUP, "next to the runtime selector: {add:?} {skills:?}");
-        assert!((skills.center().y - add.center().y).abs() < 1.0, "same row as the selector: {add:?} {skills:?}");
-        assert!(!st.skills.picker_open);
+        for retired in ["agents-header-skills", "agents-runtime-add-btn", "agents-composer-book", "agents-composer-prd", "agents-composer-skills"] {
+            assert!(drawn_rect(&ctx, retired).is_none(), "{retired} is gone");
+        }
+        let add = drawn_rect(&ctx, "agents-composer-add-btn").expect("composer +");
+        assert_eq!((add.width(), add.height()), (theme::CONTROL_XS, theme::CONTROL_XS), "Button/Icon at xs");
+        assert!(drawn_rect(&ctx, "agents-composer-attach-menu").is_none(), "the menu starts closed");
 
+        panel_frame(&ctx, &mut st, click_events(add));
+        panel_frame(&ctx, &mut st, Vec::new());
+        assert!(drawn_rect(&ctx, "agents-composer-attach-menu").is_some(), "the + opens the attach menu");
+        let items = ["agents-composer-add-selection", "agents-composer-attach-prd", "agents-composer-skills-item"];
+        for item in items {
+            let r = drawn_rect(&ctx, item).unwrap_or_else(|| panic!("{item} is a row of the menu"));
+            assert_eq!(r.height(), theme::MENU_ITEM_HEIGHT, "{item} is a 32 px menu item");
+        }
+
+        // `Attach PRD` toggles the chip state, and the next send prepends the tag.
+        let prd = drawn_rect(&ctx, "agents-composer-attach-prd").unwrap();
+        panel_frame(&ctx, &mut st, click_events(prd));
+        assert!(st.active_composer().attach_prd, "Attach PRD sets the flag");
+        panel_frame(&ctx, &mut st, Vec::new());
+        assert!(drawn_rect(&ctx, "agents-composer-chip-prd").is_some(), "and the PRD chip is drawn");
+
+        // `Skills…` opens the same popover the chip opens.
+        panel_frame(&ctx, &mut st, click_events(add));
+        panel_frame(&ctx, &mut st, Vec::new());
+        let skills = drawn_rect(&ctx, "agents-composer-skills-item").expect("Skills… row");
+        assert!(!st.skills.picker_open);
         panel_frame(&ctx, &mut st, click_events(skills));
-        assert!(st.skills.picker_open, "the button opens the same picker as the composer chip");
+        assert!(st.skills.picker_open, "Skills… opens the picker");
         panel_frame(&ctx, &mut st, Vec::new());
         assert!(drawn_rect(&ctx, "agents-skills-picker-popover").is_some(), "the picker is drawn");
 
-        // The strip makes room for it: with a tab open the button still sits right of `+` and inside the panel (`panel_frame`: x 48..408).
-        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
-        panel_frame(&ctx, &mut st, Vec::new());
-        let add = drawn_rect(&ctx, "agents-runtime-add-btn").expect("runtime selector");
-        let skills = drawn_rect(&ctx, "agents-header-skills").expect("header Skills button");
-        assert!(skills.left() >= add.right() && skills.right() <= 48.0 + 360.0, "{add:?} {skills:?}");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn three_sends_while_starting_are_written_in_order_one_per_ready_state() {
+        let dir = temp_composer_dir("three-sends-queued");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 5");
+
+        let mut st = TerminalState::new_for_session("doc-1437-3sends", "Three Sends", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+
+        assert_eq!(st.send_to_agent("first prompt", None), SendOutcome::Queued);
+        assert_eq!(st.send_from_composer_box("second prompt", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("third prompt", None), SendOutcome::Queued);
+        assert_eq!(st.tabs.len(), 1);
+        assert!(st.tabs[0].written_bytes.is_empty(), "nothing written before ready");
+
+        // Ready state 1 -> writes only "first prompt".
+        {
+            let tab = &mut st.tabs[0];
+            tab.parser.lock().unwrap().process(b"\x1b[?2004h");
+            *tab.last_output_at.lock().unwrap() = Some(Instant::now() - Duration::from_millis(200));
+            tab.spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
+        }
+        st.tick_composer();
+        // A second tick before the first paste's Enter deadline must not flush the second entry into the first turn.
+        st.tick_composer();
+        let w1 = String::from_utf8_lossy(&st.tabs[0].written_bytes).into_owned();
+        assert!(w1.contains("first prompt"), "ready state 1 must write first prompt: {w1:?}");
+        assert!(!w1.contains("second prompt"), "ready state 1 must not write second prompt: {w1:?}");
+        assert!(!w1.contains("third prompt"), "ready state 1 must not write third prompt: {w1:?}");
+
+        // Ready state 2 -> writes "second prompt" after "first prompt".
+        st.flush_pending_enter_now();
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        st.tick_composer();
+        {
+            let tab = &mut st.tabs[0];
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::Idle;
+            *tab.last_output_at.lock().unwrap() = Some(Instant::now() - Duration::from_millis(200));
+        }
+        st.tick_composer();
+        let w2 = String::from_utf8_lossy(&st.tabs[0].written_bytes).into_owned();
+        assert!(w2.contains("second prompt"), "ready state 2 must write second prompt: {w2:?}");
+        assert!(!w2.contains("third prompt"), "ready state 2 must not write third prompt: {w2:?}");
+
+        // Ready state 3 -> writes "third prompt" after "second prompt".
+        st.flush_pending_enter_now();
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        st.tick_composer();
+        {
+            let tab = &mut st.tabs[0];
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::Idle;
+            *tab.last_output_at.lock().unwrap() = Some(Instant::now() - Duration::from_millis(200));
+        }
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w3 = String::from_utf8_lossy(&st.tabs[0].written_bytes).into_owned();
+        let p1 = w3.find("first prompt").expect("first prompt in written_bytes");
+        let p2 = w3.find("second prompt").expect("second prompt in written_bytes");
+        let p3 = w3.find("third prompt").expect("third prompt in written_bytes");
+        assert!(p1 < p2 && p2 < p3, "three sends must be written in order: {w3:?}");
 
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice() {
+        let dir = temp_composer_dir("failed-start-two-users-one-system");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "echo 'Error: failed to initialize' >&2\nexit 1");
+
+        let mut st = TerminalState::new_for_session("doc-1437-failed", "Failed Start Queue", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+
+        assert_eq!(st.send_from_composer_box("user entry one", None), SendOutcome::Queued);
+        assert_eq!(st.send_system_prompt("system image task", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("user entry two", None), SendOutcome::Queued);
+        assert_eq!(st.composer_draft(), "");
+
+        assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "Start failure must be recorded");
+        assert_eq!(
+            st.composer_draft(),
+            "user entry one\n\nuser entry two",
+            "Failed start must return user entries in order joined by a blank line and discard the system entry"
+        );
+        assert_eq!(st.active_composer().notice.as_deref(), Some("Not delivered: check the terminal"));
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Refused(RefuseReason::StartFailed)));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft() {
+        let dir = temp_composer_dir("skill-limit-entry-2-of-3");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 5");
+
+        let mut st = TerminalState::new_for_session("doc-1437-skill-limit", "Skill Limit Queue", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+
+        assert_eq!(st.send_to_agent("entry one", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("entry two", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("entry three", None), SendOutcome::Queued);
+
+        // Ready state 1 -> flushes "entry one" cleanly.
+        {
+            let tab = &mut st.tabs[0];
+            tab.parser.lock().unwrap().process(b"\x1b[?2004h");
+            *tab.last_output_at.lock().unwrap() = Some(Instant::now() - Duration::from_millis(200));
+            tab.spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
+        }
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w1 = String::from_utf8_lossy(&st.tabs[0].written_bytes).into_owned();
+        assert!(w1.contains("entry one"), "entry one must flush before skill limit is exceeded: {w1:?}");
+
+        // Exceed the 3-skill limit before entry 2 flushes.
+        for builtin in ["design-system-rhythm", "accessibility-wcag", "component-craft"] {
+            st.skills.toggle_skill(builtin);
+        }
+        let extra = write_user_skill(&mut st, &dir, "one-too-many", "Extra body.");
+        st.skills.toggle_skill(&extra);
+        assert!(!st.skills.can_start_run());
+
+        // Ready state 2 -> refuses entry 2 with SkillLimit and returns both entry 2 and entry 3 to draft in order.
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        st.tick_composer();
+        {
+            let tab = &mut st.tabs[0];
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::Idle;
+            *tab.last_output_at.lock().unwrap() = Some(Instant::now() - Duration::from_millis(200));
+        }
+        st.tick_composer();
+        let w2 = String::from_utf8_lossy(&st.tabs[0].written_bytes).into_owned();
+        assert!(!w2.contains("entry two") && !w2.contains("entry three"), "refused entries must not be written: {w2:?}");
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Refused(RefuseReason::SkillLimit)));
+        assert_eq!(st.composer_draft(), "entry two\n\nentry three", "Skill-limit refusal on entry 2 of 3 must return entries 2 and 3 to the draft in order");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn notice_reads_2_messages_waiting_to_send_with_two_entries() {
+        let dir = temp_composer_dir("notice-two-waiting");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 5");
+
+        // Held prompt in New chat (no agent started yet) vs typed send that starts an agent read differently on line 1.
+        let mut st_held = TerminalState::new_for_session("doc-1437-held", "Held Notice", Some(&dir));
+        assert_eq!(st_held.send_to_agent("held spec ask", None), SendOutcome::Queued);
+        let held_notice = st_held.active_composer().notice.clone().expect("held notice");
+        assert!(!held_notice.starts_with("Starting "), "a held prompt with no starting agent must not read 'Starting ...': {held_notice:?}");
+
+        let mut st = TerminalState::new_for_session("doc-1437-notice", "Notice Two", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+
+        assert_eq!(st.send_from_composer_box("first message", None), SendOutcome::Queued);
+        let typed_notice = st.active_composer().notice.clone().expect("typed notice");
+        assert_eq!(typed_notice, "Starting Claude Code\u{2026} your message will be sent");
+        assert_ne!(held_notice, typed_notice, "a held prompt and a typed send must read differently");
+
+        assert_eq!(st.send_from_composer_box("second message", None), SendOutcome::Queued);
+        assert_eq!(st.active_composer().notice.as_deref(), Some("2 messages waiting to send"), "two waiting entries must show '2 messages waiting to send'");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn system_entry_queued_behind_user_entry_is_written_after_it() {
+        let dir = temp_composer_dir("system-behind-user");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 5");
+
+        let mut st = TerminalState::new_for_session("doc-1437-sys-behind", "System Behind User", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+
+        assert_eq!(st.send_from_composer_box("user first", None), SendOutcome::Queued);
+        assert_eq!(
+            st.send_system_prompt("system second", None),
+            SendOutcome::Queued,
+            "system prompt arriving while user prompt is queued must queue behind it, not refuse"
+        );
+        assert_eq!(st.active_composer().notice.as_deref(), Some("2 messages waiting to send"));
+
+        // Ready state 1 -> writes "user first" only.
+        {
+            let tab = &mut st.tabs[0];
+            tab.parser.lock().unwrap().process(b"\x1b[?2004h");
+            *tab.last_output_at.lock().unwrap() = Some(Instant::now() - Duration::from_millis(200));
+            tab.spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
+        }
+        st.tick_composer();
+        let w1 = String::from_utf8_lossy(&st.tabs[0].written_bytes).into_owned();
+        assert!(w1.contains("user first"), "ready state 1 must write user first: {w1:?}");
+        assert!(!w1.contains("system second"), "system second must wait for ready state 2: {w1:?}");
+
+        // Ready state 2 -> writes "system second" after "user first".
+        st.flush_pending_enter_now();
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        st.tick_composer();
+        {
+            let tab = &mut st.tabs[0];
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::Idle;
+            *tab.last_output_at.lock().unwrap() = Some(Instant::now() - Duration::from_millis(200));
+        }
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w2 = String::from_utf8_lossy(&st.tabs[0].written_bytes).into_owned();
+        let p_user = w2.find("user first").expect("user first written");
+        let p_sys = w2.find("system second").expect("system second written");
+        assert!(p_user < p_sys, "system entry must be written after user entry: {w2:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn make_tab_ready_for_test(st: &mut TerminalState, idx: usize, old_spawn: bool) {
+        let tab = &mut st.tabs[idx];
+        tab.parser.lock().unwrap().process(b"\x1b[?2004h");
+        *tab.last_output_at.lock().unwrap() = Some(Instant::now() - READY_QUIET_OUTPUT - Duration::from_millis(50));
+        if old_spawn {
+            tab.spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
+        }
+    }
+
+    fn tab_written_string(st: &TerminalState, idx: usize) -> String {
+        String::from_utf8_lossy(&st.tabs[idx].written_bytes).into_owned()
+    }
+
+    #[test]
+    fn start_window_keeps_every_written_entry_when_start_fails() {
+        let dir = temp_composer_dir("start-window-all-entries");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "printf '\\033[?2004h'\nsleep 2\necho 'Error: failed to initialize' >&2\nexit 1");
+        let mut st = TerminalState::new_for_session("doc-sw-all", "Start Window All", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        assert_eq!(st.send_to_agent("entry one", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("entry two", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("entry three", None), SendOutcome::Queued);
+        for _ in 0..200 {
+            if tab_written_string(&st, 0).contains("entry three") {
+                break;
+            }
+            *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+            st.tick_composer();
+            *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+            make_tab_ready_for_test(&mut st, 0, false);
+            st.tick_composer();
+            st.flush_pending_enter_now();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let w = tab_written_string(&st, 0);
+        assert!(w.contains("entry one") && w.contains("entry two") && w.contains("entry three"), "all three written inside the start window: {w:?}");
+        st.set_composer_draft("typed later");
+        assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "start failure recorded");
+        st.tick_composer();
+        assert_eq!(
+            st.composer_draft(),
+            "entry one\n\nentry two\n\nentry three\n\ntyped later",
+            "every prompt written in the start window plus any typed draft returns in order"
+        );
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn entry_point_in_new_chat_over_a_shell_tab_starts_agent_and_sends() {
+        let dir = temp_composer_dir("over-shell-tab");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-over-shell", "Over Shell", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("shell tab");
+        st.active_runtime = AgentCliPreset::Claude;
+        st.picker_open = true;
+        st.dispatch_figma_ai_prompt("Make Design", "covered shell prompt", None);
+        for _ in 0..4 {
+            let _ = st.poll_live_agent_bridge();
+            for i in 0..st.tabs.len() {
+                if !st.tabs[i].is_shell_process() {
+                    make_tab_ready_for_test(&mut st, i, true);
+                }
+            }
+            st.tick_composer();
+            st.flush_pending_enter_now();
+        }
+        assert!(st.tabs[0].composer.pending_send.is_empty(), "a user prompt must never queue on a shell tab");
+        let delivered = st.tabs.iter().any(|t| !t.is_shell_process() && String::from_utf8_lossy(&t.written_bytes).contains("covered shell prompt"));
+        assert!(delivered, "the Make design prompt must start the agent and be written to it");
+
+        // When no startable agent is selected over a Shell tab, refuse with NoAgent rather than queueing on the Shell tab.
+        let mut st_no_agent = TerminalState::new_for_session("doc-over-shell-no-agent", "Over Shell No Agent", Some(&dir));
+        st_no_agent.spawn_tab(AgentCliPreset::Shell, None).expect("shell tab");
+        st_no_agent.active_runtime = AgentCliPreset::Shell;
+        st_no_agent.picker_open = true;
+        assert_eq!(st_no_agent.send_to_agent("never queue on shell", None), SendOutcome::Refused(RefuseReason::NoAgent));
+        assert!(st_no_agent.tabs[0].composer.pending_send.is_empty(), "shell tab queue must stay empty");
+
+        st.shutdown();
+        st_no_agent.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn send_on_an_exited_tab_beside_a_live_one_starts_a_new_agent() {
+        let dir = temp_composer_dir("exited-beside-live");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-exited-live", "Exited Beside Live", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("tab 0");
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("tab 1");
+        for t in &mut st.tabs {
+            t.spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - Duration::from_secs(1);
+        }
+        st.picker_open = false;
+        st.active_tab = 1;
+        let _ = st.tabs[1].child.kill();
+        let t0 = Instant::now();
+        while st.tabs[1].is_alive() && t0.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = st.poll_live_agent_bridge();
+        st.set_composer_draft("after the exit");
+        let out = st.send_from_composer_box("after the exit", None);
+        for _ in 0..3 {
+            let _ = st.poll_live_agent_bridge();
+            st.tick_composer();
+        }
+        assert_eq!(out, SendOutcome::Queued);
+        assert_eq!(st.tabs.len(), 3, "Send on an exited tab beside a live one must start a new agent tab");
+        assert_eq!(st.active_tab, 2);
+        assert_eq!(st.composer_draft(), "");
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Queued));
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn held_enter_pauses_flushing_until_next_turn_starts_and_ends() {
+        let dir = temp_composer_dir("held-enter-pause");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-held-enter", "Held Enter", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        assert_eq!(st.send_to_agent("entry one", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("entry two", None), SendOutcome::Queued);
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+
+        // Permission dialog opens before the delayed Enter fires -> Enter is held.
+        run_session_hook(&st, "PermissionRequest");
+        let _ = st.poll_live_agent_bridge();
+        st.flush_pending_enter_now();
+        assert_eq!(st.tabs[0].composer.last_outcome, Some(SendOutcome::Refused(RefuseReason::Permission)));
+
+        // Tool finishes (`PostToolUse`) and an existing turn ends (`Stop`) while entry one is still unsubmitted:
+        // neither tool records nor `Stop` may end the held-Enter pause.
+        run_session_hook(&st, "PostToolUse");
+        let _ = st.poll_live_agent_bridge();
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        run_session_hook(&st, "Stop");
+        let _ = st.poll_live_agent_bridge();
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w = tab_written_string(&st, 0);
+        assert!(!w.contains("entry two"), "entry two must not be pasted after PostToolUse + Stop while entry one is unsubmitted: {w:?}");
+
+        // Once the user submits the held line (`UserPromptSubmit`) and that turn ends (`Stop`), entry two flushes.
+        let _ = st.tabs[0].try_write_bytes(b"\r");
+        run_session_hook(&st, "UserPromptSubmit");
+        let _ = st.poll_live_agent_bridge();
+        st.tick_composer();
+        assert!(!tab_written_string(&st, 0).contains("entry two"), "entry two must wait while the submitted turn is working");
+        run_session_hook(&st, "Stop");
+        let _ = st.poll_live_agent_bridge();
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w2 = tab_written_string(&st, 0);
+        let p1 = w2.find("entry one").expect("entry one written");
+        let p2 = w2.find("entry two").expect("entry two written after turn 1 ended");
+        assert!(w2[p1..p2].contains('\r'), "entry one must be submitted with Enter before entry two is pasted: {w2:?}");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn image_job_queued_behind_user_prompt_at_start_flushes_both_in_order() {
+        let dir = temp_composer_dir("img-behind-user-at-start");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-img-behind", "Img Behind User", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+
+        assert_eq!(st.send_to_agent("user prompt at start", None), SendOutcome::Queued);
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
+        assert_eq!(st.tabs.len(), 1);
+        assert_eq!(st.tabs[0].composer.pending_send.len(), 2);
+
+        // First ready tick flushes the user prompt even when an image job was queued behind it.
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w1 = tab_written_string(&st, 0);
+        assert!(w1.contains("user prompt at start"), "user prompt at start must flush on first ready tick: {w1:?}");
+        assert!(!w1.contains("Image task 7"), "image job must wait for user prompt turn to finish: {w1:?}");
+
+        // Hook-less turn completion where output timestamp changed relative to `output_at_enter` (even if `< enter_written_at`):
+        // exercises the `output_at_enter != Some(out_at)` branch and flushes the queued image job second.
+        let enter_at = st.tabs[0].composer.enter_written_at.expect("enter_written_at recorded");
+        *st.tabs[0].last_output_at.lock().unwrap() = Some(enter_at - READY_QUIET_OUTPUT - Duration::from_millis(50));
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w2 = tab_written_string(&st, 0);
+        let p_user = w2.find("user prompt at start").expect("user prompt written");
+        let p_img = w2.find("Image task 7: Remove background.").expect("image job written second");
+        assert!(p_user < p_img, "user prompt must be written before the image job: {w2:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn image_job_submitted_during_running_turn_waits_for_turn_end() {
+        let dir = temp_composer_dir("img-during-running-turn");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-img-running", "Img Running Turn", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+        assert_eq!(st.send_to_agent("turn one", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Reading the file\u{2026}".into()));
+        st.tick_composer();
+
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Upscale.", None);
+        assert_eq!(
+            *st.tabs[0].agent_status.lock().unwrap(),
+            AgentTabStatus::Working(Some("Reading the file\u{2026}".into())),
+            "submitting an image job must not overwrite a running turn's Working status"
+        );
+
+        for _ in 0..10 {
+            make_tab_ready_for_test(&mut st, 0, true);
+            st.tick_composer();
+            st.flush_pending_enter_now();
+        }
+        assert!(!tab_written_string(&st, 0).contains("Image task 8"), "image job must not be pasted while turn one is still Working");
+
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(tab_written_string(&st, 0).contains("Image task 8: Upscale."), "image job flushes once turn one ends");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn entry_point_refused_over_shell_tab_with_no_startable_agent_keeps_draft() {
+        let dir = temp_composer_dir("shell-no-agent-keeps-draft");
+        let mut st = TerminalState::new_for_session("doc-shell-keep-draft", "Shell Keep Draft", Some(&dir));
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("shell tab");
+        st.active_runtime = AgentCliPreset::Shell;
+        st.picker_open = false;
+
+        st.dispatch_figma_ai_prompt("Make Design", "pricing table", None);
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Refused(RefuseReason::NoAgent)));
+        assert!(st.tabs[0].composer.pending_send.is_empty(), "shell tab queue must stay empty");
+        assert_eq!(st.composer_draft(), "pricing table", "refused entry-point prompt must remain in the composer draft");
+
+        // When New chat is open over the Shell tab with no startable agent, the refused text is also preserved alongside any existing draft.
+        st.picker_open = true;
+        st.dispatch_figma_ai_prompt("Make Design", "hero section", None);
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Refused(RefuseReason::NoAgent)));
+        assert_eq!(
+            st.composer_draft(),
+            "pricing table\n\nhero section",
+            "refused entry-point prompt in New chat over Shell keeps existing draft and refused text"
+        );
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn composer_send_while_enter_is_held_queues_behind_held_line() {
+        let dir = temp_composer_dir("send-while-enter-held");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-send-held", "Send While Held", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        assert_eq!(st.send_from_composer_box("entry one", None), SendOutcome::Written);
+        run_session_hook(&st, "PermissionRequest");
+        let _ = st.poll_live_agent_bridge();
+        st.flush_pending_enter_now();
+        assert_eq!(st.tabs[0].composer.last_outcome, Some(SendOutcome::Refused(RefuseReason::Permission)));
+
+        // Permission dialog closes (`Idle`), leaving entry one pasted on the PTY line without `\r`.
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        let out = st.send_from_composer_box("entry two", None);
+        assert_eq!(out, SendOutcome::Queued, "a composer Send while an Enter is held must queue behind the held line");
+        assert!(!tab_written_string(&st, 0).contains("entry two"), "entry two must not be written onto the unsubmitted entry one line");
+
+        // Once the held line is submitted (`UserPromptSubmit`) and its turn finishes (`Stop`), entry two flushes.
+        let _ = st.tabs[0].try_write_bytes(b"\r");
+        run_session_hook(&st, "UserPromptSubmit");
+        let _ = st.poll_live_agent_bridge();
+        run_session_hook(&st, "Stop");
+        let _ = st.poll_live_agent_bridge();
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w = tab_written_string(&st, 0);
+        let p1 = w.find("entry one").expect("entry one written");
+        let p2 = w.find("entry two").expect("entry two flushed after held turn completed");
+        assert!(w[p1..p2].contains('\r'), "entry one must be submitted with Enter before entry two is written: {w:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn send_gemini_hook_record(st: &mut TerminalState, tab_id: usize, event: &str) {
+        use std::io::Write;
+        let mut log = std::fs::OpenOptions::new().create(true).append(true).open(st.prepared_hook_paths().events()).expect("open gemini hook events log");
+        writeln!(log, r#"{{"t":10,"e":"{event}","tab":"{tab_id}","p":{{"session_id":"g"}}}}"#).expect("write gemini hook record");
+        let _ = st.poll_live_agent_bridge();
+    }
+
+    #[test]
+    fn gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation() {
+        let dir = temp_composer_dir("gemini-held-entry-points");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "gemini", "sleep 30");
+
+        // 1. `dispatch_figma_ai_prompt`: dialog holds paste -> dialog closes -> status Idle -> new text stays queued until PreInvocation.
+        let mut st = TerminalState::new_for_session("doc-gemini-held-dispatch", "Gemini Held Dispatch", Some(&dir));
+        st.path_prepend.push(bin_dir.clone());
+        st.active_runtime = AgentCliPreset::Gemini;
+        st.spawn_tab(AgentCliPreset::Gemini, None).expect("gemini starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        assert_eq!(st.send_from_composer_box("held gemini prompt", None), SendOutcome::Written);
+        st.tabs[0].parser.lock().unwrap().process(b"\x1b[2J\x1b[H  1. Allow once\r\n  2. No, suggest changes (esc)\r\n");
+        st.tabs[0].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+        assert!(st.tabs[0].gemini_dialog_open(), "gemini dialog must be open on screen");
+        st.flush_pending_enter_now();
+        assert_eq!(st.tabs[0].composer.last_outcome, Some(SendOutcome::Refused(RefuseReason::Permission)));
+        assert!(st.tabs[0].composer.flush_paused, "held Enter must set flush_paused");
+
+        // Dialog closes and status is Idle.
+        st.tabs[0].parser.lock().unwrap().process(b"\x1b[2J\x1b[H");
+        st.tabs[0].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        assert!(!st.tabs[0].gemini_dialog_open(), "gemini dialog must be closed");
+        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Idle);
+        let written_at_hold = tab_written_string(&st, 0);
+
+        st.dispatch_figma_ai_prompt("Make Design", "make design card", None);
+        assert_eq!(
+            st.tabs[0].composer.last_outcome,
+            Some(SendOutcome::Queued),
+            "dispatch_figma_ai_prompt after a Gemini dialog hold must stay queued while flush_paused is set"
+        );
+        assert_eq!(st.send_from_composer_box("follow up card", None), SendOutcome::Queued);
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert_eq!(
+            tab_written_string(&st, 0),
+            written_at_hold,
+            "nothing new may be written after dispatch_figma_ai_prompt until a PreInvocation record arrives"
+        );
+
+        let tab_id = st.tabs[0].id;
+        let _ = st.tabs[0].try_write_bytes(b"\r");
+        send_gemini_hook_record(&mut st, tab_id, "PreInvocation");
+        assert!(!st.tabs[0].composer.flush_paused, "PreInvocation must clear flush_paused");
+        send_gemini_hook_record(&mut st, tab_id, "Stop");
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        send_gemini_hook_record(&mut st, tab_id, "PreInvocation");
+        send_gemini_hook_record(&mut st, tab_id, "Stop");
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w = tab_written_string(&st, 0);
+        let p1 = w.find("held gemini prompt").expect("held prompt present");
+        let p2 = w.find("make design card").expect("make design prompt flushed first after PreInvocation");
+        let p3 = w.find("follow up card").expect("follow up prompt flushed second in order");
+        assert!(p1 < p2 && p2 < p3 && w[p1..p2].contains('\r'), "queue must flush in order after PreInvocation: {w:?}");
+        st.shutdown();
+
+        // 2. Separately, `submit_system_image_prompt`: dialog holds paste -> dialog closes -> status Idle -> stays queued until PreInvocation.
+        let mut st_img = TerminalState::new_for_session("doc-gemini-held-image", "Gemini Held Image", Some(&dir));
+        st_img.path_prepend.push(bin_dir);
+        st_img.active_runtime = AgentCliPreset::Gemini;
+        st_img.spawn_tab(AgentCliPreset::Gemini, None).expect("gemini starts");
+        make_tab_ready_for_test(&mut st_img, 0, true);
+
+        assert_eq!(st_img.send_from_composer_box("held before image", None), SendOutcome::Written);
+        st_img.tabs[0].parser.lock().unwrap().process(b"\x1b[2J\x1b[H  1. Allow once\r\n  2. No, suggest changes (esc)\r\n");
+        st_img.tabs[0].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+        st_img.flush_pending_enter_now();
+        assert!(st_img.tabs[0].composer.flush_paused);
+
+        st_img.tabs[0].parser.lock().unwrap().process(b"\x1b[2J\x1b[H");
+        st_img.tabs[0].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+        *st_img.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        let written_at_img_hold = tab_written_string(&st_img, 0);
+
+        st_img.submit_system_image_prompt(AgentCliPreset::Gemini, "Image task 9: Upscale.", None);
+        assert_eq!(
+            st_img.tabs[0].composer.last_outcome,
+            Some(SendOutcome::Queued),
+            "submit_system_image_prompt after a Gemini dialog hold must stay queued while flush_paused is set"
+        );
+        assert_eq!(st_img.send_from_composer_box("after image prompt", None), SendOutcome::Queued);
+        make_tab_ready_for_test(&mut st_img, 0, true);
+        st_img.tick_composer();
+        st_img.flush_pending_enter_now();
+        assert_eq!(
+            tab_written_string(&st_img, 0),
+            written_at_img_hold,
+            "nothing new may be written after submit_system_image_prompt until a PreInvocation record arrives"
+        );
+
+        let img_tab_id = st_img.tabs[0].id;
+        let _ = st_img.tabs[0].try_write_bytes(b"\r");
+        send_gemini_hook_record(&mut st_img, img_tab_id, "PreInvocation");
+        send_gemini_hook_record(&mut st_img, img_tab_id, "Stop");
+        make_tab_ready_for_test(&mut st_img, 0, true);
+        st_img.tick_composer();
+        st_img.flush_pending_enter_now();
+        send_gemini_hook_record(&mut st_img, img_tab_id, "PreInvocation");
+        send_gemini_hook_record(&mut st_img, img_tab_id, "Stop");
+        make_tab_ready_for_test(&mut st_img, 0, true);
+        st_img.tick_composer();
+        st_img.flush_pending_enter_now();
+        let w_img = tab_written_string(&st_img, 0);
+        let q1 = w_img.find("held before image").expect("held prompt present");
+        let q2 = w_img.find("Image task 9: Upscale.").expect("image prompt flushed first after PreInvocation");
+        let q3 = w_img.find("after image prompt").expect("follow up prompt flushed second in order");
+        assert!(q1 < q2 && q2 < q3 && w_img[q1..q2].contains('\r'), "image queue must flush in order after PreInvocation: {w_img:?}");
+        st_img.shutdown();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end() {
+        let dir = temp_composer_dir("img-during-hookless-idle-turn");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "stty -echo 2>/dev/null || true\nsleep 30");
+        let mut st = TerminalState::new_for_session("doc-img-hookless-idle", "Img Hookless Idle", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        // Successful Enter with status left `Idle` (hook-less turn); settle any kernel PTY echo of the input line.
+        assert_eq!(st.send_to_agent("hookless turn one", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        std::thread::sleep(Duration::from_millis(30));
+        let out_at_enter = *st.tabs[0].last_output_at.lock().unwrap();
+        st.tabs[0].composer.output_at_enter = out_at_enter;
+        st.tabs[0].composer.enter_written_at = Some(Instant::now());
+        assert_eq!(*st.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Idle);
+
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 10: Remove background.", None);
+
+        std::thread::sleep(READY_QUIET_OUTPUT + Duration::from_millis(40));
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(
+            !tab_written_string(&st, 0).contains("Image task 10"),
+            "image text must stay absent after READY_QUIET_OUTPUT when no real PTY output or turn-end arrived: {:?}",
+            tab_written_string(&st, 0)
+        );
+        assert_eq!(*st.tabs[0].last_output_at.lock().unwrap(), out_at_enter, "submit_system_image_prompt must not advance last_output_at");
+
+        // 1. Written after a real later output timestamp goes quiet.
+        *st.tabs[0].last_output_at.lock().unwrap() = Some(Instant::now() - READY_QUIET_OUTPUT - Duration::from_millis(40));
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(
+            tab_written_string(&st, 0).contains("Image task 10: Remove background."),
+            "image text must flush once a real later output timestamp goes quiet"
+        );
+
+        // 2. Also written when a turn-end status arrives on the next hook-less Idle turn.
+        std::thread::sleep(Duration::from_millis(30));
+        let out_at_enter_2 = *st.tabs[0].last_output_at.lock().unwrap();
+        st.tabs[0].composer.output_at_enter = out_at_enter_2;
+        st.tabs[0].composer.enter_written_at = Some(Instant::now());
+        assert_eq!(*st.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Idle);
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 11: Relight.", None);
+        std::thread::sleep(READY_QUIET_OUTPUT + Duration::from_millis(40));
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(!tab_written_string(&st, 0).contains("Image task 11"), "second image text must stay absent until real output or turn-end status arrives");
+
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        st.tick_composer();
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(tab_written_string(&st, 0).contains("Image task 11: Relight."), "second image text must flush once a turn-end status arrives");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn working_agent_waits_for_turn_end_before_flushing_next_entry() {
+        let dir = temp_composer_dir("working-turn-end");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-working-turn", "Working Turn", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        assert_eq!(st.send_to_agent("entry one", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("entry two", None), SendOutcome::Queued);
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        // One tick after Enter, before turn 1 starts or ends, entry two must not flush.
+        st.tick_composer();
+        assert!(!tab_written_string(&st, 0).contains("entry two"), "entry two must not flush one tick after Enter");
+        // Turn 1 is running: hook status Working and output streaming.
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        *st.tabs[0].last_output_at.lock().unwrap() = Some(Instant::now());
+        st.tick_composer();
+        let w = tab_written_string(&st, 0);
+        assert!(!w.contains("entry two"), "entry two must not be pasted while turn 1 is still running: {w:?}");
+        // Turn 1 ends -> entry two flushes.
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(tab_written_string(&st, 0).contains("entry two"), "entry two flushes once turn 1 ends");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft() {
+        let dir = temp_composer_dir("flush-count-and-draft-limit");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+
+        let mut st_held = TerminalState::new_for_session("doc-held-copy", "Held Copy", Some(&dir));
+        assert_eq!(st_held.send_to_agent("held message", None), SendOutcome::Queued);
+        assert_eq!(
+            st_held.active_composer().notice.as_deref(),
+            Some("Waiting for an agent\u{2026} your message will be sent"),
+            "held notice uses 'message' consistently"
+        );
+
+        let mut st = TerminalState::new_for_session("doc-flush-count", "Flush Count", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        assert_eq!(st.send_to_agent("entry one", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("entry two", None), SendOutcome::Queued);
+        assert_eq!(st.send_to_agent("entry three", None), SendOutcome::Queued);
+        st.set_composer_draft("typed later");
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("3 messages waiting to send"));
+
+        // Flush entry one -> 2 waiting.
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert_eq!(st.active_composer().notice.as_deref(), Some("2 messages waiting to send"));
+        assert_eq!(crate::agent_composer_text::placeholder(&st, "Claude Code", false, true), "2 messages waiting to send");
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("2 messages waiting to send"));
+
+        // Flush entry two -> 1 waiting: count reads "1 message waiting to send".
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        st.tick_composer();
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert_eq!(st.active_composer().notice.as_deref(), Some("1 message waiting to send"));
+        assert_eq!(crate::agent_composer_text::placeholder(&st, "Claude Code", false, true), "1 message waiting to send");
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("1 message waiting to send"));
+
+        // Queue a fourth entry and exceed the skill limit while "typed later" is in the draft.
+        assert_eq!(st.send_to_agent("entry four", None), SendOutcome::Queued);
+        for builtin in ["design-system-rhythm", "accessibility-wcag", "component-craft"] {
+            st.skills.toggle_skill(builtin);
+        }
+        let extra = write_user_skill(&mut st, &dir, "one-too-many", "Extra body.");
+        st.skills.toggle_skill(&extra);
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        st.tick_composer();
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+        st.tick_composer();
+        assert_eq!(
+            st.composer_draft(),
+            "entry three\n\nentry four\n\ntyped later",
+            "skill-limit refusal returns remaining queued entries and preserves the typed draft"
+        );
+
+        st_held.shutdown();
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn held_prompt_with_trailing_space_and_refused_held_prompt_replay_once_in_order() {
+        let dir = temp_composer_dir("held-spaces-and-refused-replay");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+
+        let mut st = TerminalState::new_for_session("doc-held-sp", "Held Spaces", Some(&dir));
+        st.path_prepend.push(bin_dir.clone());
+        st.active_runtime = AgentCliPreset::Shell;
+        st.dispatch_figma_ai_prompt("Make Design", "Pricing page ", None);
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        for _ in 0..4 {
+            *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+            st.tick_composer();
+            *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+            make_tab_ready_for_test(&mut st, 0, true);
+            st.tick_composer();
+            st.flush_pending_enter_now();
+        }
+        let w = tab_written_string(&st, 0);
+        assert_eq!(w.matches("Pricing page").count(), 1, "the held prompt must be sent exactly once: {w:?}");
+
+        // A held prompt refused at send time (skill limit while New chat is empty), followed by a queued send and a spawn: both are written.
+        let mut st_refused = TerminalState::new_for_session("doc-held-refused", "Held Refused", Some(&dir));
+        st_refused.path_prepend.push(bin_dir);
+        st_refused.active_runtime = AgentCliPreset::Shell;
+        st_refused.picker_open = true;
+        for builtin in ["design-system-rhythm", "accessibility-wcag", "component-craft"] {
+            st_refused.skills.toggle_skill(builtin);
+        }
+        let extra = write_user_skill(&mut st_refused, &dir, "extra-skill", "Extra body.");
+        st_refused.skills.toggle_skill(&extra);
+        st_refused.dispatch_figma_ai_prompt("Make Design", "refused held prompt", None);
+        assert!(st_refused.unattached_composer.pending_send.is_empty(), "refused send is not in pending_send");
+        assert!(st_refused.pending_prompt.is_some(), "refused send is held in pending_prompt");
+
+        st_refused.skills.toggle_skill(&extra);
+        assert_eq!(st_refused.send_to_agent("queued in new chat", None), SendOutcome::Queued);
+        st_refused.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        for _ in 0..4 {
+            *st_refused.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+            st_refused.tick_composer();
+            *st_refused.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+            make_tab_ready_for_test(&mut st_refused, 0, true);
+            st_refused.tick_composer();
+            st_refused.flush_pending_enter_now();
+        }
+        let w_refused = tab_written_string(&st_refused, 0);
+        assert!(
+            w_refused.contains("queued in new chat") && w_refused.contains("refused held prompt"),
+            "both the queued prompt and the replayed held prompt must be written: {w_refused:?}"
+        );
+
+        st.shutdown();
+        st_refused.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

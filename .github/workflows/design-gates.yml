@@ -26,11 +26,25 @@ jobs:
       - name: Spacing, radius and type ratchet
         run: python3 -B scripts/check_spacing_relationships.py
 
+      - name: Chrome colour literal ratchet
+        run: python3 -B scripts/check_chrome_colour_literals.py
+
       - name: Ratchet and token parity unit tests
         run: python3 -B -m unittest discover -s scripts/tests -p "test_*.py" -v
 
       - name: Zero fake UI gate
         run: python3 -B scripts/zero_fake_ui_gate.py
+
+      - name: Ontology parity
+        run: python3 -B scripts/check_ds_ontology_parity.py
+
+      - name: Studio UI file gate (advisory, design/studio-ui.designos against theme.rs)
+        continue-on-error: true
+        run: python3 -B scripts/check_studio_ui_file.py design/studio-ui.designos
+
+      - name: Studio UI theme.rs readability (advisory, unresolved constant or stale skip)
+        continue-on-error: true
+        run: python3 -B scripts/studio_ui_file plan
 
       - name: Token parity (G01, read-only)
         run: |

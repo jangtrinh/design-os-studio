@@ -1,0 +1,12 @@
+# final head: tests/fig_export_text_style_fills.rs inside the full cargo test -p designos-fig --locked
+325:     Running tests/fig_export_text_style_fills.rs (out/cargo/debug/deps/fig_export_text_style_fills-dd3aa3508191c227)
+     Running tests/fig_export_text_style_fills.rs (out/cargo/debug/deps/fig_export_text_style_fills-dd3aa3508191c227)
+
+running 5 tests
+test a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested ... ok
+test a_text_style_without_fills_writes_no_fill_paints_field ... ok
+test a_text_style_with_a_solid_fill_round_trips_its_fill_through_fig ... ok
+test a_solid_fill_on_a_text_style_of_a_file_comes_back_after_a_round_trip ... ok
+test a_text_style_whose_fill_is_a_shader_round_trips_it_byte_equal ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s

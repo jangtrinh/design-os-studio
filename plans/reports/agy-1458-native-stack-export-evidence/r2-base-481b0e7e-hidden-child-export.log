@@ -1,0 +1,114 @@
+# Export of the two hidden-child fixtures (hidden_column(false) and chip_grid() in tests/native_stack_export.rs)
+# on origin/main 481b0e7e, captured from a detached checkout of that commit.
+# The tests variable_hidden_child_stays_in_the_stack_flow and variable_hidden_grid_child_exports_where_it_was_without_an_overlay
+# assert this text byte for byte, except that the SwiftUI grid cells read
+# `.frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)` where base printed the invalid
+# `.frame(maxWidth: .infinity, height: 40)` (the Fill + Fixed fix on this branch).
+=====STACK-SWIFT=====
+VStack(alignment: .leading) {
+    Rectangle()
+        .fill(Color(red: 0.102, green: 0.2, blue: 0.302))
+        .frame(width: 100, height: 24)
+    Spacer()
+    Rectangle()
+        .fill(Color(red: 0.2, green: 0.302, blue: 0.4))
+        .frame(width: 100, height: 32)
+    Spacer()
+    Rectangle()
+        .fill(Color(red: 0.4, green: 0.4, blue: 0.4))
+        .frame(width: 80, height: 20)
+}
+    .padding(16)
+    .frame(width: 300, height: 200, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+=====STACK-COMPOSE=====
+Column(
+    modifier = Modifier
+        .size(width = 300.dp, height = 200.dp)
+        .clip(RoundedCornerShape(8.dp))
+        .background(Color(0xFFF5F5FA), RoundedCornerShape(8.dp))
+        .padding(16.dp),
+    verticalArrangement = Arrangement.SpaceBetween,
+    horizontalAlignment = Alignment.Start
+) {
+    Box(
+        modifier = Modifier
+            .size(width = 100.dp, height = 24.dp)
+            .background(Color(0xFF1A334D))
+    )
+    Box(
+        modifier = Modifier
+            .size(width = 100.dp, height = 32.dp)
+            .background(Color(0xFF334D66))
+    )
+    Box(
+        modifier = Modifier
+            .size(width = 80.dp, height = 20.dp)
+            .background(Color(0xFF666666))
+    )
+}
+=====GRID-SWIFT=====
+Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {
+    GridRow {
+        Rectangle()
+            .fill(Color(red: 0.2, green: 0.4, blue: 0.8))
+            .frame(maxWidth: .infinity, height: 40)
+            .frame(width: 95, height: 40, alignment: .topLeading)
+        Rectangle()
+            .fill(Color(red: 0.302, green: 0.502, blue: 0.902))
+            .frame(maxWidth: .infinity, height: 40)
+            .frame(width: 95, height: 40, alignment: .topLeading)
+    }
+    Rectangle()
+        .fill(Color(red: 0.502, green: 0.502, blue: 0.502))
+        .frame(width: 60, height: 20)
+}
+    .padding(10)
+    .frame(width: 220, height: 100, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+=====GRID-COMPOSE=====
+Box(
+    modifier = Modifier
+        .size(width = 220.dp, height = 100.dp)
+        .clip(RoundedCornerShape(8.dp))
+        .background(Color(0xFFF5F5FA), RoundedCornerShape(8.dp))
+) {
+    LazyVerticalGrid(
+        columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(95.dp, 95.dp).map { it.roundToPx() } },
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        userScrollEnabled = false
+    ) {
+        item {
+            Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+                Box(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .fillMaxWidth()
+                        .background(Color(0xFF3366CC))
+                )
+            }
+        }
+        item {
+            Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+                Box(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .fillMaxWidth()
+                        .background(Color(0xFF4D80E6))
+                )
+            }
+        }
+    }
+    Box(
+        modifier = Modifier
+            .size(width = 60.dp, height = 20.dp)
+            .background(Color(0xFF808080))
+    )
+}
+=====END=====

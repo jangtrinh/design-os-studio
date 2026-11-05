@@ -1,0 +1,58 @@
+{
+  "kind": "Design",
+  "name": "DESIGN-OS Studio Starter",
+  "node_count": 646,
+  "pages": [
+    {
+      "child_count": 3,
+      "id": 1,
+      "name": "Starter screens",
+      "screens": [
+        {
+          "dev_status": null,
+          "height": 812.0,
+          "id": 636047,
+          "kind": "Frame",
+          "name": "01 Onboarding",
+          "source_id": "20787:130311",
+          "width": 375.0
+        },
+        {
+          "dev_status": null,
+          "height": 812.0,
+          "id": 636056,
+          "kind": "Frame",
+          "name": "02 Bio Age",
+          "source_id": "20787:133010",
+          "width": 375.0
+        },
+        {
+          "dev_status": null,
+          "height": 1122.0,
+          "id": 12873,
+          "kind": "Frame",
+          "name": "03 Console - All studies",
+          "source_id": "2416:107335",
+          "width": 1512.0
+        }
+      ]
+    },
+    {
+      "child_count": 1,
+      "id": 636181,
+      "name": "About this file",
+      "screens": [
+        {
+          "dev_status": null,
+          "height": 489.0,
+          "id": 636182,
+          "kind": "Frame",
+          "name": "About",
+          "source_id": null,
+          "width": 560.0
+        }
+      ]
+    }
+  ],
+  "unresolved_comments": 0
+}

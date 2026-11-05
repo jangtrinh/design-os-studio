@@ -1,0 +1,105 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.71s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 8 tests
+test agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state ... FAILED
+test agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it ... FAILED
+test agent_composer::tests::notice_reads_2_messages_waiting_to_send_with_two_entries ... FAILED
+test agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft ... FAILED
+test shell::tests::agent_new_chat_composer::p12b_make_design_then_send_queues_both_and_writes_in_order ... FAILED
+test shell::tests::agent_new_chat_composer::p13_queued_first_message_then_spec_ask_queues_both_in_order ... FAILED
+test shell::tests::agent_new_chat_composer::p12_spec_ask_then_send_queues_both_and_writes_in_order ... FAILED
+test agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice ... FAILED
+
+failures:
+
+---- agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state stdout ----
+
+thread 'agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state' (48909791) panicked at crates/designos-app/src/agent_composer.rs:3031:9:
+ready state 1 must write first prompt: "\u{1b}[200~third prompt\u{1b}[201~"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it stdout ----
+
+thread 'agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it' (48909790) panicked at crates/designos-app/src/agent_composer.rs:3196:9:
+assertion `left == right` failed
+  left: Some("Starting Claude Code… your message will be sent")
+ right: Some("2 messages waiting to send")
+
+---- agent_composer::tests::notice_reads_2_messages_waiting_to_send_with_two_entries stdout ----
+
+thread 'agent_composer::tests::notice_reads_2_messages_waiting_to_send_with_two_entries' (48909788) panicked at crates/designos-app/src/agent_composer.rs:3170:9:
+assertion `left == right` failed: two waiting entries must show '2 messages waiting to send'
+  left: Some("Starting Claude Code… your message will be sent")
+ right: Some("2 messages waiting to send")
+
+---- agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft stdout ----
+
+thread 'agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft' (48909789) panicked at crates/designos-app/src/agent_composer.rs:3116:9:
+entry one must flush before skill limit is exceeded: "\u{1b}[200~entry three\u{1b}[201~\r"
+
+---- shell::tests::agent_new_chat_composer::p12b_make_design_then_send_queues_both_and_writes_in_order stdout ----
+
+thread 'shell::tests::agent_new_chat_composer::p12b_make_design_then_send_queues_both_and_writes_in_order' (48909793) panicked at crates/designos-app/src/shell/tests/agent_new_chat_composer.rs:482:5:
+assertion `left == right` failed: both the held Make design prompt and the typed send are waiting
+  left: Some("Starting Claude Code… your message will be sent")
+ right: Some("2 messages waiting to send")
+
+---- shell::tests::agent_new_chat_composer::p13_queued_first_message_then_spec_ask_queues_both_in_order stdout ----
+
+thread 'shell::tests::agent_new_chat_composer::p13_queued_first_message_then_spec_ask_queues_both_in_order' (48909794) panicked at crates/designos-app/src/shell/tests/agent_new_chat_composer.rs:533:5:
+assertion `left == right` failed: both FIRST message and @prd SPEC ask are waiting on the tab
+  left: Some("Starting Claude Code… your message will be sent")
+ right: Some("2 messages waiting to send")
+
+---- shell::tests::agent_new_chat_composer::p12_spec_ask_then_send_queues_both_and_writes_in_order stdout ----
+
+thread 'shell::tests::agent_new_chat_composer::p12_spec_ask_then_send_queues_both_and_writes_in_order' (48909792) panicked at crates/designos-app/src/shell/tests/agent_new_chat_composer.rs:435:5:
+assertion `left == right` failed: both the held spec Ask and the typed send are waiting
+  left: Some("Starting Claude Code… your message will be sent")
+ right: Some("2 messages waiting to send")
+
+---- agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice stdout ----
+
+thread 'agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice' (48909787) panicked at crates/designos-app/src/agent_composer.rs:3080:9:
+assertion `left == right` failed: Failed start must return user entries in order joined by a blank line and discard the system entry
+  left: "user entry two"
+ right: "user entry one\n\nuser entry two"
+
+
+failures:
+    agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice
+    agent_composer::tests::notice_reads_2_messages_waiting_to_send_with_two_entries
+    agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft
+    agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it
+    agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state
+    shell::tests::agent_new_chat_composer::p12_spec_ask_then_send_queues_both_and_writes_in_order
+    shell::tests::agent_new_chat_composer::p12b_make_design_then_send_queues_both_and_writes_in_order
+    shell::tests::agent_new_chat_composer::p13_queued_first_message_then_spec_ask_queues_both_in_order
+
+test result: FAILED. 0 passed; 8 failed; 0 ignored; 0 measured; 3980 filtered out; finished in 2.47s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,30 @@
+1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+MUTANT 4: the .fig exporter does not write the instance lock override
+change (git diff -U0 crates/designos-fig/src/fig_export.rs, changed lines only):
+-                ov.push(("proportionsConstrained", V::Bool(n.lock_aspect)));
+/dev/disk3s1s1   926Gi    12Gi   121Gi     9%    459k  1.3G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.19s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 1 test
+test an_instance_aspect_lock_override_is_written_as_proportions_constrained ... FAILED
+
+failures:
+
+---- an_instance_aspect_lock_override_is_written_as_proportions_constrained stdout ----
+
+thread 'an_instance_aspect_lock_override_is_written_as_proportions_constrained' (73095747) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4334:37:
+entry for the locked instance
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    an_instance_aspect_lock_override_is_written_as_proportions_constrained
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 41 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+mutant4_done

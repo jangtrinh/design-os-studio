@@ -1,0 +1,8 @@
+# cleanup
+gated code commit: ed4d2e96123d39a033a018843ca74e9741ee3f29
+$ rm -rf out/cargo
+$ ls out/cargo
+ls: out/cargo: No such file or directory
+ls_out_cargo_rc=1
+$ git diff --stat ed4d2e96 -- crates scripts   (empty: nothing in crates/ or scripts/ differs from the gated commit)
+code_diff_since_gated_rc=0

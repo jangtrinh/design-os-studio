@@ -10,7 +10,7 @@ pub struct Options {
     /// Device pixel ratio of `--screenshot` (`--scale 2` writes a PNG twice the `--size`, with crisp UI and text).
     pub scale: Option<f32>,
     /// Address one node: `id:<n>`, `fig:<figma id>`, `name:<text>`, a layer name, or `none`. A selector that matches nothing is an
-    /// error (exit 2), never another node.
+    /// error (exit 2), never another node. Ids of expanded instance content are per session: use `fig:<id>` or a name for those.
     pub select: Option<String>,
     /// Open a menu after loading: `main`, `main/File`, `shape`, `palette` (for screenshots).
     pub menu: Option<String>,
@@ -106,9 +106,19 @@ pub struct Options {
     pub no_caption: bool,
     /// With `--screenshot`: never paint transient toasts (e.g. "Opened <file>") into the capture.
     pub no_toast: bool,
+    /// With `--screenshot`: write a deterministic `LayoutSnapshot` JSON alongside the PNG capture (`#1126`).
+    pub layout_json: Option<PathBuf>,
+    /// With `--screenshot --panel …`: open Agents fixtures in Ask for risky only, without writing settings.
+    pub ask_risky: bool,
     pub help: bool,
     /// `--version` / `-V`: print the release version and exit.
     pub version: bool,
+    /// Test-only Tier A seam (`#1126` §3 rule 6): stub CLI directory applied to `Shell::build`.
+    #[cfg(test)]
+    pub agent_cli_dir: Option<PathBuf>,
+    /// Test-only Tier A seam (`#1126` §3 rules 6–7): fixed wall-clock milliseconds for Home.
+    #[cfg(test)]
+    pub fixed_now: Option<u64>,
 }
 
 impl Options {
@@ -138,6 +148,11 @@ impl Options {
             || self.color_format.is_some()
     }
 
+    /// Screenshot fixtures may open Ask for risky only via `--ask-risky` or `DESIGNOS_SCREENSHOT_ASK_RISKY`.
+    pub fn screenshot_ask_risky(&self) -> bool {
+        self.ask_risky || std::env::var_os("DESIGNOS_SCREENSHOT_ASK_RISKY").is_some()
+    }
+
     /// Whether a launch with these options starts on the home screen: explicitly
     /// with `--home`, or interactively with nothing else to open.
     pub fn wants_home(&self) -> bool {
@@ -149,11 +164,12 @@ impl Options {
 
 /// Values of `--panel`: `agents`, `agents-chat`, `specs`, `assets`, `variables` / `variables-floating` open the local views,
 /// `libraries` the Libraries modal; the others are inspector popups opened on the selection for screenshots.
-pub const PANELS: [&str; 64] = [
+pub const PANELS: [&str; 67] = [
     "agents",
     "agents-chat",
     "agents-picker",
     "agents-skills",
+    "agents-ask-risky",
     "agents-start-failure",
     "agents-approval-command",
     "agents-approval-queued",
@@ -167,6 +183,7 @@ pub const PANELS: [&str; 64] = [
     "specs",
     "terminal",
     "cmdk",
+    "comments",
     "check-designs",
     "check-designs-fixed",
     "assets",
@@ -191,6 +208,7 @@ pub const PANELS: [&str; 64] = [
     "edit-style-grid",
     "stroke-settings",
     "type-details",
+    "effect",
     "effect-noise",
     "effect-texture",
     "effect-glass",
@@ -269,6 +287,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     while let Some(a) = it.next() {
         match a.as_str() {
             "--screenshot" => o.screenshot = Some(it.next().ok_or("--screenshot needs an output path")?.into()),
+            "--layout-json" => o.layout_json = Some(it.next().ok_or("--layout-json needs an output path")?.into()),
             "--size" => {
                 let v = it.next().ok_or("--size needs WxH")?;
                 o.size = Some(parse_size(&v).ok_or_else(|| format!("invalid size '{v}' (expected WxH, e.g. 1600x1088)"))?);
@@ -318,6 +337,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--rulers" => o.rulers = true,
             "--no-caption" => o.no_caption = true,
             "--no-toast" => o.no_toast = true,
+            "--ask-risky" => o.ask_risky = true,
             "--gpu" => o.gpu = true,
             "--grid" => o.grid = true,
             "--zoom" => {
@@ -411,6 +431,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     if o.select.is_some() && o.home {
         return Err("--select needs a file".into());
     }
+    if o.layout_json.is_some() && o.screenshot.is_none() {
+        return Err("--layout-json needs --screenshot".into());
+    }
     Ok(o)
 }
 
@@ -432,9 +455,9 @@ pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
     designos_mcp::tools::errors::parse_spec_json(raw)
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report|export-toast]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout-json OUT.json] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|comments|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report|export-toast]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
-  --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number is a layer name, else a node id. A selector that matches nothing exits 2 and changes nothing
+  --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number that is both a layer name and a node id exits 2 (use id:<n> or name:<n>). Ids of expanded instance content are per session: use fig:<id> or a name for those. A selector that matches nothing exits 2 and changes nothing
   --zoom     a percentage, or fit to frame the --select node (the page when nothing is selected)
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
@@ -445,6 +468,7 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --codegen  headless Agent CLI: generate code for --select (or first screen/page) in the given language (css|tailwind|swiftui|uikit|compose|android-xml|react|html)
   --no-caption  with --panel micro-<slug>:seq:<N>: record frames without the top shortcut caption bar
   --no-toast    with --screenshot: leave transient toasts ('Opened <file>') out of the capture
+  --ask-risky   with --screenshot --panel: open Agents fixtures in Ask for risky only (also DESIGNOS_SCREENSHOT_ASK_RISKY)
   --seed-library  write the showcase sample files (a project with three files) into DIR and exit
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
   --fixture  open a sample document instead of the demo (showcase|proto-vars|no-selection|variables|comments|board|board-empty)
@@ -558,12 +582,14 @@ mod tests {
     #[test]
     fn parses_panel() {
         assert_eq!(p(&["--panel", "agents"]).unwrap().panel.as_deref(), Some("agents"));
+        assert_eq!(p(&["--panel", "agents-ask-risky"]).unwrap().panel.as_deref(), Some("agents-ask-risky"));
         assert_eq!(p(&["--panel", "agents-chat"]).unwrap().panel.as_deref(), Some("agents-chat"));
         assert_eq!(p(&["--agents-chat"]).unwrap().panel.as_deref(), Some("agents-chat"));
         assert_eq!(p(&["--panel", "specs"]).unwrap().panel.as_deref(), Some("specs"));
         assert_eq!(p(&["--panel", "assets"]).unwrap().panel.as_deref(), Some("assets"));
         assert_eq!(p(&["--panel", "variables"]).unwrap().panel.as_deref(), Some("variables"));
         assert_eq!(p(&["--panel", "variables-floating"]).unwrap().panel.as_deref(), Some("variables-floating"));
+        assert_eq!(p(&["--panel", "effect"]).unwrap().panel.as_deref(), Some("effect"));
         assert_eq!(p(&["--panel", "web-capture-report"]).unwrap().panel.as_deref(), Some("web-capture-report"));
         assert!(p(&["--panel", "nope"]).is_err());
         assert!(p(&["--panel"]).is_err());
@@ -585,6 +611,7 @@ mod tests {
         assert!(p(&["--panel", "micro-autolayout:seq:24", "--no-caption"]).unwrap().no_caption);
         assert!(!p(&["--screenshot", "x.png"]).unwrap().no_toast, "screenshots keep toasts by default");
         assert!(p(&["--screenshot", "x.png", "--no-toast"]).unwrap().no_toast);
+        assert!(p(&["--screenshot", "x.png", "--ask-risky"]).unwrap().ask_risky);
         assert!(p(&["--layout-grid", "diagonal"]).is_err());
         assert!(p(&["--select-text", "5"]).is_err());
     }
@@ -690,6 +717,19 @@ mod tests {
     fn the_usage_lists_the_version_flag() {
         assert!(USAGE.contains("--version"), "{USAGE}");
         assert!(USAGE.contains("-V"), "{USAGE}");
+    }
+
+    #[test]
+    fn the_usage_says_ids_of_expanded_instance_content_are_per_session() {
+        let line = USAGE.lines().find(|l| l.trim_start().starts_with("--select")).expect("--help has a line for --select");
+        assert!(line.contains("Ids of expanded instance content are per session: use fig:<id> or a name for those"), "{line}");
+    }
+
+    #[test]
+    fn the_select_help_says_a_number_that_is_a_name_and_an_id_exits_2() {
+        let line = USAGE.lines().find(|l| l.trim_start().starts_with("--select")).expect("--help has a line for --select");
+        assert!(line.contains("a bare number that is both a layer name and a node id exits 2"), "{line}");
+        assert!(!line.contains("a bare number is a layer name, else a node id"), "the old sentence contradicts the overlap error: {line}");
     }
 
     #[test]

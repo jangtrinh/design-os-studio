@@ -219,7 +219,7 @@ fn parse_single_paint_obj(
             plugin_data.insert("pen:image-mode".into(), image_scale_mode_to_pen_str(scale_mode).to_string());
 
             let image_ref = resolve_image_url(url, doc, node_id, base_dir, total_image_bytes, warnings);
-            (Some(Paint { kind: PaintKind::Image { image_ref, scale_mode }, opacity, visible: enabled, blend }), None)
+            (Some(Paint { kind: PaintKind::Image { image_ref, scale_mode, params: Default::default() }, opacity, visible: enabled, blend }), None)
         }
         _ => {
             if let Some(c_str) = obj.get("color").or_else(|| obj.get("fill")).and_then(Value::as_str) {
@@ -521,6 +521,11 @@ pub fn parse_stroke_cap(s: &str) -> StrokeCap {
     match s.trim().to_ascii_lowercase().as_str() {
         "round" => StrokeCap::Round,
         "square" => StrokeCap::Square,
+        "arrow_lines" | "arrow-lines" => StrokeCap::ArrowLines,
+        "arrow_equilateral" | "arrow-equilateral" => StrokeCap::ArrowEquilateral,
+        "triangle_filled" | "triangle-filled" => StrokeCap::TriangleFilled,
+        "diamond_filled" | "diamond-filled" => StrokeCap::DiamondFilled,
+        "circle_filled" | "circle-filled" => StrokeCap::CircleFilled,
         _ => StrokeCap::None,
     }
 }
@@ -581,10 +586,11 @@ pub fn parse_effects(effect_val: Option<&Value>, doc: &Document) -> Vec<Effect> 
                     .unwrap_or(4.0);
                 let radius = obj.get("blur").or_else(|| obj.get("radius")).and_then(|b| resolve_num_or_var(b, doc)).unwrap_or(8.0);
                 let spread = obj.get("spread").and_then(|s| resolve_num_or_var(s, doc)).unwrap_or(0.0);
+                let blend = obj.get("blendMode").and_then(Value::as_str).map(parse_blend_mode).unwrap_or(BlendMode::Normal);
                 if stype == "inner" {
-                    out.push(Effect::InnerShadow { color, offset: Vec2::new(ox, oy), radius, spread, visible, blend: Default::default() });
+                    out.push(Effect::InnerShadow { color, offset: Vec2::new(ox, oy), radius, spread, visible, blend });
                 } else {
-                    out.push(Effect::DropShadow { color, offset: Vec2::new(ox, oy), radius, spread, visible, show_behind: false, blend: Default::default() });
+                    out.push(Effect::DropShadow { color, offset: Vec2::new(ox, oy), radius, spread, visible, show_behind: false, blend });
                 }
             }
             "blur" | "layer-blur" | "layer_blur" => {
@@ -695,7 +701,7 @@ pub fn export_single_paint(p: &Paint, plugin_data: &BTreeMap<String, String>) ->
             }
             Value::Object(obj)
         }
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, .. } => {
             let url = plugin_data.get("pen:image-url").cloned().unwrap_or_else(|| format!("pen:image:{image_ref}"));
             let mut obj = Map::new();
             obj.insert("type".into(), json!("image"));
@@ -709,10 +715,12 @@ pub fn export_single_paint(p: &Paint, plugin_data: &BTreeMap<String, String>) ->
             }
             Value::Object(obj)
         }
+        PaintKind::Shader(_) => Value::Null,
     }
 }
 
 pub fn export_paints_value(paints: &[Paint], bound_var: Option<&String>, plugin_data: &BTreeMap<String, String>) -> Option<Value> {
+    let paints: Vec<&Paint> = paints.iter().filter(|p| !matches!(p.kind, PaintKind::Shader(_))).collect();
     if let Some(fv) = bound_var {
         if paints.len() <= 1 {
             return Some(json!(format!("${fv}")));
@@ -722,7 +730,7 @@ pub fn export_paints_value(paints: &[Paint], bound_var: Option<&String>, plugin_
         return None;
     }
     if paints.len() == 1 {
-        let p = &paints[0];
+        let p = paints[0];
         if let PaintKind::Solid(c) = p.kind {
             if p.visible && (p.opacity - 1.0).abs() <= 1e-4 && matches!(p.blend, BlendMode::Normal | BlendMode::PassThrough) {
                 return Some(json!(format_pen_color(c)));
@@ -730,7 +738,7 @@ pub fn export_paints_value(paints: &[Paint], bound_var: Option<&String>, plugin_
         }
         return Some(export_single_paint(p, plugin_data));
     }
-    let arr: Vec<Value> = paints.iter().map(|p| export_single_paint(p, plugin_data)).collect();
+    let arr: Vec<Value> = paints.into_iter().map(|p| export_single_paint(p, plugin_data)).collect();
     Some(Value::Array(arr))
 }
 
@@ -798,6 +806,11 @@ pub fn export_stroke_value_filtered(
             StrokeCap::None => "none",
             StrokeCap::Round => "round",
             StrokeCap::Square => "square",
+            StrokeCap::ArrowLines => "arrow_lines",
+            StrokeCap::ArrowEquilateral => "arrow_equilateral",
+            StrokeCap::TriangleFilled => "triangle_filled",
+            StrokeCap::DiamondFilled => "diamond_filled",
+            StrokeCap::CircleFilled => "circle_filled",
         };
         sobj.insert("cap".into(), json!(cap_str));
     }

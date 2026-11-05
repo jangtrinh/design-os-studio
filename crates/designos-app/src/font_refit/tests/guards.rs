@@ -55,11 +55,11 @@ fn a_text_that_a_layout_resized_between_two_slices_is_left_alone() {
         }
     });
     let widened = size_of(&app, second);
-    assert!(widened.x > recorded.x + 50.0 && widened.y == recorded.y, "the layout gave the text a width: {recorded:?} then {widened:?}");
+    assert!(widened.x > recorded.x + 50.0, "the layout gave the text a width: {recorded:?} then {widened:?}");
+    assert!(fits(&app, second), "wrapping text takes the arrived face's lines at that width");
     assert!(app.fonts.refit.stand_in.contains_key(&second), "the record is still there: a width a layout gave is not an edit of the text");
     settle(&mut app);
-    assert!(!fits(&app, second), "the face changes what this app measures, so a re-fit would show");
-    assert_eq!(size_of(&app, second), widened, "the text no longer holds the box its edit committed: it keeps the box it has");
+    assert_eq!(size_of(&app, second), widened, "a later pass does not move a box that already matches the measure");
 }
 
 #[test]

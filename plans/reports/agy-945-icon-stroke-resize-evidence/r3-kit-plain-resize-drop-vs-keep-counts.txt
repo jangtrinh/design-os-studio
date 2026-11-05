@@ -1,0 +1,4 @@
+with_valid_network_and_bake=12545 dropped=12399 kept=146
+stroke aligns: {"Center": 12331, "Inside": 172, "Outside": 42}
+  kept because inside_outside_with_open_chain: 83
+  kept because vertex_join_differs: 63

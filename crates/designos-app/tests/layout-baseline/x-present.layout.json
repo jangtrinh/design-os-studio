@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "case": "x-present",
+  "size": [
+    1600,
+    1088
+  ],
+  "scale": 1.0,
+  "regions": {
+    "canvas": null,
+    "home": null,
+    "left_panel": null,
+    "notes": null,
+    "present": [
+      0.0,
+      0.0,
+      1600.0,
+      1088.0
+    ],
+    "rail": null,
+    "right_panel": null,
+    "tab_bar": null,
+    "title_bar": null,
+    "variables_full": null
+  },
+  "overlays": [],
+  "named": {
+    "present-close": {
+      "region": "present",
+      "rect": [
+        1560.0,
+        8.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "present-flow": {
+      "region": "present",
+      "rect": [
+        16.0,
+        12.0,
+        200.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "present-fullscreen": {
+      "region": "present",
+      "rect": [
+        1456.0,
+        12.0,
+        96.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "present-restart": {
+      "region": "present",
+      "rect": [
+        224.0,
+        12.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "present-vars-toggle": {
+      "region": "present",
+      "rect": [
+        308.0,
+        12.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    }
+  },
+  "unnamed": [],
+  "scroll": []
+}

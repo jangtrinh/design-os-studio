@@ -2,6 +2,247 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.9] - 2026-11-05
+
+A feature release from `main`: image adjustments, a Project tab for docs, faster FigJam connectors that now survive `.fig` files, and a large set of fixes carried from @NamAIEngineer.
+
+### Added
+- **Images and effects.**
+  - Image fills get Exposure, Contrast, Saturation, Temperature, Tint, Highlights and Shadows sliders with a Reset, and the image fill picker gets rotate buttons and a tile scale slider. Switching Fill or Fit to Crop keeps the framing you see (#163, PR #1595).
+  - Custom shader effects and fills survive `.fig`, REST and `.designos` round trips. Studio does not draw them: the inspector lists each one as "Shader (not rendered)" with a visibility toggle and a remove button (#39, PR #1602). A `.designos` file that holds a shader cannot be opened by an older Studio.
+- **Project docs.**
+  - A new `designos-docs` crate reads and writes a project's Markdown docs and its `docs/docs-manifest.json`. Markdown Studio did not edit is written back byte for byte, a write refuses when the file changed on disk, and edits made outside Studio are reported within a second (#1523, PR #1571).
+  - A Project tab with a document tree, a reading page and an "On this page" outline (#1524, PR #1617).
+  - Read-only MCP tools let an agent list and read project documents; write tools and live co-editing come later (#1528, PR #1617).
+- **FigJam connectors.**
+  - Connector routes are cached and hit tests skip far connectors. On a board with 1,500 connectors, pan and zoom went from about 630 ms to 1.3 ms a frame, and dragging a node with 150 attached connectors from about 205 ms to 5 ms (release build, Apple M4 Max) (#1223, PR #1606).
+  - In a design file, `.fig` and REST export write each connector as a vector (a group with a label chip when it has a label) with its arrowheads and a marker, and open brings it back as a live connector linked to both ends. Vectors without the marker stay vectors. Board files keep their connector records and the connector fields Studio does not model (#1599, PR #1614).
+
+### Fixed
+- **Gradient picker and inspector.**
+  - With a gradient picker open, Delete and Backspace remove the selected stop instead of the layer, and a gradient keeps its last two stops; carried from PR #1514 by @NamAIEngineer (#1434, PR #1612).
+  - With a picker open, Cmd+Z undoes the right step, and after an undo or redo the open fill or stroke picker takes the document's paint, so the next edit cannot bring an undone gradient back; carried from PR #1521 by @NamAIEngineer (#1434, PR #1612).
+  - Mixed values are read from every selected layer, not the first 128; carried from PR #1558 by @NamAIEngineer (#1539, PR #1612).
+- **Styles and variables.**
+  - K-scale on a text layer detaches its linked text style; carried from PR #1507 by @NamAIEngineer (#1432, PR #1616).
+  - Applying a stroke or effect style, pasting properties, and removing or reordering fills, strokes and effects no longer leave stale variable bindings; carried from PRs #1510, #1511, #1509 and #1513 by @NamAIEngineer (#1434, PR #1616).
+  - Applying or publishing a text style without paragraph spacing or indent keeps the layer's own values instead of resetting them to 0; carried from PR #1393 by @NamAIEngineer (#1279, PR #1616).
+  - A font weight set through a variable binding, the inspector, a spec, MCP or an importer moves a variable font's `wght` axis too, so the text draws at the new weight; carried from PR #1414 by @NamAIEngineer (#891, PR #1616).
+- **Text.**
+  - Typing after a bold, italic, underline or strikethrough toggle at a collapsed caret detaches the linked text style; carried from PR #1497 by @NamAIEngineer (#1428, PR #1616).
+  - Consecutive different text style shortcuts in one text session undo as separate steps; carried from PR #1496 by @NamAIEngineer (#1430, PR #1616).
+  - The text size shortcuts change the size once per press during a text session, not twice; carried from PR #1493 by @NamAIEngineer (#1429, PR #1616).
+  - Text fields in the app start their text at the requested inset, not at the field edge; carried from PR #1423 by @NamAIEngineer (#1389, PR #1616).
+  - Text strokes follow stroke alignment, Inside and Outside, on the CPU and GPU canvas, per style run. Outline stroke and Flatten match the live text; carried from PR #1607 by @NamAIEngineer (#1504, PR #1613).
+  - Undo during an IME composition no longer brings the composition back as typed text; carried from PR #1133 by @NamAIEngineer (#1038, PR #1620).
+- **Layout and layers.**
+  - A group's bounds ignore hidden children when it is refit after an edit, so an edit inside a group keeps the box Resize to fit gave it; carried from PR #1596 by @NamAIEngineer (#1503, PR #1611).
+  - Dropping several layers at once keeps their order; carried from PR #1079 by @NamAIEngineer (#938, PR #1620).
+- **Effects.** Background blur on a layer with no visible fill or stroke no longer blurs what is behind it, as in Figma; carried from PR #1371 by @NamAIEngineer (#1328, PR #1624).
+- **`.fig` and REST import and export.**
+  - Saving to `.fig` keeps an instance's text style relink or detach; carried from PR #1383 by @NamAIEngineer (#1347, PR #1622).
+  - DTCG import resolves aliases for duplicate manifest groups in token-file order and warns about the duplicate; carried from PR #1373 by @NamAIEngineer (#1326, PR #1622).
+  - After an instance swap, nested instance layers take the new component's name unless they have their own name override; carried from PR #1418 by @NamAIEngineer (#1330, PR #1622).
+  - Opening a file whose layers or styles use variables the file does not hold keeps those links and says in the open toast how many variables are missing; carried from PR #1512 by @NamAIEngineer (#1434, PR #1622).
+  - SVG import names a `<text>` layer after its `id`, like other elements; carried from PR #1077 by @NamAIEngineer (#773, PR #1620).
+- **Export.**
+  - A Compose grid that hugs its width keeps that width; carried from PR #1584 by @NamAIEngineer (#1565, PR #1619).
+  - CSS and Tailwind write the resolved stroke width when it is bound to a variable, and Tailwind keeps a bound zero-width stroke; carried from PR #1570 by @NamAIEngineer (#1552, PR #1619).
+  - An export error toast names the path that was tried; carried from PR #1156 by @NamAIEngineer (#1152, PR #1620).
+  - Export Frame as `.spec.json` refuses a link at the destination; carried from PR #1149 by @NamAIEngineer (#1073, PR #1620).
+- **App.**
+  - After a failed library save, Quit, closing, switching tabs and replacing ask first, "Don't Save" leaves the file on disk unchanged, and a reload from disk no longer overwrites unsaved library edits; carried from PR #1198 by @NamAIEngineer (#979, PR #1620).
+  - `--select id:` after `--import-capture` no longer calls a captured layer an expanded instance, and the message for ids that exist only in the session is clearer; carried from PR #1364 by @NamAIEngineer (#1340, PR #1620).
+
+### Known issues
+- Colour pickers for text, shadow, page, grid and noise can still bring back an undone colour on the next edit (#1618).
+- Outline stroke of an Outside text stroke paints a darker band where a chain of more than 128 touching glyphs is split (#1621).
+- Image adjustments are not applied in SVG and PDF exports.
+- An older Studio does not list a project's deleted doc pages in the trash, and Empty trash erases them.
+- Not yet checked by opening a `.fig` with exported connectors in Figma itself (#1599).
+- The two issues listed for 0.7.8, text strokes ignoring alignment (#1504) and group bounds counting hidden children (#1503), are fixed in this release (see Fixed). The known issues listed for 0.7.5 still apply. The Windows test suite stays advisory; releases are verified on macOS (#1158).
+
+## [0.7.8] - 2026-11-04
+
+A feature release from `main`: arrowheads and the Arrow tool, image crop and rotation, more glass and noise settings, corner and aspect controls in the inspector, and `.fig` round-trip fixes.
+
+### Added
+- **Strokes.**
+  - Arrowhead caps on lines and vectors, drawn live and kept through `.fig` and REST (#859, PR #1591).
+  - Start point and End point rows in the stroke panel, and the Arrow tool (Shift+L) (#859, PR #1592).
+  - A dash cap for dashed strokes (#1478, PR #1543).
+- **Images.** Crop, rotation and tile scale on image fills, kept through `.fig` and REST (#163, PR #1585).
+- **Effects.** Glass splay and bevel, and noise and texture X/Y size, kept through `.fig` and REST (#38, PR #1593).
+- **Inspector.**
+  - Individual corner radius fields and a corner smoothing slider (#1466, PR #1533).
+  - A lock aspect ratio toggle next to W and H (#1468, PR #1540).
+  - Truncate text and max lines in Type settings (#1467, PR #1541).
+  - Properties exposed from nested instances (#1471, PR #1559).
+- **Edit menu.** Select same text properties and font, Paste and match style, and Swap fill and stroke, as in Figma (#1477, PR #1556).
+- **Colour picker.** Arrow keys step the OKLCH and OKLAB values (#1459, PR #1554).
+
+### Fixed
+- **`.fig` round trip.**
+  - Instance stroke and corner overrides keep their baked geometry (#1508, PR #1548).
+  - An instance keeps its own aspect lock (#1542, PR #1547).
+  - A variable's stroke colour scope survives a save and reopen (#1550, PR #1567).
+- **Components.** Nested instance copies follow later changes to the main component's property values; carried from PR #1586 by @NamAIEngineer (#1564, PR #1589).
+- **Vector.**
+  - Resizing an imported vector keeps its stroke weight (#945, PR #1566), also when the stroke mixes alignments or joins (#1575, PR #1588).
+  - Shift keeps the aspect on edge scale handles, with resize cursors (#477, PR #1562).
+- **Variables.** STROKE-scoped colours are offered everywhere a stroke colour is bound (#1499, PR #1549).
+- **Layout.** Column-locked grid children are placed the way Figma does (#1441, PR #1560).
+- **Effects.** A fill-less frame's shadow knockout follows what its children paint (#1277, PR #1569). A shadow's blend mode survives `.pen` and SVG round trips (#1278, PR #1577).
+- **Styles.** Deleting a style keeps the look it had when deleted (#1136, PR #1576).
+- **Export.** CSS and Tailwind grid rows and gaps match the layout solver, variables included (#1431, PR #1553). SwiftUI Fill plus Fixed frames are valid, and absolute children stay out of stack flow (#1454, #1458, PR #1563).
+- **App.** Copy and paste properties shortcuts work in a real window (#1557, PR #1568).
+
+### Known issues
+- Text strokes ignore stroke alignment (#1504). Group bounds count hidden children (#1503).
+- The known issues listed for 0.7.5 still apply. The Windows test suite stays advisory; releases are verified on macOS (#1158).
+
+## [0.7.7] - 2026-11-02
+
+A fix and feature release from `main`: zoomed-out frames no longer go blank, `.fig` instance overrides survive a save and reopen, and Figma basics from the styles, layout, components and vector work land.
+
+### Added
+- **Colour picker.** OKLCH and OKLAB colour modes (#137, PR #1451).
+- **Object menu.** Resize to fit shrinks or grows a frame to its visible content; Paste to replace keeps its own shortcut (#1470, PR #1488).
+- **Inspector.** A variable bind icon is always visible on bindable fields, and Typography fields get bind entry points (#876, #133, PR #1452).
+- **Canvas selection.** A click selects from the outside in like Figma, and Shift-click or Shift-drag adds the matching layers (#1482, PR #1489).
+- **Vector.** Flatten and Outline stroke convert text to vector paths (#1469, PR #1491).
+- **Masks.** Alpha, Vector and Luminance mask types (#1465, PR #1492).
+
+### Fixed
+- **GPU canvas.** A page viewed zoomed far out draws full detail once the view is still, instead of frames with most of their text and small content missing (PR #1485).
+- **`.fig` round trip.**
+  - An instance's fill and stroke overrides keep their own colour style instead of the main component's, so gradient swatches in the Untitled UI kit are no longer drawn purple (#1464, PR #1484).
+  - Saving to `.fig` keeps an instance's own size, opacity and other root overrides (#834, PR #1505).
+- **Export.** Native code export (SwiftUI, UIKit, Compose, Android XML) places grid children on the layout solver's tracks (#484, PR #1450).
+- **Layout.** Wrapped Fill-width text re-measures its height after a width change (#856, PR #1360).
+- **App.** A narrow window no longer panics (PR #1483). The Auto-save OFF switch shows its track edge (PR #1463).
+- **Agents.** A second send while a prompt waits is queued behind it instead of replacing it (#1437, PR #1461).
+- **`designos-mcp`.** A `set_slot` op in `designos_apply_batch` fills the instance's slot instead of answering ok and changing nothing; carried from PR #1352 by @NamAIEngineer (#1339, #1498, PR #1515).
+
+### Known issues
+- The two GPU canvas and instance-fill issues listed for 0.7.6 are fixed in this release (see Fixed).
+- Text strokes ignore stroke alignment (#1504). Group bounds count hidden children (#1503).
+- The known issues listed for 0.7.5 still apply. The Windows test suite stays advisory; releases are verified on macOS (#1158).
+
+## [0.7.6] - 2026-11-01
+
+A fix release from `main`: Untitled UI-style kits import with the right text sizes, instance swaps keep your overrides, and the inspector and the agent tools gain the work merged since 0.7.5.
+
+### Added
+- **Inspector.**
+  - Bind variables on a layer's effect rows and on gradient stops (#132, PR #1425).
+  - Instance properties are listed in the order the designer set in Figma, with the source component, its description, and an ellipsis for long values (PR #1403).
+- **Agents.**
+  - The Agents panel is simpler and uses the dark kit (#1144, PR #1438).
+  - Approvals: an "Ask for risky only" mode, and a grant that lasts for the session for edits you have already allowed (PR #1312).
+- **`designos-mcp`.**
+  - Each tool publishes its risk tier and accurate tool annotations (PR #1310).
+  - `designos_close_document` closes a document with an explicit policy for unsaved changes and an optional save path, so an agent is no longer stuck on a "Save changes?" dialog (#1282, PR #1353).
+  - A `LOOP_SUSPECTED` hint when an agent repeats the same call, alternates between two, or keeps calling a failing tool (#1290, PR #1354).
+  - Errors carry an `error_kind` (retryable, fatal or needs a person) (#1291, PR #1359).
+
+### Fixed
+- **`.fig` import.**
+  - An instance text override that names a text style now links that style, so text in kits such as Untitled UI no longer comes out one size too big and clipped ("Overviev", "Faceboo") (#1327, PR #1348).
+  - Design-token aliases resolve by their manifest group (PR #1323).
+- **Components.** Swapping an instance keeps the overrides set on its layers, the way Figma does (#1427, PR #1449).
+- **Typography.** Editing a Typography field that a text style owns detaches the style, so the panel never shows a style the text no longer matches (#1026, PR #1424).
+- **Export.** CSS and Tailwind grids use the layout solver's track sizes and row heights (#484, PR #1426).
+- **Controls.** The radio card's focus ring follows the card's corners (#1436, PR #1444), and a closed dropdown paints its keyboard focus ring (#1273, PR #1351).
+- **CLI.** `--select` refuses a value that matches both a layer name and an id, and refuses ids that exist only in a session (#1319, PR #1334). Hug text sizes from a spec are whole pixels (#1321, PR #1332).
+- **Windows.** The app binaries get an 8 MiB main-thread stack (PR #1413).
+
+### Removed
+- The plugin manifest import that nothing used, and the plugin claims that went with it (PR #1410).
+
+### Known issues
+- On the GPU canvas, a page viewed zoomed far out can show frames with most of their text and small content missing, even after the view is still. A fix that draws full detail once the view settles is in progress.
+- In some `.fig` kits, an instance whose fill override names its own colour style draws the main component's colour instead, for example gradient swatches drawn purple in the Untitled UI kit (#1464).
+- The known issues listed for 0.7.5 still apply. The Windows test suite stays advisory; releases are verified on macOS (#1158).
+
+## [0.7.5] - 2026-10-30
+
+**UI revamp, slice 1** ([milestone v0.7.5](https://github.com/jangtrinh/design-os-studio/milestone/57)): Studio gets a new dark look, painted from one shared set of controls. Colours, type, spacing, corner radii and control sizes follow one scale across Home, the window chrome, the left panel, popovers, dialogs, the command bar, `Assets`, `Variables`, `Libraries` and `Check designs`. Regions, panel widths and the order of controls stay where they were, and rows, buttons and text grow only where the new scale says so.
+
+### Changed
+- **Colours.**
+  - Studio's chrome moves to a neutral dark palette: a near-black background, dark grey surfaces and dividers, Studio orange for brand actions, and an orange keyboard focus ring (#1142, PR #1343).
+  - The canvas's inline auto-layout editor no longer draws a field box inside its frame (#1142, PR #1343).
+- **Type, spacing and control sizes.**
+  - Body text is 12 px with three text weights (regular, medium and semibold), and captions and labels take new sizes and line heights. Corner radii are 6, 8, 12 and 16 px with nested corners concentric, and controls and badges come in fixed size steps. Rows, fields and text grow where the scale says, and regions and panel widths stay (#1143, PR #1349).
+  - Dev Mode shows a top-level frame's status once, as the badge beside its name, and the export scale chevron has a 24 px pointer target (#1143, PR #1349).
+- **Controls.**
+  - Buttons, fields, checkboxes, toggles, radio cards, tabs, rows, menu items, badges, tags, tooltips and progress controls take their colours, border, radius and focus ring from one shared look (#1139, PR #1369).
+  - Menu items sit inset 8 px inside a panel with a 16 px corner radius, and the submenu chevron uses the item's icon colour (#1139, PR #1369).
+  - A keyboard-focused control draws a 2 px focus ring, 2 px outside its edge, in every state and following the control's shape (#1139, PR #1369).
+  - Popover checkboxes stay at the row's left edge. Colour swatches show the focus ring of the control that holds focus and never take the row's click (#1139, PR #1369).
+  - A switch shorter than 24 px takes clicks in a 24 px band around its track (#1155, PR #1380).
+- **Window chrome.**
+  - The title bar, file tabs, left rail, floating toolbar, rulers, shell menus and toasts use the new dark look and the shared controls, with their hover, pressed, selected and focus states. Regions, widths and control order stay, and heights change only where a control or text size grew (#1119, PR #1376).
+  - The tab bar drops the rose close-button hover, and small close buttons and chevrons keep a 24 px pointer target (#1119, PR #1376).
+  - A 4 px press band beside each ruler makes the strip easier to grab. A click or release in the band without a drag drops no guide, and a guide you already grabbed and nudge inside the band is kept (#1119, PR #1376).
+- **Popovers, dialogs and the command bar.**
+  - Popovers, menus, dialogs, toasts, the command bar, Find, comments and version history use the new dark look and the shared controls (#1146, PR #1375).
+  - The command bar has 36 px rows with separate hover and selected looks. Enter runs the row picked with the keyboard, and hovering does not move that pick (#1146, PR #1375).
+  - The import path and save version dialogs use 14 px body text and 40 px footer buttons (#1146, PR #1375).
+  - The context menu and the layer picker use 32 px rows with an 8 px inset, and Find, comments and version history use the extra-small buttons (#1146, PR #1375).
+  - Brand buttons use a dark label on orange, and destructive buttons use a white label (#1146, PR #1375).
+- **Pages and Layers.**
+  - The left panel (file name, `Pages`, the Dev section and `Layers`) uses the new dark look and keeps its 240 px width, its section order and every control's place (#1120, PR #1377).
+  - Page rows grow to 32 px, row fills are neutral greys, and hover, selected and focus states come from the shared rows. Icon buttons in the panel grow to 32 px (#1120, PR #1377).
+  - Studio orange marks live state (drop targets and canvas hover), and component layers stay cyan (#1120, PR #1377).
+  - After a click on a page row, the keyboard stays on the canvas (#1120, PR #1377).
+  - The Dev list and the layer filter use the same rows and controls (#1120, PR #1377).
+- **Home.**
+  - Home takes its colours from the same dark palette as the editor. `+ Design file` is Studio orange with a dark label, replacing the blue (#1138, PRs #1350 and #1378).
+  - The page and sidebar use dark neutral surfaces with hairline borders. Header and filter buttons are 36 px, and inputs, menus and badges use the shared controls (#1138, PR #1378).
+  - The layout stays: the 264 px sidebar, the header with title and actions, the filter and sort bar, the file grid or list, and Trash at the bottom of the sidebar (#1138, PR #1378).
+- **Assets, Variables, Libraries and Check designs.**
+  - `Assets`, `Variables`, `Libraries`, `Plugins` and `Check designs` use the new dark look and the shared controls. Regions, widths, columns and order stay (#1155, PR #1380).
+  - In `Assets`, the search field rests on the neutral border with no blue outline and shows the focus ring only while it has focus. The filter and view controls are 32 px icon buttons, and group rows have no chevron and take a hover fill (#1155, PR #1380).
+  - In `Variables`, value cells draw nothing at rest, take a hover fill, and show a focused field with the focus ring while you edit. Booleans use the switch, alias pills are 24 px, and `Create variable` is centred in its bar. The edit popover closes with a cross and uses checkboxes (#1155, PR #1380).
+  - In `Libraries`, the dialog uses the new dialog look with a 36 px field and buttons and 8 px gaps. Change labels such as `New` and `Changed` are status chips, names stop short of the update button, the update button fits its label, the switch is the shared switch, and the description hint sits inside its field (#1155, PR #1380).
+  - In `Check designs`, rule rows use checkboxes, and the contrast choice is a segmented control (#1155, PR #1380).
+
+### Fixed
+- **Popovers, dialogs and the command bar.**
+  - In a small window the command bar stops 8 px above the bottom toolbar and scrolls its rows instead of covering the toolbar (#1146, PR #1375).
+  - The comment menu button no longer covers the first line of a message (#1146, PR #1375).
+  - Placeholder text in text fields takes the placeholder grey (#1146, PR #1375).
+- **Window chrome.**
+  - The import toast shows `Details` once, as a button with a semibold label, and the duplicate word in the message is gone (#1119, PR #1376).
+  - A click just past the left panel's resize band reaches the canvas (#1119, PR #1376).
+- **Controls.**
+  - Disabled controls inside a disabled panel dim once, not twice (#1139, PR #1369).
+
+### Known issues
+- Scrolling the terminal with the mouse wheel after a large agent edit is not fixed, and the terminal parts of #1173 were not smoke-tested. #1173 stays open on 0.7.1. The `changed layers` card scrolling from PR #1276 is in 0.7.0.
+- Shadow cut-out of a frame with no fill cuts the wrong region when a child is a mask, a group, or paints nothing (#1277).
+- A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG (#1278).
+- Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 (#1279).
+- Esc on the Other CLI menu or form also reaches Codex and puts it in rewind mode (#1097).
+- A document with no path gives `designos-mcp` the whole disk as its workspace (#1074). In Ask mode each `designos-mcp` call asks first.
+- A prompt that contains `No, suggest changes` can hold the automatic Enter, and refuse sends, in a Gemini Ask tab until the line scrolls off (#1066).
+- Antigravity, Gemini CLI and Grok start MCP servers from copies of the session config that an agent can write, so a server command added there could run outside any sandbox (#1048). It needs an agent that can already write its session folder without asking, such as Codex under your own `workspace-write` setting. Studio checks and rewrites these copies when a tab starts. It does not stop an agent that writes later, and Grok may read an edited MCP config while a session runs [unverified: from Grok's source, not run]. Studio moves aside the sources that Grok's and Antigravity's docs and source name, and a later version of either CLI may read more. Workaround: in a window where an agent can write without asking, do not run a Grok or Antigravity tab in Ask mode. Planned for a later release: run Grok and Antigravity from a folder only that tab can write.
+- Gemini CLI in Ask mode reads `tools.allowed` and other settings from `.gemini/settings.json` in the session folder, which an agent can write (#1047). Some keys there skip Gemini's confirmation prompt, and `hooks` and `tools.discoveryCommand` run a command when the next Gemini tab starts. Gemini 0.35 has no switch that ignores workspace settings for one run. Studio rewrites the file when a tab starts, and an Ask-mode Gemini tab refuses to start when the rewrite fails, so a read-only `.gemini` no longer keeps an agent's file. Planned fix: #1059.
+- Ask covers agent tabs started from Studio. The `designos` CLI, which you run yourself, and a `designos-mcp` started by another host are not gated by Ask: that host approves its own MCP calls (#1101). A real MCP-level approval gate is planned for a later release.
+- Codex, Grok, Antigravity and Gemini CLI ask for approval in their own terminal menu, and the panel shows `Open tab`; Approve and Deny in the panel exist for Claude only (#930). Clicking an option in Codex's own approval menu does nothing, so use the arrow keys and Enter (#1096).
+- Gemini CLI and Grok in Ask mode: the status line may not show a waiting state for every approval prompt. For Gemini, the state comes from the confirmation dialog on the tab's screen or from Gemini's `ToolPermission` notification. The `ask_user` and `exit_plan_mode` dialogs draw no `No, suggest changes` option, and a panel narrower than 29 columns hides a cut label, so a wait there starts only from a hook record. The screen check is on for Gemini 0.35.x and 0.65.x, read from source only. For another Gemini version, a No answer leaves `Needs approval` standing until you type a prompt. Where Studio writes no Gemini hooks file (Windows, or Gemini already has system defaults), a wait starts only from the screen. For Grok, the state comes from its `permission_prompt` notification, and Studio never checked that payload against a real Grok [unverified]. No real Gemini or Grok approval prompt was run.
+- Export Frame as `.spec.json` writes into `designos_specs` in the temporary folder when Studio finds no source tree, by path, so an agent that can write the temporary folder could plant a link at the file name. It needs you to run the export (#1073).
+- The Windows test suite is advisory for 0.7.5. Releases are verified on macOS, and known Windows test failures are tracked in #1158.
+- Windows (releases are verified on macOS only):
+  - Stop on Windows is not checked by any test. The Stop tests fail there because their Python stub imports `tty`, which Python does not provide on Windows (#1066).
+  - Palette auto-fix undo is unverified on Windows: eight tests show different auto-layout sizes after one undo, and the cause is not known (#1066).
+  - The link checks for session files are not race-free on Windows (#1061, #1068), an Ask-mode Grok or Antigravity tab refuses an entry that is not Studio's instead of moving it (#1069), and no hooks file is written for Gemini, so its `Needs approval` comes from the screen only (#1058, #1066).
+  - Windows was not built or run by hand for these changes.
+- Not checked against a live model turn: the Ask-mode Claude launch (skill from a private plugin, Studio's hooks and MCP config from private copies), the Gemini approval state, and the Ask-mode Grok and Antigravity checks were tested with stubs and source reading, not with a real Claude, Gemini, Grok or Antigravity turn.
+- Of the 38 GUI fixes from 0.6.1 listed in #1102, 16 were re-checked by tests. The rest are not re-tested yet, and U-17 (a new design file is named "Untitled") is still open (#1102).
+
 ## [0.7.0] - 2026-10-28
 
 **Effects, styles and export** ([milestone v0.7.0](https://github.com/jangtrinh/design-os-studio/milestone/69)): Studio adds blend modes on drop and inner shadows, matches Figma's shadow cut-outs on fill-less frames and PNG/SVG export bounds, caps the `Effects` `+` menu per type without trimming imported effects, adds style deletion, `/` folder grouping and rename, style descriptions with hover tooltips, and local text alignment with paragraph indent, list spacing and leading trim on text styles, refines the icon-only left rail, resizable `Pages` / `Layers` split and scrollable `changed layers` card, and shows where exported files went without overwriting existing files.

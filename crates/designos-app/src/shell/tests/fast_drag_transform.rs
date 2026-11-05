@@ -69,11 +69,23 @@ type Shape = [f32; 8];
 
 /// Page-space point inside Hero (360 x 240 at 120, 120), well clear of every handle.
 const INSIDE_HERO: (f32, f32) = (300.0, 200.0);
-/// Empty canvas: nothing is there to select, snap to, or drop into.
-const EMPTY: (f32, f32) = (700.0, 950.0);
+/// Empty canvas: nothing is there to select, snap to, or drop into, and no toolbar or contextual bar covers it.
+const EMPTY: (f32, f32) = (700.0, 850.0);
 
 fn hero_selected() -> Sim {
     Sim::with(Options { select: Some("Hero".into()), ..Default::default() })
+}
+
+#[test]
+fn the_empty_spot_is_bare_canvas_clear_of_the_floating_bars() {
+    let sim = hero_selected();
+    let spot = sim.screen(EMPTY.0, EMPTY.1);
+    let contextual = sim.rect_of("contextual-floating-bar");
+    let toolbar = crate::panels::toolbar::toolbar_rect(sim.ctx.content_rect());
+    assert!(!contextual.contains(spot), "{spot:?} is on the contextual bar {contextual:?}");
+    assert!(!toolbar.contains(spot), "{spot:?} is on the toolbar {toolbar:?}");
+    assert!(sim.app().canvas_rect.contains(spot), "{spot:?} is on the canvas");
+    assert!(interact::hit_under(sim.app(), DV::new(EMPTY.0, EMPTY.1), false).is_none(), "a layer sits under the empty spot");
 }
 
 fn handle_at(sim: &Sim, handle: Handle) -> Pos2 {

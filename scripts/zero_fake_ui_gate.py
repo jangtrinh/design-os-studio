@@ -14,8 +14,9 @@ Verifies 17 hard invariants (`Z01..Z17`):
          without typing into the live PTY; `DESIGNOS_AGENT_RUNTIME` is set in `configure_pty_env`
          and `build_real_cli_command`.
   - Z03: `terminal.rs` `dispatch_figma_ai_prompt` does NOT prefix PTY commands with a `#` shell comment.
-  - Z04: `terminal.rs` header & composer buttons (`agents-header-ai`,
-         `agents-composer-attach`, `agents-composer-context`) all have
+  - Z04: Agents header and composer buttons (`agents-header-ai`,
+         `agents-new-chat-btn`, `agents-more-btn`, `agents-composer-add-btn`,
+         `agents-composer-agent-pill`, `agents-composer-mode-btn`) all have
          interactive click handlers (`Sense::click()`); `agents-composer-mic` stays removed.
          The chat header's `More` button was removed because it had no handler and no spec'd menu.
   - Z05: `specs.rs` `specs-ask-agent-bar` hosts a real `TextEdit::singleline` (`ask_input`)
@@ -569,13 +570,17 @@ def check_z03(terminal_rs: str) -> Tuple[bool, str]:
 
 
 def check_z04(sources: "SourceSet") -> Tuple[bool, str]:
-    terminal_rs = sources.code("terminal.rs")
-    composer_rs = sources.code("agent_composer.rs")
-    combined = terminal_rs + "\n" + composer_rs
+    combined = "\n".join(
+        sources.code(name)
+        for name in ("terminal.rs", "agent_composer.rs", "agent_header.rs", "agent_composer_toolbar.rs")
+    )
     required_ids = [
         "agents-header-ai",
-        "agents-composer-attach",
-        "agents-composer-context",
+        "agents-new-chat-btn",
+        "agents-more-btn",
+        "agents-composer-add-btn",
+        "agents-composer-agent-pill",
+        "agents-composer-mode-btn",
     ]
     missing = []
     for wid in required_ids:
@@ -989,7 +994,7 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
         ("Z01", "terminal.rs + agent_composer.rs", "Live PTY send_to_agent in submit_chat_prompt; zero one-shot (-p / exec) calls", lambda: check_z01(sources)),
         ("Z02", "terminal.rs", "set_active_runtime mutates tab.preset; DESIGNOS_AGENT_RUNTIME set at spawn; one-shot chat symbols removed", lambda: check_z02(sources)),
         ("Z03", "terminal.rs", "dispatch_figma_ai_prompt sends executable command without # comment prefix", lambda: check_z03(terminal_rs)),
-        ("Z04", "terminal.rs + agent_composer.rs", "All 3 Agents header & composer buttons have Sense::click() handlers; fake mic removed", lambda: check_z04(sources)),
+        ("Z04", "terminal.rs + agent_header.rs + agent_composer_toolbar.rs", "Agents header and composer buttons have Sense::click() handlers; fake mic removed", lambda: check_z04(sources)),
         ("Z05", "specs.rs", "specs-ask-agent-bar hosts editable TextEdit::singleline(ask_input)", lambda: check_z05(specs_rs)),
         ("Z06", "specs.rs", "Right Inspector dynamic active_section_toc & interactive SpecComment", lambda: check_z06(specs_rs)),
         ("Z07", "specs.rs", "Unwrapped draw_wrapped_prose & render_tab_blueprints renders pkg.ui_contract", lambda: check_z07(specs_rs)),
