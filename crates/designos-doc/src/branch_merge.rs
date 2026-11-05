@@ -234,12 +234,11 @@ pub fn merge(base: &Document, main: &Document, branch: &Document, diff: &Diff3, 
         let mut step_history = History::default();
         step_history.exec(&mut working, cmd.clone()).map_err(|reason| MergeError::Apply { step, reason: reason.to_string() })?;
     }
-    if let Some((component, cycle_path)) = crate::components::first_self_holding_component_cycle(&working) {
+    if let Some((component, cycle_path)) = crate::components::first_new_self_holding_component_cycle(main, &remapped_branch, &working, &commands) {
         let comp_name = crate::cycle_node_label(&working, component);
         let path_text = cycle_path.join(" -> ");
         return Err(MergeError::InstanceCycle(format!(
-            "INSTANCE_CYCLE: cannot merge branch because main component '{comp_name}' (id {}) would hold an instance of itself (cycle path: {path_text})",
-            component.0
+            "INSTANCE_CYCLE: cannot merge branch because main component '{comp_name}' would hold an instance of itself (cycle path: {path_text})"
         )));
     }
 
@@ -2448,7 +2447,8 @@ mod tests {
         let err = result.expect_err("merge must reject the cycle formed after add then move");
         let text = err.to_string();
         assert!(text.contains("INSTANCE_CYCLE"), "named cycle error: {text}");
-        assert!(text.contains(&comp_id.0.to_string()), "error identifies component: {text}");
+        assert!(text.contains("Component -> Frame -> Component"), "error identifies cycle path: {text}");
+        assert!(!text.contains("(id "), "error omits internal ids: {text}");
     }
 
     #[test]
@@ -2511,5 +2511,27 @@ mod tests {
         let (merged_c, _) = merge_branch(&base_with_inst, &main_c, &branch_c, &Resolution::default()).expect("remove-then-move must succeed");
         assert_eq!(merged_c.get(x_id).unwrap().parent, Some(comp_id));
         assert!(merged_c.get(inst_main_id).is_none());
+    }
+
+    #[test]
+    fn merge_into_a_file_with_an_existing_cycle_still_applies_unrelated_changes() {
+        let mut base = Document::new("existing-cycle");
+        let page = base.add_page("Page");
+        let b = base.alloc_id();
+        let mut comp = Node::new(b, NodeKind::Component(crate::FrameProps::default()));
+        comp.name = "B".into();
+        base.insert(page, comp).unwrap();
+        let self_inst_id = base.alloc_id();
+        let mut self_inst = Node::new(self_inst_id, NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(b), component_key: None });
+        self_inst.name = "B self".into();
+        self_inst.component.source = Some(b);
+        base.insert(b, self_inst).unwrap();
+
+        let main = base.clone();
+        let mut branch = base.clone();
+        let rect_id = add_rect(&mut branch, page, "Unrelated", 300.0, 300.0);
+
+        let (merged, _) = merge_branch(&base, &main, &branch, &Resolution::default()).expect("existing cycle in file must not block an unrelated branch merge");
+        assert!(merged.get(rect_id).is_some(), "unrelated branch change must be applied");
     }
 }

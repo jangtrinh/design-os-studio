@@ -209,25 +209,26 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("update of node {} would turn a layer with children into one that cannot hold them", id.0));
                 return None;
             }
-            if let Some(comp) = crate::instance_component(&merged) {
-                let at = merged.parent.unwrap_or(id);
-                if let Some((held_main, cycle_path)) = crate::held_main_cycle_path_at(doc, comp, at, &[]) {
-                    let comp_name = crate::cycle_node_label(doc, comp);
-                    let held_name = crate::cycle_node_label(doc, held_main);
-                    let path_text = cycle_path.join(" -> ");
-                    report.skipped.push(format!(
-                        "INSTANCE_CYCLE: cannot update node {} to an instance of '{comp_name}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle path: {path_text})",
-                        id.0
-                    ));
-                    return None;
+            if crate::instance_component(cur) != crate::instance_component(&merged) {
+                if let Some(comp) = crate::instance_component(&merged) {
+                    let at = merged.parent.unwrap_or(id);
+                    if let Some((held_main, cycle_path)) = crate::held_main_cycle_path_at(doc, comp, at, &[]) {
+                        let node_name = crate::cycle_node_label(doc, id);
+                        let comp_name = crate::cycle_node_label(doc, comp);
+                        let held_name = crate::cycle_node_label(doc, held_main);
+                        let path_text = cycle_path.join(" -> ");
+                        report.skipped.push(format!(
+                            "INSTANCE_CYCLE: cannot update '{node_name}' to an instance of '{comp_name}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle path: {path_text})"
+                        ));
+                        return None;
+                    }
                 }
             }
-            if matches!(merged.kind, NodeKind::Component(_)) && crate::mains_held_by(doc, &[id]).contains(&id) {
+            if !matches!(cur.kind, NodeKind::Component(_)) && matches!(merged.kind, NodeKind::Component(_)) && crate::mains_held_by(doc, &[id]).contains(&id) {
                 let held_name = if merged.name.trim().is_empty() { merged.kind.default_name().to_string() } else { merged.name.clone() };
-                report.skipped.push(format!(
-                    "INSTANCE_CYCLE: cannot turn '{held_name}' (node {}) into a component: that would make a component hold an instance of itself",
-                    id.0
-                ));
+                report
+                    .skipped
+                    .push(format!("INSTANCE_CYCLE: cannot turn '{held_name}' into a component: that would make a component hold an instance of itself"));
                 return None;
             }
             if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {

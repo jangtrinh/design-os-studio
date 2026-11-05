@@ -690,29 +690,42 @@ fn container_labels_between(doc: &Document, ancestor: NodeId, leaf_parent: Optio
 }
 
 fn component_chain_path(doc: &Document, start_comp: NodeId, goal_comp: NodeId) -> Option<Vec<String>> {
-    let edges_from = |m: NodeId| -> Vec<(NodeId, Vec<String>)> {
+    let edges_from = |m: NodeId| -> Vec<(NodeId, NodeId)> {
         let mut out = Vec::new();
         doc.walk(m, |n, _| {
-            let Some(target) = instance_component(n) else { return };
-            let via = container_labels_between(doc, m, n.parent);
-            out.push((target, via));
+            if let Some(target) = instance_component(n) {
+                out.push((target, n.id));
+            }
         });
         out
     };
 
     let mut queue = std::collections::VecDeque::new();
     let mut visited = BTreeSet::new();
-    queue.push_back((start_comp, vec![cycle_node_label(doc, start_comp)]));
-    while let Some((cur, path)) = queue.pop_front() {
-        for (target, via) in edges_from(cur) {
-            let mut next_path = path.clone();
-            next_path.extend(via);
-            next_path.push(cycle_node_label(doc, target));
+    let mut parent_edge: std::collections::BTreeMap<NodeId, (NodeId, NodeId)> = std::collections::BTreeMap::new();
+    queue.push_back(start_comp);
+    while let Some(cur) = queue.pop_front() {
+        for (target, inst_id) in edges_from(cur) {
             if target == goal_comp {
-                return Some(next_path);
+                let mut hops = vec![(cur, inst_id, target)];
+                let mut back = cur;
+                while back != start_comp {
+                    let &(prev_comp, prev_inst) = parent_edge.get(&back)?;
+                    hops.push((prev_comp, prev_inst, back));
+                    back = prev_comp;
+                }
+                hops.reverse();
+                let mut path = vec![cycle_node_label(doc, start_comp)];
+                for (from_comp, via_inst, to_comp) in hops {
+                    let inst_parent = doc.get(via_inst).and_then(|n| n.parent);
+                    path.extend(container_labels_between(doc, from_comp, inst_parent));
+                    path.push(cycle_node_label(doc, to_comp));
+                }
+                return Some(path);
             }
             if visited.insert(target) {
-                queue.push_back((target, next_path));
+                parent_edge.insert(target, (cur, inst_id));
+                queue.push_back(target);
             }
         }
     }
@@ -735,6 +748,95 @@ pub fn first_self_holding_component_cycle(doc: &Document) -> Option<(NodeId, Vec
     let mut comps: Vec<NodeId> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).map(|n| n.id).collect();
     comps.sort();
     comps.into_iter().find_map(|id| self_holding_cycle_path(doc, id).map(|path| (id, path)))
+}
+
+fn collect_cycle_candidate_mains_from_command(main: &Document, working: &Document, cmd: &crate::Command, out: &mut BTreeSet<NodeId>) {
+    let add_enclosing_components = |doc: &Document, start: NodeId, set: &mut BTreeSet<NodeId>| {
+        let mut cur = Some(start);
+        let mut hops = 0usize;
+        let cap = doc.nodes.len() + 1;
+        while let Some(id) = cur {
+            if hops > cap {
+                break;
+            }
+            hops += 1;
+            let Some(n) = doc.get(id) else { break };
+            if matches!(n.kind, NodeKind::Component(_)) {
+                set.insert(id);
+            }
+            cur = n.parent;
+        }
+    };
+    let add_subtree_components_and_targets = |doc: &Document, root: NodeId, set: &mut BTreeSet<NodeId>| {
+        doc.walk(root, |n, _| {
+            if matches!(n.kind, NodeKind::Component(_)) {
+                set.insert(n.id);
+            }
+            if let Some(target) = instance_component(n) {
+                set.insert(target);
+            }
+        });
+    };
+
+    match cmd {
+        crate::Command::Insert { parent, nodes, .. } => {
+            add_enclosing_components(working, *parent, out);
+            for node in nodes {
+                let has_comp_or_inst = matches!(node.kind, NodeKind::Component(_) | NodeKind::Instance { .. })
+                    || working.get(node.id).is_some_and(|wn| matches!(wn.kind, NodeKind::Component(_) | NodeKind::Instance { .. }) || !wn.children.is_empty());
+                if has_comp_or_inst {
+                    add_enclosing_components(working, node.id, out);
+                    add_subtree_components_and_targets(working, node.id, out);
+                }
+            }
+        }
+        crate::Command::Reparent { id, parent, .. } => {
+            add_enclosing_components(working, *parent, out);
+            add_enclosing_components(working, *id, out);
+            add_subtree_components_and_targets(working, *id, out);
+        }
+        crate::Command::Update { node } => {
+            let prev = main.get(node.id);
+            let became_comp = matches!(node.kind, NodeKind::Component(_)) && !prev.is_some_and(|p| matches!(p.kind, NodeKind::Component(_)));
+            let new_target = instance_component(node);
+            let old_target = prev.and_then(instance_component);
+            let changed_inst_target = new_target.is_some() && new_target != old_target;
+            if became_comp || changed_inst_target {
+                add_enclosing_components(working, node.id, out);
+                if let Some(target) = new_target {
+                    out.insert(target);
+                }
+            }
+        }
+        crate::Command::Batch(cmds) => {
+            for sub in cmds {
+                collect_cycle_candidate_mains_from_command(main, working, sub, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Finds the first main component in `working` whose self-holding instance cycle was newly
+/// introduced by applying `commands` (that is, the component was not already self-holding in
+/// `main` or `branch`).
+pub fn first_new_self_holding_component_cycle(
+    main: &Document,
+    branch: &Document,
+    working: &Document,
+    commands: &[crate::Command],
+) -> Option<(NodeId, Vec<String>)> {
+    let mut candidates = BTreeSet::new();
+    for cmd in commands {
+        collect_cycle_candidate_mains_from_command(main, working, cmd, &mut candidates);
+    }
+    candidates.into_iter().find_map(|comp| {
+        let path = self_holding_cycle_path(working, comp)?;
+        if self_holding_cycle_path(main, comp).is_some() || self_holding_cycle_path(branch, comp).is_some() {
+            return None;
+        }
+        Some((comp, path))
+    })
 }
 
 /// If placing an instance of `component` under `at` (optionally through `extra_containers`) would
