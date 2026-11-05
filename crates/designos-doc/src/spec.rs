@@ -1389,7 +1389,7 @@ impl Document {
                         n.size.y = ctx.text_size(tp, Some(n.size.x.max(20.0))).y;
                     }
                 } else {
-                    let sz = ctx.text_size(tp, None);
+                    let sz = crate::text_measure::measure_hug_text_with(tp, hugs_h.then_some(spec.max_width).flatten(), |t, w| ctx.text_size(t, w));
                     if spec.width.is_none() {
                         n.size.x = sz.x;
                     }
@@ -2009,6 +2009,137 @@ pub fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hug_text_max_width_wraps_and_grows_height() {
+        struct Measure;
+        impl crate::text_measure::TextMeasure for Measure {
+            fn measure(&self, _tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
+                match wrap_width {
+                    None => Vec2::new(500.0, 17.0),
+                    Some(w) => Vec2::new(w, 85.0),
+                }
+            }
+        }
+        let mut doc = Document::new("hug-max-width");
+        let page = doc.add_page("Page");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "text",
+            "name": "Paragraph",
+            "text": "A long paragraph that must wrap",
+            "font_size": 14,
+            "width_sizing": "hug",
+            "max_width": 200
+        }))
+        .unwrap();
+        let report = doc.apply_spec_with_measure(page, &spec, &[], Some(&Measure)).unwrap();
+        let node = doc.get(report.root_node_id).unwrap();
+        assert_eq!(node.size, Vec2::new(200.0, 85.0));
+        let NodeKind::Text(tp) = &node.kind else { panic!("expected text") };
+        assert_eq!(tp.auto_resize, TextAutoResize::WidthAndHeight);
+
+        // Without max_width, hug text keeps its intrinsic single-line dimensions.
+        let un_clamped: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "text",
+            "name": "SingleLine",
+            "text": "A long paragraph that stays on one line without max_width",
+            "font_size": 14,
+            "width_sizing": "hug"
+        }))
+        .unwrap();
+        let report_unclamped = doc.apply_spec_with_measure(page, &un_clamped, &[], Some(&Measure)).unwrap();
+        let node_unclamped = doc.get(report_unclamped.root_node_id).unwrap();
+        assert_eq!(node_unclamped.size, Vec2::new(500.0, 17.0));
+    }
+
+    #[test]
+    fn hug_text_with_max_width_and_explicit_height_clamps_width() {
+        struct Measure;
+        impl crate::text_measure::TextMeasure for Measure {
+            fn measure(&self, _tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
+                match wrap_width {
+                    None => Vec2::new(500.0, 17.0),
+                    Some(w) => Vec2::new(w, 85.0),
+                }
+            }
+        }
+        let mut doc = Document::new("hug-max-width-explicit-height");
+        let page = doc.add_page("Page");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "text",
+            "name": "ExplicitHeightParagraph",
+            "text": "A long paragraph that clamps width while keeping explicit height",
+            "font_size": 14,
+            "width_sizing": "hug",
+            "max_width": 200,
+            "height": 40
+        }))
+        .unwrap();
+        let report = doc.apply_spec_with_measure(page, &spec, &[], Some(&Measure)).unwrap();
+        let node = doc.get(report.root_node_id).unwrap();
+        assert_eq!(node.size, Vec2::new(200.0, 40.0));
+        let NodeKind::Text(tp) = &node.kind else { panic!("expected text") };
+        assert_eq!(tp.auto_resize, TextAutoResize::WidthAndHeight);
+    }
+
+    #[test]
+    fn hug_text_with_max_width_relayouts_when_content_grows_and_shrinks() {
+        struct ProportionalMeasure;
+        impl crate::text_measure::TextMeasure for ProportionalMeasure {
+            fn measure(&self, tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
+                let raw_w = (tp.content.chars().count() as f32) * 8.0;
+                match wrap_width {
+                    None => Vec2::new(raw_w.max(8.0), 17.0),
+                    Some(w) => {
+                        let lines = (raw_w / w.max(1.0)).ceil().max(1.0);
+                        Vec2::new(w, lines * 17.0)
+                    }
+                }
+            }
+        }
+        let mut doc = Document::new("hug-max-width-relayout");
+        let page = doc.add_page("Page");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "frame",
+            "name": "Box",
+            "width_sizing": "hug",
+            "height_sizing": "hug",
+            "layout": {"direction": "column", "padding": [16, 16, 16, 16]},
+            "children": [{
+                "kind": "text",
+                "name": "T",
+                "text": "Hi",
+                "font_size": 14,
+                "width_sizing": "hug",
+                "max_width": 200
+            }]
+        }))
+        .unwrap();
+        let report = doc.apply_spec_with_measure(page, &spec, &[], Some(&ProportionalMeasure)).unwrap();
+        let fid = report.root_node_id;
+        let tid = doc.get(fid).unwrap().children[0];
+        assert_eq!(doc.get(tid).unwrap().size, Vec2::new(16.0, 17.0));
+
+        let _guard = crate::text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(ProportionalMeasure));
+        {
+            let n = doc.get_mut(tid).unwrap();
+            let NodeKind::Text(tp) = &mut n.kind else { panic!("expected text") };
+            tp.content = "A much longer sentence that exceeds two hundred pixels easily".into();
+        }
+        doc.relayout_subtree(fid);
+        let grown = doc.get(tid).unwrap();
+        assert_eq!(grown.size.x, 200.0);
+        assert!(grown.size.y > 17.0);
+
+        {
+            let n = doc.get_mut(tid).unwrap();
+            let NodeKind::Text(tp) = &mut n.kind else { panic!("expected text") };
+            tp.content = "Hi".into();
+        }
+        doc.relayout_subtree(fid);
+        let shrunk = doc.get(tid).unwrap();
+        assert_eq!(shrunk.size, Vec2::new(16.0, 17.0));
+    }
 
     #[test]
     fn apply_and_export_easeui_spec_with_autolayout_and_comments() {
