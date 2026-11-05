@@ -1,5 +1,5 @@
 use designos_doc::*;
-use designos_fig::{export_rest_json, export_variables_json, import_rest_json, import_variables_json};
+use designos_fig::{export_fig, export_rest_json, export_variables_json, import_fig, import_rest_json, import_variables_json};
 
 const LOCAL: &str = include_str!("fixtures/variables_local.json");
 const FILE: &str = include_str!("fixtures/variables_file.json");
@@ -97,4 +97,40 @@ fn files_without_variables_export_without_the_key() {
     let doc = import_rest_json(FILE).unwrap();
     assert!(export_rest_json(&doc).get("variables").is_none());
     assert!(doc.variables.is_empty());
+}
+
+#[test]
+fn fig_round_trip_preserves_variables_used_by_nodes() {
+    let doc = doc_with_variables();
+    let bytes = export_fig(&doc).expect("export .fig");
+    let back = import_fig(&bytes).expect("re-import .fig");
+
+    assert_eq!(back.variable_collections.len(), doc.variable_collections.len());
+    assert_eq!(back.variables.len(), doc.variables.len());
+    for (id, collection) in &doc.variable_collections {
+        let actual = back.variable_collections.get(id).unwrap_or_else(|| panic!("collection {id} disappeared"));
+        assert_eq!(actual.modes, collection.modes, "collection {id} modes changed");
+        assert_eq!(actual.default_mode, collection.default_mode, "collection {id} default mode changed");
+        assert_eq!(actual.variables.len(), collection.variables.len(), "collection {id} variable count changed");
+        assert_eq!(
+            actual.variables.iter().collect::<std::collections::BTreeSet<_>>(),
+            collection.variables.iter().collect::<std::collections::BTreeSet<_>>(),
+            "collection {id} variable membership changed"
+        );
+    }
+    for (id, variable) in &doc.variables {
+        let actual = back.variables.get(id).unwrap_or_else(|| panic!("variable {id} disappeared"));
+        assert_eq!(actual.id, variable.id, "variable {id} id changed");
+        assert_eq!(actual.collection, variable.collection, "variable {id} collection changed");
+        assert_eq!(actual.kind, variable.kind, "variable {id} type changed");
+        assert_eq!(actual.values, variable.values, "variable {id} values changed");
+        assert_eq!(actual.key, variable.key, "variable {id} key changed");
+    }
+    for node in doc.nodes.values() {
+        if node.variables.bindings.is_empty() {
+            continue;
+        }
+        let reimported = back.nodes.values().find(|candidate| candidate.name == node.name).unwrap_or_else(|| panic!("node {} disappeared", node.name));
+        assert_eq!(reimported.variables.bindings, node.variables.bindings, "bindings changed for {}", node.name);
+    }
 }

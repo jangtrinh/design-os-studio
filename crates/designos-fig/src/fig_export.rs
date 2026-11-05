@@ -333,28 +333,28 @@ impl<'a> ExportCtx<'a> {
         }
         for id in doc.variable_collections.keys() {
             if let Some(g) = parse_guid_pair(id) {
-                if cx.used_guids.insert(g) {
-                    bump_next_local(&mut cx.next_local, g.1);
-                    cx.coll_guids.insert(id.clone(), g);
-                }
+                cx.used_guids.insert(g);
+                bump_next_local(&mut cx.next_local, g.1);
+                // Collection, mode, and variable ids share the REST `s:l` spelling but
+                // occupy separate namespaces. A collection may therefore legitimately
+                // reuse a GUID used by one of its modes; keep every explicit mapping.
+                cx.coll_guids.insert(id.clone(), g);
             }
         }
         for c in doc.variable_collections.values() {
             for m in &c.modes {
                 if let Some(g) = parse_guid_pair(&m.id) {
-                    if cx.used_guids.insert(g) {
-                        bump_next_local(&mut cx.next_local, g.1);
-                        cx.mode_guids.insert(m.id.clone(), g);
-                    }
+                    cx.used_guids.insert(g);
+                    bump_next_local(&mut cx.next_local, g.1);
+                    cx.mode_guids.insert(m.id.clone(), g);
                 }
             }
         }
         for id in doc.variables.keys() {
             if let Some(g) = parse_guid_pair(id) {
-                if cx.used_guids.insert(g) {
-                    bump_next_local(&mut cx.next_local, g.1);
-                    cx.var_guids.insert(id.clone(), g);
-                }
+                cx.used_guids.insert(g);
+                bump_next_local(&mut cx.next_local, g.1);
+                cx.var_guids.insert(id.clone(), g);
             }
         }
         for id in doc.styles.keys() {
