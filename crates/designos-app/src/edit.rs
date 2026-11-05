@@ -11,6 +11,8 @@ pub struct Edit {
     /// [`Document::layout_epoch`] when this edit first touched the document: the baseline for
     /// telling whether layout was written outside every step while the edit stayed open.
     opened_at: Option<u64>,
+    /// Visible page-space viewport during a live drag, so offscreen connectors defer re-routing until commit.
+    pub reroute_viewport: Option<designos_doc::Rect>,
 }
 
 impl Edit {
@@ -277,7 +279,9 @@ impl Tx {
             self.cancel(doc);
             return Err(DocError::NotFound(designos_doc::NodeId(0)));
         }
+        self.ed.retain_changed(doc);
         // connectors follow the nodes they join (and a moved connector its free ends)
+        self.ed.reroute_viewport = None;
         crate::board::connect::reroute_touched(doc, &mut self.ed);
         self.ed.retain_changed(doc);
         let mut updates = self.ed.updates_retained(doc);
