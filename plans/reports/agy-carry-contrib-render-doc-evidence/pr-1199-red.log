@@ -1,0 +1,44 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-carry-contrib-render-doc/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.43s
+     Running tests/lint_contrast.rs (out/cargo/debug/deps/lint_contrast-2b90d907632f1e81)
+
+running 11 tests
+test test_6_wcag_aaa_mode_and_warning_severity_when_aa_passes ... ok
+test test_9_backdrop_variable_is_not_suggested_as_a_text_fix ... FAILED
+test test_8_backdrop_variable_suggestion_scores_roles_and_drops_failing_candidate ... FAILED
+test test_4_covering_sibling_emits_covered_by_message ... ok
+test test_2_semi_transparent_sibling_uses_pixel_path ... ok
+test overlay_on_image_within_0_05 ... ok
+test test_7_suggest_passing_variable_pair_by_cie76_delta_e ... ok
+test test_10_white_on_white_with_adjacent_overlapping_icon_keeps_ratio_message ... ok
+test test_1_analytic_fast_path_solid_on_solid_does_not_call_backdrop ... ok
+test test_3_linear_gradient_backdrop_flags_failing_half ... ok
+test test_5_large_text_thresholds_24px_and_18_66px_bold ... ok
+
+failures:
+
+---- test_9_backdrop_variable_is_not_suggested_as_a_text_fix stdout ----
+
+thread 'test_9_backdrop_variable_is_not_suggested_as_a_text_fix' (12366694) panicked at crates/designos-render/tests/lint_contrast.rs:487:5:
+a backdrop variable cannot be applied to the text node: Some(FixSuggestion { kind: "bind", property: "fills/0", from: String("#DC2626"), to: String("var:Primary") })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- test_8_backdrop_variable_suggestion_scores_roles_and_drops_failing_candidate stdout ----
+
+thread 'test_8_backdrop_variable_suggestion_scores_roles_and_drops_failing_candidate' (12366693) panicked at crates/designos-render/tests/lint_contrast.rs:434:5:
+assertion `left == right` failed: parent fill suggestions must not be attached to text findings
+  left: Some(FixSuggestion { kind: "bind", property: "fills/1", from: String("#B0B0B0"), to: String("var:surface/dark") })
+ right: None
+
+
+failures:
+    test_8_backdrop_variable_suggestion_scores_roles_and_drops_failing_candidate
+    test_9_backdrop_variable_is_not_suggested_as_a_text_fix
+
+test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p designos-render --test lint_contrast`
+EXIT_CODE=101
