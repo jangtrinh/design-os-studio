@@ -1909,6 +1909,10 @@ impl Shell {
             crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
         }
+        // a tool carried over from another file (a tab switch keeps it) that this file does not offer falls back to Move
+        if !self.app.tool_offered(self.app.tool) {
+            self.app.set_tool(Tool::Move);
+        }
         self.handle_keys(&ctx);
         if !self.app.plugins.open {
             self.handle_drops(&ctx);

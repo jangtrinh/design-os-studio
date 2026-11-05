@@ -379,6 +379,18 @@ fn a_remembered_connector_pick_does_not_follow_into_a_deck_file() {
 }
 
 #[test]
+fn a_connector_tool_carried_into_a_deck_falls_back_to_move() {
+    let mut s = deck_sim();
+    // the tool of the file the user came from (a tab switch keeps it)
+    s.shell.app.tool = Tool::Connector;
+    s.frame(vec![]);
+    assert_eq!(s.app().tool, Tool::Move, "a deck offers no Connector tool, so it is not left active");
+    s.shell.app.set_tool(Tool::Connector);
+    s.frame(vec![]);
+    assert_eq!(s.app().tool, Tool::Move, "asking for it again does not leave a dead tool either");
+}
+
+#[test]
 fn design_files_offer_connector_in_the_shape_dropdown_and_the_palette() {
     let mut s = design_sim();
     assert!(crate::panels::menus::palette_entries(s.app(), "connector").iter().any(|(label, shortcut)| label == "Connector" && shortcut == "X"));
