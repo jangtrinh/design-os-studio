@@ -74,9 +74,10 @@ impl VariableStore {
         }
     }
 
-    /// Name not used by another variable of the collection (appends " 2", " 3"...).
+    /// Name not used by another variable of the collection (appends " 2", " 3"...). A soft-deleted variable keeps
+    /// its name for the bindings that still use it, but it is not live, so it does not take the name.
     fn unique_variable_name(&self, coll: &str, wanted: &str, except: Option<&str>) -> String {
-        let taken = |n: &str| self.variables.values().any(|v| v.collection == coll && Some(v.id.as_str()) != except && v.name == n);
+        let taken = |n: &str| self.variables.values().any(|v| v.collection == coll && Some(v.id.as_str()) != except && !v.is_soft_deleted() && v.name == n);
         if !taken(wanted) {
             return wanted.to_string();
         }
@@ -88,6 +89,13 @@ impl VariableStore {
             }
             i += 1;
         }
+    }
+
+    /// Ids of every variable that belongs to `coll`, soft-deleted ones included: they keep a value for each mode
+    /// of the collection, so layers still bound to them resolve in every mode.
+    fn member_ids(&self, coll: &str) -> Vec<String> {
+        let listed: BTreeSet<&str> = self.collections.get(coll).map(|c| c.variables.iter().map(String::as_str).collect()).unwrap_or_default();
+        self.variables.values().filter(|v| v.collection == coll || listed.contains(v.id.as_str())).map(|v| v.id.clone()).collect()
     }
 
     /// True when `coll` is a subscribed copy of a library's collection: it is edited in its library
@@ -240,7 +248,7 @@ impl VariableStore {
         let id = self.fresh_id("VariableModeId");
         let c = self.collections.get(coll)?;
         let base = c.default_mode.clone();
-        let ids = c.variables.clone();
+        let ids = self.member_ids(coll);
         for vid in ids {
             if let Some(v) = self.variables.get_mut(&vid) {
                 let val = v.values.get(&base).cloned().unwrap_or_else(|| default_value(v.kind));
@@ -266,7 +274,7 @@ impl VariableStore {
         }
         let name = self.collections.get(coll)?.modes.iter().find(|m| m.id == mode)?.name.clone();
         let id = self.fresh_id("VariableModeId");
-        let ids = self.collections.get(coll)?.variables.clone();
+        let ids = self.member_ids(coll);
         for vid in ids {
             if let Some(v) = self.variables.get_mut(&vid) {
                 if let Some(x) = v.values.get(mode).cloned() {
@@ -296,9 +304,8 @@ impl VariableStore {
         if c.default_mode == mode {
             c.default_mode = c.modes[0].id.clone();
         }
-        let ids = c.variables.clone();
-        for v in self.variables.values_mut() {
-            if v.collection == coll || ids.contains(&v.id) {
+        for id in self.member_ids(coll) {
+            if let Some(v) = self.variables.get_mut(&id) {
                 v.values.remove(mode);
                 v.mode_extensions.remove(mode);
             }
@@ -621,6 +628,62 @@ mod tests {
         let d = s.collections[&c].default_mode.clone();
         assert!(s.delete_mode(&c, &d));
         assert_ne!(s.collections[&c].default_mode, d);
+    }
+
+    /// Marks `id` soft-deleted and takes it out of its collection's list, the way an import keeps it.
+    fn soft_delete(s: &mut VariableStore, coll: &str, id: &str) {
+        s.variables.get_mut(id).unwrap().extensions.insert(SOFT_DELETED_EXTENSION_KEY.into(), serde_json::Value::Bool(true));
+        s.collections.get_mut(coll).unwrap().variables.retain(|v| v != id);
+    }
+
+    #[test]
+    fn soft_deleted_variable_name_is_free_for_a_new_variable() {
+        let (mut s, c, a) = store();
+        soft_delete(&mut s, &c, &a);
+        let created = s.add_variable(&c, "Color/Brand/Primary", VariableKind::Color).unwrap();
+        assert_eq!(s.variables[&created].name, "Color/Brand/Primary", "a soft-deleted variable does not take the name");
+        assert_eq!(s.variables[&a].name, "Color/Brand/Primary", "the soft-deleted variable keeps its own name");
+
+        // a rename onto the soft-deleted name is free too, while a live name is still taken
+        let other = s.add_variable(&c, "Other", VariableKind::Color).unwrap();
+        s.rename_variable(&other, "Color/Brand/Primary");
+        assert_eq!(s.variables[&other].name, "Color/Brand/Primary 2", "the live variable holds the name");
+        let copy = s.duplicate_variable(&created).unwrap();
+        assert_eq!(s.variables[&copy].name, "Color/Brand/Primary 3");
+    }
+
+    #[test]
+    fn mode_edits_reach_soft_deleted_variables_of_the_collection() {
+        let (mut s, c, a) = store();
+        let default_mode = s.collections[&c].default_mode.clone();
+        s.set_value(&a, &default_mode, VariableValue::Color(Color::WHITE));
+        soft_delete(&mut s, &c, &a);
+        let added = s.add_mode(&c, "High contrast").unwrap();
+        assert_eq!(s.variables[&a].values[&added], VariableValue::Color(Color::WHITE), "a layer bound to it still resolves in the new mode");
+        let copy = s.duplicate_mode(&c, &added).unwrap();
+        assert_eq!(s.variables[&a].values[&copy], VariableValue::Color(Color::WHITE));
+        assert!(s.delete_mode(&c, &added));
+        assert!(!s.variables[&a].values.contains_key(&added), "a removed mode leaves no value behind");
+    }
+
+    #[test]
+    fn duplicating_a_collection_copies_live_variables_only() {
+        let (mut s, c, a) = store();
+        let b = s.add_variable(&c, "Bg", VariableKind::Color).unwrap();
+        soft_delete(&mut s, &c, &a);
+        let copy = s.duplicate_collection(&c).unwrap();
+        let names: Vec<&str> = s.collections[&copy].variables.iter().map(|id| s.variables[id].name.as_str()).collect();
+        assert_eq!(names, [s.variables[&b].name.as_str()]);
+        assert!(s.variables.values().filter(|v| v.collection == copy).all(|v| !v.is_soft_deleted()));
+    }
+
+    #[test]
+    fn deleting_a_collection_removes_its_soft_deleted_variables_too() {
+        let (mut s, c, a) = store();
+        soft_delete(&mut s, &c, &a);
+        let removed = s.delete_collection(&c);
+        assert_eq!(removed, vec![a]);
+        assert!(s.variables.is_empty());
     }
 
     #[test]

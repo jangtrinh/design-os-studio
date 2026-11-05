@@ -677,6 +677,10 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(lib) = &c.source_library_key {
             fields.push(("sourceLibraryKey", V::String(lib.clone())));
         }
+        // A collection the file deleted but kept for the variables still in use is written back as deleted.
+        if c.is_soft_deleted() {
+            fields.push(("isSoftDeleted", V::Bool(true)));
+        }
         cx.changes.push(msg(fields));
         *idx += 1;
     }
@@ -744,6 +748,10 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         }
         if let Some(k) = &v.key {
             fields.push(("key", V::String(k.clone())));
+        }
+        // A deleted variable the file still uses stays in the file as deleted; it must not come back as a live one.
+        if v.is_soft_deleted() {
+            fields.push(("isSoftDeleted", V::Bool(true)));
         }
         cx.changes.push(msg(fields));
         *idx += 1;

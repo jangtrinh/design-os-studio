@@ -87,6 +87,19 @@ fn library_key_of(c: &Value) -> Option<String> {
     explicit.or_else(|| remote.then(|| fstr(c, "key").or_else(|| fstr(c, "id")).unwrap_or("remote"))).map(String::from)
 }
 
+/// Figma's REST flag for a variable the editor deleted while the document still refers to it. Payloads built from a
+/// `.fig` and written by [`export_variables_meta`] use it for kept soft-deleted variables and collections too.
+const REST_DELETED_FLAG: &str = "deletedButReferenced";
+
+/// The extensions of an entry whose payload carries the REST deleted flag: the soft-deleted marker, or none.
+fn soft_deleted_extensions(entry: &Value) -> FigmaExtensions {
+    let mut extensions = FigmaExtensions::new();
+    if fbool(entry, REST_DELETED_FLAG) == Some(true) {
+        extensions.insert(SOFT_DELETED_EXTENSION_KEY.to_string(), Value::Bool(true));
+    }
+    extensions
+}
+
 /// Maps `meta.variableCollections` / `meta.variables` into `doc`, replacing
 /// whatever it had. Returns the number of variables imported.
 pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
@@ -112,7 +125,7 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
                 variables: farr(c, "variableIds").iter().filter_map(|s| s.as_str().map(String::from)).collect(),
                 key: fstr(c, "key").map(String::from),
                 source_library_key: library_key_of(c),
-                extensions: Default::default(),
+                extensions: soft_deleted_extensions(c),
             },
         );
     }
@@ -144,16 +157,17 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
                 hidden_from_publishing: fbool(v, "hiddenFromPublishing").unwrap_or(false),
                 key: fstr(v, "key").map(String::from),
                 code_syntax: parse_code_syntax(v.get("codeSyntax")),
-                extensions: Default::default(),
+                extensions: soft_deleted_extensions(v),
                 mode_extensions: Default::default(),
             },
         );
     }
-    // Display order: the collection's `variableIds`, then anything it left out.
+    // Display order: the collection's `variableIds`, then anything it left out. A soft-deleted variable is never
+    // listed, whatever the payload's list says: it stays in `variables` only so references to it resolve.
     for c in collections.values_mut() {
-        c.variables.retain(|id| variables.get(id).is_some_and(|v| v.collection == c.id));
+        c.variables.retain(|id| variables.get(id).is_some_and(|v| v.collection == c.id && !v.is_soft_deleted()));
     }
-    for v in variables.values() {
+    for v in variables.values().filter(|v| !v.is_soft_deleted()) {
         if let Some(c) = collections.get_mut(&v.collection) {
             if !c.variables.contains(&v.id) {
                 c.variables.push(v.id.clone());
@@ -215,6 +229,9 @@ pub fn export_variables_meta(doc: &Document) -> Value {
         m.insert("remote".into(), false.into());
         m.insert("description".into(), v.description.clone().into());
         m.insert("hiddenFromPublishing".into(), v.hidden_from_publishing.into());
+        if v.is_soft_deleted() {
+            m.insert(REST_DELETED_FLAG.into(), true.into());
+        }
         m.insert("scopes".into(), json!(if v.scopes.is_empty() { vec!["ALL_SCOPES".to_string()] } else { v.scopes.clone() }));
         m.insert("codeSyntax".into(), code_syntax_json(&v.code_syntax));
         vars.insert(v.id.clone(), Value::Object(m));
@@ -234,6 +251,9 @@ pub fn export_variables_meta(doc: &Document) -> Value {
         }
         m.insert("remote".into(), c.is_library().into());
         m.insert("hiddenFromPublishing".into(), false.into());
+        if c.is_soft_deleted() {
+            m.insert(REST_DELETED_FLAG.into(), true.into());
+        }
         m.insert("variableIds".into(), json!(c.variables));
         colls.insert(c.id.clone(), Value::Object(m));
     }
@@ -591,6 +611,9 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
         let modes: Vec<Value> = modes.into_iter().map(|m| m.1).collect();
         let default = modes.first().and_then(|m| m.get("modeId")).cloned().unwrap_or(Value::Null);
         let mut c = json!({"id": id, "name": fstr(e, "name").unwrap_or("Collection"), "modes": modes, "defaultModeId": default, "variableIds": []});
+        if !active(e) {
+            c[REST_DELETED_FLAG] = true.into();
+        }
         if let Some(k) = fstr(e, "key").filter(|k| !k.is_empty()) {
             c["key"] = k.into();
         }
@@ -628,16 +651,18 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
             let Some(val) = data.get("value").and_then(|x| fig_value(ty, x, &refs)) else { continue };
             by_mode.insert(mode, val);
         }
-        if let Some(c) = colls.get_mut(&cid).and_then(|c| c.get_mut("variableIds")).and_then(Value::as_array_mut) {
-            if !vars.contains_key(&id) {
-                c.push(json!(id));
-            }
-        } else {
-            continue;
+        let Some(listed) = colls.get_mut(&cid).and_then(|c| c.get_mut("variableIds")).and_then(Value::as_array_mut) else { continue };
+        // A soft-deleted variable is kept so the layers, styles and aliases that use it resolve, but it is not one of
+        // its collection's variables: it stays out of the list.
+        if active(e) && !vars.contains_key(&id) {
+            listed.push(json!(id));
         }
         let mut v = json!({"id": id, "name": fstr(e, "name").unwrap_or("Variable"), "variableCollectionId": cid, "resolvedType": ty,
                    "valuesByMode": by_mode, "scopes": rest_scopes_from_fig(e.get("variableScopes")),
                    "description": fstr(e, "description").unwrap_or(""), "hiddenFromPublishing": false});
+        if !active(e) {
+            v[REST_DELETED_FLAG] = true.into();
+        }
         if let Some(k) = fstr(e, "key").filter(|k| !k.is_empty()) {
             v["key"] = k.into();
         }
