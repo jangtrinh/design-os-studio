@@ -131,6 +131,8 @@ pub struct Session {
     pub bridge: LiveSessionBridge,
     /// Undo history was dropped because the editor's canvas replaced the document.
     pub history_dropped: bool,
+    /// Said by the next reply of a save or an open: loading the pages of a large file left some instances empty for good.
+    pending_load_warning: Option<String>,
     /// Optional transcript JSONL path from `DESIGNOS_MCP_TRANSCRIPT` (E15-25).
     pub transcript_path: Option<PathBuf>,
     transcript_seq: u64,
@@ -281,6 +283,7 @@ impl Session {
             root,
             dirty: false,
             history_dropped: false,
+            pending_load_warning: None,
             bridge,
             transcript_path: transcript_path_from_env(),
             transcript_seq: 0,
@@ -324,6 +327,7 @@ impl Session {
             root,
             dirty: false,
             history_dropped: false,
+            pending_load_warning: None,
             bridge,
             transcript_path: transcript_path_from_env(),
             transcript_seq: 0,
@@ -835,12 +839,27 @@ impl Session {
         let left_empty = self.engine.doc.load_pending_pages().map_err(|e| e.to_string())?;
         if left_empty > 0 {
             eprintln!("designos-mcp: {left_empty} instances were left empty because the file has more nested component copies than can be expanded");
+            self.pending_load_warning =
+                Some(format!("{left_empty} instances are saved empty: the file has more nested component copies than can be expanded (limit 8,000,000)."));
         }
         Ok(())
     }
 
+    /// Adds the warning that loading the pages left in `pending_load_warning` to `reply`, once.
+    fn attach_load_warning(&mut self, reply: &mut Value) {
+        let Some(warning) = self.pending_load_warning.take() else { return };
+        let Some(fields) = reply.as_object_mut() else { return };
+        match fields.get_mut("warnings").and_then(Value::as_array_mut) {
+            Some(list) => list.push(json!(warning)),
+            None => {
+                fields.insert("warnings".into(), json!([warning]));
+            }
+        }
+    }
+
     fn save_current(&mut self, path: &str, overwrite: bool, files_created: &mut usize) -> Result<PathBuf, ToolError> {
         let resolved = self.output_path_allow_overwrite(path, overwrite)?;
+        self.pending_load_warning = None;
         self.engine.settle_layout();
         self.load_pending_pages_for_write().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e))?;
         // Refused here, before any file is created, when a page could not be loaded.
@@ -1337,6 +1356,7 @@ impl Session {
                 self.dirty = false;
                 self.engine.file_path = Some(a.path.clone());
                 self.ledger.clear();
+                self.pending_load_warning = None;
                 self.publish_live_doc_sync().map_err(|e| {
                     ToolError::new(
                         ErrorCode::EditorNotNotified,
@@ -1354,6 +1374,7 @@ impl Session {
                     }
                 }
                 self.attach_enabled_tools_warnings(&mut summary);
+                self.attach_load_warning(&mut summary);
                 Ok(summary)
             }
             "designos_new_document" => {
@@ -1400,7 +1421,9 @@ impl Session {
                     None => (self.titled_save_path().ok_or_else(Self::path_required)?, true),
                 };
                 let resolved = self.save_current(&path, overwrite, files_created)?;
-                Ok(json!({"path": resolved, "saved": true, "doc_revision": self.doc_revision()}))
+                let mut reply = json!({"path": resolved, "saved": true, "doc_revision": self.doc_revision()});
+                self.attach_load_warning(&mut reply);
+                Ok(reply)
             }
             "designos_close_document" => {
                 let a: CloseArgs = parse(args)?;

@@ -1354,7 +1354,7 @@ impl App {
             [one] => one.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string(),
             many => format!("{} files", many.len()),
         };
-        self.run_after_status_paint(format!("Importing {what}\u{2026} every page is loaded first, which takes a while"), move |app| {
+        self.run_after_status_paint(format!("Importing {what}\u{2026} loading all pages"), move |app| {
             app.import_into_library(&paths, &project, folder.as_deref());
         });
     }
@@ -1366,7 +1366,7 @@ impl App {
             self.save_to_library_as(&project, folder.as_deref(), &name);
             return;
         }
-        self.run_after_status_paint("Saving to the library\u{2026} every page is loaded first, which takes a while", move |app| {
+        self.run_after_status_paint("Saving to library\u{2026} loading all pages", move |app| {
             app.save_to_library_as(&project, folder.as_deref(), &name);
         });
     }
@@ -1381,11 +1381,9 @@ impl App {
         for p in paths {
             let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("file");
             match lib.import_file_with_doc_counted(p, project, folder) {
-                Ok((e, doc, replaced)) => {
+                Ok((e, doc, replaced, left_empty)) => {
                     ok += 1;
-                    if let Some(w) = crate::io::non_finite_notice_once(p, replaced) {
-                        notices.push(format!("{file_name}: {w}"));
-                    }
+                    notices.extend(import_notice(file_name, crate::io::non_finite_notice_once(p, replaced), left_empty));
                     thumb::refresh_in_background(lib.clone(), e.id, doc);
                 }
                 Err(e) => last_err = Some(format!("{file_name}: {e}")),
@@ -1908,5 +1906,34 @@ impl LibrarySaveError {
             _ => None,
         };
         Self { message: format!("Cannot save: {e}"), io_kind }
+    }
+}
+
+/// What an import says besides "Imported": the numbers it replaced, and the instances the file keeps empty for good
+/// because it has more nested component copies than can be expanded. `None` when there is nothing to say.
+pub(crate) fn import_notice(file_name: &str, non_finite: Option<String>, left_empty: usize) -> Option<String> {
+    let parts: Vec<String> = non_finite.into_iter().chain((left_empty > 0).then(|| crate::io::clone_budget_notice(left_empty))).collect();
+    (!parts.is_empty()).then(|| format!("{file_name}: {}", parts.join("; ")))
+}
+
+#[cfg(test)]
+mod import_notice_tests {
+    use super::import_notice;
+
+    #[test]
+    fn an_import_that_lost_nothing_says_nothing() {
+        assert_eq!(import_notice("kit.fig", None, 0), None);
+    }
+
+    #[test]
+    fn instances_left_empty_are_named_with_the_file() {
+        let notice = import_notice("kit.fig", None, 3).expect("the user is told");
+        assert!(notice.starts_with("kit.fig: ") && notice.contains(&crate::io::clone_budget_notice(3)), "{notice}");
+    }
+
+    #[test]
+    fn both_notices_share_one_entry_for_the_file() {
+        let notice = import_notice("kit.fig", Some("2 numbers replaced".into()), 3).unwrap();
+        assert_eq!(notice, format!("kit.fig: 2 numbers replaced; {}", crate::io::clone_budget_notice(3)));
     }
 }

@@ -146,3 +146,54 @@ fn a_canvas_the_editor_rewrote_replaces_the_document_and_it_still_saves_every_pa
 
     assert_eq!(deferred_pages_shape(&read_document(&dirs.workspace.join("after-reload.designos"))), DeferredPagesShape::loaded());
 }
+
+/// A loader with nothing left to load that had to leave `skipped` instances empty (the copy budget).
+#[derive(Debug)]
+struct OverBudget {
+    skipped: usize,
+}
+
+impl designos_doc::PageHydrator for OverBudget {
+    fn hydrate_page(&mut self, _: &mut Document, _: designos_doc::NodeId) -> bool {
+        false
+    }
+    fn hydrate_all(&mut self, _: &mut Document) -> bool {
+        false
+    }
+    fn is_hydrated(&self, _: designos_doc::NodeId) -> bool {
+        true
+    }
+    fn unexpanded_instances(&self) -> usize {
+        self.skipped
+    }
+    fn take_unexpanded_instances(&mut self) -> usize {
+        std::mem::take(&mut self.skipped)
+    }
+}
+
+#[test]
+fn a_save_says_how_many_instances_the_file_keeps_empty_and_says_it_once() {
+    let dirs = Dirs::new();
+    let mut session = Session::new(&dirs.workspace).unwrap();
+    session.call("designos_new_document", json!({ "name": "Big" })).unwrap();
+    session.engine.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(OverBudget { skipped: 3 })));
+
+    let reply = session.call("designos_save_file", json!({ "path": "big.designos" })).unwrap();
+
+    let warnings = reply["warnings"].as_array().expect("the reply carries a warning");
+    assert!(warnings.iter().any(|w| w.as_str().is_some_and(|w| w.starts_with("3 instances are saved empty"))), "{warnings:?}");
+
+    let again = session.call("designos_save_file", json!({ "path": "big.designos", "overwrite": true })).unwrap();
+    assert!(again.get("warnings").is_none(), "each instance is reported once: {again}");
+}
+
+#[test]
+fn a_save_of_a_normal_file_carries_no_warning() {
+    let dirs = Dirs::new();
+    let mut session = Session::new(&dirs.workspace).unwrap();
+    session.call("designos_open_file", json!({ "path": "kit.fig" })).unwrap();
+
+    let reply = session.call("designos_save_file", json!({ "path": "kit.designos" })).unwrap();
+
+    assert!(reply.get("warnings").is_none(), "{reply}");
+}

@@ -194,7 +194,7 @@ fn saving_a_large_fig_to_the_library_from_the_dialog_is_announced_before_the_pag
     app.save_to_library_as_announced(project, None, "Kit".into());
 
     assert!(app.has_queued_work() && app.lib_file.is_none(), "the save waits for the frame that paints the status");
-    assert!(app.toast.as_ref().is_some_and(|t| t.text.starts_with("Saving to the library")), "the status says what is going on");
+    assert!(app.toast.as_ref().is_some_and(|t| t.text.starts_with("Saving to library")), "the status says what is going on");
 
     app.run_queued_work();
 

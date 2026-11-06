@@ -29,4 +29,38 @@ impl App {
             work(self);
         }
     }
+
+    /// A quit does not drop a job the user started and whose status is on screen (an import, a Save to library): it
+    /// finishes before the window closes. Returns how many jobs ran.
+    pub(crate) fn finish_queued_work_before_quit(&mut self) -> usize {
+        let queued = self.queued_work.len();
+        self.run_queued_work();
+        queued
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::App;
+    use designos_doc::Document;
+    use std::{cell::Cell, rc::Rc};
+
+    #[test]
+    fn a_quit_runs_the_job_that_was_waiting_for_the_next_frame() {
+        let mut app = App::new(Document::new("Doc"));
+        let ran = Rc::new(Cell::new(false));
+        let flag = Rc::clone(&ran);
+        app.run_after_status_paint("Importing kit.fig\u{2026} loading all pages", move |_| flag.set(true));
+        assert!(app.has_queued_work() && !ran.get(), "precondition: the job waits");
+
+        assert_eq!(app.finish_queued_work_before_quit(), 1);
+
+        assert!(ran.get() && !app.has_queued_work(), "the job finished before the window closed");
+    }
+
+    #[test]
+    fn a_quit_with_nothing_queued_runs_nothing() {
+        let mut app = App::new(Document::new("Doc"));
+        assert_eq!(app.finish_queued_work_before_quit(), 0);
+    }
 }

@@ -2277,6 +2277,8 @@ impl Shell {
         #[cfg(target_os = "macos")]
         crate::macos_menu::send_pending_quit(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
+            // A job the user started (an import, a Save to library) finishes before the window closes, so it is not dropped.
+            self.app.finish_queued_work_before_quit();
             if self.shot.is_some() || self.app.may_quit(&ctx) {
                 self.finish_quit();
             } else {

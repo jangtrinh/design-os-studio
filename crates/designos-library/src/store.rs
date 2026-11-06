@@ -905,15 +905,28 @@ impl Library {
     /// Same as [`Self::import_file`], also returning the parsed [`Document`] so callers
     /// (such as background thumbnail rendering) do not re-read and re-parse the saved file.
     pub fn import_file_with_doc(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document)> {
-        self.import_file_with_doc_counted(path, project, folder).map(|(e, d, _)| (e, d))
+        self.import_file_with_doc_counted(path, project, folder).map(|(e, d, _, _)| (e, d))
     }
 
     /// Like [`Self::import_file_with_doc`], also returning how many non-finite numbers were
-    /// replaced by their neutral value on read or write. Every page of the import is loaded before the
-    /// file is written, and the returned document holds them all.
-    pub fn import_file_with_doc_counted(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize)> {
-        let (mut doc, replaced_on_read) = load_external_counted(path)?;
+    /// replaced by their neutral value on read or write, and how many instances the file keeps empty for good
+    /// because it has more nested component copies than can be expanded. Every page of the import is loaded
+    /// before the file is written, and the returned document holds them all.
+    pub fn import_file_with_doc_counted(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize, usize)> {
+        let (doc, replaced_on_read) = load_external_counted(path)?;
         let stem = path.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty());
+        self.store_imported_document(doc, replaced_on_read, stem, project, folder)
+    }
+
+    /// Stores a document that was just read from a file. Pages the reader left unloaded are loaded first.
+    fn store_imported_document(
+        &self,
+        mut doc: Document,
+        replaced_on_read: usize,
+        stem: Option<&str>,
+        project: &str,
+        folder: Option<&str>,
+    ) -> Result<(FileEntry, Document, usize, usize)> {
         let name = if !doc.name.is_empty() { doc.name.clone() } else { stem.unwrap_or("Imported").to_string() };
         // A large `.fig` comes in with its inactive pages deferred (their instances are empty until the page
         // loads) and the file keeps no copy of the source, so every page is loaded before the first write.
@@ -924,14 +937,14 @@ impl Library {
         let (entry, replaced_on_write) = self.create_file_counted(project, folder, &name, &doc)?;
         let total_replaced = replaced_on_read + replaced_on_write;
         if replaced_on_write == 0 {
-            return Ok((entry, doc, total_replaced));
+            return Ok((entry, doc, total_replaced, left_empty));
         }
         // The import produced NaN or infinity and the stored file holds neutral values instead.
         // Sanitise only the affected items in memory so the editor and the file agree without
         // re-reading or re-parsing the whole stored file.
         eprintln!("designos-library: imported \"{name}\" with {replaced_on_write} non-finite numbers replaced by their neutral value");
         sanitize_document_in_memory(&mut doc)?;
-        Ok((entry, doc, total_replaced))
+        Ok((entry, doc, total_replaced, left_empty))
     }
 
     // ------------------------------------------------------------ recents / search
@@ -1523,5 +1536,43 @@ mod tests {
         // Emptying the trash removes the file's agent-sessions/<id> folder.
         lib.empty_trash().unwrap();
         assert!(!sess_dir.exists(), "empty_trash must remove agent-sessions/<id>");
+    }
+
+    /// A loader with nothing left to load that had to leave `skipped` instances empty (the copy budget).
+    #[derive(Debug)]
+    struct OverBudget {
+        skipped: usize,
+    }
+
+    impl designos_doc::PageHydrator for OverBudget {
+        fn hydrate_page(&mut self, _: &mut Document, _: designos_doc::NodeId) -> bool {
+            false
+        }
+        fn hydrate_all(&mut self, _: &mut Document) -> bool {
+            false
+        }
+        fn is_hydrated(&self, _: designos_doc::NodeId) -> bool {
+            true
+        }
+        fn unexpanded_instances(&self) -> usize {
+            self.skipped
+        }
+        fn take_unexpanded_instances(&mut self) -> usize {
+            std::mem::take(&mut self.skipped)
+        }
+    }
+
+    #[test]
+    fn an_import_reports_how_many_instances_the_file_keeps_empty() {
+        let (_t, lib) = Tmp::new();
+        let p = lib.create_project("P").unwrap();
+        let mut over_budget = doc("big", 1);
+        over_budget.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(OverBudget { skipped: 3 })));
+
+        let (_, _, replaced, left_empty) = lib.store_imported_document(over_budget, 0, None, &p.id, None).unwrap();
+        assert_eq!((replaced, left_empty), (0, 3), "the caller can tell the user");
+
+        let (_, _, _, left_empty) = lib.store_imported_document(doc("small", 1), 0, None, &p.id, None).unwrap();
+        assert_eq!(left_empty, 0, "a normal file reports nothing");
     }
 }
