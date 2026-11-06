@@ -66,7 +66,7 @@ $StudioExe = Join-Path $BinDir "designos-studio.exe"
 $StartShortcut = $WshShell.CreateShortcut((Join-Path $StartMenuDir "designos studio.lnk"))
 $StartShortcut.TargetPath = $StudioExe
 $StartShortcut.WorkingDirectory = $InstallRoot
-$StartShortcut.Description = "design:os studio — vector & UI design studio"
+$StartShortcut.Description = "design:os studio " + [char]0x2014 + " vector & UI design studio"
 $StartShortcut.Save()
 
 if (-not $NoDesktopShortcut) {
@@ -74,7 +74,7 @@ if (-not $NoDesktopShortcut) {
     $DesktopShortcut = $WshShell.CreateShortcut((Join-Path $DesktopDir "designos studio.lnk"))
     $DesktopShortcut.TargetPath = $StudioExe
     $DesktopShortcut.WorkingDirectory = $InstallRoot
-    $DesktopShortcut.Description = "design:os studio — vector & UI design studio"
+    $DesktopShortcut.Description = "design:os studio " + [char]0x2014 + " vector & UI design studio"
     $DesktopShortcut.Save()
 }
 
