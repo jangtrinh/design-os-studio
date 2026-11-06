@@ -3356,13 +3356,6 @@
     "reason": "R8.6 Remove status grows from 28 px to the 32 px inspector button and stays beside Mark completed"
   },
   {
-    "case": "g-dev-react",
-    "region": "unknown",
-    "dy": 4.0,
-    "spec": "G",
-    "reason": "R8.6 the status row grows by 4 px, so inspector controls laid out below it move down by that amount"
-  },
-  {
     "case": "g-dev-annotate",
     "region": "right_panel",
     "name_prefix": "dev-complete",
@@ -3406,53 +3399,6 @@
     "max_dh": 4.0,
     "spec": "G",
     "reason": "R8.6 Cancel shares the 32 px annotation action row"
-  },
-  {
-    "case": "g-dev-annotate",
-    "region": "unknown",
-    "dy": 8.0,
-    "spec": "G",
-    "reason": "R8.4 R8.6 the status row and the note field each grow by 4 px, so inspector controls below them move down by 8 px"
-  },
-  {
-    "case": "g-dev-annotate",
-    "region": "right_panel",
-    "name_prefix": "dev-mcp",
-    "dy": -8.0,
-    "spec": "G",
-    "reason": "R8.4 R8.6 the note field and the status row grow by 8 px, and the link list gives that growth back so the MCP block stays on its baseline row"
-  },
-  {
-    "case": "g-dev-annotate",
-    "region": "right_panel",
-    "name_prefix": "btn-\"mcp-copy-prompt\"",
-    "dy": -8.0,
-    "spec": "G",
-    "reason": "R8.4 R8.6 the note field and the status row grow by 8 px, and the link list gives that growth back so Copy MCP link stays on its baseline row"
-  },
-  {
-    "case": "g-dev-annotate",
-    "region": "right_panel",
-    "name_prefix": "dev-code-connect",
-    "dy": -8.0,
-    "spec": "G",
-    "reason": "R8.4 R8.6 the note field and the status row grow by 8 px, and the link list gives that growth back so the Code Connect header stays on its baseline row"
-  },
-  {
-    "case": "g-dev-annotate",
-    "region": "right_panel",
-    "name_prefix": "btn-\"code-connect-terminal\"",
-    "dy": -8.0,
-    "spec": "G",
-    "reason": "R8.4 R8.6 the note field and the status row grow by 8 px, and the link list gives that growth back so Send to agent stays on its baseline row"
-  },
-  {
-    "case": "g-dev-compare",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "dev-left-tab-layers",
-    "dy": -2.0,
-    "spec": "G",
-    "reason": "R5 the count badge drops and the Ready for dev tab narrows by 24 px, so the Layers tab keeps its gap and stays on its baseline row"
   },
   {
     "case": "g-dev-compare",
@@ -3500,28 +3446,15 @@
   {
     "case": "g-dev-compare",
     "region": "overlay:Foreground/0",
-    "name_prefix": "btn-\"compare-done\"",
-    "min_dh": 4.0,
-    "max_dh": 8.0,
-    "anchor_x": "right",
-    "anchor_y": "bottom",
-    "dy": 4.0,
-    "spec": "G",
-    "reason": "R8.6 Close grows from 32 px to the 40 px dialog button. Its centre stays on the old row, 4 px below a bottom pin."
-  },
-  {
-    "case": "g-dev-compare",
-    "region": "overlay:Foreground/0",
     "h_base": 32.0,
     "min_dw": 15.0,
     "max_dw": 15.0,
     "min_dh": 4.0,
     "max_dh": 8.0,
     "anchor_x": "right",
-    "anchor_y": "bottom",
-    "dy": 4.0,
+    "anchor_y": "centre",
     "spec": "G",
-    "reason": "R8.6 Mark as ready for dev again grows from 32 px to the 40 px dialog button. Its centre stays on the old row, 4 px below a bottom pin."
+    "reason": "R5 R8.6 Mark as ready for dev again grows from 32 px to the 40 px dialog button around its centre and 15 px wider for its semibold label, right edge held"
   },
   {
     "case": "micro-dev-boxmodel",
@@ -3531,5 +3464,14 @@
     "max_dh": 4.0,
     "spec": "G",
     "reason": "R5 R8.6 Ready for dev grows from 28 px to the 32 px inspector button"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "btn-\"code-connect-terminal\"",
+    "min_dh": -8.0,
+    "max_dh": 0.0,
+    "spec": "G",
+    "reason": "R5 the Code Connect button behind the dialog sits on the same row as the change-list track, which shortens by 8 px when the footer grows; the button itself keeps its height"
   }
 ]
