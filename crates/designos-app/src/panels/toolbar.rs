@@ -66,17 +66,33 @@ pub fn toolbar_width() -> f32 {
         + mode_switch_width()
 }
 
+#[cfg(test)]
 pub fn toolbar_rect(screen: Rect) -> Rect {
-    let w = toolbar_width();
+    toolbar_rect_x(screen, 0.0)
+}
+
+/// [`toolbar_rect`] for a bar that is `extra` px wider than the base layout (the Whiteboard group of a Design file).
+pub fn toolbar_rect_x(screen: Rect, extra: f32) -> Rect {
+    let w = toolbar_width() + extra;
     Rect::from_min_size(
         Pos2::new(screen.center().x - w / 2.0, screen.bottom() - theme::TOOLBELT_BOTTOM_MARGIN - theme::TOOLBELT_HEIGHT),
         Vec2::new(w, theme::TOOLBELT_HEIGHT),
     )
 }
 
-/// The 32px button of toolbar group `gi`.
-pub fn group_button_rect(screen: Rect, gi: usize) -> Rect {
-    let bar = toolbar_rect(screen);
+/// Width the Whiteboard group adds to `app`'s bar once its animation has settled; 0 where the file has no such group.
+pub fn bar_extra_settled(app: &App, screen: Rect) -> f32 {
+    if super::toolbar_whiteboard::available(app) {
+        super::toolbar_whiteboard::extra_width(screen, toolbar_width(), if app.wb_group.open { 1.0 } else { 0.0 })
+    } else {
+        0.0
+    }
+}
+
+/// The 32px button of toolbar group `gi` in a bar that is `extra` px wider than the base layout (the Whiteboard group of a
+/// Design file).
+pub fn group_button_rect_x(screen: Rect, gi: usize, extra: f32) -> Rect {
+    let bar = toolbar_rect_x(screen, extra);
     let mut x = bar.left() + theme::TOOLBELT_PADDING;
     let y = bar.top() + (bar.height() - theme::TOOL_BUTTON) / 2.0;
     for (i, g) in GROUPS.iter().enumerate() {
@@ -94,9 +110,9 @@ pub fn group_button_rect(screen: Rect, gi: usize) -> Rect {
     Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON))
 }
 
-/// The chevron hit area right of group `gi`'s button.
-pub fn chevron_rect(screen: Rect, gi: usize) -> Rect {
-    let b = group_button_rect(screen, gi);
+/// The chevron hit area right of group `gi`'s button, in a bar that is `extra` px wider than the base layout.
+pub fn chevron_rect_x(screen: Rect, gi: usize, extra: f32) -> Rect {
+    let b = group_button_rect_x(screen, gi, extra);
     Rect::from_min_size(Pos2::new(b.right() + theme::TOOL_CHEVRON_GAP, b.top()), Vec2::new(theme::TOOL_CHEVRON_W, theme::TOOL_BUTTON))
 }
 
@@ -128,7 +144,7 @@ fn primary_pressed_in(ui: &Ui, rect: Rect) -> bool {
     presses.into_iter().any(|p| rect.contains(p) && ctx.layer_id_at(p).is_none_or(|l| l == own))
 }
 
-fn tool_look(resp: &egui::Response, selected: bool) -> crate::widgets::kit::Look {
+pub(super) fn tool_look(resp: &egui::Response, selected: bool) -> crate::widgets::kit::Look {
     if selected && resp.hovered() && !resp.is_pointer_button_down_on() {
         crate::widgets::kit::selected_hover(
             crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Tool, crate::widgets::kit::State::Selected),
@@ -139,7 +155,7 @@ fn tool_look(resp: &egui::Response, selected: bool) -> crate::widgets::kit::Look
     }
 }
 
-fn mark_focus(ui: &Ui, p: &egui::Painter, id: egui::Id, rect: Rect, radius: f32) {
+pub(super) fn mark_focus(ui: &Ui, p: &egui::Painter, id: egui::Id, rect: Rect, radius: f32) {
     if crate::widgets::kit::keyboard_focus(ui, id) {
         crate::widgets::kit::focus_ring(p, rect, radius);
     }
@@ -215,7 +231,16 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
         show_dev_mode_toolbar(app, ui, screen);
         return;
     }
-    let bar = toolbar_rect(screen);
+    let wb = super::toolbar_whiteboard::available(app);
+    let (wb_t, extra) = if wb {
+        let root = app.lib.as_ref().map(|l| l.root().to_path_buf());
+        app.wb_group.ensure_loaded(root.as_deref());
+        let t = super::toolbar_whiteboard::open_fraction(app, ui.ctx());
+        (t, super::toolbar_whiteboard::extra_width(screen, toolbar_width(), t))
+    } else {
+        (0.0, 0.0)
+    };
+    let bar = toolbar_rect_x(screen, extra);
     let p = ui.painter().clone();
     contextual_bar(app, ui, screen, bar);
 
@@ -284,6 +309,10 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
     }
 
     x += theme::TOOL_GROUP_GAP;
+    if wb {
+        let spot = super::toolbar_whiteboard::GroupSpot { bar, x, y, screen, base_width: toolbar_width(), t: wb_t };
+        x = super::toolbar_whiteboard::show(app, ui, spot) + theme::TOOL_GROUP_GAP;
+    }
     let ar = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON));
     widgets::record(ui, "toolbar-actions-btn", ar);
     let aresp = ui.interact(ar, ui.id().with("actions"), Sense::click());
@@ -761,6 +790,7 @@ mod tests {
         let (ctx, _) = paint_toolbar(&mut app);
         let named = |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string()))));
         let screen = Rect::from_min_size(Pos2::ZERO, TOOLBAR_SCREEN);
+        let extra = bar_extra_settled(&app, screen);
         assert_eq!(toolbar_width(), 512.0);
         let mut checked = 0;
         for (gi, group) in GROUPS.iter().enumerate() {
@@ -771,9 +801,9 @@ mod tests {
             let visual = named(&format!("tool-chevron-{gi}")).expect("chevron visual");
             assert!(hit.width() + 0.5 >= theme::TARGET_MIN, "chevron {gi} hit is at least 24 wide");
             assert!((visual.width() - theme::TOOL_CHEVRON_W).abs() < 0.5, "the painted chevron {gi} stays 16 wide");
-            assert_eq!(visual, chevron_rect(screen, gi), "the layout helper and the painted chevron {gi} agree");
+            assert_eq!(visual, chevron_rect_x(screen, gi, extra), "the layout helper and the painted chevron {gi} agree");
             // the tool buttons are not recorded, so the next control is found from the layout the helper mirrors
-            let next = if gi + 1 < GROUPS.len() { group_button_rect(screen, gi + 1) } else { named("toolbar-actions-btn").expect("actions button") };
+            let next = if gi + 1 < GROUPS.len() { group_button_rect_x(screen, gi + 1, extra) } else { named("toolbar-actions-btn").expect("actions button") };
             assert!(hit.right() <= next.left() + 0.5, "the hit of chevron {gi} ends at {} but the next control starts at {}", hit.right(), next.left());
             checked += 1;
         }

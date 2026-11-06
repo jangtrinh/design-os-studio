@@ -96,14 +96,15 @@ fn escape_closes_submenu_then_menu() {
 fn shape_dropdown_picks_a_tool_and_remembers_it() {
     let mut s = Sim::new();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1088.0));
-    let chev = toolbar::chevron_rect(screen, 2);
+    let extra = toolbar::bar_extra_settled(s.app(), screen);
+    let chev = toolbar::chevron_rect_x(screen, 2, extra);
     s.click(chev.center());
     assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(2)));
     // Rectangle, Line, Arrow, Connector, Ellipse, Polygon, Star, Image.
     let h = theme::MENU_PADDING * 2.0 + 8.0 * theme::MENU_ITEM_HEIGHT;
     let pos = toolbar::tool_menu_pos(chev, h);
     // 232px wide panel, opening above the bar.
-    assert_eq!(pos.y + h, toolbar::toolbar_rect(screen).top() + theme::TOOL_MENU_OVERLAP);
+    assert_eq!(pos.y + h, toolbar::toolbar_rect_x(screen, extra).top() + theme::TOOL_MENU_OVERLAP);
     s.click(Pos2::new(pos.x + 100.0, pos.y + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + 12.0));
     assert_eq!(s.app().tool, Tool::Ellipse);
     assert_eq!(s.app().group_pick[2], 4);

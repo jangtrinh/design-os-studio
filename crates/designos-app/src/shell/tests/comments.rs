@@ -334,7 +334,8 @@ fn the_toolbar_button_and_c_both_start_comment_mode() {
     let mut s = sim();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1088.0));
     let gi = crate::canvas::tools::GROUPS.iter().position(|g| g.contains(&Tool::Comment)).unwrap();
-    s.click(crate::panels::toolbar::group_button_rect(screen, gi).center());
+    let extra = crate::panels::toolbar::bar_extra_settled(s.app(), screen);
+    s.click(crate::panels::toolbar::group_button_rect_x(screen, gi, extra).center());
     assert_eq!(s.app().tool, Tool::Comment);
     s.rect_of("comments-panel");
     s.key(Key::V);

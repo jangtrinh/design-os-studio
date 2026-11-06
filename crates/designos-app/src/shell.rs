@@ -1715,6 +1715,9 @@ impl Shell {
             }
             Key::R if m.shift => menus::run(app, ctx, Action::ToggleRulers),
             Key::Quote if m.shift => menus::run(app, ctx, Action::TogglePixelGrid),
+            Key::W if !m.shift && !m.alt && !m.command && crate::panels::toolbar_whiteboard::available(app) => {
+                crate::panels::toolbar_whiteboard::toggle(app);
+            }
             k => {
                 if !m.alt {
                     let tool = if app.board_key_map() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
