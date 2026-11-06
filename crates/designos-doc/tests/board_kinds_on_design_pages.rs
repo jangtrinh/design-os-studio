@@ -94,7 +94,7 @@ fn board_items_on_a_design_page_load_save_and_reload_with_identical_nodes() {
 }
 
 #[test]
-fn the_design_file_with_board_items_is_readable_by_the_oldest_shape_without_a_kind() {
+fn a_design_file_with_board_items_saved_without_a_kind_key_still_reads_as_design() {
     let f = design_page_with_board_items();
     let mut v: serde_json::Value = serde_json::from_str(&f.doc.to_json().unwrap()).unwrap();
     // A file saved before documents had a kind carries no `kind` key.
@@ -218,7 +218,7 @@ fn a_connector_flowing_in_an_auto_layout_frame_on_a_design_page_is_still_made_ab
 }
 
 #[test]
-fn lint_and_its_fixes_leave_every_board_item_on_a_design_page_alone() {
+fn lint_and_its_fixes_keep_every_board_items_kind_and_content_on_a_design_page() {
     let f = design_page_with_board_items();
     // Linting a page with board items completes over every layer.
     let report = lint(&f.doc, &LintConfig::default(), &ApproxLintEnv);
@@ -235,10 +235,11 @@ fn lint_and_its_fixes_leave_every_board_item_on_a_design_page_alone() {
         designos_doc::lint::lint_fix_document(&mut fixed, scope, None);
     }
     assert!(fixed.get(empty).is_none(), "the fix pass must remove an empty container, or this test proves nothing");
+    // Geometry is not compared: the grid fix may still snap a board item's size, as it does for any layer.
     for id in board_ids(&f) {
         let before = f.doc.get(id).expect("fixture node");
         let after = fixed.get(id).unwrap_or_else(|| panic!("lint fix removed {id:?}"));
-        assert_eq!(std::mem::discriminant(&before.kind), std::mem::discriminant(&after.kind), "lint fix converted {id:?}");
+        assert_eq!(before.kind, after.kind, "lint fix changed the kind or content of {id:?}");
         assert_eq!(before.parent, after.parent, "lint fix moved {id:?}");
     }
     let count_kinds = |d: &Document| -> BTreeMap<&'static str, usize> {
