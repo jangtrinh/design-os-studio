@@ -2080,7 +2080,8 @@ mod tests {
             reason: "the pair stacks on full rows".into(),
             ..Default::default()
         };
-        let allow = validate_allow_entries(vec![entry("zz-primary", AnchorX::Left, 0.0), entry("aa-secondary", AnchorX::Right, 32.0)]).expect("valid allow list");
+        let allow =
+            validate_allow_entries(vec![entry("zz-primary", AnchorX::Left, 0.0), entry("aa-secondary", AnchorX::Right, 32.0)]).expect("valid allow list");
 
         // The declared stacking: the primary stays on top, the secondary drops under it.
         let mut stacked = base.clone();
