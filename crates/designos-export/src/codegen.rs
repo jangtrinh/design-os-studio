@@ -722,12 +722,10 @@ pub(crate) fn grid_row_gap_px(doc: &Document, n: &Node, al: &AutoLayout) -> f32 
 }
 
 /// Variable name for the row gap. This chooses a name, not a size: the row gap is its own
-/// (`counterAxisSpacing`) when that spacing is bound or the solver keeps the stored counter
-/// spacing, and otherwise the row reuses `itemSpacing`.
+/// (`counterAxisSpacing`) when that spacing is bound or the stored counter spacing is positive,
+/// and otherwise the row reuses `itemSpacing`.
 pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'static str {
-    let solved = designos_doc::layout_solver::grid_row_gap(al);
-    let row_is_own = solved == al.counter_spacing && al.counter_spacing > 0.0;
-    if bound(doc, n, "counterAxisSpacing").is_some() || row_is_own {
+    if bound(doc, n, "counterAxisSpacing").is_some() || al.counter_spacing > 0.0 {
         "counterAxisSpacing"
     } else {
         "itemSpacing"

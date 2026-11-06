@@ -374,9 +374,9 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
             // layout: a counter spacing of 0 reuses the column gap, including when the column gap
             // is a variable whose stored number is 0. The pixel a row writes for itself is the
             // solver's row gap.
-            let stored_row = designos_doc::layout_solver::grid_row_gap(al);
-            let stored_col = al.item_spacing.max(0.0);
-            let one_gap = (stored_row - stored_col).abs() < 1e-4 && row_var.is_none() && (col_var.is_none() || al.counter_spacing <= 0.0);
+            let one_gap = (al.counter_spacing <= 0.0 || (al.counter_spacing - al.item_spacing).abs() < 1e-4)
+                && row_var.is_none()
+                && (col_var.is_none() || al.counter_spacing <= 0.0);
             if one_gap {
                 if col_gap > 0.0 || col_var.is_some() {
                     c.push(spaced("gap", col_gap, col_var));
