@@ -790,6 +790,10 @@ impl Document {
     /// The override entries the file stated for `instance` while its page has not been loaded (see
     /// [`PageHydrator::pending_instance_overrides`]). Read-only: a writer reads it to carry the entries over without
     /// loading the page, and the document's page loader is left exactly as it was.
+    ///
+    /// All three `pending_instance_*` accessors read the page loader, which clones of the document share (it is behind
+    /// an `Arc`). A clone exported after the live document opened a page finds no record for that page's instances that
+    /// are still childless in the clone, and exports them without overrides or derived data.
     pub fn pending_instance_overrides(&self, instance: NodeId) -> Option<String> {
         let h = self.page_hydrator.as_ref()?;
         let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

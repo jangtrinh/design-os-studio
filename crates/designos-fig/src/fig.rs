@@ -2726,9 +2726,6 @@ fn resolve_override_grid_anchor(
     }
 }
 
-/// Override entries of `instance`. Cell anchors in them resolve against the grid they sit in: for a
-/// child one step below the instance that is the instance's own tracks, deeper down it is the tracks
-/// an entry restates for the parent.
 /// The override entries of an instance exactly as the file states them, as compact JSON text, with the two kinds of
 /// reference that only mean something inside this file's tables: the bytes of every geometry blob the entries name
 /// (by blob index) and the name of every component property they assign (by definition id). A writer that carries
@@ -2766,6 +2763,9 @@ fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<String> {
     Some(format!("{{\"main\":{main},\"entries\":{entries},\"blobs\":{blobs},\"props\":{props}}}"))
 }
 
+/// Override entries of `instance`. Cell anchors in them resolve against the grid they sit in: for a
+/// child one step below the instance that is the instance's own tracks, deeper down it is the tracks
+/// an entry restates for the parent.
 fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
     let Some(raw) = list.and_then(Value::as_array) else { return Vec::new() };
     let carried: Vec<std::borrow::Cow<'_, Value>> = raw.iter().map(with_field_carriers).collect();
