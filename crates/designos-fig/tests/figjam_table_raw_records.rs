@@ -86,10 +86,13 @@ fn derived_immutable_frame_data_holds_one_frame_and_one_text_entry_per_cell() {
     let frames: Vec<_> = ov.iter().filter(|o| path(o)[0] == (TEMPLATE_SESSION, 0)).collect();
     let texts: Vec<_> = ov.iter().filter(|o| path(o)[0] == (TEMPLATE_SESSION, 1)).collect();
     assert_eq!((frames.len(), texts.len()), (8, 8));
-    // every frame is 192 x 64 at (col * 192, row * 64); the table size is the sum of the tracks
+    // every frame is 192 x 64 at (column offset, row offset), indexed by track order
+    let order = |key: &str| -> Vec<(u64, u64)> { t[key]["entries"].as_array().unwrap().iter().map(|e| guid(&e["id"])).collect() };
+    let (rows, cols) = (order("tableRowPositions"), order("tableColumnPositions"));
     for f in &frames {
         let p = path(f);
-        let (row, col) = (p[1].1 - 4, p[2].1 - 6);
+        let row = rows.iter().position(|r| *r == p[1]).expect("row id is a track");
+        let col = cols.iter().position(|c| *c == p[2]).expect("column id is a track");
         assert_eq!((f["size"]["x"].as_f64(), f["size"]["y"].as_f64()), (Some(192.0), Some(64.0)));
         assert_eq!(f["transform"]["m02"].as_f64(), Some(col as f64 * 192.0));
         assert_eq!(f["transform"]["m12"].as_f64(), Some(row as f64 * 64.0));
