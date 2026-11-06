@@ -55,6 +55,7 @@ mod load_repair_tests;
 mod node;
 pub mod openpencil;
 mod paint;
+mod pending_pages;
 mod prototype;
 pub mod query;
 mod renumber_ids;
@@ -111,6 +112,7 @@ pub use load_repair::*;
 pub use node::*;
 pub use openpencil::*;
 pub use paint::*;
+pub use pending_pages::PendingPagesError;
 pub use prototype::*;
 pub use settings::*;
 pub use silhouette::{silhouette_source, FilllessKnockout, SilhouetteMode, SilhouetteSource, FILLLESS_KNOCKOUT};
@@ -1407,6 +1409,9 @@ impl Document {
     /// Compact JSON of the document. A number that is not finite (NaN, infinity) is written as its
     /// neutral value instead (see [`finite_json`]), so the text always parses back; a file used to
     /// fail to open with `invalid type: null, expected f32` after one such number was saved.
+    ///
+    /// Fails for a document that still has pages whose content is not loaded ([`Document::has_pending_pages`]):
+    /// load them first with [`Document::load_pending_pages`].
     pub fn to_json(&self) -> serde_json::Result<String> {
         let (json, replaced) = self.to_json_counted()?;
         if replaced > 0 {
@@ -1418,6 +1423,9 @@ impl Document {
 
     /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
     pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
+        // A document whose pages are not all loaded would be written with empty instances, and the file could
+        // never be repaired: refuse it, naming the cause. Callers that own the document load the pages first.
+        self.refuse_pending_pages()?;
         let now = now_ms();
         // Flags of deleted layers and stale flags never reach the file: serialize through a view that filters them.
         if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
