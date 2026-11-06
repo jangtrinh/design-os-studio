@@ -367,12 +367,16 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
                 c.push("content-start".into());
             }
             let col_gap = al.item_spacing;
-            let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
+            let row_gap = grid_row_gap_px(doc, n, al);
             let col_var = bound(doc, n, "itemSpacing");
             let row_var = bound(doc, n, "counterAxisSpacing");
-            // One `gap` only when a single value drives both axes: a bound item spacing reaches the row only
-            // when the row has no spacing of its own (`counterAxisSpacing` unset, so the solver reuses it).
-            let one_gap = (row_gap - col_gap).abs() < 1e-4 && row_var.is_none() && (col_var.is_none() || al.counter_spacing <= 0.0);
+            // One `gap` only when a single value drives both axes. That decision uses the stored
+            // layout: a counter spacing of 0 reuses the column gap, including when the column gap
+            // is a variable whose stored number is 0. The pixel a row writes for itself is the
+            // solver's row gap.
+            let one_gap = (al.counter_spacing <= 0.0 || (al.counter_spacing - al.item_spacing).abs() < 1e-4)
+                && row_var.is_none()
+                && (col_var.is_none() || al.counter_spacing <= 0.0);
             if one_gap {
                 if col_gap > 0.0 || col_var.is_some() {
                     c.push(spaced("gap", col_gap, col_var));

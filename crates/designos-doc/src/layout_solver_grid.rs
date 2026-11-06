@@ -217,10 +217,34 @@ fn column_widths(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]
     col_widths
 }
 
+/// Row gap a grid lays out with. A positive `counter_spacing` is the row gap; otherwise the row
+/// reuses the column gap, and a negative column gap is 0.
+pub fn grid_row_gap(al: &AutoLayout) -> f32 {
+    let col_gap = al.item_spacing.max(0.0);
+    if al.counter_spacing > 0.0 {
+        al.counter_spacing
+    } else {
+        col_gap
+    }
+}
+
+/// `Auto` follows the container on that axis: Center and End stay, and every other container
+/// alignment (start, baseline, and the space distributions) is the start. An explicit child
+/// alignment is unchanged.
+pub fn resolve_cell_align(child: GridChildAlign, container: LayoutAlign) -> GridChildAlign {
+    match child {
+        GridChildAlign::Auto => match container {
+            LayoutAlign::Center => GridChildAlign::Center,
+            LayoutAlign::End => GridChildAlign::End,
+            _ => GridChildAlign::Start,
+        },
+        other => other,
+    }
+}
+
 fn row_heights(al: &AutoLayout, frame: Vec2, kids: &[ChildIn], placements: &[Placed], rows: usize) -> Vec<f32> {
     let [pt, _, pb, _] = al.padding;
-    let col_gap = al.item_spacing.max(0.0);
-    let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
+    let row_gap = grid_row_gap(al);
 
     // Row heights: an explicit Fixed row track wins (or an explicit Fixed auto-track size for
     // implicit overflow rows `r >= al.grid_rows`); single-row items size their row from clamped
@@ -261,7 +285,7 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
     let [pt, pr, pb, pl] = al.padding;
     let cols = grid_columns(al);
     let col_gap = al.item_spacing.max(0.0);
-    let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
+    let row_gap = grid_row_gap(al);
 
     if kids.is_empty() {
         let fw = if al.primary_sizing == Sizing::Hug { own.clamp_w(pl + pr) } else { frame.x };
@@ -316,15 +340,10 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
 /// as the flow solver does across its lines.
 fn cell_offset(child_align: GridChildAlign, container_align: LayoutAlign, cell_extent: f32, child_extent: f32) -> f32 {
     let slack = cell_extent - child_extent;
-    match child_align {
-        GridChildAlign::Start => 0.0,
+    match resolve_cell_align(child_align, container_align) {
         GridChildAlign::Center => slack * 0.5,
         GridChildAlign::End => slack,
-        GridChildAlign::Auto => match container_align {
-            LayoutAlign::Center => slack * 0.5,
-            LayoutAlign::End => slack,
-            _ => 0.0,
-        },
+        GridChildAlign::Start | GridChildAlign::Auto => 0.0,
     }
 }
 
@@ -727,8 +746,7 @@ mod tests {
             let out = compute_grid(al, *frame, own, kids);
             let cols = grid_columns(al);
             let placements = place_children(kids, cols);
-            let col_gap = al.item_spacing.max(0.0);
-            let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
+            let row_gap = grid_row_gap(al);
             let [pt, _, pb, _] = al.padding;
 
             for ((p, k), rect) in placements.iter().zip(kids).zip(&out.rects) {
@@ -754,5 +772,32 @@ mod tests {
         let kids = vec![child(60.0, 24.0)];
         let rows = grid_row_heights(&al, Vec2::new(200.0, 200.0), SizeLimits::default(), &kids);
         assert_eq!(rows, vec![30.0, 40.0, 50.0]);
+    }
+
+    #[test]
+    fn grid_row_gap_uses_a_positive_counter_spacing_and_clamps_a_negative_column_gap() {
+        let gap = |item: f32, counter: f32| grid_row_gap(&AutoLayout { item_spacing: item, counter_spacing: counter, ..Default::default() });
+        assert_eq!(gap(4.0, 0.0), 4.0);
+        assert_eq!(gap(4.0, 12.0), 12.0);
+        assert_eq!(gap(-3.0, 0.0), 0.0);
+        assert_eq!(gap(4.0, -1.0), 4.0);
+    }
+
+    #[test]
+    fn resolve_cell_align_maps_auto_onto_the_container() {
+        assert_eq!(resolve_cell_align(GridChildAlign::Auto, LayoutAlign::Center), GridChildAlign::Center);
+        assert_eq!(resolve_cell_align(GridChildAlign::Auto, LayoutAlign::End), GridChildAlign::End);
+        assert_eq!(resolve_cell_align(GridChildAlign::Auto, LayoutAlign::Start), GridChildAlign::Start);
+        assert_eq!(resolve_cell_align(GridChildAlign::Auto, LayoutAlign::SpaceBetween), GridChildAlign::Start);
+        assert_eq!(resolve_cell_align(GridChildAlign::Auto, LayoutAlign::SpaceAround), GridChildAlign::Start);
+        assert_eq!(resolve_cell_align(GridChildAlign::Auto, LayoutAlign::SpaceEvenly), GridChildAlign::Start);
+        assert_eq!(resolve_cell_align(GridChildAlign::Auto, LayoutAlign::Baseline), GridChildAlign::Start);
+        for explicit in [GridChildAlign::Start, GridChildAlign::Center, GridChildAlign::End] {
+            for container in
+                [LayoutAlign::Start, LayoutAlign::Center, LayoutAlign::End, LayoutAlign::SpaceBetween, LayoutAlign::Baseline, LayoutAlign::SpaceAround]
+            {
+                assert_eq!(resolve_cell_align(explicit, container), explicit);
+            }
+        }
     }
 }
