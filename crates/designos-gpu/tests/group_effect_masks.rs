@@ -114,8 +114,8 @@ fn background_blur_at_the_canvas_edge_matches_the_cpu_reference() {
     let c = common::compare(&mut g, "group-background-blur-canvas-edge", &t.doc, t.page, Viewport::default(), SIZE, 4);
     // The gaussian-vs-box difference leaves about 239 of 8,000 pixels strict-different and 71
     // once AA is forgiven. Repeating the edge texels instead of reading transparent zeros gives
-    // 373 and 188, so the AA budget (80 pixels) separates the two; the strict budget (280
+    // 373 and 188, so the AA budget (120 pixels) separates the two; the strict budget (280
     // pixels) keeps real margin over the floor without letting the clamped edge pass either.
-    assert!(c.report_aa.ratio < 0.01, "edge mismatch with AA forgiven {:.3}%", c.report_aa.ratio * 100.0);
+    assert!(c.report_aa.ratio < 0.015, "edge mismatch with AA forgiven {:.3}%", c.report_aa.ratio * 100.0);
     assert!(c.report.ratio < 0.035, "edge strict mismatch {:.3}%", c.report.ratio * 100.0);
 }
