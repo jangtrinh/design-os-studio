@@ -1,5 +1,7 @@
 use designos_doc::*;
-use designos_fig::{export_rest_json, import_rest_json};
+use designos_fig::container::{self, Compression};
+use designos_fig::testkit::sample_fig;
+use designos_fig::{export_rest_json, import_fig, import_rest_json};
 
 const FIXTURE: &str = include_str!("fixtures/figjam_file.json");
 
@@ -14,6 +16,16 @@ fn editor_type_makes_a_board() {
     // a design file stays a design file
     let design = import_rest_json(&FIXTURE.replace("\"editorType\": \"figjam\",", "")).unwrap();
     assert_eq!(design.kind, DocumentKind::Design);
+}
+
+#[test]
+fn jam_container_magic_makes_a_board() {
+    let fig = sample_fig(Compression::Zstd, false);
+    assert_eq!(import_fig(&fig).expect("import .fig container").kind, DocumentKind::Design);
+    let mut jam = fig;
+    jam[..container::MAGIC_JAM.len()].copy_from_slice(container::MAGIC_JAM);
+    let doc = import_fig(&jam).expect("import .jam container");
+    assert_eq!(doc.kind, DocumentKind::Board);
 }
 
 #[test]
