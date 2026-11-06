@@ -43,9 +43,11 @@ fn digest(node: &Node, field: OverrideField) -> u64 {
         OverrideField::Blend => format!("{:?}", node.blend),
         OverrideField::Size => format!("{:?}", node.size),
         OverrideField::Transform => format!("{:?}", node.transform),
-        OverrideField::Fills => format!("{:?}{:?}", node.fills, bound("fills/")),
-        OverrideField::Stroke => format!("{:?}{:?}{:?}", node.stroke, node.stroke_geometry, bound("strokes/")),
-        OverrideField::Effects => format!("{:?}{:?}", node.effects, bound("effects/")),
+        // The style link goes with the paints it supplies: linking to another style, or detaching, can leave the paints
+        // themselves as they were.
+        OverrideField::Fills => format!("{:?}{:?}{:?}", node.fills, bound("fills/"), node.style_refs.get("fill")),
+        OverrideField::Stroke => format!("{:?}{:?}{:?}{:?}", node.stroke, node.stroke_geometry, bound("strokes/"), node.style_refs.get("stroke")),
+        OverrideField::Effects => format!("{:?}{:?}{:?}", node.effects, bound("effects/"), node.style_refs.get("effect")),
         OverrideField::CornerRadii => format!("{:?}{:?}", node.corner_radii, node.corner_smoothing),
         _ => String::new(),
     };
@@ -102,6 +104,23 @@ mod tests {
         let mut refilled = n.clone();
         refilled.fills = vec![Paint::solid(Color::rgba(255, 0, 0, 255))];
         assert_eq!(edited_fields(&refilled, &opened), vec![OverrideField::Fills]);
+    }
+
+    #[test]
+    fn a_style_link_change_is_an_edit_of_the_field_it_supplies_even_when_the_values_stay() {
+        let mut n = node();
+        n.component.overrides.extend([OverrideField::Stroke, OverrideField::Effects]);
+        for (slot, field) in [("fill", OverrideField::Fills), ("stroke", OverrideField::Stroke), ("effect", OverrideField::Effects)] {
+            n.style_refs.insert(slot.into(), "style-one".into());
+            let opened = digests(&n);
+            assert!(edited_fields(&n, &opened).is_empty(), "{slot}: nothing changed");
+            let mut relinked = n.clone();
+            relinked.style_refs.insert(slot.into(), "style-two".into());
+            assert_eq!(edited_fields(&relinked, &opened), vec![field], "{slot}: re-linked");
+            let mut detached = n.clone();
+            detached.style_refs.remove(slot);
+            assert_eq!(edited_fields(&detached, &opened), vec![field], "{slot}: detached");
+        }
     }
 
     #[test]
