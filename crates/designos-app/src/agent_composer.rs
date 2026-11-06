@@ -643,11 +643,20 @@ impl TerminalState {
     pub fn cancel_queued_messages(&mut self) -> usize {
         let (cancelled, notice) = {
             let comp = self.active_composer_mut();
-            let cancelled = comp.pending_send.len();
+            let mut kept = VecDeque::new();
+            let mut cancelled = 0;
+            for entry in comp.pending_send.drain(..) {
+                if entry.is_system {
+                    kept.push_back(entry);
+                } else {
+                    cancelled += 1;
+                }
+            }
             if cancelled == 0 {
+                comp.pending_send = kept;
                 (0, String::new())
             } else {
-                comp.pending_send.clear();
+                comp.pending_send = kept;
                 let notice = if cancelled == 1 { "Queued message cancelled".to_string() } else { format!("{cancelled} queued messages cancelled") };
                 comp.notice = Some(notice.clone());
                 comp.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotReady));
@@ -1376,29 +1385,18 @@ pub fn show_composer(
     if bar.send {
         submit_composer = true;
     }
+    if bar.cancel {
+        state.cancel_queued_messages();
+    }
     if let Some(note) = caption_text.as_deref() {
         let note_top = composer_rect.bottom() - theme::SPACE_ROW - theme::CONTROL_XS - theme::LINE_CAPTION;
-        let show_cancel = !state.active_composer().pending_send.is_empty();
-        let cancel_w = if show_cancel { theme::CONTROL_MD } else { ZERO };
         let note_rect = Rect::from_min_size(
             Pos2::new(composer_rect.left() + theme::SPACE_ROW, note_top),
-            Vec2::new(
-                (composer_rect.width() - theme::SPACE_ROW * 2.0 - cancel_w - if show_cancel { theme::SPACE_ROW } else { ZERO }).max(theme::CONTROL_MD),
-                theme::LINE_CAPTION,
-            ),
+            Vec2::new((composer_rect.width() - theme::SPACE_ROW * 2.0).max(theme::CONTROL_MD), theme::LINE_CAPTION),
         );
         let elided = widgets::elide(&p, note, &theme::font_caption(), note_rect.width());
         p.text(Pos2::new(note_rect.left(), note_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_WARNING);
         widgets::record(ui, "agents-composer-notice", note_rect);
-        if show_cancel {
-            let cancel_rect =
-                Rect::from_min_size(Pos2::new(composer_rect.right() - theme::SPACE_ROW - cancel_w, note_top), Vec2::new(cancel_w, theme::LINE_CAPTION));
-            if widgets::kit::button(ui, cancel_rect, "agents-composer-cancel-queue", "Cancel", widgets::kit::Hierarchy::Secondary, widgets::kit::Size::Xs, true)
-                .clicked()
-            {
-                state.cancel_queued_messages();
-            }
-        }
     }
 
     if submit_composer {
@@ -1965,14 +1963,15 @@ mod tests {
         let dir = temp_composer_dir("cancel-queued-messages");
         let mut st = TerminalState::new_for_session("doc-1495-cancel", "Cancel Queue", Some(&dir));
         let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
-        st.active_tab_mut()
-            .expect("agent tab")
-            .composer
-            .pending_send
-            .extend([QueuedSend::new("first waiting", false), QueuedSend::new("second waiting", false)]);
+        st.active_tab_mut().expect("agent tab").composer.pending_send.extend([
+            QueuedSend::new("first waiting", false),
+            QueuedSend::new("system image job", true),
+            QueuedSend::new("second waiting", false),
+        ]);
 
         assert_eq!(st.cancel_queued_messages(), 2);
-        assert!(st.active_composer().pending_send.is_empty());
+        assert_eq!(st.active_composer().pending_send.len(), 1);
+        assert!(st.active_composer().pending_send.front().is_some_and(|entry| entry.is_system));
         assert_eq!(st.active_composer().notice.as_deref(), Some("2 queued messages cancelled"));
         assert_eq!(st.status_msg.as_deref(), Some("2 queued messages cancelled"));
 
