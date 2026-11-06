@@ -61,8 +61,6 @@ pub struct DevState {
     pub stale: bool,
     pub checked_rev: Option<u64>,
     pub has_tracked_cached: bool,
-    /// The status buttons of the selected layer sit on two rows in the last drawn inspector.
-    pub status_stacked: bool,
 }
 
 /// Escapes a string literal for Jetpack Compose Kotlin code generation (`\`, `"`, `\n`, `$`).

@@ -19,6 +19,19 @@ pub struct CompareView {
 
 const W: f32 = 820.0;
 const PREVIEW: f32 = 300.0;
+/// Height of the title row; the title and the close button share its centre line.
+const HEADER_H: f32 = 56.0;
+/// The footer buttons never get narrower than these, so a short label does not shrink them.
+const MIN_PRIMARY_W: f32 = 190.0;
+const MIN_CLOSE_W: f32 = 80.0;
+/// Inset of the dialog content from its edge, on all four sides.
+const PAD: f32 = 20.0;
+
+/// The close button, centred on the title row.
+fn close_rect(dialog: Rect) -> Rect {
+    let y = dialog.top() + (HEADER_H - theme::CONTROL_SM) * 0.5;
+    Rect::from_min_size(Pos2::new(dialog.right() - PAD - theme::CONTROL_SM, y), Vec2::splat(theme::CONTROL_SM))
+}
 
 fn render(doc: &Document, id: NodeId, scale: f32) -> Vec<u8> {
     designos_export::export_png(doc, id, scale)
@@ -99,19 +112,16 @@ pub fn show(app: &mut App, ctx: &Context) {
             close = true;
         }
         crate::widgets::kit::modal_surface(&p, screen, rect);
-        let pad = 20.0;
+        let pad = PAD;
         let title = format!("Compare changes \u{2022} {}", v.name);
         p.text(
-            Pos2::new(rect.left() + pad, rect.top() + 28.0),
+            Pos2::new(rect.left() + pad, rect.top() + HEADER_H * 0.5),
             Align2::LEFT_CENTER,
             elide(&p, &title, &theme::font_large_strong(), rect.width() - 80.0),
             theme::font_large_strong(),
             theme::TEXT,
         );
-        // Centering the icon in the header puts it on the ready section's row. One row gap lower
-        // keeps it in the header and on its own row.
-        let close_y = rect.top() + (56.0 - theme::CONTROL_SM) * 0.5 + theme::SPACE_ROW;
-        let x = Rect::from_min_size(Pos2::new(rect.right() - pad - theme::CONTROL_SM, close_y), Vec2::splat(theme::CONTROL_SM));
+        let x = close_rect(rect);
         if crate::widgets::kit::button_icon(
             ui,
             x,
@@ -127,7 +137,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         {
             close = true;
         }
-        let top = rect.top() + 56.0;
+        let top = rect.top() + HEADER_H;
         let pw = (rect.width() - pad * 2.0 - 16.0) / 2.0;
         let ph = PREVIEW + 24.0;
         let (before, after) = v.tex.as_ref().map(|(b, a)| (b.as_ref(), a.as_ref())).unwrap_or((None, None));
@@ -186,13 +196,11 @@ pub fn show(app: &mut App, ctx: &Context) {
         });
         scrollbar(ui, list, scroll, content_h);
 
-        // A bottom-pinned 40 px button sits 4 px higher at its centre than the old 32 px button
-        // and joins the row above it. Drop it by half the growth so the centre stays put.
-        let by = rect.bottom() - pad - btn_h + (theme::CONTROL_MD - theme::CONTROL_XS) * 0.5;
+        let by = rect.bottom() - pad - btn_h;
         let primary_label = "Mark as ready for dev again";
         let primary_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
-        let primary_w = (widgets::text_width(&p, primary_label, &primary_font).ceil() + 2.0 * theme::INSET_CONTROL).max(190.0);
-        let close_w = (widgets::text_width(&p, "Close", &primary_font).ceil() + 2.0 * theme::INSET_CONTROL).max(80.0);
+        let primary_w = (widgets::text_width(&p, primary_label, &primary_font).ceil() + 2.0 * theme::INSET_CONTROL).max(MIN_PRIMARY_W);
+        let close_w = (widgets::text_width(&p, "Close", &primary_font).ceil() + 2.0 * theme::INSET_CONTROL).max(MIN_CLOSE_W);
         let ok = Rect::from_min_size(Pos2::new(rect.right() - pad - primary_w, by), Vec2::new(primary_w, btn_h));
         let cl = Rect::from_min_size(Pos2::new(ok.left() - theme::SPACE_INLINE - close_w, by), Vec2::new(close_w, btn_h));
         widgets::record(ui, "btn-\"compare-done\"", cl);
@@ -214,5 +222,53 @@ pub fn show(app: &mut App, ctx: &Context) {
     }
     if !close {
         app.dev.compare = Some(v);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Draws the dialog once on a `screen` and returns the recorded footer button, the title's centre y and the dialog rect.
+    fn drawn(screen: Vec2) -> (Rect, f32, Rect) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let f = d.insert(page, Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+        let mut app = App::new(d);
+        app.dev.compare =
+            Some(CompareView { node: f, name: "Card".into(), changes: Vec::new(), before_png: Vec::new(), after_png: Vec::new(), tex: None, scroll: 0.0 });
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        let mut out = None;
+        for i in 0..3 {
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, screen)), time: Some(f64::from(i) * 0.1), ..Default::default() };
+            let full = ctx.run_ui(raw, |ui| show(&mut app, &ui.ctx().clone()));
+            let title = full.shapes.iter().find_map(|s| match &s.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text().starts_with("Compare changes") => Some(t.pos.y + t.galley.rect.height() * 0.5),
+                _ => None,
+            });
+            let footer = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "btn-\"compare-done\"".to_string()))));
+            out = title.zip(footer);
+        }
+        let (title_y, footer) = out.expect("the dialog paints its title and footer");
+        let h = (screen.y - 80.0).clamp(380.0, 640.0);
+        (footer, title_y, Rect::from_center_size(Rect::from_min_size(Pos2::ZERO, screen).center(), Vec2::new(W.min(screen.x - 40.0), h)))
+    }
+
+    #[test]
+    fn the_footer_buttons_sit_as_far_from_the_bottom_edge_as_from_the_side_edge() {
+        let (footer, _, dialog) = drawn(Vec2::new(1000.0, 800.0));
+        assert_eq!(dialog.bottom() - footer.bottom(), PAD, "bottom inset");
+        assert_eq!(footer.height(), theme::CONTROL_MD);
+    }
+
+    #[test]
+    fn the_close_button_is_centred_on_the_title_row() {
+        let (_, title_y, dialog) = drawn(Vec2::new(1000.0, 800.0));
+        let close = close_rect(dialog);
+        assert!((close.center().y - title_y).abs() < 0.5, "close centre {} vs title centre {title_y}", close.center().y);
+        assert_eq!(dialog.right() - close.right(), PAD, "side inset");
+        assert_eq!(close.top() - dialog.top(), dialog.top() + HEADER_H - close.bottom(), "even above and below");
     }
 }

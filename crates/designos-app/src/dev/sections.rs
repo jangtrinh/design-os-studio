@@ -46,7 +46,6 @@ fn primary_button(ui: &mut Ui, rect: Rect, key: &str, label: &str) -> bool {
 
 /// Status pill and the Ready for dev actions of the selected layer.
 pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
-    app.dev.status_stacked = false;
     let Some(n) = app.doc.get(id) else { return };
     if !super::markable(app, id) && n.dev.status.is_none() {
         return;
@@ -63,14 +62,7 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         }
         c.y += 28.0;
     }
-    let mut row = c.rect(PAD, 0.0, w, ACTION_ROW_H);
-    // The compare dialog puts the inspector and the left rail in one region. The taller button
-    // sits lower at its centre and joins the ready section. Lift it by half the growth so the
-    // centre stays put. The cursor below keeps the old step.
-    if app.dev.compare.is_some() {
-        let centre_hold = theme::SPACE_ROW * 0.5;
-        row = row.translate(Vec2::new(0.0, -centre_hold));
-    }
+    let row = c.rect(PAD, 0.0, w, ACTION_ROW_H);
     // The two buttons of a status share one row while both fit at their natural width. When they do not, they stack:
     // the primary on a full row, the secondary on a full row below it. A primary label is never elided.
     let split = |ui: &Ui, primary: &str, secondary: &str| -> (Rect, Rect, String) {
@@ -116,12 +108,7 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         }
     }
     // The row, plus the second row when the buttons stacked, plus the 8 px below.
-    // With the compare dialog open, the inspector keeps the previous 36 px step. The
-    // taller buttons would otherwise slide a full-width inspector row across the dialog footer.
-    let stacked = bottom - row.top() - ACTION_ROW_H;
-    app.dev.status_stacked = stacked > 0.0;
-    let advance = if app.dev.compare.is_some() { stacked + 36.0 } else { bottom - row.top() + 8.0 };
-    c.y += advance;
+    c.y += bottom - row.top() + 8.0;
 }
 
 /// Height of the row that holds the action buttons of a status.
@@ -385,21 +372,6 @@ pub fn links_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         link_editor(app, ui, c, e);
     }
     c.y += 8.0;
-    // The status row is 4 px taller. Sections after the link list sit on this cursor, and
-    // that growth pushes the last visible row into the panel clip, where its hit target
-    // splits away from the button beside it. Give the growth back. An open note field adds
-    // the same again.
-    let grown = theme::SPACE_ROW;
-    // Stacked buttons grow the block by a full row and the growth is kept, so nothing is given back then.
-    if !app.dev.status_stacked {
-        // The compare dialog already keeps the old step, so only the closed dialog grows this list.
-        if app.dev.compare.is_none() {
-            c.y -= grown;
-        }
-        if app.dev.annot.as_ref().is_some_and(|edit| edit.node == id) {
-            c.y -= grown;
-        }
-    }
 }
 
 fn band_label(p: &egui::Painter, at: Pos2, v: f32) {
@@ -880,5 +852,69 @@ mod tests {
         let pill = pill.expect("tinted status fill");
         assert!((pill.rect.height() - theme::BADGE_SM).abs() < 0.5, "pill height {}", pill.rect.height());
         assert_eq!(label_color(&shapes, DevStatus::ReadyForDev.label()), Some(theme::TEXT));
+    }
+
+    /// Cursor advance of the Dev links section and of its sibling, the Annotations section, after the status header
+    /// has run, for a selected layer with `status` and `links`.
+    fn section_advances(status: Option<DevStatus>, links: usize, annotating: bool) -> (f32, f32) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut node = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+        node.dev.status = status;
+        node.dev.links = (0..links).map(|i| DevLink { label: format!("link {i}"), url: format!("https://example.com/{i}") }).collect();
+        let f = d.insert(page, node).unwrap();
+        let mut app = App::new(d);
+        app.ui.dev_mode = true;
+        app.selection = vec![f];
+        if annotating {
+            app.dev.annot = Some(AnnotEdit { node: f, index: None, text: String::new(), props: Vec::new() });
+        }
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 800.0))), ..Default::default() };
+        let mut out = (0.0, 0.0);
+        let _ = ctx.run_ui(raw, |ui| {
+            let mut c = Cur { x0: 0.0, oy: 0.0, y: 0.0, w: theme::RIGHT_PANEL_WIDTH - 1.0 };
+            status_header(&mut app, ui, &mut c, f);
+            let before = c.y;
+            annotations_section(&mut app, ui, &mut c, f);
+            let annotations = c.y - before;
+            let before = c.y;
+            links_section(&mut app, ui, &mut c, f);
+            out = (c.y - before, annotations);
+        });
+        out
+    }
+
+    /// Advance of a section title alone.
+    fn title_advance() -> f32 {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut advance = 0.0;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut c = Cur { x0: 0.0, oy: 0.0, y: 0.0, w: theme::RIGHT_PANEL_WIDTH - 1.0 };
+            section_title(ui, &mut c, "Dev links");
+            advance = c.y;
+        });
+        advance
+    }
+
+    #[test]
+    fn the_dev_links_section_keeps_the_bottom_inset_of_its_siblings() {
+        // Empty sections: title, the "No ..." row, and the shared 8 px bottom pad.
+        let empty = title_advance() + ROW_H + 8.0;
+        for status in [None, Some(DevStatus::ReadyForDev), Some(DevStatus::Changed), Some(DevStatus::Completed)] {
+            for annotating in [false, true] {
+                let (links, annotations) = section_advances(status, 0, annotating);
+                assert_eq!(links, empty, "links, status {status:?}, note editor open {annotating}");
+                if !annotating {
+                    assert_eq!(annotations, empty, "annotations, status {status:?}");
+                }
+            }
+            // One link row of 36 px, then the same pad.
+            let (links, _) = section_advances(status, 1, false);
+            assert_eq!(links, title_advance() + 36.0 + 8.0, "links with one entry, status {status:?}");
+        }
     }
 }
