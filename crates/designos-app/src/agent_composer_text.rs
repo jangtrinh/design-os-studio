@@ -32,7 +32,7 @@ pub fn caption(state: &TerminalState) -> Option<String> {
         return Some(note.to_string());
     }
     let comp = state.active_composer();
-    if !comp.pending_send.is_empty() && !comp.draft.is_empty() {
+    if !comp.pending_send.is_empty() {
         if let Some(note) = comp.notice.clone() {
             return Some(note);
         }
