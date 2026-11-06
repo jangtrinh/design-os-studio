@@ -2920,6 +2920,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
 
                     let id = trial.alloc_id();
                     let mut node = designos_doc::Node::connector(id, props);
+                    node.stroke.paints = vec![designos_doc::Paint::solid(designos_doc::default_connector_ink(&trial, home))];
                     if let Some(name) = &a.name {
                         node.name = name.clone();
                     }
@@ -4821,6 +4822,48 @@ mod tests {
         assert_eq!(conn.size, expected_geom.size, "stored size must match connector_geometry right after connect");
         assert_eq!(props.start.point, expected_geom.start_point);
         assert_eq!(props.end.point, expected_geom.end_point);
+    }
+
+    #[test]
+    fn mcp_connect_without_stroke_uses_the_default_ink() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let rect = |parent: &str, name: &str, x: f64| json!({ "op": "insert", "as": name, "parent": parent, "kind": "rectangle", "name": name, "x": x, "y": 40.0, "width": 80.0, "height": 60.0 });
+        let frame = |name: &str, x: f64| json!({ "op": "insert", "as": name, "parent": page.0, "kind": "frame", "name": name, "x": x, "y": 50.0, "width": 400.0, "height": 240.0 });
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({ "ops": [
+                    frame("day", 0.0), rect("@day", "a1", 20.0), rect("@day", "b1", 280.0),
+                    frame("night", 500.0), rect("@night", "a2", 20.0), rect("@night", "b2", 280.0),
+                    frame("left", 1000.0), frame("right", 1500.0),
+                ] }),
+            )
+            .expect("fixture batch");
+        let id = |name: &str| NodeId(res["name_to_id"][name].as_u64().unwrap());
+        engine.doc.get_mut(id("day")).unwrap().fills = vec![Paint::solid(Color::WHITE)];
+        engine.doc.get_mut(id("night")).unwrap().fills = vec![Paint::solid(Color::rgb(0x12, 0x12, 0x15))];
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({ "ops": [
+                    { "op": "connect", "as": "in_day", "from": id("a1").0, "to": id("b1").0 },
+                    { "op": "connect", "as": "in_night", "from": id("a2").0, "to": id("b2").0 },
+                    { "op": "connect", "as": "on_page", "from": id("left").0, "to": id("right").0 },
+                ] }),
+            )
+            .expect("connect batch");
+        let ink = |name: &str| {
+            let c = NodeId(res["name_to_id"][name].as_u64().unwrap());
+            match &engine.doc.get(c).unwrap().stroke.paints[0].kind {
+                designos_doc::PaintKind::Solid(col) => *col,
+                k => panic!("expected a solid stroke, got {k:?}"),
+            }
+        };
+        assert_eq!(ink("in_day"), Color::rgb(0x1E, 0x1E, 0x1E), "a white screen takes the dark ink");
+        assert_eq!(ink("in_night"), Color::WHITE, "a dark screen takes white ink");
+        assert_eq!(ink("on_page"), Color::WHITE, "the dark default page takes white ink");
     }
 
     #[test]

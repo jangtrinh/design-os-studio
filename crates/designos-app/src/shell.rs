@@ -390,6 +390,9 @@ pub struct Shell {
     /// Why a `--select` or `--edit-text` named nothing, when it did not.
     select_miss: Option<String>,
     launch_had_panel_or_file: bool,
+    /// The pointer is over the Inspector's auto-layout alignment row, where X toggles auto spacing and
+    /// does not pick a tool. Read from the last frame's Inspector pass at the start of each frame.
+    pointer_over_align_row: bool,
 }
 
 impl Shell {
@@ -964,7 +967,7 @@ impl Shell {
         });
         #[cfg(target_os = "macos")]
         crate::macos_terminate::sync(ctx, &app);
-        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file }
+        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file, pointer_over_align_row: false }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -1211,6 +1214,7 @@ impl Shell {
     }
 
     fn handle_keys(&mut self, ctx: &Context) {
+        self.pointer_over_align_row = crate::panels::properties::take_pointer_over_align_row(ctx);
         let frame_modifiers = ctx.input(|i| i.modifiers);
         self.paste_chord.begin_frame(frame_modifiers);
         if self.app.plugins.open
@@ -1674,6 +1678,7 @@ impl Shell {
             Key::H if m.shift && !m.alt => app.flip_selection(true),
             Key::V if m.shift && !m.alt => app.flip_selection(false),
             Key::X if m.shift && !m.alt => menus::run(app, ctx, Action::SwapFillAndStroke),
+            Key::X if !m.shift && !m.alt && app.wb_connectors_enabled() && !self.pointer_over_align_row => app.set_tool(Tool::Connector),
             Key::H | Key::V if m.shift && m.alt => menus::run(app, ctx, Action::Distribute),
             Key::H if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::HCenter)),
             Key::V if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::VCenter)),
@@ -2325,6 +2330,10 @@ impl Shell {
             crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
         }
+        // a tool carried over from another file (a tab switch keeps it) that this file does not offer falls back to Move
+        if !self.app.tool_offered(self.app.tool) {
+            self.app.set_tool(Tool::Move);
+        }
         self.handle_keys(&ctx);
         if !self.app.plugins.open {
             self.handle_drops(&ctx);
@@ -2498,6 +2507,9 @@ impl Shell {
                     let tb_rect = if deck { canvas_rect } else { canvas_rect_for_toolbar(full) };
                     toolbar::show(&mut self.app, ui, tb_rect);
                 }
+            }
+            if let Some(msg) = crate::board::connect::take_detach_toast() {
+                self.app.show_toast(msg, false);
             }
             if !specs_reader_open {
                 crate::history::banner::show(&mut self.app, ui, canvas_rect);

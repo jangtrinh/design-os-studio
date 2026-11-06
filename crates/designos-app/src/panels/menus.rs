@@ -645,6 +645,7 @@ fn gpu_off_reason(app: &App) -> &'static str {
 fn tool_nodes(app: &App, g: usize) -> Vec<Node> {
     GROUPS[g]
         .iter()
+        .filter(|t| app.tool_offered(**t))
         .map(|t| {
             leaf(tool_menu_label(*t), t.shortcut(), Action::Tool(*t))
                 .on(app.group_pick[g].min(GROUPS[g].len() - 1) == GROUPS[g].iter().position(|x| x == t).unwrap_or(0))
@@ -948,7 +949,7 @@ fn commands(app: &App) -> Vec<Command> {
     collect(&main_nodes(app), &mut out);
     out.retain(|c| c.label != "Libraries" && c.label != "Not available");
     for g in GROUPS {
-        for t in *g {
+        for t in g.iter().filter(|t| app.tool_offered(**t)) {
             out.push(Command {
                 label: tool_menu_label(*t).trim_end_matches('…').into(),
                 shortcut: t.shortcut().into(),

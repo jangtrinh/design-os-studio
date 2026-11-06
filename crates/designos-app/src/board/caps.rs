@@ -4,6 +4,13 @@
 //! sites directly.
 
 use crate::app::App;
+use crate::canvas::tools::Tool;
+use designos_doc::DocumentKind;
+
+/// [`App::wb_board_targeting`] for code that holds only the document, such as the commit.
+pub(crate) fn board_targeting_for(kind: DocumentKind) -> bool {
+    kind == DocumentKind::Board
+}
 
 impl App {
     /// Whether whiteboard tools (such as Tab creating the next sticky note) are active.
@@ -23,7 +30,20 @@ impl App {
 
     /// Whether whiteboard connector magnet dots and hover target tracking are active.
     pub fn wb_connectors_enabled(&self) -> bool {
-        self.is_board()
+        matches!(self.doc.kind, DocumentKind::Design | DocumentKind::Board)
+    }
+
+    /// Whether connectors keep the whiteboard rules: only whiteboard items are targets and the
+    /// pointer reaches them inside groups and sections, a drop on a section's empty area leaves a
+    /// free end, and every connector is a child of the page. Design files follow the layer rules.
+    pub fn wb_board_targeting(&self) -> bool {
+        board_targeting_for(self.doc.kind)
+    }
+
+    /// Whether the toolbar, its dropdowns and the command palette offer `tool` in this file. Connector
+    /// is offered only where connectors work, so no menu entry or key is a dead control.
+    pub fn tool_offered(&self, tool: Tool) -> bool {
+        tool != Tool::Connector || self.wb_connectors_enabled()
     }
 
     /// Whether newly created sections use whiteboard fill and border defaults.
@@ -87,7 +107,10 @@ mod tests {
             assert_eq!(app.wb_tools_enabled(), wb_expected, "{kind:?}: wb_tools_enabled");
             assert_eq!(app.board_key_map(), wb_expected, "{kind:?}: board_key_map");
             assert_eq!(app.wb_contextual_bar_enabled(), wb_expected, "{kind:?}: wb_contextual_bar_enabled");
-            assert_eq!(app.wb_connectors_enabled(), wb_expected, "{kind:?}: wb_connectors_enabled");
+            assert_eq!(app.wb_connectors_enabled(), matches!(kind, DocumentKind::Board | DocumentKind::Design), "{kind:?}: wb_connectors_enabled");
+            assert_eq!(app.wb_board_targeting(), wb_expected, "{kind:?}: wb_board_targeting");
+            assert_eq!(app.tool_offered(crate::canvas::tools::Tool::Connector), kind != DocumentKind::Deck, "{kind:?}: tool_offered(Connector)");
+            assert!(app.tool_offered(crate::canvas::tools::Tool::Line), "{kind:?}: tool_offered(Line)");
             assert_eq!(app.wb_section_defaults(), wb_expected, "{kind:?}: wb_section_defaults");
             assert_eq!(app.wb_text_defaults(), wb_expected, "{kind:?}: wb_text_defaults");
             assert_eq!(app.wb_dotted_background(), wb_expected, "{kind:?}: wb_dotted_background");

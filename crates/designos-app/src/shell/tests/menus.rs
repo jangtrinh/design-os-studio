@@ -99,22 +99,24 @@ fn shape_dropdown_picks_a_tool_and_remembers_it() {
     let chev = toolbar::chevron_rect(screen, 2);
     s.click(chev.center());
     assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(2)));
-    // Rectangle, Line, Arrow, Ellipse, Polygon, Star, Image.
-    let h = theme::MENU_PADDING * 2.0 + 7.0 * theme::MENU_ITEM_HEIGHT;
+    // Rectangle, Line, Arrow, Connector, Ellipse, Polygon, Star, Image.
+    let h = theme::MENU_PADDING * 2.0 + 8.0 * theme::MENU_ITEM_HEIGHT;
     let pos = toolbar::tool_menu_pos(chev, h);
     // 232px wide panel, opening above the bar.
     assert_eq!(pos.y + h, toolbar::toolbar_rect(screen).top() + theme::TOOL_MENU_OVERLAP);
-    s.click(Pos2::new(pos.x + 100.0, pos.y + theme::MENU_PADDING + 3.0 * theme::MENU_ITEM_HEIGHT + 12.0));
+    s.click(Pos2::new(pos.x + 100.0, pos.y + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + 12.0));
     assert_eq!(s.app().tool, Tool::Ellipse);
-    assert_eq!(s.app().group_pick[2], 3);
+    assert_eq!(s.app().group_pick[2], 4);
     assert_eq!(s.app().ui.menu, None);
 }
 
-/// Group of the Rectangle / Line / Arrow / Ellipse / Polygon / Star / Image dropdown.
+/// Group of the Rectangle / Line / Arrow / Connector / Ellipse / Polygon / Star / Image dropdown.
 const SHAPE_GROUP: usize = 2;
 /// Rows of that dropdown.
 const ROW_RECTANGLE: usize = 0;
-const ROW_ELLIPSE: usize = 3;
+const ROW_ELLIPSE: usize = 4;
+/// A deck's dropdown has no Connector row, so Ellipse sits one row higher.
+const ROW_ELLIPSE_IN_DECK: usize = ROW_ELLIPSE - 1;
 
 fn chevron_center(s: &Sim) -> Pos2 {
     s.rect_of(&format!("tool-chevron-{SHAPE_GROUP}")).center()
@@ -313,7 +315,7 @@ fn the_dropdown_opens_against_its_chevron_in_a_deck() {
     s.frame(vec![]);
     assert_menu_hangs_off_the_chevron(&s);
     // And a row of it can be picked.
-    s.click(row_center(&s, ROW_ELLIPSE));
+    s.click(row_center(&s, ROW_ELLIPSE_IN_DECK));
     assert_picked_ellipse(&s);
 }
 

@@ -14,7 +14,7 @@ pub mod preview;
 pub mod toolbar;
 
 use crate::app::App;
-use designos_doc::{Color, DocumentKind, NodeId, NodeKind, ShapeKind};
+use designos_doc::{Color, DocumentKind, NodeId, ShapeKind};
 
 /// Which popover of the bottom toolbar is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,6 +162,12 @@ impl Default for BoardState {
     }
 }
 
+/// The ink a new connector gets in a design file: `theme::BOARD_INK[0]`, or `theme::BOARD_INK_ON_DARK`
+/// where that falls below 3:1 contrast against the surface behind it.
+pub fn connector_ink_on(doc: &designos_doc::Document, home: NodeId) -> Color {
+    designos_doc::connector_ink_on(doc, home, color_of(crate::theme::BOARD_INK[0]), color_of(crate::theme::BOARD_INK_ON_DARK))
+}
+
 /// `0xRRGGBB` as a document colour.
 pub fn color_of(c: u32) -> Color {
     Color::rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
@@ -183,9 +189,4 @@ impl App {
     pub fn is_board(&self) -> bool {
         self.doc.kind == DocumentKind::Board
     }
-}
-
-/// Kinds a connector can attach to.
-pub fn connectable(kind: &NodeKind) -> bool {
-    matches!(kind, NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } | NodeKind::Text(_))
 }

@@ -230,8 +230,8 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
         if gi > 0 {
             x += theme::TOOL_GROUP_GAP;
         }
-        let pick = app.group_pick[gi].min(group.len() - 1);
-        let tool = group[pick];
+        // a pick remembered from another file may name a tool this file does not offer
+        let tool = Some(group[app.group_pick[gi].min(group.len() - 1)]).filter(|t| app.tool_offered(*t)).unwrap_or(group[0]);
         let selected = group.contains(&app.tool);
         let shown = if selected { app.tool } else { tool };
         let br = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON));

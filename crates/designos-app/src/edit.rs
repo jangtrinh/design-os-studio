@@ -13,6 +13,10 @@ pub struct Edit {
     opened_at: Option<u64>,
     /// Visible page-space viewport during a live drag, so offscreen connectors defer re-routing until commit.
     pub reroute_viewport: Option<designos_doc::Rect>,
+    /// Structural command targets to include in commit-time connector re-routing.
+    pub(crate) extra_touched: Vec<NodeId>,
+    /// Plan produced by the most recent [`crate::board::connect::reroute_touched`] pass.
+    pub(crate) last_reroute_plan: Option<designos_doc::ReroutePlan>,
 }
 
 impl Edit {
@@ -272,6 +276,23 @@ impl Tx {
         self.commit_with_before(doc, hist, label).map(|(changed, _)| changed)
     }
 
+    /// Nodes whose place in the tree this transaction changed: the targets of its structural commands
+    /// and every node whose parent differs from what it was before.
+    fn reparented_nodes(&self, doc: &Document) -> std::collections::HashSet<NodeId> {
+        let mut out = std::collections::HashSet::new();
+        for cmd in &self.cmds {
+            match cmd {
+                Command::Reparent { id, .. } | Command::Remove { id } => {
+                    out.insert(*id);
+                }
+                Command::Insert { nodes, .. } => out.extend(nodes.first().map(|root| root.id)),
+                _ => {}
+            }
+        }
+        out.extend(self.ed.before.iter().filter(|(&id, old)| doc.get(id).is_some_and(|cur| cur.parent != old.parent)).map(|(&id, _)| id));
+        out
+    }
+
     /// Commits the transaction and returns `(changed, before_nodes)`, where `before_nodes` holds only the
     /// nodes whose properties changed and that still exist in `doc` after the commit.
     pub fn commit_with_before(mut self, doc: &mut Document, hist: &mut History, label: Option<String>) -> Result<(bool, BTreeMap<NodeId, Node>), DocError> {
@@ -282,7 +303,79 @@ impl Tx {
         self.ed.retain_changed(doc);
         // connectors follow the nodes they join (and a moved connector its free ends)
         self.ed.reroute_viewport = None;
+        self.ed.extra_touched.clear();
+        for cmd in &self.cmds {
+            match cmd {
+                Command::Reparent { id, .. } | Command::Remove { id } => self.ed.extra_touched.push(*id),
+                Command::Insert { nodes, .. } => {
+                    if let Some(root) = nodes.first() {
+                        self.ed.extra_touched.push(root.id);
+                    }
+                }
+                _ => {}
+            }
+        }
         crate::board::connect::reroute_touched(doc, &mut self.ed);
+        if let Some(plan) = self.ed.last_reroute_plan.take() {
+            let mut detached_any = false;
+            let mut resync_ids = Vec::new();
+            for (cid, end) in plan.detached {
+                if let Some(n) = self.ed.node(doc, cid) {
+                    if let designos_doc::NodeKind::Connector(c) = &mut n.kind {
+                        match end {
+                            designos_doc::End::Start => c.start.node = None,
+                            designos_doc::End::End => c.end.node = None,
+                        }
+                        detached_any = true;
+                        if !resync_ids.contains(&cid) {
+                            resync_ids.push(cid);
+                        }
+                    }
+                }
+            }
+            if detached_any {
+                crate::board::connect::notify_detached();
+            }
+            // a board connector always lives on the page, so a board file is never re-homed
+            let rehomes = if crate::board::caps::board_targeting_for(doc.kind) { Vec::new() } else { plan.rehomes };
+            let reparented = self.reparented_nodes(doc);
+            for (cid, new_home) in rehomes {
+                // only a connector with an end whose place in the tree changed in this step is re-homed
+                if !ends_moved_with(doc, cid, &reparented) {
+                    continue;
+                }
+                let old_parent = doc.get(cid).and_then(|n| n.parent);
+                if old_parent == Some(new_home) || old_parent.is_none() {
+                    continue;
+                }
+                let old_world = old_parent.map(|p| doc.world_transform(p)).unwrap_or(designos_doc::Affine::IDENTITY);
+                let new_inv = doc.world_transform(new_home).invert().unwrap_or(designos_doc::Affine::IDENTITY);
+                self.ed.touch(doc, cid);
+                if self.cmd(doc, Command::Reparent { id: cid, parent: new_home, index: usize::MAX }).is_ok() {
+                    let xform = new_inv * old_world;
+                    if let Some(n) = self.ed.node(doc, cid) {
+                        n.layout_child.absolute = true;
+                        if let designos_doc::NodeKind::Connector(c) = &mut n.kind {
+                            for e in [&mut c.start, &mut c.end] {
+                                if e.node.is_none() {
+                                    e.point = xform.apply(e.point);
+                                }
+                            }
+                        }
+                    }
+                    if !resync_ids.contains(&cid) {
+                        resync_ids.push(cid);
+                    }
+                }
+            }
+            for cid in resync_ids {
+                if let Some(g) = designos_doc::connector_geometry(doc, cid) {
+                    if let Some(n) = self.ed.node(doc, cid) {
+                        g.apply(n);
+                    }
+                }
+            }
+        }
         self.ed.retain_changed(doc);
         let mut updates = self.ed.updates_retained(doc);
         crate::comp_ops::record_overrides(doc, &self.ed.before, &mut updates);
@@ -303,6 +396,22 @@ impl Tx {
         self.ed.before.retain(|id, _| doc.get(*id).is_some());
         Ok((true, self.ed.before))
     }
+}
+
+/// Whether an end of connector `cid` is, or sits below, a node in `reparented`.
+fn ends_moved_with(doc: &Document, cid: NodeId, reparented: &std::collections::HashSet<NodeId>) -> bool {
+    let Some(designos_doc::NodeKind::Connector(c)) = doc.get(cid).map(|n| &n.kind) else { return false };
+    [c.start.node, c.end.node].into_iter().flatten().any(|end| {
+        let mut cur = Some(end);
+        for _ in 0..=doc.nodes.len() {
+            let Some(id) = cur else { return false };
+            if reparented.contains(&id) {
+                return true;
+            }
+            cur = doc.get(id).and_then(|n| n.parent);
+        }
+        false
+    })
 }
 
 #[cfg(test)]
