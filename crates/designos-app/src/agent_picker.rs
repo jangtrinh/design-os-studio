@@ -41,6 +41,10 @@ pub struct AgentPickerState {
     pub menu_more_open: bool,
     /// Scroll of the agent menu when it is taller than the room above the pill.
     pub menu_scroll: f32,
+    /// Set when the `Other CLI…` form opens: the next menu pass scrolls the form into view (`#1010`).
+    pub reveal_other_form: bool,
+    /// The agent menu's height on its last pass: a change while the `Other CLI…` form is open (a window resize) reveals the form again.
+    pub menu_view_h: f32,
 }
 
 impl AgentPickerState {
@@ -85,11 +89,13 @@ impl AgentPickerState {
     pub fn open_other_form(&mut self) {
         self.other_form_open = true;
         self.other_error = None;
+        self.reveal_other_form = true;
     }
 
     /// Closes and resets the inline `"Other CLI…"` form.
     pub fn close_other_form(&mut self) {
         self.other_form_open = false;
+        self.reveal_other_form = false;
         self.other_label_input.clear();
         self.other_command_input.clear();
         self.other_error = None;
@@ -403,6 +409,13 @@ fn menu_slot_width(p: &egui::Painter, label: &str) -> f32 {
     (widgets::text_width(p, label, &menu_label_font()) + theme::INSET_FRAME * 2.0).max(theme::TARGET_MIN)
 }
 
+/// The menu scroll that shows the content span `top..bottom` in a viewport `view_h` tall with the least movement: a span that
+/// fits ends at the viewport's bottom edge, one that does not starts at its top edge. Stays within `0..=max_scroll`.
+fn scroll_to_reveal(top: f32, bottom: f32, view_h: f32, max_scroll: f32) -> f32 {
+    let target = if bottom - top <= view_h { bottom - view_h } else { top };
+    target.clamp(0.0, max_scroll.max(0.0))
+}
+
 /// Agent menu above the composer pill. Other CLI and Shell stay behind `More…`.
 pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
     let (pill_label, pill_preset) = composer_pill(state);
@@ -455,6 +468,16 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     let menu_x = raw_x.clamp(x_lo, x_hi);
     let menu_r = Rect::from_min_size(Pos2::new(menu_x, menu_top), Vec2::new(menu_w, view_h));
     let max_scroll = (content_h - view_h).max(0.0);
+    let resized = (state.picker.menu_view_h - view_h).abs() > 0.5;
+    state.picker.menu_view_h = view_h;
+    if (state.picker.reveal_other_form || resized) && state.picker.other_form_open {
+        // The form sits under the Other CLI row, which Shell may follow; a menu capped by the room above the pill would leave it clipped until the wheel moves.
+        let rows_above =
+            main_idx.len() + 1 + folded_idx.iter().position(|&idx| matches!(rows[idx].kind, PickerRowKind::OtherCli)).map_or(folded_idx.len(), |at| at + 1);
+        let form_top = inset + rows_above as f32 * row_h;
+        state.picker.menu_scroll = scroll_to_reveal(form_top, form_top + form_h, view_h, max_scroll);
+        state.picker.reveal_other_form = false;
+    }
     if ui.rect_contains_pointer(menu_r) {
         let dy = ui.input(|i| i.smooth_scroll_delta.y);
         if dy != 0.0 {
@@ -1381,5 +1404,18 @@ mod tests {
             let form = paint_other_form(surface, panel_w, Some(error));
             assert_caption_clear_of_buttons(&form, &what);
         }
+    }
+}
+
+#[cfg(test)]
+mod reveal_tests {
+    use super::scroll_to_reveal;
+
+    #[test]
+    fn a_form_that_fits_ends_at_the_bottom_edge_and_one_that_does_not_starts_at_the_top_edge() {
+        assert_eq!(scroll_to_reveal(300.0, 440.0, 360.0, 500.0), 80.0, "a fitting span ends at the viewport's bottom");
+        assert_eq!(scroll_to_reveal(300.0, 440.0, 100.0, 500.0), 300.0, "a span taller than the viewport starts at its top");
+        assert_eq!(scroll_to_reveal(20.0, 100.0, 360.0, 500.0), 0.0, "a span already in view does not scroll");
+        assert_eq!(scroll_to_reveal(300.0, 440.0, 360.0, 50.0), 50.0, "never past the end of the content");
     }
 }
