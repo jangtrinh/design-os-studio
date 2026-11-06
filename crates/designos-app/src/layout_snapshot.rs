@@ -653,7 +653,10 @@ fn row_name_sequences(rows: &mut [Vec<OrderItem<'_>>]) -> (Vec<Vec<String>>, Vec
     for row in rows.iter_mut() {
         row.sort_by(|(ra, _, na), (rb, _, nb)| centre_x(ra).total_cmp(&centre_x(rb)).then_with(|| na.cmp(nb)));
         base_rows.push(row.iter().map(|(_, _, name)| name.to_string()).collect());
-        row.sort_by(|(_, ca, na), (_, cb, nb)| centre_x(ca).total_cmp(&centre_x(cb)).then_with(|| na.cmp(nb)));
+        // Two controls that stack on one centre keep their baseline order; the name only breaks a tie in both.
+        row.sort_by(|(ba, ca, na), (bb, cb, nb)| {
+            centre_x(ca).total_cmp(&centre_x(cb)).then_with(|| centre_x(ba).total_cmp(&centre_x(bb))).then_with(|| na.cmp(nb))
+        });
         cur_rows.push(row.iter().map(|(_, _, name)| name.to_string()).collect());
     }
     (base_rows, cur_rows)
@@ -2033,6 +2036,26 @@ mod tests {
         .expect("valid allow list");
 
         compare_with_stale_check(&base, &cur, &allow, &[]).expect("a button growing left under an overlapping row neighbour must pass G3");
+    }
+
+    /// A pair that stacks on one centre keeps its baseline order, whatever the names sort to.
+    #[test]
+    fn two_buttons_stacking_on_one_centre_keep_g3_order() {
+        let mut base = sample_snapshot("d-editor-default");
+        base.named.insert("zz-primary".into(), NamedWidget { region: "left_panel".into(), rect: [222.0, 100.0, 100.0, 28.0], count: 1 });
+        base.named.insert("aa-secondary".into(), NamedWidget { region: "left_panel".into(), rect: [330.0, 100.0, 100.0, 28.0], count: 1 });
+        let mut cur = base.clone();
+        cur.named.get_mut("zz-primary").unwrap().rect = [222.0, 100.0, 208.0, 28.0];
+        cur.named.get_mut("aa-secondary").unwrap().rect = [222.0, 132.0, 208.0, 28.0];
+        let (base_rows, cur_rows) = {
+            let items: Vec<OrderItem<'_>> = vec![
+                (base.named["zz-primary"].rect, cur.named["zz-primary"].rect, "zz-primary"),
+                (base.named["aa-secondary"].rect, cur.named["aa-secondary"].rect, "aa-secondary"),
+            ];
+            let mut rows = cluster_baseline_rows(items);
+            row_name_sequences(&mut rows)
+        };
+        assert_eq!(base_rows, cur_rows, "stacking on one centre must not reorder the pair");
     }
 
     /// The baseline-row rule still guards side-by-side controls: swapping two of them in a row that the current
