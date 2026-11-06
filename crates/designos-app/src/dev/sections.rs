@@ -46,6 +46,7 @@ fn primary_button(ui: &mut Ui, rect: Rect, key: &str, label: &str) -> bool {
 
 /// Status pill and the Ready for dev actions of the selected layer.
 pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
+    app.dev.status_stacked = false;
     let Some(n) = app.doc.get(id) else { return };
     if !super::markable(app, id) && n.dev.status.is_none() {
         return;
@@ -70,16 +71,11 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         let centre_hold = theme::SPACE_ROW * 0.5;
         row = row.translate(Vec2::new(0.0, -centre_hold));
     }
-    // The two buttons of a status share one row. The primary label is text-sm semibold; when that label is wider
-    // than the room beside the secondary button, it is elided so the pair does not wrap onto a second row.
+    // The two buttons of a status share one row while both fit at their natural width. When they do not, they stack:
+    // the primary on a full row, the secondary on a full row below it. A primary label is never elided.
     let split = |ui: &Ui, primary: &str, secondary: &str| -> (Rect, Rect, String) {
-        let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
-        let secondary_w = text_width(ui.painter(), secondary, &theme::font_body());
-        let secondary_box = secondary_w.ceil() + 2.0 * theme::INSET_CONTROL;
-        let room = (row.width() - theme::SPACE_INLINE - secondary_box - 2.0 * theme::INSET_SEGMENT).max(0.0);
-        let shown = if text_width(ui.painter(), primary, &font).ceil() <= room { primary.to_string() } else { elide(ui.painter(), primary, &font, room) };
-        let (primary_r, secondary_r) = split_actions(row, text_width(ui.painter(), &shown, &font), secondary_w);
-        (primary_r, secondary_r, shown)
+        let (primary_r, secondary_r) = action_rects(ui.painter(), row, primary, secondary);
+        (primary_r, secondary_r, primary.to_string())
     };
     let mut bottom = row.bottom();
     match status {
@@ -123,6 +119,7 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     // With the compare dialog open, the inspector keeps the previous 36 px step. The
     // taller buttons would otherwise slide a full-width inspector row across the dialog footer.
     let stacked = bottom - row.top() - ACTION_ROW_H;
+    app.dev.status_stacked = stacked > 0.0;
     let advance = if app.dev.compare.is_some() { stacked + 36.0 } else { bottom - row.top() + 8.0 };
     c.y += advance;
 }
@@ -130,15 +127,21 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
 /// Height of the row that holds the action buttons of a status.
 const ACTION_ROW_H: f32 = theme::CONTROL_XS;
 
+/// Places the two action buttons of a status in `row`, measuring the labels with the button font.
+fn action_rects(p: &egui::Painter, row: Rect, primary: &str, secondary: &str) -> (Rect, Rect) {
+    let primary_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    split_actions(row, text_width(p, primary, &primary_font), text_width(p, secondary, &theme::font_body()))
+}
+
 /// Splits the action `row` between the primary and the secondary button of a status by their labels, not in halves.
 /// The secondary button hugs its label: the width rounded up to whole pixels (R11) between two control insets. The
-/// primary button takes the rest of the row less the `SPACE_INLINE` gap. When that is too narrow for the primary label
-/// (rounded up) with a segment inset on each side, the buttons stack instead: the primary on the full row, the
+/// primary button takes the rest of the row less the `SPACE_INLINE` gap. When that is narrower than the primary label
+/// (rounded up) with a control inset on each side, the buttons stack instead: the primary on the full row, the
 /// secondary on a full row below it, `SPACE_ROW` apart.
 fn split_actions(row: Rect, primary_label_w: f32, secondary_label_w: f32) -> (Rect, Rect) {
     let secondary_w = secondary_label_w.ceil() + 2.0 * theme::INSET_CONTROL;
     let primary_w = row.width() - theme::SPACE_INLINE - secondary_w;
-    if primary_w < primary_label_w.ceil() + 2.0 * theme::INSET_SEGMENT {
+    if primary_w < primary_label_w.ceil() + 2.0 * theme::INSET_CONTROL {
         let primary = Rect::from_min_size(row.min, Vec2::new(row.width(), ACTION_ROW_H));
         let secondary = primary.translate(Vec2::new(0.0, ACTION_ROW_H + theme::SPACE_ROW));
         return (primary, secondary);
@@ -387,12 +390,15 @@ pub fn links_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     // splits away from the button beside it. Give the growth back. An open note field adds
     // the same again.
     let grown = theme::SPACE_ROW;
-    // The compare dialog already keeps the old step, so only the closed dialog grows this list.
-    if app.dev.compare.is_none() {
-        c.y -= grown;
-    }
-    if app.dev.annot.as_ref().is_some_and(|edit| edit.node == id) {
-        c.y -= grown;
+    // Stacked buttons grow the block by a full row and the growth is kept, so nothing is given back then.
+    if !app.dev.status_stacked {
+        // The compare dialog already keeps the old step, so only the closed dialog grows this list.
+        if app.dev.compare.is_none() {
+            c.y -= grown;
+        }
+        if app.dev.annot.as_ref().is_some_and(|edit| edit.node == id) {
+            c.y -= grown;
+        }
     }
 }
 
@@ -731,31 +737,52 @@ mod tests {
 
     #[test]
     fn the_secondary_button_hugs_its_label_and_the_primary_takes_the_rest_of_the_row() {
-        // The "Changed" header at the 209 px inspector row: "Compare changes" (105.84) beside "Mark ready" (64.56).
-        let r = row(209.0);
-        let (primary, secondary) = split_actions(r, 105.84, 64.56);
+        // A wide row: "Compare changes" beside "Mark ready", both at their natural width.
+        let r = row(300.0);
+        let (primary, secondary) = split_actions(r, 118.0, 64.56);
         assert_eq!(secondary.width(), 65.0 + 2.0 * theme::INSET_CONTROL, "the label rounded up between two control insets");
         assert_eq!(primary.left(), r.left());
         assert_eq!(primary.right() + theme::SPACE_INLINE, secondary.left(), "an 8 px gap between the buttons");
         assert_eq!(secondary.right(), r.right(), "the row is filled to its end");
         assert_eq!((primary.top(), secondary.top()), (r.top(), r.top()), "side by side");
-        assert!(primary.width() >= 105.84f32.ceil() + 2.0 * theme::INSET_SEGMENT, "the primary label fits, got {} px", primary.width());
-        // It was 100.5 px (half of the row) for a 105.84 px label.
-        assert!(primary.width() > 100.5);
+        assert!(primary.width() >= 118.0 + 2.0 * theme::INSET_CONTROL, "the primary label fits, got {} px", primary.width());
+    }
+
+    /// The three label pairs of the Dev status header, primary first.
+    const PAIRS: [(&str, &str); 3] = [("Mark completed", "Remove status"), ("Compare changes", "Mark ready"), ("Back to ready", "Remove status")];
+
+    #[test]
+    fn the_primary_label_is_never_elided_at_the_panel_minimum_width() {
+        let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let panel_row = row(theme::RIGHT_PANEL_WIDTH - 2.0 * PAD);
+        paint(|ui| {
+            for (primary_label, secondary_label) in PAIRS {
+                let (primary, secondary) = action_rects(ui.painter(), panel_row, primary_label, secondary_label);
+                let label_w = text_width(ui.painter(), primary_label, &font).ceil();
+                assert!(primary.width() >= label_w + 2.0 * theme::INSET_CONTROL, "{primary_label}: {} px for a {label_w} px label", primary.width());
+                assert!(secondary.top() >= primary.top(), "{secondary_label} sits beside or below the primary");
+                if secondary.top() > primary.top() {
+                    assert_eq!(primary.width(), panel_row.width(), "stacked: the primary has the full row");
+                    assert_eq!(secondary.width(), panel_row.width(), "stacked: the secondary has the full row");
+                }
+            }
+        });
     }
 
     #[test]
-    fn the_three_dev_states_keep_their_buttons_on_one_row_at_the_inspector_width() {
-        for (primary_label, secondary_label) in [(94.28, 83.3), (105.84, 64.56), (79.34, 83.3)] {
-            let (primary, secondary) = split_actions(row(209.0), primary_label, secondary_label);
-            assert_eq!(primary.top(), secondary.top(), "{primary_label} px beside {secondary_label} px stacked");
-        }
+    fn the_buttons_keep_one_row_when_both_fit_at_their_natural_width() {
+        paint(|ui| {
+            for (primary_label, secondary_label) in PAIRS {
+                let (primary, secondary) = action_rects(ui.painter(), row(420.0), primary_label, secondary_label);
+                assert_eq!(primary.top(), secondary.top(), "{primary_label} beside {secondary_label} stacked on a wide row");
+            }
+        });
     }
 
     #[test]
     fn the_buttons_stack_only_when_the_primary_label_does_not_fit_beside_the_secondary() {
         let (primary_label, secondary_label) = (105.84f32, 64.56f32);
-        let need = primary_label.ceil() + 2.0 * theme::INSET_SEGMENT;
+        let need = primary_label.ceil() + 2.0 * theme::INSET_CONTROL;
         let secondary_w = secondary_label.ceil() + 2.0 * theme::INSET_CONTROL;
         // The narrowest row that still fits side by side, and one pixel less.
         let fits = row(need + theme::SPACE_INLINE + secondary_w);
@@ -797,6 +824,47 @@ mod tests {
         let frame = frame.expect("primary fill");
         assert_eq!(frame.fill, theme::BG_BRAND);
         assert_eq!(frame.corner_radius, theme::cr(theme::RADIUS_CONTROL));
+    }
+
+    /// Every text the panel paints, in paint order.
+    fn painted_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(text) => Some(text.galley.text().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_inspector_shows_every_primary_label_whole_in_the_narrowest_panel() {
+        for (status, label) in [(DevStatus::ReadyForDev, "Mark completed"), (DevStatus::Changed, "Compare changes"), (DevStatus::Completed, "Back to ready")] {
+            let mut d = Document::new("t");
+            let page = d.add_page("p");
+            let id = d.alloc_id();
+            let mut node = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+            node.dev.status = Some(status);
+            let f = d.insert(page, node).unwrap();
+            let mut app = App::new(d);
+            app.ui.dev_mode = true;
+            app.selection = vec![f];
+            let ctx = egui::Context::default();
+            theme::install_fonts(&ctx);
+            let mut texts = Vec::new();
+            for i in 0..3 {
+                let raw = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 800.0))),
+                    time: Some(f64::from(i) * 0.1),
+                    ..Default::default()
+                };
+                let out = ctx.run_ui(raw, |ui| {
+                    crate::panels::inspect::show(&mut app, ui, Rect::from_min_size(Pos2::new(660.0, 100.0), Vec2::new(theme::RIGHT_PANEL_WIDTH - 1.0, 600.0)));
+                });
+                texts = painted_texts(&out.shapes);
+            }
+            assert!(texts.iter().any(|t| t == label), "{label} is painted whole, texts={texts:?}");
+        }
     }
 
     #[test]
