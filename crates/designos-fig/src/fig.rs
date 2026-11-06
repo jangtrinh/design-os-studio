@@ -2564,8 +2564,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         for (k, val) in [
             ("paddingLeft", fnum(o, "stackPaddingLeft").or(h)),
             ("paddingTop", fnum(o, "stackPaddingTop").or(v)),
-            ("paddingRight", fnum(o, "stackPaddingRight").or(h)),
-            ("paddingBottom", fnum(o, "stackPaddingBottom").or(v)),
+            ("paddingRight", fnum(o, "stackPaddingRight")),
+            ("paddingBottom", fnum(o, "stackPaddingBottom")),
         ] {
             if let Some(x) = val {
                 m.insert(k.into(), x.into());
@@ -2820,8 +2820,8 @@ fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
     };
     ins(m, "paddingLeft", fnum(nc, "stackPaddingLeft").or(h));
     ins(m, "paddingTop", fnum(nc, "stackPaddingTop").or(v));
-    ins(m, "paddingRight", fnum(nc, "stackPaddingRight").or(h));
-    ins(m, "paddingBottom", fnum(nc, "stackPaddingBottom").or(v));
+    ins(m, "paddingRight", fnum(nc, "stackPaddingRight"));
+    ins(m, "paddingBottom", fnum(nc, "stackPaddingBottom"));
     m.insert("primaryAxisAlignItems".into(), stack_justify(fstr(nc, "stackPrimaryAlignItems")).into());
     m.insert("counterAxisAlignItems".into(), stack_align(fstr(nc, "stackCounterAlignItems")).into());
     // Real files only ever write `FIXED` for the primary axis (absent = hug) and
