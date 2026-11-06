@@ -1553,8 +1553,7 @@ impl Engine {
         if plan.updates.is_empty() && plan.rehomes.is_empty() && plan.detached.is_empty() {
             return Ok(false);
         }
-        let structural_connectors: std::collections::HashSet<NodeId> =
-            plan.rehomes.iter().map(|(cid, _)| *cid).chain(plan.detached.iter().map(|(cid, _)| *cid)).collect();
+        let mut structural_connectors = std::collections::HashSet::new();
         // Build the same endpoint detach/rehome transaction as Studio.  Commands are
         // planned against a scratch document so every geometry update sees the preceding
         // structural change, while the real document is changed only by the folded history step.
@@ -1577,6 +1576,7 @@ impl Engine {
             let update = Command::Update { node: Box::new(updated) };
             update.clone().apply(&mut scratch).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
             reroute_parts.push(update);
+            structural_connectors.insert(cid);
             self.reroute_warnings.push(designos_doc::SpecWarning {
                 code: "CONNECTOR_ENDPOINT_DETACHED".to_string(),
                 path: format!(
@@ -1606,6 +1606,7 @@ impl Engine {
             let reparent = Command::Reparent { id: cid, parent: new_home, index: usize::MAX };
             reparent.clone().apply(&mut scratch).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
             reroute_parts.push(reparent);
+            structural_connectors.insert(cid);
             let Some(cur) = scratch.get(cid) else { continue };
             let mut updated = cur.clone();
             updated.layout_child.absolute = true;
@@ -1681,7 +1682,13 @@ impl Engine {
         if self.live_ops.is_none() {
             return Ok(Vec::new());
         }
-        live_ops_for_independent(&self.doc, parts).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e))
+        if designos_doc::live_patch::is_independent_batch(&self.doc, parts) {
+            return live_ops_for_independent(&self.doc, parts).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e));
+        }
+        // A rehome is followed by a dependent geometry update for the same connector.  Record
+        // those parts as one sequential batch so the second LiveOp is derived from the document
+        // after the Reparent, matching the command history and editor replay order.
+        live_ops_for_command(&self.doc, &Command::Batch(parts.to_vec())).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e))
     }
 
     pub(crate) fn record(&mut self, ops: Vec<LiveOp>) {
@@ -2002,8 +2009,14 @@ fn attach_warnings(out: &mut Value, warnings: &[designos_doc::SpecWarning]) {
     if warnings.is_empty() {
         return;
     }
-    if let (Some(obj), Ok(v)) = (out.as_object_mut(), serde_json::to_value(warnings)) {
-        obj.insert("warnings".into(), v);
+    let Some(obj) = out.as_object_mut() else { return };
+    let Ok(extra) = serde_json::to_value(warnings) else { return };
+    let Some(extra) = extra.as_array() else { return };
+    match obj.get_mut("warnings") {
+        Some(Value::Array(existing)) => existing.extend(extra.iter().cloned()),
+        _ => {
+            obj.insert("warnings".into(), Value::Array(extra.clone()));
+        }
     }
 }
 
@@ -6155,6 +6168,45 @@ mod tests {
         let mut e = Engine::new();
         e.doc = doc;
         (e, a, b, c)
+    }
+
+    #[test]
+    fn mcp_batch_preserves_existing_warnings_when_reroute_adds_warning() {
+        use designos_doc::{sync_connector, ConnectorEnd, ConnectorProps, Magnet};
+
+        let mut doc = Document::new("mcp_warning_merge");
+        let page = doc.add_page("Page 1");
+        let other_page = doc.add_page("Page 2");
+        let start = doc.alloc_id();
+        doc.insert(page, Node::frame(start, Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let end = doc.alloc_id();
+        doc.insert(page, Node::frame(end, Rect::new(300.0, 0.0, 120.0, 80.0))).unwrap();
+        let connector = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(start, Magnet::Auto), end: ConnectorEnd::attached(end, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(connector, props)).unwrap();
+        sync_connector(&mut doc, connector);
+
+        let mut e = Engine::new();
+        e.doc = doc;
+        e.active_page_id = Some(page);
+        let reply = e
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        {
+                            "op": "apply_spec",
+                            "parent_id": page.0,
+                            "spec": {"kind": "rectangle", "fill": "$easeui.bg.panel"}
+                        },
+                        {"op": "move", "node": end.0, "parent": other_page.0}
+                    ]
+                }),
+            )
+            .unwrap();
+        let warnings = reply["warnings"].as_array().expect("combined warnings array");
+        assert!(warnings.iter().any(|w| w["code"] == "DEPRECATED_EASEUI_TOKEN"), "batch warning was lost: {warnings:?}");
+        assert!(warnings.iter().any(|w| w["code"] == "CONNECTOR_ENDPOINT_DETACHED"), "reroute warning missing: {warnings:?}");
     }
 
     #[test]
