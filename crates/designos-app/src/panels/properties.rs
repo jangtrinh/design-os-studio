@@ -4899,4 +4899,53 @@ mod tests {
         crate::panels::var_bind::adopt_picker_paint_after_history(&mut app);
         assert_eq!(app.props.picker.as_ref().expect("still open").paint, Paint::solid(NEW));
     }
+
+    fn text_with_run(base: Vec<Paint>, run: Vec<Paint>) -> impl FnOnce(NodeId) -> Node {
+        move |id| {
+            let style = TextStyle { fills: base, ..TextStyle::default() };
+            let mut n = Node::text(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 20.0), "Hello", style.clone());
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.runs = vec![designos_doc::TextRun { start: 0, end: 5, style: TextStyle { fills: run, ..style } }];
+            }
+            n
+        }
+    }
+
+    #[test]
+    fn a_text_fill_picker_resyncs_to_the_run_colour_the_opener_showed() {
+        let (mut app, id) = picker_app_with(text_with_run(vec![Paint::solid(OLD)], vec![Paint::solid(NEW)]));
+        open_picker_on(&mut app, PickTarget::TextFill, id, Paint::solid(NEW));
+        app.undo();
+        assert_eq!(app.props.picker.as_ref().expect("picker open").paint, Paint::solid(NEW));
+    }
+
+    #[test]
+    fn a_text_fill_picker_stays_open_when_only_a_run_carries_the_fill() {
+        let (mut app, id) = picker_app_with(text_with_run(Vec::new(), vec![Paint::solid(NEW)]));
+        open_picker_on(&mut app, PickTarget::TextFill, id, Paint::solid(NEW));
+        app.undo();
+        assert!(app.props.picker.is_some(), "the text still shows a visible fill");
+    }
+
+    #[test]
+    fn a_text_fill_picker_keeps_the_colour_after_a_bold_word_and_a_full_recolour() {
+        let (mut app, id) = picker_app_with(|id| {
+            let style = TextStyle { fills: vec![Paint::solid(OLD)], ..TextStyle::default() };
+            Node::text(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 20.0), "Hello world", style)
+        });
+        edit_as_one_step(&mut app, id, |n| {
+            if let NodeKind::Text(t) = &mut n.kind {
+                crate::richtext::apply_style(t, 0..5, |st| st.font_weight = 700);
+                crate::richtext::apply_style(t, 0..11, |st| crate::panels::typography::set_solid(st, NEW, None));
+            }
+        });
+        let other = app.doc.alloc_id();
+        let mut tx = Tx::new();
+        tx.cmd(&mut app.doc, Command::Insert { parent: app.page, index: 0, nodes: vec![Node::rectangle(other, designos_doc::Rect::new(0.0, 0.0, 4.0, 4.0))] })
+            .unwrap();
+        assert!(app.run_tx(tx));
+        open_picker_on(&mut app, PickTarget::TextFill, id, Paint::solid(NEW));
+        app.undo();
+        assert_eq!(app.props.picker.as_ref().expect("picker open").paint, Paint::solid(NEW), "every character is still NEW");
+    }
 }
