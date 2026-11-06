@@ -21,7 +21,16 @@ fn fixture_with_own_entry() -> Vec<u8> {
         "fillPaints": [solid(&rgba(0.1, 0.2, 0.3), None)]
     }));
     // The instance's own node change states the same size and fill, as a file written by the producing app does.
-    let own = json!({"size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1}, "fillPaints": [solid(&rgba(0.1, 0.2, 0.3), None)]});
+    // It also has derived data: the size it was computed at for the instance itself, and one for the label.
+    let derived = json!([
+        {"guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]}, "size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1}},
+        {"guidPath": {"guids": [guid(LABEL.0, LABEL.1)]}, "size": {"x": 90.0, "y": 20.0}}
+    ]);
+    let own = json!({
+        "size": {"x": STATED_SIZE.0, "y": STATED_SIZE.1},
+        "fillPaints": [solid(&rgba(0.1, 0.2, 0.3), None)],
+        "derivedSymbolData": derived
+    });
     fixture_with(own, overrides, Vec::new(), Vec::new())
 }
 
@@ -60,6 +69,7 @@ fn a_resize_of_the_unopened_instance_survives_a_save() {
     assert_eq!((size.x, size.y), (200.0, 60.0), "the edit is in the reopened file, not the size the file stated");
     assert_eq!(own_entry(&saved)["fillPaints"], own_entry(&fig)["fillPaints"], "the fill nobody touched is as the file stated it");
     assert_eq!(saved_entries(&saved, INSTANCE).len(), saved_entries(&fig, INSTANCE).len(), "no entry is added or lost");
+    assert!(saved_derived(&saved, INSTANCE).is_empty(), "derived data computed for the old size would put it back over the new one");
 }
 
 #[test]
@@ -76,6 +86,7 @@ fn a_fill_change_of_the_unopened_instance_survives_a_save() {
     let size = back.get(b).expect("instance").size;
     assert_eq!((size.x, size.y), STATED_SIZE, "the size nobody touched is as the file stated it");
     assert_eq!(own_entry(&saved)["size"], own_entry(&fig)["size"]);
+    assert_eq!(saved_derived(&saved, INSTANCE), saved_derived(&fig, INSTANCE), "a fill does not change the sizes inside, so the derived data stays");
 }
 
 #[test]
@@ -120,6 +131,7 @@ fn a_save_without_edits_writes_the_entries_the_file_stated() {
     let live = import_fig(&fig).expect("import");
     let saved = export_fig(&live).expect("export");
     assert_eq!(saved_entries(&saved, INSTANCE), saved_entries(&fig, INSTANCE));
+    assert_eq!(saved_derived(&saved, INSTANCE), saved_derived(&fig, INSTANCE), "nothing was edited, so the derived data is written");
 }
 
 #[test]

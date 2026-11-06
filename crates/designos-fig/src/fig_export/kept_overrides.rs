@@ -171,14 +171,18 @@ fn is_own_entry(entry: &V, main_guid: (u32, u32)) -> bool {
     guids.is_some_and(|g| g.len() == 1 && field_guid(&g[0]) == Some(main_guid))
 }
 
+/// The fields of the unopened instance `inst_id` that the user changed since the file was opened (see
+/// [`crate::instance_self_digest`]).
+pub(super) fn edited_self_fields(doc: &Document, inst_id: NodeId) -> BTreeSet<OverrideField> {
+    let opened = doc.pending_instance_self_digests(inst_id).unwrap_or_default();
+    doc.get(inst_id).map(|node| edited_fields(node, &opened).into_iter().collect()).unwrap_or_default()
+}
+
 /// The record states the instance's own fields as they were when the file was opened. A field the user changed on the
 /// instance since then (its digest moved, see [`crate::instance_self_digest`]) is written from the node instead, in
 /// place of what the record says for it; every other part of the record is written as it was.
 fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid: (u32, u32), entries: &mut Vec<V>) {
-    let doc = cx.doc;
-    let opened = doc.pending_instance_self_digests(inst_id).unwrap_or_default();
-    let Some(node) = doc.get(inst_id) else { return };
-    let edited: BTreeSet<OverrideField> = edited_fields(node, &opened).into_iter().collect();
+    let edited = edited_self_fields(cx.doc, inst_id);
     if edited.is_empty() {
         return;
     }

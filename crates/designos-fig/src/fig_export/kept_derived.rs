@@ -57,9 +57,15 @@ fn entry(cx: &mut ExportCtx<'_>, e: &PendingDerivedEntry) -> Option<V> {
 
 /// The `derivedSymbolData` entries of the instance `inst_id` (of the main component `main`) as the file stated them, or
 /// `None` to write none: the instance has children (its page is loaded), the loader holds none, or the main it is an
-/// instance of (or one inside it) is not the main, with the content, the data was computed for.
+/// instance of (or one inside it) is not the main, with the content, the data was computed for, or the instance was
+/// resized since the file was opened.
 pub(super) fn pending_derived_symbol_data(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: NodeId) -> Option<Vec<V>> {
     if !cx.doc.get(inst_id)?.children.is_empty() {
+        return None;
+    }
+    // The sizes of what is inside the instance were computed for the size it had; a resized instance has other ones, and
+    // an entry for the instance itself would put its old size back over the new one.
+    if super::kept_overrides::edited_self_fields(cx.doc, inst_id).contains(&OverrideField::Size) {
         return None;
     }
     let held = cx.doc.pending_instance_derived(inst_id)?;
