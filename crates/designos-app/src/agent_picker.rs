@@ -135,11 +135,17 @@ pub fn composer_pill(state: &mut TerminalState) -> (&'static str, Option<AgentCl
     let new_chat = state.in_new_chat();
     if !new_chat {
         if let Some(tab) = state.active_tab() {
-            return (tab.spawn_preset.display_name(), startable_preset(tab.spawn_preset));
+            let preset = startable_preset(tab.spawn_preset);
+            if (tab.permission_mode != crate::terminal::PermissionMode::AskRisky || !tab.is_custom_cli())
+                && preset.is_some_and(|preset| crate::agent_permissions::preset_available_in_mode(preset, tab.permission_mode))
+            {
+                return (tab.spawn_preset.display_name(), preset);
+            }
+            return (CHOOSE_AGENT, None);
         }
     }
     if let Some(preset) = startable_preset(state.active_runtime) {
-        if state.picker.cache.is_preset_installed(preset) {
+        if crate::agent_permissions::preset_available_in_mode(preset, state.permission_mode) && state.picker.cache.is_preset_installed(preset) {
             return (preset.display_name(), Some(preset));
         }
     }
@@ -1025,6 +1031,23 @@ mod tests {
         st.permission_mode = crate::terminal::PermissionMode::Ask;
         let ask_rows = rows_for_state(&mut st);
         assert!(ask_rows.iter().find(|r| r.label == "Codex").expect("Codex").selectable, "Ask still offers Codex");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ask_risky_composer_pill_never_offers_an_unavailable_active_runtime() {
+        let root = temp_test_dir("ask-risky-pill");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        st.active_runtime = AgentCliPreset::Codex;
+
+        let (label, preset) = composer_pill(&mut st);
+        assert_ne!(preset, Some(AgentCliPreset::Codex));
+        assert_ne!(label, "Codex");
+
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }

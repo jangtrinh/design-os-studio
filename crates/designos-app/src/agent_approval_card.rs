@@ -40,6 +40,23 @@ pub fn approval_card_outer_height(preset: AgentCliPreset) -> f32 {
     inner + theme::SPACE_ROW * 2.0
 }
 
+/// Narrow panels stack the three Claude actions so no button is clipped.
+const CLAUDE_ACTION_STACK_VIEWPORT_WIDTH: f32 = 340.0;
+
+fn stack_claude_actions(viewport_width: f32, has_session_grant: bool) -> bool {
+    has_session_grant && viewport_width < CLAUDE_ACTION_STACK_VIEWPORT_WIDTH
+}
+
+/// Width-aware card height used by the terminal viewport reservation.
+pub fn approval_card_outer_height_for_width(preset: AgentCliPreset, viewport_width: f32, has_session_grant: bool) -> f32 {
+    let base = approval_card_outer_height(preset);
+    if preset == AgentCliPreset::Claude && stack_claude_actions(viewport_width, has_session_grant) {
+        base + 2.0 * (theme::CONTROL_XS + theme::SPACE_ROW)
+    } else {
+        base
+    }
+}
+
 /// Paints the in-panel approval card pinned to the top of `viewport_rect` (inset by `SPACE_ROW`).
 ///
 /// - For `Claude` on the active tab, shows the tool name, monospace input summary, queue count (`"1 of N"`), and
@@ -88,7 +105,9 @@ pub fn paint_approval_card_for_tab(
         return None;
     }
     let is_claude = preset == AgentCliPreset::Claude && in_active_terminal;
-    let outer_h = approval_card_outer_height(if is_claude { preset } else { AgentCliPreset::Codex });
+    let has_session_grant = is_claude && first_req.is_some_and(|req| agent_permissions::offer_session_grant(mode, req));
+    let card_preset = if is_claude { preset } else { AgentCliPreset::Codex };
+    let outer_h = approval_card_outer_height_for_width(card_preset, viewport_rect.width(), has_session_grant);
     let card_h = outer_h - theme::SPACE_ROW * 2.0;
     let card_rect = Rect::from_min_size(
         Pos2::new(viewport_rect.left() + theme::SPACE_ROW, viewport_rect.top() + theme::SPACE_ROW),
@@ -143,31 +162,64 @@ pub fn paint_approval_card_for_tab(
         y = sum_r.bottom() + theme::SPACE_INLINE;
     }
 
-    let action_r = Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), theme::CONTROL_XS));
+    let stack_actions = is_claude && stack_claude_actions(viewport_rect.width(), has_session_grant);
+    let action_h = if stack_actions { 3.0 * theme::CONTROL_XS + 2.0 * theme::SPACE_ROW } else { theme::CONTROL_XS };
+    let action_r = Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), action_h));
     let mut out = None;
     if let Some(req) = first_req.filter(|_| is_claude) {
         let req_id = req.id.clone();
-        let (approve_r, approve_resp) =
-            paint_card_button(ui, &p, (surface_id, "agent-approval-approve"), "agent-approval-approve", action_r.right(), action_r.top(), "Approve", true);
-        let mut next_right = approve_r.left() - theme::SPACE_ROW;
-        if agent_permissions::offer_session_grant(mode, req) {
-            let (session_r, session_resp) = paint_card_button(
+        let (approve_resp, session_resp, deny_resp) = if stack_actions {
+            let (_, approve_resp) =
+                paint_card_button(ui, &p, (surface_id, "agent-approval-approve"), "agent-approval-approve", action_r.right(), action_r.top(), "Approve", true);
+            let (_, session_resp) = paint_card_button(
                 ui,
                 &p,
                 (surface_id, "agent-approval-allow-session"),
                 "agent-approval-allow-session",
-                next_right,
-                action_r.top(),
+                action_r.right(),
+                action_r.top() + theme::CONTROL_XS + theme::SPACE_ROW,
                 "Allow this session",
                 false,
             );
-            next_right = session_r.left() - theme::SPACE_ROW;
+            let (_, deny_resp) = paint_card_button(
+                ui,
+                &p,
+                (surface_id, "agent-approval-deny"),
+                "agent-approval-deny",
+                action_r.right(),
+                action_r.top() + theme::CONTROL_XS + theme::SPACE_ROW + theme::CONTROL_XS + theme::SPACE_ROW,
+                "Deny",
+                false,
+            );
+            (approve_resp, Some(session_resp), deny_resp)
+        } else {
+            let (approve_r, approve_resp) =
+                paint_card_button(ui, &p, (surface_id, "agent-approval-approve"), "agent-approval-approve", action_r.right(), action_r.top(), "Approve", true);
+            let mut next_right = approve_r.left() - theme::SPACE_ROW;
+            let mut session_resp = None;
+            if has_session_grant {
+                let (session_r, response) = paint_card_button(
+                    ui,
+                    &p,
+                    (surface_id, "agent-approval-allow-session"),
+                    "agent-approval-allow-session",
+                    next_right,
+                    action_r.top(),
+                    "Allow this session",
+                    false,
+                );
+                next_right = session_r.left() - theme::SPACE_ROW;
+                session_resp = Some(response);
+            }
+            let (_, deny_resp) =
+                paint_card_button(ui, &p, (surface_id, "agent-approval-deny"), "agent-approval-deny", next_right, action_r.top(), "Deny", false);
+            (approve_resp, session_resp, deny_resp)
+        };
+        if let Some(session_resp) = session_resp {
             if session_resp.clicked() {
                 out = Some(CardAction::AllowSession(req_id.clone()));
             }
         }
-        let (_deny_r, deny_resp) =
-            paint_card_button(ui, &p, (surface_id, "agent-approval-deny"), "agent-approval-deny", next_right, action_r.top(), "Deny", false);
         if approve_resp.clicked() {
             out = Some(CardAction::Approve(req_id));
         } else if out.is_none() && deny_resp.clicked() {
@@ -351,7 +403,7 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
             (
                 AgentPermissionMode::AskRisky,
                 "agent-perm-ask-risky",
-                "Ask for risky only",
+                "Ask risky only",
                 "Reads and additions run. A change on one target can be allowed for this session. Deletes always ask.",
             ),
         ];
@@ -557,7 +609,7 @@ mod tests {
             let texts = modal_texts(selected);
             assert!(texts.iter().any(|t| t == "Ask before acting (default)"), "{selected:?}: Ask carries the default mark: {texts:?}");
             assert!(texts.iter().any(|t| t == "Skip permissions"), "{selected:?}: Skip stays on offer, unmarked: {texts:?}");
-            assert!(texts.iter().any(|t| t == "Ask for risky only"), "{selected:?}: the third mode is on the selector: {texts:?}");
+            assert!(texts.iter().any(|t| t == "Ask risky only"), "{selected:?}: the third mode is on the selector: {texts:?}");
             assert!(!texts.iter().any(|t| t.contains("Skip permissions (default)")), "{selected:?}: Skip is no longer the default: {texts:?}");
             assert!(texts.iter().any(|t| t == "Applies to new agent tabs."), "{selected:?}: permission modes keep their footnote: {texts:?}");
             assert!(texts.iter().any(|t| t.contains("This session too.")), "{selected:?}: autosave says it applies to this session: {texts:?}");
@@ -593,6 +645,53 @@ mod tests {
         assert!(delete.iter().any(|t| t == "Deny"), "{delete:?}");
         let no_target = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "")], AgentPermissionMode::Ask);
         assert!(!no_target.iter().any(|t| t == "Allow this session"), "{no_target:?}");
+    }
+
+    fn card_rects_for_width(width: f32) -> (Rect, Rect, Rect, Rect) {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let request = request("designos_update_node", "node_id:2");
+        for _ in 0..2 {
+            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 900.0))), ..Default::default() }, |ui| {
+                let panel = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(width, 800.0));
+                let _ = paint_approval_card(ui, panel, AgentCliPreset::Claude, std::slice::from_ref(&request), "test-card", AgentPermissionMode::AskRisky);
+            });
+        }
+        let rect = |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).expect(name);
+        (rect("agent-approval-card"), rect("agent-approval-approve"), rect("agent-approval-allow-session"), rect("agent-approval-deny"))
+    }
+
+    #[test]
+    fn approval_actions_fit_narrow_cards_and_stack_only_below_threshold() {
+        for width in [260.0, 280.0, 314.0] {
+            let (card, approve, session, deny) = card_rects_for_width(width);
+            assert!(card.contains_rect(approve), "Approve escapes {width}px card: {card:?} vs {approve:?}");
+            assert!(card.contains_rect(session), "Allow this session escapes {width}px card: {card:?} vs {session:?}");
+            assert!(card.contains_rect(deny), "Deny escapes {width}px card: {card:?} vs {deny:?}");
+            assert!((approve.right() - session.right()).abs() < 0.5, "narrow actions share a right edge");
+            assert!((session.right() - deny.right()).abs() < 0.5, "narrow actions share a right edge");
+            assert!(approve.top() < session.top() && session.top() < deny.top(), "narrow actions stack vertically");
+            assert_eq!(
+                approval_card_outer_height_for_width(AgentCliPreset::Claude, width, true),
+                card.height() + theme::SPACE_ROW * 2.0,
+                "viewport reservation matches the stacked card at {width}px",
+            );
+        }
+
+        let (card, approve, session, deny) = card_rects_for_width(340.0);
+        assert!(card.contains_rect(approve) && card.contains_rect(session) && card.contains_rect(deny));
+        assert!((approve.top() - session.top()).abs() < 0.5 && (session.top() - deny.top()).abs() < 0.5, "340px keeps the horizontal action row");
+        assert!(approve.left() > session.left() && session.left() > deny.left(), "340px actions remain ordered right to left");
+        assert_eq!(
+            approval_card_outer_height_for_width(AgentCliPreset::Claude, 340.0, true),
+            card.height() + theme::SPACE_ROW * 2.0,
+            "viewport reservation matches the horizontal card at the threshold",
+        );
+
+        let (card, approve, session, deny) = card_rects_for_width(420.0);
+        assert!(card.contains_rect(approve) && card.contains_rect(session) && card.contains_rect(deny));
+        assert!((approve.top() - session.top()).abs() < 0.5 && (session.top() - deny.top()).abs() < 0.5, "wide actions remain horizontal");
     }
 
     #[test]
