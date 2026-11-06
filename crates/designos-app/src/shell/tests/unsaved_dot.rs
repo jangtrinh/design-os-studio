@@ -430,6 +430,8 @@ fn a_save_loads_the_pages_that_were_not_open_and_neither_it_nor_a_page_visit_aft
         edit(&mut s);
         let before_save = s.app().doc.nodes.len();
         s.cmd_key(Key::S);
+        // The save loads pages, so it waits for the frame after its status was painted; the harness has no such frame.
+        s.shell.app.run_queued_work();
         wait(&mut s, SETTLED);
         assert!(s.app().doc.nodes.len() > before_save, "the save loaded the page that was not open ({n} rects)");
         assert!(!dot(&s), "saved ({n} rects)");
