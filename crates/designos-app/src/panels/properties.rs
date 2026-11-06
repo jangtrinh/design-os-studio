@@ -579,6 +579,18 @@ fn remove_test_rect(ctx: &egui::Context, name: &str) {
     });
 }
 
+/// Where the Inspector drew its auto-layout alignment row on its last pass (egui memory).
+fn align_row_slot() -> egui::Id {
+    egui::Id::new("inspector-align-row")
+}
+
+/// Whether the pointer is over the Inspector's alignment row as the last pass drew it: X toggles
+/// auto spacing there. Reading forgets the row, so a frame that does not draw it clears the answer.
+pub(crate) fn take_pointer_over_align_row(ctx: &egui::Context) -> bool {
+    let row = ctx.data_mut(|d| d.remove_temp::<(Pos2, Pos2)>(align_row_slot()));
+    row.zip(ctx.pointer_latest_pos()).is_some_and(|((min, max), p)| Rect::from_min_max(min, max).contains(p))
+}
+
 pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let mut scroll = app.props.scroll;
     wheel_scroll(ui, region, &mut scroll, app.props.content_h);
@@ -1781,6 +1793,7 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         _ => 0,
     };
     let align_row_r = pane.full(0.0);
+    ui.ctx().data_mut(|d| d.insert_temp(align_row_slot(), (align_row_r.min, align_row_r.max)));
     let al_icons = [Icon::AlignLeft, Icon::AlignHCenter, Icon::AlignRight];
     // with auto spacing the items are spread, so no packed alignment is lit
     if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X, "al-main", &al_icons, (!auto_spacing).then_some(pi)) {

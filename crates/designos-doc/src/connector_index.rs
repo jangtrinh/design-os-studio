@@ -756,6 +756,36 @@ pub fn plan_reroute(doc: &Document, touched: &[NodeId], viewport: Option<Rect>) 
         record_candidate();
         let Some(n) = read_node(doc, cid) else { continue };
         let NodeKind::Connector(c) = &n.kind else { continue };
+        let mut has_cross_page = false;
+        if viewport.is_none() {
+            let conn_page = doc.page_of(cid);
+            let start_cross_page = c.start.node.is_some_and(|s| s != cid && doc.get(s).is_some() && conn_page.is_some() && doc.page_of(s) != conn_page);
+            let end_cross_page = c.end.node.is_some_and(|e| e != cid && doc.get(e).is_some() && conn_page.is_some() && doc.page_of(e) != conn_page);
+            if start_cross_page {
+                plan.detached.push((cid, End::Start));
+            }
+            if end_cross_page {
+                plan.detached.push((cid, End::End));
+            }
+            has_cross_page = start_cross_page || end_cross_page;
+            let start_deleted = c.start.node.is_some_and(|s| s != cid && doc.get(s).is_none());
+            let end_deleted = c.end.node.is_some_and(|e| e != cid && doc.get(e).is_none());
+            if !start_deleted && !end_deleted {
+                let live_start = (!start_cross_page).then_some(c.start.node).flatten().filter(|&s| s != cid);
+                let live_end = (!end_cross_page).then_some(c.end.node).flatten().filter(|&e| e != cid);
+                if live_start.is_some() || live_end.is_some() {
+                    if let Some(page) = conn_page {
+                        let home = crate::connector_home(doc, live_start, live_end, page);
+                        if n.parent != Some(home) {
+                            plan.rehomes.push((cid, home));
+                        }
+                    }
+                }
+            }
+        }
+        if has_cross_page {
+            continue;
+        }
         let parent_world = n.parent.map(|p| doc.world_transform(p)).unwrap_or(Affine::IDENTITY);
         let old_world_rect = transform_rect(parent_world * n.transform, Rect::new(0.0, 0.0, n.size.x, n.size.y));
 

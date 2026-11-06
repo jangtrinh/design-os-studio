@@ -1,6 +1,7 @@
-//! Connectable-layer eligibility and home-container resolution for connectors.
+//! Connectable-layer eligibility, home-container resolution and default ink for connectors.
 
-use crate::{Document, NodeId, NodeKind};
+use crate::lint::rules::contrast::contrast_ratio;
+use crate::{Color, Document, DocumentKind, Node, NodeId, NodeKind, PaintKind};
 
 fn strict_ancestors(doc: &Document, id: NodeId) -> Vec<NodeId> {
     let mut out = Vec::new();
@@ -100,10 +101,70 @@ pub fn connector_home(doc: &Document, a: Option<NodeId>, b: Option<NodeId>, page
     page
 }
 
+/// Contrast a connector needs against the surface it is drawn on.
+const CONNECTOR_INK_MIN_CONTRAST: f64 = 3.0;
+
+/// A fill must keep at least this much of its colour (colour alpha x paint opacity) to count as
+/// the surface behind a connector. The layer opacity of the layer that holds the fill is not
+/// counted: the connector sits inside that layer, so it fades the line and the fill together.
+const SURFACE_MIN_ALPHA: f32 = 0.5;
+
+/// Default ink of a connector on a light surface: the ink [`Node::connector`] is created with.
+fn connector_ink_on_light() -> Color {
+    Color::rgb(0x1E, 0x1E, 0x1E)
+}
+
+/// The colour `n` paints as a surface: its topmost visible solid fill that keeps at least
+/// [`SURFACE_MIN_ALPHA`] of its colour. Images, gradients and faint fills are not a surface.
+fn opaque_solid_fill(n: &Node) -> Option<Color> {
+    n.fills.iter().rev().filter(|p| p.visible).find_map(|p| match p.kind {
+        PaintKind::Solid(c) if c.a * p.opacity >= SURFACE_MIN_ALPHA => Some(c),
+        _ => None,
+    })
+}
+
+/// The surface a connector homed in `home` is drawn on: the nearest ancestor of the connector,
+/// from `home` upward, with a mostly opaque solid fill, else the page background.
+fn surface_behind(doc: &Document, home: NodeId) -> Option<Color> {
+    let mut cur = Some(home);
+    for _ in 0..=doc.nodes.len() {
+        let n = doc.get(cur?)?;
+        if let NodeKind::Page { background } = &n.kind {
+            return Some(*background);
+        }
+        if let Some(c) = opaque_solid_fill(n) {
+            return Some(c);
+        }
+        cur = n.parent;
+    }
+    None
+}
+
+/// The ink of a new connector homed in `home` when nobody picked one: the dark board ink, or
+/// white when that ink would fall below 3:1 contrast against the surface behind the connector (a
+/// dark page, or a dark screen). See [`connector_ink_on`].
+pub fn default_connector_ink(doc: &Document, home: NodeId) -> Color {
+    connector_ink_on(doc, home, connector_ink_on_light(), Color::WHITE)
+}
+
+/// Picks `on_light`, or `on_dark` when `on_light` would fall below 3:1 contrast against the
+/// surface a connector homed in `home` is drawn on: the nearest ancestor of the connector, from
+/// `home` upward, with a mostly opaque solid fill, else the page background. A board file is drawn
+/// on its own light canvas, so it always gets `on_light`.
+pub fn connector_ink_on(doc: &Document, home: NodeId, on_light: Color, on_dark: Color) -> Color {
+    if doc.kind == DocumentKind::Board {
+        return on_light;
+    }
+    match surface_behind(doc, home) {
+        Some(surface) if contrast_ratio(on_light, surface) < CONNECTOR_INK_MIN_CONTRAST => on_dark,
+        _ => on_light,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BooleanOp, ConnectorProps, FrameProps, Node, NodeKind, Rect};
+    use crate::{BooleanOp, ConnectorProps, FrameProps, Node, NodeKind, Paint, Rect};
 
     fn add_child(doc: &mut Document, parent: NodeId, node: Node) -> NodeId {
         let id = node.id;
@@ -329,5 +390,123 @@ mod tests {
         assert_eq!(connector_home(&doc, None, None, page2), page2);
         // Ends on different pages have no common ancestor and fall back to `page`.
         assert_eq!(connector_home(&doc, Some(a), Some(b_other_page), page1), page1);
+    }
+    fn set_page_background(doc: &mut Document, page: NodeId, background: Color) {
+        doc.get_mut(page).expect("page").kind = NodeKind::Page { background };
+    }
+
+    fn make_screen_with_wrapper(doc: &mut Document, page: NodeId) -> (NodeId, NodeId) {
+        let screen = make_frame(doc, page, "Screen");
+        let wrapper = make_frame(doc, screen, "Wrapper");
+        doc.get_mut(wrapper).expect("wrapper").fills.clear();
+        (screen, wrapper)
+    }
+
+    #[test]
+    fn connector_ink_is_white_on_the_dark_default_page_and_keeps_3_to_1() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let ink = default_connector_ink(&doc, page);
+        assert_eq!(ink, Color::WHITE);
+        assert!(contrast_ratio(ink, Color::rgb(0x5A, 0x5A, 0x5A)) >= 3.0);
+    }
+
+    #[test]
+    fn connector_ink_is_dark_on_a_light_page() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        set_page_background(&mut doc, page, Color::rgb(0xF5, 0xF5, 0xF5));
+        let ink = default_connector_ink(&doc, page);
+        assert_eq!(ink, Color::rgb(0x1E, 0x1E, 0x1E));
+        assert!(contrast_ratio(ink, Color::rgb(0xF5, 0xF5, 0xF5)) >= 3.0);
+    }
+
+    #[test]
+    fn connector_ink_reads_the_nearest_opaque_ancestor_fill() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (screen, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        let ink = Color::rgb(0x1E, 0x1E, 0x1E);
+        assert_eq!(default_connector_ink(&doc, wrapper), ink, "a white screen above a fill-less wrapper on a dark page");
+        assert_eq!(default_connector_ink(&doc, screen), ink);
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![Paint::solid(Color::BLACK)];
+        assert_eq!(default_connector_ink(&doc, wrapper), Color::WHITE, "the nearest fill wins over the white screen above it");
+
+        // a dark screen above a fill-less wrapper on a light page: the ancestor, not the page, is the surface
+        set_page_background(&mut doc, page, Color::WHITE);
+        let (night, night_wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(night).expect("screen").fills = vec![Paint::solid(Color::BLACK)];
+        assert_eq!(default_connector_ink(&doc, night_wrapper), Color::WHITE);
+    }
+
+    #[test]
+    fn connector_ink_ignores_faint_and_non_solid_fills() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (_, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        let dark = Color::rgb(0x1E, 0x1E, 0x1E);
+
+        let mut faint_paint = Paint::solid(Color::BLACK);
+        faint_paint.opacity = 0.2;
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![faint_paint];
+        assert_eq!(default_connector_ink(&doc, wrapper), dark, "a 20% paint is not a surface");
+
+        let mut hidden = Paint::solid(Color::BLACK);
+        hidden.visible = false;
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![hidden];
+        assert_eq!(default_connector_ink(&doc, wrapper), dark, "a hidden paint is not a surface");
+
+        let gradient = Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [crate::Vec2::new(0.0, 0.5), crate::Vec2::new(1.0, 0.5), crate::Vec2::new(0.0, 1.0)],
+                stops: Vec::new(),
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: crate::BlendMode::Normal,
+        };
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![gradient];
+        assert_eq!(default_connector_ink(&doc, wrapper), dark, "a gradient is not a solid surface");
+    }
+
+    #[test]
+    fn connector_ink_gives_a_dark_wrapper_faded_by_its_layer_opacity_the_light_ink() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (_, wrapper) = make_screen_with_wrapper(&mut doc, page);
+        doc.get_mut(wrapper).expect("wrapper").fills = vec![Paint::solid(Color::BLACK)];
+        doc.get_mut(wrapper).expect("wrapper").opacity = 0.3;
+        assert_eq!(
+            default_connector_ink(&doc, wrapper),
+            Color::WHITE,
+            "the connector sits inside the faded wrapper, so the wrapper's fill is the surface it is drawn on"
+        );
+    }
+
+    #[test]
+    fn connector_ink_reads_the_topmost_solid_fill() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let screen = make_frame(&mut doc, page, "Screen");
+        doc.get_mut(screen).expect("screen").fills = vec![Paint::solid(Color::WHITE), Paint::solid(Color::BLACK)];
+        assert_eq!(default_connector_ink(&doc, screen), Color::WHITE, "black is painted over white");
+    }
+
+    #[test]
+    fn connector_ink_in_a_board_file_stays_dark_on_any_page_colour() {
+        let mut doc = Document::new("Board");
+        doc.kind = DocumentKind::Board;
+        let page = doc.add_page("Page 1");
+        assert_eq!(default_connector_ink(&doc, page), Color::rgb(0x1E, 0x1E, 0x1E), "a board is drawn on its own light canvas");
+    }
+
+    #[test]
+    fn connector_ink_on_picks_between_the_inks_the_caller_passes() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (light_ink, dark_ink) = (Color::rgb(0x10, 0x20, 0x30), Color::rgb(0xF0, 0xE0, 0xD0));
+        assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink), dark_ink, "the near-black ink is below 3:1 on the dark default page");
+        set_page_background(&mut doc, page, Color::WHITE);
+        assert_eq!(connector_ink_on(&doc, page, light_ink, dark_ink), light_ink);
     }
 }

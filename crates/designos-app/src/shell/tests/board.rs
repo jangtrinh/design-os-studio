@@ -1103,3 +1103,589 @@ fn right_click_on_ruler_strip_skips_canvas_menu_only_when_enabled() {
     b.right_click(b_strip);
     assert_eq!(b.app().ui.ctx_menu, Some(b_strip), "Board ruler strip does not suppress the canvas context menu on right-click");
 }
+
+fn design_sim() -> Sim {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let existing: Vec<NodeId> = s.app().doc.get(page).unwrap().children.clone();
+    for id in existing {
+        let _ = s.shell.app.doc.remove(id);
+    }
+    s.shell.app.selection.clear();
+    s.shell.app.hover = None;
+    s.shell.app.canvas.last_hover_query = None;
+    s.shell.app.view.zoom = 1.0;
+    s.shell.app.view.offset = designos_doc::Vec2::ZERO;
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s
+}
+
+fn add_design_frame(s: &mut Sim, parent: NodeId, name: &str, x: f32, y: f32, w: f32, h: f32) -> NodeId {
+    let id = s.shell.app.doc.alloc_id();
+    let mut n = Node::frame(id, DRect::new(x, y, w, h));
+    n.name = name.into();
+    s.shell.app.doc.insert(parent, n).unwrap();
+    s.shell.app.changed();
+    s.frame(vec![]);
+    id
+}
+
+fn add_design_rect(s: &mut Sim, parent: NodeId, name: &str, x: f32, y: f32, w: f32, h: f32) -> NodeId {
+    let id = s.shell.app.doc.alloc_id();
+    let mut n = Node::rectangle(id, DRect::new(x, y, w, h));
+    n.name = name.into();
+    s.shell.app.doc.insert(parent, n).unwrap();
+    s.shell.app.changed();
+    s.frame(vec![]);
+    id
+}
+
+#[test]
+fn connector_tool_attaches_frame_to_frame_in_a_design_file() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add_design_frame(&mut s, page, "Frame A", 120.0, 180.0, 160.0, 100.0);
+    let b = add_design_frame(&mut s, page, "Frame B", 520.0, 180.0, 160.0, 100.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, a), node_center(&s, b));
+
+    let conns = connectors(&s);
+    assert_eq!(conns.len(), 1, "connector created between frames in a design file");
+    let c = conns[0];
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!(p.start.node, Some(a));
+    assert_eq!(p.end.node, Some(b));
+
+    let before = connector_route(&s.app().doc, c).unwrap();
+    s.key(Key::Escape);
+    let ac = node_center(&s, a);
+    s.drag(ac, ac + Vec2::new(0.0, 120.0));
+    let after = connector_route(&s.app().doc, c).unwrap();
+    assert_ne!(before.start(), after.start(), "moving frame A reroutes the attached connector");
+}
+
+#[test]
+fn dot_press_starts_connector_in_a_design_file() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add_design_frame(&mut s, page, "Frame A", 120.0, 180.0, 160.0, 100.0);
+    let b = add_design_frame(&mut s, page, "Frame B", 520.0, 180.0, 160.0, 100.0);
+    s.click(node_center(&s, a));
+    assert_eq!(s.app().selection, vec![a]);
+    assert_eq!(s.app().board.dots, Some(a), "selected design frame shows magnet dots under Move tool");
+
+    let from = dot(&s, a, Magnet::Right);
+    s.drag(from, node_center(&s, b));
+    let conns = connectors(&s);
+    assert_eq!(conns.len(), 1);
+    let c = conns[0];
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.node, p.start.magnet), (Some(a), Magnet::Right));
+    assert_eq!(p.end.node, Some(b));
+}
+
+#[test]
+fn dots_show_on_selected_design_layer_and_on_whiteboard_items_only() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let r = add_design_rect(&mut s, page, "Rect", 120.0, 180.0, 120.0, 80.0);
+    let sticky_id = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(page, Node::sticky(sticky_id, DRect::new(520.0, 180.0, 160.0, 160.0), "Note")).unwrap();
+    s.shell.app.changed();
+    s.frame(vec![]);
+
+    // Move tool: hover unselected rectangle -> dots == None
+    s.mv(node_center(&s, r));
+    assert_eq!(s.app().board.dots, None, "Move tool must not show dots on an unselected design layer");
+
+    // Select it -> dots == Some(r)
+    s.click(node_center(&s, r));
+    assert_eq!(s.app().board.dots, Some(r), "Move tool shows dots on the single selected design layer");
+
+    // Hover sticky -> dots == Some(sticky)
+    s.mv(node_center(&s, sticky_id));
+    assert_eq!(s.app().board.dots, Some(sticky_id), "Move tool shows dots when hovering a whiteboard item");
+
+    // Connector tool: hover unselected rectangle -> dots == Some(r)
+    s.key(Key::Escape);
+    s.shell.app.set_tool(Tool::Connector);
+    s.mv(node_center(&s, r));
+    assert_eq!(s.app().board.dots, Some(r), "Connector tool shows dots on any hovered connectable layer");
+}
+
+#[test]
+fn dots_use_cached_hover_and_do_not_mark_document_changed() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add_design_rect(&mut s, page, "A", 120.0, 180.0, 120.0, 80.0);
+    let b = add_design_rect(&mut s, page, "B", 520.0, 180.0, 120.0, 80.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.frame(vec![]);
+    s.shell.app.canvas.dirty = false;
+    let rev0 = s.app().canvas.tiles.rev();
+
+    // Cached hover query holds `a` while the page point passed to `update_hover` sits over `b`.
+    s.shell.app.hover = Some(a);
+    connect::update_hover(&mut s.shell.app, Some(designos_doc::Vec2::new(580.0, 220.0)));
+    assert_eq!(s.app().board.dots, Some(a), "dots must come from cached app.hover, not a second hit_under");
+    assert!(!s.app().canvas.dirty, "update_hover must not mark the document dirty");
+    assert_eq!(s.app().canvas.tiles.rev(), rev0, "update_hover must not bump TileView::rev");
+
+    // Pointer hover across targets updates dots from app.hover without dirtying the canvas or bumping TileView::rev.
+    s.mv(node_center(&s, b));
+    s.shell.app.canvas.dirty = false;
+    let rev1 = s.app().canvas.tiles.rev();
+    s.mv(node_center(&s, a));
+    assert_eq!(s.app().hover, Some(a));
+    assert_eq!(s.app().board.dots, Some(a));
+    assert!(!s.app().canvas.dirty);
+    assert_eq!(s.app().canvas.tiles.rev(), rev1);
+}
+
+#[test]
+fn cmd_picks_deepest_layer_for_drop_target() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let src = add_design_frame(&mut s, page, "Source", 80.0, 180.0, 120.0, 80.0);
+    let f = add_design_frame(&mut s, page, "F", 440.0, 120.0, 260.0, 220.0);
+    let g = add_design_frame(&mut s, f, "G", 20.0, 20.0, 220.0, 180.0);
+    let btn = add_design_rect(&mut s, g, "B", 30.0, 30.0, 120.0, 48.0);
+
+    // Plain drop over B attaches to nested frame G (what a plain Move click selects).
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, src), node_center(&s, btn));
+    let c1 = *connectors(&s).last().expect("plain connector created");
+    let NodeKind::Connector(p1) = &s.app().doc.get(c1).unwrap().kind else { unreachable!() };
+    assert_eq!(p1.end.node, Some(g), "plain drop over B inside nested frame G attaches to G");
+
+    // Cmd-drop over B attaches to deepest layer B.
+    s.shell.app.set_tool(Tool::Connector);
+    let a_pos = node_center(&s, src);
+    let b_pos = node_center(&s, btn);
+    s.mv(a_pos);
+    s.button(true);
+    let is_mac = cfg!(target_os = "macos");
+    s.mods = Modifiers { alt: false, ctrl: !is_mac, shift: false, mac_cmd: is_mac, command: true };
+    s.mv(b_pos);
+    s.button(false);
+    s.mods = Modifiers::NONE;
+    s.frame(vec![]);
+
+    let conns = connectors(&s);
+    assert_eq!(conns.len(), 2);
+    let c2 = conns[1];
+    let NodeKind::Connector(p2) = &s.app().doc.get(c2).unwrap().kind else { unreachable!() };
+    assert_eq!(p2.end.node, Some(btn), "Cmd-drop over B attaches to deepest layer B");
+}
+
+#[test]
+fn alt_drag_ignores_magnets() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add_design_frame(&mut s, page, "A", 120.0, 180.0, 140.0, 90.0);
+    let b = add_design_frame(&mut s, page, "B", 480.0, 180.0, 160.0, 100.0);
+    s.shell.app.set_tool(Tool::Connector);
+
+    let a_pos = node_center(&s, a);
+    let b_pos = node_center(&s, b);
+    let b_page = s.app().view.to_page(s.app().canvas_rect.min, b_pos);
+    s.mv(a_pos);
+    s.button(true);
+    s.mods = Modifiers { alt: true, ..Modifiers::NONE };
+    s.mv(b_pos);
+    s.button(false);
+    s.mods = Modifiers::NONE;
+    s.frame(vec![]);
+
+    let conns = connectors(&s);
+    assert_eq!(conns.len(), 1);
+    let c = conns[0];
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!(p.start.node, Some(a));
+    assert_eq!(p.end.node, None, "Alt-drag leaves a free end without snapping to B");
+    assert!(
+        (p.end.point.x - b_page.x).abs() < 1.0 && (p.end.point.y - b_page.y).abs() < 1.0,
+        "end.point is the release point: {:?} vs {:?}",
+        p.end.point,
+        b_page
+    );
+}
+
+#[test]
+fn connector_in_auto_layout_frame_is_absolute_and_ignored_by_layout() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let f = add_design_frame(&mut s, page, "AL Frame", 120.0, 140.0, 320.0, 120.0);
+    if let Some(fp) = s.shell.app.doc.get_mut(f).unwrap().kind.frame_props_mut() {
+        fp.auto_layout = Some(designos_doc::AutoLayout {
+            direction: designos_doc::LayoutDirection::Horizontal,
+            padding: [16.0, 16.0, 16.0, 16.0],
+            item_spacing: 40.0,
+            primary_sizing: designos_doc::Sizing::Hug,
+            counter_sizing: designos_doc::Sizing::Hug,
+            ..Default::default()
+        });
+    }
+    let a = add_design_rect(&mut s, f, "Child A", 16.0, 16.0, 80.0, 48.0);
+    let b = add_design_rect(&mut s, f, "Child B", 136.0, 16.0, 80.0, 48.0);
+    let mut ed = crate::edit::Edit::default();
+    crate::layout::layout_node(&mut s.shell.app.doc, &mut ed, f);
+    s.shell.app.changed();
+    s.frame(vec![]);
+
+    let a_t0 = s.app().doc.get(a).unwrap().transform;
+    let b_t0 = s.app().doc.get(b).unwrap().transform;
+    let f_size0 = s.app().doc.get(f).unwrap().size;
+
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, a), node_center(&s, b));
+
+    let conns = connectors(&s);
+    assert_eq!(conns.len(), 1);
+    let c = conns[0];
+    let cn = s.app().doc.get(c).unwrap();
+    assert_eq!(cn.parent, Some(f), "connector between siblings inside F lives in F");
+    assert!(cn.layout_child.absolute, "connector inside auto-layout frame has layout_child.absolute == true");
+
+    let mut ed2 = crate::edit::Edit::default();
+    crate::layout::layout_node(&mut s.shell.app.doc, &mut ed2, f);
+    assert_eq!(s.app().doc.get(a).unwrap().transform, a_t0, "child A position unchanged by connector");
+    assert_eq!(s.app().doc.get(b).unwrap().transform, b_t0, "child B position unchanged by connector");
+    assert_eq!(s.app().doc.get(f).unwrap().size, f_size0, "hug auto-layout frame size unchanged by connector");
+}
+
+#[test]
+fn load_repair_sets_absolute_on_connectors_in_auto_layout_parents() {
+    let mut doc = designos_doc::Document::new("RepairALConnector");
+    let page = doc.add_page("Page 1");
+    let f = doc.alloc_id();
+    let mut fn_node = Node::frame(f, DRect::new(0.0, 0.0, 300.0, 120.0));
+    if let Some(fp) = fn_node.kind.frame_props_mut() {
+        fp.auto_layout = Some(designos_doc::AutoLayout::default());
+    }
+    doc.insert(page, fn_node).unwrap();
+    let a = doc.alloc_id();
+    doc.insert(f, Node::rectangle(a, DRect::new(10.0, 10.0, 60.0, 40.0))).unwrap();
+    let b = doc.alloc_id();
+    doc.insert(f, Node::rectangle(b, DRect::new(150.0, 10.0, 60.0, 40.0))).unwrap();
+    let c = doc.alloc_id();
+    let mut conn = Node::connector(
+        c,
+        designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(a, Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(b, Magnet::Auto),
+            ..Default::default()
+        },
+    );
+    conn.layout_child.absolute = false;
+    doc.insert(f, conn).unwrap();
+
+    let json = doc.to_json().unwrap();
+    let loaded = designos_doc::Document::from_json(&json).unwrap();
+    assert!(loaded.get(c).unwrap().layout_child.absolute, "load repair must set layout_child.absolute = true on connectors in auto-layout parents");
+}
+
+#[test]
+fn reparenting_an_end_node_rehomes_the_connector_in_the_same_undo_step() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let f = add_design_frame(&mut s, page, "F", 100.0, 120.0, 460.0, 220.0);
+    let a = add_design_rect(&mut s, f, "A", 30.0, 50.0, 100.0, 60.0);
+    let b = add_design_rect(&mut s, f, "B", 280.0, 50.0, 100.0, 60.0);
+
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, a), node_center(&s, b));
+    let c = connectors(&s)[0];
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(f));
+    let end_points = |s: &Sim| match &s.app().doc.get(c).unwrap().kind {
+        NodeKind::Connector(p) => (p.start.point, p.end.point),
+        k => panic!("{k:?}"),
+    };
+    let points_in_f = end_points(&s);
+
+    let page_len = s.app().doc.get(page).unwrap().children.len();
+    let mut tx = crate::edit::Tx::new();
+    tx.cmd(&mut s.shell.app.doc, designos_doc::Command::Reparent { id: b, parent: page, index: page_len }).unwrap();
+    s.shell.app.run_tx(tx);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(b).unwrap().parent, Some(page));
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(page), "reparenting B to page rehomes connector C to page in the same commit");
+
+    // The end points are in the page's space now: they match the route and each sits on the edge of its node.
+    let geometry = designos_doc::connector_geometry(&s.app().doc, c).unwrap();
+    let (start, end) = end_points(&s);
+    assert_eq!((start, end), (geometry.start_point, geometry.end_point), "the stored end points are the route's, resolved in the new parent");
+    for (point, node) in [(start, a), (end, b)] {
+        let r = crate::util::world_aabb(&s.app().doc, node);
+        let on_edge = ((point.x - r.x).abs() < 0.5 || (point.x - (r.x + r.w)).abs() < 0.5) && point.y >= r.y - 0.5 && point.y <= r.y + r.h + 0.5
+            || ((point.y - r.y).abs() < 0.5 || (point.y - (r.y + r.h)).abs() < 0.5) && point.x >= r.x - 0.5 && point.x <= r.x + r.w + 0.5;
+        assert!(on_edge, "end point {point:?} sits on the edge of its node {r:?}");
+    }
+    assert_ne!((start, end), points_in_f, "the points moved with the parent space");
+
+    // One undo puts both B and C back in F, and the end points back where they were.
+    s.shell.app.undo();
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(b).unwrap().parent, Some(f), "one undo puts B back in F");
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(f), "one undo puts C back in F");
+    assert_eq!(end_points(&s), points_in_f, "one undo restores the end points");
+}
+
+#[test]
+fn moving_an_end_node_to_another_page_detaches_that_end_and_keeps_the_connector() {
+    let mut s = design_sim();
+    let page1 = s.app().page;
+    let a = add_design_frame(&mut s, page1, "A", 120.0, 180.0, 140.0, 90.0);
+    let b = add_design_frame(&mut s, page1, "B", 480.0, 180.0, 140.0, 90.0);
+
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, a), node_center(&s, b));
+    let c = connectors(&s)[0];
+    let last_end_point = match &s.app().doc.get(c).unwrap().kind {
+        NodeKind::Connector(p) => p.end.point,
+        _ => unreachable!(),
+    };
+
+    let page2 = s.shell.app.doc.add_page("Page 2");
+    s.shell.app.toast = None;
+    let mut tx = crate::edit::Tx::new();
+    tx.cmd(&mut s.shell.app.doc, designos_doc::Command::Reparent { id: b, parent: page2, index: 0 }).unwrap();
+    s.shell.app.run_tx(tx);
+    s.frame(vec![]);
+
+    assert_eq!(s.app().doc.page_of(c), Some(page1), "connector stays on page 1");
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!(p.start.node, Some(a));
+    assert_eq!(p.end.node, None, "end attached to B detaches when B moves to another page");
+    assert!((p.end.point.x - last_end_point.x).abs() < 0.5 && (p.end.point.y - last_end_point.y).abs() < 0.5, "end.point is B's last anchor point");
+    assert!(s.app().toast.is_some(), "detaching an end on cross-page move shows a toast");
+}
+
+#[test]
+fn hidden_target_keeps_connector_attached_and_visible() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add_design_frame(&mut s, page, "A", 120.0, 180.0, 140.0, 90.0);
+    let b = add_design_frame(&mut s, page, "B", 480.0, 180.0, 140.0, 90.0);
+
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, a), node_center(&s, b));
+    let c = connectors(&s)[0];
+    let route_before = connector_route(&s.app().doc, c).unwrap();
+
+    s.shell.app.toggle_visible(b);
+    s.frame(vec![]);
+    assert!(!s.app().doc.get(b).unwrap().visible);
+    let cn = s.app().doc.get(c).unwrap();
+    assert!(cn.visible, "connector stays visible when target B is hidden");
+    let NodeKind::Connector(p) = &cn.kind else { unreachable!() };
+    assert_eq!(p.end.node, Some(b), "connector stays attached to hidden target B");
+    let route_after = connector_route(&s.app().doc, c).unwrap();
+    assert_eq!(route_after.end(), route_before.end(), "connector keeps routing to hidden B's geometry");
+}
+
+#[test]
+fn magnet_hit_radius_is_a_24px_target() {
+    assert!(std::hint::black_box(crate::theme::BOARD_MAGNET_HIT) >= 12.0, "BOARD_MAGNET_HIT must be at least 12.0 px (24 px target)");
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add_design_frame(&mut s, page, "A", 200.0, 200.0, 160.0, 100.0);
+    s.click(node_center(&s, a));
+    assert_eq!(s.app().board.dots, Some(a));
+
+    let right = dot(&s, a, Magnet::Right);
+    let rect = s.app().canvas_rect;
+    assert_eq!(connect::dot_hit(s.app(), rect, right + Vec2::new(11.5, 0.0)), Some((a, Magnet::Right)), "hits at 11.5 px from dot centre");
+    assert_eq!(connect::dot_hit(s.app(), rect, right + Vec2::new(12.5, 0.0)), None, "misses at 12.5 px from dot centre");
+}
+
+#[test]
+fn x_key_selects_connector_in_a_design_file() {
+    let mut s = design_sim();
+    assert_eq!(s.app().tool, Tool::Move);
+    s.key(Key::X);
+    assert_eq!(s.app().tool, Tool::Connector, "pressing X on a design canvas selects Tool::Connector");
+}
+
+#[test]
+fn x_over_align_row_toggles_spacing_not_tool() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let f = add_design_frame(&mut s, page, "AL", 200.0, 200.0, 240.0, 120.0);
+    if let Some(fp) = s.shell.app.doc.get_mut(f).unwrap().kind.frame_props_mut() {
+        fp.auto_layout = Some(designos_doc::AutoLayout::default());
+    }
+    s.shell.app.select_only(f);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    let ph = s.field_rect("al-ph");
+    let align_dy =
+        (crate::theme::FIELD_HEIGHT + 4.0) + (crate::theme::SPACE_GROUP - crate::theme::SPACE_ROW) + crate::theme::LABEL_BOX_H + crate::theme::SPACE_FACT;
+    let align_pos = Pos2::new(ph.center().x, ph.center().y + align_dy);
+    assert_eq!(s.app().tool, Tool::Move);
+    s.mv(align_pos);
+    s.key(Key::X);
+    let al = s.app().doc.get(f).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(al.primary_align, designos_doc::LayoutAlign::SpaceBetween, "X over align row toggles auto-spacing");
+    assert_eq!(s.app().tool, Tool::Move, "X over align row must not switch tool to Connector");
+
+    // Moving pointer back to canvas and pressing X selects Tool::Connector.
+    s.mv(s.app().canvas_rect.center());
+    s.key(Key::X);
+    assert_eq!(s.app().tool, Tool::Connector);
+}
+
+#[test]
+fn shift_l_selects_arrow_and_x_selects_connector() {
+    let mut s = design_sim();
+    s.mods = Modifiers { shift: true, ..Modifiers::NONE };
+    s.key(Key::L);
+    s.mods = Modifiers::NONE;
+    assert_eq!(s.app().tool, Tool::Arrow, "Shift+L selects Arrow");
+
+    s.key(Key::X);
+    assert_eq!(s.app().tool, Tool::Connector, "plain X selects Connector");
+    assert_ne!(Tool::Arrow, Tool::Connector);
+}
+
+#[test]
+fn toolbar_stays_512px_wide() {
+    assert_eq!(crate::panels::toolbar::toolbar_width(), 512.0, "toolbelt width stays 512 px");
+    assert!(crate::canvas::tools::GROUPS[2].contains(&Tool::Connector), "shape group contains Tool::Connector");
+    assert_eq!(Tool::Connector.label(), "Connector");
+    assert_eq!(Tool::Connector.shortcut(), "X");
+
+    let mut s = design_sim();
+    let screen = s.ctx.content_rect();
+    assert!(crate::panels::menus::preset_menu(&s.ctx, &mut s.shell.app, "shape", screen));
+    s.frame(vec![]);
+    assert!(
+        crate::panels::menus::palette_entries(s.app(), "connector").iter().any(|(label, sc)| label == "Connector" && sc == "X"),
+        "palette/menu lists Connector with shortcut X"
+    );
+}
+
+#[test]
+fn default_ink_has_3_to_1_contrast_on_default_page() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add_design_frame(&mut s, page, "A", 120.0, 120.0, 120.0, 80.0);
+    let b = add_design_frame(&mut s, page, "B", 380.0, 120.0, 120.0, 80.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, a), node_center(&s, b));
+    let c_page = connectors(&s)[0];
+    let col_page = match &s.app().doc.get(c_page).unwrap().stroke.paints[0].kind {
+        PaintKind::Solid(c) => *c,
+        _ => panic!("expected solid stroke"),
+    };
+    let page_bg = Color::rgb(0x5A, 0x5A, 0x5A);
+    assert_eq!(col_page, Color::WHITE, "default #5A5A5A page picks white connector ink");
+    assert!(designos_doc::lint::rules::contrast::contrast_ratio(col_page, page_bg) >= 3.0);
+
+    let wf = add_design_frame(&mut s, page, "WhiteFrame", 120.0, 320.0, 420.0, 200.0);
+    s.shell.app.doc.get_mut(wf).unwrap().fills = vec![Paint::solid(Color::WHITE)];
+    let ca = add_design_rect(&mut s, wf, "CA", 20.0, 40.0, 100.0, 60.0);
+    let cb = add_design_rect(&mut s, wf, "CB", 260.0, 40.0, 100.0, 60.0);
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, ca), node_center(&s, cb));
+    let c_white = *connectors(&s).last().unwrap();
+    let col_white = match &s.app().doc.get(c_white).unwrap().stroke.paints[0].kind {
+        PaintKind::Solid(c) => *c,
+        _ => panic!("expected solid stroke"),
+    };
+    assert_eq!(col_white, Color::rgb(0x1E, 0x1E, 0x1E), "white frame picks #1E1E1E connector ink");
+    assert!(designos_doc::lint::rules::contrast::contrast_ratio(col_white, Color::WHITE) >= 3.0);
+}
+
+#[test]
+fn board_connector_keeps_the_toolbar_ink() {
+    let mut b = board_sim();
+    let picked = Color::rgb(0xF2, 0x48, 0x22);
+    b.shell.app.board.ink = picked;
+    let a = add_shape(&mut b, "A", 200.0, 200.0);
+    let c_target = add_shape(&mut b, "B", 560.0, 200.0);
+    b.shell.app.set_tool(Tool::Connector);
+    b.drag(node_center(&b, a), node_center(&b, c_target));
+    let cid = *connectors(&b).last().unwrap();
+    let stroke_col = match &b.app().doc.get(cid).unwrap().stroke.paints[0].kind {
+        PaintKind::Solid(col) => *col,
+        _ => panic!("expected solid stroke"),
+    };
+    assert_eq!(stroke_col, picked, "board connector keeps the picked board toolbar ink #F24822");
+
+    // In a design file on the default #5A5A5A page, default ink is contrast-checked white, not app.board.ink.
+    let mut d = design_sim();
+    let page = d.app().page;
+    let da = add_design_frame(&mut d, page, "DA", 120.0, 180.0, 120.0, 80.0);
+    let db = add_design_frame(&mut d, page, "DB", 420.0, 180.0, 120.0, 80.0);
+    d.shell.app.set_tool(Tool::Connector);
+    d.drag(node_center(&d, da), node_center(&d, db));
+    let dcid = *connectors(&d).last().unwrap();
+    let d_col = match &d.app().doc.get(dcid).unwrap().stroke.paints[0].kind {
+        PaintKind::Solid(col) => *col,
+        _ => panic!("expected solid stroke"),
+    };
+    assert_eq!(d_col, Color::WHITE);
+}
+
+#[test]
+fn board_file_behaviour_unchanged_for_connectors() {
+    let mut b = board_sim();
+    assert!(b.app().is_board());
+    assert!(b.app().wb_connectors_enabled());
+    let a = add_shape(&mut b, "A", 200.0, 200.0);
+    let target = add_shape(&mut b, "B", 600.0, 200.0);
+    b.mv(node_center(&b, a));
+    assert_eq!(b.app().board.dots, Some(a), "unselected whiteboard shape still shows magnet dots on hover");
+    b.drag(dot(&b, a, Magnet::Right), node_center(&b, target));
+    let cid = *connectors(&b).last().unwrap();
+    let NodeKind::Connector(p) = &b.app().doc.get(cid).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.node, p.start.magnet, p.end.node), (Some(a), Magnet::Right, Some(target)));
+
+    let d = design_sim();
+    assert!(!d.app().is_board());
+    assert!(d.app().wb_connectors_enabled(), "Design documents also enable live connectors");
+}
+
+#[test]
+fn svg_of_a_design_frame_includes_inner_connectors() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let f = add_design_frame(&mut s, page, "Container", 100.0, 120.0, 500.0, 240.0);
+    let a = add_design_rect(&mut s, f, "A", 30.0, 60.0, 100.0, 60.0);
+    let b = add_design_rect(&mut s, f, "B", 340.0, 60.0, 100.0, 60.0);
+
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, a), node_center(&s, b));
+    let c = connectors(&s)[0];
+    assert_eq!(s.app().doc.get(c).unwrap().parent, Some(f), "inner connector is parented to frame F");
+
+    let svg = designos_export::export_svg(&s.app().doc, f, &designos_export::SvgOptions::default());
+    assert!(svg.matches("<path ").count() >= 2, "exported SVG of frame F must include the connector path and arrowhead: {svg}");
+}
+
+#[test]
+fn connector_label_edits_in_a_design_file() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add_design_frame(&mut s, page, "A", 120.0, 180.0, 140.0, 90.0);
+    let b = add_design_frame(&mut s, page, "B", 520.0, 180.0, 140.0, 90.0);
+
+    s.shell.app.set_tool(Tool::Connector);
+    s.drag(node_center(&s, a), node_center(&s, b));
+    let c = connectors(&s)[0];
+    let NodeKind::Connector(p0) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!((p0.start.node, p0.end.node), (Some(a), Some(b)), "connector attaches to design frames A and B");
+    let mid = connector_route(&s.app().doc, c).unwrap().midpoint();
+    let mid_screen = s.screen(mid.x, mid.y);
+    s.click(mid_screen);
+    s.click(mid_screen);
+    assert_eq!(s.app().canvas.text.as_ref().map(|t| t.id), Some(c), "double-clicking connector opens label text session");
+    s.type_text("Yes");
+    s.key(Key::Escape);
+    let NodeKind::Connector(p) = &s.app().doc.get(c).unwrap().kind else { unreachable!() };
+    assert_eq!(p.label.as_ref().map(|l| l.content.as_str()), Some("Yes"));
+}

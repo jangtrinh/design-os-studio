@@ -173,9 +173,9 @@ impl Tool {
 
 /// The shape group of the toolbar, without the Arrow tool unless [`ARROW_TOOL_ENABLED`].
 const SHAPE_GROUP: &[Tool] = if ARROW_TOOL_ENABLED {
-    &[Tool::Rectangle, Tool::Line, Tool::Arrow, Tool::Ellipse, Tool::Polygon, Tool::Star, Tool::Image]
+    &[Tool::Rectangle, Tool::Line, Tool::Arrow, Tool::Connector, Tool::Ellipse, Tool::Polygon, Tool::Star, Tool::Image]
 } else {
-    &[Tool::Rectangle, Tool::Line, Tool::Ellipse, Tool::Polygon, Tool::Star, Tool::Image]
+    &[Tool::Rectangle, Tool::Line, Tool::Connector, Tool::Ellipse, Tool::Polygon, Tool::Star, Tool::Image]
 };
 
 /// Toolbar groups: first entry is the default tool shown on the button.
