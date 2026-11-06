@@ -15,6 +15,7 @@ const PILL_MAX_W: f32 = 220.0;
 
 pub struct ToolbarOut {
     pub add: bool,
+    pub cancel: bool,
     pub pill: bool,
     pub mode: bool,
     pub send: bool,
@@ -27,7 +28,7 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
     let y = composer.bottom() - theme::SPACE_ROW - theme::CONTROL_XS;
     let left = composer.left() + theme::SPACE_ROW;
     let right = composer.right() - theme::SPACE_ROW;
-    let mut out = ToolbarOut { add: false, pill: false, mode: false, send: false, attach: None, mode_pick: None };
+    let mut out = ToolbarOut { add: false, cancel: false, pill: false, mode: false, send: false, attach: None, mode_pick: None };
     let add = Rect::from_min_size(Pos2::new(left, y), Vec2::splat(theme::CONTROL_XS));
     let add_resp = ui.interact(add, Id::new("agents-composer-add-btn"), Sense::click());
     if paint_icon_button(
@@ -87,6 +88,14 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
     let pill_right = mode.left() - theme::SPACE_ROW;
     let pill_w = (pill_right - add.right() - theme::SPACE_ROW).clamp(PILL_MIN_W, PILL_MAX_W);
     let pill_r = Rect::from_min_size(Pos2::new(pill_right - pill_w, y), Vec2::new(pill_w, theme::CONTROL_XS));
+    if state.active_composer().pending_send.iter().any(|entry| !entry.is_system) {
+        let cancel_r = Rect::from_min_size(Pos2::new(pill_r.left() - theme::SPACE_ROW - theme::CONTROL_MD, y), Vec2::new(theme::CONTROL_MD, theme::CONTROL_XS));
+        if cancel_r.left() >= add.right() + theme::SPACE_ROW {
+            if crate::widgets::kit::button(ui, cancel_r, "agents-composer-cancel-queue", "Cancel", kit::Hierarchy::Secondary, kit::Size::Xs, true).clicked() {
+                out.cancel = true;
+            }
+        }
+    }
     let pill_resp = ui.interact(pill_r, Id::new("agents-composer-agent-pill"), Sense::click());
     if paint_text_button(
         ui,
