@@ -1023,6 +1023,7 @@ dependencies = [
 name = "designos-doc"
 version = "0.7.9"
 dependencies = [
+ "image",
  "regex",
  "schemars",
  "serde",
