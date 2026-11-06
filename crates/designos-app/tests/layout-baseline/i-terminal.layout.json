@@ -1735,6 +1735,16 @@
       ],
       "count": 1
     },
+    "toolbar-whiteboard-group": {
+      "region": "canvas",
+      "rect": [
+        859.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
     "xform:0": {
       "region": "right_panel",
       "rect": [
