@@ -15,6 +15,9 @@ pub(crate) enum OwnKey {
     /// The key states this field of the instance. The field is flagged on open, and a save that finds it edited writes it
     /// from the node and removes this key from the record.
     States(OverrideField),
+    /// A baked outline of this field (`fillGeometry`, `strokeGeometry`). It is no statement of its own, so it never flags
+    /// the field, but a save that restates the field removes it: an outline of the old shape must not outlive the edit.
+    Derived(OverrideField),
     /// The entry may carry the key, but no save restates it: it is written as the file recorded it.
     LeftAsRecorded,
     /// The key names the node or belongs to another kind of node; an own entry does not carry it.
@@ -42,7 +45,6 @@ fn named_class(key: &str) -> Option<OwnKey> {
         | "strokeCap"
         | "dashPattern"
         | "miterLimit"
-        | "strokeGeometry"
         | "borderStrokeWeightsIndependent"
         | "borderTopWeight"
         | "borderRightWeight"
@@ -51,13 +53,13 @@ fn named_class(key: &str) -> Option<OwnKey> {
         | "styleIdForStrokeFill" => States(OverrideField::Stroke),
         "effects" | "styleIdForEffect" | "inheritEffectStyleID" => States(OverrideField::Effects),
         "cornerRadius"
-        | "cornerSmoothing"
-        | "fillGeometry"
         | "rectangleCornerRadiiIndependent"
         | "rectangleTopLeftCornerRadius"
         | "rectangleTopRightCornerRadius"
         | "rectangleBottomLeftCornerRadius"
         | "rectangleBottomRightCornerRadius" => States(OverrideField::CornerRadii),
+        "strokeGeometry" => Derived(OverrideField::Stroke),
+        "fillGeometry" => Derived(OverrideField::CornerRadii),
         // Names the node, ties it to the library or file, or belongs to another kind of node.
         "guid"
         | "phase"
@@ -264,6 +266,7 @@ fn named_class(key: &str) -> Option<OwnKey> {
         | "booleanOperation"
         | "handleMirroring"
         | "count"
+        | "cornerSmoothing"
         | "starInnerScale"
         | "arcData"
         | "vectorData"
@@ -302,6 +305,14 @@ pub(crate) fn classify_own_key(key: &str) -> OwnKey {
 pub(crate) fn field_stated_by(key: &str) -> Option<OverrideField> {
     match classify_own_key(key) {
         OwnKey::States(field) => Some(field),
+        OwnKey::Derived(_) | OwnKey::LeftAsRecorded | OwnKey::NotInOwnEntry => None,
+    }
+}
+
+/// The field whose restate removes `key` from the record: the field it states, or the one its baked outline derives from.
+pub(crate) fn field_removed_with(key: &str) -> Option<OverrideField> {
+    match classify_own_key(key) {
+        OwnKey::States(field) | OwnKey::Derived(field) => Some(field),
         OwnKey::LeftAsRecorded | OwnKey::NotInOwnEntry => None,
     }
 }
@@ -360,6 +371,16 @@ mod tests {
         assert_eq!(classify_own_key("borderTopWeight"), OwnKey::States(OverrideField::Stroke));
         assert_eq!(classify_own_key("strokeSeed"), OwnKey::LeftAsRecorded);
         assert_eq!(classify_own_key("rectangleCornerRadiiIndependent"), OwnKey::States(OverrideField::CornerRadii));
+    }
+
+    #[test]
+    fn baked_outlines_and_smoothing_state_no_field_but_outlines_go_with_their_field() {
+        for key in ["fillGeometry", "strokeGeometry", "cornerSmoothing"] {
+            assert_eq!(field_stated_by(key), None, "{key} must not flag a field");
+        }
+        assert_eq!(field_removed_with("fillGeometry"), Some(OverrideField::CornerRadii));
+        assert_eq!(field_removed_with("strokeGeometry"), Some(OverrideField::Stroke));
+        assert_eq!(field_removed_with("cornerSmoothing"), None);
     }
 
     #[test]

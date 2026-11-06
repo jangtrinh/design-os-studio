@@ -103,10 +103,36 @@ struct Row {
     extra: Vec<Value>,
     blobs: Vec<Vec<u8>>,
     edit: fn(&mut Node),
+    /// The key the save writes the edited field under.
+    wrote: &'static str,
+    /// What the key does to the record: it states the field (flagged at open, replaced by an edit), is a baked outline
+    /// (never flagged, removed by an edit), or is kept exactly as recorded.
+    class: Class,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Class {
+    States,
+    Outline,
+    Kept,
 }
 
 fn row(key: &'static str, field: OverrideField, value: Value, edit: fn(&mut Node)) -> Row {
-    Row { key, field, value, extra: Vec::new(), blobs: Vec::new(), edit }
+    let wrote = match key {
+        "styleIdForFill" => "fillPaints",
+        "styleIdForStrokeFill" | "strokeGeometry" => "strokePaints",
+        "styleIdForEffect" | "inheritEffectStyleID" => "effects",
+        "borderStrokeWeightsIndependent" | "borderTopWeight" | "borderRightWeight" | "borderBottomWeight" | "borderLeftWeight" => "strokeWeight",
+        "rectangleCornerRadiiIndependent" | "fillGeometry" | "cornerSmoothing" => "cornerRadius",
+        k if k.starts_with("rectangle") => "cornerRadius",
+        k => k,
+    };
+    let class = match key {
+        "strokeGeometry" | "fillGeometry" => Class::Outline,
+        "cornerSmoothing" => Class::Kept,
+        _ => Class::States,
+    };
+    Row { key, field, value, extra: Vec::new(), blobs: Vec::new(), edit, wrote, class }
 }
 
 fn matrix(tx: f64, ty: f64) -> Value {
@@ -126,7 +152,7 @@ fn rows() -> Vec<Row> {
         row("size", Size, json!({"x": 77.0, "y": 33.0}), |n| n.size = Vec2::new(90.0, 40.0)),
         row("transform", Transform, matrix(5.0, 6.0), |n| n.transform = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 40.0, ty: 50.0 }),
         row("fillPaints", Fills, green(), edit_fills),
-        // A style link the file's library holds and the file does not (finding: the link is the only thing the entry states).
+        // A style link the file's library holds and the file does not (a link with no paints beside it).
         row("styleIdForFill", Fills, style_ref("LIB_MISSING"), edit_fills),
         row("strokePaints", Stroke, green(), edit_stroke),
         row("strokeWeight", Stroke, json!(2.0), edit_stroke),
@@ -167,8 +193,31 @@ fn rows() -> Vec<Row> {
     v
 }
 
+/// The key a baked outline or smoothing is recorded beside: the field is then stated, and an edit restates it.
+fn companion(r: &Row) -> Value {
+    match r.field {
+        OverrideField::Stroke => json!({"strokeWeight": 2.0}),
+        _ => json!({"cornerRadius": 4.0}),
+    }
+}
+
 fn check_row(r: &Row) -> Result<(), String> {
-    let fig = fixture_for(vec![own_entry_json(json!({ r.key: r.value.clone() }))], r.extra.clone(), r.blobs.clone());
+    let entry = match r.class {
+        Class::States => json!({ r.key: r.value.clone() }),
+        Class::Outline | Class::Kept => {
+            // Alone, the key states nothing: the field is not flagged and keeps following the main.
+            let alone = fixture_for(vec![own_entry_json(json!({ r.key: r.value.clone() }))], r.extra.clone(), r.blobs.clone());
+            let live = import_fig(&alone).map_err(|e| format!("import: {e}"))?;
+            let flags = &live.get(variant_button(&live)).ok_or("no instance")?.component.overrides;
+            if flags.contains(&r.field) {
+                return Err(format!("{:?} is flagged at open by the key alone (flags {flags:?})", r.field));
+            }
+            let mut both = companion(r);
+            both[r.key] = r.value.clone();
+            both
+        }
+    };
+    let fig = fixture_for(vec![own_entry_json(entry)], r.extra.clone(), r.blobs.clone());
     let recorded = own_entry_of(&saved_entries(&fig, INSTANCE));
     let live = import_fig(&fig).map_err(|e| format!("import: {e}"))?;
     let flags = &live.get(variant_button(&live)).ok_or("no instance")?.component.overrides;
@@ -183,8 +232,17 @@ fn check_row(r: &Row) -> Result<(), String> {
         return Err(format!("a save without an edit changed the entry: {recorded} -> {untouched}"));
     }
     let edited = own_entry_of(&saved_entries(&edit_and_save(&fig, r.edit), INSTANCE));
-    if edited.get(r.key) == untouched.get(r.key) {
-        return Err(format!("the recorded key survives an edit of {:?}: {}", r.field, edited.get(r.key).unwrap_or(&Value::Null)));
+    match r.class {
+        Class::States if r.wrote == r.key && edited.get(r.key) == untouched.get(r.key) => {
+            return Err(format!("the recorded key survives an edit of {:?}: {}", r.field, edited.get(r.key).unwrap_or(&Value::Null)));
+        }
+        Class::States if r.wrote != r.key && edited.get(r.key).is_some() => return Err(format!("the recorded key survives an edit of {:?}", r.field)),
+        Class::Outline if edited.get(r.key).is_some() => return Err("the baked outline survives an edit of its field".into()),
+        Class::Kept if edited.get(r.key) != untouched.get(r.key) => return Err("the key was not kept as recorded".into()),
+        _ => {}
+    }
+    if edited.get(r.wrote).is_none() {
+        return Err(format!("the edited value is not written back under {}: {edited}", r.wrote));
     }
     Ok(())
 }
@@ -254,4 +312,59 @@ fn a_save_without_an_edit_keeps_every_own_entry_as_recorded() {
     let live = import_fig(&fig).expect("import");
     let saved = export_fig(&live).expect("export");
     assert_eq!(own_entries_of(&saved_entries(&saved, INSTANCE)), own_entries_of(&saved_entries(&fig, INSTANCE)));
+}
+
+#[test]
+fn a_corner_radius_edit_keeps_the_recorded_corner_smoothing() {
+    let own = own_entry_json(json!({"cornerRadius": 4.0, "cornerSmoothing": 0.6}));
+    let fig = fixture_for(vec![own], Vec::new(), Vec::new());
+    let edited = own_entry_of(&saved_entries(&edit_and_save(&fig, |n| n.corner_radii = [10.0; 4]), INSTANCE));
+    assert_eq!(edited["cornerRadius"].as_f64(), Some(10.0), "the radius is restated: {edited}");
+    assert_eq!(edited["cornerSmoothing"].as_f64(), Some(0.6), "the recorded smoothing is kept: {edited}");
+}
+
+fn main_stroke(n: &mut Node) {
+    n.stroke.paints = vec![Paint::solid(Color::rgba(0, 0, 255, 255))];
+    n.stroke.weight = 5.0;
+}
+
+fn main_radius(n: &mut Node) {
+    n.corner_radii = [12.0; 4];
+}
+
+/// An own entry that carries only baked outlines or smoothing states no field: the instance keeps following its main.
+fn follows_main_edit(entry: Value, blobs: Vec<Vec<u8>>, edit_main: fn(&mut Node), seen: fn(&Node) -> bool) {
+    let fig = fixture_for(vec![own_entry_json(entry)], Vec::new(), blobs);
+    for hydrate_first in [false, true] {
+        let mut live = import_fig(&fig).expect("import");
+        if hydrate_first {
+            live.hydrate_all_pages();
+        }
+        let button = variant_button(&live);
+        let flags = &live.get(button).expect("instance").component.overrides;
+        assert!(!flags.contains(&OverrideField::Stroke) && !flags.contains(&OverrideField::CornerRadii), "flags at open: {flags:?}");
+        let main = live.get(button).and_then(|n| n.component.source).expect("main of the instance");
+        edit_main(live.get_mut(main).expect("main"));
+        sync_instances(&mut live, main).apply(&mut live).expect("sync");
+        assert!(seen(live.get(button).expect("instance")), "the instance stopped following its main (hydrated first: {hydrate_first})");
+    }
+}
+
+#[test]
+fn an_entry_with_only_a_stroke_outline_follows_a_stroke_edit_of_its_main() {
+    follows_main_edit(json!({"size": {"x": 130.0, "y": 48.0}, "strokeGeometry": blob_geometry()}), vec![line_blob(5.0)], main_stroke, |n| {
+        n.stroke.weight == 5.0
+    });
+}
+
+#[test]
+fn an_entry_with_only_a_fill_outline_follows_a_radius_edit_of_its_main() {
+    follows_main_edit(json!({"size": {"x": 130.0, "y": 48.0}, "fillGeometry": blob_geometry()}), vec![line_blob(5.0)], main_radius, |n| {
+        n.corner_radii == [12.0; 4]
+    });
+}
+
+#[test]
+fn an_entry_with_only_corner_smoothing_follows_a_radius_edit_of_its_main() {
+    follows_main_edit(json!({"cornerSmoothing": 0.6}), Vec::new(), main_radius, |n| n.corner_radii == [12.0; 4]);
 }

@@ -14,7 +14,7 @@
 use super::{collect_instance_overrides_for, parse_guid_pair, ExportCtx};
 use crate::instance_self_digest::edited_fields;
 use crate::kiwi::{decode_hex_bytes, FieldType, KiwiValue as V};
-use crate::own_entry_keys::field_stated_by;
+use crate::own_entry_keys::field_removed_with;
 use crate::testkit::guid;
 use designos_doc::*;
 use serde_json::Value;
@@ -187,7 +187,7 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid
     // override it: the old value goes from all of them and the new one is stated by the last.
     for &i in &own {
         let Some(record) = message_fields_mut(&mut entries[i]) else { continue };
-        record.retain(|(k, _)| !field_stated_by(k).is_some_and(|f| edited.contains(&f)));
+        record.retain(|(k, _)| !field_removed_with(k).is_some_and(|f| edited.contains(&f)));
     }
     if let Some(record) = message_fields_mut(&mut entries[last]) {
         record.append(restated);

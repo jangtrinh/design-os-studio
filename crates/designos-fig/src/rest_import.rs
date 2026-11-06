@@ -2060,6 +2060,10 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+        // The raw keys are spent once the fields are flagged; the hydrator keeps the rest of the record.
+        if let Some(ov) = self.overrides.get_mut(&inst) {
+            ov.own_keys = Vec::new();
+        }
         let holds_derived = self.overrides.get(&inst).is_some_and(|o| !o.fast_derived.is_empty());
         let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
         node.component.overrides.extend(flagged);
