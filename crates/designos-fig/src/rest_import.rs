@@ -1957,13 +1957,17 @@ impl<'a> Ctx<'a> {
             }
         }
         let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
-        let mut main_fingerprints = HashMap::new();
+        let mut instance_fingerprints = HashMap::new();
+        let mut swap_mains_of: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
         for &inst in pending_by_page.values().flatten() {
             if self.overrides.get(&inst).is_none_or(|o| o.fast_derived.is_empty()) {
                 continue;
             }
             if let Some(&main) = targets.get(&inst) {
-                main_fingerprints.entry(main).or_insert_with(|| fingerprints.of_main(&self.doc, main));
+                let swaps = self.record_swap_targets(inst);
+                let mains = crate::component_fingerprint::instance_mains(&self.doc, inst, main, &swaps);
+                instance_fingerprints.insert(inst, fingerprints.of_mains(&self.doc, &mains));
+                swap_mains_of.insert(inst, swaps);
             }
         }
         drop(fingerprints);
@@ -2001,8 +2005,9 @@ impl<'a> Ctx<'a> {
             budget_exhausted: self.budget_exhausted,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
-            main_fingerprints,
+            instance_fingerprints,
             derived_outlines,
+            swap_mains_of,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
     }
@@ -2356,6 +2361,24 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+    }
+
+    /// Components the file's record for `inst` swaps nested instances to.
+    fn record_swap_targets(&self, inst: NodeId) -> Vec<NodeId> {
+        let mut out: Vec<NodeId> = Vec::new();
+        if let Some(ov) = self.overrides.get(&inst) {
+            for e in &ov.set {
+                out.extend(fstr(&e.set, "componentId").and_then(|c| self.ids.get(c)).copied());
+                if let Some(props) = e.set.get("componentProperties").and_then(Value::as_object) {
+                    let swapped = props.values().filter(|p| fstr(p, "type") == Some("INSTANCE_SWAP")).filter_map(|p| p.get("value").and_then(Value::as_str));
+                    out.extend(swapped.filter_map(|c| self.ids.get(c)).copied());
+                }
+            }
+        }
+        out.retain(|t| matches!(self.doc.get(*t).map(|n| &n.kind), Some(NodeKind::Component(_))));
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// Components the instance's property values and overrides may swap a nested instance to (a superset is
@@ -3614,11 +3637,13 @@ struct DeferredFigHydrator {
     budget_exhausted: bool,
     unexpanded_instances: BTreeSet<NodeId>,
     last_error: Option<String>,
-    /// Main component -> its fingerprint when the file was opened, for the mains of the instances that still have
-    /// derived data here (see [`crate::component_fingerprint`]).
-    main_fingerprints: HashMap<NodeId, u64>,
+    /// Instance -> the fingerprint, when the file was opened, of every main its derived data was computed against, for
+    /// the instances that still have derived data here (see [`crate::component_fingerprint`]).
+    instance_fingerprints: HashMap<NodeId, u64>,
     /// Blob index -> the bytes of the outline, for the outlines the derived data of the held instances names.
     derived_outlines: HashMap<usize, std::sync::Arc<[u8]>>,
+    /// Instance -> the mains its file record swaps nested instances to (part of its fingerprint).
+    swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -3794,8 +3819,8 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn pending_instance_derived(&self, instance: NodeId) -> Option<designos_doc::PendingDerived> {
         let derived = &self.overrides.get(&instance)?.fast_derived;
-        let main = *self.targets.get(&instance)?;
-        let fingerprint = *self.main_fingerprints.get(&main)?;
+        let fingerprint = *self.instance_fingerprints.get(&instance)?;
+        let swap_mains = self.swap_mains_of.get(&instance).cloned().unwrap_or_default();
         let outlines = |list: &Option<Vec<(usize, bool)>>| -> Vec<designos_doc::PendingOutline> {
             list.iter()
                 .flatten()
@@ -3813,7 +3838,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             })
             .filter(|e| e.size.is_some() || e.transform.is_some() || !e.fill.is_empty() || !e.stroke.is_empty())
             .collect();
-        (!entries.is_empty()).then_some(designos_doc::PendingDerived { fingerprint, entries })
+        (!entries.is_empty()).then_some(designos_doc::PendingDerived { fingerprint, entries, swap_mains })
     }
 }
 
@@ -4851,8 +4876,9 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
-            main_fingerprints: HashMap::new(),
+            instance_fingerprints: HashMap::new(),
             derived_outlines: HashMap::new(),
+            swap_mains_of: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -4893,8 +4919,9 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
-            main_fingerprints: HashMap::new(),
+            instance_fingerprints: HashMap::new(),
             derived_outlines: HashMap::new(),
+            swap_mains_of: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));

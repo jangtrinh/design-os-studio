@@ -49,21 +49,40 @@ impl Fingerprints {
         self.subtrees.entry(root).or_insert_with(|| scan(doc, root))
     }
 
-    /// The fingerprint of `main`: its own content together with the content of every main component that instances
-    /// inside it name, and those mains' in turn. It changes when any of them is edited.
-    pub(crate) fn of_main(&mut self, doc: &Document, main: NodeId) -> u64 {
+    /// The fingerprint of a set of mains: their own content together with the content of every main component that
+    /// instances inside any of them name, and those mains' in turn. It changes when the set or any of them is edited.
+    pub(crate) fn of_mains(&mut self, doc: &Document, mains: &[NodeId]) -> u64 {
+        let roots: BTreeSet<NodeId> = mains.iter().copied().collect();
         let mut reached = BTreeSet::new();
-        let mut queue = vec![main];
+        let mut queue: Vec<NodeId> = roots.iter().copied().collect();
         while let Some(m) = queue.pop() {
             if reached.insert(m) {
                 queue.extend(self.subtree(doc, m).1.iter().copied());
             }
         }
         let mut h = DefaultHasher::new();
+        for m in &roots {
+            h.write_u64(m.0);
+        }
+        h.write_u8(0xff);
         for m in reached {
             h.write_u64(m.0);
             h.write_u64(self.subtree(doc, m).0);
         }
         h.finish()
     }
+}
+
+/// The mains the derived data of the instance `inst` depends on: its main, the mains its file record swaps nested
+/// instances to (`record_swaps`), and the mains its own instance-swap property values name.
+pub(crate) fn instance_mains(doc: &Document, inst: NodeId, main: NodeId, record_swaps: &[NodeId]) -> Vec<NodeId> {
+    let mut out = vec![main];
+    out.extend(record_swaps.iter().copied());
+    if let Some(n) = doc.get(inst) {
+        out.extend(n.component.values.values().filter_map(|v| match v {
+            designos_doc::PropValue::Instance(t) if t.0 != 0 && matches!(doc.get(*t).map(|m| &m.kind), Some(NodeKind::Component(_))) => Some(*t),
+            _ => None,
+        }));
+    }
+    out
 }

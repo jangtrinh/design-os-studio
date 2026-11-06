@@ -587,6 +587,8 @@ pub struct PendingDerived {
     /// file was opened. The loader and the format writer share its definition; the document does not interpret it.
     pub fingerprint: u64,
     pub entries: Vec<PendingDerivedEntry>,
+    /// The mains the file's record swaps nested instances to, which the fingerprint also covers.
+    pub swap_mains: Vec<NodeId>,
 }
 
 mod serde_images {
