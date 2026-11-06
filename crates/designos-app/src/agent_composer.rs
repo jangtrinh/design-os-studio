@@ -638,6 +638,28 @@ impl TerminalState {
         self.active_composer_mut().set_draft(text);
     }
 
+    /// Cancels prompts that have not been written to the active tab's PTY yet.
+    /// A prompt already written to the PTY cannot be withdrawn.
+    pub fn cancel_queued_messages(&mut self) -> usize {
+        let (cancelled, notice) = {
+            let comp = self.active_composer_mut();
+            let cancelled = comp.pending_send.len();
+            if cancelled == 0 {
+                (0, String::new())
+            } else {
+                comp.pending_send.clear();
+                let notice = if cancelled == 1 { "Queued message cancelled".to_string() } else { format!("{cancelled} queued messages cancelled") };
+                comp.notice = Some(notice.clone());
+                comp.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotReady));
+                (cancelled, notice)
+            }
+        };
+        if cancelled > 0 {
+            self.status_msg = Some(notice);
+        }
+        cancelled
+    }
+
     /// Pastes `pasted` into the active tab's composer, turning copied canvas layers (`clipboard::from_json`)
     /// into [`LayerChip`]s and plain layer names (`#689` §3 rule 6).
     pub fn paste_into_composer(&mut self, pasted: &str) -> bool {
@@ -1356,13 +1378,27 @@ pub fn show_composer(
     }
     if let Some(note) = caption_text.as_deref() {
         let note_top = composer_rect.bottom() - theme::SPACE_ROW - theme::CONTROL_XS - theme::LINE_CAPTION;
+        let show_cancel = !state.active_composer().pending_send.is_empty();
+        let cancel_w = if show_cancel { theme::CONTROL_MD } else { ZERO };
         let note_rect = Rect::from_min_size(
             Pos2::new(composer_rect.left() + theme::SPACE_ROW, note_top),
-            Vec2::new((composer_rect.width() - theme::SPACE_ROW * 2.0).max(theme::CONTROL_MD), theme::LINE_CAPTION),
+            Vec2::new(
+                (composer_rect.width() - theme::SPACE_ROW * 2.0 - cancel_w - if show_cancel { theme::SPACE_ROW } else { ZERO }).max(theme::CONTROL_MD),
+                theme::LINE_CAPTION,
+            ),
         );
         let elided = widgets::elide(&p, note, &theme::font_caption(), note_rect.width());
         p.text(Pos2::new(note_rect.left(), note_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_WARNING);
         widgets::record(ui, "agents-composer-notice", note_rect);
+        if show_cancel {
+            let cancel_rect =
+                Rect::from_min_size(Pos2::new(composer_rect.right() - theme::SPACE_ROW - cancel_w, note_top), Vec2::new(cancel_w, theme::LINE_CAPTION));
+            if widgets::kit::button(ui, cancel_rect, "agents-composer-cancel-queue", "Cancel", widgets::kit::Hierarchy::Secondary, widgets::kit::Size::Xs, true)
+                .clicked()
+            {
+                state.cancel_queued_messages();
+            }
+        }
     }
 
     if submit_composer {
@@ -1901,6 +1937,44 @@ mod tests {
         let raw_out = st.active_tab().and_then(|t| t.raw_log.lock().ok().map(|g| g.clone())).unwrap_or_default();
         assert!(st.active_composer().pending_send.is_empty(), "Queued message must be flushed once ready (raw_out={raw_out:?})");
         assert!(delivered.contains("Build hero card when ready"), "Queued message must reach the started CLI: {delivered:?}, raw_out={raw_out:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn closing_a_tab_restores_waiting_user_messages_to_the_unattached_draft() {
+        let dir = temp_composer_dir("close-tab-restores-queue");
+        let mut st = TerminalState::new_for_session("doc-1495", "Close Queue", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab_mut().expect("agent tab").composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+
+        st.close_tab(0);
+
+        assert!(st.tabs.is_empty());
+        assert_eq!(st.unattached_composer.draft, "Keep this queued");
+        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored after tab close"));
+        assert!(st.unattached_composer.pending_send.is_empty());
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cancelling_queued_messages_drops_only_unsent_queue_entries() {
+        let dir = temp_composer_dir("cancel-queued-messages");
+        let mut st = TerminalState::new_for_session("doc-1495-cancel", "Cancel Queue", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab_mut()
+            .expect("agent tab")
+            .composer
+            .pending_send
+            .extend([QueuedSend::new("first waiting", false), QueuedSend::new("second waiting", false)]);
+
+        assert_eq!(st.cancel_queued_messages(), 2);
+        assert!(st.active_composer().pending_send.is_empty());
+        assert_eq!(st.active_composer().notice.as_deref(), Some("2 queued messages cancelled"));
+        assert_eq!(st.status_msg.as_deref(), Some("2 queued messages cancelled"));
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

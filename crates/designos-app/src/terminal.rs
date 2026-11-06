@@ -3751,6 +3751,23 @@ impl TerminalState {
     pub fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
             let mut removed = self.tabs.remove(idx);
+            // A tab can own prompts waiting for a busy CLI. Preserve user prompts
+            // in the unattached composer before dropping the tab so closing it
+            // cannot silently lose queued work.
+            if (!removed.composer.pending_send.is_empty() || !removed.composer.sent_in_start_window.is_empty())
+                && removed.composer.recover_undelivered_queue(true, "Queued message restored after tab close", crate::agent_composer::RefuseReason::NotWritable)
+            {
+                let recovered = std::mem::take(&mut removed.composer.draft);
+                if !recovered.trim().is_empty() {
+                    if self.unattached_composer.draft.trim().is_empty() {
+                        self.unattached_composer.draft = recovered;
+                    } else {
+                        self.unattached_composer.draft.push_str("\n\n");
+                        self.unattached_composer.draft.push_str(&recovered);
+                    }
+                    self.unattached_composer.notice = Some("Queued message restored after tab close".into());
+                }
+            }
             let _ = removed.child.kill();
             Self::withdraw_tab_approvals(&mut removed);
             if removed.spawn_preset == AgentCliPreset::Gemini {
