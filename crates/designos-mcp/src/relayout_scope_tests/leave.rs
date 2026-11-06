@@ -2,7 +2,7 @@
 //! climbs only while a frame's own size changes. The fixtures are not a fixed point of the solver,
 //! so a solve that reaches a layer outside the frame shows up as a layer that moved.
 
-use super::{add_frame, add_rect, auto_layout, fully_solved, geometry, moved, Geometry};
+use super::{add_frame, add_rect, auto_layout, fully_solved, geometry, moved, solve_everything, Geometry};
 use crate::engine::Engine;
 use designos_doc::{LayoutAlign, LayoutDirection, NodeId, NodeKind, Rect, Sizing};
 use serde_json::{json, Value};
@@ -232,4 +232,70 @@ fn filling_a_slot_of_a_hug_instance_moves_the_frame_below_it_up_the_page() {
 
     let card_node = e.doc.get(card).unwrap();
     assert_eq!(ty(&e, tail), card_node.transform.ty + card_node.size.y, "the hug card grew, so the frame below follows its new bottom edge");
+}
+
+/// screen (column, fixed) > [holder (row, fixed 120x56) > [a, b, c], tail] with a connector from c to the
+/// tail, drawn and then put back to the stored geometry so the next edit starts from an unsolved document.
+fn fixed_holder_with_connector() -> (Holder, NodeId, NodeId) {
+    let mut h = fixed_holder();
+    let a = h.e.doc.get(h.holder).unwrap().children[0];
+    let c = add_rect(&mut h.e, h.holder, Rect::new(80.0, 0.0, 40.0, 20.0), "c");
+    let stored = geometry(&h.e.doc);
+    h.e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": c.0, "to": h.tail.0 }] })).unwrap();
+    super::restore_geometry(&mut h.e, &stored);
+    (h, a, c)
+}
+
+#[test]
+fn deleting_a_layer_inside_a_fixed_size_frame_with_a_connector_moves_nothing_outside_it() {
+    let (Holder { mut e, holder, tail, .. }, a, _) = fixed_holder_with_connector();
+    let before = geometry(&e.doc);
+
+    e.call("designos_delete_node", json!({ "node_id": a.0 })).unwrap();
+
+    assert!(e.doc.get(a).is_none());
+    let outside: Vec<u64> =
+        moved_outside(&e, &before, holder).into_iter().filter(|id| !matches!(e.doc.get(NodeId(*id)).map(|n| &n.kind), Some(NodeKind::Connector(_)))).collect();
+    assert_eq!(outside, Vec::<u64>::new());
+    assert_eq!(ty(&e, tail), 200.0, "the tail keeps the place the document stored");
+}
+
+#[test]
+fn a_connector_that_is_a_flow_child_is_laid_out_again_after_its_ends_move() {
+    let mut e = Engine::new();
+    let page = e.resolve_default_page().unwrap();
+    let row = add_frame(
+        &mut e,
+        page,
+        Rect::new(0.0, 0.0, 300.0, 60.0),
+        auto_layout(LayoutDirection::Horizontal, Sizing::Hug, Sizing::Fixed, LayoutAlign::Start, 0.0),
+        "row",
+    );
+    let a = add_rect(&mut e, row, Rect::new(0.0, 0.0, 40.0, 20.0), "a");
+    let b = add_rect(&mut e, row, Rect::new(40.0, 0.0, 40.0, 20.0), "b");
+    let d = add_rect(&mut e, row, Rect::new(80.0, 0.0, 40.0, 20.0), "d");
+    let reply = e.call("designos_apply_batch", json!({ "ops": [{ "op": "connect", "from": a.0, "to": d.0 }] })).unwrap();
+    let connector = NodeId(reply["created"][0].as_u64().unwrap());
+    e.doc.get_mut(connector).unwrap().layout_child.absolute = false;
+    solve_everything(&mut e);
+
+    e.call("designos_update_node", json!({ "node_id": b.0, "width": 90.0 })).unwrap();
+
+    let after = geometry(&e.doc);
+    assert_eq!(after.get(&d.0).map(|g| g[0]), Some(130.0), "the end moved");
+    assert_eq!(after, fully_solved(&e.doc), "the connector sits in its flow slot and the hug row wraps it");
+}
+
+#[test]
+fn a_batch_delete_inside_a_fixed_size_frame_with_a_connector_moves_nothing_outside_it() {
+    let (Holder { mut e, holder, tail, .. }, a, _) = fixed_holder_with_connector();
+    let before = geometry(&e.doc);
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": a.0 }] })).unwrap();
+
+    assert!(e.doc.get(a).is_none());
+    let outside: Vec<u64> =
+        moved_outside(&e, &before, holder).into_iter().filter(|id| !matches!(e.doc.get(NodeId(*id)).map(|n| &n.kind), Some(NodeKind::Connector(_)))).collect();
+    assert_eq!(outside, Vec::<u64>::new());
+    assert_eq!(ty(&e, tail), 200.0, "the tail keeps the place the document stored");
 }

@@ -1307,7 +1307,10 @@ impl Engine {
             let touched = if self.doc.dirty_changes_since(ep, &mut dirty, &mut removed) { dirty } else { [leaves, containers].concat() };
             if !touched.is_empty() && !designos_doc::plan_reroute(&self.doc, &touched, None).updates.is_empty() {
                 let _ = self.reroute_in_last_step(&touched);
-                crate::tools::batch::relayout_for_nodes(&mut self.doc, &touched);
+                // Re-routing resizes connectors, and one that is a flow child is measured by the solver.
+                // The second solve runs the seeds of the first: the layers the first solve wrote are not
+                // seeds, or the frame an edit left would solve its parent again.
+                crate::tools::batch::relayout_seeds(&mut self.doc, leaves, containers);
             }
         }
     }
@@ -1333,8 +1336,14 @@ impl Engine {
         }
         let mut targets = Vec::new();
         collect_cmd_touched_nodes(inverse, &mut targets);
+        let mut containers = Vec::new();
+        collect_cmd_container_parents(inverse, &mut containers);
         let mut anchors = targets.clone();
-        collect_cmd_container_parents(inverse, &mut anchors);
+        for id in &containers {
+            if !anchors.contains(id) {
+                anchors.push(*id);
+            }
+        }
         for id in &targets {
             if let Some(parent) = self.doc.get(*id).and_then(|n| n.parent) {
                 if !anchors.contains(&parent) {
@@ -1342,12 +1351,15 @@ impl Engine {
                 }
             }
         }
+        let leaf_targets = targets.clone();
         let mut touched = targets;
         let mut seen: std::collections::HashSet<NodeId> = touched.iter().copied().collect();
         touched.extend(self.layout_written_since(epoch_before, &anchors).into_iter().filter(|id| seen.insert(*id)));
         if self.reroute_in_last_step(&touched)? {
             let epoch = self.doc.mutation_epoch();
-            crate::tools::batch::relayout_for_nodes(&mut self.doc, &anchors);
+            // The targets run with their parents and the containers that lost or gained a layer run on
+            // their own, so a frame a delete or move left does not solve the frame above it.
+            crate::tools::batch::relayout_seeds(&mut self.doc, &leaf_targets, &containers);
             self.settle_layout();
             let written = self.layout_written_since(epoch, &anchors);
             if !written.is_empty() {
