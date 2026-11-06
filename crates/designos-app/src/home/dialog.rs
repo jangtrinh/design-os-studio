@@ -496,7 +496,7 @@ pub fn finish(app: &mut App, d: Dialog) {
         Intent::SaveToLibrary => {
             dirty = false;
             if let Some(c) = choice {
-                app.save_to_library_as(&c.project, c.folder.as_deref(), &text);
+                app.save_to_library_as_announced(c.project, c.folder, text.clone());
             }
             Ok(())
         }

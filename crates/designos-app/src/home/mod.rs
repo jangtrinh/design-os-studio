@@ -656,7 +656,7 @@ pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) 
         },
     };
     if let Some((p, f)) = target {
-        app.import_into_library(&paths, &p, f.as_deref());
+        app.import_into_library_announced(paths, p, f);
     }
 }
 
