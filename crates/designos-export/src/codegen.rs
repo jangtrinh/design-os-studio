@@ -691,7 +691,7 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     let widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
     let rows = designos_doc::layout_solver::grid_row_heights(&al_s, n.size, own, &kids);
     let col_gap = al_s.item_spacing.max(0.0);
-    let row_gap = if al_s.counter_spacing > 0.0 { al_s.counter_spacing } else { col_gap };
+    let row_gap = designos_doc::layout_solver::grid_row_gap(&al_s);
     let placed = designos_doc::layout_solver::place_children(&kids, widths.len());
     let children = ids.into_iter().zip(placed).collect();
     Some(SolvedGrid { widths, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), children })
@@ -709,8 +709,25 @@ pub(crate) fn padding_is_bound(doc: &Document, n: &Node) -> bool {
     ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].iter().any(|k| bound(doc, n, k).is_some())
 }
 
+/// Row gap written for a grid. With flow children this is the same number as [`SolvedGrid::row_gap`]:
+/// the solver's row gap on the layout whose variables are already resolved. That number depends only
+/// on the resolved spacing, so a large stored row count is not laid out. A grid with no flow children
+/// uses the stored layout.
+pub(crate) fn grid_row_gap_px(doc: &Document, n: &Node, al: &AutoLayout) -> f32 {
+    if n.children.iter().any(|id| doc.flow_child_input(*id, true).is_some()) {
+        designos_doc::layout_solver::grid_row_gap(&solver_layout(doc, n, al))
+    } else {
+        designos_doc::layout_solver::grid_row_gap(al)
+    }
+}
+
+/// Variable name for the row gap. This chooses a name, not a size: the row gap is its own
+/// (`counterAxisSpacing`) when that spacing is bound or the solver keeps the stored counter
+/// spacing, and otherwise the row reuses `itemSpacing`.
 pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'static str {
-    if bound(doc, n, "counterAxisSpacing").is_some() || al.counter_spacing > 0.0 {
+    let solved = designos_doc::layout_solver::grid_row_gap(al);
+    let row_is_own = solved == al.counter_spacing && al.counter_spacing > 0.0;
+    if bound(doc, n, "counterAxisSpacing").is_some() || row_is_own {
         "counterAxisSpacing"
     } else {
         "itemSpacing"
@@ -720,14 +737,7 @@ pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'s
 pub(crate) fn grid_cell_align(doc: &Document, child_id: NodeId, al: &AutoLayout) -> (GridChildAlign, GridChildAlign) {
     let (raw_h, raw_v) =
         doc.flow_child_input(child_id, true).map(|k| (k.cell.align_h, k.cell.align_v)).unwrap_or((GridChildAlign::Start, GridChildAlign::Start));
-    let resolve = |child_align: GridChildAlign, container_align: LayoutAlign| match child_align {
-        GridChildAlign::Auto => match container_align {
-            LayoutAlign::Center => GridChildAlign::Center,
-            LayoutAlign::End => GridChildAlign::End,
-            _ => GridChildAlign::Start,
-        },
-        other => other,
-    };
+    let resolve = designos_doc::layout_solver::resolve_cell_align;
     (resolve(raw_h, al.primary_align), resolve(raw_v, al.counter_align))
 }
 
@@ -986,7 +996,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
             if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
                 if al.direction == LayoutDirection::Grid {
                     let col_fb = format!("{}px", num(al.item_spacing));
-                    let row_px = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
+                    let row_px = designos_doc::layout_solver::grid_row_gap(al);
                     let row_fb = format!("{}px", num(row_px));
                     // The column gap is `itemSpacing`, the row gap `counterAxisSpacing`. An unbound row keeps
                     // its own pixel gap; only a row with no spacing of its own (`counterAxisSpacing` unset,
@@ -1543,5 +1553,87 @@ mod tests {
         assert_eq!(actual_ids, vec![hero, a, b, c]);
         assert_eq!(actual_placed, expected_placed);
         assert_eq!(sg.cell_origin(&sg.children[0].1), (12.0, 12.0));
+    }
+
+    #[test]
+    fn bound_row_gap_stored_at_zero_exports_the_resolved_gap() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "m".into(), name: "Mode".into() }],
+                default_mode: "m".into(),
+                variables: vec!["row".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "row".into(),
+            Variable {
+                id: "row".into(),
+                name: "Spacing/Row".into(),
+                collection: "c".into(),
+                kind: VariableKind::Number,
+                values: [("m".to_string(), VariableValue::Number(12.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let gid = d.alloc_id();
+        let mut g = Node::frame(gid, Rect::new(0.0, 0.0, 200.0, 200.0));
+        g.name = "Cards".into();
+        g.fills.clear();
+        g.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Grid,
+                item_spacing: 4.0,
+                counter_spacing: 0.0,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                grid_columns: 2,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        g.variables.bindings.insert("counterAxisSpacing".into(), "row".into());
+        let grid = d.insert(page, g).unwrap();
+        for _ in 0..4 {
+            let cid = d.alloc_id();
+            d.insert(grid, Node::rectangle(cid, Rect::new(0.0, 0.0, 40.0, 30.0))).unwrap();
+        }
+
+        let css = crate::css_for(&d, grid);
+        let gap = css.lines().find_map(|l| l.trim().strip_prefix("gap: ")).map(|v| v.trim_end_matches(';').to_string()).unwrap_or_default();
+        assert_eq!(gap, "var(--Spacing-Row, 12px) 4px", "{css}");
+
+        let tw = crate::tailwind_for(&d, grid);
+        assert!(tw.contains("gap-x-1"), "{tw}");
+        assert!(tw.contains("gap-y-[var(--Spacing-Row)]"), "{tw}");
+
+        let n = d.get(grid).unwrap();
+        let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        let sg = solved_grid(&d, n, al).expect("grid has flow children");
+        assert_eq!(sg.row_gap, 12.0);
+        let al_s = solver_layout(&d, n, al);
+        let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
+        let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| d.flow_child_input(*id, true)).collect();
+        let out = designos_doc::layout_solver::compute_grid(&al_s, n.size, own, &kids);
+        assert_eq!(sg.children.len(), out.rects.len());
+        for ((_, placed), rect) in sg.children.iter().zip(&out.rects) {
+            let (_, y) = sg.cell_origin(placed);
+            assert!((y - rect.y).abs() < 1e-4, "row {} origin {y} != solver {}", placed.row, rect.y);
+        }
+        let row1 = sg.children.iter().find(|(_, p)| p.row == 1).expect("second row");
+        assert!((sg.cell_origin(&row1.1).1 - 42.0).abs() < 1e-4, "second row at {}", sg.cell_origin(&row1.1).1);
     }
 }

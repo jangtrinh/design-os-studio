@@ -2,7 +2,7 @@
 //! with the layout solver's tracks, cell boxes, spans, holes, bound gap tokens and out-of-flow
 //! children.
 
-use designos_doc::layout_solver::{compute_grid, grid_column_widths, grid_row_heights, place_children, ChildIn, Placed, SizeLimits};
+use designos_doc::layout_solver::{compute_grid, grid_column_widths, grid_row_gap, grid_row_heights, place_children, ChildIn, Placed, SizeLimits};
 use designos_doc::{
     create_instance, instances_of, AutoLayout, CodeSyntaxPlatform, Color, ComponentPropDef, Document, FrameProps, GridChildAlign, GridTrack, LayoutDirection,
     Node, NodeId, NodeKind, OverrideField, Paint, PropKind, PropValue, Rect, Sizing, TextStyle, Variable, VariableCollection, VariableKind, VariableMode,
@@ -220,7 +220,7 @@ fn solver_expectations(scene: &NativeGridScene) -> (Vec<f32>, Vec<f32>, Vec<Plac
     let rows = grid_row_heights(&al_s, n.size, own, &kids);
     let placed = place_children(&kids, widths.len());
     let col_gap = al_s.item_spacing.max(0.0);
-    let row_gap = if al_s.counter_spacing > 0.0 { al_s.counter_spacing } else { col_gap };
+    let row_gap = grid_row_gap(&al_s);
     (widths, rows, placed, col_gap, row_gap, al.padding)
 }
 
@@ -975,8 +975,7 @@ fn solver_row_heights_match_compute_grid_across_all_six_scenes() {
         let rows = grid_row_heights(&al_s, n.size, own, &kids);
         let out = compute_grid(&al_s, n.size, own, &kids);
         let placed = place_children(&kids, widths.len());
-        let col_gap = al_s.item_spacing.max(0.0);
-        let row_gap = if al_s.counter_spacing > 0.0 { al_s.counter_spacing } else { col_gap };
+        let row_gap = grid_row_gap(&al_s);
         let [pt, _, pb, _] = al_s.padding;
 
         for ((p, k), rect) in placed.iter().zip(&kids).zip(&out.rects) {
