@@ -87,7 +87,7 @@ pub struct AllowEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x_band: Option<[f32; 2]>,
     /// With `name_prefix`: a matching named widget whose baseline region is `region` may be in this region
-    /// instead. Nothing else about it is checked, and it stays out of the rect, row and order checks of both
+    /// instead. The entry counts as matched only when such a move happens, may set no other bound, and the moved widget's count is still enforced. The widget stays out of the rect, row and order checks of both
     /// regions because its geometry is not comparable across regions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region_to: Option<String>,
@@ -394,6 +394,23 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
             if to == &e.region {
                 return Err(format!("allow.json[{idx}]: region_to must differ from region, got {to:?}"));
             }
+            let other_fields = [
+                ("min_dw", e.min_dw.is_some()),
+                ("max_dw", e.max_dw.is_some()),
+                ("min_dh", e.min_dh.is_some()),
+                ("max_dh", e.max_dh.is_some()),
+                ("dx", e.dx.is_some()),
+                ("dy", e.dy.is_some()),
+                ("gap_dy", e.gap_dy.is_some()),
+                ("inventory_max_delta", e.inventory_max_delta.is_some()),
+                ("anchor_x", e.anchor_x.is_some()),
+                ("anchor_y", e.anchor_y.is_some()),
+                ("x_band", e.x_band.is_some()),
+                ("h_base", e.h_base.is_some()),
+            ];
+            if let Some((field, _)) = other_fields.into_iter().find(|(_, set)| *set) {
+                return Err(format!("allow.json[{idx}]: region_to entries only allow a region change and cannot also set {field}"));
+            }
         }
         if let Some([lo, hi]) = e.x_band {
             if e.h_base.is_none() && e.name_prefix.is_none() {
@@ -476,7 +493,7 @@ fn best_matching_entry<'a>(allow: &'a AllowList, case: &str, region: &str, name:
         .entries
         .iter()
         .enumerate()
-        .filter(|(_, e)| entry_matches_widget(e, case, region, name, base_rect))
+        .filter(|(_, e)| e.region_to.is_none() && entry_matches_widget(e, case, region, name, base_rect))
         .max_by_key(|(_, e)| (entry_specificity(e), e.name_prefix.as_ref().map_or(0, |s| s.len()), usize::from(e.case != "*")))
 }
 
@@ -745,7 +762,12 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         let c_list = cur_unnamed_by_reg.get(reg).cloned().unwrap_or_default();
 
         for (idx, e) in allow.entries.iter().enumerate() {
-            if (e.case == case_id || e.case == "*") && &e.region == reg && e.inventory_max_delta.is_some() && (!b_list.is_empty() || !c_list.is_empty()) {
+            if (e.case == case_id || e.case == "*")
+                && &e.region == reg
+                && e.region_to.is_none()
+                && e.inventory_max_delta.is_some()
+                && (!b_list.is_empty() || !c_list.is_empty())
+            {
                 report.matched_allow_indices.insert(idx);
             }
         }
@@ -755,7 +777,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             let is_virt = virtualized_regions.iter().any(|vr| vr == reg);
             let mut inv_allowed = false;
             for (idx, e) in allow.entries.iter().enumerate() {
-                if (e.case == case_id || e.case == "*") && &e.region == reg {
+                if (e.case == case_id || e.case == "*") && &e.region == reg && e.region_to.is_none() {
                     if let Some(max_delta) = e.inventory_max_delta {
                         if count_diff <= max_delta {
                             report.matched_allow_indices.insert(idx);
@@ -2122,11 +2144,63 @@ mod tests {
 
     #[test]
     fn a_widget_that_changed_region_does_not_break_rows_in_either_region() {
-        let (base, mut cur) = region_move_pair();
-        // The remaining row members are untouched; only ctl-b left. Give ctl-b a far-off rect in the new region.
-        cur.named.insert("ctl-b".into(), named_in("left_panel", [60.0, 20.0, 90.0, 40.0]));
+        let (mut base, mut cur) = region_move_pair();
+        // ctl-c grows by 10 inside its row; the row's dh must be measured without the moved ctl-b.
+        base.named.insert("ctl-c".into(), named_in("right_panel", [1350.0, 300.0, 60.0, 24.0]));
+        cur.named.insert("ctl-c".into(), named_in("right_panel", [1350.0, 300.0, 60.0, 34.0]));
+        let grow = AllowEntry {
+            case: "k-case".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("ctl-c".into()),
+            min_dh: Some(10.0),
+            max_dh: Some(10.0),
+            spec: "K".into(),
+            reason: "R5: control grows".into(),
+            ..Default::default()
+        };
+        let allow = validate_allow_entries(vec![region_to_entry("k-case", "left_panel"), grow]).expect("valid");
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("row dh is computed without the moved widget");
+    }
+
+    #[test]
+    fn moved_widget_with_a_changed_count_still_fails() {
+        let (mut base, mut cur) = region_move_pair();
+        base.named.get_mut("ctl-b").unwrap().count = 1;
+        cur.named.get_mut("ctl-b").unwrap().count = 2;
         let allow = validate_allow_entries(vec![region_to_entry("k-case", "left_panel")]).expect("valid");
-        compare_with_stale_check(&base, &cur, &allow, &[]).expect("no row, rect or order failure from the moved widget");
+        let err = compare(&base, &cur, &allow, &[]).expect_err("count change must fail");
+        assert!(err.contains("G3 named widget 'ctl-b' count changed in case k-case: baseline=1, current=2"), "{err}");
+    }
+
+    #[test]
+    fn region_to_entry_is_stale_when_its_widget_did_not_move() {
+        let (base, _) = region_move_pair();
+        let cur = base.clone();
+        let allow = validate_allow_entries(vec![region_to_entry("k-case", "left_panel")]).expect("valid");
+        let err = compare_with_stale_check(&base, &cur, &allow, &[]).expect_err("unmoved widget leaves the entry stale");
+        assert!(err.contains("stale allow.json[0]"), "{err}");
+    }
+
+    #[test]
+    fn region_to_entry_rejects_every_other_bound() {
+        let cases: Vec<(&str, AllowEntry)> = vec![
+            ("min_dw", AllowEntry { min_dw: Some(1.0), ..region_to_entry("k-case", "left_panel") }),
+            ("max_dw", AllowEntry { max_dw: Some(1.0), ..region_to_entry("k-case", "left_panel") }),
+            ("min_dh", AllowEntry { min_dh: Some(1.0), ..region_to_entry("k-case", "left_panel") }),
+            ("max_dh", AllowEntry { max_dh: Some(1.0), ..region_to_entry("k-case", "left_panel") }),
+            ("dx", AllowEntry { dx: Some(1.0), ..region_to_entry("k-case", "left_panel") }),
+            ("dy", AllowEntry { dy: Some(1.0), ..region_to_entry("k-case", "left_panel") }),
+            ("gap_dy", AllowEntry { gap_dy: Some(1.0), ..region_to_entry("k-case", "left_panel") }),
+            ("inventory_max_delta", AllowEntry { inventory_max_delta: Some(1), ..region_to_entry("k-case", "left_panel") }),
+            ("anchor_x", AllowEntry { anchor_x: Some(AnchorX::Right), ..region_to_entry("k-case", "left_panel") }),
+            ("anchor_y", AllowEntry { anchor_y: Some(AnchorY::Bottom), ..region_to_entry("k-case", "left_panel") }),
+            ("x_band", AllowEntry { x_band: Some([0.0, 10.0]), ..region_to_entry("k-case", "left_panel") }),
+            ("h_base", AllowEntry { h_base: Some(24.0), ..region_to_entry("k-case", "left_panel") }),
+        ];
+        for (field, entry) in cases {
+            let err = validate_allow_entries(vec![entry]).expect_err(field);
+            assert!(err.contains(&format!("cannot also set {field}")), "{field}: {err}");
+        }
     }
 
     #[test]
