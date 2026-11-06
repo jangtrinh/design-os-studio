@@ -13,7 +13,9 @@
 
 use crate::{AlignSelf, AutoLayout, CounterAlignContent, LayoutAlign, LayoutDirection, NodeId, Rect, Sizing, Vec2};
 
-pub use crate::layout_solver_grid::{compute_grid, grid_column_widths, grid_packs_auto_rows, grid_row_heights, placed_grid_rows};
+pub use crate::layout_solver_grid::{
+    compute_grid, grid_column_widths, grid_packs_auto_rows, grid_row_gap, grid_row_heights, placed_grid_rows, resolve_cell_align,
+};
 pub use crate::layout_solver_grid_placement::{place_children, Placed};
 pub use crate::layout_solver_types::{ChildIn, GridCell, LayoutOut, SizeLimits};
 

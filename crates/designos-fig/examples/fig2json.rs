@@ -19,7 +19,17 @@ fn main() {
         }
     };
     let out = match mode.as_deref() {
-        Some("--doc") => designos_fig::import_fig(&bytes).map(|d| d.to_json().unwrap_or_default()),
+        Some("--doc") => designos_fig::import_fig(&bytes).map(|mut d| {
+            // A large file defers its inactive pages; the serializer refuses a document until they are loaded.
+            if let Err(e) = d.load_pending_pages() {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+            d.to_json().unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            })
+        }),
         Some("--rest") => designos_fig::import_fig(&bytes).map(|d| designos_fig::export_rest_json(&d).to_string()),
         _ => designos_fig::decode_fig_to_json(&bytes).map(|v| serde_json::to_string_pretty(&v).unwrap_or_default()),
     };

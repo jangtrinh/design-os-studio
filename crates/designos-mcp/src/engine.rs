@@ -1021,7 +1021,7 @@ impl Engine {
                 self.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.doc)
                     .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Failed to export .fig: {e}")))?;
-                write_checked_output_file(path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
+                write_checked_output_bytes(path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({
                     "output_path": a.output_path,
@@ -2032,7 +2032,8 @@ pub(crate) fn write_needs_human(e: &std::io::Error) -> bool {
     matches!(e.kind(), Io::PermissionDenied | Io::StorageFull | Io::ReadOnlyFilesystem | Io::FileTooLarge)
 }
 
-pub(crate) fn write_checked_output_file(
+/// [`write_checked_output_file`] for content that is already in memory.
+pub(crate) fn write_checked_output_bytes(
     resolved: &std::path::Path,
     display_path: &str,
     ptr: &str,
@@ -2040,7 +2041,29 @@ pub(crate) fn write_checked_output_file(
     overwrite: bool,
     supports_overwrite: bool,
 ) -> Result<(), ToolError> {
+    write_checked_output_file(resolved, display_path, ptr, |out| out.write_all(bytes), overwrite, supports_overwrite)
+}
+
+/// Writes a file the tool was asked for, refusing links, folders, second names and read-only files. The content is
+/// produced while it is written (a whole document goes
+/// straight to the file instead of through one text in memory). `fill` writes the whole content; when it fails
+/// the file is not left behind.
+pub(crate) fn write_checked_output_file(
+    resolved: &std::path::Path,
+    display_path: &str,
+    ptr: &str,
+    fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>,
+    overwrite: bool,
+    supports_overwrite: bool,
+) -> Result<(), ToolError> {
     use std::io::Write;
+    let fill_file = |file: &mut std::fs::File| -> std::io::Result<()> {
+        let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut *file);
+        fill(&mut out)?;
+        out.flush()?;
+        drop(out);
+        file.sync_all()
+    };
     let map_io_err = |e: std::io::Error| match crate::session_file_io::refusal_of(&e) {
         Some(crate::session_file_io::Refusal::Link) => {
             ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
@@ -2089,7 +2112,7 @@ pub(crate) fn write_checked_output_file(
                 map_io_err(e)
             }
         })?;
-        if let Err(e) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+        if let Err(e) = fill_file(&mut file) {
             drop(file);
             let removed = std::fs::remove_file(resolved).is_ok();
             return Err(map_io_err(e).with_safe_to_retry(removed));
@@ -2160,8 +2183,7 @@ pub(crate) fn write_checked_output_file(
         if let Some(ref old) = old {
             file.set_permissions(old.permissions())?;
         }
-        file.write_all(bytes)?;
-        file.sync_all()?;
+        fill_file(&mut file)?;
         drop(file);
         std::fs::rename(&tmp, resolved)
     })();
