@@ -1307,7 +1307,8 @@ impl Engine {
             let touched = if self.doc.dirty_changes_since(ep, &mut dirty, &mut removed) { dirty } else { [leaves, containers].concat() };
             if !touched.is_empty() && !designos_doc::plan_reroute(&self.doc, &touched, None).updates.is_empty() {
                 let _ = self.reroute_in_last_step(&touched);
-                // Re-routing resizes connectors, and one that is a flow child is measured by the solver.
+                // Re-routing resizes connectors, and one that is a flow child of a frame this edit solves
+                // is measured by the solver (a flow child elsewhere keeps its routed box).
                 // The second solve runs the seeds of the first: the layers the first solve wrote are not
                 // seeds, or the frame an edit left would solve its parent again.
                 crate::tools::batch::relayout_seeds(&mut self.doc, leaves, containers);
@@ -1325,8 +1326,9 @@ impl Engine {
     /// moves left (a moved child's old parent reflows although the child is no longer in it).
     ///
     /// A fold is followed by one more solve, because re-routing resizes connectors and one that is
-    /// itself a flow child of an auto-layout frame is measured by the solver, which also moves its
-    /// siblings and rewrites its transform. Routing has the last word: the nodes that solve wrote
+    /// itself a flow child of an auto-layout frame the batch solves is measured by the solver, which
+    /// also moves its siblings and rewrites its transform (a flow child of a frame the batch does not
+    /// solve keeps its routed box). Routing has the last word: the nodes that solve wrote
     /// are planned once more and folded, and there is no loop. A further solve would put the
     /// connector back in its flow slot, so a plan would never come back empty; the cap is one
     /// extra plan and one extra fold per batch.
