@@ -1518,6 +1518,10 @@ impl Shell {
                     app.start_present();
                     None
                 }
+                (Key::Enter, false, false) => {
+                    crate::board::connect::quick_create_selected(app);
+                    None
+                }
                 (Key::Tab, false, _) => {
                     if app.tabs.entries.len() > 1 {
                         let next = (app.tabs.active_idx + 1) % app.tabs.entries.len();

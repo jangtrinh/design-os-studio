@@ -764,7 +764,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
     let dot_wins = app.wb_board_targeting() || (over_handle.is_none() && !inp.mods.alt);
     if dot_wins && app.wb_connectors_enabled() && !mid && !inp.space && matches!(app.tool, Tool::Move | Tool::Connector) {
         if let Some((node, magnet)) = crate::board::connect::dot_hit(app, rect, pos) {
-            crate::board::connect::start(app, Some((node, magnet)), page);
+            crate::board::connect::start_from_dot(app, node, magnet, page);
             return;
         }
     }
