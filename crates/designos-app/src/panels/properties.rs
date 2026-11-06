@@ -4715,4 +4715,188 @@ mod tests {
             assert_eq!(format!("{single:?}"), format!("{per_field:?}"), "selection {sel:?}");
         }
     }
+
+    // ---- the open picker after undo / redo
+
+    const OLD: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+    const NEW: Color = Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 };
+
+    fn picker_app_with(node: impl FnOnce(NodeId) -> Node) -> (App, NodeId) {
+        let mut doc = Document::new("picker history");
+        let page = doc.add_page("Page 1");
+        let id = doc.alloc_id();
+        let id = doc.insert(page, node(id)).unwrap();
+        let mut app = App::new(doc);
+        app.page = page;
+        (app, id)
+    }
+
+    fn open_picker_on(app: &mut App, target: PickTarget, id: NodeId, paint: Paint) {
+        let state = widgets::picker::State::new(&paint);
+        app.props.picker = Some(Picker { target, tx: Tx::new(), anchor: Rect::ZERO, ids: vec![id], paint, state, sources: Vec::new(), eyedrop: false });
+    }
+
+    fn edit_as_one_step(app: &mut App, id: NodeId, edit: impl FnOnce(&mut Node)) {
+        let mut tx = Tx::new();
+        edit(tx.ed.node(&mut app.doc, id).unwrap());
+        assert!(app.run_tx(tx));
+    }
+
+    /// The document goes from `OLD` to `NEW` in one step and the picker is opened on `NEW`; undo
+    /// must leave it showing `OLD`, the colour the document holds again.
+    fn assert_undo_resyncs_picker(app: &mut App, id: NodeId, target: PickTarget, edit: impl FnOnce(&mut Node)) {
+        edit_as_one_step(app, id, edit);
+        open_picker_on(app, target, id, Paint::solid(NEW));
+        app.undo();
+        let picker = app.props.picker.as_ref().expect("an undo that keeps the target keeps the picker open");
+        assert_eq!(picker.paint, Paint::solid(OLD), "the picker shows the colour the document holds after undo");
+    }
+
+    #[test]
+    fn undo_resyncs_the_open_picker_on_a_text_fill() {
+        let (mut app, id) = picker_app_with(|id| {
+            let style = TextStyle { fills: vec![Paint::solid(OLD)], ..TextStyle::default() };
+            Node::text(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 20.0), "Hello", style)
+        });
+        assert_undo_resyncs_picker(&mut app, id, PickTarget::TextFill, |n| {
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.style.fills = vec![Paint::solid(NEW)];
+            }
+        });
+    }
+
+    #[test]
+    fn undo_resyncs_the_open_picker_on_the_page_background() {
+        let (mut app, _) = picker_app_with(|id| Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0)));
+        let page = app.page;
+        edit_as_one_step(&mut app, page, |n| n.kind = NodeKind::Page { background: OLD });
+        assert_undo_resyncs_picker(&mut app, page, PickTarget::PageBg, |n| n.kind = NodeKind::Page { background: NEW });
+    }
+
+    #[test]
+    fn undo_resyncs_the_open_picker_on_a_grid_colour() {
+        let grid = |color| LayoutGrid::Grid { size: 8.0, color, visible: true };
+        let (mut app, id) = picker_app_with(|id| {
+            let mut n = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0));
+            if let NodeKind::Frame(fp) = &mut n.kind {
+                fp.grids = vec![grid(OLD)];
+            }
+            n
+        });
+        assert_undo_resyncs_picker(&mut app, id, PickTarget::GridColor(0), |n| {
+            if let NodeKind::Frame(fp) = &mut n.kind {
+                fp.grids = vec![grid(NEW)];
+            }
+        });
+    }
+
+    fn shadow(color: Color) -> Effect {
+        Effect::DropShadow { color, offset: DVec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false, blend: BlendMode::Normal }
+    }
+
+    #[test]
+    fn undo_resyncs_the_open_picker_on_a_shadow_colour() {
+        let (mut app, id) = picker_app_with(|id| {
+            let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.effects = vec![shadow(OLD)];
+            n
+        });
+        assert_undo_resyncs_picker(&mut app, id, PickTarget::Shadow(0), |n| n.effects = vec![shadow(NEW)]);
+    }
+
+    fn noise(mode: NoiseMode) -> Effect {
+        Effect::Noise(NoiseEffect { mode, size: 1.0, size_y: None, density: 0.5, opacity: 1.0, blend: BlendMode::Normal, seed: 1, visible: true })
+    }
+
+    #[test]
+    fn undo_resyncs_the_open_picker_on_the_noise_primary_and_secondary_colours() {
+        let other = Color::rgb(0, 255, 0);
+        for second in [false, true] {
+            let (old_mode, new_mode) = if second {
+                (NoiseMode::Duo { color: other, secondary: OLD }, NoiseMode::Duo { color: other, secondary: NEW })
+            } else {
+                (NoiseMode::Duo { color: OLD, secondary: other }, NoiseMode::Duo { color: NEW, secondary: other })
+            };
+            let (mut app, id) = picker_app_with(|id| {
+                let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+                n.effects = vec![noise(old_mode.clone())];
+                n
+            });
+            assert_undo_resyncs_picker(&mut app, id, PickTarget::NoiseColor(0, second), |n| n.effects = vec![noise(new_mode.clone())]);
+        }
+    }
+
+    #[test]
+    fn undo_that_removes_the_fill_closes_the_picker_and_the_eyedropper() {
+        let (mut app, id) = picker_app_with(|id| {
+            let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills = Vec::new();
+            n
+        });
+        edit_as_one_step(&mut app, id, |n| n.fills = vec![Paint::solid(NEW)]);
+        open_picker_on(&mut app, PickTarget::Fill(0), id, Paint::solid(NEW));
+        app.props.eyedropper = Some(PickTarget::Fill(0));
+        app.undo();
+        assert!(app.doc.get(id).unwrap().fills.is_empty());
+        assert!(app.props.picker.is_none(), "the picker must not stay open on a fill index that is gone");
+        assert!(app.props.eyedropper.is_none());
+    }
+
+    #[test]
+    fn undo_that_leaves_a_text_layer_without_a_visible_fill_closes_the_picker() {
+        let (mut app, id) = picker_app_with(|id| {
+            let style = TextStyle { fills: Vec::new(), ..TextStyle::default() };
+            Node::text(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 20.0), "Hello", style)
+        });
+        edit_as_one_step(&mut app, id, |n| {
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.style.fills = vec![Paint::solid(NEW)];
+            }
+        });
+        open_picker_on(&mut app, PickTarget::TextFill, id, Paint::solid(NEW));
+        app.undo();
+        assert!(app.props.picker.is_none());
+    }
+
+    #[test]
+    fn undo_that_deletes_the_node_closes_the_picker() {
+        let (mut app, _) = picker_app_with(|id| Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0)));
+        let id = app.doc.alloc_id();
+        let mut tx = Tx::new();
+        let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        node.fills = vec![Paint::solid(NEW)];
+        tx.cmd(&mut app.doc, Command::Insert { parent: app.page, index: 0, nodes: vec![node] }).unwrap();
+        assert!(app.run_tx(tx));
+        open_picker_on(&mut app, PickTarget::Fill(0), id, Paint::solid(NEW));
+        app.props.eyedropper = Some(PickTarget::Fill(0));
+        app.undo();
+        assert!(app.doc.get(id).is_none(), "undo removed the layer");
+        assert!(app.props.picker.is_none(), "the picker must not stay open on a layer that is gone");
+        assert!(app.props.eyedropper.is_none());
+    }
+
+    #[test]
+    fn a_picker_with_an_edit_in_progress_is_not_overwritten_by_history() {
+        let (mut app, id) = picker_app_with(|id| {
+            let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills = vec![Paint::solid(OLD)];
+            n
+        });
+        open_picker_on(&mut app, PickTarget::Fill(0), id, Paint::solid(NEW));
+        app.props.picker.as_mut().unwrap().tx.ed.touch(&app.doc, id);
+        crate::panels::var_bind::adopt_picker_paint_after_history(&mut app);
+        assert_eq!(app.props.picker.as_ref().unwrap().paint, Paint::solid(NEW), "the colour being edited stays");
+    }
+
+    #[test]
+    fn a_selection_colour_picker_keeps_its_paint_after_history() {
+        let (mut app, id) = picker_app_with(|id| {
+            let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills = vec![Paint::solid(OLD)];
+            n
+        });
+        open_picker_on(&mut app, PickTarget::SelColor(0xff0000), id, Paint::solid(NEW));
+        crate::panels::var_bind::adopt_picker_paint_after_history(&mut app);
+        assert_eq!(app.props.picker.as_ref().expect("still open").paint, Paint::solid(NEW));
+    }
 }
