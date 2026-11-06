@@ -457,6 +457,23 @@ fn apply_paint_style_links(n: &mut Node, set: &Value) {
     }
 }
 
+/// An instance effect override either links the style it names or drops the
+/// inherited one when it supplies effects or detaches the link.
+fn apply_effect_style_link(n: &mut Node, set: &Value) {
+    let clear = fbool(set, "_clearEffectStyle") == Some(true);
+    let linked = set.get("styles").and_then(|s| s.get("effect")).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let has_effects = set.get("effects").is_some();
+    if !clear && linked.is_none() && !has_effects {
+        return;
+    }
+    if let Some(sid) = linked.filter(|_| !clear) {
+        n.style_refs.insert("effect".into(), sid.to_string());
+    } else {
+        n.style_refs.remove("effect");
+    }
+    n.component.overrides.insert(OverrideField::Effects);
+}
+
 /// Applies the (possibly partial) REST `TypeStyle` fields in `v` onto `ts`.
 pub(crate) fn apply_type_style(ts: &mut TextStyle, v: &Value) {
     if let Some(f) = fstr(v, "fontFamily") {
@@ -3129,6 +3146,10 @@ impl<'a> Ctx<'a> {
             n.variables.bindings.retain(|k, _| !k.starts_with("strokes/"));
             n.stroke.paints = parse_paints(set.get("strokes"));
         }
+        if set.get("effects").is_some() {
+            n.variables.bindings.retain(|k, _| !k.starts_with("effects/"));
+            n.effects = farr(set, "effects").iter().filter_map(parse_effect).collect();
+        }
         if set.get("boundVariables").is_some() || set.get("explicitVariableModes").is_some() {
             let ov_vars = crate::variables::parse_node_variables(set);
             n.variables.bindings.extend(ov_vars.bindings);
@@ -3474,6 +3495,7 @@ impl<'a> Ctx<'a> {
             };
         }
         apply_paint_style_links(n, set);
+        apply_effect_style_link(n, set);
         apply_text_style_link(n, set);
         if let NodeKind::Text(t) = &mut n.kind {
             if let Some(ar) = fbool(set, "autoRename") {
