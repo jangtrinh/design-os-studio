@@ -47,6 +47,25 @@ fn group_over_translucent_child(fx: Effect) -> common::T {
     t
 }
 
+fn group_over_translucent_child_at_edge(fx: Effect) -> common::T {
+    let mut t = common::T::new();
+    for i in 0..6 {
+        t.rect(None, Rect::new(15.0 * i as f32, 0.0, 6.0, 80.0), BLACK);
+    }
+    let g = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Group);
+        n.size = Vec2::new(60.0, 60.0);
+        n.effects = vec![fx];
+        n
+    });
+    t.add(Some(g), |id| {
+        let mut n = Node::ellipse(id, Rect::new(0.0, 0.0, 60.0, 60.0));
+        n.fills = vec![Paint { opacity: 0.4, ..Paint::solid(Color::WHITE) }];
+        n
+    });
+    t
+}
+
 /// The CPU pixels equal `cpu_digest`, and the GPU draws the same scene within the budget of the
 /// other GPU parity tests. The group's ellipse covers 2,827 of the 8,000 pixels, far over both
 /// budgets, so a mask that differs between the renderers cannot hide as an edge effect.
@@ -78,4 +97,21 @@ fn noise_on_a_group_stays_masked_by_the_children_alpha() {
 fn clipped_texture_on_a_group_stays_masked_by_the_children_alpha() {
     let fx = Effect::Texture(TextureEffect { size: 4.0, size_y: None, radius: 3.0, clip_to_shape: true, seed: 3, visible: true });
     parity("group-texture-translucent-child", fx, 0x43cc2e696be2ddf5);
+}
+
+#[test]
+fn background_blur_on_a_group_uses_the_child_footprint_mask() {
+    let fx = Effect::BackgroundBlur { radius: 8.0, visible: true };
+    // The digest is deliberately pinned alongside the GPU comparison: changing
+    // the mask back to the opaque silhouette changes the CPU scene as well.
+    parity("group-background-blur-translucent-child", fx, 0xc6117e40479ae03e);
+}
+
+#[test]
+fn background_blur_at_the_canvas_edge_matches_the_cpu_reference() {
+    let Some(mut g) = common::gpu() else { return };
+    let t = group_over_translucent_child_at_edge(Effect::BackgroundBlur { radius: 8.0, visible: true });
+    let c = common::compare(&mut g, "group-background-blur-canvas-edge", &t.doc, t.page, Viewport::default(), SIZE, 4);
+    assert!(c.report_aa.ratio < 0.01, "edge mismatch with AA forgiven {:.3}%", c.report_aa.ratio * 100.0);
+    assert!(c.report.ratio < 0.03, "edge strict mismatch {:.3}%", c.report.ratio * 100.0);
 }
