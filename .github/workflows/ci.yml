@@ -201,7 +201,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Test scripts/release-sync-pages.py
-        run: python3 -m unittest discover -s scripts/tests -v
+        run: python3 -m unittest scripts/tests/test_release_sync_pages.py scripts/tests/test_release_make_latest.py -v
 
   codegen-validators:
     name: Codegen Validators
