@@ -89,6 +89,8 @@ mod macos_menu;
 #[cfg(target_os = "macos")]
 mod macos_terminate;
 #[cfg(test)]
+mod native_write_copies_tests;
+#[cfg(test)]
 mod native_write_pending_pages_tests;
 mod node_field_diff;
 mod ops;

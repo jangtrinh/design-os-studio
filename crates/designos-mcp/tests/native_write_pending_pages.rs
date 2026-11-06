@@ -78,3 +78,44 @@ fn opening_a_large_fig_in_an_editor_session_hands_the_editor_the_instance_conten
         assert_eq!(deferred_pages_shape(&published), DeferredPagesShape::loaded(), "{file} keeps the children and the overrides");
     }
 }
+
+#[test]
+fn an_edit_the_editor_never_received_is_rolled_back_and_the_document_still_saves_every_page() {
+    let dirs = Dirs::new();
+    let mut session = Session::with_session_dir(&dirs.workspace, &dirs.session).unwrap();
+    session.call("designos_open_file", json!({ "path": "kit.fig", "discard_changes": true })).unwrap();
+    // The edit log cannot be appended to (here: something else sits at its path), so the next edit is rolled back
+    // to the clone taken before it.
+    let log = dirs.session.join("doc-patch.jsonl");
+    let _ = fs::remove_file(&log);
+    fs::create_dir(&log).unwrap();
+    let page = session.engine.doc.pages[0];
+    let err =
+        session.call("designos_create_node", json!({ "kind": "frame", "parent_id": page.0, "name": "Rejected", "width": 10.0, "height": 10.0 })).unwrap_err();
+    assert!(err.contains("doc-patch.jsonl"), "{err}");
+    assert!(!session.engine.doc.nodes.values().any(|n| n.name == "Rejected"), "the edit is rolled back");
+    fs::remove_dir(&log).unwrap();
+
+    session.call("designos_save_file", json!({ "path": "after-rollback.designos" })).unwrap();
+
+    assert_eq!(deferred_pages_shape(&read_document(&dirs.workspace.join("after-rollback.designos"))), DeferredPagesShape::loaded());
+}
+
+#[test]
+fn a_canvas_the_editor_rewrote_replaces_the_document_and_it_still_saves_every_page() {
+    let dirs = Dirs::new();
+    let mut session = Session::with_session_dir(&dirs.workspace, &dirs.session).unwrap();
+    session.call("designos_open_file", json!({ "path": "kit.fig", "discard_changes": true })).unwrap();
+    // The editor rewrites its canvas with what the session handed it, with a newer modification time.
+    let canvas = dirs.session.join("canvas.designos");
+    let text = fs::read_to_string(&canvas).unwrap();
+    fs::write(&canvas, text).unwrap();
+    let file = fs::OpenOptions::new().write(true).open(&canvas).unwrap();
+    file.set_modified(SystemTime::now() + std::time::Duration::from_secs(30)).unwrap();
+    drop(file);
+    session.sync_from_live_canvas_if_newer();
+
+    session.call("designos_save_file", json!({ "path": "after-reload.designos" })).unwrap();
+
+    assert_eq!(deferred_pages_shape(&read_document(&dirs.workspace.join("after-reload.designos"))), DeferredPagesShape::loaded());
+}

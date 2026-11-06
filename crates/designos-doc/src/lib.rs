@@ -140,6 +140,7 @@ pub mod fixtures {
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// Stable node identifier. Imported Figma ids ("12:34") are kept in
 /// [`Node::source_id`]; `NodeId` is our own dense key.
@@ -209,7 +210,7 @@ impl Default for DirtyLog {
 }
 
 /// A whole file: pages at the root, each page a tree of nodes.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Document {
     pub name: String,
     /// Design file or board (whiteboard) file; decides the toolbar and panels.
@@ -276,6 +277,10 @@ pub struct Document {
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
+    /// The pages of this document that the loader has not filled into it. The loader is shared with every
+    /// clone, so only the document itself knows which of its own pages are still empty.
+    #[serde(skip)]
+    deferred: pending_pages::DeferredPages,
     /// Fresh per-instance and per-clone identifier used to key derived caches.
     #[serde(skip)]
     derived_id: DerivedId,
@@ -640,6 +645,12 @@ mod serde_images {
     }
 }
 
+impl Clone for Document {
+    fn clone(&self) -> Self {
+        self.clone_with_images(self.images.clone())
+    }
+}
+
 impl Document {
     pub fn new(name: impl Into<String>) -> Self {
         Self { name: name.into(), ..Default::default() }
@@ -648,6 +659,12 @@ impl Document {
     /// Clones the document structure, styles, variables, comments, and library state without
     /// copying embedded `images` byte buffers (used by background bootstrap indexing).
     pub fn clone_without_images(&self) -> Self {
+        self.clone_with_images(BTreeMap::new())
+    }
+
+    fn clone_with_images(&self, images: BTreeMap<String, Vec<u8>>) -> Self {
+        // The copy shares the page loader: note which pages are still empty before either side loads one.
+        self.remember_deferred_pages();
         Self {
             name: self.name.clone(),
             kind: self.kind,
@@ -664,7 +681,7 @@ impl Document {
             library: self.library.clone(),
             library_page: self.library_page,
             check_designs: self.check_designs.clone(),
-            images: BTreeMap::new(),
+            images,
             in_progress: self.in_progress.clone(),
             next_id: self.next_id,
             gap_cursor: self.gap_cursor,
@@ -672,6 +689,7 @@ impl Document {
             pending_relayout: self.pending_relayout.clone(),
             layout_epoch: self.layout_epoch,
             page_hydrator: self.page_hydrator.clone(),
+            deferred: self.deferred.clone(),
             derived_id: DerivedId::default(),
         }
     }
@@ -680,11 +698,15 @@ impl Document {
     /// Returns `true` if any deferred instances were expanded.
     pub fn ensure_page_hydrated(&mut self, page: NodeId) -> bool {
         let Some(h) = self.page_hydrator.clone() else { return false };
+        let loader_at = Arc::as_ptr(&h) as *const () as usize;
         let Ok(mut guard) = h.lock() else { return false };
         if guard.is_hydrated(page) {
             return false;
         }
+        // Take the list of empty pages before this load changes what the loader says.
+        drop(self.unloaded_pages(loader_at, &*guard));
         let changed = guard.hydrate_page(self, page);
+        self.forget_loaded_pages(loader_at, &*guard, [page]);
         if changed {
             self.mark_tree_full_dirty();
         }
@@ -692,11 +714,18 @@ impl Document {
     }
 
     /// Expands all remaining deferred pages (e.g., before full-document export).
+    ///
+    /// The loader is dropped once every page is filled into this document. Pages that a copy of this
+    /// document loaded stay empty here, so the loader stays attached and the document keeps refusing
+    /// native writes ([`Document::pending_pages_error`]).
     pub fn hydrate_all_pages(&mut self) -> bool {
         let Some(h) = self.page_hydrator.clone() else { return false };
+        let loader_at = Arc::as_ptr(&h) as *const () as usize;
         let Ok(mut guard) = h.lock() else { return false };
+        let waiting: Vec<NodeId> = self.unloaded_pages(loader_at, &*guard).into_iter().filter(|page| !guard.is_hydrated(*page)).collect();
         let changed = guard.hydrate_all(self);
-        if guard.unexpanded_instances() == 0 && guard.last_error().is_none() {
+        self.forget_loaded_pages(loader_at, &*guard, waiting);
+        if guard.unexpanded_instances() == 0 && guard.last_error().is_none() && self.unloaded_pages(loader_at, &*guard).is_empty() {
             self.page_hydrator = None;
         }
         if changed {

@@ -146,15 +146,81 @@ fn a_loader_that_cannot_be_asked_counts_every_page_as_pending_and_cannot_load() 
     assert!(crashed.is_err() && loader.is_poisoned(), "precondition: the loader is poisoned");
 
     assert_eq!(doc.pending_page_count(), 2, "the state is unknown, so every page counts");
-    assert_eq!(doc.load_pending_pages(), Err(PendingPagesError::NotLoaded { pages: 2 }));
+    assert_eq!(doc.load_pending_pages(), Err(PendingPagesError::LoaderBroken));
+    assert!(doc.to_json().unwrap_err().to_string().contains("Reopen the file"), "the message says the load cannot work");
 }
 
 #[test]
 fn the_error_names_the_page_count_and_the_next_step() {
     let (doc, _, _) = document_with(|_| {});
     let one = doc.to_json_counted().expect_err("refused").to_string();
-    assert!(one.starts_with("1 page of this document is not loaded yet"), "{one}");
-    assert!(one.contains("Load every page before writing the file"), "{one}");
+    assert_eq!(one, "1 page is not loaded yet. Load it first");
     let many = PendingPagesError::NotLoaded { pages: 95 }.to_string();
-    assert!(many.starts_with("95 pages of this document are not loaded yet"), "{many}");
+    assert_eq!(many, "95 pages are not loaded yet. Load them first");
+}
+
+#[test]
+fn a_copy_taken_before_the_load_that_loads_first_leaves_the_original_refusing_instead_of_empty() {
+    let (mut doc, _, instance) = document_with(|_| {});
+    let mut copy = doc.clone();
+
+    assert_eq!(copy.load_pending_pages(), Ok(0));
+    assert_eq!(label_of(&copy, instance).as_deref(), Some("Go back"), "the copy holds the content");
+    copy.to_json().expect("the copy writes natively");
+
+    assert_eq!(doc.pending_page_count(), 1, "the original's instance is still empty");
+    assert_eq!(doc.load_pending_pages(), Err(PendingPagesError::LoadedElsewhere { pages: 1 }), "it cannot load a page the copy used up");
+    assert!(doc.to_json().is_err(), "it must not write the empty instance as a success");
+}
+
+#[test]
+fn a_copy_whose_pages_the_original_loaded_refuses_to_write() {
+    let (mut doc, _, instance) = document_with(|_| {});
+    let mut copy = doc.clone();
+
+    assert_eq!(doc.load_pending_pages(), Ok(0));
+    doc.to_json().expect("the original writes natively");
+
+    assert_eq!(copy.load_pending_pages(), Err(PendingPagesError::LoadedElsewhere { pages: 1 }));
+    assert!(copy.page_hydrator.is_some(), "the copy keeps the loader: its page is not loaded");
+    assert_eq!(label_of(&copy, instance), None);
+    assert!(copy.to_json().is_err());
+}
+
+#[test]
+fn a_copy_that_visits_the_page_leaves_the_original_refusing() {
+    let (doc, page, _) = document_with(|_| {});
+    let mut copy = doc.clone();
+    assert!(copy.ensure_page_hydrated(page));
+    assert_eq!(doc.pending_pages_error(), Some(PendingPagesError::LoadedElsewhere { pages: 1 }));
+    assert!(doc.to_json().is_err());
+}
+
+#[test]
+fn a_clone_put_back_as_the_live_document_still_loads_and_writes() {
+    let (mut doc, _, instance) = document_with(|_| {});
+    // The rollback of an edit puts a clone taken before the edit back as the live document.
+    let snapshot = doc.clone();
+    doc = snapshot;
+    assert_eq!(doc.pending_page_count(), 1);
+    assert_eq!(doc.load_pending_pages(), Ok(0));
+    let reopened = Document::from_json(&doc.to_json().expect("the restored document writes")).unwrap();
+    assert_eq!(label_of(&reopened, instance).as_deref(), Some("Go back"));
+}
+
+#[test]
+fn a_clone_taken_after_the_load_is_complete() {
+    let (mut doc, _, instance) = document_with(|_| {});
+    assert_eq!(doc.load_pending_pages(), Ok(0));
+    let copy = doc.clone();
+    assert!(!copy.has_pending_pages());
+    assert_eq!(label_of(&Document::from_json(&copy.to_json().unwrap()).unwrap(), instance).as_deref(), Some("Go back"));
+}
+
+#[test]
+fn a_clone_taken_after_the_page_was_opened_has_nothing_pending() {
+    let (mut doc, page, _) = document_with(|_| {});
+    assert!(doc.ensure_page_hydrated(page));
+    let copy = doc.clone();
+    assert_eq!((doc.has_pending_pages(), copy.has_pending_pages()), (false, false));
 }
