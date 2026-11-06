@@ -86,6 +86,11 @@ pub struct AllowEntry {
     /// vertical shifts still span the whole region.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x_band: Option<[f32; 2]>,
+    /// With `name_prefix`: a matching named widget whose baseline region is `region` may be in this region
+    /// instead. Nothing else about it is checked, and it stays out of the rect, row and order checks of both
+    /// regions because its geometry is not comparable across regions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor_x: Option<AnchorX>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -381,6 +386,14 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
         let has_r5_token = e.reason.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|tok| tok == "R5");
         if has_negative_size_delta && !has_r5_token {
             return Err(format!("allow.json[{idx}]: negative dw/dh requires R5 in reason, got {:?}", e.reason));
+        }
+        if let Some(to) = &e.region_to {
+            if e.name_prefix.is_none() {
+                return Err(format!("allow.json[{idx}]: region_to needs name_prefix"));
+            }
+            if to == &e.region {
+                return Err(format!("allow.json[{idx}]: region_to must differ from region, got {to:?}"));
+            }
         }
         if let Some([lo, hi]) = e.x_band {
             if e.h_base.is_none() && e.name_prefix.is_none() {
@@ -698,11 +711,23 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             report.new_names.push(name.clone());
         }
     }
+    let mut region_moved: BTreeSet<&str> = BTreeSet::new();
     for (name, b_w) in &base.named {
         let Some(c_w) = cur.named.get(name) else {
             return Err(format!("G3 missing baseline named widget '{name}' in case {case_id} (region '{}')", b_w.region));
         };
         if b_w.region != c_w.region {
+            let listed = allow.entries.iter().enumerate().find(|(_, e)| {
+                e.region_to.as_deref() == Some(c_w.region.as_str()) && entry_matches_widget(e, case_id, &b_w.region, Some(name.as_str()), b_w.rect)
+            });
+            if let Some((idx, _)) = listed {
+                report.matched_allow_indices.insert(idx);
+                region_moved.insert(name.as_str());
+                if b_w.count != c_w.count {
+                    return Err(format!("G3 named widget '{name}' count changed in case {case_id}: baseline={}, current={}", b_w.count, c_w.count));
+                }
+                continue;
+            }
             return Err(format!("G3 named widget '{name}' changed region in case {case_id}: baseline='{}', current='{}'", b_w.region, c_w.region));
         }
         if b_w.count != c_w.count {
@@ -876,6 +901,9 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         let Some(c_w) = cur.named.get(name) else {
             continue;
         };
+        if region_moved.contains(name.as_str()) {
+            continue;
+        }
         let covering = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect);
         if rects_differ_beyond_half_pt(b_w.rect, c_w.rect) {
             let shifts = shifts_by_widget.get(&(b_w.region.clone(), name.clone())).copied().unwrap_or_default();
@@ -923,7 +951,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
     for reg in order_regions {
         let mut items: Vec<OrderItem<'_>> = Vec::new();
         for (name, b_w) in &base.named {
-            if b_w.region == reg {
+            if b_w.region == reg && !region_moved.contains(name.as_str()) {
                 if let Some(c_w) = cur.named.get(name) {
                     items.push((b_w.rect, c_w.rect, name.as_str()));
                 }
@@ -2024,6 +2052,90 @@ mod tests {
 
         let err = compare_with_stale_check(&base, &cur, &allow, &[]).expect_err("unmatched allow entry must fail as stale");
         assert!(err.contains("0"), "stale allow error must report entry index 0, got: {err}");
+    }
+
+    /// Baseline: three controls on one row in `right_panel` plus `left_panel` content. In the current run the
+    /// middle control `ctl-b` is pushed out of `right_panel` into `left_panel` (as a scrolling panel would).
+    fn region_move_pair() -> (LayoutSnapshot, LayoutSnapshot) {
+        let mut base = sample_snapshot("k-case");
+        base.named.insert("ctl-a".into(), named_in("right_panel", [1210.0, 300.0, 60.0, 24.0]));
+        base.named.insert("ctl-b".into(), named_in("right_panel", [1280.0, 300.0, 60.0, 24.0]));
+        base.named.insert("ctl-c".into(), named_in("right_panel", [1350.0, 300.0, 60.0, 24.0]));
+        let mut cur = base.clone();
+        cur.named.insert("ctl-b".into(), named_in("left_panel", [60.0, 700.0, 60.0, 24.0]));
+        (base, cur)
+    }
+
+    fn region_to_entry(case: &str, region_to: &str) -> AllowEntry {
+        AllowEntry {
+            case: case.into(),
+            region: "right_panel".into(),
+            name_prefix: Some("ctl-b".into()),
+            region_to: Some(region_to.into()),
+            spec: "K".into(),
+            reason: "panel scrolls".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn region_change_passes_with_a_matching_region_to_entry() {
+        let (base, cur) = region_move_pair();
+        let allow = validate_allow_entries(vec![region_to_entry("k-case", "left_panel")]).expect("valid");
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("listed region change passes");
+    }
+
+    #[test]
+    fn region_change_without_the_entry_keeps_the_g3_error() {
+        let (base, cur) = region_move_pair();
+        let err = compare(&base, &cur, &AllowList::default(), &[]).expect_err("must fail");
+        assert!(err.contains("G3 named widget 'ctl-b' changed region in case k-case: baseline='right_panel', current='left_panel'"), "{err}");
+    }
+
+    #[test]
+    fn region_to_naming_another_region_than_observed_fails() {
+        let (base, cur) = region_move_pair();
+        let allow = validate_allow_entries(vec![region_to_entry("k-case", "canvas")]).expect("valid");
+        let err = compare(&base, &cur, &allow, &[]).expect_err("must fail");
+        assert!(err.contains("G3 named widget 'ctl-b' changed region"), "{err}");
+    }
+
+    #[test]
+    fn region_to_entry_for_one_case_does_not_allow_another_case() {
+        let (mut base, mut cur) = region_move_pair();
+        base.case = "other-case".into();
+        cur.case = "other-case".into();
+        let allow = validate_allow_entries(vec![region_to_entry("k-case", "left_panel")]).expect("valid");
+        let err = compare(&base, &cur, &allow, &[]).expect_err("must fail");
+        assert!(err.contains("G3 named widget 'ctl-b' changed region"), "{err}");
+    }
+
+    #[test]
+    fn region_to_validation_rules() {
+        let no_prefix = AllowEntry { name_prefix: None, h_base: Some(24.0), ..region_to_entry("k-case", "left_panel") };
+        let err = validate_allow_entries(vec![no_prefix]).expect_err("needs name_prefix");
+        assert!(err.contains("region_to needs name_prefix"), "{err}");
+        let same = region_to_entry("k-case", "right_panel");
+        let err = validate_allow_entries(vec![same]).expect_err("must differ from region");
+        assert!(err.contains("region_to must differ from region"), "{err}");
+    }
+
+    #[test]
+    fn a_widget_that_changed_region_does_not_break_rows_in_either_region() {
+        let (base, mut cur) = region_move_pair();
+        // The remaining row members are untouched; only ctl-b left. Give ctl-b a far-off rect in the new region.
+        cur.named.insert("ctl-b".into(), named_in("left_panel", [60.0, 20.0, 90.0, 40.0]));
+        let allow = validate_allow_entries(vec![region_to_entry("k-case", "left_panel")]).expect("valid");
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("no row, rect or order failure from the moved widget");
+    }
+
+    #[test]
+    fn unmatched_region_to_entry_is_stale() {
+        let base = sample_snapshot("k-case");
+        let cur = base.clone();
+        let allow = validate_allow_entries(vec![region_to_entry("k-case", "left_panel")]).expect("valid");
+        let err = compare_with_stale_check(&base, &cur, &allow, &[]).expect_err("stale");
+        assert!(err.contains("stale allow.json[0]"), "{err}");
     }
 
     /// Test 6b: `"*"` without `name_prefix` or `h_base` fails to parse.
