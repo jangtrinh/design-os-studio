@@ -133,7 +133,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
                 push("grid-template-rows", crate::codegen::grid_tracks_css(&row_tracks, row_count));
             }
             let col = al.item_spacing;
-            let row = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
+            let row = crate::codegen::grid_row_gap_px(doc, n, al);
             if row > 0.0 || col > 0.0 || crate::codegen::grid_gap_is_bound(doc, n) {
                 push("gap", if (row - col).abs() < 1e-4 { format!("{}px", num(row)) } else { format!("{}px {}px", num(row), num(col)) });
             }
