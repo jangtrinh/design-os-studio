@@ -126,25 +126,54 @@ fn a_design_file_with_board_items_adds_no_top_level_key_a_plain_design_file_lack
     }
 }
 
+/// Reads the data object of a board layer (`Sticky`, `Connector`, `ShapeWithText`) out of saved JSON.
+fn kind_data<'a>(saved: &'a mut serde_json::Value, id: NodeId, variant: &str) -> &'a mut serde_json::Map<String, serde_json::Value> {
+    saved["nodes"][id.0.to_string()]["kind"][variant].as_object_mut().unwrap_or_else(|| panic!("{variant} data of {id:?}"))
+}
+
 #[test]
-fn optional_board_data_and_unrecognised_node_keys_do_not_break_or_drop_the_node() {
+fn optional_fields_a_newer_release_stores_on_board_items_survive_load_and_save() {
+    let f = design_page_with_board_items();
+    let mut saved: serde_json::Value = serde_json::from_str(&f.doc.to_json().unwrap()).unwrap();
+    kind_data(&mut saved, f.sticky, "Sticky").insert("vote_count".into(), serde_json::json!(5));
+    kind_data(&mut saved, f.shape, "ShapeWithText").insert("vote_count".into(), serde_json::json!(2));
+
+    let (loaded, report) = Document::from_json_with_report(&saved.to_string()).unwrap();
+    assert!(report.is_clean());
+    let mut again: serde_json::Value = serde_json::from_str(&loaded.to_json().unwrap()).unwrap();
+    assert_eq!(kind_data(&mut again, f.sticky, "Sticky").get("vote_count"), Some(&serde_json::json!(5)));
+    assert_eq!(kind_data(&mut again, f.shape, "ShapeWithText").get("vote_count"), Some(&serde_json::json!(2)));
+    assert_eq!(again, saved, "a load and save changes nothing else");
+}
+
+#[test]
+fn board_items_without_extra_fields_save_without_any() {
+    let f = design_page_with_board_items();
+    let mut saved: serde_json::Value = serde_json::from_str(&f.doc.to_json().unwrap()).unwrap();
+    let sticky = kind_data(&mut saved, f.sticky, "Sticky");
+    let keys: Vec<&str> = sticky.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["author", "color", "show_author", "text"], "no new key appears in an ordinary sticky");
+}
+
+#[test]
+fn metadata_stored_on_a_board_node_survives_a_save_and_a_load() {
     let mut f = design_page_with_board_items();
     f.doc.get_mut(f.sticky).unwrap().plugin_data.insert("vote_count".into(), "3".into());
-    let json = f.doc.to_json().unwrap();
-
-    // Metadata stored on the node survives a save and a load.
-    let loaded = Document::from_json(&json).unwrap();
+    let loaded = Document::from_json(&f.doc.to_json().unwrap()).unwrap();
     assert_eq!(loaded.get(f.sticky).unwrap().plugin_data.get("vote_count").map(String::as_str), Some("3"));
+}
 
-    // A key this version does not know, on the node and on its kind data, is skipped; the node stays.
-    let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let node = &mut v["nodes"][f.sticky.0.to_string()];
-    node["vote_count"] = serde_json::json!(5);
-    let sticky_data = node["kind"]["Sticky"].as_object_mut().expect("sticky kind data");
-    sticky_data.insert("vote_count".into(), serde_json::json!(5));
-    let (reloaded, report) = Document::from_json_with_report(&v.to_string()).unwrap();
-    assert!(report.is_clean());
-    assert_eq!(reloaded.get(f.sticky), f.doc.get(f.sticky));
+#[test]
+fn a_board_item_saved_with_a_null_number_still_opens_with_the_neutral_value() {
+    let f = design_page_with_board_items();
+    let mut saved: serde_json::Value = serde_json::from_str(&f.doc.to_json().unwrap()).unwrap();
+    kind_data(&mut saved, f.sticky, "Sticky")["text"]["style"]["font_size"] = serde_json::Value::Null;
+    kind_data(&mut saved, f.sticky, "Sticky").insert("vote_count".into(), serde_json::json!(1));
+    let (loaded, report) = Document::from_json_with_report(&saved.to_string()).unwrap();
+    assert_eq!(report.non_finite_numbers, 1);
+    let NodeKind::Sticky(s) = &loaded.get(f.sticky).unwrap().kind else { panic!("sticky kept") };
+    assert_eq!(s.text.style.font_size, 0.0);
+    assert_eq!(s.extra.get("vote_count"), Some(&serde_json::json!(1)));
 }
 
 #[test]
@@ -196,10 +225,16 @@ fn lint_and_its_fixes_leave_every_board_item_on_a_design_page_alone() {
     assert!(report.complete);
     assert!(report.scanned_nodes >= board_ids(&f).len());
 
+    // Positive control: the same fix pass does remove an empty, invisible container.
     let mut fixed = f.doc.clone();
+    let empty = fixed.alloc_id();
+    let mut hollow = Node::frame(empty, Rect::new(900.0, 900.0, 50.0, 50.0));
+    hollow.fills.clear();
+    fixed.insert(f.page, hollow).unwrap();
     for scope in [None, Some(f.page)] {
         designos_doc::lint::lint_fix_document(&mut fixed, scope, None);
     }
+    assert!(fixed.get(empty).is_none(), "the fix pass must remove an empty container, or this test proves nothing");
     for id in board_ids(&f) {
         let before = f.doc.get(id).expect("fixture node");
         let after = fixed.get(id).unwrap_or_else(|| panic!("lint fix removed {id:?}"));
@@ -220,7 +255,11 @@ fn lint_and_its_fixes_leave_every_board_item_on_a_design_page_alone() {
 }
 
 /// Native files saved by earlier releases and kept in the repository.
-const SAVED_FILES: [&str; 4] = [
+const SAVED_FILES: [&str; 8] = [
+    "tests/fixtures/release-0.4-landing.designos",
+    "tests/fixtures/release-0.6-landing.designos",
+    "tests/fixtures/release-0.4-variables-code-syntax.designos",
+    "tests/fixtures/design-page-board-items.designos",
     "../designos-app/tests/fixtures/designos-studio-landing.designos",
     "../designos-app/tests/fixtures/frame-labels-1197.designos",
     "../designos-app/tests/fixtures/mask-types.designos",
@@ -231,6 +270,7 @@ const SAVED_FILES: [&str; 4] = [
 fn saved_files_from_earlier_releases_open_clean_and_save_stable() {
     for rel in SAVED_FILES {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
+        println!("checking {rel}");
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{rel}: {e}"));
         let (doc, report) = Document::from_json_with_report(&text).unwrap_or_else(|e| panic!("{rel}: {e}"));
         assert!(report.is_clean(), "{rel}: {report:?}");
@@ -241,8 +281,11 @@ fn saved_files_from_earlier_releases_open_clean_and_save_stable() {
         let b: serde_json::Value = serde_json::from_str(&once).unwrap();
         let mut diffs = Vec::new();
         json_diff(&a, &b, String::new(), &mut diffs);
-        // Style metadata gained a paragraph-field record on load: the one default added since.
-        diffs.retain(|d| !(d.starts_with("/style_meta/") && d.ends_with("/text_paragraph_fields")));
+        // Style metadata is the one thing a load adds to older files: a record per text style
+        // (paragraph fields, and the name and property of a style saved without any).
+        let before = diffs.len();
+        diffs.retain(|d| !d.starts_with("/style_meta/"));
+        println!("  {rel}: {} style metadata entries added, {} other differences", before - diffs.len(), diffs.len());
         assert!(diffs.is_empty(), "{rel}: the saved file differs from the file that was opened at {:?}", &diffs[..diffs.len().min(10)]);
     }
 }
@@ -268,4 +311,36 @@ fn json_diff(a: &serde_json::Value, b: &serde_json::Value, path: String, out: &m
         _ if a == b => {}
         _ => out.push(path),
     }
+}
+
+fn fixture_text(name: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: {e}"))
+}
+
+#[test]
+fn the_design_file_fixture_with_board_items_opens_clean_and_saves_the_same_data() {
+    let text = fixture_text("design-page-board-items.designos");
+    let (doc, report) = Document::from_json_with_report(&text).unwrap();
+    assert!(report.is_clean(), "{report:?}");
+    assert_eq!(doc.kind, DocumentKind::Design);
+    let names: Vec<&str> = doc.nodes.values().map(|n| n.kind.default_name()).collect();
+    for want in ["Sticky note", "Connector", "Stamp", "Section", "Shape", "Component"] {
+        assert!(names.contains(&want), "fixture lacks a {want}: {names:?}");
+    }
+    let before: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let after: serde_json::Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn the_fixture_with_fields_from_a_newer_release_keeps_them_through_load_and_save() {
+    let text = fixture_text("design-page-board-items-newer-fields.designos");
+    let (doc, report) = Document::from_json_with_report(&text).unwrap();
+    assert!(report.is_clean(), "{report:?}");
+    let before: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let after: serde_json::Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();
+    assert_eq!(before, after, "a field this version does not know was dropped");
+    let carried = doc.nodes.values().filter(|n| matches!(&n.kind, NodeKind::Sticky(s) if s.extra.contains_key("vote_count"))).count();
+    assert_eq!(carried, 1, "the top-level sticky carries its vote count");
 }

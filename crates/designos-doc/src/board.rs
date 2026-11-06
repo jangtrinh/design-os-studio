@@ -37,11 +37,21 @@ pub struct StickyProps {
     /// Text content. `text.style.font_size` is the largest size; renderers shrink it to fit.
     pub text: TextProps,
     pub show_author: bool,
+    /// Keys this version does not know, kept so a file saved by a newer release (for example a
+    /// vote count) keeps them through a load and a save.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for StickyProps {
     fn default() -> Self {
-        Self { color: STICKY_YELLOW, author: None, text: board_text(STICKY_FONT_MAX, TextAlignH::Left, TextAlignV::Top), show_author: false }
+        Self {
+            color: STICKY_YELLOW,
+            author: None,
+            text: board_text(STICKY_FONT_MAX, TextAlignH::Left, TextAlignV::Top),
+            show_author: false,
+            extra: BTreeMap::new(),
+        }
     }
 }
 
@@ -272,11 +282,15 @@ fn polygon_cmds(pts: &[Vec2]) -> Vec<PathCmd> {
 pub struct ShapeWithTextProps {
     pub shape: ShapeKind,
     pub text: TextProps,
+    /// Keys this version does not know, kept so a file saved by a newer release (for example a
+    /// vote count) keeps them through a load and a save.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for ShapeWithTextProps {
     fn default() -> Self {
-        Self { shape: ShapeKind::Square, text: board_text(20.0, TextAlignH::Center, TextAlignV::Center) }
+        Self { shape: ShapeKind::Square, text: board_text(20.0, TextAlignH::Center, TextAlignV::Center), extra: BTreeMap::new() }
     }
 }
 
