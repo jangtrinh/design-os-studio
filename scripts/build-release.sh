@@ -13,6 +13,12 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
+if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+  CARGO_TARGET_DIR="$(python3 "$root/scripts/cargo_target.py" "$root")"
+fi
+export CARGO_TARGET_DIR
+target_dir="$CARGO_TARGET_DIR"
+
 version=""
 mode="local-host"
 skip_build=0
@@ -150,14 +156,14 @@ case "$uname_s" in
         done
       fi
       "$root/scripts/package-macos.sh" "$version" \
-        "target/aarch64-apple-darwin/release" \
-        "target/x86_64-apple-darwin/release"
+        "$target_dir/aarch64-apple-darwin/release" \
+        "$target_dir/x86_64-apple-darwin/release"
     else
       if [ "$skip_build" -eq 0 ]; then
         echo "Building release binaries for local macOS host..."
         cargo build --release --locked -p designos-app -p designos-mcp -p designos-diff
       fi
-      "$root/scripts/package-macos.sh" "$version" "target/release" "target/nonexistent-single-arch"
+      "$root/scripts/package-macos.sh" "$version" "$target_dir/release" "$target_dir/nonexistent-single-arch"
     fi
     ;;
 
@@ -167,7 +173,7 @@ case "$uname_s" in
       echo "Building release binaries for $host_triple..."
       cargo build --release --locked -p designos-app -p designos-mcp -p designos-diff
     fi
-    "$root/scripts/package.sh" "$host_triple" "$version" "target/release"
+    "$root/scripts/package.sh" "$host_triple" "$version" "$target_dir/release"
     ;;
 
   MINGW*|MSYS*|CYGWIN*|Windows_NT*)
@@ -176,7 +182,7 @@ case "$uname_s" in
       echo "Building release binaries for $host_triple..."
       cargo build --release --locked -p designos-app -p designos-mcp -p designos-diff
     fi
-    "$root/scripts/package.sh" "$host_triple" "$version" "target/release"
+    "$root/scripts/package.sh" "$host_triple" "$version" "$target_dir/release"
     ;;
 
   *)

@@ -72,6 +72,7 @@ jobs:
         run: |
           bash -n scripts/package-macos.sh scripts/package.sh scripts/build-release.sh
           sh -n packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux/AppRun
+          python3 -B -m unittest scripts/test_cargo_target.py
 
       - name: Validate eval and third-party licence register
         run: |

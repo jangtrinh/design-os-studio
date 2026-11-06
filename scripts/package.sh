@@ -23,11 +23,17 @@ set -euo pipefail
 target=${1:?usage: package.sh <target-triple> <version> [bin-dir]}
 version=${2:?usage: package.sh <target-triple> <version> [bin-dir]}
 version=${version#v}
-bin_dir=${3:-target/$target/release}
-[ -d "$bin_dir" ] || bin_dir=target/release
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
+
+if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+  target_dir="$CARGO_TARGET_DIR"
+else
+  target_dir="$(python3 "$root/scripts/cargo_target.py" "$root")"
+fi
+bin_dir=${3:-$target_dir/$target/release}
+[ -d "$bin_dir" ] || bin_dir=$target_dir/release
 
 case "$target" in
   *windows*) exe=.exe; fmt=zip ;;

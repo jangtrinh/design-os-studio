@@ -1,2 +1,5 @@
 [env]
 RUST_MIN_STACK = "8388608"
+[build]
+target-dir = "../.design-os-studio-target"
+incremental = false

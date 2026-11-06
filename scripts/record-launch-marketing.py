@@ -24,7 +24,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-BIN = REPO_ROOT / "target" / "release" / "designos-studio"
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from cargo_target import resolve as resolve_cargo_target
+
+TARGET_DIR = resolve_cargo_target(REPO_ROOT)
+BIN = TARGET_DIR / "release" / "designos-studio"
 MARKETING_DIR = REPO_ROOT / "Design" / "marketing"
 SHOTS_DIR = MARKETING_DIR / "screenshots"
 VIDEOS_DIR = MARKETING_DIR / "videos"

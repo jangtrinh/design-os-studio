@@ -19,8 +19,12 @@ import sys
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "target", "debug", "designos.exe" if os.name == "nt" else "designos")
-DIFF = os.path.join(ROOT, "target", "debug", "designos-diff.exe" if os.name == "nt" else "designos-diff")
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+from cargo_target import resolve as resolve_cargo_target
+
+TARGET_DIR = str(resolve_cargo_target(ROOT))
+EXE = os.path.join(TARGET_DIR, "debug", "designos.exe" if os.name == "nt" else "designos")
+DIFF = os.path.join(TARGET_DIR, "debug", "designos-diff.exe" if os.name == "nt" else "designos-diff")
 
 # name -> (reference file, our CLI args, crop rect x,y,w,h)
 CASES = {
