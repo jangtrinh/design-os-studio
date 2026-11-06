@@ -452,7 +452,7 @@ fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing
         }
         file.sync_all()?;
         drop(file);
-        retry_replace(|| std::fs::rename(&tmp, target))
+        retry_replace(cfg!(windows), || std::fs::rename(&tmp, target))
     })();
     if res.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -461,20 +461,29 @@ fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing
     sync_dir(dir)
 }
 
-/// Replacing an open file is eventually consistent on Windows: antivirus, indexers, or another
-/// save can briefly keep a sharing handle while `MoveFileEx` is asked to replace the target.
-/// Retry only the documented transient errors, and keep the retry bounded so real permission
-/// failures still reach the caller promptly. The sleeps are 2, 4, 8, 16, 32, 64, and 128 ms.
-fn retry_replace<F>(mut replace: F) -> std::io::Result<()>
+const REPLACE_MAX_ATTEMPTS: usize = 8;
+
+/// Whether a failed replace is worth another attempt. Replacing an open file is eventually
+/// consistent on Windows: antivirus, indexers, or another save can briefly keep a sharing handle
+/// while `MoveFileEx` is asked to replace the target. Only those documented transient errors
+/// (access denied, sharing violation) are retried, and only on Windows; every other platform and
+/// every other error code reports the first failure.
+fn replace_error_is_transient(err: &std::io::Error, windows: bool) -> bool {
+    windows && matches!(err.raw_os_error(), Some(5 | 32)) // ERROR_ACCESS_DENIED / ERROR_SHARING_VIOLATION
+}
+
+/// Runs `replace`, retrying transient failures (see `replace_error_is_transient`) at most
+/// `REPLACE_MAX_ATTEMPTS` times in total so real permission failures still reach the caller
+/// promptly. The sleeps are 2, 4, 8, 16, 32, 64, and 128 ms.
+fn retry_replace<F>(windows: bool, mut replace: F) -> std::io::Result<()>
 where
     F: FnMut() -> std::io::Result<()>,
 {
-    const MAX_ATTEMPTS: usize = 8;
     let mut delay = std::time::Duration::from_millis(2);
-    for attempt in 0..MAX_ATTEMPTS {
+    for attempt in 0..REPLACE_MAX_ATTEMPTS {
         match replace() {
             Ok(()) => return Ok(()),
-            Err(err) if attempt + 1 < MAX_ATTEMPTS && is_windows_replace_retryable(&err) => {
+            Err(err) if attempt + 1 < REPLACE_MAX_ATTEMPTS && replace_error_is_transient(&err, windows) => {
                 std::thread::sleep(delay);
                 delay *= 2;
             }
@@ -482,21 +491,6 @@ where
         }
     }
     unreachable!("the bounded replace loop always returns")
-}
-
-#[cfg(all(windows, not(test)))]
-fn is_windows_replace_retryable(err: &std::io::Error) -> bool {
-    matches!(err.raw_os_error(), Some(5 | 32)) // ERROR_ACCESS_DENIED / ERROR_SHARING_VIOLATION
-}
-
-#[cfg(test)]
-fn is_windows_replace_retryable(err: &std::io::Error) -> bool {
-    matches!(err.raw_os_error(), Some(5 | 32))
-}
-
-#[cfg(not(any(windows, test)))]
-fn is_windows_replace_retryable(_: &std::io::Error) -> bool {
-    false
 }
 
 /// Makes the rename itself durable. Platforms that cannot open or sync a directory are skipped.
@@ -525,7 +519,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         let attempts = AtomicUsize::new(0);
-        retry_replace(|| {
+        retry_replace(true, || {
             let attempt = attempts.fetch_add(1, Ordering::Relaxed);
             if attempt < 2 {
                 Err(Error::from_raw_os_error(5))
@@ -535,6 +529,52 @@ mod tests {
         })
         .expect("a transient Windows replace lock should be retried");
         assert_eq!(attempts.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn only_access_denied_and_sharing_violation_are_transient_and_only_on_windows() {
+        use std::io::Error;
+
+        for code in [5, 32] {
+            assert!(replace_error_is_transient(&Error::from_raw_os_error(code), true), "code {code} on Windows");
+            assert!(!replace_error_is_transient(&Error::from_raw_os_error(code), false), "code {code} elsewhere");
+        }
+        for code in [0, 2, 3, 4, 17, 31, 33, 183] {
+            assert!(!replace_error_is_transient(&Error::from_raw_os_error(code), true), "code {code}");
+        }
+        assert!(!replace_error_is_transient(&Error::other("no os code"), true));
+    }
+
+    #[test]
+    fn replace_stops_after_eight_attempts_on_a_persistent_windows_lock() {
+        use std::io::Error;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let attempts = AtomicUsize::new(0);
+        let err = retry_replace(true, || {
+            attempts.fetch_add(1, Ordering::Relaxed);
+            Err(Error::from_raw_os_error(32))
+        })
+        .expect_err("a lock that never clears must surface");
+        assert_eq!(err.raw_os_error(), Some(32));
+        assert_eq!(attempts.load(Ordering::Relaxed), 8);
+    }
+
+    #[test]
+    fn replace_returns_the_first_error_without_retrying_off_windows_or_on_other_codes() {
+        use std::io::Error;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        for (windows, code) in [(false, 5), (false, 32), (true, 2), (true, 17)] {
+            let attempts = AtomicUsize::new(0);
+            let err = retry_replace(windows, || {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                Err(Error::from_raw_os_error(code))
+            })
+            .expect_err("a non-transient failure must surface");
+            assert_eq!(err.raw_os_error(), Some(code));
+            assert_eq!(attempts.load(Ordering::Relaxed), 1, "windows={windows} code={code}");
+        }
     }
 
     struct Mock {
