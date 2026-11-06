@@ -146,6 +146,26 @@ impl Menu {
         }
     }
 
+    /// Everything a pick in any of the menus can change: tool, brush, ink, shape, stamp, zoom, the Zoom menu's toggles
+    /// and the selection. Two equal snapshots mean no row ran in between.
+    fn state(s: &Sim) -> String {
+        let a = s.app();
+        format!(
+            "{:?} {:?} {:?} {:?} {} {} {} {} {} {} {:?}",
+            a.tool,
+            a.board.brush,
+            a.board.ink,
+            a.board.shape,
+            a.board.stamp,
+            a.view.zoom,
+            a.ui.pixel_grid,
+            a.ui.no_pixel_snap,
+            a.ui.hide_layout_grids,
+            a.ui.rulers,
+            a.selection
+        )
+    }
+
     fn nothing_picked(self, s: &Sim) -> bool {
         match self {
             Menu::Brush | Menu::Shape | Menu::Stamp => s.app().tool != Tool::Highlighter && s.app().tool != Tool::BoardShape && s.app().tool != Tool::Stamp,
@@ -301,13 +321,15 @@ fn a_release_over_a_toast_above_the_menu_picks_nothing() {
             bad.push(format!("{menu:?}: test setup, no row lies under the toast at {toast:?}"));
             continue;
         }
+        let before = Menu::state(&s);
         let from = center(&s, &menu.rows().0);
         s.mv(from);
         s.one_frame().press().send();
         s.mv(toast);
         s.one_frame().move_to(toast).release().send();
         settle(&mut s);
-        soft!(bad, menu.nothing_picked(&s), "{menu:?}: the release over the toast picked a row");
+        soft!(bad, Menu::state(&s) == before, "{menu:?}: the release over the toast ran a row");
+        soft!(bad, menu.is_open(&s), "{menu:?}: the release over the toast closed the menu, so a row ran");
     }
     assert!(bad.is_empty(), "{bad:#?}");
 }
@@ -434,19 +456,120 @@ fn the_zoom_menus_checked_rows_toggle_once_per_release() {
     for menu in [Menu::ZoomPill, Menu::ZoomPanel] {
         let mut s = menu.sim();
         let before = s.app().ui.pixel_grid;
-        let opener = menu.opener_at(&s);
-        s.mv(opener);
+        for (n, want) in [(1, !before), (2, before)] {
+            let opener = menu.opener_at(&s);
+            s.mv(opener);
+            s.one_frame().press().send();
+            s.frame(vec![]);
+            if !menu.is_open(&s) {
+                bad.push(format!("{menu:?}: the press does not open the menu (release {n})"));
+                break;
+            }
+            let to = center(&s, "label:Pixel grid");
+            s.mv(to);
+            s.one_frame().move_to(to).release().send();
+            settle(&mut s);
+            soft!(bad, s.app().ui.pixel_grid == want, "{menu:?}: after release {n} Pixel grid is {}, want {want}", s.app().ui.pixel_grid);
+            soft!(bad, !menu.is_open(&s), "{menu:?}: the menu is still open after release {n}");
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// The middle of the Zoom menu's text field, found from the first row below it.
+fn zoom_field_at(s: &Sim) -> Pos2 {
+    let first = rect_named(s, "label:Zoom in");
+    Pos2::new(first.center().x, first.top() - 34.0)
+}
+
+#[test]
+fn a_text_gesture_that_starts_in_the_zoom_field_picks_no_row() {
+    let mut bad = Vec::new();
+    for menu in [Menu::ZoomPill, Menu::ZoomPanel] {
+        let mut s = menu.sim();
+        menu.open(&mut s);
+        let before = Menu::state(&s);
+        let field = zoom_field_at(&s);
+        let zoom_in = center(&s, "label:Zoom in");
+        s.mv(field);
         s.one_frame().press().send();
-        s.frame(vec![]);
-        if !menu.is_open(&s) {
-            bad.push(format!("{menu:?}: the press does not open the menu"));
+        s.mv(field + Vec2::new(10.0, 0.0));
+        for _ in 0..4 {
+            s.frame(vec![]);
+        }
+        s.mv(zoom_in);
+        s.one_frame().move_to(zoom_in).release().send();
+        settle(&mut s);
+        soft!(bad, Menu::state(&s) == before, "{menu:?}: a press in the field ran the row it was released on");
+        soft!(bad, menu.is_open(&s), "{menu:?}: the menu closed");
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
+fn a_press_and_release_in_the_zoom_field_still_edit_the_field() {
+    let mut bad = Vec::new();
+    for menu in [Menu::ZoomPill, Menu::ZoomPanel] {
+        let mut s = menu.sim();
+        menu.open(&mut s);
+        let before = Menu::state(&s);
+        let field = zoom_field_at(&s);
+        s.click(field);
+        settle(&mut s);
+        let field_id = crate::panels::menus::menu_id(MenuKind::Zoom).with("zoom-input");
+        soft!(bad, s.ctx.memory(|m| m.has_focus(field_id)), "{menu:?}: the field did not take focus");
+        s.type_text("7");
+        settle(&mut s);
+        let buf = s.ctx.data(|d| d.get_temp::<String>(crate::panels::menus::menu_id(MenuKind::Zoom).with("zoom-input-buf"))).unwrap_or_default();
+        soft!(bad, buf.contains('7'), "{menu:?}: typing did not edit the field, it holds {buf:?}");
+        soft!(bad, Menu::state(&s) == before && menu.is_open(&s), "{menu:?}: editing the field ran a row or closed the menu");
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// Fills of the filled rects that lie inside `area`.
+fn fills_inside(s: &Sim, area: Rect) -> Vec<egui::Color32> {
+    fn walk(shape: &egui::Shape, area: Rect, out: &mut Vec<egui::Color32>) {
+        match shape {
+            egui::Shape::Rect(r) if r.fill != egui::Color32::TRANSPARENT && area.contains_rect(r.rect) => out.push(r.fill),
+            egui::Shape::Vec(v) => v.iter().for_each(|c| walk(c, area, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    s.shapes.iter().for_each(|c| walk(&c.shape, area, &mut out));
+    out
+}
+
+#[test]
+fn the_row_under_a_held_pointer_shows_its_hover_fill() {
+    let mut bad = Vec::new();
+    for menu in ALL {
+        let mut s = menu.sim();
+        menu.open(&mut s);
+        let (a, b) = menu.rows();
+        let (from, to) = (center(&s, &a), center(&s, &b));
+        let area = rect_named(&s, &b);
+        // The look of a plain hover: fills that appear on the row when the pointer rests on it and nothing is down.
+        s.mv(Pos2::new(60.0, 700.0));
+        settle(&mut s);
+        let idle = fills_inside(&s, area);
+        s.mv(to);
+        settle(&mut s);
+        let hover: Vec<_> = fills_inside(&s, area).into_iter().filter(|f| !idle.contains(f)).collect();
+        if hover.is_empty() {
+            bad.push(format!("{menu:?}: test setup, resting the pointer on the row paints no hover fill"));
             continue;
         }
-        let to = center(&s, "label:Pixel grid");
+        let mut s = menu.sim();
+        menu.open(&mut s);
+        s.mv(from);
+        s.one_frame().press().send();
+        s.mv(from + (to - from).normalized() * 40.0);
         s.mv(to);
-        s.one_frame().move_to(to).release().send();
         settle(&mut s);
-        soft!(bad, s.app().ui.pixel_grid != before, "{menu:?}: Pixel grid did not toggle exactly once");
+        let held = fills_inside(&s, area);
+        soft!(bad, hover.iter().all(|f| held.contains(f)), "{menu:?}: no hover fill under the held pointer, {held:?} lacks {hover:?}");
     }
     assert!(bad.is_empty(), "{bad:#?}");
 }

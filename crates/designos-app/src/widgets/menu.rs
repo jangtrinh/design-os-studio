@@ -176,20 +176,34 @@ pub(crate) fn primary_gesture(events: &[egui::Event], armed: &mut bool, covered:
 /// A release does not count when a higher layer than `own` (a toast, a tooltip) covers it, when its press was never
 /// seen (it started outside, or before the menu opened), or when its press landed outside the panel and the anchor,
 /// which closes the menu. The press that opened the menu counts: the menu is drawn in the frame that carries it.
-pub(crate) fn release_pick(ctx: &egui::Context, id: Id, own: egui::LayerId, panel: Rect, anchor: Option<Rect>) -> Option<Pos2> {
+///
+/// `not_a_row` is the part of the panel that is a widget of its own (the Zoom menu's text field), not a row: a press
+/// that began there is that widget's gesture (selecting text), so its release picks nothing.
+pub(crate) fn release_pick(ctx: &egui::Context, id: Id, own: egui::LayerId, panel: Rect, anchor: Option<Rect>, not_a_row: Option<Rect>) -> Option<Pos2> {
     let key = id.with("release-armed");
     let now = ctx.cumulative_pass_nr();
-    let (mut armed, seen) = ctx.data(|d| d.get_temp::<(bool, u64)>(key)).unwrap_or((false, 0));
+    let (mut armed, seen, mut began_off_row) = ctx.data(|d| d.get_temp::<(bool, u64, bool)>(key)).unwrap_or((false, 0, false));
     // A press left over from a menu that went away must not arm the next one.
     if now > seen + 3 {
         armed = false;
     }
     let events = ctx.input(|i| i.events.clone());
     let covered = |p: Pos2| ctx.layer_id_at(p).is_some_and(|l| l != own && l.order >= own.order);
+    // Where the primary press that armed (or re-armed) the pick went down, in case the release is in a later frame.
+    let mut release_off_row = began_off_row;
+    for ev in &events {
+        if let egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, .. } = ev {
+            if *pressed {
+                began_off_row = not_a_row.is_some_and(|r| r.contains(*pos));
+            } else {
+                release_off_row = began_off_row;
+            }
+        }
+    }
     let (press, release) = primary_gesture(&events, &mut armed, covered);
-    ctx.data_mut(|d| d.insert_temp(key, (armed, now)));
+    ctx.data_mut(|d| d.insert_temp(key, (armed, now, began_off_row)));
     let press_outside = press.is_some_and(|p| !panel.contains(p) && !anchor.is_some_and(|a| a.contains(p)));
-    release.filter(|_| !press_outside)
+    release.filter(|_| !press_outside && !release_off_row)
 }
 
 /// Whether a row or cell of a hand-built menu is picked this frame: the `release` from [`release_pick`] ended on

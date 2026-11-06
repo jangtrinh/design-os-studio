@@ -275,7 +275,7 @@ fn popup(app: &mut App, ui: &mut Ui) {
     let mut picked: Option<Pick> = None;
     // A cell is picked by the release of a press this popover saw, not by egui's click (see `widgets::menu::release_pick`).
     let menu_id = egui::Id::new("board-tool-menu");
-    let release = crate::widgets::menu::release_pick(&ctx, menu_id, egui::LayerId::new(egui::Order::Foreground, menu_id), rect, Some(anchor));
+    let release = crate::widgets::menu::release_pick(&ctx, menu_id, egui::LayerId::new(egui::Order::Foreground, menu_id), rect, Some(anchor), None);
     let area = egui::Area::new(menu_id).order(egui::Order::Foreground).fixed_pos(rect.min).show(&ctx, |ui| {
         ui.allocate_rect(rect, Sense::hover());
         let p = ui.painter().clone();
@@ -288,7 +288,7 @@ fn popup(app: &mut App, ui: &mut Ui) {
                     let cell = Rect::from_min_size(inner.min + Vec2::new((i % cols) as f32 * CELL, (i / cols) as f32 * CELL), Vec2::splat(CELL));
                     let sel = app.board.shape == *k;
                     let resp = ui.interact(cell, ui.id().with(("board-shape", i)), Sense::click());
-                    cell_bg(&p, cell, sel, resp.hovered());
+                    cell_bg(&p, cell, sel, resp.contains_pointer());
                     if let Some(t) = app.board.previews.shape(ui.ctx(), *k, color_of(0xE6E6E6), 24.0, 18.0) {
                         p.image(
                             t,
@@ -308,7 +308,7 @@ fn popup(app: &mut App, ui: &mut Ui) {
                     let cell = Rect::from_min_size(inner.min + Vec2::new(i as f32 * CELL, 0.0), Vec2::splat(CELL));
                     let sel = app.board.stamp == *k;
                     let resp = ui.interact(cell, ui.id().with(("board-stamp", i)), Sense::click());
-                    cell_bg(&p, cell, sel, resp.hovered());
+                    cell_bg(&p, cell, sel, resp.contains_pointer());
                     if let Some(t) = app.board.previews.stamp(ui.ctx(), k, 28.0) {
                         p.image(
                             t,
@@ -382,7 +382,7 @@ fn brush_menu(app: &App, ui: &mut Ui, inner: Rect, release: Option<Pos2>, picked
         let resp = ui.interact(row, ui.id().with(("board-brush", i)), Sense::click());
         if sel {
             p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
-        } else if resp.hovered() {
+        } else if resp.contains_pointer() {
             p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         icons::paint(&p, tool_icon(t), Pos2::new(row.left() + 18.0, row.center().y), 16.0, theme::ICON);
@@ -399,7 +399,7 @@ fn brush_menu(app: &App, ui: &mut Ui, inner: Rect, release: Option<Pos2>, picked
         let r = Rect::from_min_size(Pos2::new(inner.left() + i as f32 * 26.0, y), Vec2::splat(26.0));
         let resp = ui.interact(r, ui.id().with(("board-ink", i)), Sense::click());
         let sel = rgb_of(app.board.ink) == *c;
-        swatch(&p, r.center(), *c, sel, resp.hovered());
+        swatch(&p, r.center(), *c, sel, resp.contains_pointer());
         widgets::record(ui, &format!("board-ink-{i}"), r);
         if crate::widgets::menu::row_picked(&resp, r, release) {
             *picked = Some(Pick::Ink(*c));

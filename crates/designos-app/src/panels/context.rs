@@ -235,7 +235,7 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
     // A row is picked by the release of a press this picker saw, not by egui's click (see `widgets::menu::release_pick`).
     // A release on the row of a layer that is gone since the picker opened picks nothing and closes it.
     let menu_id = Id::new("layer-picker-menu");
-    let release = crate::widgets::menu::release_pick(ctx, menu_id, egui::LayerId::new(egui::Order::Tooltip, menu_id), r, None);
+    let release = crate::widgets::menu::release_pick(ctx, menu_id, egui::LayerId::new(egui::Order::Tooltip, menu_id), r, None, None);
     let mut gone = false;
 
     egui::Area::new(menu_id).order(egui::Order::Tooltip).fixed_pos(r.min).show(ctx, |ui| {
@@ -261,7 +261,7 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
             };
             let resp = ui.interact(rr, Id::new(("layer-picker-row", id)), egui::Sense::click());
             crate::widgets::record_with(ui, || format!("layer-row-{idx}"), rr);
-            let hov = resp.hovered();
+            let hov = resp.contains_pointer();
             let sel = app.is_selected(id);
             if hov {
                 hovered_any = Some(id);

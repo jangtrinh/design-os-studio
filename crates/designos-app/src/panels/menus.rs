@@ -779,18 +779,18 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
     let y = (a.bottom() + 4.0).min((screen.bottom() - h - 8.0).max(screen.top() + 8.0));
     let rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, h));
 
+    let input_box = Rect::from_min_size(Pos2::new(rect.left() + 8.0, rect.top() + 8.0), Vec2::new(w - 16.0, 26.0));
     let mut picked: Option<Action> = None;
     let mut custom_zoom: Option<f32> = None;
     let esc = ctx.input(|i| i.key_pressed(Key::Escape));
     // A row is picked by the release of a press this menu saw, not by egui's click (see `widgets::menu::release_pick`).
-    let release = widgets::menu::release_pick(ctx, id, egui::LayerId::new(egui::Order::Foreground, id), rect, anchor);
+    let release = widgets::menu::release_pick(ctx, id, egui::LayerId::new(egui::Order::Foreground, id), rect, anchor, Some(input_box));
 
     egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(ctx, |ui| {
         ui.allocate_exact_size(rect.size(), Sense::hover());
         let p = ui.painter().clone();
         menu_panel(&p, rect, theme::RADIUS_FRAME);
 
-        let input_box = Rect::from_min_size(Pos2::new(rect.left() + 8.0, rect.top() + 8.0), Vec2::new(w - 16.0, 26.0));
         p.rect_filled(input_box, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         p.rect_stroke(input_box, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
 
@@ -822,7 +822,7 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
             let r_rect = Rect::from_min_size(Pos2::new(rect.left(), ry), Vec2::new(w, row_h));
             let row_resp = ui.interact(r_rect, id.with(("zrow", idx)), Sense::click());
             let pill = r_rect.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0));
-            let paint = crate::widgets::kit::menu_row_look(false, row_resp.hovered(), r.checked);
+            let paint = crate::widgets::kit::menu_row_look(false, row_resp.contains_pointer(), r.checked);
             crate::widgets::kit::paint_frame(&p, pill, theme::RADIUS_CONTROL, &paint);
             mark_focus(ui, &p, row_resp.id, pill, theme::RADIUS_CONTROL as f32);
             if r.checked {
