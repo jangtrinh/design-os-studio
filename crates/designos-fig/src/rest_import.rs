@@ -2036,9 +2036,15 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+        let holds_derived = self.overrides.get(&inst).is_some_and(|o| !o.fast_derived.is_empty());
         let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
         node.component.overrides.extend(flagged);
-        crate::instance_self_digest::digests(node)
+        let mut digests = crate::instance_self_digest::digests(node);
+        // The derived data of the instance was computed for the size it has now, flagged or not.
+        if holds_derived {
+            digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
+        }
+        digests
     }
 
     /// Instances of components defined in other files (`remote: true` in the

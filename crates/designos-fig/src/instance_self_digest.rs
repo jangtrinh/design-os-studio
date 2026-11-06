@@ -4,7 +4,8 @@
 //! written back as the file stated it. That record also states the instance's own fields (its size, fills, opacity...).
 //! When the user changes one of them before saving, the record's value is out of date. The loader therefore takes a
 //! digest of every overridden field of the instance when the file is opened, and a save compares the node against it:
-//! a field whose digest moved was edited.
+//! a field whose digest moved was edited. The size is digested for every instance that holds derived data, flagged or
+//! not: derived data is true only for the size it was computed at, and an edit that flags nothing still changes it.
 //!
 //! The loader flags each of those fields on the instance, so that syncing a main component leaves them alone. Without
 //! the flag a sync would reset a childless instance to its main's size and look like an edit.
@@ -50,6 +51,17 @@ fn digest(node: &Node, field: OverrideField) -> u64 {
     };
     text.hash(&mut h);
     h.finish()
+}
+
+/// The digest of `node`'s size, which is taken whether or not the instance overrides it.
+pub(crate) fn size_digest(node: &Node) -> u64 {
+    digest(node, OverrideField::Size)
+}
+
+/// Whether `node` has another size than it had when the file was opened, whether or not the instance overrides its
+/// size. An edit that sets no override flag (the agent tools write the node's fields directly) is found this way.
+pub(crate) fn size_moved(node: &Node, opened: &BTreeMap<OverrideField, u64>) -> bool {
+    opened.get(&OverrideField::Size).is_some_and(|d| *d != size_digest(node))
 }
 
 /// The digest of each field of `node` that the instance overrides and a save can restate.
@@ -98,6 +110,17 @@ mod tests {
         let opened = digests(&n);
         n.component.overrides.insert(OverrideField::Opacity);
         assert_eq!(edited_fields(&n, &opened), vec![OverrideField::Opacity]);
+    }
+
+    #[test]
+    fn a_size_change_is_found_without_a_flag() {
+        let mut n = Node::new(NodeId(1), NodeKind::Rectangle);
+        let opened = BTreeMap::from([(OverrideField::Size, size_digest(&n))]);
+        assert!(!size_moved(&n, &opened));
+        n.size = Vec2::new(200.0, 60.0);
+        assert!(size_moved(&n, &opened));
+        assert!(edited_fields(&n, &opened).is_empty(), "only a flagged field is restated");
+        assert!(!size_moved(&n, &BTreeMap::new()), "no size taken at open: nothing to compare with");
     }
 
     #[test]

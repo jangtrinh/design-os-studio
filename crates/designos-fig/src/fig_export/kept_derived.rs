@@ -65,7 +65,8 @@ pub(super) fn pending_derived_symbol_data(cx: &mut ExportCtx<'_>, inst_id: NodeI
     }
     // The sizes of what is inside the instance were computed for the size it had; a resized instance has other ones, and
     // an entry for the instance itself would put its old size back over the new one.
-    if super::kept_overrides::edited_self_fields(cx.doc, inst_id).contains(&OverrideField::Size) {
+    // Whatever changed the size: Studio flags it, the agent tools write the node's size and flag nothing.
+    if super::kept_overrides::size_edited(cx.doc, inst_id) {
         return None;
     }
     let held = cx.doc.pending_instance_derived(inst_id)?;

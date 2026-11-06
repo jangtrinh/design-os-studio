@@ -157,9 +157,14 @@ fn key_states_field(field: OverrideField, key: &str) -> bool {
         OverrideField::Blend => key == "blendMode",
         OverrideField::Size => key == "size",
         OverrideField::Transform => key == "transform",
-        OverrideField::Fills => key == "fillPaints",
-        OverrideField::Stroke => key.starts_with("stroke") || key.starts_with("border") || matches!(key, "dashPattern" | "miterLimit"),
-        OverrideField::Effects => key == "effects",
+        // The style link goes with the paints it supplies: a link left in the entry wins over the paints written beside it.
+        OverrideField::Fills => matches!(key, "fillPaints" | "styleIdForFill" | "inheritFillStyleID"),
+        OverrideField::Stroke => {
+            key.starts_with("stroke")
+                || key.starts_with("border")
+                || matches!(key, "dashPattern" | "miterLimit" | "styleIdForStrokeFill" | "inheritStrokeStyleID")
+        }
+        OverrideField::Effects => matches!(key, "effects" | "styleIdForEffect" | "inheritEffectStyleID"),
         OverrideField::CornerRadii => key.starts_with("rectangle") || matches!(key, "cornerRadius" | "fillGeometry"),
         _ => false,
     }
@@ -176,6 +181,12 @@ fn is_own_entry(entry: &V, main_guid: (u32, u32)) -> bool {
 pub(super) fn edited_self_fields(doc: &Document, inst_id: NodeId) -> BTreeSet<OverrideField> {
     let opened = doc.pending_instance_self_digests(inst_id).unwrap_or_default();
     doc.get(inst_id).map(|node| edited_fields(node, &opened).into_iter().collect()).unwrap_or_default()
+}
+
+/// Whether the unopened instance `inst_id` has another size than when the file was opened, flagged or not.
+pub(super) fn size_edited(doc: &Document, inst_id: NodeId) -> bool {
+    let opened = doc.pending_instance_self_digests(inst_id).unwrap_or_default();
+    doc.get(inst_id).is_some_and(|node| crate::instance_self_digest::size_moved(node, &opened) || edited_fields(node, &opened).contains(&OverrideField::Size))
 }
 
 /// The record states the instance's own fields as they were when the file was opened. A field the user changed on the
