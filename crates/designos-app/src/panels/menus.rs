@@ -782,6 +782,8 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
     let mut picked: Option<Action> = None;
     let mut custom_zoom: Option<f32> = None;
     let esc = ctx.input(|i| i.key_pressed(Key::Escape));
+    // A row is picked by the release of a press this menu saw, not by egui's click (see `widgets::menu::release_pick`).
+    let release = widgets::menu::release_pick(ctx, id, egui::LayerId::new(egui::Order::Foreground, id), rect, anchor);
 
     egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(ctx, |ui| {
         ui.allocate_exact_size(rect.size(), Sense::hover());
@@ -831,7 +833,7 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
                 let hint = crate::widgets::kit::shortcut_look(crate::widgets::kit::State::Default).text;
                 p.text(Pos2::new(r_rect.right() - theme::MENU_SHORTCUT_PAD, r_rect.center().y), Align2::RIGHT_CENTER, r.shortcut, font.clone(), hint);
             }
-            if row_resp.clicked() {
+            if widgets::menu::row_picked(&row_resp, r_rect, release) {
                 picked = Some(r.action);
             }
             ry += row_h;

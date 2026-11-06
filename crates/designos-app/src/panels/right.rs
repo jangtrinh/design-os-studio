@@ -135,7 +135,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     widgets::button_bg(&p, zr, &zresp, open, theme::cr(theme::RADIUS_CONTROL));
     p.text(Pos2::new(zr.left() + 8.0, zr.center().y), Align2::LEFT_CENTER, format!("{}%", (app.view.zoom * 100.0).round()), theme::font_body(), theme::TEXT);
     icons::paint(&p, Icon::ChevronDown, Pos2::new(zr.right() - 10.0, zr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
-    if zresp.clicked() {
+    // The menu opens on the press, so the same press can slide onto a row and pick it on release.
+    if super::toolbar::primary_pressed_in(ui, zr) || (zresp.clicked() && !zresp.clicked_by(egui::PointerButton::Primary)) {
         app.ui.menu = if open { None } else { Some(MenuKind::Zoom) };
         app.ui.menu_anchor = Some(zr);
     }

@@ -148,7 +148,7 @@ pub fn preset_path(ctx: &egui::Context, id: Id, path: &[usize]) {
 /// it resolves widgets with the pointer position at the END of the frame. A menu that picked on that click dropped
 /// picks after a small move or a slow frame, and never saw a press on the opening button slide onto a row. The raw
 /// events know each position, whatever the window batched into one frame.
-fn primary_gesture(events: &[egui::Event], armed: &mut bool, covered: impl Fn(Pos2) -> bool) -> (Option<Pos2>, Option<Pos2>) {
+pub(crate) fn primary_gesture(events: &[egui::Event], armed: &mut bool, covered: impl Fn(Pos2) -> bool) -> (Option<Pos2>, Option<Pos2>) {
     let (mut press, mut release) = (None, None);
     for ev in events {
         if let egui::Event::PointerButton { pos, button, pressed, .. } = ev {
@@ -165,6 +165,38 @@ fn primary_gesture(events: &[egui::Event], armed: &mut bool, covered: impl Fn(Po
         }
     }
     (press, release)
+}
+
+/// The release that picks in a hand-built menu (one that does not go through [`popup_tree`]): the position where the
+/// primary button went up to end a press this menu saw, or `None`. The caller picks the row or cell under that
+/// position instead of waiting for egui's `clicked()`, which drops a release that moved more than 6 px or took longer
+/// than 0.8 s. Call it once per frame, before the rows are built, with the `own` layer the menu's area lives on, its
+/// `panel` rect and the `anchor` of the button that opened it.
+///
+/// A release does not count when a higher layer than `own` (a toast, a tooltip) covers it, when its press was never
+/// seen (it started outside, or before the menu opened), or when its press landed outside the panel and the anchor,
+/// which closes the menu. The press that opened the menu counts: the menu is drawn in the frame that carries it.
+pub(crate) fn release_pick(ctx: &egui::Context, id: Id, own: egui::LayerId, panel: Rect, anchor: Option<Rect>) -> Option<Pos2> {
+    let key = id.with("release-armed");
+    let now = ctx.cumulative_pass_nr();
+    let (mut armed, seen) = ctx.data(|d| d.get_temp::<(bool, u64)>(key)).unwrap_or((false, 0));
+    // A press left over from a menu that went away must not arm the next one.
+    if now > seen + 3 {
+        armed = false;
+    }
+    let events = ctx.input(|i| i.events.clone());
+    let covered = |p: Pos2| ctx.layer_id_at(p).is_some_and(|l| l != own && l.order >= own.order);
+    let (press, release) = primary_gesture(&events, &mut armed, covered);
+    ctx.data_mut(|d| d.insert_temp(key, (armed, now)));
+    let press_outside = press.is_some_and(|p| !panel.contains(p) && !anchor.is_some_and(|a| a.contains(p)));
+    release.filter(|_| !press_outside)
+}
+
+/// Whether a row or cell of a hand-built menu is picked this frame: the `release` from [`release_pick`] ended on
+/// `rect`, or the keyboard (Enter or Space on the focused row) or a screen reader activated it. A pointer click is left
+/// to the release: egui's own click drops a release that moved more than 6 px or took longer than 0.8 s.
+pub(crate) fn row_picked(resp: &egui::Response, rect: Rect, release: Option<Pos2>) -> bool {
+    release.is_some_and(|p| rect.contains(p)) || (resp.clicked() && !resp.clicked_by(egui::PointerButton::Primary))
 }
 
 /// The panel of one menu level: size, per-row tops (relative to the panel top).

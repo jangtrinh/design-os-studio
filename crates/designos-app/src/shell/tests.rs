@@ -1330,6 +1330,7 @@ mod project_tab;
 mod proto;
 mod proto_vars;
 mod relayout_budget;
+mod release_pick_menus;
 mod resized_shape_geometry;
 mod screenshot_capture;
 mod select_cli;
