@@ -2603,11 +2603,19 @@ impl App {
         }
     }
 
+    /// Save and Save As from the menu and the keyboard. Loading the pages of a large `.fig` holds the window for
+    /// a while, so the status goes up first and the write runs on the next frame.
     pub fn save(&mut self, as_new: bool) {
-        self.save_with(as_new, &io::SystemDialogs);
+        self.save_after_status(as_new, &io::SystemDialogs, true);
     }
 
+    /// Save for a caller that continues with the result (the questions before quitting or leaving a tab): the
+    /// write runs now.
     pub fn save_with(&mut self, as_new: bool, dialogs: &dyn io::FileDialogs) {
+        self.save_after_status(as_new, dialogs, false);
+    }
+
+    fn save_after_status(&mut self, as_new: bool, dialogs: &dyn io::FileDialogs, status_first: bool) {
         crate::decks::ui::flush_notes(self);
         // Library files save back to the library; "Save as…" writes an external copy.
         if !as_new && self.lib_file.is_some() {
@@ -2622,6 +2630,12 @@ impl App {
             }
         };
         let Some(path) = target else { return };
+        if status_first && io::uses_native_serializer(&path) && self.doc.has_pending_pages() {
+            self.run_after_status_paint("Saving\u{2026} loading all pages", move |app| {
+                let _ = app.persist_document_to(&path);
+            });
+            return;
+        }
         let _ = self.persist_document_to(&path);
     }
 

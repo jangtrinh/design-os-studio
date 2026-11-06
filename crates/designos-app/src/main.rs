@@ -92,6 +92,8 @@ mod macos_terminate;
 mod native_write_copies_tests;
 #[cfg(test)]
 mod native_write_pending_pages_tests;
+#[cfg(test)]
+mod native_write_save_status_tests;
 mod node_field_diff;
 mod ops;
 mod panels;
