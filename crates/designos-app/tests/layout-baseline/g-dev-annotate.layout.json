@@ -226,7 +226,7 @@
       "count": 1
     },
     "btn-\"code-connect-terminal\"": {
-      "region": "unknown",
+      "region": "right_panel",
       "rect": [
         1375.0,
         1037.0,
