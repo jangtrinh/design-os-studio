@@ -288,6 +288,44 @@ fn set_variables_follows_alias_chains() {
     assert_eq!(after, drawn_measure(&e, id));
 }
 
+/// Changing only a collection's default mode changes the resolved value of bound text.
+/// The hug label and its parent must be remeasured even though no variable value was upserted.
+#[test]
+fn set_variables_collection_default_mode_remeasures_hug_text() {
+    let mut e = Engine::new();
+    let page = default_page(&e);
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables",
+            "upsert_collections": [{"id": "type", "name": "Type", "modes": [
+                {"id": "m1", "name": "Small"}, {"id": "m2", "name": "Large"}
+            ], "default_mode": "m1"}],
+            "upsert_variables": [{"id": "type/body", "name": "Body", "collection": "type", "kind": "number",
+                "values": {"m1": 14.0, "m2": 28.0}}]}]}),
+    )
+    .unwrap();
+    let (button, label) = hug_button(&mut e, page, "ModeButton", json!("var:Type/Body"));
+    let before = [size(&e, button), size(&e, label)];
+
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables", "upsert_collections": [{
+            "id": "type", "default_mode": "m2"
+        }]}]}),
+    )
+    .unwrap();
+
+    let after = [size(&e, button), size(&e, label)];
+    assert!(after[1].x > before[1].x, "default mode m1 -> m2 must widen bound label ({before:?} -> {after:?})");
+    assert_eq!(after[1], drawn_measure(&e, label));
+    assert_eq!(after[0].x, 24.0 + after[1].x, "hug parent must follow the remeasured label");
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!([size(&e, button), size(&e, label)], before, "undo restores mode and layout");
+    e.call("designos_redo", json!({})).unwrap();
+    assert_eq!([size(&e, button), size(&e, label)], after, "redo restores mode and layout");
+}
+
 /// The batch `apply_spec` op sizes hug text with the renderer, not the estimate.
 #[test]
 fn batch_apply_spec_op_measures_hug_text() {

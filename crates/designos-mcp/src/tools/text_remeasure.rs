@@ -4,7 +4,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use designos_doc::{resolve_node, set_bound_property, Command, Document, Node, NodeId, NodeKind, TextAutoResize, Variable, VariableKind, VariableValue, Vec2};
+use designos_doc::{
+    resolve_node, set_bound_property, Command, Document, Node, NodeId, NodeKind, TextAutoResize, Variable, VariableCollection, VariableKind, VariableValue,
+    Vec2,
+};
 
 /// Bound properties that change the size of a text box.
 const TEXT_BOX_KEYS: [&str; 10] =
@@ -30,18 +33,24 @@ pub(crate) fn resize_hug_text(doc: &Document, node: &mut Node) {
 }
 
 /// The variables a `set_variables` op writes or deletes, as they were before it ran.
-pub(crate) struct VariablesBefore(Vec<(String, Option<Variable>)>);
+pub(crate) struct VariablesBefore {
+    variables: Vec<(String, Option<Variable>)>,
+    collections: Vec<(String, Option<VariableCollection>)>,
+}
 
 impl VariablesBefore {
-    pub(crate) fn capture(doc: &Document, written: &[&str]) -> Self {
-        Self(written.iter().map(|id| ((*id).to_string(), doc.variables.get(*id).cloned())).collect())
+    pub(crate) fn capture(doc: &Document, written: &[&str], collection_ids: &[&str]) -> Self {
+        Self {
+            variables: written.iter().map(|id| ((*id).to_string(), doc.variables.get(*id).cloned())).collect(),
+            collections: collection_ids.iter().map(|id| ((*id).to_string(), doc.variable_collections.get(*id).cloned())).collect(),
+        }
     }
 
     /// Ids of the written variables whose value changed and can change a text box (numbers
     /// and strings), plus every variable whose alias chain reaches one of them.
     fn changed_text_variables(&self, doc: &Document) -> HashSet<String> {
         let mut changed: HashSet<String> = HashSet::new();
-        for (id, before) in &self.0 {
+        for (id, before) in &self.variables {
             let after = doc.variables.get(id);
             if after == before.as_ref() {
                 continue;
@@ -49,6 +58,17 @@ impl VariablesBefore {
             let kind = after.or(before.as_ref()).map(|v| v.kind);
             if matches!(kind, Some(VariableKind::Number | VariableKind::String)) {
                 changed.insert(id.clone());
+            }
+        }
+        for (id, before) in &self.collections {
+            let Some(after) = doc.variable_collections.get(id) else { continue };
+            if Some(after) == before.as_ref() {
+                continue;
+            }
+            for variable_id in &after.variables {
+                if matches!(doc.variables.get(variable_id).map(|v| v.kind), Some(VariableKind::Number | VariableKind::String)) {
+                    changed.insert(variable_id.clone());
+                }
             }
         }
         if changed.is_empty() {
