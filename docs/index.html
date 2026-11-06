@@ -476,9 +476,29 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.9. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.10. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--0710" id="new-in-v0710" aria-labelledby="v0710-h">
+          <h3 id="v0710-h" class="new-ver">0.7.10</h3>
+          <p class="new-note">Captured with the 0.7.10 release build, headlessly with <code>designos-studio --screenshot</code> (2x), on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click the image for full size. The connector was drawn with the published <code>designos-mcp</code> (<code>designos_apply_batch</code>, <code>connect</code> op).</p>
+          <div class="new-shots">
+            <figure class="new-shot">
+              <a class="new-shot__link" href="images/v0.7.10/connector-two-layers.png">
+                <img class="new-img" src="images/v0.7.10/connector-two-layers.png" width="2880" height="1800" decoding="async" alt="DESIGN:OS Studio 0.7.10 on a scratch page of a copy of the Untitled UI PRO v8.0 Figma kit: a Connector layer is selected, an elbow line with an arrowhead runs from the purple Save button to the white Share button, and the Design pane shows the Connector layer">
+              </a>
+              <figcaption><strong>Connector</strong> It sticks to two layers and re-routes when one moves.</figcaption>
+            </figure>
+          </div>
+          <ul class="new-bullets">
+            <li><strong>Save keeps every page.</strong> A save of a large <code>.fig</code> no longer drops the content of pages that were never opened. Files imported before this fix: import them again from the original <code>.fig</code>.</li>
+            <li><strong>Connectors.</strong> Draw a live connector with the Connector tool (X). It sticks to two layers and re-routes when one moves. Agents draw one with the <code>connect</code> op of <code>designos_apply_batch</code>.</li>
+            <li><strong><code>.fig</code> save.</strong> A save keeps every variable the file uses, deleted ones included, and writes instance fill and stroke overrides as the file recorded them.</li>
+            <li><strong>Saving takes longer.</strong> A large <code>.fig</code> loads every page first, so Save As on the Untitled UI kit went from 6.6 s to 38.2 s.</li>
+            <li><strong>App and security.</strong> Quitting from the Dock asks "Save changes?" when a tab has unsaved edits, and private approval folders with an extended ACL are refused.</li>
+            <li><strong>Fixes.</strong> Nested Stretch instances keep their size, a component can no longer hold an instance of itself, and background blur behind a translucent child of a paintless group blurs fully. Many fixes were carried from pull requests by @NamAIEngineer.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--079" id="new-in-v079" aria-labelledby="v079-h">
           <h3 id="v079-h" class="new-ver">0.7.9</h3>
           <ul class="new-bullets">

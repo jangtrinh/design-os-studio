@@ -169,7 +169,28 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.9. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.10. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v0710"></a>
+### 0.7.10
+
+Captured with the 0.7.10 release build, headlessly with `designos-studio --screenshot` (2x), on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click the image for full size. The page is a scratch page of the copy, and the connector was drawn with the published `designos-mcp` (`designos_apply_batch`, `connect` op).
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="docs/images/v0.7.10/connector-two-layers.png"><img src="docs/images/v0.7.10/connector-two-layers.png" alt="DESIGN:OS Studio 0.7.10 on a scratch page of a copy of the Untitled UI PRO v8.0 Figma kit: a Connector layer is selected, an elbow line with an arrowhead runs from the purple Save button to the white Share button, and the Design pane shows the Connector layer" width="640"></a><br>
+      <sub><b>Connector</b><br>It sticks to two layers and re-routes when one moves.<br>Command: <code>designos-studio kit-connector.designos --select id:210264 --zoom 100 --size 1440x900 --scale 2 --no-toast --screenshot docs/images/v0.7.10/connector-two-layers.png</code></sub>
+    </td>
+  </tr>
+</table>
+
+- **Save keeps every page.** A save of a large `.fig` no longer drops the content of pages that were never opened. Files imported before this fix: import them again from the original `.fig`.
+- **Connectors.** Draw a live connector with the Connector tool (X). It sticks to two layers and re-routes when one moves. Agents draw one with the `connect` op of `designos_apply_batch`.
+- **`.fig` save.** A save keeps every variable the file uses, deleted ones included, and writes instance fill and stroke overrides as the file recorded them.
+- **Saving takes longer.** A large `.fig` loads every page first, so Save As on the Untitled UI kit went from 6.6 s to 38.2 s.
+- **App and security.** Quitting from the Dock asks "Save changes?" when a tab has unsaved edits, and private approval folders with an extended ACL are refused.
+- **Fixes.** Nested Stretch instances keep their size, a component can no longer hold an instance of itself, and background blur behind a translucent child of a paintless group blurs fully. Many fixes were carried from pull requests by @NamAIEngineer.
 
 <a id="new-in-v079"></a>
 ### 0.7.9
