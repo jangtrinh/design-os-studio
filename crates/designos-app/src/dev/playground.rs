@@ -582,6 +582,7 @@ mod tests {
             .shapes;
         let recorded = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "show".to_string())))).expect("switch hit");
         assert!(recorded.height() + 0.5 >= theme::TARGET_MIN, "hit height {}", recorded.height());
+        assert!(recorded.width() + 0.5 >= theme::TARGET_MIN, "hit width {}", recorded.width());
         let track = shapes.iter().find_map(|clipped| match &clipped.shape {
             egui::epaint::Shape::Rect(shape) if shape.fill == theme::BG_BRAND => Some(shape.rect),
             _ => None,
