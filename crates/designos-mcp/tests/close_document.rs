@@ -480,6 +480,11 @@ fn not_shown_answer(close_id: u64) -> Value {
 }
 
 /// Plays the editor: waits for the close line, then writes `answers(close_id)` as the result file, one after the other.
+///
+/// Answers are published back-to-back.  A wall-clock sleep between a stale answer and the real refusal makes this
+/// test depend on the server's acknowledgement timeout and flakes when the runner is under load.  The separate
+/// `an_answer_with_another_close_id_is_ignored` test covers the stale-id filtering while this test checks that the
+/// matching refusal, rather than a stale `closed:true`, is the result.
 fn editor_answers(session_dir: PathBuf, answers: impl FnOnce(u64) -> Vec<Value> + Send + 'static) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let end = Instant::now() + Duration::from_secs(5);
@@ -487,7 +492,6 @@ fn editor_answers(session_dir: PathBuf, answers: impl FnOnce(u64) -> Vec<Value> 
             if let Some(id) = last_close_id(&session_dir) {
                 for body in answers(id) {
                     fs::write(session_dir.join(CloseIntent::RESULT_FILE), body.to_string()).unwrap();
-                    thread::sleep(Duration::from_millis(15));
                 }
                 return;
             }
