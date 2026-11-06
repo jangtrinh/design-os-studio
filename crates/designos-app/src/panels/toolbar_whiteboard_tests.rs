@@ -200,8 +200,8 @@ fn a_narrow_window_moves_the_tools_into_a_more_menu() {
     assert!(bar.left() >= 0.0 && bar.right() <= narrow.right(), "the bar {bar:?} stays inside a {} px window", narrow.width());
     let more = named(&ctx, "toolbar-whiteboard-more").expect("a ... button");
     assert!(bar.contains_rect(more), "the ... button is inside the bar");
-    assert!(!app.wb_group.overflow.is_empty());
-    assert!(named(&ctx, "toolbar-whiteboard-tool-0").is_none() || app.wb_group.overflow.len() < ROW_TOOLS.len());
+    assert!(!app.wb_group.overflow().is_empty());
+    assert!(named(&ctx, "toolbar-whiteboard-tool-0").is_none() || app.wb_group.overflow().len() < ROW_TOOLS.len());
     frame(&ctx, &mut app, narrow, Some(more.center()));
     assert_eq!(app.ui.menu, Some(MenuKind::WhiteboardMore));
 }
@@ -215,7 +215,7 @@ fn a_wide_window_needs_no_more_menu() {
         frame(&ctx, &mut app, screen, None);
     }
     assert!(named(&ctx, "toolbar-whiteboard-more").is_none());
-    assert!(app.wb_group.overflow.is_empty());
+    assert!(app.wb_group.overflow().is_empty());
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn the_bar_widens_by_the_group_and_nothing_else_when_collapsed() {
     let base = super::super::toolbar::toolbar_width();
     assert_eq!(base, 512.0, "the base toolbelt is unchanged");
     assert_eq!(extra_width(screen, base, 0.0), COLLAPSED_EXTRA);
-    assert_eq!(COLLAPSED_EXTRA, 49.0, "divider 1 + gap 8 + button 32 + gap 8");
+    assert_eq!(COLLAPSED_EXTRA, 54.0, "gap 13 + divider 1 + gap 8 + button 32");
 }
 
 #[test]
@@ -241,4 +241,11 @@ fn deck_and_board_files_and_dev_mode_have_no_group() {
     assert!(available(&app));
     app.ui.dev_mode = true;
     assert!(!available(&app));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn the_macos_reduce_motion_switch_can_be_read() {
+    // the value depends on the machine's accessibility settings; the call itself must work and not crash
+    let _reduced: bool = platform_reduced_motion();
 }

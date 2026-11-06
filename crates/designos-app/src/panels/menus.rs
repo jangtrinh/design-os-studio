@@ -893,7 +893,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         }
         MenuKind::WhiteboardMore => {
             let nodes: Vec<Node> =
-                app.wb_group.overflow.iter().map(|t| leaf(tool_menu_label(*t), t.shortcut(), Action::Tool(*t)).icon(super::toolbar::tool_icon(*t))).collect();
+                app.wb_group.overflow().iter().map(|t| leaf(tool_menu_label(*t), t.shortcut(), Action::Tool(*t)).icon(super::toolbar::tool_icon(*t))).collect();
             let items = to_items(&nodes);
             let h = theme::MENU_PADDING * 2.0 + items.len() as f32 * theme::MENU_ITEM_HEIGHT;
             let pos = super::toolbar::tool_menu_pos(anchor.unwrap_or(Rect::from_min_size(screen.center(), Vec2::splat(theme::TOOL_BUTTON))), h);

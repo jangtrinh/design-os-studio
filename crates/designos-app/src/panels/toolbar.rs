@@ -233,8 +233,7 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
     }
     let wb = super::toolbar_whiteboard::available(app);
     let (wb_t, extra) = if wb {
-        let root = app.lib.as_ref().map(|l| l.root().to_path_buf());
-        app.wb_group.ensure_loaded(root.as_deref());
+        app.wb_group.ensure_loaded(app.lib.as_ref().map(|l| l.root()));
         let t = super::toolbar_whiteboard::open_fraction(app, ui.ctx());
         (t, super::toolbar_whiteboard::extra_width(screen, toolbar_width(), t))
     } else {
@@ -308,11 +307,11 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
         }
     }
 
-    x += theme::TOOL_GROUP_GAP;
     if wb {
         let spot = super::toolbar_whiteboard::GroupSpot { bar, x, y, screen, base_width: toolbar_width(), t: wb_t };
-        x = super::toolbar_whiteboard::show(app, ui, spot) + theme::TOOL_GROUP_GAP;
+        x = super::toolbar_whiteboard::show(app, ui, spot);
     }
+    x += theme::TOOL_GROUP_GAP;
     let ar = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON));
     widgets::record(ui, "toolbar-actions-btn", ar);
     let aresp = ui.interact(ar, ui.id().with("actions"), Sense::click());

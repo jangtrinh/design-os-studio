@@ -27,33 +27,41 @@ pub const ROW_TOOLS: [Tool; 2] = [Tool::Connector, Tool::Section];
 const SIDE_MARGIN: f32 = theme::TOOLBELT_BOTTOM_MARGIN;
 /// One row slot: the gap before a button, then the button.
 const SLOT_W: f32 = theme::TOOL_GROUP_GAP + theme::TOOL_BUTTON;
-/// Width the divider and the group button add to the bar, with the gap that follows the button.
-pub const COLLAPSED_EXTRA: f32 = theme::BORDER_WIDTH + theme::TOOL_GROUP_GAP + theme::TOOL_BUTTON + theme::TOOL_GROUP_GAP;
+/// Width the divider and the group button add to the bar. The divider keeps the gaps of the one before the mode switcher
+/// (`TOOLBAR_DIVIDER_GAP_BEFORE`, `TOOLBAR_DIVIDER_GAP_AFTER`); the gap that follows the button is the one the bar already
+/// had before the Actions button.
+pub const COLLAPSED_EXTRA: f32 = theme::TOOLBAR_DIVIDER_GAP_BEFORE + theme::BORDER_WIDTH + theme::TOOLBAR_DIVIDER_GAP_AFTER + theme::TOOL_BUTTON;
 
 /// The Whiteboard group's state, kept on [`App`].
 #[derive(Debug, Default)]
 pub struct WbGroup {
     /// Whether the row is expanded.
     pub open: bool,
-    /// Settings root the state was read from, if it was read.
-    loaded: Option<Option<PathBuf>>,
+    /// Whether the state was read, and from which settings root.
+    loaded: bool,
+    loaded_root: Option<PathBuf>,
     /// Animation length chosen when the group was last toggled.
     anim_secs: Option<f32>,
     /// Test hook: `Some(b)` stands in for the OS reduced-motion setting.
     pub reduced_motion_override: Option<bool>,
-    /// Tools that did not fit in the row at the last paint, shown in the `...` menu.
-    pub overflow: Vec<Tool>,
+    /// How many of [`ROW_TOOLS`] fit in the row at the last paint; the rest are in the `...` menu.
+    shown: usize,
 }
 
 impl WbGroup {
     /// Reads the saved state from `root` once per root. A missing, unreadable or corrupt file means collapsed.
     pub fn ensure_loaded(&mut self, root: Option<&Path>) {
-        let want = root.map(Path::to_path_buf);
-        if self.loaded.as_ref() == Some(&want) {
+        if self.loaded && self.loaded_root.as_deref() == root {
             return;
         }
         self.open = root.and_then(|r| crate::comments::settings::load_flag(r, SETTING_KEY)).unwrap_or(false);
-        self.loaded = Some(want);
+        self.loaded = true;
+        self.loaded_root = root.map(Path::to_path_buf);
+    }
+
+    /// The tools that did not fit in the row at the last paint.
+    pub fn overflow(&self) -> &'static [Tool] {
+        &ROW_TOOLS[self.shown.min(ROW_TOOLS.len())..]
     }
 
     /// Flips the state and saves it to `root`. The new state applies even when the save fails; the error is returned.
@@ -71,24 +79,30 @@ impl WbGroup {
     }
 }
 
-/// Whether the OS asks apps to reduce motion. `DESIGNOS_REDUCE_MOTION=1` forces it on. Read once per process.
+/// Whether the OS asks apps to reduce motion. `DESIGNOS_REDUCE_MOTION=1` forces it on. Read at each toggle, so a change
+/// in the system settings applies without a restart. Windows has no reader yet: it reports false.
 fn os_reduced_motion() -> bool {
-    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *CACHE.get_or_init(|| {
-        if let Ok(v) = std::env::var("DESIGNOS_REDUCE_MOTION") {
-            return matches!(v.trim(), "1" | "true" | "yes" | "on");
-        }
-        platform_reduced_motion()
-    })
+    if let Ok(v) = std::env::var("DESIGNOS_REDUCE_MOTION") {
+        return matches!(v.trim(), "1" | "true" | "yes" | "on");
+    }
+    platform_reduced_motion()
 }
 
+/// `NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion`: the "Reduce motion" accessibility switch.
 #[cfg(target_os = "macos")]
 fn platform_reduced_motion() -> bool {
-    std::process::Command::new("defaults")
-        .args(["read", "com.apple.universalaccess", "reduceMotion"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "1")
-        .unwrap_or(false)
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::{msg_send, rc::Retained};
+    let Some(class) = AnyClass::get(c"NSWorkspace") else { return false };
+    // SAFETY: both selectors exist on NSWorkspace (macOS 10.12+) and take no arguments; `sharedWorkspace` returns a
+    // retained singleton and the property returns a BOOL.
+    unsafe {
+        let workspace: Option<Retained<AnyObject>> = msg_send![class, sharedWorkspace];
+        match workspace {
+            Some(ws) => msg_send![&*ws, accessibilityDisplayShouldReduceMotion],
+            None => false,
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -164,9 +178,9 @@ pub fn open_fraction(app: &App, ctx: &egui::Context) -> f32 {
 
 /// Toggles the group and saves the choice; a failed save is reported in a toast.
 pub fn toggle(app: &mut App) {
-    let root = app.lib.as_ref().map(|l| l.root().to_path_buf());
-    app.wb_group.ensure_loaded(root.as_deref());
-    if let Err(e) = app.wb_group.toggle(root.as_deref()) {
+    let root = app.lib.as_ref().map(|l| l.root());
+    app.wb_group.ensure_loaded(root);
+    if let Err(e) = app.wb_group.toggle(root) {
         app.show_toast(e, true);
     }
 }
@@ -188,13 +202,14 @@ pub struct GroupSpot {
     pub t: f32,
 }
 
-/// Paints the divider, the group button and the row. Returns the x after the group (before the gap that precedes the
-/// next control).
+/// Paints the divider, the group button and the row, starting at the right edge of the last tool. Returns the x after the
+/// group (before the gap that precedes the next control).
 pub fn show(app: &mut App, ui: &mut Ui, spot: GroupSpot) -> f32 {
     let GroupSpot { bar, mut x, y, screen, base_width, t } = spot;
     let p = ui.painter().clone();
+    x += theme::TOOLBAR_DIVIDER_GAP_BEFORE;
     widgets::vline(&p, x, bar.top() + 1.0, bar.bottom() - 1.0, theme::BORDER);
-    x += theme::BORDER_WIDTH + theme::TOOL_GROUP_GAP;
+    x += theme::BORDER_WIDTH + theme::TOOLBAR_DIVIDER_GAP_AFTER;
 
     let br = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON));
     widgets::record(ui, "toolbar-whiteboard-group", br);
@@ -209,7 +224,7 @@ pub fn show(app: &mut App, ui: &mut Ui, spot: GroupSpot) -> f32 {
     x += theme::TOOL_BUTTON;
 
     let fit = fit_row(row_room(screen, base_width));
-    app.wb_group.overflow = ROW_TOOLS[fit.shown..].to_vec();
+    app.wb_group.shown = fit.shown;
     if t <= 0.0 {
         if app.ui.menu == Some(MenuKind::WhiteboardMore) {
             app.ui.menu = None;

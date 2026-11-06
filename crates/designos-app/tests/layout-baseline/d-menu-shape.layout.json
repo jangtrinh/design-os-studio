@@ -47,7 +47,7 @@
     {
       "name": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        672.0,
         760.0,
         246.0,
         272.0
@@ -248,7 +248,7 @@
     "menu-check-0-0": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         768.0,
         246.0,
         32.0
@@ -328,7 +328,7 @@
     "menu-level-0": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         760.0,
         246.0,
         272.0
@@ -338,7 +338,7 @@
     "menu-row-0-0": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         768.0,
         246.0,
         32.0
@@ -348,7 +348,7 @@
     "menu-row-0-1": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         800.0,
         246.0,
         32.0
@@ -358,7 +358,7 @@
     "menu-row-0-2": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         832.0,
         246.0,
         32.0
@@ -368,7 +368,7 @@
     "menu-row-0-3": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         864.0,
         246.0,
         32.0
@@ -378,7 +378,7 @@
     "menu-row-0-4": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         896.0,
         246.0,
         32.0
@@ -388,7 +388,7 @@
     "menu-row-0-5": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         928.0,
         246.0,
         32.0
@@ -398,7 +398,7 @@
     "menu-row-0-6": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         960.0,
         246.0,
         32.0
@@ -408,7 +408,7 @@
     "menu-row-0-7": {
       "region": "overlay:Foreground/0",
       "rect": [
-        674.0,
+        671.5,
         992.0,
         246.0,
         32.0
@@ -938,7 +938,7 @@
     "tool-chevron-0": {
       "region": "canvas",
       "rect": [
-        559.5,
+        557.0,
         1036.0,
         16.0,
         32.0
@@ -948,7 +948,7 @@
     "tool-chevron-1": {
       "region": "canvas",
       "rect": [
-        615.5,
+        613.0,
         1036.0,
         16.0,
         32.0
@@ -958,7 +958,7 @@
     "tool-chevron-2": {
       "region": "canvas",
       "rect": [
-        671.5,
+        669.0,
         1036.0,
         16.0,
         32.0
@@ -968,7 +968,7 @@
     "tool-chevron-3": {
       "region": "canvas",
       "rect": [
-        727.5,
+        725.0,
         1036.0,
         16.0,
         32.0
@@ -978,7 +978,7 @@
     "tool-chevron-4": {
       "region": "canvas",
       "rect": [
-        783.5,
+        781.0,
         1036.0,
         16.0,
         32.0
@@ -988,7 +988,7 @@
     "toolbar-actions-btn": {
       "region": "canvas",
       "rect": [
-        896.5,
+        899.0,
         1036.0,
         32.0,
         32.0
@@ -998,7 +998,7 @@
     "toolbar-mode-design": {
       "region": "canvas",
       "rect": [
-        991.75,
+        994.25,
         1038.0,
         39.25,
         28.0
@@ -1008,7 +1008,7 @@
     "toolbar-mode-dev": {
       "region": "canvas",
       "rect": [
-        1031.25,
+        1033.75,
         1038.0,
         39.25,
         28.0
@@ -1018,7 +1018,7 @@
     "toolbar-mode-draw": {
       "region": "canvas",
       "rect": [
-        952.5,
+        955.0,
         1038.0,
         39.25,
         28.0
@@ -1044,9 +1044,9 @@
     {
       "region": "canvas",
       "rect": [
-        519.5,
+        517.0,
         1028.0,
-        561.0,
+        566.0,
         48.0
       ],
       "sense": [
@@ -1058,7 +1058,7 @@
     {
       "region": "canvas",
       "rect": [
-        527.5,
+        525.0,
         1036.0,
         32.0,
         32.0
@@ -1071,7 +1071,7 @@
     {
       "region": "canvas",
       "rect": [
-        583.5,
+        581.0,
         1036.0,
         32.0,
         32.0
@@ -1084,7 +1084,7 @@
     {
       "region": "canvas",
       "rect": [
-        639.5,
+        637.0,
         1036.0,
         32.0,
         32.0
@@ -1097,7 +1097,7 @@
     {
       "region": "canvas",
       "rect": [
-        695.5,
+        693.0,
         1036.0,
         32.0,
         32.0
@@ -1110,7 +1110,7 @@
     {
       "region": "canvas",
       "rect": [
-        751.5,
+        749.0,
         1036.0,
         32.0,
         32.0
@@ -1123,7 +1123,7 @@
     {
       "region": "canvas",
       "rect": [
-        807.5,
+        805.0,
         1036.0,
         32.0,
         32.0

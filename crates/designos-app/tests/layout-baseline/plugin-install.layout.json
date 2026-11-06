@@ -808,7 +808,7 @@
     "tool-chevron-0": {
       "region": "overlay:Foreground/0",
       "rect": [
-        559.5,
+        557.0,
         1036.0,
         16.0,
         32.0
@@ -818,7 +818,7 @@
     "tool-chevron-1": {
       "region": "overlay:Foreground/0",
       "rect": [
-        615.5,
+        613.0,
         1036.0,
         16.0,
         32.0
@@ -828,7 +828,7 @@
     "tool-chevron-2": {
       "region": "overlay:Foreground/0",
       "rect": [
-        671.5,
+        669.0,
         1036.0,
         16.0,
         32.0
@@ -838,7 +838,7 @@
     "tool-chevron-3": {
       "region": "overlay:Foreground/0",
       "rect": [
-        727.5,
+        725.0,
         1036.0,
         16.0,
         32.0
@@ -848,7 +848,7 @@
     "tool-chevron-4": {
       "region": "overlay:Foreground/0",
       "rect": [
-        783.5,
+        781.0,
         1036.0,
         16.0,
         32.0
@@ -858,7 +858,7 @@
     "toolbar-actions-btn": {
       "region": "overlay:Foreground/0",
       "rect": [
-        896.5,
+        899.0,
         1036.0,
         32.0,
         32.0
@@ -868,7 +868,7 @@
     "toolbar-mode-design": {
       "region": "overlay:Foreground/0",
       "rect": [
-        991.75,
+        994.25,
         1038.0,
         39.25,
         28.0
@@ -878,7 +878,7 @@
     "toolbar-mode-dev": {
       "region": "overlay:Foreground/0",
       "rect": [
-        1031.25,
+        1033.75,
         1038.0,
         39.25,
         28.0
@@ -888,7 +888,7 @@
     "toolbar-mode-draw": {
       "region": "overlay:Foreground/0",
       "rect": [
-        952.5,
+        955.0,
         1038.0,
         39.25,
         28.0
@@ -1233,9 +1233,9 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        519.5,
+        517.0,
         1028.0,
-        561.0,
+        566.0,
         48.0
       ],
       "sense": [
@@ -1247,7 +1247,7 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        527.5,
+        525.0,
         1036.0,
         32.0,
         32.0
@@ -1260,7 +1260,7 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        583.5,
+        581.0,
         1036.0,
         32.0,
         32.0
@@ -1273,7 +1273,7 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        639.5,
+        637.0,
         1036.0,
         32.0,
         32.0
@@ -1286,7 +1286,7 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        695.5,
+        693.0,
         1036.0,
         32.0,
         32.0
@@ -1299,7 +1299,7 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        751.5,
+        749.0,
         1036.0,
         32.0,
         32.0
@@ -1312,7 +1312,7 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        807.5,
+        805.0,
         1036.0,
         32.0,
         32.0
