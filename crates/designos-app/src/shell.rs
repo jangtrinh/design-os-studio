@@ -387,6 +387,11 @@ pub struct Shell {
     shot: Option<Shot>,
     title: String,
     paste_chord: crate::clipboard::PasteChord,
+    /// Cleanup can be requested by both the close event and eframe's `on_exit` callback.
+    /// Keep the side effects one-shot when both paths observe the same shutdown.
+    quit_finished: bool,
+    #[cfg(test)]
+    quit_cleanup_runs: u8,
     /// Why a `--select` or `--edit-text` named nothing, when it did not.
     select_miss: Option<String>,
     launch_had_panel_or_file: bool,
@@ -970,7 +975,18 @@ impl Shell {
         });
         #[cfg(target_os = "macos")]
         crate::macos_terminate::sync(ctx, &app);
-        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file, pointer_over_align_row: false }
+        Self {
+            app,
+            shot,
+            title: String::new(),
+            paste_chord: Default::default(),
+            quit_finished: false,
+            #[cfg(test)]
+            quit_cleanup_runs: 0,
+            select_miss,
+            launch_had_panel_or_file,
+            pointer_over_align_row: false,
+        }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -2298,6 +2314,14 @@ impl Shell {
     }
 
     fn finish_quit(&mut self) {
+        if self.quit_finished {
+            return;
+        }
+        self.quit_finished = true;
+        #[cfg(test)]
+        {
+            self.quit_cleanup_runs += 1;
+        }
         if self.shot.is_none() {
             crate::decks::ui::flush_notes(&mut self.app);
             self.app.save_close_version();
