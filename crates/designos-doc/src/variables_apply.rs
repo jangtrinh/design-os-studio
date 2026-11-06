@@ -558,6 +558,17 @@ pub fn node_has_style_bindings(doc: &Document, node: &Node) -> bool {
     !node.style_refs.is_empty() && node.style_refs.values().any(|k| doc.style_meta.get(k).is_some_and(|m| !m.bindings.is_empty()))
 }
 
+/// Removes direct typography bindings owned by a text style. Leaving a node binding in place
+/// would make it override the linked style when `resolve_node` applies bindings.
+pub fn detach_text_style_bindings(node: &mut Node) {
+    node.variables.bindings.retain(|key, _| {
+        !matches!(
+            key.as_str(),
+            "fontFamily" | "fontStyle" | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent"
+        )
+    });
+}
+
 /// The node with its variable bindings (and linked style bindings) applied. Borrowed when it has none.
 pub fn resolve_node<'a>(doc: &Document, node: &'a Node) -> Cow<'a, Node> {
     if doc.variables.is_empty() || (node.variables.bindings.is_empty() && !node_has_style_bindings(doc, node)) {

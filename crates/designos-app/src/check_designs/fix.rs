@@ -113,6 +113,7 @@ impl App {
                 if !hardcoded::style_is_current(&self.doc, id, style) {
                     return false;
                 }
+                self.end_text_edit_of(&[id]);
                 self.apply_style_in(tx, &[id], style);
                 true
             }
