@@ -55,6 +55,7 @@ mod load_repair_tests;
 mod node;
 pub mod openpencil;
 mod paint;
+mod pending_pages;
 mod prototype;
 pub mod query;
 mod renumber_ids;
@@ -111,6 +112,7 @@ pub use load_repair::*;
 pub use node::*;
 pub use openpencil::*;
 pub use paint::*;
+pub use pending_pages::PendingPagesError;
 pub use prototype::*;
 pub use settings::*;
 pub use silhouette::{silhouette_source, FilllessKnockout, SilhouetteMode, SilhouetteSource, FILLLESS_KNOCKOUT};
@@ -138,6 +140,7 @@ pub mod fixtures {
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// Stable node identifier. Imported Figma ids ("12:34") are kept in
 /// [`Node::source_id`]; `NodeId` is our own dense key.
@@ -207,7 +210,7 @@ impl Default for DirtyLog {
 }
 
 /// A whole file: pages at the root, each page a tree of nodes.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Document {
     pub name: String,
     /// Design file or board (whiteboard) file; decides the toolbar and panels.
@@ -274,6 +277,10 @@ pub struct Document {
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
+    /// The pages of this document that the loader has not filled into it. The loader is shared with every
+    /// clone, so only the document itself knows which of its own pages are still empty.
+    #[serde(skip)]
+    deferred: pending_pages::DeferredPages,
     /// Fresh per-instance and per-clone identifier used to key derived caches.
     #[serde(skip)]
     derived_id: DerivedId,
@@ -638,6 +645,12 @@ mod serde_images {
     }
 }
 
+impl Clone for Document {
+    fn clone(&self) -> Self {
+        self.clone_with_images(self.images.clone())
+    }
+}
+
 impl Document {
     pub fn new(name: impl Into<String>) -> Self {
         Self { name: name.into(), ..Default::default() }
@@ -646,6 +659,12 @@ impl Document {
     /// Clones the document structure, styles, variables, comments, and library state without
     /// copying embedded `images` byte buffers (used by background bootstrap indexing).
     pub fn clone_without_images(&self) -> Self {
+        self.clone_with_images(BTreeMap::new())
+    }
+
+    fn clone_with_images(&self, images: BTreeMap<String, Vec<u8>>) -> Self {
+        // The copy shares the page loader: note which pages are still empty before either side loads one.
+        self.remember_deferred_pages();
         Self {
             name: self.name.clone(),
             kind: self.kind,
@@ -662,7 +681,7 @@ impl Document {
             library: self.library.clone(),
             library_page: self.library_page,
             check_designs: self.check_designs.clone(),
-            images: BTreeMap::new(),
+            images,
             in_progress: self.in_progress.clone(),
             next_id: self.next_id,
             gap_cursor: self.gap_cursor,
@@ -670,6 +689,7 @@ impl Document {
             pending_relayout: self.pending_relayout.clone(),
             layout_epoch: self.layout_epoch,
             page_hydrator: self.page_hydrator.clone(),
+            deferred: self.deferred.clone(),
             derived_id: DerivedId::default(),
         }
     }
@@ -678,11 +698,15 @@ impl Document {
     /// Returns `true` if any deferred instances were expanded.
     pub fn ensure_page_hydrated(&mut self, page: NodeId) -> bool {
         let Some(h) = self.page_hydrator.clone() else { return false };
+        let loader_at = Arc::as_ptr(&h) as *const () as usize;
         let Ok(mut guard) = h.lock() else { return false };
         if guard.is_hydrated(page) {
             return false;
         }
+        // Take the list of empty pages before this load changes what the loader says.
+        drop(self.unloaded_pages(loader_at, &*guard));
         let changed = guard.hydrate_page(self, page);
+        self.forget_loaded_pages(loader_at, &*guard, [page]);
         if changed {
             self.mark_tree_full_dirty();
         }
@@ -690,11 +714,18 @@ impl Document {
     }
 
     /// Expands all remaining deferred pages (e.g., before full-document export).
+    ///
+    /// The loader is dropped once every page is filled into this document. Pages that a copy of this
+    /// document loaded stay empty here, so the loader stays attached and the document keeps refusing
+    /// native writes ([`Document::pending_pages_error`]).
     pub fn hydrate_all_pages(&mut self) -> bool {
         let Some(h) = self.page_hydrator.clone() else { return false };
+        let loader_at = Arc::as_ptr(&h) as *const () as usize;
         let Ok(mut guard) = h.lock() else { return false };
+        let waiting: Vec<NodeId> = self.unloaded_pages(loader_at, &*guard).into_iter().filter(|page| !guard.is_hydrated(*page)).collect();
         let changed = guard.hydrate_all(self);
-        if guard.unexpanded_instances() == 0 && guard.last_error().is_none() {
+        self.forget_loaded_pages(loader_at, &*guard, waiting);
+        if guard.unexpanded_instances() == 0 && guard.last_error().is_none() && self.unloaded_pages(loader_at, &*guard).is_empty() {
             self.page_hydrator = None;
         }
         if changed {
@@ -1407,6 +1438,9 @@ impl Document {
     /// Compact JSON of the document. A number that is not finite (NaN, infinity) is written as its
     /// neutral value instead (see [`finite_json`]), so the text always parses back; a file used to
     /// fail to open with `invalid type: null, expected f32` after one such number was saved.
+    ///
+    /// Fails for a document that still has pages whose content is not loaded ([`Document::has_pending_pages`]):
+    /// load them first with [`Document::load_pending_pages`].
     pub fn to_json(&self) -> serde_json::Result<String> {
         let (json, replaced) = self.to_json_counted()?;
         if replaced > 0 {
@@ -1418,6 +1452,29 @@ impl Document {
 
     /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
     pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
+        let mut out = Vec::with_capacity(128);
+        let replaced = self.to_writer_counted(&mut out)?;
+        // SAFETY: `serde_json::Serializer` writes only valid UTF-8 (see `finite_json::to_string_finite`).
+        Ok((unsafe { String::from_utf8_unchecked(out) }, replaced))
+    }
+
+    /// [`Document::to_json`] straight into `writer`: the same bytes, without the whole text in memory.
+    /// Wrap a file in a `BufWriter`.
+    pub fn to_writer<W: std::io::Write>(&self, writer: W) -> serde_json::Result<usize> {
+        let replaced = self.to_writer_counted(writer)?;
+        if replaced > 0 {
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| eprintln!("designos-doc: wrote {replaced} non-finite numbers as their neutral value (reported once per run)"));
+        }
+        Ok(replaced)
+    }
+
+    /// [`Document::to_json_counted`] straight into `writer`; returns how many non-finite numbers were
+    /// replaced. A document that still has unloaded pages is refused before the first byte is written.
+    pub fn to_writer_counted<W: std::io::Write>(&self, writer: W) -> serde_json::Result<usize> {
+        // A document whose pages are not all loaded would be written with empty instances, and the file could
+        // never be repaired: refuse it, naming the cause. Callers that own the document load the pages first.
+        self.refuse_pending_pages()?;
         let now = now_ms();
         // Flags of deleted layers and stale flags never reach the file: serialize through a view that filters them.
         if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
@@ -1471,7 +1528,7 @@ impl Document {
                 in_progress: filtered_in_progress,
                 next_id: self.next_id,
             };
-            return finite_json::to_string_finite(&view);
+            return finite_json::to_writer_finite(writer, &view);
         }
         // Ignore keys of deleted layers are written as they are and dropped when the file is read
         // back (`from_json_with_report`): pruning here would clone the whole document, images
@@ -1480,9 +1537,9 @@ impl Document {
         if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
             let mut clean = self.clone();
             clean.in_progress.retain(|id, ip| clean.nodes.contains_key(id) && !ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS));
-            return finite_json::to_string_finite(&clean);
+            return finite_json::to_writer_finite(writer, &clean);
         }
-        finite_json::to_string_finite(self)
+        finite_json::to_writer_finite(writer, self)
     }
 
     /// How many non-finite numbers [`Document::to_json_counted`] would replace, counted without
@@ -1545,7 +1602,28 @@ impl Document {
     pub fn from_json_with_report(s: &str) -> serde_json::Result<(Self, RepairReport)> {
         // A `null` in a number slot is how older versions saved a NaN or infinity; it is read as the
         // neutral value and counted (see [`finite_json`]).
-        let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
+        let (doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
+        Ok(Self::finish_load(doc, non_finite_numbers))
+    }
+
+    /// [`Document::from_json`] for a file: parsed as a stream, so a stored document of several GB never sits in
+    /// memory as one text next to the document. The result is the one [`Document::from_json`] gives for the same
+    /// bytes. A file that needs the repair of a damaged number is read a second time (hence `Seek`).
+    pub fn from_reader<R: std::io::Read + std::io::Seek>(reader: R) -> serde_json::Result<Self> {
+        let (doc, repaired) = Self::from_reader_with_report(reader)?;
+        if !repaired.is_clean() {
+            eprintln!("designos-doc: repaired a damaged document on load: {repaired:?}");
+        }
+        Ok(doc)
+    }
+
+    /// [`Document::from_reader`], silent: returns what the load-time repair changed.
+    pub fn from_reader_with_report<R: std::io::Read + std::io::Seek>(reader: R) -> serde_json::Result<(Self, RepairReport)> {
+        let (doc, non_finite_numbers): (Self, usize) = finite_json::from_reader_repairing(reader)?;
+        Ok(Self::finish_load(doc, non_finite_numbers))
+    }
+
+    fn finish_load(mut doc: Self, non_finite_numbers: usize) -> (Self, RepairReport) {
         for (key, bits) in take_styles_paragraph_fields() {
             if let Some(meta) = text_style_meta_mut(&doc.styles, &mut doc.style_meta, &key) {
                 meta.text_paragraph_fields = Some(meta.text_paragraph_fields.unwrap_or(0) | bits);
@@ -1562,7 +1640,7 @@ impl Document {
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
         doc.migrate_text();
-        Ok((doc, report))
+        (doc, report)
     }
 
     /// Converts literal list prefixes of every text node to real lists (see [`migrate_literal_lists`])

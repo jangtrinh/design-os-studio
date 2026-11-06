@@ -403,6 +403,12 @@ pub fn writes_native_format(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(NATIVE_EXT))
 }
 
+/// Whether [`save_path_counted`] writes `path` with the native serializer: every extension but `.fig` and `.pen`.
+/// That serializer refuses a document whose pages are not all loaded, so such a save loads them first.
+pub fn uses_native_serializer(path: &Path) -> bool {
+    save_format(path) == SaveFormat::Native
+}
+
 /// What a save or export of a document that has comments tells the user when the file cannot keep them.
 pub const COMMENTS_ONLY_IN_NATIVE_NOTICE: &str = "Comments left out: only .designos files keep them";
 
@@ -457,21 +463,37 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
         p.set_extension(NATIVE_EXT);
     }
     let mut replaced = 0;
-    let payload = match save_format(&p) {
+    // The native format is streamed into the file: a multi-GB document never exists as one text in memory.
+    let exported = match save_format(&p) {
         SaveFormat::Fig => {
             let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| std::io::Error::other(format!("Cannot export .fig: {e}")))?;
-            bytes
+            Some(bytes)
         }
-        SaveFormat::Pen => designos_fig::export_pen_json(doc).map_err(|e| std::io::Error::other(format!("Cannot export .pen: {e}")))?.into_bytes(),
+        SaveFormat::Pen => Some(designos_fig::export_pen_json(doc).map_err(|e| std::io::Error::other(format!("Cannot export .pen: {e}")))?.into_bytes()),
         SaveFormat::Native => {
-            let (json, n) = doc.to_json_counted().map_err(|e| std::io::Error::other(format!("Cannot serialize: {e}")))?;
-            replaced = n;
-            json.into_bytes()
+            // Refused before the repair backup or the file is touched.
+            if let Some(why) = doc.pending_pages_error() {
+                return Err(std::io::Error::other(format!("Cannot serialize: {why}")));
+            }
+            None
         }
     };
 
     let wrote_backup = write_pending_repair_backup(&p).map_err(std::io::Error::other)?;
-    designos_library::write_atomic(&p, &payload).map_err(|e| match e {
+    let written = match &exported {
+        Some(bytes) => designos_library::write_atomic(&p, bytes),
+        None => designos_library::write_atomic_with(&p, |out| {
+            replaced = doc.to_writer_counted(out).map_err(|e| {
+                if e.is_io() {
+                    std::io::Error::from(e)
+                } else {
+                    std::io::Error::other(format!("Cannot serialize: {e}"))
+                }
+            })?;
+            Ok(())
+        }),
+    };
+    written.map_err(|e| match e {
         designos_library::LibraryError::Io(io) => std::io::Error::new(io.kind(), format!("Cannot write {}: {io}", p.display())),
         other => std::io::Error::other(format!("Cannot write {}: {other}", p.display())),
     })?;
@@ -1532,5 +1554,37 @@ mod tests {
         assert!(err.contains("is read-only or not writable:"), "unexpected error message: {err}");
         assert_eq!(after, original, "unwritable file content must stay untouched");
         assert_eq!(mode, 0o444, "unwritable file mode must stay 0444");
+    }
+
+    /// A write that hits the file-size limit half way through a document larger than the 1 MiB write buffer keeps
+    /// the disk error kind. The limit is set only in a child process, so the shared test binary is untouched.
+    #[cfg(unix)]
+    #[test]
+    fn a_large_save_that_hits_the_size_limit_keeps_the_disk_error_kind() {
+        let dir = std::env::var("DESIGNOS_FSIZE_CHILD");
+        let mut big = Document::new("Big");
+        big.add_page("Page");
+        big.images.insert("blob".into(), (0..3_000_000u32).map(|i| (i % 251) as u8).collect());
+        let Ok(dir) = dir else {
+            let exe = std::env::current_exe().unwrap();
+            let scratch = tmp("fsize_child");
+            std::fs::create_dir_all(&scratch).unwrap();
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg("trap '' XFSZ; ulimit -f 2500; exec \"$0\" --exact io::tests::a_large_save_that_hits_the_size_limit_keeps_the_disk_error_kind --test-threads=1")
+                .arg(&exe)
+                .env("DESIGNOS_FSIZE_CHILD", &scratch)
+                .output()
+                .unwrap();
+            let _ = std::fs::remove_dir_all(&scratch);
+            let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success() && text.contains("1 passed"), "child run failed: {text}");
+            return;
+        };
+        let target = PathBuf::from(dir).join("doc.designos");
+        let err = save_path_counted(&big, &target).expect_err("the limit must stop the write");
+        assert_eq!(err.kind(), std::io::ErrorKind::FileTooLarge, "{err}");
+        assert!(!err.to_string().contains("Cannot serialize"), "a disk error is not a serializer error: {err}");
+        assert!(!target.exists(), "no partial file");
     }
 }

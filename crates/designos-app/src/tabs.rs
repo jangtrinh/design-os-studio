@@ -893,10 +893,38 @@ impl TabsState {
         self.release_closed_paths(app, &closed_paths);
     }
 
+    /// Whether the document of tab `idx` still has pages that wait for their content. The open tab's document is on
+    /// screen, in `app`, unless the window is on Home.
+    pub(crate) fn tab_has_pending_pages(&self, idx: usize, app: &App) -> bool {
+        if idx == self.active_idx && app.home.is_none() {
+            return app.doc.has_pending_pages();
+        }
+        self.entries.get(idx).is_some_and(|tab| tab.doc.has_pending_pages())
+    }
+
+    /// Loads every pending page of tab `idx`, in place. Returns the notice when instances stay empty.
+    fn load_pending_pages_of(&mut self, idx: usize, app: &mut App) -> Result<Option<String>, String> {
+        if idx == self.active_idx && app.home.is_none() {
+            return app.load_pending_pages_for_write();
+        }
+        let left_empty = self.entries[idx].doc.load_pending_pages().map_err(|e| e.to_string())?;
+        Ok((left_empty > 0).then(|| crate::io::clone_budget_notice(left_empty)))
+    }
+
     /// Clones `entries[idx]` as `"<title> (Copy)"` in a new tab right after `idx` and activates it.
     pub fn duplicate_tab(&mut self, idx: usize, app: &mut App) -> Option<usize> {
         if idx >= self.entries.len() {
             return None;
+        }
+        // The copy shares the page loader of a large `.fig`, so whichever side loads a page first leaves the
+        // other with empty instances. Load the source in place first: the copy then starts complete.
+        match self.load_pending_pages_of(idx, app) {
+            Ok(Some(notice)) => app.show_toast(notice, false),
+            Ok(None) => {}
+            Err(why) => {
+                app.show_toast(format!("Cannot copy tab: {why}"), true);
+                return None;
+            }
         }
         if app.home.is_none() {
             self.park_active_from_app(app);
@@ -1355,7 +1383,14 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
                     }
                 }
                 TabUiAction::DuplicateTab(idx) => {
-                    tabs.duplicate_tab(idx, app);
+                    if tabs.tab_has_pending_pages(idx, app) {
+                        // Loading the pages of a large `.fig` takes a while: say so before the window waits.
+                        app.run_after_status_paint("Copying tab\u{2026} loading all pages", move |app| {
+                            app.duplicate_tab(idx);
+                        });
+                    } else {
+                        tabs.duplicate_tab(idx, app);
+                    }
                 }
                 TabUiAction::TogglePin(idx) => {
                     tabs.toggle_pin(idx);
