@@ -148,3 +148,117 @@ fn writing_a_large_fig_out_as_designos_from_the_cli_keeps_the_instance_content_o
 
     assert_eq!(deferred_pages_shape(&read_native(&out)), DeferredPagesShape::loaded(), "the written file keeps the children and the overrides");
 }
+
+#[test]
+fn a_large_fig_on_home_is_announced_before_it_is_imported_and_imported_on_the_next_frame() {
+    let scratch = Scratch::new("announced_import");
+    let (mut app, lib, project) = editor_with_library(&scratch);
+    let before: Vec<String> = lib.all_files().into_iter().map(|f| f.id).collect();
+
+    app.import_into_library_announced(vec![scratch.fig()], project, None);
+
+    assert!(app.has_queued_work(), "the import waits for the frame that paints the status");
+    let status = app.toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+    assert!(status.starts_with("Importing kit.fig"), "the status names the file: {status}");
+    assert_eq!(lib.all_files().len(), before.len(), "nothing is imported yet");
+
+    app.run_queued_work();
+
+    assert!(!app.has_queued_work());
+    let imported = lib.all_files().into_iter().find(|f| !before.contains(&f.id)).expect("the file is imported on the next frame");
+    assert_eq!(deferred_pages_shape(&lib.load_file(&imported.id).unwrap()), DeferredPagesShape::loaded());
+}
+
+#[test]
+fn a_file_that_defers_nothing_is_imported_at_once() {
+    let scratch = Scratch::new("plain_import");
+    let (mut app, lib, project) = editor_with_library(&scratch);
+    let plain = scratch.path("plain.designos");
+    let mut doc = Document::new("Plain");
+    doc.add_page("Page 1");
+    std::fs::write(&plain, doc.to_json().unwrap()).unwrap();
+    let before = lib.all_files().len();
+
+    app.import_into_library_announced(vec![plain], project, None);
+
+    assert!(!app.has_queued_work(), "there is nothing to wait for");
+    assert_eq!(lib.all_files().len(), before + 1, "the file is imported before the call returns");
+}
+
+#[test]
+fn saving_a_large_fig_to_the_library_from_the_dialog_is_announced_before_the_pages_load() {
+    let scratch = Scratch::new("announced_save");
+    let (mut app, lib, project) = editor_with_library(&scratch);
+    open_fig(&mut app, &scratch.fig());
+
+    app.save_to_library_as_announced(project, None, "Kit".into());
+
+    assert!(app.has_queued_work() && app.lib_file.is_none(), "the save waits for the frame that paints the status");
+    assert!(app.toast.as_ref().is_some_and(|t| t.text.starts_with("Saving to the library")), "the status says what is going on");
+
+    app.run_queued_work();
+
+    let saved = app.lib_file.clone().expect("the document is a library file after the next frame");
+    assert_eq!(deferred_pages_shape(&lib.load_file(&saved.id).unwrap()), DeferredPagesShape::loaded());
+}
+
+#[test]
+fn a_document_with_every_page_loaded_saves_to_the_library_at_once() {
+    let scratch = Scratch::new("plain_save");
+    let (mut app, _lib, project) = editor_with_library(&scratch);
+    app.doc = Document::new("Plain");
+    app.doc.add_page("Page 1");
+
+    app.save_to_library_as_announced(project, None, "Plain".into());
+
+    assert!(!app.has_queued_work() && app.lib_file.is_some(), "nothing to wait for, so the save ran");
+}
+
+#[test]
+fn a_page_that_cannot_be_loaded_stops_the_save_to_the_library_and_says_why() {
+    let scratch = Scratch::new("load_fails");
+    let (mut app, lib, project) = editor_with_library(&scratch);
+    open_fig(&mut app, &scratch.fig());
+    // The loader fails the way the importer's does when it runs out of node ids: the error stays with the loader.
+    app.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(FailingLoader { page: app.doc.pages[2], error: None })));
+    let before = lib.all_files().len();
+
+    app.save_to_library_as(&project, None, "Kit");
+
+    assert_eq!(lib.all_files().len(), before, "no file is created");
+    assert!(app.lib_file.is_none(), "the document stays outside the library");
+    let toast = app.toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+    assert!(toast.contains("Cannot save to the library") && toast.contains("node id space exhausted"), "the toast names the cause: {toast}");
+}
+
+/// A loader whose page cannot be loaded: it counts the page as seen and keeps the error.
+#[derive(Debug)]
+struct FailingLoader {
+    page: designos_doc::NodeId,
+    error: Option<String>,
+}
+
+impl designos_doc::PageHydrator for FailingLoader {
+    fn hydrate_page(&mut self, _doc: &mut Document, page: designos_doc::NodeId) -> bool {
+        if page == self.page {
+            self.error = Some("node id space exhausted".into());
+        }
+        false
+    }
+
+    fn hydrate_all(&mut self, doc: &mut Document) -> bool {
+        self.hydrate_page(doc, self.page)
+    }
+
+    fn is_hydrated(&self, page: designos_doc::NodeId) -> bool {
+        page != self.page || self.error.is_some()
+    }
+
+    fn last_error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    fn take_last_error(&mut self) -> Option<String> {
+        self.error.take()
+    }
+}

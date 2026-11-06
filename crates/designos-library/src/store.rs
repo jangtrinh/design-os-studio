@@ -659,6 +659,9 @@ impl Library {
 
     /// [`Self::create_file`], also returning how many non-finite numbers (NaN, infinity) were
     /// written as their neutral value, so the stored file always opens.
+    ///
+    /// Fails, and writes nothing, for a document that still has pages whose content is not loaded
+    /// ([`Document::has_pending_pages`]): the caller owns the document and loads them first.
     pub fn create_file_counted(&self, project: &str, folder: Option<&str>, name: &str, doc: &Document) -> Result<(FileEntry, usize)> {
         let _guard = write_lock();
         let name = clean_name(name, "file")?;
@@ -713,6 +716,9 @@ impl Library {
 
     /// [`Self::save_file`], also returning how many non-finite numbers (NaN, infinity) were written
     /// as their neutral value, counted by the one serialization the save performs.
+    ///
+    /// Fails, and writes nothing, for a document that still has pages whose content is not loaded
+    /// ([`Document::has_pending_pages`]); versions and branches refuse the same way.
     pub fn save_file_counted(&self, id: &str, doc: &Document) -> Result<usize> {
         let _guard = write_lock();
         let (mut m, i) = self.find_file(id)?;
@@ -884,11 +890,18 @@ impl Library {
     }
 
     /// Like [`Self::import_file_with_doc`], also returning how many non-finite numbers were
-    /// replaced by their neutral value on read or write.
+    /// replaced by their neutral value on read or write. Every page of the import is loaded before the
+    /// file is written, and the returned document holds them all.
     pub fn import_file_with_doc_counted(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize)> {
         let (mut doc, replaced_on_read) = load_external_counted(path)?;
         let stem = path.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty());
         let name = if !doc.name.is_empty() { doc.name.clone() } else { stem.unwrap_or("Imported").to_string() };
+        // A large `.fig` comes in with its inactive pages deferred (their instances are empty until the page
+        // loads) and the file keeps no copy of the source, so every page is loaded before the first write.
+        let left_empty = doc.load_pending_pages().map_err(|e| LibraryError::Invalid(format!("Cannot import \"{name}\": {e}")))?;
+        if left_empty > 0 {
+            eprintln!("designos-library: imported \"{name}\" with {left_empty} instances left empty because the file has more nested component copies than can be expanded");
+        }
         let (entry, replaced_on_write) = self.create_file_counted(project, folder, &name, &doc)?;
         let total_replaced = replaced_on_read + replaced_on_write;
         if replaced_on_write == 0 {

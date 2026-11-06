@@ -670,6 +670,9 @@ impl Session {
         // Until the mark is in the log the editor does not know about this document.
         self.bridge.doc_unannounced = true;
         self.engine.settle_layout();
+        // The editor reads this file as the whole document and has no loader of its own: a `.fig` opened with
+        // pages not loaded yet must hand over their content now, or the editor would keep the empty instances.
+        self.load_pending_pages_for_write().map_err(|e| format!("serialize the document: {e}"))?;
         let json_str = self.engine.doc.to_json().map_err(|e| format!("serialize the document: {e}"))?;
         let bytes = json_str.as_bytes();
         if let Some(canvas_path) = &self.bridge.live_canvas_path {
@@ -826,9 +829,20 @@ impl Session {
         self.bridge.session_dir.as_ref().and_then(|d| d.file_name()?.to_str()?.rsplit_once("-tab-")?.1.parse().ok())
     }
 
+    /// Loads every page of the open document that a `.fig` import left unloaded, in place, before the whole
+    /// document is written. Pages load when a page is opened in the editor; a session has no such moment.
+    fn load_pending_pages_for_write(&mut self) -> Result<(), String> {
+        let left_empty = self.engine.doc.load_pending_pages().map_err(|e| e.to_string())?;
+        if left_empty > 0 {
+            eprintln!("designos-mcp: {left_empty} instances were left empty because the file has more nested component copies than can be expanded");
+        }
+        Ok(())
+    }
+
     fn save_current(&mut self, path: &str, overwrite: bool, files_created: &mut usize) -> Result<PathBuf, ToolError> {
         let resolved = self.output_path_allow_overwrite(path, overwrite)?;
         self.engine.settle_layout();
+        self.load_pending_pages_for_write().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e))?;
         let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
         crate::engine::write_checked_output_file(&resolved, path, "/path", bytes.as_bytes(), overwrite, true)?;
         *files_created += 1;

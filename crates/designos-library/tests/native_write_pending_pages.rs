@@ -19,7 +19,7 @@ fn library_and_fig(name: &str) -> (Library, String, PathBuf) {
     let dir = scratch(name);
     let fig = dir.join("kit.fig");
     std::fs::write(&fig, deferred_pages_fig()).unwrap();
-    let lib = Library::open(&dir.join("library")).unwrap();
+    let lib = Library::open(dir.join("library")).unwrap();
     let project = lib.create_project("Projects").unwrap();
     (lib, project.id, fig)
 }

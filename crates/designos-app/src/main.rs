@@ -51,6 +51,7 @@ mod cmdk;
 mod comments;
 mod comp_ops;
 mod decks;
+mod deferred_work;
 #[cfg(any(test, feature = "fixtures"))]
 mod demo;
 mod dev;
@@ -93,6 +94,7 @@ mod node_field_diff;
 mod ops;
 mod panels;
 mod paste_placement;
+mod pending_pages_write;
 mod plugins;
 mod present;
 mod proto;
@@ -331,7 +333,19 @@ enum SaveTarget {
 }
 
 impl SaveTarget {
-    fn save(&self, doc: &designos_doc::Document) -> Result<(), String> {
+    /// Writes `doc` to the target. A native write loads the pages a `.fig` import left unloaded first, in place:
+    /// the run owns the document, and a file written before that would keep their instances empty.
+    fn save(&self, doc: &mut designos_doc::Document) -> Result<(), String> {
+        let native = match self {
+            Self::Library(..) => true,
+            Self::Path(path) => io::uses_native_serializer(path),
+        };
+        if native {
+            let left_empty = doc.load_pending_pages().map_err(|e| format!("Cannot save: {e}"))?;
+            if left_empty > 0 {
+                eprintln!("designos: {}", io::clone_budget_notice(left_empty));
+            }
+        }
         match self {
             Self::Library(lib, id) => lib.save_file(id, doc).map_err(|e| format!("Cannot save library file {id}: {e}")),
             Self::Path(path) => io::save_path(doc, path).map(|_| ()),
@@ -442,7 +456,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         if doc.name == "Untitled" || opts.file.is_none() {
             doc.name = report.root_name.clone();
         }
-        save_target.save(&doc)?;
+        save_target.save(&mut doc)?;
         let out = serde_json::json!({
             "root_node_id": report.root_node_id.0,
             "root_name": report.root_name,
@@ -461,7 +475,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         let root_id = doc.apply_spec_with_measure(parent, &spec, &[], Some(&designos_render::RenderTextMeasure)).map_err(|e| e.to_string())?.root_node_id;
         // no window drains the deferred layout here, and the queue is not part of the file
         doc.flush_pending_relayout();
-        save_target.save(&doc)?;
+        save_target.save(&mut doc)?;
         let out = serde_json::json!({ "root_node_id": root_id.0, "saved": true });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
@@ -485,7 +499,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             messages: vec![msg],
             resolved: false,
         });
-        save_target.save(&doc)?;
+        save_target.save(&mut doc)?;
         let resolved = doc.resolve_comment_targets().into_iter().find(|c| c.id == thread_id).ok_or("Failed to resolve created comment")?;
         println!("{}", serde_json::to_string_pretty(&resolved).unwrap());
     }
@@ -498,7 +512,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             t.resolved = true;
         }
         let resolved_now = t.resolved;
-        save_target.save(&doc)?;
+        save_target.save(&mut doc)?;
         let out = serde_json::json!({
             "thread_id": thread_id,
             "replied": true,
@@ -511,7 +525,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     if let Some(thread_id) = &opts.resolve_comment {
         let t = doc.comments.iter_mut().find(|t| t.id == *thread_id).ok_or_else(|| format!("Comment thread '{thread_id}' not found"))?;
         t.resolved = true;
-        save_target.save(&doc)?;
+        save_target.save(&mut doc)?;
         let out = serde_json::json!({
             "thread_id": thread_id,
             "resolved": true,
@@ -575,7 +589,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         after_store.enforce_library_read_only(&before_store);
         doc.variable_collections = after_store.collections;
         doc.variables = after_store.variables;
-        save_target.save(&doc)?;
+        save_target.save(&mut doc)?;
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     }
 

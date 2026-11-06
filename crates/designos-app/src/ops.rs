@@ -2628,6 +2628,19 @@ impl App {
     pub(crate) fn persist_document_to(&mut self, path: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
         crate::decks::ui::flush_notes(self);
         self.settle_pending_relayout();
+        // The native writer refuses pages that are not loaded yet; load them first, on the open document.
+        let left_empty_notice = if io::uses_native_serializer(path) {
+            match self.load_pending_pages_for_write() {
+                Ok(notice) => notice,
+                Err(e) => {
+                    let message = format!("Cannot save: {e}");
+                    self.show_toast(message.clone(), true);
+                    return Err(std::io::Error::other(message));
+                }
+            }
+        } else {
+            None
+        };
         match io::save_path_counted(&self.doc, path) {
             Ok((p, replaced)) => {
                 if replaced > 0 {
@@ -2635,7 +2648,7 @@ impl App {
                     self.hist.neutralize_non_finite();
                     self.changed();
                 }
-                let notice = io::non_finite_notice_once(&p, replaced);
+                let notice = io::non_finite_notice_once(&p, replaced).into_iter().chain(left_empty_notice).reduce(|a, b| format!("{a}; {b}"));
                 let fig_omitted = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
                     designos_fig::collect_omitted_extensions(&self.doc).len()
                 } else {

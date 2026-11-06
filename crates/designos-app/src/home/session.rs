@@ -890,6 +890,8 @@ impl App {
         hist: &mut designos_doc::History,
     ) -> Result<(Option<String>, bool), LibrarySaveError> {
         let disk_path = library_file_disk_path(lib, &lf.project_id, &lf.id);
+        // Pages a `.fig` import left unloaded come first, in place: the file must hold their content.
+        let left_empty = doc.load_pending_pages().map_err(|e| LibrarySaveError::other(format!("Cannot save: {e}")))?;
         let wrote_backup = crate::io::write_pending_repair_backup(&disk_path).map_err(LibrarySaveError::other)?;
         let replaced = lib.save_file_counted(&lf.id, doc).map_err(LibrarySaveError::from_library)?;
         if wrote_backup {
@@ -900,7 +902,12 @@ impl App {
             doc.neutralize_non_finite();
             hist.neutralize_non_finite();
         }
-        Ok((crate::io::non_finite_notice_once(&disk_path, replaced), neutralized))
+        let notices: Vec<String> =
+            [crate::io::non_finite_notice_once(&disk_path, replaced), (left_empty > 0).then(|| crate::io::clone_budget_notice(left_empty))]
+                .into_iter()
+                .flatten()
+                .collect();
+        Ok(((!notices.is_empty()).then(|| notices.join("; ")), neutralized))
     }
 
     /// Writes the open library file; also refreshes its thumbnail. There is no "Saved" toast, but a save
@@ -1286,6 +1293,15 @@ impl App {
         crate::decks::ui::flush_notes(self);
         let Some(lib) = self.lib.clone() else { return };
         self.settle_pending_relayout();
+        // Pages a `.fig` open left unloaded are loaded on the open document, before it is copied: the copy shares the
+        // loader, so loading on the copy would leave this document's pages empty for the rest of the session.
+        let left_empty_notice = match self.load_pending_pages_for_write() {
+            Ok(notice) => notice,
+            Err(e) => {
+                self.show_toast(format!("Cannot save to the library: {e}"), true);
+                return;
+            }
+        };
         let mut doc = self.doc.clone();
         doc.name = name.trim().to_string();
         match lib.create_file_counted(project, folder, name, &doc) {
@@ -1309,14 +1325,45 @@ impl App {
                 self.autosave.disk_mtime = disk_path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
                 self.history_open_file();
                 thumb::refresh_in_background(lib, e.id, self.export_doc().into_owned());
-                let notice = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced));
-                match notice {
-                    Some(w) => self.show_toast(format!("Saved to {project_name} ({w})"), true),
-                    None => self.show_toast(format!("Saved to {project_name}"), false),
+                let non_finite = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced));
+                let notices: Vec<String> = non_finite.into_iter().chain(left_empty_notice).collect();
+                if notices.is_empty() {
+                    self.show_toast(format!("Saved to {project_name}"), false);
+                } else {
+                    self.show_toast(format!("Saved to {project_name} ({})", notices.join("; ")), true);
                 }
             }
             Err(e) => self.show_toast(format!("Cannot save to the library: {e}"), true),
         }
+    }
+
+    /// [`Self::import_into_library`] for the controls (the Import button, a drop on Home). A `.fig` loads every page before
+    /// it is stored, which takes a while with the window held, so its status goes up first and the import runs on the next frame.
+    pub fn import_into_library_announced(&mut self, paths: Vec<PathBuf>, project: String, folder: Option<String>) {
+        let is_fig = |p: &PathBuf| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("fig"));
+        if !paths.iter().any(is_fig) {
+            self.import_into_library(&paths, &project, folder.as_deref());
+            return;
+        }
+        let what = match paths.as_slice() {
+            [one] => one.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string(),
+            many => format!("{} files", many.len()),
+        };
+        self.run_after_status_paint(format!("Importing {what}\u{2026} every page is loaded first, which takes a while"), move |app| {
+            app.import_into_library(&paths, &project, folder.as_deref());
+        });
+    }
+
+    /// [`Self::save_to_library_as`] for the save dialog. A document with pages that are not loaded yet loads them first,
+    /// which takes a while with the window held, so its status goes up first and the save runs on the next frame.
+    pub fn save_to_library_as_announced(&mut self, project: String, folder: Option<String>, name: String) {
+        if !self.doc.has_pending_pages() {
+            self.save_to_library_as(&project, folder.as_deref(), &name);
+            return;
+        }
+        self.run_after_status_paint("Saving to the library\u{2026} every page is loaded first, which takes a while", move |app| {
+            app.save_to_library_as(&project, folder.as_deref(), &name);
+        });
     }
 
     /// Imports files into a project; returns how many succeeded.

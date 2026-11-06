@@ -403,6 +403,12 @@ pub fn writes_native_format(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(NATIVE_EXT))
 }
 
+/// Whether [`save_path_counted`] writes `path` with the native serializer: every extension but `.fig` and `.pen`.
+/// That serializer refuses a document whose pages are not all loaded, so such a save loads them first.
+pub fn uses_native_serializer(path: &Path) -> bool {
+    save_format(path) == SaveFormat::Native
+}
+
 /// What a save or export of a document that has comments tells the user when the file cannot keep them.
 pub const COMMENTS_ONLY_IN_NATIVE_NOTICE: &str = "Comments left out: only .designos files keep them";
 

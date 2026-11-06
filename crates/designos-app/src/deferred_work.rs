@@ -1,0 +1,32 @@
+//! Work that holds the window for a while, run on the frame after its status line was painted.
+//!
+//! egui paints at the end of a frame, so a status set inside a blocking call never shows: the window freezes with
+//! the old picture. A job that can take a minute (loading every page of a large `.fig` before it is stored) is
+//! queued here instead: the status goes up and a repaint is asked for, the frame paints it, and the next frame
+//! starts by running the job. Only jobs nothing chains on are queued: a caller that continues with the result
+//! (the questions before quitting or opening another file) runs its write directly.
+
+use crate::app::App;
+
+/// A job that runs on a later frame, on the app.
+pub(crate) type QueuedWork = Box<dyn FnOnce(&mut App)>;
+
+impl App {
+    /// Shows `status` now and runs `work` on the next frame, after the status has been painted.
+    pub(crate) fn run_after_status_paint(&mut self, status: impl Into<String>, work: impl FnOnce(&mut App) + 'static) {
+        self.show_toast(status, false);
+        self.queued_work.push(Box::new(work));
+    }
+
+    /// Whether a job waits for the next frame (the shell then asks for that frame).
+    pub(crate) fn has_queued_work(&self) -> bool {
+        !self.queued_work.is_empty()
+    }
+
+    /// Runs the jobs that earlier frames queued. Called at the start of a frame, so the status they announced is on screen.
+    pub(crate) fn run_queued_work(&mut self) {
+        for work in std::mem::take(&mut self.queued_work) {
+            work(self);
+        }
+    }
+}

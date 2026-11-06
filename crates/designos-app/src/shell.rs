@@ -2095,11 +2095,16 @@ impl eframe::App for Shell {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // The status of work queued by the last frame is on screen now: run it.
+        self.app.run_queued_work();
         self.app.poll_fonts();
         if self.app.fonts.is_loading() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.draw(ui);
+        if self.app.has_queued_work() {
+            ui.ctx().request_repaint();
+        }
         if self.app.text_refit_pending() {
             // The next slice of the re-fit after a face arrived. A gesture holds it: look again a few times
             // a second, so the pass goes on once the gesture ends. Nothing is asked for once it is done.
@@ -2198,7 +2203,7 @@ impl Shell {
         if !dropped.is_empty() && self.app.dialog.is_none() {
             let target = self.app.home_target().or_else(|| self.app.home.as_ref().and_then(|h| h.snap.projects.first().map(|p| (p.id.clone(), None))));
             if let Some((p, f)) = target {
-                self.app.import_into_library(&dropped, &p, f.as_deref());
+                self.app.import_into_library_announced(dropped, p, f);
             }
         }
         crate::home::show(&mut self.app, ui);

@@ -2915,7 +2915,7 @@ impl TerminalState {
                 return;
             }
             let selected_ids: Vec<u64> = selection.iter().map(|n| n.0).collect();
-            let is_scoped = doc.nodes.len() > 25_000;
+            let is_scoped = crate::live_canvas_scope::is_scoped(doc);
             let ctx_val = serde_json::json!({
                 "session_id": self.session_id,
                 "run_id": self.active_run_id,
