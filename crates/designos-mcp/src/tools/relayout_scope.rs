@@ -31,15 +31,17 @@ fn push_unique(list: &mut Vec<NodeId>, id: NodeId) {
 /// `kind` reduced to what the solver and the text measurer read, so an edit that only repaints a
 /// layer compares equal. One line per group that stays:
 /// - text content, runs, font, size, line height, letter and paragraph spacing, case, features and
-///   axes, list ranges, direction, wrap, truncation and auto-resize: `text_geometry` and the hug
-///   text sizing in `layout_apply::flow_child_input`;
+///   axes, list ranges, direction, wrap, truncation and auto-resize: `designos_render::measure_text_box`
+///   (through `layout_measurer`) and the hug text sizing in `layout_apply::flow_child_input`;
 /// - the auto-layout fields of a frame, component or instance (direction, sizing, align, gaps,
 ///   padding, wrap, grid tracks, version, stroke flag): `layout_apply::solve_auto_layout_node`;
-/// - the frame's content clip and the shape of every other kind.
+/// - every other kind, whole. The solver reads none of it; it is kept because no smaller set is
+///   proven safe (a resize rewrites vector and boolean geometry in `solve_auto_layout_node`).
 ///
 /// What is dropped, because neither reads it: the paints of a text style and of each run
-/// (`designos_render::measure_text_box` clears them before it measures), and the layout grids of a
-/// frame (guides only; the solver never reads `FrameProps::grids`).
+/// (`measure_text_box` clears them before it measures), the text flags `auto_rename` and
+/// `decoration_skip_ink`, and a frame's content clip and layout grids (guides only; the solver
+/// reads neither `FrameProps::clips_content` nor `FrameProps::grids`).
 fn layout_projection(kind: &NodeKind) -> NodeKind {
     let mut kind = kind.clone();
     match &mut kind {
@@ -48,8 +50,13 @@ fn layout_projection(kind: &NodeKind) -> NodeKind {
             for run in &mut tp.runs {
                 run.style.fills.clear();
             }
+            tp.auto_rename = true;
+            tp.decoration_skip_ink = true;
         }
-        NodeKind::Frame(f) | NodeKind::Component(f) | NodeKind::ComponentSet(f) | NodeKind::Instance { frame: f, .. } => f.grids.clear(),
+        NodeKind::Frame(f) | NodeKind::Component(f) | NodeKind::ComponentSet(f) | NodeKind::Instance { frame: f, .. } => {
+            f.grids.clear();
+            f.clips_content = false;
+        }
         _ => {}
     }
     kind
@@ -279,9 +286,16 @@ mod tests {
                 tp.content.push('!');
             }
         }));
+        assert!(!affects(&f.doc, text, |n| {
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.auto_rename = !tp.auto_rename;
+                tp.decoration_skip_ink = !tp.decoration_skip_ink;
+            }
+        }));
         assert!(!affects(&f.doc, f.column, |n| {
             if let Some(fp) = n.kind.frame_props_mut() {
                 fp.grids = vec![designos_doc::LayoutGrid::Grid { size: 8.0, color: Color::BLACK, visible: true }];
+                fp.clips_content = !fp.clips_content;
             }
         }));
     }

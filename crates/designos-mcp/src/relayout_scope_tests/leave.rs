@@ -82,10 +82,13 @@ fn deleting_a_layer_inside_a_hug_frame_shrinks_it_and_re_solves_the_frame_above(
 #[test]
 fn deleting_a_layer_inside_a_group_moves_nothing_outside_it() {
     let Holder { mut e, holder, b, tail, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
+    e.doc.get_mut(b).unwrap().transform.tx = 40.0;
     let before = geometry(&e.doc);
 
     e.call("designos_delete_node", json!({ "node_id": b.0 })).unwrap();
 
+    let size = e.doc.get(holder).unwrap().size;
+    assert_eq!((size.x, size.y), (80.0, 20.0), "a group keeps the bounds it was stored with; no edit here refits it, so there is no new size to pass up");
     assert_eq!(moved_outside(&e, &before, holder), Vec::<u64>::new());
     assert_eq!(ty(&e, tail), 200.0);
 }
@@ -206,4 +209,27 @@ fn replacing_slot_content_in_a_fixed_size_instance_moves_nothing_outside_it() {
     let after = geometry(&e.doc);
     assert_eq!(after[&card.0][3], before[&card.0][3], "the instance keeps its fixed height");
     assert_eq!(moved(&before, &after).into_iter().filter(|id| *id == side.0).collect::<Vec<_>>(), Vec::<u64>::new());
+}
+
+#[test]
+fn filling_a_slot_of_a_hug_instance_moves_the_frame_below_it_up_the_page() {
+    let mut e = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+    let page = e.doc.pages[0];
+    let screen = add_frame(
+        &mut e,
+        page,
+        Rect::new(500.0, 0.0, 400.0, 900.0),
+        auto_layout(LayoutDirection::Vertical, Sizing::Fixed, Sizing::Fixed, LayoutAlign::Start, 0.0),
+        "screen",
+    );
+    let spec = json!({ "kind": "instance", "name": "card", "component": "Card" });
+    let reply = e.call("designos_apply_spec", json!({ "parent_id": screen.0, "spec": spec })).unwrap();
+    let card = NodeId(reply["root_node_id"].as_u64().unwrap());
+    let tail = add_rect(&mut e, screen, Rect::new(0.0, 700.0, 50.0, 30.0), "tail");
+    let fill: Vec<Value> = (0..3).map(|i| json!({ "kind": "text", "name": format!("line {i}"), "text": "A line of body text that needs room" })).collect();
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "set_slot", "node": card.0, "slot": "body", "fill": fill }] })).unwrap();
+
+    let card_node = e.doc.get(card).unwrap();
+    assert_eq!(ty(&e, tail), card_node.transform.ty + card_node.size.y, "the hug card grew, so the frame below follows its new bottom edge");
 }
