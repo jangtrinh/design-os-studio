@@ -208,7 +208,7 @@ pub fn show(app: &mut App, ui: &mut Ui, spot: GroupSpot) -> f32 {
     let GroupSpot { bar, mut x, y, screen, base_width, t } = spot;
     let p = ui.painter().clone();
     x += theme::TOOLBAR_DIVIDER_GAP_BEFORE;
-    widgets::vline(&p, x, bar.top() + 1.0, bar.bottom() - 1.0, theme::BORDER);
+    widgets::vline(&p, x, bar.top() + theme::BORDER_WIDTH, bar.bottom() - theme::BORDER_WIDTH, theme::BORDER);
     x += theme::BORDER_WIDTH + theme::TOOLBAR_DIVIDER_GAP_AFTER;
 
     let br = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON));
