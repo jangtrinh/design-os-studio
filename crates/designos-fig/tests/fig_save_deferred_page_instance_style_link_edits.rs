@@ -117,21 +117,42 @@ fn detaching_a_stroke_style_and_keeping_the_colour_survives_a_save() {
     assert_eq!(linked_style(&back, "stroke"), None);
 }
 
-#[test]
-fn linking_to_another_effect_style_with_the_same_effects_survives_a_save() {
-    let fig = fixture_linked_to("styleIdForEffect", "EFFECT", "effects");
-    let back = save_after(&fig, |doc, button| {
-        let two = style_id_named(doc, "Style Two");
-        doc.get_mut(button).expect("instance").style_refs.insert("effect".into(), two);
-    });
-    assert_links_to(&back, "effect", "Style Two");
+/// The own entry of the saved file, as the file holds it: Studio's importer does not read an effect link from an entry, so
+/// only the entry itself tells a kept link from a restated one.
+fn saved_own_entry(fig: &[u8], edit: impl FnOnce(&mut Document, NodeId)) -> Value {
+    let mut live = import_fig(fig).expect("import");
+    let button = variant_button(&live);
+    edit(&mut live, button);
+    let me = guid_text(&guid(BUTTON.0, BUTTON.1));
+    saved_entries(&export_fig(&live).expect("export"), INSTANCE)
+        .into_iter()
+        .find(|e| e["guidPath"]["guids"].as_array().is_some_and(|g| g.len() == 1 && guid_text(&g[0]) == me))
+        .expect("the own entry")
 }
 
 #[test]
-fn detaching_an_effect_style_and_keeping_the_effects_survives_a_save() {
+fn an_effect_style_link_nobody_touched_is_kept() {
     let fig = fixture_linked_to("styleIdForEffect", "EFFECT", "effects");
-    let back = save_after(&fig, |doc, button| {
+    let own = saved_own_entry(&fig, |_, _| {});
+    assert_eq!(own["styleIdForEffect"]["assetRef"]["key"], "STYLE_ONE");
+}
+
+#[test]
+fn linking_to_another_effect_style_with_the_same_effects_is_written_back() {
+    let fig = fixture_linked_to("styleIdForEffect", "EFFECT", "effects");
+    let own = saved_own_entry(&fig, |doc, button| {
+        let two = style_id_named(doc, "Style Two");
+        doc.get_mut(button).expect("instance").style_refs.insert("effect".into(), two);
+    });
+    assert!(own.get("styleIdForEffect").is_none(), "the recorded link is still in the entry: {own}");
+    assert!(own.get("effects").is_some(), "the effects are restated from the node: {own}");
+}
+
+#[test]
+fn detaching_an_effect_style_and_keeping_the_effects_is_written_back() {
+    let fig = fixture_linked_to("styleIdForEffect", "EFFECT", "effects");
+    let own = saved_own_entry(&fig, |doc, button| {
         doc.get_mut(button).expect("instance").style_refs.remove("effect");
     });
-    assert_eq!(linked_style(&back, "effect"), None);
+    assert!(own.get("styleIdForEffect").is_none(), "the recorded link is still in the entry: {own}");
 }

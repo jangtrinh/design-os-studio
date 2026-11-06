@@ -1845,7 +1845,10 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
                 m.insert("_overrides".into(), Value::Array(ov));
             }
             if let Some(kept) = keep_symbol_overrides(sd, lk) {
-                m.insert("_keptOverrides".into(), Value::String(kept));
+                m.insert("_keptOverrides".into(), Value::String(kept.text));
+                if !kept.own_keys.is_empty() {
+                    m.insert("_keptOwnKeys".into(), Value::Array(kept.own_keys.into_iter().map(Value::String).collect()));
+                }
             }
             let derived = override_entries(nc, nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData"))), lk, true);
             if !derived.is_empty() {
@@ -2731,7 +2734,10 @@ fn resolve_override_grid_anchor(
 /// (by blob index) and the name of every component property they assign (by definition id). A writer that carries
 /// the entries over without loading the instance re-adds those to its own tables. Kept only for files large enough to
 /// defer pages, where an instance on an unloaded page keeps nothing else of what the file said about it.
-fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<String> {
+///
+/// Also lists the keys the instance's own entry (the one whose path is its main component alone) carries, as the file
+/// names them: the loader flags the fields those keys state (see [`crate::own_entry_keys`]).
+fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
     if !lk.large_file {
         return None;
     }
@@ -2739,7 +2745,12 @@ fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<String> {
     let entries = sd.get("symbolOverrides")?.as_array().filter(|a| !a.is_empty())?;
     let mut blobs = Map::new();
     let mut props = Map::new();
+    let main = sd.get("symbolID").and_then(guid_str);
+    let mut own_keys: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for e in entries {
+        if main.as_ref().is_some_and(|m| guid_path(e) == std::slice::from_ref(m)) {
+            own_keys.extend(e.as_object().into_iter().flat_map(|o| o.keys().map(String::as_str)));
+        }
         for key in ["fillGeometry", "strokeGeometry"] {
             for g in rest_import::farr(e, key) {
                 let Some(idx) = g.get("commandsBlob").and_then(Value::as_u64) else { continue };
@@ -2756,11 +2767,22 @@ fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<String> {
         }
     }
     // Written piece by piece: the entries are the bulk of it and are not copied.
-    let main = serde_json::to_string(&sd.get("symbolID").and_then(guid_str)).ok()?;
+    let main = serde_json::to_string(&main).ok()?;
     let entries = serde_json::to_string(entries).ok()?;
     let blobs = serde_json::to_string(&blobs).ok()?;
     let props = serde_json::to_string(&props).ok()?;
-    Some(format!("{{\"main\":{main},\"entries\":{entries},\"blobs\":{blobs},\"props\":{props}}}"))
+    Some(KeptOverrides {
+        text: format!("{{\"main\":{main},\"entries\":{entries},\"blobs\":{blobs},\"props\":{props}}}"),
+        own_keys: own_keys.into_iter().map(String::from).collect(),
+    })
+}
+
+/// What [`keep_symbol_overrides`] keeps of an instance's `symbolOverrides`.
+struct KeptOverrides {
+    /// The entries, their geometry blobs and component property names, as JSON text.
+    text: String,
+    /// The distinct keys of the instance's own entry (or entries).
+    own_keys: Vec<String>,
 }
 
 /// Override entries of `instance`. Cell anchors in them resolve against the grid they sit in: for a

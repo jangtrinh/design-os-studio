@@ -683,6 +683,9 @@ struct Overrides {
     /// The entries of `symbolOverrides` as the file states them (`_keptOverrides`, text only a `.fig` writer reads).
     /// Present only for files large enough to defer pages; it goes with the instance's overrides once they are applied.
     kept: Option<Box<str>>,
+    /// The keys the instance's own entry carries in the file (`_keptOwnKeys`), which name the fields it overrides on the
+    /// instance itself (see [`crate::own_entry_keys`]). Present with `kept`.
+    own_keys: Vec<Box<str>>,
 }
 
 #[derive(Debug)]
@@ -702,6 +705,10 @@ fn parse_override_entries(v: Option<&Value>) -> Vec<OverrideEntry> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn own_keys_of(v: Option<&Value>) -> Vec<Box<str>> {
+    v.and_then(Value::as_array).map(|a| a.iter().filter_map(|k| k.as_str().map(Box::from)).collect()).unwrap_or_default()
 }
 
 fn take_override_entries(v: Option<&mut Value>) -> Vec<OverrideEntry> {
@@ -1159,9 +1166,15 @@ impl<'a> Ctx<'a> {
                 Some(Value::String(t)) if !t.is_empty() => Some(t.into_boxed_str()),
                 _ => None,
             };
-            let ov =
-                Overrides { set: take_override_entries(v.get_mut("_overrides")), derived: take_override_entries(v.get_mut("_derived")), fast_derived, kept };
-            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() {
+            let own_keys = own_keys_of(v.get("_keptOwnKeys"));
+            let ov = Overrides {
+                set: take_override_entries(v.get_mut("_overrides")),
+                derived: take_override_entries(v.get_mut("_derived")),
+                fast_derived,
+                kept,
+                own_keys,
+            };
+            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() || ov.kept.is_some() {
                 self.overrides.insert(id, ov);
             }
         }
@@ -1269,8 +1282,15 @@ impl<'a> Ctx<'a> {
             }
             let fast_derived = fstr(v, "id").and_then(|sid| self.fast_derived_map.as_deref_mut().and_then(|m| m.remove(sid))).unwrap_or_default();
             let kept = v.get("_keptOverrides").and_then(Value::as_str).filter(|t| !t.is_empty()).map(Box::from);
-            let ov = Overrides { set: parse_override_entries(v.get("_overrides")), derived: parse_override_entries(v.get("_derived")), fast_derived, kept };
-            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() {
+            let own_keys = own_keys_of(v.get("_keptOwnKeys"));
+            let ov = Overrides {
+                set: parse_override_entries(v.get("_overrides")),
+                derived: parse_override_entries(v.get("_derived")),
+                fast_derived,
+                kept,
+                own_keys,
+            };
+            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() || ov.kept.is_some() {
                 self.overrides.insert(id, ov);
             }
         }
@@ -2026,13 +2046,17 @@ impl<'a> Ctx<'a> {
     fn flag_pending_self_overrides(&mut self, inst: NodeId) -> BTreeMap<OverrideField, u64> {
         let mut flagged: Vec<OverrideField> = Vec::new();
         if let Some(ov) = self.overrides.get(&inst) {
+            // A field a save can restate is flagged by the keys the file's own entry carries, not by what the loader made
+            // of them: it folds, renames and drops some (a style link without paints, for one).
+            flagged.extend(ov.own_keys.iter().filter_map(|k| crate::own_entry_keys::field_stated_by(k)));
+            // The other fields (layout, text) are only kept from syncing; nothing restates them.
             let mut no_maps = HashMap::new();
             for e in ov.set.iter().filter(|e| e.path.len() <= 1) {
                 if self.resolve_path_cached(inst, &e.path, &mut no_maps) != Some(inst) {
                     continue;
                 }
                 if let Some(obj) = e.set.as_object() {
-                    flagged.extend(obj.keys().filter_map(|k| override_field(k, false)));
+                    flagged.extend(obj.keys().filter_map(|k| override_field(k, false)).filter(|f| !crate::instance_self_digest::SELF_FIELDS.contains(f)));
                 }
             }
         }

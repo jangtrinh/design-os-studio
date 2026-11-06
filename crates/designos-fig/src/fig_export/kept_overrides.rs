@@ -14,6 +14,7 @@
 use super::{collect_instance_overrides_for, parse_guid_pair, ExportCtx};
 use crate::instance_self_digest::edited_fields;
 use crate::kiwi::{decode_hex_bytes, FieldType, KiwiValue as V};
+use crate::own_entry_keys::field_stated_by;
 use crate::testkit::guid;
 use designos_doc::*;
 use serde_json::Value;
@@ -146,30 +147,6 @@ pub(super) fn pending_symbol_overrides(cx: &mut ExportCtx<'_>, inst_id: NodeId, 
     (!entries.is_empty()).then_some(entries)
 }
 
-/// Whether the entry key `key` of an instance's own entry states `field`.
-fn key_states_field(field: OverrideField, key: &str) -> bool {
-    match field {
-        OverrideField::Name => key == "name",
-        OverrideField::Visible => key == "visible",
-        OverrideField::Locked => key == "locked",
-        OverrideField::LockAspect => key == "proportionsConstrained",
-        OverrideField::Opacity => key == "opacity",
-        OverrideField::Blend => key == "blendMode",
-        OverrideField::Size => key == "size",
-        OverrideField::Transform => key == "transform",
-        // The style link goes with the paints it supplies: a link left in the entry wins over the paints written beside it.
-        OverrideField::Fills => matches!(key, "fillPaints" | "styleIdForFill" | "inheritFillStyleID"),
-        OverrideField::Stroke => {
-            key.starts_with("stroke")
-                || key.starts_with("border")
-                || matches!(key, "dashPattern" | "miterLimit" | "styleIdForStrokeFill" | "inheritStrokeStyleID")
-        }
-        OverrideField::Effects => matches!(key, "effects" | "styleIdForEffect" | "inheritEffectStyleID"),
-        OverrideField::CornerRadii => key.starts_with("rectangle") || matches!(key, "cornerRadius" | "fillGeometry"),
-        _ => false,
-    }
-}
-
 /// The instance's own entry is the one whose path is its main's guid alone.
 fn is_own_entry(entry: &V, main_guid: (u32, u32)) -> bool {
     let guids = entry.get("guidPath").and_then(|p| p.get("guids")).and_then(V::as_array);
@@ -199,15 +176,22 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid
     }
     // The instance has no children, so what it reads from the node is its own entry alone.
     let Some(mut fresh) = collect_instance_overrides_for(cx, inst_id, Some(&edited)).into_iter().find(|e| is_own_entry(e, main_guid)) else { return };
-    let Some(index) = entries.iter().position(|e| is_own_entry(e, main_guid)) else {
+    let own: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| is_own_entry(e, main_guid)).map(|(i, _)| i).collect();
+    let Some(&last) = own.last() else {
         entries.insert(0, fresh);
         return;
     };
     let Some(restated) = message_fields_mut(&mut fresh) else { return };
     restated.retain(|(k, _)| &**k != "guidPath");
-    let Some(record) = message_fields_mut(&mut entries[index]) else { return };
-    record.retain(|(k, _)| !edited.iter().any(|f| key_states_field(*f, k)));
-    record.append(restated);
+    // Entries on one path apply in list order, so a key left in an earlier one would still be read where the last does not
+    // override it: the old value goes from all of them and the new one is stated by the last.
+    for &i in &own {
+        let Some(record) = message_fields_mut(&mut entries[i]) else { continue };
+        record.retain(|(k, _)| !field_stated_by(k).is_some_and(|f| edited.contains(&f)));
+    }
+    if let Some(record) = message_fields_mut(&mut entries[last]) {
+        record.append(restated);
+    }
 }
 
 #[cfg(test)]
