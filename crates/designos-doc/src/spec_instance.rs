@@ -1122,7 +1122,7 @@ pub(crate) fn apply_instance_props_with_ctx(
                         let new_size = match tp.auto_resize {
                             TextAutoResize::WidthAndHeight => {
                                 measured = true;
-                                Some(ctx.text_size(tp, None))
+                                Some(crate::text_measure::measure_hug_text_with(tp, node.layout_child.max_w, |t, w| ctx.text_size(t, w)))
                             }
                             TextAutoResize::Height => {
                                 measured = true;
@@ -1311,9 +1311,10 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                     tp.runs.clear();
                     if !has_size_override {
                         let mut measured = false;
+                        let max_w = node.layout_child.max_w;
                         match tp.auto_resize {
                             TextAutoResize::WidthAndHeight => {
-                                node.size = ctx.text_size(tp, None);
+                                node.size = crate::text_measure::measure_hug_text_with(tp, max_w, |t, w| ctx.text_size(t, w));
                                 measured = true;
                             }
                             TextAutoResize::Height => {

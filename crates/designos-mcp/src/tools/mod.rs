@@ -316,9 +316,10 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             props.runs.clear();
             props.lists.clear();
             if size_omitted {
+                let max_w = node.layout_child.max_w;
                 match props.auto_resize {
                     TextAutoResize::WidthAndHeight => {
-                        node.size = measure_text(props, None);
+                        node.size = designos_doc::text_measure::measure_hug_text_with(props, max_w, measure_text);
                     }
                     TextAutoResize::Height => {
                         node.size.y = measure_text(props, Some(node.size.x.max(20.0))).y;

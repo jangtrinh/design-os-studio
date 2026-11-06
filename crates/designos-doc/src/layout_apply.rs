@@ -90,7 +90,14 @@ impl Document {
             return None;
         }
         let (fit_w, fit_h) = content_sized_axes(raw);
-        let natural = raw.layout_child.natural_size(raw.size, horiz);
+        let mut natural = raw.layout_child.natural_size(raw.size, horiz);
+        if let NodeKind::Text(tp) = &bound.kind {
+            if tp.auto_resize == crate::TextAutoResize::WidthAndHeight && bound.layout_child.max_w.is_some() {
+                if let Some(measure) = layout_measurer() {
+                    natural = crate::text_measure::measure_hug_text_with(tp, bound.layout_child.max_w, |t, w| measure.measure(t, w));
+                }
+            }
+        }
         let has_w_bind = raw.variables.bindings.contains_key("width");
         let has_h_bind = raw.variables.bindings.contains_key("height");
         let size = Vec2::new(
