@@ -97,7 +97,9 @@ impl Document {
     /// waiting at that moment and not what the loader says after the copy loaded some.
     pub(crate) fn remember_deferred_pages(&self) {
         let Some(hydrator) = self.page_hydrator.as_ref() else { return };
-        let Ok(loader) = hydrator.lock() else { return };
+        // A clone never waits for the loader: if it is busy loading a page (or a loader calls back into a clone),
+        // the list is taken the first time it is asked for instead.
+        let Ok(loader) = hydrator.try_lock() else { return };
         drop(self.deferred_pages(loader_address(hydrator), &*loader));
     }
 
