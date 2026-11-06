@@ -37,6 +37,21 @@ pub fn rows(doc: &Document) -> Vec<Row> {
     out
 }
 
+/// Tree row roles of a Ready for dev item, the same as a layer row.
+fn row_look(selected: bool, hovered: bool) -> crate::widgets::kit::Look {
+    use crate::widgets::kit::{tree_row_look, State, Surface};
+    tree_row_look(
+        if selected {
+            State::Selected
+        } else if hovered {
+            State::Hover
+        } else {
+            State::Default
+        },
+        Surface::Primary,
+    )
+}
+
 const TAB_BADGE_TEXT_PAD: f32 = 10.0;
 const TAB_BADGE_MIN: f32 = 18.0;
 const TAB_BADGE_GAP: f32 = 6.0;
@@ -173,11 +188,8 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     let selected = app.selection.contains(id);
                     let inner = row.shrink2(Vec2::new(8.0, 1.0));
                     let p = ui.painter();
-                    if selected {
-                        p.rect_filled(inner, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
-                    } else if resp.hovered() {
-                        p.rect_filled(inner, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-                    }
+                    let paint = row_look(selected, resp.hovered());
+                    crate::widgets::kit::paint_frame(p, inner, theme::RADIUS_CONTROL, &paint);
                     let pill_w = status_pill_width(p, *status);
                     let pill_at = Pos2::new(inner.right() - pill_w - 6.0, row.center().y - 10.0);
                     p.text(
@@ -185,7 +197,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                         Align2::LEFT_CENTER,
                         elide(p, name, &theme::font_body(), inner.width() - pill_w - 32.0),
                         theme::font_body(),
-                        theme::TEXT,
+                        paint.text,
                     );
                     status_pill(p, pill_at, *status);
                     let _ = status_color;
@@ -249,6 +261,58 @@ mod tests {
             egui::Shape::Vec(v) => v.iter().for_each(|s| shape_text(s, out)),
             _ => {}
         }
+    }
+
+    fn ready_app(n: usize) -> App {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page");
+        for i in 0..n {
+            let id = doc.alloc_id();
+            let mut node = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+            node.name = format!("Item {i}");
+            doc.insert(page, node).unwrap();
+            mark_ready(&doc, id, "t", None).unwrap().apply(&mut doc).unwrap();
+        }
+        App::new(doc)
+    }
+
+    fn painted_tabs(app: &mut App, row: Rect) -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0))), ..Default::default() };
+        ctx.run_ui(raw, |ui| tabs(app, ui, row)).shapes
+    }
+
+    fn label_colors(shapes: &[egui::epaint::ClippedShape]) -> Vec<(String, egui::Color32)> {
+        shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.fallback_color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn count_badge_uses_the_dev_accent() {
+        let row = Rect::from_min_size(Pos2::new(0.0, 40.0), Vec2::new(800.0, theme::PANEL_TITLE_ROW_HEIGHT));
+        let shapes = painted_tabs(&mut ready_app(3), row);
+        let tint = theme::DEV_READY.gamma_multiply(0.22);
+        assert!(
+            shapes.iter().any(|clipped| matches!(&clipped.shape, egui::Shape::Rect(r) if r.fill == tint)),
+            "the count fill is the dev accent at the status tint"
+        );
+        let labels = label_colors(&shapes);
+        assert!(labels.iter().any(|(text, color)| text == "3" && *color == theme::TEXT), "the count label is primary text, got {labels:?}");
+        let none = painted_tabs(&mut ready_app(0), row);
+        assert!(label_colors(&none).iter().all(|(text, _)| text != "0"), "a zero count is not drawn");
+    }
+
+    #[test]
+    fn ready_rows_use_the_tree_row_roles() {
+        assert_eq!(row_look(true, false).fill, theme::BG_SELECTED);
+        assert_eq!(row_look(false, true).fill, theme::BG_HOVER);
+        assert_eq!(row_look(false, false).fill, egui::Color32::TRANSPARENT);
     }
 
     #[test]

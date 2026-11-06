@@ -320,20 +320,21 @@ mod tests {
     }
 
     #[test]
-    fn token_colours_match_the_syntax_roles() {
-        let pairs = [
-            (Tok::Plain, theme::SYNTAX_PLAIN),
-            (Tok::Property, theme::SYNTAX_PROPERTY),
-            (Tok::Keyword, theme::SYNTAX_KEYWORD),
-            (Tok::Str, theme::SYNTAX_STRING),
-            (Tok::Number, theme::SYNTAX_NUMBER),
-            (Tok::Type, theme::SYNTAX_TYPE),
-            (Tok::Function, theme::SYNTAX_FUNCTION),
-            (Tok::Comment, theme::SYNTAX_COMMENT),
-            (Tok::Punct, theme::SYNTAX_PUNCT),
+    fn token_colours_are_untitled_utility_roles() {
+        let rows = [
+            (Tok::Plain, theme::SYNTAX_PLAIN, theme::TEXT),
+            (Tok::Property, theme::SYNTAX_PROPERTY, Color32::from_rgb(0x7D, 0xD3, 0xFC)),
+            (Tok::Keyword, theme::SYNTAX_KEYWORD, Color32::from_rgb(0xF4, 0x72, 0xB6)),
+            (Tok::Str, theme::SYNTAX_STRING, Color32::from_rgb(0x4A, 0xDE, 0x80)),
+            (Tok::Number, theme::SYNTAX_NUMBER, Color32::from_rgb(0xFB, 0x92, 0x3C)),
+            (Tok::Type, theme::SYNTAX_TYPE, Color32::from_rgb(0xFA, 0xCC, 0x15)),
+            (Tok::Function, theme::SYNTAX_FUNCTION, Color32::from_rgb(0x60, 0xA5, 0xFA)),
+            (Tok::Comment, theme::SYNTAX_COMMENT, Color32::from_rgb(0xA3, 0xA3, 0xA3)),
+            (Tok::Punct, theme::SYNTAX_PUNCT, Color32::from_rgb(0xD4, 0xD4, 0xD4)),
         ];
-        for (tok, role) in pairs {
-            assert_eq!(color(tok), role, "{tok:?}");
+        for (tok, role, hex) in rows {
+            assert_eq!(color(tok), role, "{tok:?} maps to its role constant");
+            assert_eq!(role, hex, "{tok:?} role value");
         }
         let keyword = hue(color(Tok::Keyword));
         assert!(!(260.0..300.0).contains(&keyword), "keyword hue {keyword} is violet");
