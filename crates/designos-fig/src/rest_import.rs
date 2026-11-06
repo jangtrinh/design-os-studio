@@ -1956,6 +1956,13 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+        let mut self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>> = HashMap::new();
+        for &inst in pending_by_page.values().flatten() {
+            let digests = self.flag_pending_self_overrides(inst);
+            if !digests.is_empty() {
+                self_digests.insert(inst, digests);
+            }
+        }
         let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
         let mut instance_fingerprints = HashMap::new();
         let mut swap_mains_of: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
@@ -2008,8 +2015,30 @@ impl<'a> Ctx<'a> {
             instance_fingerprints,
             derived_outlines,
             swap_mains_of,
+            self_digests,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
+    }
+
+    /// Flags on the still childless instance `inst` the fields its file record overrides on the instance itself (the
+    /// entry that names its main), as opening its page would, so that syncing a main component leaves them alone. Returns
+    /// the digests of the instance's overridden fields as they are now (see [`crate::instance_self_digest`]).
+    fn flag_pending_self_overrides(&mut self, inst: NodeId) -> BTreeMap<OverrideField, u64> {
+        let mut flagged: Vec<OverrideField> = Vec::new();
+        if let Some(ov) = self.overrides.get(&inst) {
+            let mut no_maps = HashMap::new();
+            for e in ov.set.iter().filter(|e| e.path.len() <= 1) {
+                if self.resolve_path_cached(inst, &e.path, &mut no_maps) != Some(inst) {
+                    continue;
+                }
+                if let Some(obj) = e.set.as_object() {
+                    flagged.extend(obj.keys().filter_map(|k| override_field(k, false)));
+                }
+            }
+        }
+        let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
+        node.component.overrides.extend(flagged);
+        crate::instance_self_digest::digests(node)
     }
 
     /// Instances of components defined in other files (`remote: true` in the
@@ -3644,6 +3673,8 @@ struct DeferredFigHydrator {
     derived_outlines: HashMap<usize, std::sync::Arc<[u8]>>,
     /// Instance -> the mains its file record swaps nested instances to (part of its fingerprint).
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
+    /// Instance -> digest of each field it overrides on itself, as the file was opened.
+    self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -3839,6 +3870,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             .filter(|e| e.size.is_some() || e.transform.is_some() || !e.fill.is_empty() || !e.stroke.is_empty())
             .collect();
         (!entries.is_empty()).then_some(designos_doc::PendingDerived { fingerprint, entries, swap_mains })
+    }
+
+    fn pending_instance_self_digests(&self, instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
+        self.self_digests.get(&instance).cloned()
     }
 }
 
@@ -4879,6 +4914,7 @@ mod expand_depth_tests {
             instance_fingerprints: HashMap::new(),
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -4922,6 +4958,7 @@ mod expand_depth_tests {
             instance_fingerprints: HashMap::new(),
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));

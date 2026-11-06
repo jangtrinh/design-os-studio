@@ -1,0 +1,111 @@
+//! Tells an edit of an unopened instance from the state the file recorded for it.
+//!
+//! An instance on a page the loader has not opened has no children, and the file's record of what it overrides is
+//! written back as the file stated it. That record also states the instance's own fields (its size, fills, opacity...).
+//! When the user changes one of them before saving, the record's value is out of date. The loader therefore takes a
+//! digest of every overridden field of the instance when the file is opened, and a save compares the node against it:
+//! a field whose digest moved was edited.
+//!
+//! The loader flags each of those fields on the instance, so that syncing a main component leaves them alone. Without
+//! the flag a sync would reset a childless instance to its main's size and look like an edit.
+
+use designos_doc::{Node, OverrideField};
+use std::collections::BTreeMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
+
+/// The fields an instance's own record entry can state, and that a save can restate from the node.
+pub(crate) const SELF_FIELDS: [OverrideField; 12] = [
+    OverrideField::Name,
+    OverrideField::Visible,
+    OverrideField::Locked,
+    OverrideField::LockAspect,
+    OverrideField::Opacity,
+    OverrideField::Blend,
+    OverrideField::Size,
+    OverrideField::Transform,
+    OverrideField::Fills,
+    OverrideField::Stroke,
+    OverrideField::Effects,
+    OverrideField::CornerRadii,
+];
+
+/// A digest of what `node` holds for `field`, covering every value a save writes for that field.
+fn digest(node: &Node, field: OverrideField) -> u64 {
+    let mut h = DefaultHasher::new();
+    let bound = |prefix: &str| -> Vec<(&String, &String)> { node.variables.bindings.iter().filter(|(k, _)| k.starts_with(prefix)).collect() };
+    let text = match field {
+        OverrideField::Name => format!("{:?}", node.name),
+        OverrideField::Visible => format!("{:?}", node.visible),
+        OverrideField::Locked => format!("{:?}", node.locked),
+        OverrideField::LockAspect => format!("{:?}", node.lock_aspect),
+        OverrideField::Opacity => format!("{:?}", node.opacity),
+        OverrideField::Blend => format!("{:?}", node.blend),
+        OverrideField::Size => format!("{:?}", node.size),
+        OverrideField::Transform => format!("{:?}", node.transform),
+        OverrideField::Fills => format!("{:?}{:?}", node.fills, bound("fills/")),
+        OverrideField::Stroke => format!("{:?}{:?}{:?}", node.stroke, node.stroke_geometry, bound("strokes/")),
+        OverrideField::Effects => format!("{:?}{:?}", node.effects, bound("effects/")),
+        OverrideField::CornerRadii => format!("{:?}{:?}", node.corner_radii, node.corner_smoothing),
+        _ => String::new(),
+    };
+    text.hash(&mut h);
+    h.finish()
+}
+
+/// The digest of each field of `node` that the instance overrides and a save can restate.
+pub(crate) fn digests(node: &Node) -> BTreeMap<OverrideField, u64> {
+    SELF_FIELDS.iter().copied().filter(|f| node.component.overrides.contains(f)).map(|f| (f, digest(node, f))).collect()
+}
+
+/// The fields of `node` that differ from `opened`, the digests taken when the file was opened: a field overridden now
+/// that was not then counts as differing.
+pub(crate) fn edited_fields(node: &Node, opened: &BTreeMap<OverrideField, u64>) -> Vec<OverrideField> {
+    digests(node).into_iter().filter(|(f, d)| opened.get(f) != Some(d)).map(|(f, _)| f).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designos_doc::{Color, NodeId, NodeKind, Paint, Vec2};
+
+    fn node() -> Node {
+        let mut n = Node::new(NodeId(1), NodeKind::Rectangle);
+        n.component.overrides.extend([OverrideField::Size, OverrideField::Fills]);
+        n
+    }
+
+    #[test]
+    fn an_unchanged_node_has_no_edited_field() {
+        let n = node();
+        assert!(edited_fields(&n, &digests(&n)).is_empty());
+    }
+
+    #[test]
+    fn only_the_changed_field_is_reported() {
+        let n = node();
+        let opened = digests(&n);
+        let mut edited = n.clone();
+        edited.size = Vec2::new(200.0, 60.0);
+        assert_eq!(edited_fields(&edited, &opened), vec![OverrideField::Size]);
+        let mut refilled = n.clone();
+        refilled.fills = vec![Paint::solid(Color::rgba(255, 0, 0, 255))];
+        assert_eq!(edited_fields(&refilled, &opened), vec![OverrideField::Fills]);
+    }
+
+    #[test]
+    fn a_field_flagged_after_the_file_was_opened_counts_as_edited() {
+        let mut n = node();
+        let opened = digests(&n);
+        n.component.overrides.insert(OverrideField::Opacity);
+        assert_eq!(edited_fields(&n, &opened), vec![OverrideField::Opacity]);
+    }
+
+    #[test]
+    fn a_field_the_node_does_not_override_is_never_reported() {
+        let n = node();
+        let opened = digests(&n);
+        let mut edited = n.clone();
+        edited.opacity = 0.5;
+        assert!(edited_fields(&edited, &opened).is_empty());
+    }
+}

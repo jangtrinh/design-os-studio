@@ -12,7 +12,7 @@ use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
 use crate::FigError;
 use designos_doc::*;
 use serde_json::json;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 mod carrier;
 mod grid;
@@ -2137,6 +2137,12 @@ fn authored_source_guid(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
 }
 
 fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
+    collect_instance_overrides_for(cx, inst_id, None)
+}
+
+/// [`collect_instance_overrides`] where `own_fields`, when given, replaces the fields the instance itself is read as
+/// overriding (its own entry then states exactly those).
+fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_fields: Option<&BTreeSet<OverrideField>>) -> Vec<V> {
     let mut out = Vec::new();
     let Some(inst) = cx.doc.get(inst_id) else { return out };
     let mut stack: Vec<(NodeId, Vec<(u32, u32)>)> = inst.children.iter().rev().map(|&cid| (cid, Vec::new())).collect();
@@ -2206,7 +2212,11 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
 
         // The instance's own bindings, override level and detached id are fields of its node change already, so
         // only a flagged field makes an entry for it; they are left out of it below.
-        if !n.component.overrides.is_empty()
+        let ovs = match own_fields {
+            Some(fields) if own => fields,
+            _ => &n.component.overrides,
+        };
+        if !ovs.is_empty()
             || (!own
                 && (has_fill_var
                     || has_stroke_var
@@ -2228,7 +2238,6 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
                 ov.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
             }
 
-            let ovs = &n.component.overrides;
             if ovs.contains(&OverrideField::Name) {
                 ov.push(("name", V::String(n.name.clone())));
             }

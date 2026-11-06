@@ -19,6 +19,7 @@ mod effect_units;
 mod export;
 mod fig;
 mod fig_export;
+mod instance_self_digest;
 pub mod kiwi;
 pub mod pen;
 mod proto;

@@ -11,12 +11,13 @@
 //! writer's schema has no definition for (prototype interactions on an override, text layout versions: Studio reads none
 //! of them) is left out of the entry; the rest of the entry is written as it was.
 
-use super::{parse_guid_pair, ExportCtx};
+use super::{collect_instance_overrides_for, parse_guid_pair, ExportCtx};
+use crate::instance_self_digest::edited_fields;
 use crate::kiwi::{decode_hex_bytes, FieldType, KiwiValue as V};
 use crate::testkit::guid;
 use designos_doc::*;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What the loader recorded for one instance, parsed.
 struct Kept {
@@ -141,7 +142,57 @@ pub(super) fn pending_symbol_overrides(cx: &mut ExportCtx<'_>, inst_id: NodeId, 
         }
         remap_prop_assignments(cx, &kept, e, inst_id, main_guid);
     }
+    restate_edited_self_fields(cx, inst_id, main_guid, &mut entries);
     (!entries.is_empty()).then_some(entries)
+}
+
+/// Whether the entry key `key` of an instance's own entry states `field`.
+fn key_states_field(field: OverrideField, key: &str) -> bool {
+    match field {
+        OverrideField::Name => key == "name",
+        OverrideField::Visible => key == "visible",
+        OverrideField::Locked => key == "locked",
+        OverrideField::LockAspect => key == "proportionsConstrained",
+        OverrideField::Opacity => key == "opacity",
+        OverrideField::Blend => key == "blendMode",
+        OverrideField::Size => key == "size",
+        OverrideField::Transform => key == "transform",
+        OverrideField::Fills => key == "fillPaints",
+        OverrideField::Stroke => key.starts_with("stroke") || key.starts_with("border") || matches!(key, "dashPattern" | "miterLimit"),
+        OverrideField::Effects => key == "effects",
+        OverrideField::CornerRadii => key.starts_with("rectangle") || matches!(key, "cornerRadius" | "fillGeometry"),
+        _ => false,
+    }
+}
+
+/// The instance's own entry is the one whose path is its main's guid alone.
+fn is_own_entry(entry: &V, main_guid: (u32, u32)) -> bool {
+    let guids = entry.get("guidPath").and_then(|p| p.get("guids")).and_then(V::as_array);
+    guids.is_some_and(|g| g.len() == 1 && field_guid(&g[0]) == Some(main_guid))
+}
+
+/// The record states the instance's own fields as they were when the file was opened. A field the user changed on the
+/// instance since then (its digest moved, see [`crate::instance_self_digest`]) is written from the node instead, in
+/// place of what the record says for it; every other part of the record is written as it was.
+fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid: (u32, u32), entries: &mut Vec<V>) {
+    let doc = cx.doc;
+    let opened = doc.pending_instance_self_digests(inst_id).unwrap_or_default();
+    let Some(node) = doc.get(inst_id) else { return };
+    let edited: BTreeSet<OverrideField> = edited_fields(node, &opened).into_iter().collect();
+    if edited.is_empty() {
+        return;
+    }
+    // The instance has no children, so what it reads from the node is its own entry alone.
+    let Some(mut fresh) = collect_instance_overrides_for(cx, inst_id, Some(&edited)).into_iter().find(|e| is_own_entry(e, main_guid)) else { return };
+    let Some(index) = entries.iter().position(|e| is_own_entry(e, main_guid)) else {
+        entries.insert(0, fresh);
+        return;
+    };
+    let Some(restated) = message_fields_mut(&mut fresh) else { return };
+    restated.retain(|(k, _)| &**k != "guidPath");
+    let Some(record) = message_fields_mut(&mut entries[index]) else { return };
+    record.retain(|(k, _)| !edited.iter().any(|f| key_states_field(*f, k)));
+    record.append(restated);
 }
 
 #[cfg(test)]

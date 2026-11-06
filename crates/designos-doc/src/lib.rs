@@ -556,6 +556,12 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn pending_instance_derived(&self, _instance: NodeId) -> Option<PendingDerived> {
         None
     }
+    /// A digest, taken when the file was opened, of each field the file's record overrides on `instance` itself, with
+    /// the same rules as [`Self::pending_instance_overrides`]. The loader flags those fields on the instance, so a
+    /// writer that finds a digest moved knows the user edited that field. The document does not interpret the digests.
+    fn pending_instance_self_digests(&self, _instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
+        None
+    }
 }
 
 /// One outline of a [`PendingDerivedEntry`]: the path commands as a `.fig` stores them.
@@ -796,6 +802,14 @@ impl Document {
         let h = self.page_hydrator.as_ref()?;
         let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.pending_instance_derived(instance)
+    }
+
+    /// The digests of the fields the file's record overrides on `instance` itself, taken when the file was opened (see
+    /// [`PageHydrator::pending_instance_self_digests`]). Read-only, like [`Self::pending_instance_overrides`].
+    pub fn pending_instance_self_digests(&self, instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
+        let h = self.page_hydrator.as_ref()?;
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.pending_instance_self_digests(instance)
     }
 
     /// Number of instances skipped by deferred page hydration due to hitting the clone budget.
