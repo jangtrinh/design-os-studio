@@ -50,11 +50,7 @@ impl NumberedPhraseFinder {
     }
 
     fn feed(&mut self, word: &str) -> bool {
-        let mut chars = word.chars();
-        let is_number = word.ends_with('.') && {
-            chars.next_back();
-            chars.next().is_some() && chars.all(|ch| ch.is_ascii_digit())
-        };
+        let is_number = word.strip_suffix('.').is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()));
         if self.numbered {
             if self.phrase.feed(word) {
                 return true;
