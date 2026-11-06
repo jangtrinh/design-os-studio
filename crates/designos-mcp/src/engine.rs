@@ -623,7 +623,7 @@ impl Engine {
                 let baseline =
                     crate::tools::issues::PreCallBaseline::capture(&self.doc, &[former_parent], &self.session_options.issues, a.lint, self.lint_env());
                 self.exec(Command::Remove { id })?;
-                self.relayout(former_parent);
+                self.relayout_containers(&[former_parent]);
                 let mut out = json!({"node_id":id,"deleted":true});
                 if let Some(before) = &before_doc {
                     crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
@@ -1101,9 +1101,7 @@ impl Engine {
                     if !cmds.is_empty() {
                         let seeds = crate::tools::relayout_scope::seeds_after_commands(&self.doc, &cmds);
                         self.exec(Command::Batch(cmds))?;
-                        for id in seeds {
-                            self.relayout(id);
-                        }
+                        self.relayout_seeds(&seeds.leaves, &seeds.containers);
                         self.settle_layout();
                     }
                     return Ok(json!({ "changed": fixed_count > 0, "fixed_count": fixed_count, "changes": changes }));
@@ -1289,12 +1287,24 @@ impl Engine {
     /// what the pass had to defer. The editor drains deferred layout a step per frame; this engine
     /// has no window, and its document is read, saved and exported as is.
     pub(crate) fn relayout(&mut self, root: NodeId) {
+        self.relayout_seeds(&[root], &[]);
+    }
+
+    /// Like [`Self::relayout`] for containers that lost or gained a layer: each runs on its own
+    /// and the frames above it run only while a container's size changes.
+    pub(crate) fn relayout_containers(&mut self, containers: &[NodeId]) {
+        self.relayout_seeds(&[], containers);
+    }
+
+    /// One solve over `leaves` (with their parents) and `containers`, then the connector re-route
+    /// for what it wrote.
+    pub(crate) fn relayout_seeds(&mut self, leaves: &[NodeId], containers: &[NodeId]) {
         let ep = self.doc.mutation_epoch();
-        crate::tools::batch::relayout_for_node(&mut self.doc, root);
+        crate::tools::batch::relayout_seeds(&mut self.doc, leaves, containers);
         if self.doc.mutation_epoch() != ep && designos_doc::with_index(&self.doc, |idx| !idx.is_empty()) {
             let mut dirty = Vec::new();
             let mut removed = Vec::new();
-            let touched = if self.doc.dirty_changes_since(ep, &mut dirty, &mut removed) { dirty } else { vec![root] };
+            let touched = if self.doc.dirty_changes_since(ep, &mut dirty, &mut removed) { dirty } else { [leaves, containers].concat() };
             if !touched.is_empty() && !designos_doc::plan_reroute(&self.doc, &touched, None).updates.is_empty() {
                 let _ = self.reroute_in_last_step(&touched);
                 crate::tools::batch::relayout_for_nodes(&mut self.doc, &touched);

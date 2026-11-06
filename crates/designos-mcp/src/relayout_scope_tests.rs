@@ -3,6 +3,8 @@
 //! solve that reaches a layer the edit did not touch shows up as a layer that moved.
 
 mod data;
+mod leave;
+mod paint;
 
 use crate::engine::Engine;
 use designos_doc::{AutoLayout, Document, FrameProps, LayoutAlign, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing};
@@ -278,7 +280,7 @@ fn a_batch_width_edit_re_solves_its_own_row_and_leaves_the_children_of_a_sibling
 /// Puts every layer in `stored` back to the geometry it had. A step that solves the frames around it while
 /// it runs (the first `connect` of a test, on code that re-solves) leaves the fixture as stored again for
 /// the edit under test.
-fn restore_geometry(e: &mut Engine, stored: &Geometry) {
+pub(super) fn restore_geometry(e: &mut Engine, stored: &Geometry) {
     for (id, [x, y, w, h]) in stored {
         if let Some(n) = e.doc.get_mut(NodeId(*id)) {
             n.transform.tx = *x;

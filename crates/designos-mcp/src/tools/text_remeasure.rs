@@ -14,22 +14,12 @@ const TEXT_BOX_KEYS: [&str; 10] =
     ["fontSize", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "listSpacing", "characters", "fontFamily", "fontStyle"];
 
 /// Bound properties on a node that the auto-layout solver reads directly.
-const LAYOUT_BOX_KEYS: [&str; 14] = [
-    "width",
-    "height",
-    "visible",
-    "itemSpacing",
-    "counterAxisSpacing",
-    "paddingTop",
-    "paddingRight",
-    "paddingBottom",
-    "paddingLeft",
-    "strokeWeight",
-    "strokeTopWeight",
-    "strokeRightWeight",
-    "strokeBottomWeight",
-    "strokeLeftWeight",
-];
+const LAYOUT_BOX_KEYS: [&str; 9] =
+    ["width", "height", "visible", "itemSpacing", "counterAxisSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+
+/// Bound stroke widths. The solver reads them only on a frame that
+/// [`crate::tools::relayout_scope::stroke_inset_read_by_solver`] names.
+const STROKE_WEIGHT_KEYS: [&str; 5] = ["strokeWeight", "strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
 
 /// Sets the size of a hug text (`WidthAndHeight` or `Height`) to the renderer's measure of
 /// what `node` draws in `doc`. Other nodes and fixed-size text are left alone.
@@ -122,7 +112,13 @@ impl VariablesBefore {
         }
         doc.nodes
             .values()
-            .filter(|n| n.variables.bindings.iter().any(|(k, v)| LAYOUT_BOX_KEYS.contains(&k.as_str()) && changed.contains(v.as_str())))
+            .filter(|n| {
+                n.variables.bindings.iter().any(|(k, v)| {
+                    (LAYOUT_BOX_KEYS.contains(&k.as_str())
+                        || (STROKE_WEIGHT_KEYS.contains(&k.as_str()) && crate::tools::relayout_scope::stroke_inset_read_by_solver(n).is_some()))
+                        && changed.contains(v.as_str())
+                })
+            })
             .map(|n| n.id)
             .collect()
     }

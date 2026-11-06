@@ -5,26 +5,81 @@
 //! keeps its place. [`update_affects_layout`] is that gate for one node; [`seeds_after_commands`]
 //! applies it to a list of commands and adds the containers a removal, move or insert leaves.
 
-use designos_doc::{Command, Document, Node, NodeId};
+use designos_doc::{Command, Document, Node, NodeId, NodeKind};
 
 fn is_auto_layout(node: &Node) -> bool {
     node.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some()
 }
 
+/// Where a re-solve starts after a list of commands.
+///
+/// A `leaf` is a layer whose own edit can change its size or place; the frame that holds it runs
+/// too, because the solver does not see a leaf's size change. A `container` is a frame that lost
+/// or gained a child; it runs on its own and the frames above it run only if its size changes.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct LayoutSeeds {
+    pub(crate) leaves: Vec<NodeId>,
+    pub(crate) containers: Vec<NodeId>,
+}
+
+fn push_unique(list: &mut Vec<NodeId>, id: NodeId) {
+    if !list.contains(&id) {
+        list.push(id);
+    }
+}
+
+/// `kind` reduced to what the solver and the text measurer read, so an edit that only repaints a
+/// layer compares equal. One line per group that stays:
+/// - text content, runs, font, size, line height, letter and paragraph spacing, case, features and
+///   axes, list ranges, direction, wrap, truncation and auto-resize: `text_geometry` and the hug
+///   text sizing in `layout_apply::flow_child_input`;
+/// - the auto-layout fields of a frame, component or instance (direction, sizing, align, gaps,
+///   padding, wrap, grid tracks, version, stroke flag): `layout_apply::solve_auto_layout_node`;
+/// - the frame's content clip and the shape of every other kind.
+///
+/// What is dropped, because neither reads it: the paints of a text style and of each run
+/// (`designos_render::measure_text_box` clears them before it measures), and the layout grids of a
+/// frame (guides only; the solver never reads `FrameProps::grids`).
+fn layout_projection(kind: &NodeKind) -> NodeKind {
+    let mut kind = kind.clone();
+    match &mut kind {
+        NodeKind::Text(tp) => {
+            tp.style.fills.clear();
+            for run in &mut tp.runs {
+                run.style.fills.clear();
+            }
+        }
+        NodeKind::Frame(f) | NodeKind::Component(f) | NodeKind::ComponentSet(f) | NodeKind::Instance { frame: f, .. } => f.grids.clear(),
+        _ => {}
+    }
+    kind
+}
+
+/// The stroke inset the solver adds to padding, for the one kind of node that reads it: an
+/// auto-layout frame in layout version 0 whose borders take space (`AutoLayout::effective_padding`,
+/// called from `layout_solver::compute_with_stroke` on the frame being solved). Any other node's
+/// stroke is not read by any solve.
+pub(crate) fn stroke_inset_read_by_solver(node: &Node) -> Option<[f32; 4]> {
+    let al = node.kind.frame_props().and_then(|f| f.auto_layout.as_ref())?;
+    (al.layout_version == 0 && al.stroke_included).then(|| node.stroke.layout_inset())
+}
+
 /// Whether replacing `old` by `new` can change an auto-layout arrangement.
 ///
 /// The field set follows `LAYOUT_FIELDS` in `designos-doc`'s `live_patch/replay.rs` (size, kind,
-/// layout sizing, visibility), which Studio checks before it re-solves a replayed edit. Two more
-/// are read by the solver and so count here: a flow child's position inside an auto-layout
-/// parent, and the inward stroke width of a frame whose borders take space
-/// ([`designos_doc::Stroke::layout_inset`]). A node that stays outside the flow (absolutely
-/// positioned, such as a connector) changes nothing in its parent; only an auto-layout frame
-/// among them re-solves its own children.
+/// layout sizing, visibility), which Studio checks before it re-solves a replayed edit, with
+/// `kind` reduced by [`layout_projection`]. Two more are read by the solver and so count here: a
+/// flow child's position inside an auto-layout parent, and the stroke inset of a frame that reads
+/// it ([`stroke_inset_read_by_solver`]). A node that stays outside the flow (absolutely positioned,
+/// such as a connector) changes nothing in its parent; only an auto-layout frame among them
+/// re-solves its own children.
 pub(crate) fn update_affects_layout(doc: &Document, old: &Node, new: &Node) -> bool {
     if old.layout_child != new.layout_child {
         return true;
     }
-    let own_geometry = old.size != new.size || old.kind != new.kind || old.stroke.layout_inset() != new.stroke.layout_inset();
+    let own_geometry = old.size != new.size
+        || (old.kind != new.kind && layout_projection(&old.kind) != layout_projection(&new.kind))
+        || stroke_inset_read_by_solver(old) != stroke_inset_read_by_solver(new);
     if new.layout_child.absolute {
         return own_geometry && is_auto_layout(new);
     }
@@ -51,11 +106,11 @@ fn surviving_parent(before: &Document, removed: &[NodeId], id: NodeId) -> Option
     Some(cur)
 }
 
-/// The nodes whose auto-layout must be re-solved after `cmds` run on `before`, read before they
-/// run: an `Update` that changes something layout reads, the former and the new parent of a
-/// removed or moved layer, and the parent and root of an insert. A layer that stays outside the
-/// flow does not seed its parent. Nested batches are walked.
-pub(crate) fn seeds_after_commands(before: &Document, cmds: &[Command]) -> Vec<NodeId> {
+/// Where auto layout must be re-solved after `cmds` run on `before`, read before they run: an
+/// `Update` that changes something layout reads (a leaf), the former and the new parent of a
+/// removed or moved layer (containers), and the root of an insert (a leaf, or for a layer outside
+/// the flow a container, so its home frame does not run). Nested batches are walked.
+pub(crate) fn seeds_after_commands(before: &Document, cmds: &[Command]) -> LayoutSeeds {
     let mut flat = Vec::new();
     flatten(cmds, &mut flat);
     let removed: Vec<NodeId> = flat
@@ -65,38 +120,34 @@ pub(crate) fn seeds_after_commands(before: &Document, cmds: &[Command]) -> Vec<N
             _ => None,
         })
         .collect();
-    let mut seeds: Vec<NodeId> = Vec::new();
-    let mut seed = |id: NodeId| {
-        if !seeds.contains(&id) {
-            seeds.push(id);
-        }
-    };
+    let mut seeds = LayoutSeeds::default();
     for c in flat {
         match c {
             Command::Update { node } => {
                 if before.get(node.id).is_some_and(|old| update_affects_layout(before, old, node)) {
-                    seed(node.id);
+                    push_unique(&mut seeds.leaves, node.id);
                 }
             }
             Command::Remove { id } => {
                 if let Some(parent) = surviving_parent(before, &removed, *id) {
-                    seed(parent);
+                    push_unique(&mut seeds.containers, parent);
                 }
             }
             Command::Reparent { id, parent, .. } => {
                 if before.get(*id).is_some_and(|n| !n.layout_child.absolute) {
                     if let Some(old_parent) = surviving_parent(before, &removed, *id) {
-                        seed(old_parent);
+                        push_unique(&mut seeds.containers, old_parent);
                     }
-                    seed(*parent);
+                    push_unique(&mut seeds.containers, *parent);
                 }
             }
-            Command::Insert { parent, nodes, .. } => {
+            Command::Insert { nodes, .. } => {
                 if let Some(root) = nodes.first() {
-                    if !root.layout_child.absolute {
-                        seed(*parent);
+                    if root.layout_child.absolute {
+                        push_unique(&mut seeds.containers, root.id);
+                    } else {
+                        push_unique(&mut seeds.leaves, root.id);
                     }
-                    seed(root.id);
                 }
             }
             _ => {}
@@ -187,13 +238,56 @@ mod tests {
     }
 
     #[test]
-    fn a_stroke_width_that_takes_space_re_solves_and_a_stroke_colour_does_not() {
+    fn a_stroke_width_re_solves_only_a_frame_whose_borders_take_space() {
         let mut f = fixture();
         let column = f.doc.get_mut(f.column).unwrap();
         column.stroke.paints = vec![Paint::solid(Color::BLACK)];
         column.stroke.weight = 2.0;
+        if let Some(al) = column.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+            al.layout_version = 0;
+            al.stroke_included = true;
+        }
         assert!(affects(&f.doc, f.column, |n| n.stroke.weight = 6.0));
-        assert!(!affects(&f.doc, f.column, |n| n.stroke.paints = vec![Paint::solid(Color::WHITE)]));
+        assert!(!affects(&f.doc, f.column, |n| n.stroke.paints = vec![Paint::solid(Color::WHITE)]), "a colour takes no space");
+        assert!(!affects(&f.doc, f.in_column, |n| n.stroke.weight = 6.0), "the solver reads no child's stroke");
+
+        let column = f.doc.get_mut(f.column).unwrap();
+        if let Some(al) = column.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+            al.layout_version = 1;
+        }
+        assert!(!affects(&f.doc, f.column, |n| n.stroke.weight = 6.0), "in layout version 1 the border sits inside the box");
+    }
+
+    #[test]
+    fn a_text_fill_and_a_layout_grid_re_solve_nothing_and_a_font_size_does() {
+        let mut f = fixture();
+        let id = f.doc.alloc_id();
+        let text = Node::text(id, Rect::new(0.0, 0.0, 50.0, 20.0), "hello", designos_doc::TextStyle::default());
+        let text = f.doc.insert(f.column, text).unwrap();
+        assert!(!affects(&f.doc, text, |n| {
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.style.fills = vec![Paint::solid(Color::BLACK)];
+            }
+        }));
+        assert!(affects(&f.doc, text, |n| {
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.style.font_size += 10.0;
+            }
+        }));
+        assert!(affects(&f.doc, text, |n| {
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.content.push('!');
+            }
+        }));
+        assert!(!affects(&f.doc, f.column, |n| {
+            if let Some(fp) = n.kind.frame_props_mut() {
+                fp.grids = vec![designos_doc::LayoutGrid::Grid { size: 8.0, color: Color::BLACK, visible: true }];
+            }
+        }));
+    }
+
+    fn seeds(leaves: &[NodeId], containers: &[NodeId]) -> LayoutSeeds {
+        LayoutSeeds { leaves: leaves.to_vec(), containers: containers.to_vec() }
     }
 
     #[test]
@@ -201,12 +295,16 @@ mod tests {
         let f = fixture();
         let fill = update_of(&f.doc, f.in_column, |n| n.fills = vec![Paint::solid(Color::BLACK)]);
         let wider = update_of(&f.doc, f.in_column, |n| n.size.x = 80.0);
-        assert_eq!(seeds_after_commands(&f.doc, std::slice::from_ref(&fill)), Vec::<NodeId>::new());
-        assert_eq!(seeds_after_commands(&f.doc, &[fill, wider]), vec![f.in_column]);
+        assert_eq!(seeds_after_commands(&f.doc, std::slice::from_ref(&fill)), seeds(&[], &[]));
+        assert_eq!(seeds_after_commands(&f.doc, &[fill, wider]), seeds(&[f.in_column], &[]));
         let nested_removal = Command::Batch(vec![Command::Remove { id: f.in_column }]);
-        assert_eq!(seeds_after_commands(&f.doc, &[nested_removal]), vec![f.column], "a removal seeds the layer's former parent, nested or not");
+        assert_eq!(
+            seeds_after_commands(&f.doc, &[nested_removal]),
+            seeds(&[], &[f.column]),
+            "a removal seeds the layer's former parent as a container, nested or not"
+        );
         let moved_out = Command::Reparent { id: f.in_column, parent: f.plain, index: 0 };
-        assert_eq!(seeds_after_commands(&f.doc, &[moved_out]), vec![f.column, f.plain], "a move seeds the parent it left and the one it joins");
+        assert_eq!(seeds_after_commands(&f.doc, &[moved_out]), seeds(&[], &[f.column, f.plain]), "a move seeds the parent it left and the one it joins");
     }
 
     #[test]
@@ -214,7 +312,7 @@ mod tests {
         let f = fixture();
         let page = f.doc.get(f.column).unwrap().parent.unwrap();
         let cmds = [Command::Remove { id: f.column }, Command::Remove { id: f.in_column }];
-        assert_eq!(seeds_after_commands(&f.doc, &cmds), vec![page]);
+        assert_eq!(seeds_after_commands(&f.doc, &cmds), seeds(&[], &[page]));
     }
 
     #[test]
@@ -224,14 +322,14 @@ mod tests {
         let mut absolute = Node::rectangle(absolute_id, Rect::new(0.0, 0.0, 10.0, 10.0));
         absolute.layout_child.absolute = true;
         let insert = Command::Insert { parent: f.column, index: 1, nodes: vec![absolute] };
-        assert_eq!(seeds_after_commands(&f.doc, &[insert]), vec![absolute_id], "only the inserted root itself");
+        assert_eq!(seeds_after_commands(&f.doc, &[insert]), seeds(&[], &[absolute_id]), "only the inserted root itself, and its home frame stays out");
 
         let flow_id = f.doc.alloc_id();
         let flow = Command::Insert { parent: f.column, index: 1, nodes: vec![Node::rectangle(flow_id, Rect::new(0.0, 0.0, 10.0, 10.0))] };
-        assert_eq!(seeds_after_commands(&f.doc, &[flow]), vec![f.column, flow_id], "a flow child seeds its parent too");
+        assert_eq!(seeds_after_commands(&f.doc, &[flow]), seeds(&[flow_id], &[]), "a flow child is a leaf, so its parent runs with it");
 
         f.doc.get_mut(f.in_column).unwrap().layout_child.absolute = true;
         let moved = Command::Reparent { id: f.in_column, parent: f.plain, index: 0 };
-        assert_eq!(seeds_after_commands(&f.doc, &[moved]), Vec::<NodeId>::new());
+        assert_eq!(seeds_after_commands(&f.doc, &[moved]), seeds(&[], &[]));
     }
 }
