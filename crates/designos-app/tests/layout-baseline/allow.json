@@ -3342,36 +3342,48 @@
     "region": "right_panel",
     "name_prefix": "dev-complete",
     "min_dh": 4.0,
-    "max_dh": 4.0,
+    "max_dh": 40.0,
     "spec": "G",
-    "reason": "R8.6 Mark completed grows from 28 px to the 32 px inspector button and stays on the same row"
+    "reason": "Mark completed grows from 28 px to the 32 px inspector button and takes the full row, so its primary label is never elided",
+    "min_dw": 108.0,
+    "max_dw": 108.0
   },
   {
     "case": "g-dev-react",
     "region": "right_panel",
     "name_prefix": "btn-(\"dev-clear\", 0)",
     "min_dh": 4.0,
-    "max_dh": 4.0,
+    "max_dh": 40.0,
     "spec": "G",
-    "reason": "R8.6 Remove status grows from 28 px to the 32 px inspector button and stays beside Mark completed"
+    "reason": "Remove status grows from 28 px to the 32 px inspector button and moves under Mark completed on a full-width row of its own",
+    "min_dw": 109.0,
+    "max_dw": 109.0,
+    "anchor_x": "right",
+    "dy": 36.0
   },
   {
     "case": "g-dev-annotate",
     "region": "right_panel",
     "name_prefix": "dev-complete",
     "min_dh": 4.0,
-    "max_dh": 4.0,
+    "max_dh": 40.0,
     "spec": "G",
-    "reason": "R8.6 Mark completed grows from 28 px to the 32 px inspector button and stays on the same row"
+    "reason": "Mark completed grows from 28 px to the 32 px inspector button and takes the full row, so its primary label is never elided",
+    "min_dw": 108.0,
+    "max_dw": 108.0
   },
   {
     "case": "g-dev-annotate",
     "region": "right_panel",
     "name_prefix": "btn-(\"dev-clear\", 0)",
     "min_dh": 4.0,
-    "max_dh": 4.0,
+    "max_dh": 40.0,
     "spec": "G",
-    "reason": "R8.6 Remove status grows from 28 px to the 32 px inspector button and stays beside Mark completed"
+    "reason": "Remove status grows from 28 px to the 32 px inspector button and moves under Mark completed on a full-width row of its own",
+    "min_dw": 109.0,
+    "max_dw": 109.0,
+    "anchor_x": "right",
+    "dy": 36.0
   },
   {
     "case": "g-dev-annotate",
@@ -3473,5 +3485,32 @@
     "max_dh": 0.0,
     "spec": "G",
     "reason": "R5 the Code Connect button behind the dialog sits on the same row as the change-list track, which shortens by 8 px when the footer grows; the button itself keeps its height"
+  },
+  {
+    "case": "g-dev-react",
+    "region": "unknown",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dy": 40.0,
+    "spec": "G",
+    "reason": "The Dev status buttons stack on two full-width rows, so the inspector content past the panel clip, listed under the unknown region, follows the growth of the status block"
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "unknown",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dy": 44.0,
+    "spec": "G",
+    "reason": "The Dev status buttons stack on two full-width rows (40 px) and the open note field and its buttons grow 4 px more, so the inspector content past the panel clip, listed under the unknown region, follows the 44 px the block grows"
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "right_panel",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "inventory_max_delta": 1,
+    "spec": "G",
+    "reason": "The Dev status buttons stack on two full-width rows, so one clipped fragment at the panel bottom leaves the right panel inventory"
   }
 ]
