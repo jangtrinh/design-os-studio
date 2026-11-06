@@ -220,6 +220,16 @@ macro_rules! codex_mcp_overrides {
     };
 }
 
+/// Removes the per-session MCP overrides when an untitled design has no private workspace. The
+/// prefix (including `codex resume` and its permission flags) remains intact.
+fn strip_codex_mcp_overrides(command: &str) -> String {
+    command.split_once(" -c 'mcp_servers.designos.command=").map_or_else(|| command.to_string(), |(prefix, _)| prefix.to_string())
+}
+
+fn has_no_workspace_note(note: Option<&str>) -> bool {
+    note.is_some_and(|note| note.contains("No design tools in this session:"))
+}
+
 /// The command behind the `--panel agents-start-failure` screenshot fixture. `agy` rejects `--mcp-config` and
 /// exits at once, which is what the failure panel shows. It must never carry a skip or bypass flag: it runs
 /// whatever the user's permission mode is (`#841`).
@@ -3404,6 +3414,7 @@ impl TerminalState {
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
         self.provision_session_agent_files(file_path);
+        let provisioning_note = self.set_aside_note.take();
         let env = self.session_env();
         let mut cmd = match build_agent_shell_cmd_checked_for_tab(&default_shell_program(), command, AgentCliPreset::Claude, file_path, Some(&env)) {
             Ok(cmd) => cmd,
@@ -3430,7 +3441,11 @@ impl TerminalState {
                 self.picker_open = false;
                 self.sessions_popover_open = false;
                 self.viewport_focused = true;
-                self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
+                let spawned = format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name);
+                self.status_msg = Some(match provisioning_note {
+                    Some(note) => format!("{spawned}. {note}"),
+                    None => spawned,
+                });
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
                     self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
                 }
@@ -3518,11 +3533,18 @@ impl TerminalState {
             self.status_msg = Some(message.clone());
             return Err(message);
         }
+        let effective_command = command.map(|c| {
+            if preset == AgentCliPreset::Codex && has_no_workspace_note(self.set_aside_note.as_deref()) {
+                strip_codex_mcp_overrides(c)
+            } else {
+                c.to_string()
+            }
+        });
         let mut env = self.session_env();
         env.tab_session_uuid = session_uuid.clone();
         // A Gemini tab in Ask mode reads its status hooks from a private file, written before the tab starts.
         env.gemini_system_defaults = crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, id, mode, preset).map(|path| path.display().to_string());
-        let cmd_override = match command {
+        let cmd_override = match effective_command.as_deref() {
             Some(c) => match build_agent_shell_cmd_checked_for_tab(&default_shell_program(), c, preset, file_path, Some(&env)) {
                 Ok(cmd) => {
                     #[cfg(test)]
@@ -3555,7 +3577,7 @@ impl TerminalState {
                 }
                 tab.session_uuid = session_uuid.clone();
                 tab.is_resumed = is_resumed;
-                tab.spawned_command = command.map(str::to_string);
+                tab.spawned_command = effective_command;
                 tab.permission_mode = self.permission_mode;
                 // Antigravity has no permission hook. A Gemini tab with no hooks file is not on this list: its waits start from the
                 // dialog on its screen (`gemini_dialog`), never from words in its output.
@@ -5954,6 +5976,31 @@ mod workspace_dir_tests {
         });
         let _ = std::fs::remove_dir_all(&titled_dir);
         assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    #[test]
+    fn codex_untitled_launch_does_not_register_designos_without_a_workspace() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Ask);
+            let idx = st.spawn_tab(AgentCliPreset::Codex, None).expect("Codex tab starts");
+            let command = st.tabs[idx].spawned_command.as_deref().expect("launch command");
+            assert!(!command.contains("mcp_servers.designos"), "untitled Codex must not register a server with an empty workspace: {command}");
+            assert!(!command.contains("--workspace"), "untitled Codex must not pass an empty workspace: {command}");
+            assert!(st.status_msg.as_deref().is_some_and(|status| status.contains("No design tools in this session")));
+            st.shutdown();
+        });
+    }
+
+    #[test]
+    fn custom_cli_status_keeps_the_no_workspace_note() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Ask);
+            st.spawn_custom_cli_tab("Custom", "true", None).expect("custom tab starts");
+            let status = st.status_msg.as_deref().unwrap_or_default();
+            assert!(status.starts_with("Spawned Custom"), "custom status names the started CLI: {status}");
+            assert!(status.contains("No design tools in this session"), "custom status preserves workspace note: {status}");
+            st.shutdown();
+        });
     }
 
     /// The writer thread reports a failed write as "Couldn't update the agent files" and retries it; a missing workspace is not one.
