@@ -156,7 +156,7 @@ pub fn write_document_atomic(path: &Path, doc: &Document) -> Result<usize> {
     }
     let mut replaced = 0;
     write_atomic_with(path, |out| {
-        replaced = doc.to_writer_counted(out).map_err(std::io::Error::other)?;
+        replaced = doc.to_writer_counted(out).map_err(std::io::Error::from)?;
         Ok(())
     })?;
     Ok(replaced)
@@ -1574,5 +1574,38 @@ mod tests {
 
         let (_, _, _, left_empty) = lib.store_imported_document(doc("small", 1), 0, None, &p.id, None).unwrap();
         assert_eq!(left_empty, 0, "a normal file reports nothing");
+    }
+
+    /// A write that hits the file-size limit half way through a document larger than the 1 MiB write buffer keeps
+    /// the disk error kind. The limit is set only in a child process, so the shared test binary is untouched.
+    #[cfg(unix)]
+    #[test]
+    fn a_large_save_that_hits_the_size_limit_keeps_the_disk_error_kind() {
+        let dir = std::env::var("DESIGNOS_FSIZE_CHILD");
+        let mut big = Document::new("Big");
+        big.add_page("Page");
+        big.images.insert("blob".into(), (0..3_000_000u32).map(|i| (i % 251) as u8).collect());
+        let Ok(dir) = dir else {
+            let exe = std::env::current_exe().unwrap();
+            let scratch = std::env::temp_dir().join(format!("designos_lib_fsize_{}_{}", std::process::id(), new_id()));
+            std::fs::create_dir_all(&scratch).unwrap();
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg("trap '' XFSZ; ulimit -f 2500; exec \"$0\" --exact store::tests::a_large_save_that_hits_the_size_limit_keeps_the_disk_error_kind --test-threads=1")
+                .arg(&exe)
+                .env("DESIGNOS_FSIZE_CHILD", &scratch)
+                .output()
+                .unwrap();
+            let _ = std::fs::remove_dir_all(&scratch);
+            let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success() && text.contains("1 passed"), "child run failed: {text}");
+            return;
+        };
+        let target = PathBuf::from(dir).join("doc.designos");
+        match write_document_atomic(&target, &big) {
+            Err(LibraryError::Io(io)) => assert_eq!(io.kind(), std::io::ErrorKind::FileTooLarge, "{io}"),
+            other => panic!("expected an io error, got {other:?}"),
+        }
+        assert!(!target.exists(), "no partial file");
     }
 }

@@ -483,7 +483,13 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
     let written = match &exported {
         Some(bytes) => designos_library::write_atomic(&p, bytes),
         None => designos_library::write_atomic_with(&p, |out| {
-            replaced = doc.to_writer_counted(out).map_err(|e| std::io::Error::other(format!("Cannot serialize: {e}")))?;
+            replaced = doc.to_writer_counted(out).map_err(|e| {
+                if e.is_io() {
+                    std::io::Error::from(e)
+                } else {
+                    std::io::Error::other(format!("Cannot serialize: {e}"))
+                }
+            })?;
             Ok(())
         }),
     };
@@ -1548,5 +1554,37 @@ mod tests {
         assert!(err.contains("is read-only or not writable:"), "unexpected error message: {err}");
         assert_eq!(after, original, "unwritable file content must stay untouched");
         assert_eq!(mode, 0o444, "unwritable file mode must stay 0444");
+    }
+
+    /// A write that hits the file-size limit half way through a document larger than the 1 MiB write buffer keeps
+    /// the disk error kind. The limit is set only in a child process, so the shared test binary is untouched.
+    #[cfg(unix)]
+    #[test]
+    fn a_large_save_that_hits_the_size_limit_keeps_the_disk_error_kind() {
+        let dir = std::env::var("DESIGNOS_FSIZE_CHILD");
+        let mut big = Document::new("Big");
+        big.add_page("Page");
+        big.images.insert("blob".into(), (0..3_000_000u32).map(|i| (i % 251) as u8).collect());
+        let Ok(dir) = dir else {
+            let exe = std::env::current_exe().unwrap();
+            let scratch = tmp("fsize_child");
+            std::fs::create_dir_all(&scratch).unwrap();
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg("trap '' XFSZ; ulimit -f 2500; exec \"$0\" --exact io::tests::a_large_save_that_hits_the_size_limit_keeps_the_disk_error_kind --test-threads=1")
+                .arg(&exe)
+                .env("DESIGNOS_FSIZE_CHILD", &scratch)
+                .output()
+                .unwrap();
+            let _ = std::fs::remove_dir_all(&scratch);
+            let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success() && text.contains("1 passed"), "child run failed: {text}");
+            return;
+        };
+        let target = PathBuf::from(dir).join("doc.designos");
+        let err = save_path_counted(&big, &target).expect_err("the limit must stop the write");
+        assert_eq!(err.kind(), std::io::ErrorKind::FileTooLarge, "{err}");
+        assert!(!err.to_string().contains("Cannot serialize"), "a disk error is not a serializer error: {err}");
+        assert!(!target.exists(), "no partial file");
     }
 }

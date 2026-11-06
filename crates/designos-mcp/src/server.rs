@@ -871,7 +871,7 @@ impl Session {
             &resolved,
             path,
             "/path",
-            |out| doc.to_writer(out).map(|_| ()).map_err(std::io::Error::other),
+            |out| doc.to_writer(out).map(|_| ()).map_err(std::io::Error::from),
             overwrite,
             true,
         )?;
