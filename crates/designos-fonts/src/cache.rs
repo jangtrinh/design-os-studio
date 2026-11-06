@@ -201,13 +201,20 @@ static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new
 /// group), so another user's ownership and hard links of the replaced file are not carried over
 /// (nor are ACLs or extended attributes on non-macOS platforms).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_atomic_with(path, |out| out.write_all(bytes))
+}
+
+/// [`write_atomic`] for content that is produced while it is written: `fill` writes the whole new content into
+/// the temporary file (buffered here), so a multi-GB document never has to exist in memory as one block. The same
+/// guarantees hold, and a `fill` that fails leaves the old file untouched and removes the temporary file.
+pub fn write_atomic_with(path: &Path, fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>) -> std::io::Result<()> {
     let (target, existing) = resolve_save_target(path)?;
     let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::create_dir_all(dir)?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let prefix = tmp_prefix(&name);
     sweep_stale_temps(dir, prefix);
-    write_via_tmp(&target, dir, prefix, bytes, existing)
+    write_via_tmp(&target, dir, prefix, fill, existing)
 }
 
 /// Truncates `name` on a UTF-8 char boundary so appending `.{pid}-{seq}.tmp` never exceeds
@@ -415,7 +422,13 @@ fn copy_apple_metadata(from: &std::fs::File, to: &std::fs::File) -> std::io::Res
     Err(err)
 }
 
-fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing: Option<ExistingTarget>) -> std::io::Result<()> {
+fn write_via_tmp(
+    target: &Path,
+    dir: &Path,
+    prefix: &str,
+    fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>,
+    existing: Option<ExistingTarget>,
+) -> std::io::Result<()> {
     use std::io::{ErrorKind, Write};
     use std::sync::atomic::Ordering;
 
@@ -446,8 +459,12 @@ fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing
             #[cfg(not(target_os = "macos"))]
             file.set_permissions(existing.meta.permissions())?;
         }
-        file.write_all(bytes)?;
-        if bytes.is_empty() {
+        {
+            let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut file);
+            fill(&mut out)?;
+            out.flush()?;
+        }
+        if file.metadata().is_ok_and(|m| m.len() == 0) {
             let _ = file.set_modified(std::time::SystemTime::now());
         }
         file.sync_all()?;

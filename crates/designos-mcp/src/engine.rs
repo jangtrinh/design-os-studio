@@ -2023,7 +2023,28 @@ pub(crate) fn write_checked_output_file(
     overwrite: bool,
     supports_overwrite: bool,
 ) -> Result<(), ToolError> {
+    write_checked_output_file_with(resolved, display_path, ptr, |out| out.write_all(bytes), overwrite, supports_overwrite)
+}
+
+/// [`write_checked_output_file`] for content that is produced while it is written (a whole document goes
+/// straight to the file instead of through one text in memory). `fill` writes the whole content; when it fails
+/// the file is not left behind.
+pub(crate) fn write_checked_output_file_with(
+    resolved: &std::path::Path,
+    display_path: &str,
+    ptr: &str,
+    fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>,
+    overwrite: bool,
+    supports_overwrite: bool,
+) -> Result<(), ToolError> {
     use std::io::Write;
+    let fill_file = |file: &mut std::fs::File| -> std::io::Result<()> {
+        let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut *file);
+        fill(&mut out)?;
+        out.flush()?;
+        drop(out);
+        file.sync_all()
+    };
     let map_io_err = |e: std::io::Error| match crate::session_file_io::refusal_of(&e) {
         Some(crate::session_file_io::Refusal::Link) => {
             ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
@@ -2072,7 +2093,7 @@ pub(crate) fn write_checked_output_file(
                 map_io_err(e)
             }
         })?;
-        if let Err(e) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+        if let Err(e) = fill_file(&mut file) {
             drop(file);
             let removed = std::fs::remove_file(resolved).is_ok();
             return Err(map_io_err(e).with_safe_to_retry(removed));
@@ -2143,8 +2164,7 @@ pub(crate) fn write_checked_output_file(
         if let Some(ref old) = old {
             file.set_permissions(old.permissions())?;
         }
-        file.write_all(bytes)?;
-        file.sync_all()?;
+        fill_file(&mut file)?;
         drop(file);
         std::fs::rename(&tmp, resolved)
     })();

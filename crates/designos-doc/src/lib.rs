@@ -1452,6 +1452,26 @@ impl Document {
 
     /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
     pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
+        let mut out = Vec::with_capacity(128);
+        let replaced = self.to_writer_counted(&mut out)?;
+        // SAFETY: `serde_json::Serializer` writes only valid UTF-8 (see `finite_json::to_string_finite`).
+        Ok((unsafe { String::from_utf8_unchecked(out) }, replaced))
+    }
+
+    /// [`Document::to_json`] straight into `writer`: the same bytes, without the whole text in memory.
+    /// Wrap a file in a `BufWriter`.
+    pub fn to_writer<W: std::io::Write>(&self, writer: W) -> serde_json::Result<usize> {
+        let replaced = self.to_writer_counted(writer)?;
+        if replaced > 0 {
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| eprintln!("designos-doc: wrote {replaced} non-finite numbers as their neutral value (reported once per run)"));
+        }
+        Ok(replaced)
+    }
+
+    /// [`Document::to_json_counted`] straight into `writer`; returns how many non-finite numbers were
+    /// replaced. A document that still has unloaded pages is refused before the first byte is written.
+    pub fn to_writer_counted<W: std::io::Write>(&self, writer: W) -> serde_json::Result<usize> {
         // A document whose pages are not all loaded would be written with empty instances, and the file could
         // never be repaired: refuse it, naming the cause. Callers that own the document load the pages first.
         self.refuse_pending_pages()?;
@@ -1508,7 +1528,7 @@ impl Document {
                 in_progress: filtered_in_progress,
                 next_id: self.next_id,
             };
-            return finite_json::to_string_finite(&view);
+            return finite_json::to_writer_finite(writer, &view);
         }
         // Ignore keys of deleted layers are written as they are and dropped when the file is read
         // back (`from_json_with_report`): pruning here would clone the whole document, images
@@ -1517,9 +1537,9 @@ impl Document {
         if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
             let mut clean = self.clone();
             clean.in_progress.retain(|id, ip| clean.nodes.contains_key(id) && !ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS));
-            return finite_json::to_string_finite(&clean);
+            return finite_json::to_writer_finite(writer, &clean);
         }
-        finite_json::to_string_finite(self)
+        finite_json::to_writer_finite(writer, self)
     }
 
     /// How many non-finite numbers [`Document::to_json_counted`] would replace, counted without
@@ -1582,7 +1602,28 @@ impl Document {
     pub fn from_json_with_report(s: &str) -> serde_json::Result<(Self, RepairReport)> {
         // A `null` in a number slot is how older versions saved a NaN or infinity; it is read as the
         // neutral value and counted (see [`finite_json`]).
-        let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
+        let (doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
+        Ok(Self::finish_load(doc, non_finite_numbers))
+    }
+
+    /// [`Document::from_json`] for a file: parsed as a stream, so a stored document of several GB never sits in
+    /// memory as one text next to the document. The result is the one [`Document::from_json`] gives for the same
+    /// bytes. A file that needs the repair of a damaged number is read a second time (hence `Seek`).
+    pub fn from_reader<R: std::io::Read + std::io::Seek>(reader: R) -> serde_json::Result<Self> {
+        let (doc, repaired) = Self::from_reader_with_report(reader)?;
+        if !repaired.is_clean() {
+            eprintln!("designos-doc: repaired a damaged document on load: {repaired:?}");
+        }
+        Ok(doc)
+    }
+
+    /// [`Document::from_reader`], silent: returns what the load-time repair changed.
+    pub fn from_reader_with_report<R: std::io::Read + std::io::Seek>(reader: R) -> serde_json::Result<(Self, RepairReport)> {
+        let (doc, non_finite_numbers): (Self, usize) = finite_json::from_reader_repairing(reader)?;
+        Ok(Self::finish_load(doc, non_finite_numbers))
+    }
+
+    fn finish_load(mut doc: Self, non_finite_numbers: usize) -> (Self, RepairReport) {
         for (key, bits) in take_styles_paragraph_fields() {
             if let Some(meta) = text_style_meta_mut(&doc.styles, &mut doc.style_meta, &key) {
                 meta.text_paragraph_fields = Some(meta.text_paragraph_fields.unwrap_or(0) | bits);
@@ -1599,7 +1640,7 @@ impl Document {
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
         doc.migrate_text();
-        Ok((doc, report))
+        (doc, report)
     }
 
     /// Converts literal list prefixes of every text node to real lists (see [`migrate_literal_lists`])

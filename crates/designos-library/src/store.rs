@@ -142,6 +142,26 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(designos_fonts::write_atomic(path, bytes)?)
 }
 
+/// [`write_atomic`] for content that is produced while it is written (see [`designos_fonts::write_atomic_with`]).
+pub fn write_atomic_with(path: &Path, fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>) -> Result<()> {
+    Ok(designos_fonts::write_atomic_with(path, fill)?)
+}
+
+/// Streams `doc` into `path` atomically: the same bytes as `to_json_counted`, without the whole text in memory.
+/// Returns how many non-finite numbers were written as their neutral value. A document with unloaded pages is
+/// refused before any file is touched.
+pub fn write_document_atomic(path: &Path, doc: &Document) -> Result<usize> {
+    if let Some(why) = doc.pending_pages_error() {
+        return Err(LibraryError::Invalid(why.to_string()));
+    }
+    let mut replaced = 0;
+    write_atomic_with(path, |out| {
+        replaced = doc.to_writer_counted(out).map_err(std::io::Error::other)?;
+        Ok(())
+    })?;
+    Ok(replaced)
+}
+
 /// Loads a document from any importable file: `.designos` / `.json` (native or
 /// Figma REST), `.fig` or `.svg`.
 pub fn load_external(path: &Path) -> Result<Document> {
@@ -684,9 +704,8 @@ impl Library {
             thumbnail: None,
             branches: vec![],
         };
-        let (json, replaced) = doc.to_json_counted()?;
         let file_path = self.file_path(project, &entry.id);
-        write_atomic(&file_path, json.as_bytes())?;
+        let replaced = write_document_atomic(&file_path, doc)?;
         m.files.push(entry.clone());
         m.project.modified = now;
         if let Err(err) = self.save_manifest(&m) {
@@ -722,8 +741,7 @@ impl Library {
     pub fn save_file_counted(&self, id: &str, doc: &Document) -> Result<usize> {
         let _guard = write_lock();
         let (mut m, i) = self.find_file(id)?;
-        let (json, replaced) = doc.to_json_counted()?;
-        write_atomic(&self.file_path(&m.project.id, id), json.as_bytes())?;
+        let replaced = write_document_atomic(&self.file_path(&m.project.id, id), doc)?;
         let now = now_ms();
         m.files[i].modified = now;
         m.project.modified = now;
@@ -765,8 +783,9 @@ impl Library {
 
     pub fn load_file(&self, id: &str) -> Result<Document> {
         let (m, _) = self.find_file(id)?;
-        let text = std::fs::read_to_string(self.file_path(&m.project.id, id))?;
-        Ok(Document::from_json(&text)?)
+        // Read as a stream: a stored file of several GB never sits in memory as one text next to the document.
+        let file = std::fs::File::open(self.file_path(&m.project.id, id))?;
+        Ok(Document::from_reader(std::io::BufReader::with_capacity(1 << 20, file))?)
     }
 
     fn update_file(&self, id: &str, f: impl FnOnce(&mut FileEntry)) -> Result<()> {

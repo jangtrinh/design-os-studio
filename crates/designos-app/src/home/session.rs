@@ -1302,9 +1302,14 @@ impl App {
                 return;
             }
         };
-        let mut doc = self.doc.clone();
-        doc.name = name.trim().to_string();
-        match lib.create_file_counted(project, folder, name, &doc) {
+        // The file is written under the new name straight from the open document: a copy of a large document costs
+        // several GB. The name goes back if the write fails.
+        let previous_name = std::mem::replace(&mut self.doc.name, name.trim().to_string());
+        let created = lib.create_file_counted(project, folder, name, &self.doc);
+        if created.is_err() {
+            self.doc.name = previous_name;
+        }
+        match created {
             Ok((e, replaced)) => {
                 if replaced > 0 {
                     self.doc.neutralize_non_finite();

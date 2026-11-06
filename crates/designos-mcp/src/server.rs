@@ -843,8 +843,19 @@ impl Session {
         let resolved = self.output_path_allow_overwrite(path, overwrite)?;
         self.engine.settle_layout();
         self.load_pending_pages_for_write().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e))?;
-        let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
-        crate::engine::write_checked_output_file(&resolved, path, "/path", bytes.as_bytes(), overwrite, true)?;
+        // Refused here, before any file is created, when a page could not be loaded.
+        if let Some(why) = self.engine.doc.pending_pages_error() {
+            return Err(ToolError::new(ErrorCode::InternalError, "", why.to_string()));
+        }
+        let doc = &self.engine.doc;
+        crate::engine::write_checked_output_file_with(
+            &resolved,
+            path,
+            "/path",
+            |out| doc.to_writer(out).map(|_| ()).map_err(std::io::Error::other),
+            overwrite,
+            true,
+        )?;
         *files_created += 1;
         self.dirty = false;
         self.engine.file_path = Some(path.to_string());

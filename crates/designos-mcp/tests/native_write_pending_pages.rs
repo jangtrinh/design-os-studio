@@ -80,6 +80,33 @@ fn opening_a_large_fig_in_an_editor_session_hands_the_editor_the_instance_conten
 }
 
 #[test]
+fn a_saved_file_holds_the_bytes_of_the_documents_text() {
+    let dirs = Dirs::new();
+    let mut session = Session::new(&dirs.workspace).unwrap();
+    session.call("designos_open_file", json!({ "path": "kit.fig" })).unwrap();
+
+    session.call("designos_save_file", json!({ "path": "kit.designos" })).unwrap();
+
+    let written = fs::read(dirs.workspace.join("kit.designos")).unwrap();
+    assert_eq!(written, session.engine.doc.to_json().unwrap().into_bytes(), "the streamed file is the text the document gives");
+    let temporary: Vec<_> =
+        fs::read_dir(&dirs.workspace).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).collect();
+    assert!(temporary.is_empty(), "no temporary file stays behind: {temporary:?}");
+}
+
+#[test]
+fn overwriting_a_saved_file_replaces_it_whole() {
+    let dirs = Dirs::new();
+    let mut session = Session::new(&dirs.workspace).unwrap();
+    session.call("designos_open_file", json!({ "path": "kit.fig" })).unwrap();
+    fs::write(dirs.workspace.join("kit.designos"), b"old").unwrap();
+
+    session.call("designos_save_file", json!({ "path": "kit.designos", "overwrite": true })).unwrap();
+
+    assert_eq!(deferred_pages_shape(&read_document(&dirs.workspace.join("kit.designos"))), DeferredPagesShape::loaded());
+}
+
+#[test]
 fn an_edit_the_editor_never_received_is_rolled_back_and_the_document_still_saves_every_page() {
     let dirs = Dirs::new();
     let mut session = Session::with_session_dir(&dirs.workspace, &dirs.session).unwrap();

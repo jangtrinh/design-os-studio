@@ -73,14 +73,22 @@ pub(crate) fn neutral_for(field: &str) -> f64 {
 /// Serialises `value` as compact JSON, replacing every non-finite `f32` / `f64` with the neutral
 /// value of its field. Returns the text and how many numbers were replaced.
 pub fn to_string_finite<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<(String, usize)> {
-    SERIALIZE_CALLS.with(|n| n.set(n.get() + 1));
-    let replaced = Cell::new(0);
     let mut out = Vec::with_capacity(128);
-    value.serialize(ser::Finite::new(&mut serde_json::Serializer::new(&mut out), &replaced))?;
+    let replaced = to_writer_finite(&mut out, value)?;
     // SAFETY: `serde_json::Serializer` writes only valid UTF-8 (it escapes every string and writes
     // numbers and punctuation as ASCII), which is why `serde_json::to_string` skips the check too.
     let text = unsafe { String::from_utf8_unchecked(out) };
-    Ok((text, replaced.get()))
+    Ok((text, replaced))
+}
+
+/// [`to_string_finite`] straight into `writer`, so a document of several GB never exists as one text
+/// in memory. The bytes are the ones [`to_string_finite`] returns. Returns how many numbers were
+/// replaced. Wrap an unbuffered writer (a file) in a `BufWriter`: the serializer writes token by token.
+pub fn to_writer_finite<T: Serialize + ?Sized, W: std::io::Write>(writer: W, value: &T) -> serde_json::Result<usize> {
+    SERIALIZE_CALLS.with(|n| n.set(n.get() + 1));
+    let replaced = Cell::new(0);
+    value.serialize(ser::Finite::new(&mut serde_json::Serializer::new(writer), &replaced))?;
+    Ok(replaced.get())
 }
 
 /// Counts the numbers [`to_string_finite`] would replace in `value`, without building the text.
@@ -113,6 +121,26 @@ fn from_str_strict<'a, T: Deserialize<'a>>(s: &'a str, null_numbers: &Cell<usize
     let value = T::deserialize(de::Lenient::strict(&mut parser, null_numbers))?;
     parser.end()?;
     Ok(value)
+}
+
+/// [`from_str_repairing`] for a reader that can be read again: the strict pass streams from it, and only a
+/// file with a `null` number (what an older version saved for a NaN or infinity) is read into a text for
+/// the lenient pass. A text of the whole file is never built for a file that parses strictly.
+pub fn from_reader_repairing<T: serde::de::DeserializeOwned, R: std::io::Read + std::io::Seek>(mut reader: R) -> serde_json::Result<(T, usize)> {
+    let null_numbers = Cell::new(0);
+    let strict = {
+        let mut parser = serde_json::Deserializer::from_reader(&mut reader);
+        T::deserialize(de::Lenient::strict(&mut parser, &null_numbers)).and_then(|value| parser.end().map(|()| value))
+    };
+    match strict {
+        Ok(value) => Ok((value, 0)),
+        Err(strict) if strict.is_data() && null_numbers.get() > 0 => {
+            let mut text = String::new();
+            reader.rewind().and_then(|()| std::io::Read::read_to_string(&mut reader, &mut text)).map_err(serde_json::Error::io)?;
+            from_str_lenient(&text)
+        }
+        Err(strict) => Err(strict),
+    }
 }
 
 /// Parses `s` strictly, falling back to [`from_str_lenient`] only when the strict parse failed on a

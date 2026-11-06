@@ -113,6 +113,8 @@ mod shell;
 mod showcase;
 mod skills;
 mod specs;
+#[cfg(test)]
+mod streamed_save_tests;
 mod styles;
 mod system_paste;
 mod tabs;

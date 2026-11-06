@@ -463,21 +463,31 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
         p.set_extension(NATIVE_EXT);
     }
     let mut replaced = 0;
-    let payload = match save_format(&p) {
+    // The native format is streamed into the file: a multi-GB document never exists as one text in memory.
+    let exported = match save_format(&p) {
         SaveFormat::Fig => {
             let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| std::io::Error::other(format!("Cannot export .fig: {e}")))?;
-            bytes
+            Some(bytes)
         }
-        SaveFormat::Pen => designos_fig::export_pen_json(doc).map_err(|e| std::io::Error::other(format!("Cannot export .pen: {e}")))?.into_bytes(),
+        SaveFormat::Pen => Some(designos_fig::export_pen_json(doc).map_err(|e| std::io::Error::other(format!("Cannot export .pen: {e}")))?.into_bytes()),
         SaveFormat::Native => {
-            let (json, n) = doc.to_json_counted().map_err(|e| std::io::Error::other(format!("Cannot serialize: {e}")))?;
-            replaced = n;
-            json.into_bytes()
+            // Refused before the repair backup or the file is touched.
+            if let Some(why) = doc.pending_pages_error() {
+                return Err(std::io::Error::other(format!("Cannot serialize: {why}")));
+            }
+            None
         }
     };
 
     let wrote_backup = write_pending_repair_backup(&p).map_err(std::io::Error::other)?;
-    designos_library::write_atomic(&p, &payload).map_err(|e| match e {
+    let written = match &exported {
+        Some(bytes) => designos_library::write_atomic(&p, bytes),
+        None => designos_library::write_atomic_with(&p, |out| {
+            replaced = doc.to_writer_counted(out).map_err(|e| std::io::Error::other(format!("Cannot serialize: {e}")))?;
+            Ok(())
+        }),
+    };
+    written.map_err(|e| match e {
         designos_library::LibraryError::Io(io) => std::io::Error::new(io.kind(), format!("Cannot write {}: {io}", p.display())),
         other => std::io::Error::other(format!("Cannot write {}: {other}", p.display())),
     })?;
