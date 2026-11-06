@@ -95,3 +95,40 @@ fn with_no_hooks_file_only_the_dialog_on_screen_starts_a_wait() {
     assert!(!waiting(&st, 0), "the wait outlived the dialog");
     finish(dir, st);
 }
+
+#[test]
+fn a_prompt_quoting_the_option_label_is_not_a_dialog() {
+    let (dir, mut st) = start_gemini("own-prompt", ASK, |_| {});
+    // The user's prompt can contain the same words as Gemini's last option. It must remain
+    // sendable; only a numbered option row is a confirmation dialog.
+    show(&mut st, 0, "No, suggest changes to the header instead\r\n");
+    poll(&mut st);
+    assert!(!st.tabs[0].gemini_dialog_open(), "ordinary prompt text was treated as a Gemini dialog");
+    assert!(!matches!(send(&mut st), SendOutcome::Refused(_)), "ordinary prompt text locked the composer");
+    finish(dir, st);
+}
+
+#[test]
+fn a_word_ending_in_a_dot_before_the_option_label_is_not_a_dialog() {
+    // Only an all-digit "N." counts as an option number. A letter or a version before the dot is prompt text.
+    for (name, line) in [("plan-b", "plan B. No, suggest changes\r\n"), ("version-two", "v2. No, suggest changes\r\n")] {
+        let (dir, mut st) = start_gemini(name, ASK, |_| {});
+        show(&mut st, 0, line);
+        poll(&mut st);
+        assert!(!st.tabs[0].gemini_dialog_open(), "{line:?} was treated as a Gemini dialog");
+        assert!(!matches!(send(&mut st), SendOutcome::Refused(_)), "{line:?} locked the composer");
+        finish(dir, st);
+    }
+}
+
+#[test]
+fn numbered_option_rows_still_open_the_dialog() {
+    // The selected row (a bullet before the number) and a two-digit row, as Gemini draws them.
+    for (name, line) in [("selected-row", "\u{25cf} 3. No, suggest changes (esc)\r\n"), ("two-digit-row", " 10. No, suggest changes (esc)\r\n")] {
+        let (dir, mut st) = start_gemini(name, ASK, |_| {});
+        show(&mut st, 0, line);
+        poll(&mut st);
+        assert!(st.tabs[0].gemini_dialog_open(), "{line:?} was not recognised as a Gemini dialog");
+        finish(dir, st);
+    }
+}
