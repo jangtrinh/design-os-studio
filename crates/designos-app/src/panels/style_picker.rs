@@ -432,6 +432,27 @@ mod tests {
         }
     }
 
+    /// "Reapply style" is in the text style menu only while the selection overrides its style.
+    #[test]
+    fn reapply_style_is_in_the_menu_only_while_the_selection_has_overrides() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let id = doc.alloc_id();
+        let mut text = Node::text(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 20.0), "Hi", TextStyle::default());
+        text.style_refs.insert("text".into(), "Body".into());
+        doc.insert(page, text).unwrap();
+        doc.styles.insert("Body".into(), Style::Text(TextStyle::default()));
+        doc.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+        let mut app = App::new(doc);
+        let has_reapply = |app: &App| menu_model(app, &[id], StyleProperty::Text).0.iter().any(|i| i.label == "Reapply style");
+        assert!(!has_reapply(&app), "nothing to reapply");
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.set_font_weight(700));
+        assert!(has_reapply(&app));
+        assert_eq!(override_names(&app, &[id]), vec!["Weight"]);
+        app.reapply_text_style(&[id]);
+        assert!(!has_reapply(&app), "gone again once reapplied");
+    }
+
     #[test]
     fn us01_ac02_orphan_styles_are_excluded_from_picker_and_reopened_designos_while_unpublished_stay_listed() {
         let mut doc = Document::new("t");

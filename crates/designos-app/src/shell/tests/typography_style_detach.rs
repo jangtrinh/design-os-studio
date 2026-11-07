@@ -755,6 +755,22 @@ fn run_only_italic_change_on_cmd_i_keeps_linked_text_style() {
 }
 
 #[test]
+fn the_override_pill_sits_inside_the_style_field_inset_from_its_right_edge_and_centred() {
+    let (mut s, id) = linked_sim();
+    let recorded = |s: &Sim| s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "text-style-overrides".to_string())))).is_some();
+    assert!(!recorded(&s), "no pill without an override");
+    s.cmd_key(Key::B);
+    s.cmd_key(Key::U);
+    s.frame(vec![]);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    let (row, pill) = (s.rect_of("text-style-row"), s.rect_of("text-style-overrides"));
+    assert!(pill.is_positive(), "bold and underline show a count pill");
+    assert!((row.right() - theme::INSET_CONTROL - pill.right()).abs() < 0.5, "pill {pill:?} sits INSET_CONTROL from the field {row:?} right edge");
+    assert!((pill.center().y - row.center().y).abs() < 0.5, "pill is centred on the field vertically");
+    assert!(row.contains_rect(pill), "pill is inside the field");
+}
+
+#[test]
 fn mixed_text_and_sticky_selection_shortcuts_edit_both_and_detach_linked_text_style() {
     let (mut s, id) = linked_sim();
     let mut page = id;
