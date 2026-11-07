@@ -390,7 +390,7 @@ fn color_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], sum: &
         (None, _) => {
             widgets::swatch(ui.painter(), sw, Color32::TRANSPARENT);
             field::field_bg(ui, hex_r, ui.id().with("text-mixed"));
-            ui.painter().text(Pos2::new(hex_r.left() + 8.0, hex_r.center().y), Align2::LEFT_CENTER, "Mixed", theme::font_body(), theme::TEXT);
+            ui.painter().text(Pos2::new(hex_r.left() + 8.0, hex_r.center().y), Align2::LEFT_CENTER, "Mixed", theme::font_body(), theme::TEXT_TERTIARY);
         }
         _ => {
             widgets::swatch(ui.painter(), sw, Color32::TRANSPARENT);
@@ -435,7 +435,8 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
     }
     let font = theme::font_body();
     let shown = widgets::elide(p, label, &font, rect.width() - 28.0);
-    p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT);
+    let label_color = if label == "Mixed" { theme::TEXT_TERTIARY } else { theme::TEXT };
+    p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, label_color);
     crate::icons::paint(p, crate::icons::Icon::ChevronDown, Pos2::new(rect.right() - 12.0, rect.center().y), 12.0, theme::ICON_SECONDARY);
     if r.clicked() {
         ui.data_mut(|d| {
@@ -791,10 +792,10 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
         let ag_top_offset = y.get();
         y.set(ag_top_offset + 76.0);
         let ag_rect = Rect::from_min_size(Pos2::new(body.left() + DETAIL_LABEL_X, body.top() + 8.0 + ag_top_offset), Vec2::new(68.0, 68.0));
-        ui.painter().rect_filled(ag_rect, theme::cr(theme::RADIUS_CONTROL), Color32::from_rgb(0x1E, 0x1E, 0x1E));
+        ui.painter().rect_filled(ag_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         ui.painter().rect_stroke(ag_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
         // Blue typographic cap-height & baseline metric guides (`#0D99FF`)
-        let guide_col = Color32::from_rgba_unmultiplied(0x0D, 0x99, 0xFF, 110);
+        let guide_col = theme::TYPE_PREVIEW_BASELINE;
         widgets::hline(ui.painter(), ag_rect.left() + 6.0, ag_rect.right() - 6.0, ag_rect.top() + 21.0, guide_col);
         widgets::hline(ui.painter(), ag_rect.left() + 6.0, ag_rect.right() - 6.0, ag_rect.bottom() - 19.0, guide_col);
         let preview_glyph = match sum.case.unwrap_or(t.style.case) {
@@ -802,7 +803,7 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
             TextCase::Lower => "ag",
             _ => "Ag",
         };
-        ui.painter().text(ag_rect.center(), Align2::CENTER_CENTER, preview_glyph, egui::FontId::proportional(24.0), theme::TEXT);
+        ui.painter().text(ag_rect.center(), Align2::CENTER_CENTER, preview_glyph, egui::FontId::proportional(24.0), theme::TEXT_SECONDARY);
 
         // Right of `Ag`: Case (`— | AG | ag | Ag`) and Decoration (`None | U | S`)
         let case_row_y = body.top() + 8.0 + ag_top_offset + 6.0;
@@ -923,21 +924,15 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
                         let r = Rect::from_min_size(Pos2::new(x, body.top() + 8.0 + line_y), Vec2::new(SET_CHIP_W, 24.0));
                         widgets::record(ui, &format!("det-ss-{set}"), r);
                         let resp = ui.interact(r, ui.id().with(("det-ss", row, i)), Sense::click());
-                        let bg = if on {
-                            theme::BG_SELECTED
+                        let chip = if on {
+                            crate::widgets::kit::look(theme::BG_SELECTED, Color32::TRANSPARENT, 0.0, theme::TEXT, theme::ICON_QUATERNARY)
                         } else if resp.hovered() {
-                            theme::BG_TERTIARY
+                            crate::widgets::kit::look(theme::BG_SECONDARY_HOVER, Color32::TRANSPARENT, 0.0, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY)
                         } else {
-                            theme::BG_SECONDARY
+                            crate::widgets::kit::look(theme::BG_SECONDARY, Color32::TRANSPARENT, 0.0, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY)
                         };
-                        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), bg);
-                        ui.painter().text(
-                            r.center(),
-                            Align2::CENTER_CENTER,
-                            format!("{set}"),
-                            theme::font_body(),
-                            if on { Color32::WHITE } else { theme::TEXT_SECONDARY },
-                        );
+                        crate::widgets::kit::paint_frame(ui.painter(), r, theme::RADIUS_CONTROL, &chip);
+                        ui.painter().text(r.center(), Align2::CENTER_CENTER, format!("{set}"), theme::font_body(), chip.text);
                         resp.clone().on_hover_text(format!("Stylistic set {set}"));
                         if resp.clicked() {
                             set_features(app, &ids, vec![(tag.as_str(), (!on).then_some(1))]);
@@ -1118,6 +1113,24 @@ mod tests {
         d.insert(page, n).unwrap();
         d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..Default::default() }));
         (App::new(d), id)
+    }
+
+    #[test]
+    fn mixed_family_label_uses_text_tertiary() {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let r = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(200.0, 32.0));
+            let _ = family_picker(ui, r, "Mixed");
+        });
+        fn find(shape: &egui::Shape) -> Option<Color32> {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().find_map(find),
+                egui::Shape::Text(t) if t.galley.text() == "Mixed" => t.galley.job.sections.first().map(|s| s.format.color),
+                _ => None,
+            }
+        }
+        assert_eq!(out.shapes.iter().find_map(|cs| find(&cs.shape)), Some(theme::TEXT_TERTIARY));
     }
 
     #[test]

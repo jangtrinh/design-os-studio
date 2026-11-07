@@ -65,26 +65,26 @@ fn is_dropdown_open(ui: &Ui, key: impl crate::widgets::Key) -> bool {
     ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false)
 }
 
-/// 28x16 switch used by the component definition editor.
+/// Toggle/Switch used by the component definition editor: a 36x20 pill with a 16 px knob,
+/// drawn at the left of the (wider, recorded) cell.
 fn definition_toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
     let r = ui.interact(rect, ui.id().with(("tog", key)), Sense::click());
     widgets::record(ui, &format!("toggle:{key}"), rect);
-    let sw = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
+    let sw = definition_toggle_track(rect);
+    let state = if on { crate::widgets::kit::State::Selected } else { crate::widgets::kit::State::Default };
+    let look = crate::widgets::kit::toggle_look(state);
     let p = ui.painter();
-    p.rect_filled(
-        sw,
-        theme::cr(8),
-        if on {
-            theme::BG_BRAND
-        } else if r.hovered() {
-            theme::BG_TERTIARY
-        } else {
-            theme::BG_SECONDARY
-        },
-    );
-    let kx = if on { sw.right() - theme::SPACE_INLINE } else { sw.left() + theme::SPACE_INLINE };
-    p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, egui::Color32::WHITE);
+    crate::widgets::kit::paint_frame(p, sw, theme::radius_full(sw.height()).round() as u8, &look);
+    let knob = theme::radius_full(theme::LAYER_ICON_SIZE);
+    let kx = if on { sw.right() - theme::INSET_SEGMENT - knob } else { sw.left() + theme::INSET_SEGMENT + knob };
+    p.circle_filled(Pos2::new(kx, sw.center().y), knob, look.icon);
     r.clicked().then_some(!on)
+}
+
+/// Painted track of the definition toggle inside its cell: left aligned, centred vertically.
+fn definition_toggle_track(cell: Rect) -> Rect {
+    let size = Vec2::new(theme::CONTROL_SM, theme::TARGET_MIN - theme::SPACE_FACT);
+    Rect::from_min_size(Pos2::new(cell.left(), cell.center().y - size.y * 0.5), size)
 }
 
 // ---------------------------------------------------------------- instance
@@ -1253,5 +1253,36 @@ mod props_panel_tests {
         app.edit_nodes(&[bb], |n| n.size.y = 48.0);
         let s = app.doc.get(si).unwrap();
         assert_eq!(s.size.y, 48.0, "the swapped slot was never resized: it follows its main's height edit");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toggle_switch_track_is_36_by_20() {
+        let cell = Rect::from_min_size(Pos2::new(40.0, 60.0), Vec2::new(88.0, 32.0));
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let _ = definition_toggle(ui, cell, "prop:Show", true);
+        });
+        fn walk(shape: &egui::Shape, rects: &mut Vec<Rect>, circles: &mut Vec<(f32, egui::Color32)>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, rects, circles)),
+                egui::Shape::Rect(r) => rects.push(r.rect),
+                egui::Shape::Circle(c) => circles.push((c.radius, c.fill)),
+                _ => {}
+            }
+        }
+        let (mut rects, mut circles) = (Vec::new(), Vec::new());
+        for cs in &out.shapes {
+            walk(&cs.shape, &mut rects, &mut circles);
+        }
+        let track = rects.iter().find(|r| (r.width() - 36.0).abs() < 0.5 && (r.height() - 20.0).abs() < 0.5).expect("a 36x20 track");
+        assert_eq!(track.left(), cell.left());
+        assert!((track.center().y - cell.center().y).abs() < 0.5);
+        assert!(circles.iter().any(|(r, fill)| (*r - 8.0).abs() < 0.1 && *fill == theme::ICON_WHITE), "a 16 px knob in ICON_WHITE");
     }
 }
