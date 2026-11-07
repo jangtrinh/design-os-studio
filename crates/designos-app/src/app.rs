@@ -414,7 +414,7 @@ impl App {
             }
         }
         let next = Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None, enter_path: false, duration: theme::TOAST_SECONDS, armed: false };
-        if self.toast.as_ref().is_some_and(|t| t.reveal.is_some() && (!t.armed || self.now < t.until)) {
+        if self.toast_is_active() && (self.toast.as_ref().is_some_and(|t| t.reveal.is_some()) || error) {
             self.toast_queue.push_back(next);
             return;
         }
@@ -428,7 +428,7 @@ impl App {
 
     /// A toast that offers to show `path` in its folder, keeping `error` when a fallback or warning occurred.
     pub fn show_toast_with_reveal_status(&mut self, text: impl Into<String>, error: bool, path: PathBuf) {
-        self.toast = Some(Toast {
+        let next = Toast {
             text: text.into(),
             until: self.now + theme::TOAST_REVEAL_SECONDS,
             error,
@@ -436,7 +436,16 @@ impl App {
             enter_path: false,
             duration: theme::TOAST_REVEAL_SECONDS,
             armed: false,
-        });
+        };
+        if self.toast_is_active() && (self.toast.as_ref().is_some_and(|t| t.reveal.is_some()) || error) {
+            self.toast_queue.push_back(next);
+        } else {
+            self.toast = Some(next);
+        }
+    }
+
+    fn toast_is_active(&self) -> bool {
+        self.toast.as_ref().is_some_and(|t| !t.armed || self.now < t.until)
     }
 
     /// Marks the document as modified so the canvas texture is re-rendered.
