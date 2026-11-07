@@ -1114,6 +1114,12 @@ fn sync_component(c: &mut Ctx, owner: NodeId) {
     };
     targets.sort_by_key(|t| (depth(c.s, *t), t.0));
     for t in targets {
+        // An unopened page keeps the instance's overrides in the page hydrator. Its childless
+        // placeholder cannot be synchronized without replacing that file record, so leave it for
+        // the deferred writer (or page hydration) to handle.
+        if c.s.get(t).is_some_and(|n| n.children.is_empty()) && (c.s.pending_instance_overrides(t).is_some() || c.s.pending_instance_derived(t).is_some()) {
+            continue;
+        }
         sync_one(c, t);
     }
 }
