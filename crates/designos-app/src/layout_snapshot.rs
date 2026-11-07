@@ -610,28 +610,6 @@ fn centre_x(r: &[f32; 4]) -> f32 {
     r[0] + r[2] * 0.5
 }
 
-/// Whether an unnamed hit rect is the part of a named widget that egui clipped at a clip edge.
-///
-/// `capture` keeps a widget's `interact_rect`, which egui clips to the enclosing clip rect, while a named widget
-/// records its full rect. A control pushed across a panel edge by 1 px therefore leaves a shorter unnamed twin
-/// (24 px named, 23 px clipped) that the half-point dedupe in `capture` does not match. The twin has the same x
-/// extent as the named rect, lies inside it, shares its top or bottom edge, and is shorter by more than half a
-/// point.
-fn is_clipped_twin_of(unnamed: &[f32; 4], named: &[f32; 4]) -> bool {
-    const TOL: f32 = 0.5;
-    let same_x = (unnamed[0] - named[0]).abs() <= TOL && (unnamed[2] - named[2]).abs() <= TOL;
-    let shorter = unnamed[3] < named[3] - TOL;
-    let (u_top, u_bottom) = (unnamed[1], unnamed[1] + unnamed[3]);
-    let (n_top, n_bottom) = (named[1], named[1] + named[3]);
-    let inside = u_top >= n_top - TOL && u_bottom <= n_bottom + TOL;
-    let shares_edge = (u_top - n_top).abs() <= TOL || (u_bottom - n_bottom).abs() <= TOL;
-    same_x && shorter && inside && shares_edge
-}
-
-fn is_clipped_twin_of_any_named(snap: &LayoutSnapshot, rect: &[f32; 4]) -> bool {
-    snap.named.values().any(|n| is_clipped_twin_of(rect, &n.rect))
-}
-
 /// Cluster paired widgets into rows by their BASELINE rects (centres within `max(4, 0.5*min(h1,h2))`, the same rule
 /// the G4/G5 shift derivation uses).
 ///
@@ -1113,11 +1091,6 @@ fn compare_keyed(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList,
         let c_u_list = cur_unnamed_by_reg.get(&reg).map(Vec::as_slice).unwrap_or(&[]);
         let shared_len = b_u_list.len().min(c_u_list.len());
         for (b_u, c_u) in b_u_list[..shared_len].iter().zip(c_u_list[..shared_len].iter()) {
-            // A clipped twin of a named widget is that widget again (its named rect is compared above); pairing it
-            // by index with another unnamed rect would read the clip as a reorder. Count and rect checks still see it.
-            if is_clipped_twin_of_any_named(base, &b_u.rect) || is_clipped_twin_of_any_named(cur, &c_u.rect) {
-                continue;
-            }
             items.push((b_u.rect, c_u.rect, "_"));
         }
         let mut rows = cluster_baseline_rows(items);
@@ -3244,77 +3217,5 @@ mod tests {
 
         let err = compare(&base, &cur, &allow, &[]).expect_err("swapping named and unnamed widget order on a row must fail G3 Order");
         assert!(err.contains("G3") && err.contains("row"), "error must report G3 row order mismatch, got: {err}");
-    }
-
-    /// Entry that lets the unnamed rect with a 13 px baseline height become `[dw, dh, dx, dy]` away from its baseline.
-    fn unnamed_sliver_entry(dw: f32, dh: f32, dx: f32, dy: f32) -> AllowEntry {
-        AllowEntry {
-            case: "f-inspector".into(),
-            region: "right_panel".into(),
-            h_base: Some(13.0),
-            min_dw: Some(dw),
-            max_dw: Some(dw),
-            min_dh: Some(dh),
-            max_dh: Some(dh),
-            dx: Some(dx),
-            dy: Some(dy),
-            spec: "F".into(),
-            reason: "R5: unnamed rect follows the push".into(),
-            ..Default::default()
-        }
-    }
-
-    fn named_entry(prefix: &str, dy: f32) -> AllowEntry {
-        AllowEntry {
-            case: "f-inspector".into(),
-            region: "right_panel".into(),
-            name_prefix: Some(prefix.into()),
-            dy: Some(dy),
-            spec: "F".into(),
-            reason: "R5: named widget pushed down".into(),
-            ..Default::default()
-        }
-    }
-
-    /// A dropdown pushed 1 px across a clip edge: the named rect is 24 px tall, the capture keeps its 23 px clipped
-    /// hit area as an unnamed twin. By index the twin pairs with the unnamed rect that sat below the dropdown in the
-    /// baseline (a 13 px sliver), which reads as a 0.5 px order flip against the dropdown although nothing reordered.
-    fn clipped_dropdown_pair() -> (LayoutSnapshot, LayoutSnapshot) {
-        let mut base = sample_snapshot("f-inspector");
-        base.named.retain(|k, _| !k.starts_with("prop-row-"));
-        base.named.insert("dev-lang".into(), named_in("right_panel", [1414.0, 1015.0, 108.0, 24.0]));
-        base.unnamed = vec![unnamed_in("right_panel", [1375.0, 1039.0, 209.0, 13.0])];
-        let mut cur = base.clone();
-        cur.named.get_mut("dev-lang").unwrap().rect = [1414.0, 1029.0, 108.0, 24.0];
-        cur.unnamed = vec![unnamed_in("right_panel", [1414.0, 1029.0, 108.0, 23.0])];
-        (base, cur)
-    }
-
-    #[test]
-    fn a_clipped_twin_of_a_named_widget_does_not_read_as_a_reorder() {
-        let (base, cur) = clipped_dropdown_pair();
-        let allow = validate_allow_entries(vec![named_entry("dev-lang", 14.0), unnamed_sliver_entry(-101.0, 10.0, 39.0, -10.0)]).expect("valid allow list");
-        compare(&base, &cur, &allow, &[]).expect("a 23 px clipped twin of the 24 px dropdown is the dropdown, not a reorder");
-    }
-
-    #[test]
-    fn a_widget_that_is_not_a_clipped_twin_still_flips_the_order_against_a_named_widget() {
-        let (base, mut cur) = clipped_dropdown_pair();
-        // The unnamed rect jumps above the dropdown: different x extent, not a clipped part of it.
-        cur.unnamed = vec![unnamed_in("right_panel", [1375.0, 1005.0, 209.0, 13.0])];
-        let allow = validate_allow_entries(vec![named_entry("dev-lang", 14.0), unnamed_sliver_entry(0.0, 0.0, 0.0, -34.0)]).expect("valid allow list");
-        let err = compare(&base, &cur, &allow, &[]).expect_err("an unnamed widget that really passes a named one must fail G3");
-        assert!(err.contains("G3 row order mismatch") && err.contains("'dev-lang' and '_' changed vertical order"), "got: {err}");
-    }
-
-    #[test]
-    fn two_named_widgets_that_swap_order_still_fail_beside_a_clipped_twin() {
-        let (mut base, mut cur) = clipped_dropdown_pair();
-        base.named.insert("below".into(), named_in("right_panel", [1414.0, 1100.0, 108.0, 24.0]));
-        cur.named.insert("below".into(), named_in("right_panel", [1414.0, 1000.0, 108.0, 24.0]));
-        let allow = validate_allow_entries(vec![named_entry("dev-lang", 14.0), named_entry("below", -110.0), unnamed_sliver_entry(-101.0, 10.0, 39.0, -10.0)])
-            .expect("valid allow list");
-        let err = compare(&base, &cur, &allow, &[]).expect_err("two named widgets that swap vertical order must fail G3");
-        assert!(err.contains("G3 row order mismatch") && err.contains("'dev-lang' and 'below' changed vertical order"), "got: {err}");
     }
 }
