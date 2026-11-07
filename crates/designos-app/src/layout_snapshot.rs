@@ -277,6 +277,12 @@ pub fn capture(ctx: &Context, regions: &ShellRegions) -> LayoutSnapshot {
     let widget_info_enabled = false;
     let bar_width = global_style.spacing.scroll.bar_width;
     let mut unnamed = Vec::new();
+    // The baseline prune script captures once with the previous rule (`DESIGNOS_LAYOUT_LEGACY_CAPTURE` set) to
+    // learn which unnamed rects the unclipped-rect dedupe removes. Test builds only; release never reads the variable.
+    #[cfg(test)]
+    let match_unclipped_rect = std::env::var_os("DESIGNOS_LAYOUT_LEGACY_CAPTURE").is_none();
+    #[cfg(not(test))]
+    let match_unclipped_rect = true;
     let mut scroll_set: BTreeSet<(String, String, bool)> = BTreeSet::new();
 
     for (&layer_id, rect_entries) in widgets.layers() {
@@ -318,7 +324,12 @@ pub fn capture(ctx: &Context, regions: &ShellRegions) -> LayoutSnapshot {
             if senses.is_empty() {
                 continue;
             }
-            if named_q4_rects.iter().any(|nr| rects_match_within_half_pt(*nr, q4)) {
+            // `interact_rect` is clipped to the parent clip rect; `rect` is the widget's own rect. A named widget
+            // records its own rect, so a control that crosses a clip edge by a point leaves a shorter hit area that
+            // only its unclipped rect still matches. Match on both so the hit area is dropped as the named widget.
+            let full_global_rect = to_global.map_or(rect_entry.rect, |t| t * rect_entry.rect);
+            let full_q4 = rect_to_q4(full_global_rect);
+            if named_q4_rects.iter().any(|nr| rects_match_within_half_pt(*nr, q4) || (match_unclipped_rect && rects_match_within_half_pt(*nr, full_q4))) {
                 continue;
             }
             unnamed.push(UnnamedWidget { region, rect: q4, sense: senses });
@@ -3217,5 +3228,151 @@ mod tests {
 
         let err = compare(&base, &cur, &allow, &[]).expect_err("swapping named and unnamed widget order on a row must fail G3 Order");
         assert!(err.contains("G3") && err.contains("row"), "error must report G3 row order mismatch, got: {err}");
+    }
+
+    /// One pass that registers `widgets`: each is `(egui id salt, full rect, clip rect, recorded name)`. The widget
+    /// senses clicks inside its clip rect, so egui reports `interact_rect` as `rect` cut to the clip. Returns what
+    /// `capture` makes of that pass. `regions` places the shell regions the capture classifies centres into.
+    fn capture_pass(regions: ShellRegions, widgets: &[(&str, Rect, Rect, Option<&str>)]) -> LayoutSnapshot {
+        crate::widgets::clear_pass_records();
+        let ctx = Context::default();
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1600.0, 1200.0))), ..Default::default() };
+        for _ in 0..2 {
+            crate::widgets::clear_pass_records();
+            let _ = ctx.run_ui(raw.clone(), |ui| {
+                for (salt, rect, clip, name) in widgets {
+                    ui.scope(|ui| {
+                        ui.set_clip_rect(*clip);
+                        let _ = ui.interact(*rect, egui::Id::new(*salt), egui::Sense::click());
+                    });
+                    if let Some(name) = name {
+                        crate::widgets::record(ui, name, *rect);
+                    }
+                }
+            });
+            crate::widgets::finish_pass_records();
+        }
+        capture(&ctx, &regions)
+    }
+
+    fn right_panel_regions() -> ShellRegions {
+        ShellRegions { right_panel: Some(Rect::from_min_size(Pos2::new(1359.0, 32.0), egui::Vec2::new(241.0, 1056.0))), ..Default::default() }
+    }
+
+    fn rect_xywh(x: f32, y: f32, w: f32, h: f32) -> Rect {
+        Rect::from_min_size(Pos2::new(x, y), egui::Vec2::new(w, h))
+    }
+
+    /// A named 24 px dropdown cut to 23 px by a clip edge: its clipped hit area is that widget, not a new unnamed one.
+    #[test]
+    fn capture_drops_a_hit_area_whose_unclipped_rect_is_a_named_widget() {
+        let full = rect_xywh(1414.0, 1029.0, 108.0, 24.0);
+        let clip = rect_xywh(1359.0, 32.0, 241.0, 1020.0);
+        let snap = capture_pass(right_panel_regions(), &[("dd", full, clip, Some("dev-lang"))]);
+        assert!(snap.named.contains_key("dev-lang"), "the named widget is recorded");
+        assert!(snap.unnamed.is_empty(), "a 23 px clipped hit area of a named 24 px widget is not unnamed, got {:?}", snap.unnamed);
+    }
+
+    /// Same pass, but the widget is not clipped: nothing to dedupe by the new rule, the old rule already matches.
+    #[test]
+    fn capture_drops_an_unclipped_hit_area_of_a_named_widget() {
+        let full = rect_xywh(1414.0, 1000.0, 108.0, 24.0);
+        let clip = rect_xywh(1359.0, 32.0, 241.0, 1020.0);
+        assert!(capture_pass(right_panel_regions(), &[("dd", full, clip, Some("dev-lang"))]).unnamed.is_empty());
+    }
+
+    /// A hit area that matches no named rect, whole or clipped, stays unnamed (the first layer row beside the
+    /// 839 px list shares the list's top edge and x extent but is not the list).
+    #[test]
+    fn capture_keeps_a_hit_area_that_is_not_a_named_widget() {
+        let list = rect_xywh(49.0, 249.0, 240.0, 839.0);
+        let row = rect_xywh(49.0, 249.0, 240.0, 32.0);
+        let clip = rect_xywh(0.0, 32.0, 1600.0, 1056.0);
+        let regions = ShellRegions { left_panel: Some(rect_xywh(49.0, 32.0, 241.0, 1056.0)), ..Default::default() };
+        let snap = capture_pass(regions, &[("row", row, clip, None), ("list", list, clip, Some("layers-list"))]);
+        assert_eq!(snap.unnamed.len(), 1, "the layer row is kept, got {:?}", snap.unnamed);
+        assert_eq!(snap.unnamed[0].rect, [49.0, 249.0, 240.0, 32.0]);
+    }
+
+    /// The twin exists on one side only: with the widget clipped or not, the snapshot's unnamed list is the same,
+    /// so the gate never sees a count change from the clip alone.
+    #[test]
+    fn capture_gives_the_same_unnamed_list_with_and_without_the_clip() {
+        let full = rect_xywh(1414.0, 1029.0, 108.0, 24.0);
+        let clipped = capture_pass(right_panel_regions(), &[("dd", full, rect_xywh(1359.0, 32.0, 241.0, 1020.0), Some("dev-lang"))]);
+        let open = capture_pass(right_panel_regions(), &[("dd", full, rect_xywh(1359.0, 32.0, 241.0, 1056.0), Some("dev-lang"))]);
+        assert_eq!(clipped.unnamed, open.unnamed);
+    }
+
+    /// The clipped hit area's centre falls in a different region than the named rect's centre: still the same widget.
+    #[test]
+    fn capture_drops_a_clipped_hit_area_that_lands_in_another_region() {
+        let full = rect_xywh(1414.0, 1046.0, 108.0, 24.0);
+        // The region ends at y 1052, so the 6 px that remain are classified apart from the full 24 px.
+        let regions = ShellRegions { right_panel: Some(rect_xywh(1359.0, 32.0, 241.0, 1020.0)), ..Default::default() };
+        let clip = rect_xywh(1359.0, 32.0, 241.0, 1020.0);
+        let snap = capture_pass(regions, &[("dd", full, clip, Some("dev-lang"))]);
+        assert!(snap.unnamed.is_empty(), "got {:?}", snap.unnamed);
+        assert_ne!(snap.named["dev-lang"].region, "right_panel", "the named centre lies outside the region, the hit area inside it");
+    }
+
+    /// The first layer row is an unnamed widget beside the named list: moving it above the separator is a reorder.
+    #[test]
+    fn a_reordered_first_layer_row_still_fails_g3() {
+        let mut base = sample_snapshot("d-editor-default");
+        base.named.retain(|k, _| !k.starts_with("prop-row-"));
+        base.named.insert("layers-list".into(), named_in("left_panel", [49.0, 249.0, 240.0, 839.0]));
+        base.named.insert("pages-layers-separator".into(), named_in("left_panel", [49.0, 205.0, 240.0, 6.0]));
+        base.unnamed = vec![unnamed_in("left_panel", [49.0, 249.0, 240.0, 32.0]), unnamed_in("left_panel", [49.0, 281.0, 240.0, 32.0])];
+        let mut cur = base.clone();
+        cur.unnamed[0].rect = [49.0, 150.0, 240.0, 32.0];
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "d-editor-default".into(),
+            region: "left_panel".into(),
+            h_base: Some(32.0),
+            dy: Some(-99.0),
+            spec: "F".into(),
+            reason: "R5: first layer row moved".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+        let err = compare(&base, &cur, &allow, &[]).expect_err("a layer row moving above the separator must fail G3");
+        assert!(err.contains("G3 row order mismatch"), "got: {err}");
+    }
+
+    /// With the twin gone from the capture, the baseline sliver pairs with the current sliver; a sliver that
+    /// really jumps above the named dropdown is still a reorder.
+    #[test]
+    fn a_sliver_that_jumps_above_a_named_widget_still_fails_g3() {
+        let mut base = sample_snapshot("f-inspector");
+        base.named.retain(|k, _| !k.starts_with("prop-row-"));
+        base.named.insert("dev-lang".into(), named_in("right_panel", [1414.0, 1015.0, 108.0, 24.0]));
+        base.unnamed = vec![unnamed_in("right_panel", [1375.0, 1039.0, 209.0, 13.0])];
+        let mut cur = base.clone();
+        cur.named.get_mut("dev-lang").unwrap().rect = [1414.0, 1029.0, 108.0, 24.0];
+        cur.unnamed = vec![unnamed_in("right_panel", [1375.0, 1005.0, 209.0, 13.0])];
+        let allow = validate_allow_entries(vec![
+            AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                name_prefix: Some("dev-lang".into()),
+                dy: Some(14.0),
+                spec: "F".into(),
+                reason: "R5: dropdown pushed down".into(),
+                ..Default::default()
+            },
+            AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                h_base: Some(13.0),
+                dy: Some(-34.0),
+                spec: "F".into(),
+                reason: "R5: sliver moved".into(),
+                ..Default::default()
+            },
+        ])
+        .expect("valid allow list");
+        let err = compare(&base, &cur, &allow, &[]).expect_err("a sliver that passes a named widget must fail G3");
+        assert!(err.contains("'dev-lang' and '_' changed vertical order"), "got: {err}");
     }
 }
