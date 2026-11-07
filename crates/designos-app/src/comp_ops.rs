@@ -134,14 +134,14 @@ pub fn with_sync(doc: &mut Document, cmd: Command) -> Command {
     if queue.is_empty() && companion_renames.is_empty() {
         return cmd;
     }
-    let Ok(inv) = cmd.clone().apply(doc) else { return cmd };
+    let Ok(inv) = cmd.clone().apply_atomic(doc) else { return cmd };
     queue.extend(ids.iter().filter_map(|i| owner_of(doc, *i)));
     queue.sort();
     queue.dedup();
     let mut syncs = Vec::new();
     let mut invs = Vec::new();
     for c in companion_renames {
-        if let Ok(i) = c.clone().apply(doc) {
+        if let Ok(i) = c.clone().apply_atomic(doc) {
             invs.push(i);
             syncs.push(c);
         }
@@ -158,7 +158,7 @@ pub fn with_sync(doc: &mut Document, cmd: Command) -> Command {
         }
         let mut touched = Vec::new();
         ids_of(doc, &s, &mut touched);
-        let Ok(i) = s.clone().apply(doc) else { continue };
+        let Ok(i) = s.clone().apply_atomic(doc) else { continue };
         invs.push(i);
         syncs.push(s);
         for t in touched {

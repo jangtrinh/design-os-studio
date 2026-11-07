@@ -691,6 +691,26 @@ fn a_user_step_with_a_refused_command_applies_nothing() {
 }
 
 #[test]
+fn a_child_moved_out_of_a_table_keeps_its_place_on_the_canvas() {
+    for rotation in [0.0_f32, 0.5] {
+        let (mut d, _, table) = doc_with_table(2, 2);
+        let t = d.get_mut(table).unwrap();
+        t.transform = Affine::translate(10.0, 20.0) * Affine::rotate(rotation);
+        let rect = d.alloc_id();
+        let mut r = Node::rectangle(rect, Rect::new(5.0, 5.0, 8.0, 6.0));
+        r.transform = Affine::translate(5.0, 5.0);
+        d.insert(table, r).unwrap();
+        let before = d.world_transform(rect);
+        assert_eq!(d.validate_and_repair().tables.children_moved_out, 1);
+        let after = d.world_transform(rect);
+        for (a, b) in [(before.a, after.a), (before.b, after.b), (before.c, after.c), (before.d, after.d), (before.tx, after.tx), (before.ty, after.ty)] {
+            assert!((a - b).abs() < 1e-4, "rotation {rotation}: {before:?} vs {after:?}");
+        }
+        assert!(rotation != 0.0 || (after.tx, after.ty) == (15.0, 25.0));
+    }
+}
+
+#[test]
 fn repair_moves_foreign_children_out_of_a_table_after_it() {
     let (mut d, page, table) = doc_with_table(2, 2);
     let rect = d.alloc_id();

@@ -371,10 +371,15 @@ fn repair_table(doc: &mut Document, id: NodeId, rep: &mut TableRepairs) {
         let _ = doc.remove(cid);
     }
     // Anything that is not a cell moves to the table's parent, directly after the table.
+    // A moved child keeps its place on the canvas: the table's own transform joins the child's.
     if let Some(parent) = doc.nodes[&id].parent {
+        let table_transform = doc.nodes[&id].transform;
         for (n, cid) in foreign.into_iter().enumerate() {
             let at = doc.nodes[&parent].children.iter().position(|c| *c == id).map_or(usize::MAX, |i| i + 1 + n);
             if doc.reparent(cid, parent, at).is_ok() {
+                if let Some(child) = doc.nodes.get_mut(&cid) {
+                    child.transform = table_transform * child.transform;
+                }
                 rep.children_moved_out += 1;
             }
         }

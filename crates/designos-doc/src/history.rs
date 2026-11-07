@@ -232,10 +232,19 @@ impl Command {
             match c.apply_atomic(doc) {
                 Ok(i) => inv.push(i),
                 Err(e) => {
+                    // An inverse only fails when the document changed under it, which a single
+                    // `&mut Document` borrow rules out inside this call, so no test can provoke it.
+                    // It is still reported, never swallowed: the document would stay half changed.
+                    let mut rollback_failure = None;
                     for i in inv.into_iter().rev() {
-                        let _ = i.apply(doc);
+                        if let Err(re) = i.apply(doc) {
+                            rollback_failure.get_or_insert(re);
+                        }
                     }
-                    return Err(e);
+                    return Err(match rollback_failure {
+                        None => e,
+                        Some(re) => DocError::Table(format!("{e} Rolling back the earlier commands of the step also failed: {re}")),
+                    });
                 }
             }
         }
