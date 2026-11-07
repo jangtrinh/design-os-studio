@@ -1644,8 +1644,9 @@ fn scale_node_properties_proportionally(doc: &mut Document, ed: &mut crate::edit
                     st.font_size = (st.font_size * factor).clamp(4.0, 512.0);
                 });
             }
-            if before_text.is_some_and(|before| n.kind.any_text().is_some_and(|after| before != *after)) {
-                n.style_refs.remove(text_ref);
+            // The scaled size is not an override of a text style, so the shared rule detaches it.
+            if let Some(before) = before_text {
+                designos_doc::apply_text_link_rule(n, &before);
             }
             if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
                 for p in &mut al.padding {

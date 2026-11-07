@@ -489,7 +489,8 @@ fn inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_li
         s.frame(vec![]);
 
         let n = s.app().doc.get(t_id).unwrap();
-        assert!(!n.style_refs.contains_key("text"), "binding {key} must detach the linked text style");
+        // A font style variable is an override of the weight; every other style-owned key detaches.
+        assert_eq!(n.style_refs.contains_key("text"), key == "fontStyle", "binding {key} and the linked text style");
         assert!(n.variables.bindings.contains_key(key), "binding {key} must record the variable binding");
 
         // Single undo restores both the text style link and removes the variable binding.

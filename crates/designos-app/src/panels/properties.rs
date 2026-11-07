@@ -3183,14 +3183,14 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
         }
         "text-style-overrides" => {
             // The Typography section of a text layer linked to a text style it overrides, with the style
-            // menu open: the layer gets a style made from its own type, then a bigger bold type of its own.
+            // menu open: the layer gets a style made from its own type, then a bold, underlined type of its own.
             app.props.scroll = 1.0e6;
             if app.doc.get(id).is_some_and(|n| n.kind.any_text().is_some() && !n.style_refs.contains_key("text")) {
                 app.create_text_style_from(&[id]);
             }
             super::typography::set_style(app, &[id], |s| {
-                s.font_size += 4.0;
                 s.font_weight = 700;
+                s.decoration = TextDecoration::Underline;
             });
             // `text-style-overrides:row` leaves the menu closed so the style row and its pill show.
             app.props.style_menu = (sub != "row").then_some(StyleProperty::Text);
