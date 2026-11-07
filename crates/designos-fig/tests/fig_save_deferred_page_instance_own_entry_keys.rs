@@ -234,7 +234,20 @@ fn rows_fixture(rows: &[Row], entries: Vec<(usize, Value)>) -> Vec<u8> {
         let symbol = json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": [own_entry_json(entry)]}});
         extra.push(fig_node(row_instance(i), VARIANT, "INSTANCE", &row_name(i), symbol));
     }
-    fixture_with(json!({}), json!([]), extra, blobs)
+    fixture_with(json!({}), control_overrides(), extra, blobs)
+}
+
+/// The file's own instance (`INSTANCE`) is the control: it states fills and a stroke weight and no row edits it.
+fn control_overrides() -> Value {
+    json!([own_entry_json(json!({"fillPaints": [solid(&rgba(0.0, 1.0, 0.0), None)], "strokeWeight": 2.0}))])
+}
+
+fn control_entry(saved: &[u8]) -> Value {
+    own_entry_of(&saved_entries(saved, INSTANCE))
+}
+
+fn assert_page_stays_unloaded(doc: &Document) {
+    assert!(!page_hydrated(doc, page_named(doc, "404 pages")), "the page stays unloaded");
 }
 
 /// The own entry each row's instance holds in `saved`, by row index.
@@ -320,20 +333,30 @@ fn every_key_that_states_a_field_follows_an_edit_of_that_field() {
     let lone: Vec<usize> = all.iter().copied().filter(|&i| rows[i].class != Class::States).collect();
     let alone = rows_fixture(&rows, lone.iter().map(|&i| (i, lone_entry(&rows[i]))).collect());
     let alone_live = import_fig(&alone).expect("import the keys alone");
+    assert_page_stays_unloaded(&alone_live);
     let alone_flags: Vec<(usize, Vec<OverrideField>)> = lone.iter().map(|&i| (i, flags_of(&alone_live, i))).collect();
 
     let fig = rows_fixture(&rows, all.iter().map(|&i| (i, full_entry(&rows[i]))).collect());
     let recorded = row_entries(&fig, &all);
     let live = import_fig(&fig).expect("import");
+    assert_page_stays_unloaded(&live);
     let flags: Vec<Vec<OverrideField>> = all.iter().map(|&i| flags_of(&live, i)).collect();
-    let untouched = row_entries(&export_fig(&live).expect("export"), &all);
+    let untouched_bytes = export_fig(&live).expect("export");
+    let untouched = row_entries(&untouched_bytes, &all);
 
     let mut edited_live = import_fig(&fig).expect("import");
+    assert_page_stays_unloaded(&edited_live);
     for &i in &all {
         let instance = row_instance_node(&edited_live, i);
         (rows[i].edit)(edited_live.get_mut(instance).expect("instance"));
     }
-    let edited = row_entries(&export_fig(&edited_live).expect("export"), &all);
+    let edited_bytes = export_fig(&edited_live).expect("export");
+    assert_page_stays_unloaded(&import_fig(&edited_bytes).expect("reopen the edited save"));
+    let edited = row_entries(&edited_bytes, &all);
+    // No row edits the control: the edits of the others must not reach it.
+    let (control_recorded, control_untouched, control_edited) = (control_entry(&fig), control_entry(&untouched_bytes), control_entry(&edited_bytes));
+    assert_eq!(control_untouched, control_recorded, "a save without an edit changed the control entry");
+    assert_eq!(control_edited, control_untouched, "an edit of another instance changed the control entry");
 
     let failures: Vec<String> = all
         .iter()
@@ -345,7 +368,7 @@ fn every_key_that_states_a_field_follows_an_edit_of_that_field() {
                 untouched: untouched[i].1.clone(),
                 edited: edited[i].1.clone(),
             };
-            check_row(&rows[i], &seen).err().map(|e| format!("{}: {e}", rows[i].key))
+            check_row(&rows[i], &seen).err().map(|e| format!("row {i} {}: {e}", rows[i].key))
         })
         .collect();
     println!("own-entry key rows checked: {}", rows.len());
