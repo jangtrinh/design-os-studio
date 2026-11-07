@@ -98,6 +98,10 @@ fn gpu_compile_keeps_the_grid_near_the_registry_limit() {
     // the near-limit compile goes first: the filler needs an empty registry to land one below the limit
     fill_registry(49_999);
     let near = SceneCompiler::new().compile(&t.doc, t.page, 1, &vp, (520, 160)).stats();
+    assert!(
+        board::get(&Document::new("x"), board::synth_id(NodeId(1_000_000), 0)).is_some(),
+        "the draw ran one below the registry limit: the registry was not cleared before the table drew"
+    );
     let fresh = SceneCompiler::new().compile(&t.doc, t.page, 1, &vp, (520, 160)).stats();
     assert!(fresh.triangles > blank.triangles, "the table draws: {} vs blank {}", fresh.triangles, blank.triangles);
     assert_eq!(near.triangles, fresh.triangles, "grid lost on the GPU path near the registry limit");

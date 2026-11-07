@@ -152,6 +152,10 @@ fn grid_survives_a_registry_clear_during_the_draw() {
     }
     fill_registry(49_999);
     let pm = t.render(560, 200);
+    assert!(
+        board::get(&Document::new("x"), board::synth_id(NodeId(1_000_000), 0)).is_some(),
+        "the draw ran one below the registry limit: the registry was not cleared before the table drew"
+    );
     for (x, y) in [(179, 40), (339, 40), (100, 63), (100, 107), (20, 100), (500, 130)] {
         assert_eq!(px(&pm, x, y), STROKE, "grid line at ({x}, {y}) after a registry near its limit");
     }
