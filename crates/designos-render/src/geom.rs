@@ -224,7 +224,7 @@ pub fn smooth_rounded_rect(w: f32, h: f32, radii: [f32; 4], smoothing: f32) -> O
 }
 
 /// An ellipse whose inner radius reaches the outer one: it has a path but no area.
-fn is_hairline_ring(arc: &d::ArcData) -> bool {
+pub(crate) fn is_hairline_ring(arc: &d::ArcData) -> bool {
     arc.inner_radius >= 0.999
 }
 
