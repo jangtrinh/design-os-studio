@@ -1769,10 +1769,7 @@ impl Shell {
         // Show in folder toast the user just pressed gives way to it.
         crate::fig_export::remember_repaint_context(ui.ctx());
         while let Some((file, text)) = crate::fig_export::take_late_reveal_failure() {
-            if self.app.toast.as_ref().is_some_and(|t| t.reveal.as_deref() == Some(file.as_path())) {
-                self.app.toast = None;
-            }
-            self.app.show_toast(text, true);
+            self.app.show_reveal_failure(&file, text);
         }
         // The lifetime starts at the first paint. A blocked frame before it (a slow export, a file
         // dialog, a large file opening) must not spend the toast before anyone sees it.
@@ -1857,8 +1854,7 @@ impl Shell {
         }
         if let (Some("toast-reveal"), Some(file)) = (clicked, reveal) {
             if let Err(reason) = (self.app.reveal_file)(&file) {
-                self.app.toast = None;
-                self.app.show_toast(crate::fig_export::reveal_failure_text(&file, &reason), true);
+                self.app.show_reveal_failure(&file, crate::fig_export::reveal_failure_text(&file, &reason));
             }
         } else if clicked == Some("toast-enter-path") && enter_path {
             self.app.toast = None;

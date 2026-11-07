@@ -450,12 +450,45 @@ impl App {
         if next.error {
             self.error_toast_seq += 1;
             self.last_error_toast = next.text.clone();
+            // The same error again adds nothing: it is on screen or already waits. The count above still moved.
+            let shown = self.toast.as_ref().is_some_and(|t| t.error && t.text == next.text);
+            let queued = self.toast_queue.iter().position(|t| t.error && t.text == next.text);
+            if shown {
+                return self.toast.as_mut().unwrap_or_else(|| unreachable!("checked just above"));
+            }
+            if let Some(i) = queued {
+                return &mut self.toast_queue[i];
+            }
         }
         let live_action = self.toast.as_ref().is_some_and(|t| t.has_action() && (!t.armed || self.now < t.until));
         if live_action || !self.toast_queue.is_empty() {
             return self.enqueue_toast(next);
         }
         self.toast.insert(next)
+    }
+
+    /// The error for a Show in folder that did not work for `file`. It is about what the user just did, so it does not
+    /// wait behind other toasts: it replaces the toast of `file` when that is on screen, otherwise it goes to the
+    /// front of the queue when a toast with an action for another file is on screen, otherwise it takes the slot.
+    pub(crate) fn show_reveal_failure(&mut self, file: &std::path::Path, text: String) {
+        self.error_toast_seq += 1;
+        self.last_error_toast = text.clone();
+        let own_on_screen = self.toast.as_ref().is_some_and(|t| t.reveal.as_deref() == Some(file));
+        let repeated = self.toast.as_ref().is_some_and(|t| t.error && t.text == text) || self.toast_queue.iter().any(|t| t.error && t.text == text);
+        if own_on_screen {
+            self.toast = None;
+        }
+        if repeated {
+            return;
+        }
+        let error =
+            Toast { until: self.now + theme::TOAST_SECONDS, text, error: true, reveal: None, enter_path: false, duration: theme::TOAST_SECONDS, armed: false };
+        let other_action_live = self.toast.as_ref().is_some_and(|t| t.has_action() && (!t.armed || self.now < t.until));
+        if other_action_live {
+            self.toast_queue.push_front(error);
+        } else {
+            self.toast = Some(error);
+        }
     }
 
     /// Adds `next` at the back of the queue. The queue keeps only the latest plain notice (a newer progress or

@@ -93,9 +93,12 @@ fn an_enter_a_path_toast_is_kept_and_its_queued_successor_keeps_its_own_action()
     let mut s = Sim::new();
     s.shell.app.show_no_file_dialog_toast(true);
     assert!(s.app().toast.as_ref().unwrap().enter_path);
+    // The same notice again adds nothing; an export toast with a button is raised and waits.
     s.shell.app.show_no_file_dialog_toast(true);
-    assert_eq!(s.app().toast_queue.len(), 1, "the second notice waits");
-    assert!(s.app().toast_queue[0].enter_path, "the action went to the toast that was queued, not to the one on screen");
+    assert!(s.app().toast_queue.is_empty(), "an identical error is not added twice");
+    s.shell.app.show_toast_with_reveal("Exported b", reveal_path("b.png"));
+    assert_eq!(s.app().toast_queue.len(), 1, "the export toast waits");
+    assert!(!s.app().toast_queue[0].enter_path && s.app().toast.as_ref().unwrap().enter_path, "each toast keeps its own action");
     s.shell.app.show_toast("Saved the page", false);
     assert_eq!(s.app().toast_queue.len(), 2);
     assert!(!s.app().toast_queue[1].enter_path);
@@ -254,4 +257,86 @@ fn an_import_error_raised_behind_an_export_toast_is_still_counted() {
     assert_eq!(s.app().error_toast_seq, before + 1, "the failed import is counted even though its toast waits");
     assert!(s.app().last_error_toast.starts_with("Cannot import comments"), "{}", s.app().last_error_toast);
     assert!(!s.app().toast.as_ref().unwrap().error, "the toast slot still shows the export toast");
+}
+
+#[test]
+fn a_failed_click_with_a_newer_export_queued_shows_the_error_at_once() {
+    let mut s = Sim::new();
+    s.shell.app.reveal_file = no_file_manager;
+    export_toast_on_screen(&mut s, "a.png");
+    s.shell.app.show_toast_with_reveal("Exported b", reveal_path("b.png"));
+    let button = s.rect_of("toast-reveal");
+    s.click(button.center());
+    s.frame(vec![]);
+    let toast = s.app().toast.as_ref().expect("a toast is on screen");
+    assert!(toast.error && toast.text == "Couldn't open /tmp/designos-toast-queue: no file manager", "on screen: {}", toast.text);
+    assert_eq!(s.app().toast_queue.len(), 1, "the newer export toast still waits its turn");
+    assert_eq!(s.app().toast_queue[0].reveal.as_deref(), Some(reveal_path("b.png").as_path()));
+}
+
+#[test]
+fn a_late_failure_of_the_toast_on_screen_shows_the_error_at_once_with_an_export_queued() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    s.shell.app.show_toast_with_reveal("Exported b", reveal_path("b.png"));
+    let a = reveal_path("a.png");
+    crate::fig_export::push_late_reveal_failure(a.clone(), crate::fig_export::reveal_failure_text(&a, ""));
+    s.frame(vec![]);
+    let toast = s.app().toast.as_ref().expect("a toast is on screen");
+    assert!(toast.error && toast.text == "Couldn't open /tmp/designos-toast-queue", "on screen: {}", toast.text);
+    assert_eq!(s.app().toast_queue.len(), 1);
+}
+
+#[test]
+fn a_late_failure_for_another_file_is_the_next_toast() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    s.shell.app.show_toast_with_reveal("Exported b", reveal_path("b.png"));
+    let c = PathBuf::from("/tmp/designos-toast-other/c.png");
+    crate::fig_export::push_late_reveal_failure(c.clone(), crate::fig_export::reveal_failure_text(&c, ""));
+    s.frame(vec![]);
+    assert!(s.app().toast.as_ref().unwrap().reveal.is_some(), "the export toast on screen keeps its button");
+    let queue = &s.app().toast_queue;
+    assert!(queue[0].error && queue[0].text == "Couldn't open /tmp/designos-toast-other", "the error is next: {}", queue[0].text);
+    assert_eq!(queue[1].reveal.as_deref(), Some(reveal_path("b.png").as_path()));
+}
+
+#[test]
+fn a_repeating_error_behind_an_export_toast_stays_within_the_cap_and_ends_with_its_producer() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    let t0 = s.app().now;
+    // An error every 1.5 s, as an autosave retry on a full disk raises it, for 120 s.
+    let mut next_error = t0;
+    let mut max_len = 0;
+    let mut t = t0;
+    while t < t0 + 120.0 {
+        if t >= next_error {
+            s.shell.app.show_toast("Could not save: disk full", true);
+            next_error += 1.5;
+        }
+        t += 0.2;
+        frame_at(&mut s, t);
+        max_len = max_len.max(s.app().toast_queue.len());
+    }
+    assert!(max_len <= crate::app::TOAST_QUEUE_CAP, "the queue grew to {max_len}");
+    let stop = s.app().now;
+    while s.app().toast.is_some() && s.app().now < stop + 600.0 {
+        let next = s.app().now + 0.5;
+        frame_at(&mut s, next);
+    }
+    assert!(s.app().now - stop < 30.0, "stale errors kept showing for {:.1} s after the producer stopped", s.app().now - stop);
+}
+
+#[test]
+fn a_repeated_error_adds_no_toast_but_still_counts() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    let before = s.app().error_toast_seq;
+    s.shell.app.show_toast("Cannot import comments: bad file", true);
+    s.shell.app.show_toast("Cannot import comments: bad file", true);
+    s.shell.app.show_toast("Cannot import comments: other file", true);
+    assert_eq!(s.app().toast_queue.len(), 2, "the same error is queued once, a different one still is");
+    assert_eq!(s.app().error_toast_seq, before + 3, "every raise counts, so a repeated failed import still returns an error");
+    assert_eq!(s.app().last_error_toast, "Cannot import comments: other file");
 }
