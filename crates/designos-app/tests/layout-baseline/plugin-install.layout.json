@@ -1220,19 +1220,6 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        1367.0,
-        1026.0,
-        223.0,
-        26.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
         544.0,
         1028.0,
         512.0,
