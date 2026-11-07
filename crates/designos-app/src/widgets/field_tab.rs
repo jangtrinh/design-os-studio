@@ -309,8 +309,8 @@ mod tests {
                 dd1_id = ui.id().with(("dd", DD1_KEY));
                 dd2_id = ui.id().with(("dd", DD2_KEY));
                 let _ = super::super::field::text_input(ui, walk_field_rect(), FIELD_KEY, "100");
-                let _ = super::super::menu::dropdown_items(ui, walk_dd1_rect(), DD1_KEY, "A", &items, walk_dd1_rect().width());
-                let _ = super::super::menu::dropdown_items(ui, walk_dd2_rect(), DD2_KEY, "A", &items, walk_dd2_rect().width());
+                let _ = super::super::menu::dropdown_items_mixed(ui, walk_dd1_rect(), DD1_KEY, "A", &items, walk_dd1_rect().width(), false);
+                let _ = super::super::menu::dropdown_items_mixed(ui, walk_dd2_rect(), DD2_KEY, "A", &items, walk_dd2_rect().width(), false);
             });
             self.shapes = out.shapes;
             self.field_id = field_id;
