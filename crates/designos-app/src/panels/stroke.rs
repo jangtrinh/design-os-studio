@@ -42,6 +42,16 @@ fn supports_sides(n: &Node) -> bool {
     matches!(n.kind, NodeKind::Frame(_) | NodeKind::Rectangle | NodeKind::Component(_) | NodeKind::Instance { .. })
 }
 
+fn set_stroke_weight(n: &mut Node, weight: f32) {
+    n.stroke.weight = weight;
+    if n.stroke.side_weights.is_some() {
+        n.stroke.side_weights = Some([weight; 4]);
+    }
+    // Imported vectors can carry a baked outline from Figma. It encodes the old
+    // stroke weight, so any weight edit must return rendering to the live stroke.
+    n.stroke_geometry = None;
+}
+
 fn open_ends_of(n: &Node) -> Option<Vec<(usize, usize)>> {
     match &n.kind {
         NodeKind::Line => Some(vec![(0, 1)]),
@@ -185,12 +195,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         var_bind::numeric(app, ui, w_r, sel, &["strokeWeight"], |ui, r| field::num_field(ui, r, "stroke-w", Prefix::Icon(Icon::StrokeWeight), sw_val, ""))
     {
         let w = w.max(0.0);
-        app.edit_nodes(sel, |n| {
-            n.stroke.weight = w;
-            if n.stroke.side_weights.is_some() {
-                n.stroke.side_weights = Some([w; 4]);
-            }
-        });
+        app.edit_nodes(sel, |n| set_stroke_weight(n, w));
     }
     let set_r = pane.rect(SETTINGS_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     let open = app.props.pop.as_ref().is_some_and(|p| p.kind == PopKind::Stroke);
@@ -219,6 +224,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
                         let mut s = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
                         s[idx] = v.max(0.0);
                         n.stroke.side_weights = Some(s);
+                        n.stroke_geometry = None;
                     });
                 }
             }
@@ -392,6 +398,20 @@ pub fn miter_limit(angle: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stroke_weight_edit_clears_imported_baked_outline() {
+        let mut n = Node::new(NodeId(1), NodeKind::Line);
+        n.stroke.weight = 4.0;
+        n.stroke.side_weights = Some([4.0; 4]);
+        n.stroke_geometry = Some(vec![Path { cmds: Vec::new(), fill_rule: FillRule::NonZero }]);
+
+        set_stroke_weight(&mut n, 12.0);
+
+        assert_eq!(n.stroke.weight, 12.0);
+        assert_eq!(n.stroke.side_weights, Some([12.0; 4]));
+        assert!(n.stroke_geometry.is_none(), "weight edits must discard an imported outline baked at the old weight");
+    }
 
     #[test]
     fn miter_angle_roundtrips() {
