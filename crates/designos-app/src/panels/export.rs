@@ -797,6 +797,7 @@ mod tests {
         let saved = dir.join("Alpha-1.png");
         assert!(saved.is_file(), "{:?}", files_in(&dir));
         assert_eq!(toast_of(&app).unwrap().0, format!("No save dialog. Saved to {}", saved.display()));
+        app.toast = None;
         run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         let saved_two = dir.join("Alpha-2.png");
         assert!(saved_two.is_file(), "{:?}", files_in(&dir));
@@ -982,12 +983,15 @@ mod tests {
         assert!(first_suffix.is_file(), "{:?}", files_in(&dir));
         assert_eq!(toast_of(&app), Some((format!("Exported {}", first_suffix.display()), false)));
         crate::fig_export::tests::assert_offers_reveal(&app, &first_suffix);
+        // A toast with Show in folder is never replaced, so the next export's toast waits; this test reads each in turn.
+        app.toast = None;
 
         run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
         let second_suffix = dir.join("Card-2.png");
         assert!(second_suffix.is_file(), "{:?}", files_in(&dir));
         assert_eq!(toast_of(&app), Some((format!("Exported {}", second_suffix.display()), false)));
         crate::fig_export::tests::assert_offers_reveal(&app, &second_suffix);
+        app.toast = None;
 
         let folder = scratch_dir("picked_folder_no_overwrite");
         std::fs::write(folder.join("Card.png"), b"keep folder card").unwrap();
@@ -1009,6 +1013,7 @@ mod tests {
         run_export_with(&mut app, &[a, b], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         crate::fig_export::tests::assert_offers_reveal(&app, &dir);
         assert_eq!(app.toast.as_ref().unwrap().text.matches(dir.display().to_string().as_str()).count(), 1, "one summary, the folder once");
+        app.toast = None;
         let picked = scratch_dir("many_reveal_picked");
         run_export_with(&mut app, &[a, b], &ScriptedDialogs::answering(DialogOutcome::Picked(picked.clone())));
         crate::fig_export::tests::assert_offers_reveal(&app, &picked);

@@ -14,7 +14,7 @@ pub(crate) type QueuedWork = Box<dyn FnOnce(&mut App)>;
 impl App {
     /// Shows `status` now and runs `work` on the next frame, after the status has been painted.
     pub(crate) fn run_after_status_paint(&mut self, status: impl Into<String>, work: impl FnOnce(&mut App) + 'static) {
-        self.show_toast(status, false);
+        self.show_status_toast(status);
         self.queued_work.push(Box::new(work));
     }
 

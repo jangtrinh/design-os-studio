@@ -150,9 +150,21 @@ pub fn sanitize_file_name(name: &str) -> String {
     let s = s.trim().trim_matches('.').to_string();
     if s.is_empty() {
         "export".into()
+    } else if is_windows_reserved_name(&s) {
+        // `NUL.fig` on Windows is the NUL device: the write "works" and the file is never created.
+        format!("_{s}")
     } else {
         s
     }
+}
+
+/// True for a name Windows reserves for a device (`CON`, `PRN`, `AUX`, `NUL`, `COM0`-`COM9`, `LPT0`-`LPT9`), in any
+/// case. The reservation covers the part before the first dot and ignores trailing spaces, so `nul.txt` is reserved
+/// and `NUL@2x.png` is not.
+fn is_windows_reserved_name(name: &str) -> bool {
+    let base = name.split('.').next().unwrap_or(name).trim_end().to_ascii_uppercase();
+    matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|p| base.strip_prefix(p).is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit()))
 }
 
 #[cfg(test)]
@@ -168,6 +180,19 @@ mod tests {
         n.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
         d.insert(page, n).unwrap();
         (d, id)
+    }
+
+    #[test]
+    fn windows_reserved_device_names_are_not_used_as_file_names() {
+        for name in ["NUL", "nul", "CON", "Prn", "AUX", "COM1", "lpt9", "NUL.fig", "con.txt", "NUL .fig"] {
+            let clean = sanitize_file_name(name);
+            assert_eq!(clean, format!("_{}", name.trim()), "{name} is a Windows device name");
+        }
+        for name in ["NUL@2x", "CONSOLE", "COM10", "COM", "Card", "Untitled", "LPT", "my NUL"] {
+            assert_eq!(sanitize_file_name(name), name, "{name} is an ordinary name");
+        }
+        let s = ExportSetting { scale: ExportScale::Factor(1.0), format: ExportFormat::Png };
+        assert_eq!(s.file_name("NUL"), "_NUL.png", "an export row on a layer named NUL does not write to the device");
     }
 
     fn decode(png: &[u8]) -> tiny_skia::Pixmap {
