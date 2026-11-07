@@ -177,6 +177,8 @@ pub fn xml_tag_name(kind: &NodeKind) -> &'static str {
         NodeKind::Connector(_) => "connector",
         NodeKind::ShapeWithText(_) => "shape-with-text",
         NodeKind::Stamp { .. } => "stamp",
+        NodeKind::Table(_) => "table",
+        NodeKind::TableCell(_) => "table-cell",
         NodeKind::Unknown { type_name } => {
             if type_name.eq_ignore_ascii_case("slice") {
                 "slice"
@@ -377,6 +379,20 @@ impl<'a> WalkCtx<'a> {
                 LayoutDirection::Grid => "grid",
             };
             attrs.push(("layout", dir.to_string()));
+        }
+        match &node.kind {
+            NodeKind::Table(t) => {
+                attrs.push(("rows", t.rows.len().to_string()));
+                attrs.push(("cols", t.cols.len().to_string()));
+            }
+            NodeKind::TableCell(c) => {
+                let index = |tracks: &[designos_doc::TableTrack], id| tracks.iter().position(|t| t.id == id);
+                if let Some(table) = node.parent.and_then(|p| self.doc.get(p)).and_then(|p| if let NodeKind::Table(t) = &p.kind { Some(t) } else { None }) {
+                    attrs.push(("row", index(&table.rows, c.row).map_or("?".to_string(), |i| i.to_string())));
+                    attrs.push(("col", index(&table.cols, c.col).map_or("?".to_string(), |i| i.to_string())));
+                }
+            }
+            _ => {}
         }
         if let NodeKind::Instance { component, .. } = &node.kind {
             let (comp_name, variant_str) = resolve_instance_meta(self.doc, node, *component);
