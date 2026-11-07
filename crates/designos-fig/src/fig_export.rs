@@ -3374,7 +3374,7 @@ fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool, lin
                 ("letterSpacing", st(vec![("value", fl(r.style.letter_spacing)), ("units", en("PIXELS"))])),
                 ("lineHeight", lh),
             ];
-            append_ot_and_variation_fields(&mut so_fields, &r.style);
+            append_ot_and_variation_fields(&mut so_fields, r.style);
             table.push(msg(so_fields));
         }
         td.push(("characterStyleIDs", V::Array(char_ids.into_iter().map(V::Uint).collect())));

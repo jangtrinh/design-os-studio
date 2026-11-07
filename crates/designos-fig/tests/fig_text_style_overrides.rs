@@ -101,7 +101,9 @@ fn the_file_carries_the_overrides_as_flagged_table_entries_and_nothing_studio_on
     assert_eq!(named("Whole")["textData"]["characterStyleIDs"], json!([1, 1, 1, 1, 1]));
     assert_eq!(named("Range")["textData"]["characterStyleIDs"], json!([1, 1, 0, 0, 0]));
 
-    let studio_only = changes.iter().any(|n| n["pluginData"].as_array().is_some_and(|p| p.iter().any(|e| e["key"].as_str().is_some_and(|k| k.to_lowercase().contains("overrid")))));
+    let studio_only = changes
+        .iter()
+        .any(|n| n["pluginData"].as_array().is_some_and(|p| p.iter().any(|e| e["key"].as_str().is_some_and(|k| k.to_lowercase().contains("overrid")))));
     assert!(!studio_only, "no Studio-only plugin data for the overrides");
 }
 
