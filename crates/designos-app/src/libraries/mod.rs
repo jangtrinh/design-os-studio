@@ -735,16 +735,20 @@ impl App {
                 st.pending = None;
             }
         }
+        let linked = linked_style_nodes(&self.doc, style_key);
         let mut tx = Tx::new();
         let res = match self.import_asset_in(&mut tx, library_id, key) {
-            Some(local) => match self.bind_style_variable_in(&mut tx, style_key, property, &local) {
-                Ok(()) => self.run_tx(tx),
-                Err(e) => {
-                    tx.cancel(&mut self.doc);
-                    self.show_toast(format!("Style not changed: {e}"), true);
-                    false
+            Some(local) => {
+                self.end_text_edit_of(&linked);
+                match self.bind_style_variable_in(&mut tx, style_key, property, &local) {
+                    Ok(()) => self.run_tx(tx),
+                    Err(e) => {
+                        tx.cancel(&mut self.doc);
+                        self.show_toast(format!("Style not changed: {e}"), true);
+                        false
+                    }
                 }
-            },
+            }
             None => {
                 tx.cancel(&mut self.doc);
                 self.show_toast("Library variable could not be loaded", true);
@@ -760,6 +764,7 @@ impl App {
     pub fn apply_library_style(&mut self, mut tx: Tx, sel: &[NodeId], library_id: &str, key: &str) {
         match self.import_asset_in(&mut tx, library_id, key) {
             Some(local) => {
+                self.end_text_edit_of(sel);
                 self.apply_style_in(&mut tx, sel, &local);
                 self.run_tx(tx);
             }

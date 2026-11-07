@@ -6,6 +6,7 @@
 
 use crate::lint::token_match::{same_text_style, same_text_style_props};
 use crate::*;
+use std::collections::BTreeMap;
 
 /// Key of the `style_refs` entry that links a text layer to its text style.
 const TEXT_REF: &str = "text";
@@ -33,15 +34,39 @@ fn text_layers<'a>(doc: &'a Document, nodes: &[NodeId]) -> Result<Vec<(&'a Node,
 /// [`has_single_text_style`]) and all are alike, colour aside. `None` when there is no text layer or
 /// they differ, so no single style describes them.
 pub fn shared_text_style(doc: &Document, nodes: &[NodeId]) -> Option<TextStyle> {
+    shared_text_style_data(doc, nodes).map(|(style, _)| style)
+}
+
+const TEXT_STYLE_BINDING_KEYS: [&str; 8] =
+    ["fontFamily", "fontStyle", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent"];
+
+fn typography_bindings(doc: &Document, node: &Node) -> BTreeMap<String, String> {
+    TEXT_STYLE_BINDING_KEYS.iter().filter_map(|key| doc.effective_binding(node.id, key).map(|value| ((*key).to_string(), value.to_string()))).collect()
+}
+
+fn shared_text_style_data(doc: &Document, nodes: &[NodeId]) -> Option<(TextStyle, BTreeMap<String, String>)> {
     let layers = text_layers(doc, nodes).ok()?;
-    let (_, first) = *layers.first()?;
-    let mut style = first.style.clone();
+    let (first, _) = *layers.first()?;
+    let first_resolved = resolve_node(doc, first).into_owned();
+    let NodeKind::Text(first_text) = first_resolved.kind else { return None };
+    let mut style = first_text.style.clone();
     style.align_h = TextAlignH::Left;
     style.align_v = TextAlignV::Top;
-    style.paragraph_indent = first.paragraph.indent;
-    style.list_spacing = first.paragraph.list_spacing;
-    style.leading_trim = first.paragraph.leading_trim;
-    layers.iter().all(|(_, t)| has_single_text_style(t) && same_text_style_props(t, &style)).then_some(style)
+    style.paragraph_indent = first_text.paragraph.indent;
+    style.list_spacing = first_text.paragraph.list_spacing;
+    style.leading_trim = first_text.paragraph.leading_trim;
+    let first_bindings = typography_bindings(doc, first);
+    for (node, _) in &layers {
+        let resolved = resolve_node(doc, node).into_owned();
+        let NodeKind::Text(text) = resolved.kind else { return None };
+        if !has_single_text_style(&text) || !same_text_style_props(&text, &style) {
+            return None;
+        }
+        if typography_bindings(doc, node) != first_bindings {
+            return None;
+        }
+    }
+    Some((style, first_bindings))
 }
 
 /// First `Text style N` that is neither the key nor the display name of a style of `doc`, so a style
@@ -62,10 +87,11 @@ pub fn create_text_style_from_nodes(doc: &Document, nodes: &[NodeId]) -> Result<
     let Some((first, _)) = layers.first() else {
         return Err(StyleOpError::WrongNodeKind(nodes.first().copied().unwrap_or_default()));
     };
-    let style = shared_text_style(doc, nodes).ok_or(StyleOpError::NothingToStyle(first.id))?;
+    let (style, bindings) = shared_text_style_data(doc, nodes).ok_or(StyleOpError::NothingToStyle(first.id))?;
     let name = next_free_name(doc);
     let mut styles = doc.styles.clone();
     let mut style_meta = doc.style_meta.clone();
+    let created = Style::Text(style.clone());
     styles.insert(name.clone(), Style::Text(style));
     style_meta.insert(
         name.clone(),
@@ -74,7 +100,7 @@ pub fn create_text_style_from_nodes(doc: &Document, nodes: &[NodeId]) -> Result<
             key: None,
             description: String::new(),
             property: StyleProperty::Text,
-            bindings: Default::default(),
+            bindings,
             text_paragraph_fields: Some(0b111),
             ..Default::default()
         },
@@ -82,7 +108,11 @@ pub fn create_text_style_from_nodes(doc: &Document, nodes: &[NodeId]) -> Result<
     let mut cmds = vec![Command::SetStyles { styles, style_meta }];
     for (n, _) in layers {
         let mut linked = n.clone();
+        detach_text_style_bindings(&mut linked);
         linked.style_refs.insert(TEXT_REF.into(), name.clone());
+        // The style holds the drawn (resolved) values, so the layer takes them too: a layer whose
+        // stored size was 18 under a binding that drew 32 would otherwise differ from its own style.
+        apply_style_values_with_fields(&mut linked, &created, &name, Some(0b111));
         cmds.push(Command::Update { node: Box::new(linked) });
     }
     Ok((name, Command::Batch(cmds)))
@@ -246,5 +276,85 @@ mod tests {
         assert!(hist.undo(&mut doc).unwrap());
         assert!(doc.styles.is_empty());
         assert!(!doc.get(text_id).unwrap().style_refs.contains_key("text"));
+    }
+
+    /// Text layer `t` stored at 18 and bound to variable `size` (Default 16, Dark 32); its frame is in Dark.
+    fn bound_fixture() -> (Document, NodeId) {
+        let mut d = Document::new("bound");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 300.0));
+        frame.variables.modes.insert("typo".into(), "dark".into());
+        let fid = d.insert(page, frame).unwrap();
+        let tid = d.alloc_id();
+        let mut text = Node::text(tid, Rect::new(0.0, 0.0, 120.0, 30.0), "Hello", TextStyle { font_size: 18.0, ..Default::default() });
+        text.opacity = 0.5;
+        text.variables.bindings.insert("fontSize".into(), "size".into());
+        text.variables.bindings.insert("opacity".into(), "size".into());
+        let tid = d.insert(fid, text).unwrap();
+        d.variable_collections.insert(
+            "typo".into(),
+            VariableCollection {
+                id: "typo".into(),
+                name: "Typo".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "default".into(),
+                variables: vec!["size".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "size".into(),
+            Variable {
+                id: "size".into(),
+                name: "Size".into(),
+                collection: "typo".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(16.0)), ("dark".into(), VariableValue::Number(32.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        (d, tid)
+    }
+
+    fn stored_and_drawn_size(d: &Document, id: NodeId) -> (f32, f32) {
+        let n = d.get(id).unwrap();
+        (n.kind.any_text().unwrap().style.font_size, resolve_node(d, n).kind.any_text().unwrap().style.font_size)
+    }
+
+    #[test]
+    fn creating_from_a_bound_layer_carries_the_binding_and_the_drawn_value() {
+        let (mut d, t) = bound_fixture();
+        assert_eq!(stored_and_drawn_size(&d, t), (18.0, 32.0));
+        let (key, cmd) = create_text_style_from_nodes(&d, &[t]).unwrap();
+        apply(&mut d, cmd);
+        let Style::Text(ts) = &d.styles[&key] else { panic!("text style") };
+        assert_eq!(ts.font_size, 32.0, "the style holds the drawn size");
+        assert_eq!(d.style_meta[&key].bindings.get("fontSize").map(String::as_str), Some("size"));
+        let n = d.get(t).unwrap();
+        assert!(!n.variables.bindings.contains_key("fontSize"), "the style now carries the binding");
+        assert_eq!(n.variables.bindings.get("opacity").map(String::as_str), Some("size"), "bindings the style does not own stay");
+        assert_eq!(n.style_refs.get("text"), Some(&key));
+        // The layer agrees with its own style: stored 32, drawn 32, so nothing differs from the style.
+        assert_eq!(stored_and_drawn_size(&d, t), (32.0, 32.0));
+    }
+
+    #[test]
+    fn a_run_that_differs_from_the_base_blocks_creating_a_style() {
+        let (mut d, t, _) = fixture();
+        let size = d.get(t).unwrap().kind.any_text().unwrap().style.font_size;
+        if let NodeKind::Text(tp) = &mut d.get_mut(t).unwrap().kind {
+            tp.runs.push(TextRun { start: 0, end: 2, style: TextStyle { font_size: size + 4.0, ..tp.style.clone() } });
+        }
+        assert!(matches!(create_text_style_from_nodes(&d, &[t]), Err(StyleOpError::NothingToStyle(_))));
+        assert!(shared_text_style(&d, &[t]).is_none());
     }
 }
