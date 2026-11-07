@@ -1706,6 +1706,7 @@ impl<'a> Ctx<'a> {
                                     max_children: opt_u32("maxChildren"),
                                     allow_preferred_values_only: cfg.get("allowPreferredValuesOnly").and_then(Value::as_bool),
                                     preferred: Vec::new(),
+                                    empty_config_written: cfg.is_empty(),
                                     extra,
                                 },
                             );
@@ -2785,6 +2786,7 @@ impl<'a> Ctx<'a> {
             n.component.grid_align_overrides = [false, false];
             n.component.layout_cleared = false;
             n.component.props.clear();
+            n.component.slot_configs.clear();
             n.component.expose_nested_instances = false;
             let container = n.kind.is_container();
             match parent_idx {
