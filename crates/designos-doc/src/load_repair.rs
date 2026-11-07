@@ -5,7 +5,11 @@
 //! recursive walkers overflow the stack, so every load path repairs the tree once, up front.
 //! Repair never deletes a node: anything that cannot stay in its tree is detached as a root.
 
-use crate::{Document, NodeId};
+use crate::table::{apply_relayout, Grid};
+use crate::{
+    default_cell_text, Document, Node, NodeId, NodeKind, TableCellProps, TableProps, TableTrack, TABLE_DEFAULT_COLUMN_WIDTH, TABLE_DEFAULT_ROW_HEIGHT,
+    TABLE_MIN_TRACK,
+};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// Deepest nesting kept below a root; deeper subtrees are detached (recursive walkers stay bounded).
@@ -41,6 +45,50 @@ pub struct RepairReport {
     /// node-graph defect, so [`RepairReport::structural_summary`] leaves it out: nothing was
     /// guessed or lost, and a caller that refuses repaired graphs still opens the file.
     pub connectors_made_absolute: usize,
+    /// What the table pass fixed. Left out of [`RepairReport::structural_summary`] like the two counts above:
+    /// every fix keeps the text it finds (a cell outside a table becomes a text layer, a duplicate or covered
+    /// cell folds into the cell that stays), so a caller that refuses repaired graphs still opens the file.
+    pub tables: TableRepairs,
+}
+
+/// What the table pass of [`Document::validate_and_repair`] changed; all zero for well-formed tables.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TableRepairs {
+    /// Cells whose parent is not a table, now text layers with the same text.
+    pub cells_to_text: usize,
+    /// Rows or columns added to a table that had none of one kind.
+    pub tracks_added: usize,
+    /// Rows or columns given a new id because another track of the same table already used theirs.
+    pub tracks_reidentified: usize,
+    /// Track sizes that were not finite or not above zero, now the minimum size.
+    pub track_sizes_clamped: usize,
+    /// Duplicate cells at one position, folded into the first one in child order.
+    pub duplicate_cells_folded: usize,
+    /// Cells with a row or column the table does not have that kept their text and moved to a free position.
+    pub cells_relocated: usize,
+    /// Cells with a row or column the table does not have and no text, removed.
+    pub cells_removed_empty: usize,
+    /// Empty cells added where a live position had none.
+    pub cells_added: usize,
+    /// Merges dropped (unknown anchor, overlap) or clamped (span past the table edge).
+    pub merges_fixed: usize,
+    /// Cells inside a merged block, folded into its anchor.
+    pub covered_cells_folded: usize,
+}
+
+impl TableRepairs {
+    fn total(&self) -> usize {
+        self.cells_to_text
+            + self.tracks_added
+            + self.tracks_reidentified
+            + self.track_sizes_clamped
+            + self.duplicate_cells_folded
+            + self.cells_relocated
+            + self.cells_removed_empty
+            + self.cells_added
+            + self.merges_fixed
+            + self.covered_cells_folded
+    }
 }
 
 impl RepairReport {
@@ -129,6 +177,7 @@ impl Document {
             self.next_id = largest;
             report.next_id_raised = true;
         }
+        report.tables = self.repair_tables();
         report.id_space_exhausted = largest > u64::MAX - MIN_ID_HEADROOM;
         if !report.is_clean() {
             self.mark_full_dirty();
@@ -175,5 +224,146 @@ impl Document {
             }
             self.nodes.get_mut(&id).expect("claimed node exists").children = kept;
         }
+    }
+
+    /// Table pass of [`Self::validate_and_repair`]: a cell outside a table becomes a text layer, and
+    /// each table is made whole again (see [`repair_table`]). Idempotent. A table is laid out again
+    /// only when a fix touched it, because a load has no text measurer and would drop row growth.
+    fn repair_tables(&mut self) -> TableRepairs {
+        let mut rep = TableRepairs::default();
+        let in_table =
+            |nodes: &BTreeMap<NodeId, Node>, parent: Option<NodeId>| parent.and_then(|p| nodes.get(&p)).is_some_and(|p| matches!(p.kind, NodeKind::Table(_)));
+        let stray: Vec<NodeId> =
+            self.nodes.values().filter(|n| matches!(n.kind, NodeKind::TableCell(_)) && !in_table(&self.nodes, n.parent)).map(|n| n.id).collect();
+        for id in stray {
+            let n = self.nodes.get_mut(&id).expect("listed above");
+            if let NodeKind::TableCell(c) = std::mem::replace(&mut n.kind, NodeKind::Group) {
+                n.kind = NodeKind::Text(c.text);
+                rep.cells_to_text += 1;
+            }
+        }
+        let tables: Vec<NodeId> = self.nodes.values().filter(|n| matches!(n.kind, NodeKind::Table(_))).map(|n| n.id).collect();
+        for id in tables {
+            let before = rep.total();
+            repair_table(self, id, &mut rep);
+            if rep.total() != before {
+                apply_relayout(self, id);
+            }
+        }
+        rep
+    }
+}
+
+/// Makes one table whole: positive finite track sizes, unique track ids, at least one row and one
+/// column, merges that fit, and exactly one cell at every live position. Cell text is never dropped.
+fn repair_table(doc: &mut Document, id: NodeId, rep: &mut TableRepairs) {
+    let Some(NodeKind::Table(original)) = doc.nodes.get(&id).map(|n| &n.kind) else { return };
+    let mut props: TableProps = original.clone();
+    for t in props.rows.iter_mut().chain(props.cols.iter_mut()) {
+        if !(t.size.is_finite() && t.size > 0.0) {
+            t.size = TABLE_MIN_TRACK;
+            rep.track_sizes_clamped += 1;
+        }
+    }
+    for rows in [true, false] {
+        let mut seen = HashSet::new();
+        for i in 0..if rows { props.rows.len() } else { props.cols.len() } {
+            let track_id = if rows { props.rows[i].id } else { props.cols[i].id };
+            if !seen.insert(track_id) {
+                let fresh = props.alloc_track();
+                seen.insert(fresh);
+                if rows {
+                    props.rows[i].id = fresh;
+                } else {
+                    props.cols[i].id = fresh;
+                }
+                rep.tracks_reidentified += 1;
+            }
+        }
+    }
+    if props.rows.is_empty() {
+        let track_id = props.alloc_track();
+        props.rows.push(TableTrack { id: track_id, size: TABLE_DEFAULT_ROW_HEIGHT });
+        rep.tracks_added += 1;
+    }
+    if props.cols.is_empty() {
+        let track_id = props.alloc_track();
+        props.cols.push(TableTrack { id: track_id, size: TABLE_DEFAULT_COLUMN_WIDTH });
+        rep.tracks_added += 1;
+    }
+    let grid = Grid::new(&props);
+    if grid.fixed > 0 {
+        rep.merges_fixed += grid.fixed;
+        props.merges = grid.merges.clone();
+    }
+
+    let children = doc.nodes[&id].children.clone();
+    let mut kept: BTreeMap<(usize, usize), NodeId> = BTreeMap::new();
+    let mut folds: Vec<(NodeId, (usize, usize))> = Vec::new();
+    let mut unknown: Vec<NodeId> = Vec::new();
+    for cid in children {
+        let Some(NodeKind::TableCell(c)) = doc.nodes.get(&cid).map(|n| &n.kind) else { continue };
+        match grid.position_of(c) {
+            None => unknown.push(cid),
+            Some(pos) => {
+                if let Some(anchor) = grid.covering_anchor(pos) {
+                    folds.push((cid, anchor));
+                    rep.covered_cells_folded += 1;
+                } else if let std::collections::btree_map::Entry::Vacant(slot) = kept.entry(pos) {
+                    slot.insert(cid);
+                } else {
+                    folds.push((cid, pos));
+                    rep.duplicate_cells_folded += 1;
+                }
+            }
+        }
+    }
+    let mut removed: Vec<NodeId> = Vec::new();
+    for cid in unknown {
+        let Some(NodeKind::TableCell(c)) = doc.nodes.get_mut(&cid).map(|n| &mut n.kind) else { continue };
+        if c.text.content.is_empty() {
+            removed.push(cid);
+            rep.cells_removed_empty += 1;
+        } else if let Some(pos) = grid.live().find(|p| !kept.contains_key(p)) {
+            c.row = props.rows[pos.0].id;
+            c.col = props.cols[pos.1].id;
+            kept.insert(pos, cid);
+            rep.cells_relocated += 1;
+        } else {
+            folds.push((cid, (0, 0)));
+            rep.cells_relocated += 1;
+        }
+    }
+    for pos in grid.live().filter(|p| !kept.contains_key(p)).collect::<Vec<_>>() {
+        let cell_id = doc.alloc_id();
+        let text = default_cell_text("");
+        let mut cell = Node::new(cell_id, NodeKind::TableCell(TableCellProps { row: props.rows[pos.0].id, col: props.cols[pos.1].id, text }));
+        cell.name = cell.kind.default_name().to_string();
+        cell.parent = Some(id);
+        doc.nodes.insert(cell_id, cell);
+        doc.nodes.get_mut(&id).expect("table exists").children.push(cell_id);
+        kept.insert(pos, cell_id);
+        rep.cells_added += 1;
+    }
+    for (cid, target) in folds {
+        let moved = match doc.nodes.get_mut(&cid).map(|n| &mut n.kind) {
+            Some(NodeKind::TableCell(c)) => std::mem::take(&mut c.text.content),
+            _ => continue,
+        };
+        if !moved.is_empty() {
+            if let Some(NodeKind::TableCell(t)) = kept.get(&target).and_then(|k| doc.nodes.get_mut(k)).map(|n| &mut n.kind) {
+                if !t.text.content.is_empty() {
+                    t.text.content.push('\n');
+                }
+                t.text.content.push_str(&moved);
+            }
+        }
+        removed.push(cid);
+    }
+    for cid in removed {
+        let _ = doc.remove(cid);
+    }
+    if let Some(NodeKind::Table(p)) = doc.nodes.get_mut(&id).map(|n| &mut n.kind) {
+        *p = props;
     }
 }

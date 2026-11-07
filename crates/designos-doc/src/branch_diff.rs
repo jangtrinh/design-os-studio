@@ -835,6 +835,9 @@ fn eq_kind_group(a: &NodeKind, b: &NodeKind) -> bool {
         (NodeKind::ShapeWithText(sa), NodeKind::ShapeWithText(sb)) => sa.shape == sb.shape,
         (NodeKind::Stamp { kind: ka }, NodeKind::Stamp { kind: kb }) => ka == kb,
         (NodeKind::Unknown { type_name: ta }, NodeKind::Unknown { type_name: tb }) => ta == tb,
+        // the cell text is covered by the text groups through `any_text`
+        (NodeKind::Table(ta), NodeKind::Table(tb)) => ta == tb,
+        (NodeKind::TableCell(ca), NodeKind::TableCell(cb)) => ca.row == cb.row && ca.col == cb.col,
         _ => false,
     }
 }

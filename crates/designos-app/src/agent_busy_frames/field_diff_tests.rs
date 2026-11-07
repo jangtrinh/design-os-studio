@@ -266,6 +266,7 @@ fn every_kind() -> Vec<NodeKind> {
         NodeKind::ShapeWithText(ShapeWithTextProps::default()),
         NodeKind::Stamp { kind: "star".into() },
         NodeKind::Unknown { type_name: "WIDGET".into() },
+        NodeKind::Table(designos_doc::TableProps::grid(2, 2)),
     ];
     for k in &kinds {
         match k {
@@ -288,6 +289,8 @@ fn every_kind() -> Vec<NodeKind> {
             | NodeKind::Connector(_)
             | NodeKind::ShapeWithText(_)
             | NodeKind::Stamp { .. }
+            | NodeKind::Table(_)
+            | NodeKind::TableCell(_)
             | NodeKind::Unknown { .. } => {}
         }
     }

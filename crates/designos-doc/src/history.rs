@@ -86,6 +86,9 @@ impl Command {
                 if !p.kind.can_hold_children() {
                     return Err(DocError::NotAContainer(parent));
                 }
+                if let Some(first) = nodes.first() {
+                    table::check_child_kind(&p.kind, &first.kind)?;
+                }
                 let index = index.min(p.children.len());
                 p.children.insert(index, root);
                 let many = nodes.len() > 64;
@@ -114,6 +117,9 @@ impl Command {
                 let n = doc.get(id).ok_or(DocError::NotFound(id))?;
                 let old_parent = n.parent.ok_or(DocError::NotFound(id))?;
                 let old_index = doc.get(old_parent).and_then(|p| p.children.iter().position(|c| *c == id)).unwrap_or(0);
+                if let Some(new_parent) = doc.get(parent) {
+                    table::check_child_kind(&new_parent.kind, &n.kind)?;
+                }
                 doc.reparent(id, parent, index)?;
                 Command::Reparent { id, parent: old_parent, index: old_index }
             }
@@ -363,7 +369,7 @@ impl History {
     }
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let inv = cmd.apply(doc)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
@@ -372,14 +378,14 @@ impl History {
     /// [`Self::fold_since`] can fold the contiguous agent tail on stop without folding
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = cmd.apply(doc)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = cmd.apply(doc)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, ..Default::default() });
         Ok(())
     }
@@ -554,10 +560,20 @@ impl History {
         self.sync_meta_lengths();
         let Some(c) = self.undo.pop() else { return Ok(false) };
         let meta = self.undo_meta.pop().unwrap_or_default();
-        let inv = apply_step(doc, c, meta.layout_recorded)?;
-        self.redo.push(inv);
-        self.redo_meta.push(meta);
-        Ok(true)
+        match guarded(doc, c, |d, c| apply_step(d, c, meta.layout_recorded)) {
+            Ok(inv) => {
+                self.redo.push(inv);
+                self.redo_meta.push(meta);
+                Ok(true)
+            }
+            Err(refused) => {
+                let (e, restored) = *refused;
+                self.undo.extend(restored);
+                self.undo_meta.push(meta);
+                self.undo_meta.truncate(self.undo.len());
+                Err(e)
+            }
+        }
     }
     /// Re-applies the latest undone step, solving auto layout again only for a step whose layout
     /// was not recorded, like [`Self::undo`].
@@ -565,10 +581,20 @@ impl History {
         self.sync_meta_lengths();
         let Some(c) = self.redo.pop() else { return Ok(false) };
         let meta = self.redo_meta.pop().unwrap_or_default();
-        let inv = apply_step(doc, c, meta.layout_recorded)?;
-        self.undo.push(inv);
-        self.undo_meta.push(meta);
-        Ok(true)
+        match guarded(doc, c, |d, c| apply_step(d, c, meta.layout_recorded)) {
+            Ok(inv) => {
+                self.undo.push(inv);
+                self.undo_meta.push(meta);
+                Ok(true)
+            }
+            Err(refused) => {
+                let (e, restored) = *refused;
+                self.redo.extend(restored);
+                self.redo_meta.push(meta);
+                self.redo_meta.truncate(self.redo.len());
+                Err(e)
+            }
+        }
     }
     /// The command [`Self::undo`] would apply next.
     pub fn peek_undo(&self) -> Option<&Command> {
@@ -756,6 +782,28 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
 /// Applies one undo or redo step. A layout-recorded step is replayed as stored while no deferred
 /// layout is queued. With a queue present it re-solves like any other step, so a queued subtree is
 /// never drained against a state the step restored without that solve.
+/// Applies one undo step with `apply`, then checks every table the step touched (see
+/// [`table::check_table_positions`]). A table left broken rolls the step back with its own inverse:
+/// the error is returned with the command that re-does the step, so the caller can put it back on its
+/// stack and leave the document and both stacks as they were. The table ids are collected before
+/// `apply` runs, because a removed cell's parent is gone afterwards.
+fn guarded(
+    doc: &mut Document,
+    c: Command,
+    apply: impl FnOnce(&mut Document, Command) -> Result<Command, DocError>,
+) -> Result<Command, Box<(DocError, Option<Command>)>> {
+    let mut touched = std::collections::BTreeSet::new();
+    table::touched_tables(doc, &c, &mut touched);
+    let inv = apply(doc, c).map_err(|e| Box::new((e, None)))?;
+    match table::check_touched(doc, &touched) {
+        Ok(()) => Ok(inv),
+        Err(e) => {
+            let restored = inv.apply(doc).ok();
+            Err(Box::new((e, restored)))
+        }
+    }
+}
+
 fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<Command, DocError> {
     if layout_recorded && doc.pending_relayout().is_empty() {
         c.apply(doc)

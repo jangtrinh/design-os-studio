@@ -77,6 +77,7 @@ pub mod spec_instance;
 #[cfg(test)]
 mod spec_relayout_scope_tests;
 mod styles_ops;
+pub mod table;
 mod text_fills;
 pub mod text_measure;
 pub mod text_style_ops;
@@ -122,6 +123,10 @@ pub use spec::*;
 pub use spec_bind::*;
 pub use spec_instance::*;
 pub use styles_ops::*;
+pub use table::{
+    build_table, check_table_positions, default_cell_text, TableCellProps, TableMerge, TableProps, TableTrack, TrackId, TABLE_CELL_PADDING,
+    TABLE_DEFAULT_COLUMN_WIDTH, TABLE_DEFAULT_ROW_HEIGHT, TABLE_MIN_TRACK,
+};
 pub use text_fills::set_text_fills_everywhere;
 pub use text_style_ops::*;
 pub use textmodel::*;
@@ -157,6 +162,10 @@ pub enum DocError {
     Cycle(NodeId),
     #[error("node {0:?} cannot have children")]
     NotAContainer(NodeId),
+    /// A table edit that would leave a table without one cell per live row and column position.
+    /// The message names the next action.
+    #[error("{0}")]
+    Table(String),
 }
 
 const DIRTY_RING_CAP: usize = 512;

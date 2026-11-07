@@ -86,12 +86,18 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
     let n = doc.get(id)?;
 
     // Spec §9: Unknown node round-trips its original raw JSON payload verbatim (plus updated children).
-    if let NodeKind::Unknown { type_name } = &n.kind {
+    let unknown_type = match &n.kind {
+        NodeKind::Unknown { type_name } => Some(type_name.as_str()),
+        NodeKind::Table(_) => Some("TABLE"),
+        NodeKind::TableCell(_) => Some("TABLE_CELL"),
+        _ => None,
+    };
+    if let Some(type_name) = unknown_type {
         let mut obj =
             n.plugin_data.get("pen:raw").and_then(|s| serde_json::from_str::<Value>(s).ok()).and_then(|v| v.as_object().cloned()).unwrap_or_else(|| {
                 let mut m = Map::new();
                 m.insert("id".into(), Value::String(node_pen_id(n)));
-                m.insert("type".into(), Value::String(type_name.clone()));
+                m.insert("type".into(), Value::String(type_name.to_string()));
                 m.insert("name".into(), Value::String(n.name.clone()));
                 m
             });
@@ -150,7 +156,7 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
             NodeKind::Connector(_) => ("connection", false),
             NodeKind::BooleanOp(_) => ("boolean", false),
             NodeKind::Page { .. } | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => ("frame", false),
-            NodeKind::Unknown { .. } => unreachable!(),
+            NodeKind::Unknown { .. } | NodeKind::Table(_) | NodeKind::TableCell(_) => unreachable!(),
         }
     };
 
