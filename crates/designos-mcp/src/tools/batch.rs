@@ -5446,6 +5446,49 @@ mod tests {
     }
 
     #[test]
+    fn mcp_move_connector_endpoints_rehomes_detaches_warns_and_undoes_atomically() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let page2 = engine.doc.add_page("Page 2");
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops":[
+                    {"op":"insert","as":"frame","parent":page.0,"kind":"frame","name":"Frame","x":100.0,"y":100.0,"width":400.0,"height":300.0},
+                    {"op":"insert","as":"a","parent":page.0,"kind":"rectangle","name":"A","x":120.0,"y":120.0,"width":80.0,"height":40.0},
+                    {"op":"insert","as":"b","parent":page.0,"kind":"rectangle","name":"B","x":300.0,"y":240.0,"width":80.0,"height":40.0},
+                    {"op":"connect","as":"link","from":"@a","to":"@b"}
+                ]}),
+            )
+            .expect("setup connector fixture");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (frame, a, b, link) = (id("frame"), id("a"), id("b"), id("link"));
+        engine.live_ops = Some(Vec::new());
+        engine.take_live_ops();
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops":[
+                    {"op":"move","node":a.0,"parent":frame.0}, {"op":"move","node":b.0,"parent":frame.0}
+                ]}),
+            )
+            .expect("move both endpoints into frame");
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(frame));
+        assert_connector_matches_its_geometry(&engine, link);
+        assert!(engine.take_live_ops().iter().any(|op| matches!(op, LiveOp::Reparent { id, parent, .. } if *id == link && *parent == frame)));
+        let detached = engine.call("designos_apply_batch", json!({"ops":[{"op":"move","node":a.0,"parent":page2.0}]})).expect("move endpoint to page 2");
+        let NodeKind::Connector(c) = &engine.doc.get(link).unwrap().kind else { panic!("expected connector") };
+        assert_eq!(c.start.node, None);
+        assert_eq!(c.end.node, Some(b));
+        assert!(detached["warnings"].as_array().is_some_and(|ws| ws.iter().any(|w| w["code"] == "CONNECTOR_ENDPOINT_DETACHED")));
+        assert_connector_matches_its_geometry(&engine, link);
+        assert!(engine.take_live_ops().iter().any(|op| matches!(op, LiveOp::Update { id, .. } if *id == link)));
+        engine.call("designos_undo", json!({})).expect("undo detach");
+        assert_eq!(connector_ends(&engine, link).0.node, Some(a));
+        assert_eq!(engine.doc.get(a).unwrap().parent, Some(frame));
+    }
+
+    #[test]
     fn mcp_connect_free_point_inside_a_rotated_frame_maps_back_to_the_page_point() {
         let mut engine = Engine::default();
         let page = engine.resolve_default_page().unwrap();
