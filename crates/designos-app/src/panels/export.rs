@@ -7,7 +7,7 @@ use crate::theme;
 use crate::widgets::field;
 use crate::widgets::menu::{dropdown, popup_menu, MenuItem, MenuResult};
 use crate::widgets::{self, elide};
-use designos_doc::{Document, ExportConstraint, ExportFileFormat, ExportPreset, NodeId, Rect as DRect};
+use designos_doc::{Affine, Document, ExportConstraint, ExportFileFormat, ExportPreset, Node, NodeId, NodeKind, Rect as DRect};
 use designos_export::{ExportFormat, ExportScale, ExportSetting};
 use egui::{Align2, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Ui, Vec2};
 use std::hash::{Hash, Hasher};
@@ -40,6 +40,9 @@ struct Thumb {
     node: NodeId,
     fingerprint: u64,
     checked: f64,
+    /// Drawn with no lazy re-layout queued. A preview drawn mid-queue is drawn again once the
+    /// queue drains, even if the fingerprint missed what the re-layout moved.
+    settled: bool,
 }
 
 /// The inspector's scale parsing ("2x", "512w", "512h") as the stored constraint.
@@ -127,6 +130,10 @@ impl App {
     }
 }
 
+/// What the preview of `root` depends on: its subtree and the document's images. The root's
+/// position is left out because the export draws the root at its origin (neither its bounds nor its
+/// pixels read its translation), so dragging the layer leaves its preview as it is. A connector
+/// keeps it: its route is drawn relative to its own position.
 fn fingerprint(doc: &Document, root: NodeId) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     let mut stack = vec![root];
@@ -137,7 +144,12 @@ fn fingerprint(doc: &Document, root: NodeId) -> u64 {
         }
         let Some(n) = doc.get(id) else { continue };
         visited += 1;
-        format!("{n:?}").hash(&mut h);
+        if id == root && !matches!(n.kind, NodeKind::Connector(_)) {
+            let at_origin = Node { transform: Affine { tx: 0.0, ty: 0.0, ..n.transform }, ..n.clone() };
+            format!("{at_origin:?}").hash(&mut h);
+        } else {
+            format!("{n:?}").hash(&mut h);
+        }
         for &c in n.children.iter().rev().take(16) {
             stack.push(c);
         }
@@ -149,37 +161,62 @@ fn fingerprint(doc: &Document, root: NodeId) -> u64 {
     h.finish()
 }
 
+/// Pixels per unit for a preview of a layer whose export bounds are `b`: 2x the preview box, so it
+/// stays sharp on hi-dpi screens.
+fn preview_scale(b: DRect) -> f32 {
+    (theme::SECTION_CONTENT_W * 2.0 / b.w).min(PREVIEW_H * 2.0 / b.h).clamp(0.01, 2.0)
+}
+
+/// The export of `node`, sized for the preview box.
+///
+/// It renders from the live document, as the canvas does: the bounds and the renderer resolve bound
+/// variables layer by layer, so nothing is copied. A copy (what `App::export_doc` makes once any
+/// variable is bound) carries every layer and embedded image and stalls the UI thread for seconds on
+/// large files. Where the renderer still reads a stored value instead of the resolved one (boolean
+/// operands, background blur, connector ends), the preview matches the canvas, not the written file.
+fn preview_image(doc: &Document, node: NodeId) -> Option<egui::ColorImage> {
+    let b: DRect = designos_export::render_bounds(doc, node);
+    if b.w <= 0.0 || b.h <= 0.0 {
+        return None;
+    }
+    let pm = designos_export::render_export(doc, node, preview_scale(b))?;
+    Some(egui::ColorImage::from_rgba_premultiplied([pm.width() as usize, pm.height() as usize], pm.data()))
+}
+
 fn thumbnail(app: &App, ui: &Ui, node: NodeId) -> Option<Thumb> {
+    thumbnail_with(app, ui, node, app.doc.pending_relayout().is_empty())
+}
+
+/// [`thumbnail`] with `settled` = no lazy re-layout is queued.
+fn thumbnail_with(app: &App, ui: &Ui, node: NodeId, settled: bool) -> Option<Thumb> {
     // On massive 20k+ node documents, skip synchronous software CPU rasterization of multi-child containers on selection.
     if app.doc.nodes.len() > 20_000 && app.doc.get(node).is_some_and(|n| n.children.len() > 16) {
         return None;
     }
     let key = Id::new("export-thumb");
     let ctx = ui.ctx();
-    let cached = ctx.data(|d| d.get_temp::<Thumb>(key));
-    if let Some(t) = &cached {
-        if t.node == node && app.now - t.checked < THUMB_CHECK_SECONDS {
-            return cached;
+    // While the queue drains, come back after the check interval even if nothing else repaints.
+    let recheck = |t: &Thumb| {
+        if !t.settled {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(THUMB_CHECK_SECONDS));
         }
+    };
+    let cached = ctx.data(|d| d.get_temp::<Thumb>(key));
+    if let Some(t) = cached.as_ref().filter(|t| t.node == node && app.now - t.checked < THUMB_CHECK_SECONDS) {
+        recheck(t);
+        return cached;
     }
     let fp = fingerprint(&app.doc, node);
-    if let Some(mut t) = cached {
-        if t.node == node && t.fingerprint == fp {
-            t.checked = app.now;
-            ctx.data_mut(|d| d.insert_temp(key, t.clone()));
-            return Some(t);
-        }
+    if let Some(t) = cached.as_ref().filter(|t| t.node == node && t.fingerprint == fp && (t.settled || !settled)) {
+        let t = Thumb { checked: app.now, ..t.clone() };
+        recheck(&t);
+        ctx.data_mut(|d| d.insert_temp(key, t.clone()));
+        return Some(t);
     }
-    let b: DRect = designos_export::render_bounds(&app.export_doc(), node);
-    if b.w <= 0.0 || b.h <= 0.0 {
-        return None;
-    }
-    // Render at 2x the preview box so it stays sharp on hi-dpi screens.
-    let scale = (theme::SECTION_CONTENT_W * 2.0 / b.w).min(PREVIEW_H * 2.0 / b.h).clamp(0.01, 2.0);
-    let pm = designos_export::render_export(&app.export_doc(), node, scale)?;
-    let img = egui::ColorImage::from_rgba_premultiplied([pm.width() as usize, pm.height() as usize], pm.data());
+    let img = preview_image(&app.doc, node)?;
     let tex = ctx.load_texture("export-preview", img, TextureOptions::LINEAR);
-    let t = Thumb { tex, node, fingerprint: fp, checked: app.now };
+    let t = Thumb { tex, node, fingerprint: fp, checked: app.now, settled };
+    recheck(&t);
     ctx.data_mut(|d| d.insert_temp(key, t.clone()));
     Some(t)
 }
@@ -1080,5 +1117,215 @@ mod tests {
         assert_eq!(a, fingerprint(&d, id));
         d.get_mut(id).unwrap().opacity = 0.5;
         assert_ne!(a, fingerprint(&d, id));
+    }
+
+    /// A frame `F` with one export row and a drop shadow (so its export takes the scratch-copy
+    /// path), inside a section that switches the `tokens` collection to its second mode. `F`'s fill
+    /// is bound to Color/Brand (green in the first mode, orange in the second); it holds a red child
+    /// and a child whose fill is bound too. Returns the app with `F` selected, `F` and the red child.
+    fn bound_frame_with_export_row() -> (App, NodeId, NodeId) {
+        use designos_doc::{Color, Effect, Paint, Variable, VariableCollection, VariableKind, VariableMode, VariableValue, Vec2};
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "tokens".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["brand".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "brand".into(),
+            Variable {
+                id: "brand".into(),
+                name: "Color/Brand".into(),
+                collection: "tokens".into(),
+                kind: VariableKind::Color,
+                values: [
+                    ("light".to_string(), VariableValue::Color(Color::rgb(20, 160, 60))),
+                    ("dark".to_string(), VariableValue::Color(Color::rgb(240, 120, 0))),
+                ]
+                .into_iter()
+                .collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let s = d.alloc_id();
+        let mut section = Node::frame(s, R::new(0.0, 0.0, 400.0, 300.0));
+        section.variables.modes.insert("tokens".into(), "dark".into());
+        let s = d.insert(page, section).unwrap();
+        let f = d.alloc_id();
+        let mut frame = Node::frame(f, R::new(40.0, 40.0, 100.0, 80.0));
+        frame.fills = vec![Paint::solid(Color::rgb(0, 0, 255))];
+        frame.variables.bindings.insert("fills/0".into(), "brand".into());
+        frame.effects.push(Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 120),
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
+        frame.export_settings.push(ExportPreset::default());
+        let f = d.insert(s, frame).unwrap();
+        let c = d.alloc_id();
+        let mut child = Node::rectangle(c, R::new(10.0, 10.0, 30.0, 20.0));
+        child.fills = vec![Paint::solid(Color::rgb(220, 20, 20))];
+        let c = d.insert(f, child).unwrap();
+        let b = d.alloc_id();
+        let mut bound = Node::rectangle(b, R::new(50.0, 40.0, 30.0, 20.0));
+        bound.fills = vec![Paint::solid(Color::rgb(0, 0, 255))];
+        bound.variables.bindings.insert("fills/0".into(), "brand".into());
+        d.insert(f, bound).unwrap();
+        let mut app = App::new(d);
+        app.selection = vec![f];
+        (app, f, c)
+    }
+
+    fn preview_texture(ctx: &egui::Context) -> Option<egui::TextureId> {
+        ctx.data(|d| d.get_temp::<Thumb>(Id::new("export-thumb"))).map(|t| t.tex.id())
+    }
+
+    /// Draws the Export section for `sel` at time `t` and returns the texture of the preview that
+    /// `thumbnail` hands back for the first selected layer.
+    fn draw_and_take_preview(app: &mut App, ctx: &egui::Context, sel: &[NodeId], t: f64) -> Option<egui::TextureId> {
+        app.now = t;
+        let mut got = None;
+        frame(ctx, t, vec![], |ui| {
+            section(app, ui, 0.0, 0.0, sel);
+            got = thumbnail(app, ui, sel[0]).map(|th| th.tex.id());
+        });
+        got
+    }
+
+    #[test]
+    fn moving_a_layer_with_an_export_row_keeps_its_preview() {
+        let (mut app, f, _) = bound_frame_with_export_row();
+        let sel = vec![f];
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let first = draw_and_take_preview(&mut app, &ctx, &sel, 0.0).expect("the preview is drawn");
+        // A drag moves the layer every frame; its preview does not change, so it is not drawn again.
+        for (i, (x, y)) in [(30.0, 12.0), (60.5, 40.25), (95.0, 70.0)].into_iter().enumerate() {
+            let n = app.doc.get_mut(f).unwrap();
+            n.transform.tx = x;
+            n.transform.ty = y;
+            let got = draw_and_take_preview(&mut app, &ctx, &sel, 0.5 * (i + 1) as f64);
+            assert_eq!(got, Some(first), "moving the layer re-rendered or lost its preview (step {i})");
+            assert_eq!(preview_texture(&ctx), Some(first), "the cached preview changed (step {i})");
+        }
+    }
+
+    #[test]
+    fn a_preview_drawn_while_a_relayout_is_queued_is_drawn_again_once_it_drains() {
+        let (mut app, f, _) = bound_frame_with_export_row();
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        // (preview texture, repaint delay the frame asked for)
+        let take = |app: &mut App, t: f64, settled: bool| {
+            app.now = t;
+            let mut got = None;
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 800.0))), time: Some(t), ..Default::default() };
+            let out = ctx.run_ui(raw, |ui| got = thumbnail_with(app, ui, f, settled).map(|th| th.tex.id()));
+            (got, out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.repaint_delay))
+        };
+        let (mid, delay) = take(&mut app, 0.0, false);
+        let mid = mid.expect("drawn while the queue drains");
+        assert!(delay.is_some_and(|d| d.as_secs_f64() <= THUMB_CHECK_SECONDS), "comes back to check: {delay:?}");
+        assert_eq!(take(&mut app, 0.5, false).0, Some(mid), "nothing changed and the queue still drains: no redraw");
+        let (done, _) = take(&mut app, 1.0, true);
+        let done = done.expect("drawn after the drain");
+        assert_ne!(done, mid, "drawn again once the queue drained");
+        let (again, delay) = take(&mut app, 1.5, true);
+        assert_eq!(again, Some(done), "settled: no more redraws");
+        assert!(delay.is_none_or(|d| d.as_secs_f64() > 1.0), "settled: no repaint asked for: {delay:?}");
+    }
+
+    #[test]
+    fn changing_a_child_redraws_the_preview() {
+        let (mut app, f, c) = bound_frame_with_export_row();
+        let sel = vec![f];
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let first = draw_and_take_preview(&mut app, &ctx, &sel, 0.0).expect("the preview is drawn");
+        app.doc.get_mut(c).unwrap().fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(250, 200, 0))];
+        let second = draw_and_take_preview(&mut app, &ctx, &sel, 0.5).expect("the preview is still drawn");
+        assert_ne!(second, first, "a changed child must redraw the preview");
+    }
+
+    fn export_image(doc: &Document, node: NodeId, scale: f32) -> egui::ColorImage {
+        let pm = designos_export::render_export(doc, node, scale).expect("the layer exports");
+        egui::ColorImage::from_rgba_premultiplied([pm.width() as usize, pm.height() as usize], pm.data())
+    }
+
+    #[test]
+    fn preview_matches_the_export_of_the_document_with_variables_applied() {
+        let (mut app, f, _) = bound_frame_with_export_row();
+        for with_shadow in [true, false] {
+            if !with_shadow {
+                app.doc.get_mut(f).unwrap().effects.clear();
+            }
+            let full = designos_doc::apply_bound_variables(&app.doc);
+            let b = designos_export::render_bounds(&full, f);
+            let scale = preview_scale(b);
+            let got = preview_image(&app.doc, f).expect("the preview renders");
+            assert_eq!(got, export_image(&full, f, scale), "the preview is the export, pixel for pixel (shadow: {with_shadow})");
+            // Colour/Brand resolves in the section's second mode (orange), on the frame and on its bound child.
+            for (x, y) in [(5.0, 5.0), (65.0, 50.0)] {
+                let px = got.pixels[((y - b.y) * scale) as usize * got.size[0] + ((x - b.x) * scale) as usize];
+                assert_eq!((px.r(), px.g(), px.b()), (240, 120, 0), "at ({x}, {y}), shadow: {with_shadow}: {px:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn export_pixels_do_not_depend_on_the_layers_position() {
+        // The preview fingerprint leaves the root's translation out; this is why that is exact.
+        let (mut app, f, _) = bound_frame_with_export_row();
+        for with_shadow in [true, false] {
+            if !with_shadow {
+                app.doc.get_mut(f).unwrap().effects.clear();
+            }
+            let before = export_image(&app.doc, f, 1.5);
+            let n = app.doc.get_mut(f).unwrap();
+            n.transform.tx += 317.25;
+            n.transform.ty -= 48.5;
+            assert_eq!(export_image(&app.doc, f, 1.5), before, "moved (shadow: {with_shadow})");
+        }
+    }
+
+    #[test]
+    fn the_preview_fingerprint_ignores_only_the_position_of_a_layer_that_is_not_a_connector() {
+        let (mut app, f, _) = bound_frame_with_export_row();
+        let fp = fingerprint(&app.doc, f);
+        let n = app.doc.get_mut(f).unwrap();
+        n.transform.tx += 25.0;
+        n.transform.ty += 7.5;
+        assert_eq!(fingerprint(&app.doc, f), fp, "moved");
+        let n = app.doc.get_mut(f).unwrap();
+        n.transform = Affine { tx: n.transform.tx, ty: n.transform.ty, ..Affine::rotate(0.4) };
+        assert_ne!(fingerprint(&app.doc, f), fp, "rotated");
+
+        // A connector's route is drawn relative to its own position, so moving it is a change.
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let c = d.insert(page, Node::connector(id, designos_doc::ConnectorProps::default())).unwrap();
+        let fp = fingerprint(&d, c);
+        d.get_mut(c).unwrap().transform.tx += 40.0;
+        assert_ne!(fingerprint(&d, c), fp, "moved connector");
     }
 }
