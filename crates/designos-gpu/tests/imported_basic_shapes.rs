@@ -48,3 +48,37 @@ fn inside_stroked_imported_ellipse_stays_inside_on_both_renderers() {
         assert!(band.red() > 200 && band.green() < 60, "{name}: the band is inked: {band:?}");
     }
 }
+
+fn basic_shape(kind: NodeKind, dashed_ring: bool) -> T {
+    let mut t = T::new();
+    t.add(None, |id| {
+        let mut n = Node::ellipse(id, Rect::new(10.0, 10.0, 100.0, 100.0));
+        n.kind = kind;
+        if dashed_ring {
+            n.fills.clear();
+            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+            n.stroke.weight = 6.0;
+            n.stroke.dashes = vec![0.1, 30.0];
+            n.stroke.cap = StrokeCap::Round;
+        } else {
+            n.fills = vec![Paint::solid(Color::BLACK)];
+        }
+        n
+    });
+    t
+}
+
+#[test]
+fn polygon_star_and_dotted_ring_match_the_cpu() {
+    let Some(mut g) = gpu() else { return };
+    for (name, kind, dashed) in [
+        ("heptagon_inscribed", NodeKind::Polygon { count: 7 }, false),
+        ("star_inscribed", NodeKind::Star { count: 5, inner_ratio: 0.382 }, false),
+        ("dotted_ring_single_contour", NodeKind::Ellipse(ArcData { start: 0.0, end: std::f32::consts::TAU, inner_radius: 1.0 }), true),
+    ] {
+        let t = basic_shape(kind, dashed);
+        g.compiler.geom.clear();
+        let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), (120, 120), 8);
+        assert!(c.report.ratio < 0.03, "{name}: {:?}", c.report);
+    }
+}

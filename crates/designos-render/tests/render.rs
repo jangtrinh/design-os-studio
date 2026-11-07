@@ -354,9 +354,11 @@ fn polygon_star_vector() {
         n
     });
     let pm = t.render(40, 40);
-    assert_eq!(px(&pm, 20, 30), [255, 0, 0, 255]);
+    assert_eq!(px(&pm, 20, 25), [255, 0, 0, 255]);
     assert_eq!(px(&pm, 2, 5), WHITE);
-    assert_eq!(px(&pm, 20, 38), [255, 0, 0, 255], "triangle base reaches the box bottom");
+    // the points sit on the inscribed circle, so the base is at 3/4 of the box height, not at its bottom
+    assert_eq!(px(&pm, 20, 28), [255, 0, 0, 255], "triangle base");
+    assert_eq!(px(&pm, 20, 34), WHITE, "triangle base stops at the inscribed circle");
     t.node(p).kind = NodeKind::Star { count: 5, inner_ratio: 0.4 };
     let pm = t.render(40, 40);
     assert_eq!(px(&pm, 20, 22), [255, 0, 0, 255]);
