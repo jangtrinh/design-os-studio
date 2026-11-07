@@ -164,6 +164,16 @@ fn editing_the_style_keeps_the_weight_a_layer_overrides_and_updates_its_size() {
 }
 
 #[test]
+fn a_bold_toggled_on_and_off_again_follows_the_next_style_edit() {
+    let (mut app, a, _) = linked_layers();
+    edit(&mut app, a, |s| s.set_font_weight(700));
+    edit(&mut app, a, |s| s.set_font_weight(400));
+    assert!(overrides(&app, a).is_empty(), "no pill: the weight equals the style's");
+    assert!(app.update_style_values("Body", Style::Text(TextStyle { font_size: 16.0, font_weight: 500, ..Default::default() })));
+    assert_eq!(style_of(&app, a).font_weight, 500, "the style edit reaches the layer");
+}
+
+#[test]
 fn reapplying_clears_values_bindings_and_the_set_keeps_the_link_and_is_one_undo_step() {
     let (mut app, a, _) = linked_layers();
     edit(&mut app, a, |s| {

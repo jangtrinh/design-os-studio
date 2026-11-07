@@ -438,6 +438,19 @@ mod tests {
     }
 
     #[test]
+    fn a_bold_turned_off_again_follows_a_later_style_edit() {
+        let (mut d, t, _) = linked_pair();
+        // Bold on, then off: the stored bit stays but the layer shows the style's own weight.
+        set_weight_override(&mut d, t, 700);
+        set_weight_override(&mut d, t, 400);
+        assert!(text_style_overrides(&d, d.get(t).unwrap()).is_empty(), "nothing is overridden any more");
+        let cmd = update_style(&d, "Body", Style::Text(TextStyle { font_size: 16.0, font_weight: 500, ..Default::default() })).unwrap();
+        apply(&mut d, cmd);
+        assert_eq!(weight_of(&d, t), 500, "the edit reaches a layer that follows its style");
+        assert!(d.get(t).unwrap().text_style_overrides.is_empty());
+    }
+
+    #[test]
     fn reapplying_restores_the_style_values_clears_bindings_hyperlink_and_overrides_and_keeps_the_link() {
         let (mut d, t, u) = linked_pair();
         set_weight_override(&mut d, t, 700);

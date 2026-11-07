@@ -161,7 +161,7 @@ fn a_figma_file_with_an_override_over_a_text_style_shows_the_override_and_no_fal
                 "fontSize": 48.0, "fontName": {"family": "Inter", "style": "Regular"}, "styleIdForText": style,
                 "textData": {"characters": "Hello", "characterStyleIDs": [1, 1, 1, 1, 1],
                     "styleOverrideTable": [{"styleID": 1, "isOverrideOverTextStyle": true, "semanticWeight": "BOLD",
-                        "fontName": {"family": "Inter", "style": "Bold"}, "textDecoration": "UNDERLINE"}]}
+                        "fontName": {"family": "Inter", "style": "Bold"}, "textDecoration": "UNDERLINE", "hyperlink": {"url": "https://example.com"}}]}
             })
         ),
         // A linked text with only stale node values.
@@ -175,7 +175,8 @@ fn a_figma_file_with_an_override_over_a_text_style_shows_the_override_and_no_fal
         )
     ]);
     let doc = import_fig_node_changes(&input, "t").unwrap();
-    assert_eq!(effective(&doc, "Overridden"), vec!["Weight", "Decoration"]);
+    assert_eq!(effective(&doc, "Overridden"), vec!["Weight", "Decoration", "Hyperlink"]);
+    assert_eq!(by_name(&doc, "Overridden").hyperlink.as_deref(), Some("https://example.com"), "the link in the flagged entry is kept");
     assert!(by_name(&doc, "Overridden").style_refs.contains_key("text"));
     assert_eq!(drawn(by_name(&doc, "Overridden"))[0], (700, TextDecoration::Underline));
     assert_eq!(by_name(&doc, "Overridden").kind.any_text().unwrap().style.font_size, 16.0, "the style supplies the size");

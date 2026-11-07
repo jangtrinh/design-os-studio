@@ -1009,12 +1009,13 @@ impl<'a> Trial<'a> {
         let Some(style) = self.snap.styles.get(raw).cloned() else { return };
         let local = self.ns(raw);
         let paragraph_fields = self.snap.style_meta.get(raw).and_then(|m| m.text_paragraph_fields);
+        let old_style = self.doc.styles.get(&local).cloned();
         self.set_style(&local, style.clone(), self.snap.style_meta.get(raw).cloned());
         let targets: Vec<NodeId> =
             self.doc.nodes.values().filter(|n| n.style_refs.values().any(|v| *v == local) && !is_library_node(self.doc, n.id)).map(|n| n.id).collect();
         for id in targets {
             let mut n = self.doc.nodes[&id].clone();
-            if propagate_style_values_with_fields(&mut n, &style, &local, paragraph_fields) {
+            if propagate_style_values_with_fields(&mut n, old_style.as_ref(), &style, &local, paragraph_fields) {
                 self.push(Command::Update { node: Box::new(n) });
             }
         }
@@ -1132,16 +1133,21 @@ pub fn apply_style_values_with_fields(n: &mut Node, style: &Style, key: &str, pa
     *n != before
 }
 
-/// [`apply_style_values_with_fields`] for a style that was edited: a text layer keeps the properties it
-/// overrides (see [`Node::text_style_overrides`]) and takes the style's values for the rest. Any other
-/// style kind behaves like the plain apply.
-pub fn propagate_style_values_with_fields(n: &mut Node, style: &Style, key: &str, paragraph_fields: Option<u8>) -> bool {
+/// [`apply_style_values_with_fields`] for a style that was edited from `old_style`: a text layer keeps the
+/// properties it overrides (see [`Node::text_style_overrides`]) and takes the style's values for the
+/// rest. A stored override that equals the old style's value is not one (a bold turned off again), so
+/// the edit reaches it. Any other style kind behaves like the plain apply.
+pub fn propagate_style_values_with_fields(n: &mut Node, old_style: Option<&Style>, style: &Style, key: &str, paragraph_fields: Option<u8>) -> bool {
     if raw_text_style_overrides(n).is_empty() || !matches!(style, Style::Text(_)) {
         return apply_style_values_with_fields(n, style, key, paragraph_fields);
     }
     let before = n.clone();
+    let mut kept = n.clone();
+    if let Some(Style::Text(old)) = old_style {
+        drop_overrides_equal_to_style(&mut kept, old);
+    }
     apply_style_values_with_fields(n, style, key, paragraph_fields);
-    keep_overridden_fields(n, &before);
+    keep_overridden_fields(n, &kept);
     *n != before
 }
 
