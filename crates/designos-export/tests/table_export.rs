@@ -74,6 +74,24 @@ fn png_shows_the_cell_fill_and_the_grid() {
 }
 
 #[test]
+fn png_of_the_table_node_has_its_cells_and_outer_border() {
+    let (doc, _frame, table, _) = framed_table();
+    let pm = render_export(&doc, table, 1.0).expect("a table exports on its own");
+    assert!(pm.width() >= 480 && pm.height() >= 132, "{}x{}", pm.width(), pm.height());
+    let dark = |x: u32, y: u32| {
+        let p = pm.pixel(x, y).unwrap();
+        p.red() < 60 && p.green() < 60 && p.blue() < 60 && p.alpha() > 200
+    };
+    // the export is tight to the table: find its left and top border from the middle row and column
+    let row = pm.height() / 2;
+    let col = pm.width() / 2;
+    assert!((0..6).any(|x| dark(x, row)), "left border is inside the exported image");
+    assert!((0..6).any(|y| dark(col, y)), "top border is inside the exported image");
+    assert!((pm.width() - 6..pm.width()).any(|x| dark(x, row)), "right border is inside the exported image");
+    assert!((pm.height() - 6..pm.height()).any(|y| dark(col, y)), "bottom border is inside the exported image");
+}
+
+#[test]
 fn pdf_page_has_the_cell_text() {
     let (doc, frame, ..) = framed_table();
     let bytes = export_pdf(&doc, &[frame]).expect("a frame holding a table exports");
