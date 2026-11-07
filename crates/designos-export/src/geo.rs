@@ -135,7 +135,8 @@ fn poly_cmds(w: f32, h: f32, pts: &[(f32, f32)]) -> Option<Vec<PathCmd>> {
         .iter()
         .enumerate()
         .map(|(i, (x, y))| {
-            let p = v((x + 1.0) / 2.0 * w, (y + 1.0) / 2.0 * h);
+            let (px, py) = designos_render::inscribed_point(w, h, (*x, *y));
+            let p = v(px, py);
             if i == 0 {
                 PathCmd::MoveTo(p)
             } else {

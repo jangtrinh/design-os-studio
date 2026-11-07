@@ -285,8 +285,9 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
     if let Some(sp) = &sh.stroke_paths {
         let clip = match align {
             d::StrokeAlign::Outside => StrokeClip::Outside,
-            d::StrokeAlign::Inside => StrokeClip::Inside,
-            d::StrokeAlign::Center => StrokeClip::None,
+            // a shape with no fill area has nothing to clip an inside stroke to
+            d::StrokeAlign::Inside if !sh.fill_paths().is_empty() => StrokeClip::Inside,
+            d::StrokeAlign::Inside | d::StrokeAlign::Center => StrokeClip::None,
         };
         return Some(StrokePlan { outline: sp.clone(), clip });
     }

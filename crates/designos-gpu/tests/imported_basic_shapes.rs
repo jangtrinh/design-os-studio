@@ -59,6 +59,7 @@ fn basic_shape(kind: NodeKind, dashed_ring: bool) -> T {
             n.stroke.paints = vec![Paint::solid(Color::BLACK)];
             n.stroke.weight = 6.0;
             n.stroke.dashes = vec![0.1, 30.0];
+            n.stroke.align = StrokeAlign::Center;
             n.stroke.cap = StrokeCap::Round;
         } else {
             n.fills = vec![Paint::solid(Color::BLACK)];
@@ -80,5 +81,87 @@ fn polygon_star_and_dotted_ring_match_the_cpu() {
         g.compiler.geom.clear();
         let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), (120, 120), 8);
         assert!(c.report.ratio < 0.03, "{name}: {:?}", c.report);
+        for (who, pm) in [("cpu", &c.cpu), ("gpu", &c.gpu)] {
+            assert!(ink_count(pm) > 100, "{name}: {who} draws real ink, got {}", ink_count(pm));
+        }
     }
+}
+
+fn ink_count(pm: &designos_render::tiny_skia::Pixmap) -> usize {
+    pm.pixels().iter().filter(|p| p.red() < 128 && p.green() < 128).count()
+}
+
+fn hairline(end: f32, fill: bool, align: StrokeAlign) -> T {
+    let mut t = T::new();
+    t.add(None, |id| {
+        let mut n = Node::ellipse(id, Rect::new(10.0, 10.0, 100.0, 100.0));
+        n.kind = NodeKind::Ellipse(ArcData { start: 0.0, end, inner_radius: 1.0 });
+        n.fills = if fill { vec![Paint::solid(Color::BLACK)] } else { vec![] };
+        if !fill {
+            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+            n.stroke.weight = 6.0;
+            n.stroke.align = align;
+        }
+        n
+    });
+    t
+}
+
+#[test]
+fn a_ring_without_width_has_no_fill_and_keeps_its_inside_stroke_on_both_renderers() {
+    let Some(mut g) = gpu() else { return };
+    for (name, end, fill) in [("hairline_fill_full", std::f32::consts::TAU, true), ("hairline_fill_half", std::f32::consts::PI, true)] {
+        g.compiler.geom.clear();
+        let t = hairline(end, fill, StrokeAlign::Center);
+        let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), (120, 120), 8);
+        assert_eq!(ink_count(&c.cpu), 0, "{name}: cpu draws no disc");
+        assert_eq!(ink_count(&c.gpu), 0, "{name}: gpu draws no disc");
+    }
+    g.compiler.geom.clear();
+    let t = hairline(std::f32::consts::TAU, false, StrokeAlign::Inside);
+    let c = compare(&mut g, "hairline_inside_stroke", &t.doc, t.page, Viewport::default(), (120, 120), 8);
+    assert!(ink_count(&c.cpu) > 500 && ink_count(&c.gpu) > 500, "cpu {} gpu {}", ink_count(&c.cpu), ink_count(&c.gpu));
+    // a thin curved band: nearly all mismatches are edge pixels
+    assert!(c.report.ratio < 0.05 && c.report.ssim > 0.98, "{:?}", c.report);
+}
+
+#[test]
+fn an_inside_stroke_survives_a_shape_with_no_fill_area_on_both_renderers() {
+    use designos_doc::vector::{Segment, Vertex};
+    let Some(mut g) = gpu() else { return };
+    let sq = |lo: f32, hi: f32| {
+        vec![
+            PathCmd::MoveTo(Vec2::new(lo, lo)),
+            PathCmd::LineTo(Vec2::new(hi, lo)),
+            PathCmd::LineTo(Vec2::new(hi, hi)),
+            PathCmd::LineTo(Vec2::new(lo, hi)),
+            PathCmd::Close,
+        ]
+    };
+    let mut t = T::new();
+    t.add(None, |id| {
+        let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 100.0, 100.0));
+        let net = VectorNetwork {
+            vertices: vec![
+                Vertex::new(Vec2::new(0.0, 0.0)),
+                Vertex::new(Vec2::new(100.0, 0.0)),
+                Vertex::new(Vec2::new(100.0, 100.0)),
+                Vertex::new(Vec2::new(0.0, 100.0)),
+            ],
+            segments: (0..4).map(|i| Segment { a: i, b: (i + 1) % 4, ta: Vec2::new(0.0, 0.0), tb: Vec2::new(0.0, 0.0) }).collect(),
+            regions: vec![],
+        };
+        n.kind = NodeKind::Vector { paths: vec![Path { cmds: sq(0.0, 100.0), fill_rule: FillRule::NonZero }], network: Some(net) };
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 5.0;
+        n.stroke.align = StrokeAlign::Inside;
+        let mut band = sq(-5.0, 105.0);
+        band.extend(sq(5.0, 95.0));
+        n.stroke_geometry = Some(vec![Path { cmds: band, fill_rule: FillRule::EvenOdd }]);
+        n
+    });
+    let c = compare(&mut g, "regionless_loop_inside_stroke", &t.doc, t.page, Viewport::default(), (120, 120), 8);
+    assert!(ink_count(&c.cpu) > 1000 && ink_count(&c.gpu) > 1000, "cpu {} gpu {}", ink_count(&c.cpu), ink_count(&c.gpu));
+    assert!(c.report.ratio < 0.03, "{:?}", c.report);
 }
