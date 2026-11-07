@@ -1495,7 +1495,7 @@ impl<'a> Ctx<'a> {
             _ => StrokeAlign::Inside,
         };
         n.stroke.cap = fstr(v, "strokeCap").and_then(crate::vecnet::cap_from).unwrap_or(StrokeCap::None);
-        if matches!(ty, "VECTOR" | "BRUSH") && studio_carrier.is_none() {
+        if matches!(ty, "VECTOR" | "BRUSH" | "LINE") && studio_carrier.is_none() {
             if let Some((cap, site)) = unmodelled_stroke_cap(v) {
                 if let std::collections::btree_map::Entry::Vacant(recorded) = n.fig_metadata.entry("strokeCap".into()) {
                     recorded.insert(cap.to_string());
