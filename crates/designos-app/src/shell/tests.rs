@@ -1345,6 +1345,7 @@ mod system_paste_and_drop;
 mod tab_disk_state;
 mod text_styles;
 mod toast_clock;
+mod toast_queue;
 mod typography;
 mod typography_style_detach;
 mod undo_exact_layout;

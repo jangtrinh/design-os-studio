@@ -171,12 +171,11 @@ impl App {
         let line = format!("designos: warn: file dialog unavailable: {reason}");
         eprintln!("{line}");
         self.last_dialog_warn = Some(line);
-        self.show_toast(NO_FILE_DIALOG, true);
+        let now = self.now;
+        let toast = self.raise_toast(NO_FILE_DIALOG, true);
         if enter_path {
-            if let Some(toast) = self.toast.as_mut() {
-                toast.enter_path = true;
-                toast.stay_for(self.now, crate::theme::TOAST_REVEAL_SECONDS);
-            }
+            toast.enter_path = true;
+            toast.stay_for(now, crate::theme::TOAST_REVEAL_SECONDS);
         }
     }
 

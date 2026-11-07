@@ -314,6 +314,7 @@ fn a_document_with_no_file_and_no_library_asks_to_save_first() {
 fn the_toast_says_what_the_format_could_not_carry_without_a_parenthesised_count() {
     let mut app = App::new(doc_named("Notes"));
     for (omitted_keys, tail) in [(0, ""), (1, ". 1 extension key not carried"), (4, ". 4 extension keys not carried")] {
+        app.toast = None;
         app.show_fig_export_result(Ok(Exported { path: PathBuf::from("/exports/Notes.fig"), omitted_keys, omitted_comment_threads: 0 }));
         assert_eq!(app.toast.as_ref().unwrap().text, format!("Exported .fig to /exports/Notes.fig{tail}"));
     }
@@ -322,16 +323,74 @@ fn the_toast_says_what_the_format_could_not_carry_without_a_parenthesised_count(
 #[test]
 fn reveal_command_selects_the_file_in_each_file_manager() {
     let file = Path::new("/lib/exports/Design.fig");
-    let (program, args) = reveal_command("macos", file);
+    let (program, args) = reveal_command("macos", file, true);
     assert_eq!((program, args), ("open", vec!["-R".into(), file.into()]));
-    let (program, args) = reveal_command("windows", file);
-    assert_eq!((program, args), ("explorer", vec!["/select,".into(), file.into()]));
-    let (program, args) = reveal_command("linux", file);
+    let (program, args) = reveal_command("windows", file, true);
+    assert_eq!((program, args), ("explorer", vec![r#"/select,"/lib/exports/Design.fig""#.into()]));
+    let (program, args) = reveal_command("linux", file, true);
     assert_eq!((program, args), ("xdg-open", vec![Path::new("/lib/exports").into()]));
     let dir = scratch("linux-dir-reveal");
-    let (program, args) = reveal_command("linux", &dir);
+    let (program, args) = reveal_command("linux", &dir, true);
     assert_eq!((program, args), ("xdg-open", vec![dir.as_os_str().to_os_string()]), "a folder reveal on Linux opens the folder itself, not its parent");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn reveal_command_keeps_a_comma_in_a_windows_path_inside_quotes() {
+    // Explorer reads `/select,` up to the first comma outside quotes; an unquoted `C:\a,b\f.fig` would be cut there.
+    let file = Path::new(r"C:\Users\Ann\Design, final\My Design, v2.fig");
+    let (program, args) = reveal_command("windows", file, true);
+    assert_eq!(program, "explorer");
+    assert_eq!(args, vec![std::ffi::OsString::from(r#"/select,"C:\Users\Ann\Design, final\My Design, v2.fig""#)], "one argument, the path quoted whole");
+    let (_, args) = reveal_command("windows", Path::new(r"C:\a,b\f.fig"), true);
+    assert_eq!(args, vec![std::ffi::OsString::from(r#"/select,"C:\a,b\f.fig""#)], "a comma with no space is quoted too");
+}
+
+#[test]
+fn reveal_command_opens_the_folder_when_the_file_has_been_moved() {
+    let file = Path::new("/lib/exports/Design.fig");
+    assert_eq!(reveal_command("macos", file, false), ("open", vec![Path::new("/lib/exports").into()]));
+    assert_eq!(reveal_command("windows", file, false), ("explorer", vec![r#""/lib/exports""#.into()]));
+}
+
+#[test]
+fn a_failed_reveal_names_the_folder_in_a_short_message() {
+    let file = Path::new("/lib/exports/Design.fig");
+    let text = super::reveal_failure_text(file, "no file manager");
+    assert_eq!(text, "Couldn't open /lib/exports: no file manager");
+    assert!(text.split_whitespace().count() <= 8, "microcopy stays short: {text}");
+    assert_eq!(super::reveal_failure_text(file, ""), "Couldn't open /lib/exports");
+    assert_eq!(super::reveal_failure_text(file, "  "), "Couldn't open /lib/exports");
+    let dir = scratch("failed-reveal-folder");
+    assert!(super::reveal_failure_text(&dir, "x").contains(&dir.display().to_string()), "a folder is named itself");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_document_named_after_a_windows_device_exports_to_a_real_file() {
+    let dir = scratch("device-name");
+    // Only Windows renames a device name; macOS and Linux keep the name the user gave.
+    let prefix = if cfg!(windows) { "_" } else { "" };
+    for stem in ["NUL", "con", "Com1"] {
+        let file = format!("{prefix}{stem}.fig");
+        let done = export_new(&doc_named(stem), &dir, stem).unwrap();
+        assert_eq!(done.path, dir.join(file), "{stem} must not name the device");
+        assert!(done.path.is_file());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A launcher that starts and then exits with an error is a failure; Explorer's exit code 1 is not.
+#[cfg(unix)]
+#[test]
+fn a_launcher_that_exits_with_an_error_is_a_failure() {
+    use std::os::unix::process::ExitStatusExt;
+    let failed = std::process::ExitStatus::from_raw(1 << 8);
+    let worked = std::process::ExitStatus::from_raw(0);
+    assert_eq!(super::launcher_failure(Ok(failed), true).as_deref(), Some("the file manager exited with exit status: 1"));
+    assert_eq!(super::launcher_failure(Ok(failed), false), None, "Explorer exits with 1 when it worked");
+    assert_eq!(super::launcher_failure(Ok(worked), true), None);
+    assert!(super::launcher_failure(Err(std::io::Error::other("lost")), false).is_some(), "a wait that fails is reported on every OS");
 }
 
 #[test]
@@ -383,4 +442,13 @@ fn a_relative_file_path_still_exports_to_a_full_path() {
 
     assert!(dir.is_absolute(), "the toast must show a full path, got {}", dir.display());
     assert!(dir.ends_with("some-relative-folder") && stem == "Relative", "{} / {stem}", dir.display());
+}
+
+#[test]
+fn reveal_command_gives_explorer_a_drive_root_it_can_read() {
+    // `"D:\"` would end in an escaped quote; `D:\.` names the same folder.
+    let (_, args) = reveal_command("windows", Path::new(r"D:\"), false);
+    assert_eq!(args, vec![std::ffi::OsString::from(r#""D:\.""#)]);
+    let (_, args) = reveal_command("windows", Path::new(r"D:\"), true);
+    assert_eq!(args, vec![std::ffi::OsString::from(r#"/select,"D:\.""#)]);
 }

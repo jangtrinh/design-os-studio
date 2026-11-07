@@ -133,6 +133,8 @@ fn panel_export_never_overwrites_an_existing_file() {
         assert_eq!(toast.reveal.as_deref(), Some(second.as_path()));
         assert!(s.rect_of("toast-reveal").width() > 0.0, "Show in folder button must be drawn");
 
+        // The first toast has a Show in folder button, so the next one waits behind it; this test reads each in turn.
+        s.shell.app.toast = None;
         click_export_btn(&mut s);
         let third = downloads.join("Hero-2.png");
         assert!(third.is_file(), "third export must write to numbered sibling {}", third.display());

@@ -57,42 +57,164 @@ impl App {
                 };
                 let comments_left_out = done.omitted_comment_threads > 0;
                 let comments_note = if comments_left_out { format!(". {}", crate::io::COMMENTS_ONLY_IN_NATIVE_NOTICE) } else { String::new() };
-                self.show_toast_with_reveal(format!("Exported .fig to {}{note}{comments_note}", done.path.display()), done.path);
                 // Comments left out are a warning, the same flag a save to `.fig` raises.
-                if let Some(toast) = self.toast.as_mut().filter(|_| comments_left_out) {
-                    toast.error = true;
-                }
+                self.show_toast_with_reveal_status(format!("Exported .fig to {}{note}{comments_note}", done.path.display()), comments_left_out, done.path);
             }
             Err(e) => self.show_toast(format!("Export .fig failed: {e}"), true),
         }
     }
 }
 
-/// The program and arguments that show `file` in the system file manager on `os` (a `std::env::consts::OS` value).
-fn reveal_command(os: &str, file: &Path) -> (&'static str, Vec<OsString>) {
-    match os {
-        "macos" => ("open", vec!["-R".into(), file.into()]),
-        // Two arguments: a path with spaces is then quoted on its own, the form `explorer /select, "C:\My Design.fig"`.
-        "windows" => ("explorer", vec!["/select,".into(), file.into()]),
-        _ => {
-            let dir = if file.is_dir() { file } else { file.parent().unwrap_or(file) };
-            ("xdg-open", vec![dir.into()])
-        }
+/// The folder that holds `file`, or `file` itself when it is a folder: what a failed reveal names.
+fn reveal_folder(file: &Path) -> &Path {
+    if file.is_dir() {
+        file
+    } else {
+        file.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(file)
     }
 }
 
+/// The error toast for a reveal that did not work: short, and it names the folder the user wanted to see.
+pub(crate) fn reveal_failure_text(file: &Path, reason: &str) -> String {
+    let folder = reveal_folder(file).display();
+    let reason = reason.trim();
+    if reason.is_empty() {
+        format!("Couldn't open {folder}")
+    } else {
+        format!("Couldn't open {folder}: {reason}")
+    }
+}
+
+/// The program and arguments that show `file` in the system file manager on `os` (a `std::env::consts::OS` value).
+/// `file_exists` is false for a file that has been moved or deleted since the export: its folder opens instead.
+fn reveal_command(os: &str, file: &Path, file_exists: bool) -> (&'static str, Vec<OsString>) {
+    match os {
+        "macos" if file_exists => ("open", vec!["-R".into(), file.into()]),
+        "macos" => ("open", vec![reveal_folder(file).into()]),
+        // The arguments are passed as written (see `spawn_reveal`). Explorer splits `/select,` from the path at the
+        // first comma it finds outside quotes, so a path such as `C:\a,b\f.fig` only survives inside quotes.
+        "windows" if file_exists => ("explorer", vec![windows_select_argument(file)]),
+        "windows" => ("explorer", vec![windows_quoted(reveal_folder(file))]),
+        _ => ("xdg-open", vec![reveal_folder(file).into()]),
+    }
+}
+
+fn windows_quoted(path: &Path) -> OsString {
+    let mut arg = OsString::from("\"");
+    arg.push(path);
+    // A backslash right before the closing quote reads as an escaped quote (`"D:\"`). `D:\.` is the same folder.
+    if path.to_string_lossy().ends_with(['\\', '/']) {
+        arg.push(".");
+    }
+    arg.push("\"");
+    arg
+}
+
+/// `/select,"<path>"`: one argument, the form `explorer /select,"C:\My Design.fig"` expects.
+fn windows_select_argument(file: &Path) -> OsString {
+    let mut arg = OsString::from("/select,");
+    arg.push(windows_quoted(file));
+    arg
+}
+
+/// Launches the file manager. On Windows the arguments reach Explorer as written, because `Command::arg` would
+/// escape the quotes that keep a comma in the path from splitting it.
+fn spawn_reveal(program: &str, args: &[OsString]) -> std::io::Result<std::process::Child> {
+    let mut command = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        for arg in args {
+            command.raw_arg(arg);
+        }
+    }
+    #[cfg(not(windows))]
+    command.args(args);
+    command.spawn()
+}
+
+/// Launcher failures that showed up after the launcher had started, worded for the error toast. The UI thread
+/// takes them each frame.
+#[cfg(not(test))]
+static LATE_REVEAL_FAILURES: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+thread_local! {
+    /// A test thread keeps its own failures, so tests that run side by side never take each other's.
+    static TEST_LATE_FAILURES: std::cell::RefCell<Vec<(PathBuf, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Records a failure for the file whose Show in folder it was.
+pub(crate) fn push_late_reveal_failure(file: PathBuf, text: String) {
+    #[cfg(test)]
+    TEST_LATE_FAILURES.with(|f| f.borrow_mut().push((file, text)));
+    #[cfg(not(test))]
+    LATE_REVEAL_FAILURES.lock().unwrap_or_else(|e| e.into_inner()).push((file, text));
+}
+
+/// The next failure of a launcher that started but then did not open anything, with the file it was for.
+pub(crate) fn take_late_reveal_failure() -> Option<(PathBuf, String)> {
+    #[cfg(test)]
+    return TEST_LATE_FAILURES.with(|f| {
+        let mut failures = f.borrow_mut();
+        (!failures.is_empty()).then(|| failures.remove(0))
+    });
+    #[cfg(not(test))]
+    {
+        let mut failures = LATE_REVEAL_FAILURES.lock().unwrap_or_else(|e| e.into_inner());
+        (!failures.is_empty()).then(|| failures.remove(0))
+    }
+}
+
+/// The window's context, so the watcher thread can wake the UI once when it has a failure to show. One wake, not a
+/// repaint loop: the UI stays idle otherwise.
+static REPAINT_CONTEXT: std::sync::OnceLock<egui::Context> = std::sync::OnceLock::new();
+
+pub(crate) fn remember_repaint_context(ctx: &egui::Context) {
+    let _ = REPAINT_CONTEXT.set(ctx.clone());
+}
+
+/// Why a launcher that has finished did not open anything, or `None` when it worked. Explorer exits with 1 even
+/// when it worked, so `check_exit` is false there.
+fn launcher_failure(status: std::io::Result<std::process::ExitStatus>, check_exit: bool) -> Option<String> {
+    match status {
+        Ok(status) if check_exit && !status.success() => Some(format!("the file manager exited with {status}")),
+        Ok(_) => None,
+        Err(e) => Some(e.to_string()),
+    }
+}
+
+/// Collects the exit status off the UI thread so the finished launcher does not linger. A launcher that exits with
+/// an error (`xdg-open` with no file manager to hand off to, `open` on a path that is gone) is reported through
+/// [`take_late_reveal_failure`].
+pub(crate) fn watch_reveal(mut child: std::process::Child, file: PathBuf, check_exit: bool) {
+    std::thread::spawn(move || {
+        if let Some(reason) = launcher_failure(child.wait(), check_exit) {
+            eprintln!("designos: warn: show in folder failed for {}: {reason}", file.display());
+            push_late_reveal_failure(file.clone(), reveal_failure_text(&file, ""));
+            if let Some(ctx) = REPAINT_CONTEXT.get() {
+                ctx.request_repaint();
+            }
+        }
+    });
+}
+
 /// Shows `file` in the system file manager. A test never opens one: it replaces this through `App::reveal_file`.
+/// The error is the reason only; the caller names the folder.
 pub fn reveal_file(file: &Path) -> Result<(), String> {
     if cfg!(test) {
         return Err(format!("A test cannot open the file manager for {}", file.display()));
     }
-    let (program, args) = reveal_command(std::env::consts::OS, file);
-    let mut child =
-        std::process::Command::new(program).args(&args).spawn().map_err(|e| format!("Cannot open the folder: {e}. The file is at {}", file.display()))?;
-    // Collect the exit status off the UI thread so the finished file manager launcher does not linger.
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
+    if !reveal_folder(file).is_dir() {
+        return Err("the folder is gone".to_string());
+    }
+    let os = std::env::consts::OS;
+    let (program, args) = reveal_command(os, file, file.exists());
+    let child = spawn_reveal(program, &args).map_err(|e| {
+        eprintln!("designos: warn: cannot start {program}: {e}");
+        "no file manager".to_string()
+    })?;
+    watch_reveal(child, file.to_path_buf(), os != "windows");
     Ok(())
 }
 
