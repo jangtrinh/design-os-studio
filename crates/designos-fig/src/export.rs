@@ -507,6 +507,8 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
         NodeKind::ComponentSet(_) => "COMPONENT_SET",
         NodeKind::Instance { .. } => "INSTANCE",
         NodeKind::Unknown { type_name } => type_name.as_str(),
+        NodeKind::Table(_) => "TABLE",
+        NodeKind::TableCell(_) => "TABLE_CELL",
         NodeKind::Connector(_) => match &lowered_conn {
             Some((lc, _)) if lc.label_chip.is_some() => "GROUP",
             Some(_) => "VECTOR",

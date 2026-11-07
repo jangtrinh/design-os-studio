@@ -179,7 +179,7 @@ pub(crate) fn kind_icon(k: &NodeKind) -> Icon {
         NodeKind::Connector(_) => Icon::Connector,
         NodeKind::ShapeWithText(_) => Icon::Shapes,
         NodeKind::Stamp { .. } => Icon::Stamp,
-        NodeKind::Unknown { .. } => Icon::Rectangle,
+        NodeKind::Unknown { .. } | NodeKind::Table(_) | NodeKind::TableCell(_) => Icon::Rectangle,
     }
 }
 
@@ -209,6 +209,8 @@ pub fn kind_label(k: &NodeKind) -> &'static str {
         NodeKind::ShapeWithText(_) => "Shape",
         NodeKind::Stamp { .. } => "Stamp",
         NodeKind::Unknown { .. } => "Layer",
+        NodeKind::Table(_) => "Table",
+        NodeKind::TableCell(_) => "Cell",
     }
 }
 

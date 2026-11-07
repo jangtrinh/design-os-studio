@@ -534,6 +534,10 @@ pub enum NodeKind {
     Stamp {
         kind: String,
     },
+    /// Table: ordered rows and columns with stable ids; the cells are `TableCell` children (see [`crate::table`]).
+    Table(crate::table::TableProps),
+    /// One table cell: the text at a (row, column) position of its parent `Table`.
+    TableCell(crate::table::TableCellProps),
     /// Anything the importer could not map, kept so nothing is silently lost. It keeps its children
     /// (see [`NodeKind::can_hold_children`]) but is not a [`NodeKind::is_container`] and is not drawn.
     Unknown {
@@ -563,12 +567,15 @@ impl NodeKind {
     /// stays a non-container for clipping, auto layout, hit testing and painting, like a group without
     /// frame properties.
     pub fn can_hold_children(&self) -> bool {
-        self.is_container() || matches!(self, NodeKind::Unknown { .. })
+        self.is_container() || matches!(self, NodeKind::Unknown { .. } | NodeKind::Table(_))
     }
 
     /// Board items that are drawn by lowering to ordinary shapes and text.
     pub fn is_board_item(&self) -> bool {
-        matches!(self, NodeKind::Sticky(_) | NodeKind::Connector(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. })
+        matches!(
+            self,
+            NodeKind::Sticky(_) | NodeKind::Connector(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } | NodeKind::Table(_) | NodeKind::TableCell(_)
+        )
     }
 
     /// The text of a board item that has its own text (sticky, shape with text), if any.
@@ -577,6 +584,7 @@ impl NodeKind {
             NodeKind::Sticky(s) => Some(&s.text),
             NodeKind::ShapeWithText(s) => Some(&s.text),
             NodeKind::Connector(c) => c.label.as_ref(),
+            NodeKind::TableCell(c) => Some(&c.text),
             _ => None,
         }
     }
@@ -601,6 +609,7 @@ impl NodeKind {
             NodeKind::Sticky(s) => Some(&mut s.text),
             NodeKind::ShapeWithText(s) => Some(&mut s.text),
             NodeKind::Connector(c) => c.label.as_mut(),
+            NodeKind::TableCell(c) => Some(&mut c.text),
             _ => None,
         }
     }
@@ -642,6 +651,8 @@ impl NodeKind {
             NodeKind::Connector(_) => "Connector",
             NodeKind::ShapeWithText(_) => "Shape",
             NodeKind::Stamp { .. } => "Stamp",
+            NodeKind::Table(_) => "Table",
+            NodeKind::TableCell(_) => "Cell",
             NodeKind::Unknown { .. } => "Layer",
         }
     }

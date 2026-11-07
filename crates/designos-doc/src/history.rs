@@ -86,6 +86,7 @@ impl Command {
                 if !p.kind.can_hold_children() {
                     return Err(DocError::NotAContainer(parent));
                 }
+                table::check_insert_payload(&p.kind, &nodes)?;
                 let index = index.min(p.children.len());
                 p.children.insert(index, root);
                 let many = nodes.len() > 64;
@@ -114,10 +115,16 @@ impl Command {
                 let n = doc.get(id).ok_or(DocError::NotFound(id))?;
                 let old_parent = n.parent.ok_or(DocError::NotFound(id))?;
                 let old_index = doc.get(old_parent).and_then(|p| p.children.iter().position(|c| *c == id)).unwrap_or(0);
+                if let Some(new_parent) = doc.get(parent) {
+                    table::check_child_kind(&new_parent.kind, &n.kind)?;
+                }
                 doc.reparent(id, parent, index)?;
                 Command::Reparent { id, parent: old_parent, index: old_index }
             }
             Command::Update { mut node } => {
+                if let Some(cur) = doc.get(node.id) {
+                    table::check_kind_change(&cur.kind, &node.kind)?;
+                }
                 let cur = doc.get_mut(node.id).ok_or(DocError::NotFound(node.id))?;
                 node.parent = cur.parent;
                 node.children = std::mem::take(&mut cur.children);
@@ -212,6 +219,37 @@ impl Command {
                 Command::Batch(inv)
             }
         })
+    }
+
+    /// Like [`Self::apply`], but a `Batch` that fails applies nothing: the commands it already applied
+    /// are undone, newest first (nested batches too). `History` runs every step this way, so a
+    /// refused step leaves no half-applied edit behind. Plain `apply` keeps its partial behaviour for
+    /// the callers (transactions, replay) that rely on it.
+    pub fn apply_atomic(self, doc: &mut Document) -> Result<Command, DocError> {
+        let Command::Batch(cmds) = self else { return self.apply(doc) };
+        let mut inv = Vec::with_capacity(cmds.len());
+        for c in cmds {
+            match c.apply_atomic(doc) {
+                Ok(i) => inv.push(i),
+                Err(e) => {
+                    // An inverse only fails when the document changed under it, which a single
+                    // `&mut Document` borrow rules out inside this call, so no test can provoke it.
+                    // It is still reported, never swallowed: the document would stay half changed.
+                    let mut rollback_failure = None;
+                    for i in inv.into_iter().rev() {
+                        if let Err(re) = i.apply(doc) {
+                            rollback_failure.get_or_insert(re);
+                        }
+                    }
+                    return Err(match rollback_failure {
+                        None => e,
+                        Some(re) => DocError::Table(format!("{e} Rolling back the earlier commands of the step also failed: {re}")),
+                    });
+                }
+            }
+        }
+        inv.reverse();
+        Ok(Command::Batch(inv))
     }
 
     /// Returns `true` when this command (or its inverse stored on the undo stack) directly targets `id`,
@@ -363,7 +401,7 @@ impl History {
     }
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let inv = cmd.apply(doc)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
@@ -372,14 +410,14 @@ impl History {
     /// [`Self::fold_since`] can fold the contiguous agent tail on stop without folding
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = cmd.apply(doc)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = cmd.apply(doc)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, ..Default::default() });
         Ok(())
     }
@@ -554,10 +592,20 @@ impl History {
         self.sync_meta_lengths();
         let Some(c) = self.undo.pop() else { return Ok(false) };
         let meta = self.undo_meta.pop().unwrap_or_default();
-        let inv = apply_step(doc, c, meta.layout_recorded)?;
-        self.redo.push(inv);
-        self.redo_meta.push(meta);
-        Ok(true)
+        match guarded(doc, c, |d, c| apply_step(d, c, meta.layout_recorded)) {
+            Ok(inv) => {
+                self.redo.push(inv);
+                self.redo_meta.push(meta);
+                Ok(true)
+            }
+            Err(refused) => {
+                let (e, restored) = *refused;
+                self.undo.extend(restored);
+                self.undo_meta.push(meta);
+                self.undo_meta.truncate(self.undo.len());
+                Err(e)
+            }
+        }
     }
     /// Re-applies the latest undone step, solving auto layout again only for a step whose layout
     /// was not recorded, like [`Self::undo`].
@@ -565,10 +613,20 @@ impl History {
         self.sync_meta_lengths();
         let Some(c) = self.redo.pop() else { return Ok(false) };
         let meta = self.redo_meta.pop().unwrap_or_default();
-        let inv = apply_step(doc, c, meta.layout_recorded)?;
-        self.undo.push(inv);
-        self.undo_meta.push(meta);
-        Ok(true)
+        match guarded(doc, c, |d, c| apply_step(d, c, meta.layout_recorded)) {
+            Ok(inv) => {
+                self.undo.push(inv);
+                self.undo_meta.push(meta);
+                Ok(true)
+            }
+            Err(refused) => {
+                let (e, restored) = *refused;
+                self.redo.extend(restored);
+                self.redo_meta.push(meta);
+                self.redo_meta.truncate(self.redo.len());
+                Err(e)
+            }
+        }
     }
     /// The command [`Self::undo`] would apply next.
     pub fn peek_undo(&self) -> Option<&Command> {
@@ -756,9 +814,35 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
 /// Applies one undo or redo step. A layout-recorded step is replayed as stored while no deferred
 /// layout is queued. With a queue present it re-solves like any other step, so a queued subtree is
 /// never drained against a state the step restored without that solve.
+/// Applies one undo step with `apply`, then checks every table the step touched (see
+/// [`table::check_table_positions`]). A table left broken rolls the step back with its own inverse.
+/// Either way a refusal returns the error with the command that re-does the step, so the caller can
+/// put the step back on its stack and leave the document and both stacks as they were (a command
+/// that fails changes nothing: `Command::apply_atomic` undoes what a batch already applied). The command is
+/// kept only when it involves a table, so an ordinary step costs no clone. The table ids are
+/// collected before `apply` runs, because a removed cell's parent is gone afterwards.
+fn guarded(
+    doc: &mut Document,
+    c: Command,
+    apply: impl FnOnce(&mut Document, Command) -> Result<Command, DocError>,
+) -> Result<Command, Box<(DocError, Option<Command>)>> {
+    let mut touched = std::collections::BTreeSet::new();
+    table::touched_tables(doc, &c, &mut touched);
+    let backup = table::involves_tables(doc, &c).then(|| c.clone());
+    let inv = apply(doc, c).map_err(|e| Box::new((e, backup)))?;
+    match table::check_touched(doc, &touched) {
+        Ok(()) => Ok(inv),
+        Err(e) => match inv.apply(doc) {
+            Ok(restored) => Err(Box::new((e, Some(restored)))),
+            Err(re) => Err(Box::new((DocError::Table(format!("{e} Rolling the step back also failed: {re}")), None))),
+        },
+    }
+}
+
+/// Applies `c`; a step whose layout was recorded replays as stored, any other re-solves auto layout.
 fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<Command, DocError> {
     if layout_recorded && doc.pending_relayout().is_empty() {
-        c.apply(doc)
+        c.apply_atomic(doc)
     } else {
         apply_and_relayout(doc, c)
     }
@@ -774,7 +858,7 @@ fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<C
 fn apply_and_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
     let mut seeds = Vec::new();
     collect_relayout_seeds(doc, &c, &mut seeds);
-    let inv = c.apply(doc)?;
+    let inv = c.apply_atomic(doc)?;
     doc.relayout_seeds_upward(&seeds);
     Ok(inv)
 }

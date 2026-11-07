@@ -625,7 +625,7 @@ fn reroute_into_last_step(app: &mut App, written: &[NodeId], touched_ids: &mut V
     };
     let label = app.hist.peek_undo_label().map(str::to_owned);
     let depth = app.hist.undo_depth();
-    let forward = inverse.apply(&mut app.doc).map_err(|e| e.to_string())?;
+    let forward = inverse.apply_atomic(&mut app.doc).map_err(|e| e.to_string())?;
     app.hist.drop_undo_steps_after(depth - 1);
     let mut commands = match forward {
         designos_doc::Command::Batch(commands) => commands,
@@ -792,6 +792,34 @@ mod close_save_classification_tests {
         assert_eq!(app.doc.get(c).unwrap().transform, expected.transform);
         assert_eq!(app.doc.get(c).unwrap().size, expected.size);
         assert_eq!(app.hist.undo_depth(), 1);
+    }
+
+    #[test]
+    fn a_live_patch_with_a_refused_table_op_applies_nothing() {
+        use designos_doc::live_patch::live_ops_for_command;
+        use designos_doc::*;
+
+        let mut doc = Document::new("live_patch_table");
+        let page = doc.add_page("Page 1");
+        let host = doc.alloc_id();
+        doc.insert(page, Node::frame(host, Rect::new(100.0, 0.0, 50.0, 50.0))).unwrap();
+        let rect = doc.alloc_id();
+
+        // a rectangle inserted into `host`; the patch is recorded while `host` is a frame
+        let recorded = Command::Insert { parent: host, index: 0, nodes: vec![Node::rectangle(rect, Rect::new(0.0, 0.0, 5.0, 5.0))] };
+        let patch = LivePatch::new(live_ops_for_command(&doc, &recorded).unwrap());
+        // by the time the patch arrives, `host` is a table, so the insert is refused
+        doc.get_mut(host).unwrap().kind = NodeKind::Table(TableProps::grid(1, 1));
+        let before = doc.to_json().unwrap();
+
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, &[patch]);
+
+        assert!(app.doc.get(rect).is_none(), "the refused insert is absent");
+        assert_eq!(app.hist.undo_depth(), 0);
+        let (a, b) = (app.doc.to_json().unwrap(), before);
+        let first_diff = a.bytes().zip(b.bytes()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+        assert_eq!(a, b, "nothing of the patch is applied; first difference near {}", &a[first_diff.saturating_sub(60)..(first_diff + 60).min(a.len())]);
     }
 
     #[test]

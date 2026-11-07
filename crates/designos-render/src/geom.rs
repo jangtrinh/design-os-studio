@@ -513,7 +513,7 @@ fn derived_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
             let body = crate::board::lower(doc, n)?;
             derived_shape(doc, &body, tol)
         }
-        NodeKind::Page { .. } | NodeKind::Group | NodeKind::Text(_) | NodeKind::Unknown { .. } => None,
+        NodeKind::Page { .. } | NodeKind::Group | NodeKind::Text(_) | NodeKind::Unknown { .. } | NodeKind::Table(_) | NodeKind::TableCell(_) => None,
     }
 }
 

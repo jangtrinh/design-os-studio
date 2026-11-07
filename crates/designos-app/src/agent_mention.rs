@@ -211,7 +211,7 @@ pub fn icon_for_node_kind(kind: &NodeKind) -> Icon {
         NodeKind::ShapeWithText(_) => Icon::Shapes,
         NodeKind::Connector(_) => Icon::Connector,
         NodeKind::Stamp { .. } => Icon::Stamp,
-        NodeKind::Unknown { .. } => Icon::Rectangle,
+        NodeKind::Unknown { .. } | NodeKind::Table(_) | NodeKind::TableCell(_) => Icon::Rectangle,
     }
 }
 

@@ -953,6 +953,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             None => ("CONNECTOR", false),
         },
         NodeKind::Stamp { .. } => ("STAMP", false),
+        NodeKind::Table(_) => ("TABLE", false),
+        NodeKind::TableCell(_) => ("TABLE_CELL", false),
         NodeKind::Unknown { type_name } => (if cx.schema.has_enum_variant("NodeType", type_name) { type_name.as_str() } else { "FRAME" }, false),
     };
 
