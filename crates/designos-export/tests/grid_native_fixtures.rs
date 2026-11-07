@@ -2,11 +2,11 @@
 //! with the layout solver's tracks, cell boxes, spans, holes, bound gap tokens and out-of-flow
 //! children.
 
-use designos_doc::layout_solver::{compute_grid, grid_column_widths, grid_row_heights, place_children, ChildIn, Placed, SizeLimits};
+use designos_doc::layout_solver::{compute_grid, grid_column_widths, grid_row_gap, grid_row_heights, place_children, ChildIn, Placed, SizeLimits};
 use designos_doc::{
-    create_instance, instances_of, AutoLayout, CodeSyntaxPlatform, Color, ComponentPropDef, Document, FrameProps, GridChildAlign, GridTrack, LayoutDirection,
-    Node, NodeId, NodeKind, OverrideField, Paint, PropKind, PropValue, Rect, Sizing, TextStyle, Variable, VariableCollection, VariableKind, VariableMode,
-    VariableValue, Vec2,
+    create_instance, instances_of, AutoLayout, CodeSyntaxPlatform, Color, ComponentPropDef, Document, FrameProps, GridChildAlign, GridTrack, LayoutAlign,
+    LayoutDirection, Node, NodeId, NodeKind, OverrideField, Paint, PropKind, PropValue, Rect, Sizing, TextStyle, Variable, VariableCollection, VariableKind,
+    VariableMode, VariableValue, Vec2,
 };
 use designos_export::{android_xml_for, compose_for, swiftui_for, uikit_for};
 
@@ -220,7 +220,7 @@ fn solver_expectations(scene: &NativeGridScene) -> (Vec<f32>, Vec<f32>, Vec<Plac
     let rows = grid_row_heights(&al_s, n.size, own, &kids);
     let placed = place_children(&kids, widths.len());
     let col_gap = al_s.item_spacing.max(0.0);
-    let row_gap = if al_s.counter_spacing > 0.0 { al_s.counter_spacing } else { col_gap };
+    let row_gap = grid_row_gap(&al_s);
     (widths, rows, placed, col_gap, row_gap, al.padding)
 }
 
@@ -975,8 +975,7 @@ fn solver_row_heights_match_compute_grid_across_all_six_scenes() {
         let rows = grid_row_heights(&al_s, n.size, own, &kids);
         let out = compute_grid(&al_s, n.size, own, &kids);
         let placed = place_children(&kids, widths.len());
-        let col_gap = al_s.item_spacing.max(0.0);
-        let row_gap = if al_s.counter_spacing > 0.0 { al_s.counter_spacing } else { col_gap };
+        let row_gap = grid_row_gap(&al_s);
         let [pt, _, pb, _] = al_s.padding;
 
         for ((p, k), rect) in placed.iter().zip(&kids).zip(&out.rects) {
@@ -2208,6 +2207,44 @@ fn bound_counter_axis_spacing_and_non_start_cell_alignments() {
     doc_fb.relayout_subtree(grid_fb);
     let swift_fb = swiftui_for(&doc_fb, grid_fb);
     assert!(swift_fb.contains("verticalSpacing: 14"), "SwiftUI should fall back to item_spacing=14 when counter_spacing=0:\n{swift_fb}");
+}
+
+#[test]
+fn auto_cell_under_end_container_exports_bottom_center() {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 1,
+        item_spacing: 12.0,
+        counter_spacing: 20.0,
+        padding: [8.0, 8.0, 8.0, 8.0],
+        primary_align: LayoutAlign::Center,
+        counter_align: LayoutAlign::End,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(228.0, 40.0));
+    let child = add_named_item(&mut doc, grid, "AutoUnderEnd", 60.0, 24.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(child).unwrap();
+        n.layout_child.grid_align_h = GridChildAlign::Auto;
+        n.layout_child.grid_align_v = GridChildAlign::Auto;
+    }
+    add_named_item(&mut doc, grid, "Neighbor", 64.0, 24.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+
+    let swift = swiftui_for(&doc, grid);
+    let cell = swiftui_cell_for(&doc, grid, &swift, "AutoUnderEnd");
+    assert!(
+        cell.contains(".frame(width: 60, height: 24)\n            .frame(width: 100, height: 24, alignment: .bottom)"),
+        "SwiftUI Auto cell under a Center primary and End counter container must align .bottom:\n{cell}"
+    );
+    let compose = compose_for(&doc, grid);
+    let cell = compose_cell_for(&doc, grid, &compose, "AutoUnderEnd");
+    assert!(
+        cell.contains("Box(Modifier.height(24.dp), contentAlignment = Alignment.BottomCenter)") && cell.contains(".size(width = 60.dp, height = 24.dp)"),
+        "Compose Auto cell under a Center primary and End counter container must align BottomCenter:\n{cell}"
+    );
 }
 
 #[test]

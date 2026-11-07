@@ -1415,7 +1415,10 @@ impl<'a> FrameRun<'a> {
         let (pw, ph) = (pad.w() as u32, pad.h() as u32);
         let processed = match b.kind {
             BackdropKind::Blur { sigma } => {
-                let out = self.blur(enc, &bd, pw, ph, sigma, true);
+                // Match the CPU backdrop path: the blur region may touch the
+                // canvas edge, so samples outside its logical extent are
+                // transparent rather than repeated edge texels.
+                let out = self.blur(enc, &bd, pw, ph, sigma, false);
                 self.r.plain_pool.release(&bd);
                 out
             }

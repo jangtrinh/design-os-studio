@@ -5,6 +5,8 @@ mod component_cycle_tests;
 pub mod engine;
 mod loop_guard;
 pub mod prompts;
+#[cfg(test)]
+mod relayout_scope_tests;
 pub mod resources;
 pub mod risk;
 pub mod rules;

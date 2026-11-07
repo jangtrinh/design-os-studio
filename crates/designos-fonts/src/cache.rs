@@ -201,13 +201,20 @@ static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new
 /// group), so another user's ownership and hard links of the replaced file are not carried over
 /// (nor are ACLs or extended attributes on non-macOS platforms).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_atomic_with(path, |out| out.write_all(bytes))
+}
+
+/// [`write_atomic`] for content that is produced while it is written: `fill` writes the whole new content into
+/// the temporary file (buffered here), so a multi-GB document never has to exist in memory as one block. The same
+/// guarantees hold, and a `fill` that fails leaves the old file untouched and removes the temporary file.
+pub fn write_atomic_with(path: &Path, fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>) -> std::io::Result<()> {
     let (target, existing) = resolve_save_target(path)?;
     let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::create_dir_all(dir)?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let prefix = tmp_prefix(&name);
     sweep_stale_temps(dir, prefix);
-    write_via_tmp(&target, dir, prefix, bytes, existing)
+    write_via_tmp(&target, dir, prefix, fill, existing)
 }
 
 /// Truncates `name` on a UTF-8 char boundary so appending `.{pid}-{seq}.tmp` never exceeds
@@ -415,7 +422,13 @@ fn copy_apple_metadata(from: &std::fs::File, to: &std::fs::File) -> std::io::Res
     Err(err)
 }
 
-fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing: Option<ExistingTarget>) -> std::io::Result<()> {
+fn write_via_tmp(
+    target: &Path,
+    dir: &Path,
+    prefix: &str,
+    fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>,
+    existing: Option<ExistingTarget>,
+) -> std::io::Result<()> {
     use std::io::{ErrorKind, Write};
     use std::sync::atomic::Ordering;
 
@@ -446,19 +459,55 @@ fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing
             #[cfg(not(target_os = "macos"))]
             file.set_permissions(existing.meta.permissions())?;
         }
-        file.write_all(bytes)?;
-        if bytes.is_empty() {
+        {
+            let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut file);
+            fill(&mut out)?;
+            out.flush()?;
+        }
+        if file.metadata().is_ok_and(|m| m.len() == 0) {
             let _ = file.set_modified(std::time::SystemTime::now());
         }
         file.sync_all()?;
         drop(file);
-        std::fs::rename(&tmp, target)
+        retry_replace(cfg!(windows), || std::fs::rename(&tmp, target))
     })();
     if res.is_err() {
         let _ = std::fs::remove_file(&tmp);
         return res;
     }
     sync_dir(dir)
+}
+
+const REPLACE_MAX_ATTEMPTS: usize = 8;
+
+/// Whether a failed replace is worth another attempt. Replacing an open file is eventually
+/// consistent on Windows: antivirus, indexers, or another save can briefly keep a sharing handle
+/// while `MoveFileEx` is asked to replace the target. Only those documented transient errors
+/// (access denied, sharing violation) are retried, and only on Windows; every other platform and
+/// every other error code reports the first failure.
+fn replace_error_is_transient(err: &std::io::Error, windows: bool) -> bool {
+    windows && matches!(err.raw_os_error(), Some(5 | 32)) // ERROR_ACCESS_DENIED / ERROR_SHARING_VIOLATION
+}
+
+/// Runs `replace`, retrying transient failures (see `replace_error_is_transient`) at most
+/// `REPLACE_MAX_ATTEMPTS` times in total so real permission failures still reach the caller
+/// promptly. The sleeps are 2, 4, 8, 16, 32, 64, and 128 ms.
+fn retry_replace<F>(windows: bool, mut replace: F) -> std::io::Result<()>
+where
+    F: FnMut() -> std::io::Result<()>,
+{
+    let mut delay = std::time::Duration::from_millis(2);
+    for attempt in 0..REPLACE_MAX_ATTEMPTS {
+        match replace() {
+            Ok(()) => return Ok(()),
+            Err(err) if attempt + 1 < REPLACE_MAX_ATTEMPTS && replace_error_is_transient(&err, windows) => {
+                std::thread::sleep(delay);
+                delay *= 2;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("the bounded replace loop always returns")
 }
 
 /// Makes the rename itself durable. Platforms that cannot open or sync a directory are skipped.
@@ -480,6 +529,70 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     const CARLITO: &str = include_str!("../tests/fixtures/fontsource_carlito.json");
+
+    #[test]
+    fn replace_retries_transient_windows_lock_before_success() {
+        use std::io::Error;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let attempts = AtomicUsize::new(0);
+        retry_replace(true, || {
+            let attempt = attempts.fetch_add(1, Ordering::Relaxed);
+            if attempt < 2 {
+                Err(Error::from_raw_os_error(5))
+            } else {
+                Ok(())
+            }
+        })
+        .expect("a transient Windows replace lock should be retried");
+        assert_eq!(attempts.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn only_access_denied_and_sharing_violation_are_transient_and_only_on_windows() {
+        use std::io::Error;
+
+        for code in [5, 32] {
+            assert!(replace_error_is_transient(&Error::from_raw_os_error(code), true), "code {code} on Windows");
+            assert!(!replace_error_is_transient(&Error::from_raw_os_error(code), false), "code {code} elsewhere");
+        }
+        for code in [0, 2, 3, 4, 17, 31, 33, 183] {
+            assert!(!replace_error_is_transient(&Error::from_raw_os_error(code), true), "code {code}");
+        }
+        assert!(!replace_error_is_transient(&Error::other("no os code"), true));
+    }
+
+    #[test]
+    fn replace_stops_after_eight_attempts_on_a_persistent_windows_lock() {
+        use std::io::Error;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let attempts = AtomicUsize::new(0);
+        let err = retry_replace(true, || {
+            attempts.fetch_add(1, Ordering::Relaxed);
+            Err(Error::from_raw_os_error(32))
+        })
+        .expect_err("a lock that never clears must surface");
+        assert_eq!(err.raw_os_error(), Some(32));
+        assert_eq!(attempts.load(Ordering::Relaxed), 8);
+    }
+
+    #[test]
+    fn replace_returns_the_first_error_without_retrying_off_windows_or_on_other_codes() {
+        use std::io::Error;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        for (windows, code) in [(false, 5), (false, 32), (true, 2), (true, 17)] {
+            let attempts = AtomicUsize::new(0);
+            let err = retry_replace(windows, || {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                Err(Error::from_raw_os_error(code))
+            })
+            .expect_err("a non-transient failure must surface");
+            assert_eq!(err.raw_os_error(), Some(code));
+            assert_eq!(attempts.load(Ordering::Relaxed), 1, "windows={windows} code={code}");
+        }
+    }
 
     struct Mock {
         routes: HashMap<String, Vec<u8>>,

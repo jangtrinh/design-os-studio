@@ -2603,11 +2603,19 @@ impl App {
         }
     }
 
+    /// Save and Save As from the menu and the keyboard. Loading the pages of a large `.fig` holds the window for
+    /// a while, so the status goes up first and the write runs on the next frame.
     pub fn save(&mut self, as_new: bool) {
-        self.save_with(as_new, &io::SystemDialogs);
+        self.save_after_status(as_new, &io::SystemDialogs, true);
     }
 
+    /// Save for a caller that continues with the result (the questions before quitting or leaving a tab): the
+    /// write runs now.
     pub fn save_with(&mut self, as_new: bool, dialogs: &dyn io::FileDialogs) {
+        self.save_after_status(as_new, dialogs, false);
+    }
+
+    fn save_after_status(&mut self, as_new: bool, dialogs: &dyn io::FileDialogs, status_first: bool) {
         crate::decks::ui::flush_notes(self);
         // Library files save back to the library; "Save as…" writes an external copy.
         if !as_new && self.lib_file.is_some() {
@@ -2622,12 +2630,31 @@ impl App {
             }
         };
         let Some(path) = target else { return };
+        if status_first && io::uses_native_serializer(&path) && self.doc.has_pending_pages() {
+            self.run_after_status_paint("Saving\u{2026} loading all pages", move |app| {
+                let _ = app.persist_document_to(&path);
+            });
+            return;
+        }
         let _ = self.persist_document_to(&path);
     }
 
     pub(crate) fn persist_document_to(&mut self, path: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
         crate::decks::ui::flush_notes(self);
         self.settle_pending_relayout();
+        // The native writer refuses pages that are not loaded yet; load them first, on the open document.
+        let left_empty_notice = if io::uses_native_serializer(path) {
+            match self.load_pending_pages_for_write() {
+                Ok(notice) => notice,
+                Err(e) => {
+                    let message = format!("Cannot save: {e}");
+                    self.show_toast(message.clone(), true);
+                    return Err(std::io::Error::other(message));
+                }
+            }
+        } else {
+            None
+        };
         match io::save_path_counted(&self.doc, path) {
             Ok((p, replaced)) => {
                 if replaced > 0 {
@@ -2635,7 +2662,7 @@ impl App {
                     self.hist.neutralize_non_finite();
                     self.changed();
                 }
-                let notice = io::non_finite_notice_once(&p, replaced);
+                let notice = io::non_finite_notice_once(&p, replaced).into_iter().chain(left_empty_notice).reduce(|a, b| format!("{a}; {b}"));
                 let fig_omitted = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
                     designos_fig::collect_omitted_extensions(&self.doc).len()
                 } else {

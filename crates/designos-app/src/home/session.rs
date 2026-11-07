@@ -890,6 +890,8 @@ impl App {
         hist: &mut designos_doc::History,
     ) -> Result<(Option<String>, bool), LibrarySaveError> {
         let disk_path = library_file_disk_path(lib, &lf.project_id, &lf.id);
+        // Pages a `.fig` import left unloaded come first, in place: the file must hold their content.
+        let left_empty = doc.load_pending_pages().map_err(|e| LibrarySaveError::other(format!("Cannot save: {e}")))?;
         let wrote_backup = crate::io::write_pending_repair_backup(&disk_path).map_err(LibrarySaveError::other)?;
         let replaced = lib.save_file_counted(&lf.id, doc).map_err(LibrarySaveError::from_library)?;
         if wrote_backup {
@@ -900,7 +902,12 @@ impl App {
             doc.neutralize_non_finite();
             hist.neutralize_non_finite();
         }
-        Ok((crate::io::non_finite_notice_once(&disk_path, replaced), neutralized))
+        let notices: Vec<String> =
+            [crate::io::non_finite_notice_once(&disk_path, replaced), (left_empty > 0).then(|| crate::io::clone_budget_notice(left_empty))]
+                .into_iter()
+                .flatten()
+                .collect();
+        Ok(((!notices.is_empty()).then(|| notices.join("; ")), neutralized))
     }
 
     /// Writes the open library file; also refreshes its thumbnail. There is no "Saved" toast, but a save
@@ -1286,9 +1293,23 @@ impl App {
         crate::decks::ui::flush_notes(self);
         let Some(lib) = self.lib.clone() else { return };
         self.settle_pending_relayout();
-        let mut doc = self.doc.clone();
-        doc.name = name.trim().to_string();
-        match lib.create_file_counted(project, folder, name, &doc) {
+        // Pages a `.fig` open left unloaded are loaded on the open document, before it is copied: the copy shares the
+        // loader, so loading on the copy would leave this document's pages empty for the rest of the session.
+        let left_empty_notice = match self.load_pending_pages_for_write() {
+            Ok(notice) => notice,
+            Err(e) => {
+                self.show_toast(format!("Cannot save to the library: {e}"), true);
+                return;
+            }
+        };
+        // The file is written under the new name straight from the open document: a copy of a large document costs
+        // several GB. The name goes back if the write fails.
+        let previous_name = std::mem::replace(&mut self.doc.name, name.trim().to_string());
+        let created = lib.create_file_counted(project, folder, name, &self.doc);
+        if created.is_err() {
+            self.doc.name = previous_name;
+        }
+        match created {
             Ok((e, replaced)) => {
                 if replaced > 0 {
                     self.doc.neutralize_non_finite();
@@ -1309,14 +1330,45 @@ impl App {
                 self.autosave.disk_mtime = disk_path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
                 self.history_open_file();
                 thumb::refresh_in_background(lib, e.id, self.export_doc().into_owned());
-                let notice = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced));
-                match notice {
-                    Some(w) => self.show_toast(format!("Saved to {project_name} ({w})"), true),
-                    None => self.show_toast(format!("Saved to {project_name}"), false),
+                let non_finite = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced));
+                let notices: Vec<String> = non_finite.into_iter().chain(left_empty_notice).collect();
+                if notices.is_empty() {
+                    self.show_toast(format!("Saved to {project_name}"), false);
+                } else {
+                    self.show_toast(format!("Saved to {project_name} ({})", notices.join("; ")), true);
                 }
             }
             Err(e) => self.show_toast(format!("Cannot save to the library: {e}"), true),
         }
+    }
+
+    /// [`Self::import_into_library`] for the controls (the Import button, a drop on Home). A `.fig` loads every page before
+    /// it is stored, which takes a while with the window held, so its status goes up first and the import runs on the next frame.
+    pub fn import_into_library_announced(&mut self, paths: Vec<PathBuf>, project: String, folder: Option<String>) {
+        let is_fig = |p: &PathBuf| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("fig"));
+        if !paths.iter().any(is_fig) {
+            self.import_into_library(&paths, &project, folder.as_deref());
+            return;
+        }
+        let what = match paths.as_slice() {
+            [one] => one.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string(),
+            many => format!("{} files", many.len()),
+        };
+        self.run_after_status_paint(format!("Importing {what}\u{2026} loading all pages"), move |app| {
+            app.import_into_library(&paths, &project, folder.as_deref());
+        });
+    }
+
+    /// [`Self::save_to_library_as`] for the save dialog. A document with pages that are not loaded yet loads them first,
+    /// which takes a while with the window held, so its status goes up first and the save runs on the next frame.
+    pub fn save_to_library_as_announced(&mut self, project: String, folder: Option<String>, name: String) {
+        if !self.doc.has_pending_pages() {
+            self.save_to_library_as(&project, folder.as_deref(), &name);
+            return;
+        }
+        self.run_after_status_paint("Saving to library\u{2026} loading all pages", move |app| {
+            app.save_to_library_as(&project, folder.as_deref(), &name);
+        });
     }
 
     /// Imports files into a project; returns how many succeeded.
@@ -1329,11 +1381,9 @@ impl App {
         for p in paths {
             let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("file");
             match lib.import_file_with_doc_counted(p, project, folder) {
-                Ok((e, doc, replaced)) => {
+                Ok((e, doc, replaced, left_empty)) => {
                     ok += 1;
-                    if let Some(w) = crate::io::non_finite_notice_once(p, replaced) {
-                        notices.push(format!("{file_name}: {w}"));
-                    }
+                    notices.extend(import_notice(file_name, crate::io::non_finite_notice_once(p, replaced), left_empty));
                     thumb::refresh_in_background(lib.clone(), e.id, doc);
                 }
                 Err(e) => last_err = Some(format!("{file_name}: {e}")),
@@ -1856,5 +1906,34 @@ impl LibrarySaveError {
             _ => None,
         };
         Self { message: format!("Cannot save: {e}"), io_kind }
+    }
+}
+
+/// What an import says besides "Imported": the numbers it replaced, and the instances the file keeps empty for good
+/// because it has more nested component copies than can be expanded. `None` when there is nothing to say.
+pub(crate) fn import_notice(file_name: &str, non_finite: Option<String>, left_empty: usize) -> Option<String> {
+    let parts: Vec<String> = non_finite.into_iter().chain((left_empty > 0).then(|| crate::io::clone_budget_notice(left_empty))).collect();
+    (!parts.is_empty()).then(|| format!("{file_name}: {}", parts.join("; ")))
+}
+
+#[cfg(test)]
+mod import_notice_tests {
+    use super::import_notice;
+
+    #[test]
+    fn an_import_that_lost_nothing_says_nothing() {
+        assert_eq!(import_notice("kit.fig", None, 0), None);
+    }
+
+    #[test]
+    fn instances_left_empty_are_named_with_the_file() {
+        let notice = import_notice("kit.fig", None, 3).expect("the user is told");
+        assert!(notice.starts_with("kit.fig: ") && notice.contains(&crate::io::clone_budget_notice(3)), "{notice}");
+    }
+
+    #[test]
+    fn both_notices_share_one_entry_for_the_file() {
+        let notice = import_notice("kit.fig", Some("2 numbers replaced".into()), 3).unwrap();
+        assert_eq!(notice, format!("kit.fig: 2 numbers replaced; {}", crate::io::clone_budget_notice(3)));
     }
 }

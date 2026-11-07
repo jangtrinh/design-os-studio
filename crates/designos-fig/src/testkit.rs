@@ -585,3 +585,139 @@ pub fn upgrade_fig(how: Compression) -> Vec<u8> {
     let body = schema.encode_message(root, &upgrade_message()).unwrap();
     container::write_container(&schema.encode(), &body, how, 101)
 }
+
+// ---- deferred-page fixture: a `.fig` whose inactive pages are not loaded on import
+
+/// Text the page-level instance of [`deferred_pages_fig`] shows once its page is loaded (an override of the main's label).
+pub const DEFERRED_PAGE_INSTANCE_LABEL: &str = "Go back";
+/// Text the instance inside the unreferenced main component of [`deferred_pages_fig`] shows once its page is loaded.
+pub const DEFERRED_NESTED_INSTANCE_LABEL: &str = "Take me home";
+/// Name of the instance placed directly on the deferred page.
+pub const DEFERRED_PAGE_INSTANCE_NAME: &str = "Hero button";
+/// Name of the instance inside the unreferenced main component on the deferred page.
+pub const DEFERRED_NESTED_INSTANCE_NAME: &str = "Nested button";
+
+fn deferred_nc(id: (u32, u32), parent: (u32, u32), pos: &str, ty: &str, name: &str, size: (f32, f32), mut extra: Vec<(&str, V)>) -> V {
+    let mut fields = vec![
+        ("visible", V::Bool(true)),
+        ("opacity", fl(1.0)),
+        ("phase", en("CREATED")),
+        ("size", vec2(size.0, size.1)),
+        ("transform", matrix(0.0, 0.0)),
+        ("blendMode", en("PASS_THROUGH")),
+    ];
+    fields.append(&mut extra);
+    node(id, parent, pos, ty, name, fields)
+}
+
+fn deferred_instance(id: (u32, u32), parent: (u32, u32), name: &str, label_override: &str) -> V {
+    deferred_nc(
+        id,
+        parent,
+        "!",
+        "INSTANCE",
+        name,
+        (130.0, 48.0),
+        vec![(
+            "symbolData",
+            msg(vec![
+                ("symbolID", guid(1, 10)),
+                (
+                    "symbolOverrides",
+                    V::Array(vec![msg(vec![
+                        ("guidPath", msg(vec![("guids", V::Array(vec![guid(1, 11)]))])),
+                        ("textData", msg(vec![("characters", V::String(label_override.into()))])),
+                    ])]),
+                ),
+            ]),
+        )],
+    )
+}
+
+/// A small `.fig` that Studio imports with its third page deferred (the importer defers inactive pages of a file
+/// with more than 25,000 nodes and more than two pages).
+///
+/// - Page `Cover` holds the main component `Buttons/Button` (a `Label` text and an `Icon`) and 25,000 filler
+///   rectangles, so it is the page that loads up front.
+/// - Page `404 pages` holds the instance [`DEFERRED_PAGE_INSTANCE_NAME`] with a text override
+///   ([`DEFERRED_PAGE_INSTANCE_LABEL`]) and a main component `Type=Simple 03, Breakpoint=Desktop` that contains
+///   the instance [`DEFERRED_NESTED_INSTANCE_NAME`] with its own text override ([`DEFERRED_NESTED_INSTANCE_LABEL`]).
+///   No node references that variant.
+///
+/// After import both instances are empty until the page is loaded. [`deferred_pages_shape`] reads what a
+/// document shows for them.
+pub fn deferred_pages_fig() -> Vec<u8> {
+    let mut changes = vec![
+        deferred_nc((0, 0), (0, 0), "", "DOCUMENT", "Document", (0.0, 0.0), vec![]),
+        deferred_nc((0, 1), (0, 0), "!", "CANVAS", "Cover", (0.0, 0.0), vec![]),
+        deferred_nc((0, 2), (0, 0), "\"", "CANVAS", "Page 2", (0.0, 0.0), vec![]),
+        deferred_nc((0, 3), (0, 0), "#", "CANVAS", "404 pages", (0.0, 0.0), vec![]),
+        deferred_nc((1, 10), (0, 1), "!", "SYMBOL", "Buttons/Button", (130.0, 48.0), vec![]),
+        deferred_nc(
+            (1, 11),
+            (1, 10),
+            "!",
+            "TEXT",
+            "Label",
+            (80.0, 20.0),
+            vec![("textData", msg(vec![("characters", V::String("Button CTA".into()))])), ("fontSize", fl(14.0))],
+        ),
+        deferred_nc((1, 12), (1, 10), "\"", "ROUNDED_RECTANGLE", "Icon", (20.0, 20.0), vec![]),
+        deferred_instance((1, 21), (0, 3), DEFERRED_PAGE_INSTANCE_NAME, DEFERRED_PAGE_INSTANCE_LABEL),
+        deferred_nc((1, 30), (0, 3), "\"", "SYMBOL", "Type=Simple 03, Breakpoint=Desktop", (1440.0, 960.0), vec![]),
+        deferred_instance((1, 31), (1, 30), DEFERRED_NESTED_INSTANCE_NAME, DEFERRED_NESTED_INSTANCE_LABEL),
+    ];
+    for i in 0..25_000u32 {
+        changes.push(deferred_nc((9, i + 1), (0, 1), "!", "ROUNDED_RECTANGLE", "F", (4.0, 4.0), vec![]));
+    }
+    let schema = figma_like_schema();
+    let root = schema.find("Message").expect("Message in the embedded schema");
+    let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).expect("encode the deferred-page message");
+    container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
+}
+
+/// What a document shows for one instance of [`deferred_pages_fig`]: its number of children and the text of its label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeferredInstanceShape {
+    pub children: usize,
+    pub label: Option<String>,
+}
+
+/// What a document shows for the two instances of [`deferred_pages_fig`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeferredPagesShape {
+    pub page_instance: DeferredInstanceShape,
+    pub nested_instance: DeferredInstanceShape,
+}
+
+impl DeferredPagesShape {
+    /// The shape of a document that has loaded every page.
+    pub fn loaded() -> Self {
+        Self {
+            page_instance: DeferredInstanceShape { children: 2, label: Some(DEFERRED_PAGE_INSTANCE_LABEL.into()) },
+            nested_instance: DeferredInstanceShape { children: 2, label: Some(DEFERRED_NESTED_INSTANCE_LABEL.into()) },
+        }
+    }
+
+    /// The shape of a document that deferred the page: both instances empty.
+    pub fn deferred() -> Self {
+        Self { page_instance: DeferredInstanceShape { children: 0, label: None }, nested_instance: DeferredInstanceShape { children: 0, label: None } }
+    }
+}
+
+/// Reads the two instances of [`deferred_pages_fig`] from `doc`. Panics when the document has no such instance.
+pub fn deferred_pages_shape(doc: &designos_doc::Document) -> DeferredPagesShape {
+    let of = |name: &str| {
+        let instance = doc
+            .nodes
+            .values()
+            .find(|n| n.name == name && matches!(n.kind, designos_doc::NodeKind::Instance { .. }))
+            .unwrap_or_else(|| panic!("the document has no instance named {name:?}"));
+        let label = instance.children.iter().filter_map(|c| doc.get(*c)).find_map(|n| match &n.kind {
+            designos_doc::NodeKind::Text(t) => Some(t.content.clone()),
+            _ => None,
+        });
+        DeferredInstanceShape { children: instance.children.len(), label }
+    };
+    DeferredPagesShape { page_instance: of(DEFERRED_PAGE_INSTANCE_NAME), nested_instance: of(DEFERRED_NESTED_INSTANCE_NAME) }
+}

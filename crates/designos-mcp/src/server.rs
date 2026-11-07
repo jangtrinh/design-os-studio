@@ -131,6 +131,8 @@ pub struct Session {
     pub bridge: LiveSessionBridge,
     /// Undo history was dropped because the editor's canvas replaced the document.
     pub history_dropped: bool,
+    /// Said by the next reply of a save or an open: loading the pages of a large file left some instances empty for good.
+    pending_load_warning: Option<String>,
     /// Optional transcript JSONL path from `DESIGNOS_MCP_TRANSCRIPT` (E15-25).
     pub transcript_path: Option<PathBuf>,
     transcript_seq: u64,
@@ -281,6 +283,7 @@ impl Session {
             root,
             dirty: false,
             history_dropped: false,
+            pending_load_warning: None,
             bridge,
             transcript_path: transcript_path_from_env(),
             transcript_seq: 0,
@@ -324,6 +327,7 @@ impl Session {
             root,
             dirty: false,
             history_dropped: false,
+            pending_load_warning: None,
             bridge,
             transcript_path: transcript_path_from_env(),
             transcript_seq: 0,
@@ -670,6 +674,9 @@ impl Session {
         // Until the mark is in the log the editor does not know about this document.
         self.bridge.doc_unannounced = true;
         self.engine.settle_layout();
+        // The editor reads this file as the whole document and has no loader of its own: a `.fig` opened with
+        // pages not loaded yet must hand over their content now, or the editor would keep the empty instances.
+        self.load_pending_pages_for_write().map_err(|e| format!("serialize the document: {e}"))?;
         let json_str = self.engine.doc.to_json().map_err(|e| format!("serialize the document: {e}"))?;
         let bytes = json_str.as_bytes();
         if let Some(canvas_path) = &self.bridge.live_canvas_path {
@@ -826,11 +833,48 @@ impl Session {
         self.bridge.session_dir.as_ref().and_then(|d| d.file_name()?.to_str()?.rsplit_once("-tab-")?.1.parse().ok())
     }
 
+    /// Loads every page of the open document that a `.fig` import left unloaded, in place, before the whole
+    /// document is written. Pages load when a page is opened in the editor; a session has no such moment.
+    fn load_pending_pages_for_write(&mut self) -> Result<(), String> {
+        let left_empty = self.engine.doc.load_pending_pages().map_err(|e| e.to_string())?;
+        if left_empty > 0 {
+            eprintln!("designos-mcp: {left_empty} instances were left empty because the file has more nested component copies than can be expanded");
+            self.pending_load_warning =
+                Some(format!("{left_empty} instances are saved empty: the file has more nested component copies than can be expanded (limit 8,000,000)."));
+        }
+        Ok(())
+    }
+
+    /// Adds the warning that loading the pages left in `pending_load_warning` to `reply`, once.
+    fn attach_load_warning(&mut self, reply: &mut Value) {
+        let Some(warning) = self.pending_load_warning.take() else { return };
+        let Some(fields) = reply.as_object_mut() else { return };
+        match fields.get_mut("warnings").and_then(Value::as_array_mut) {
+            Some(list) => list.push(json!(warning)),
+            None => {
+                fields.insert("warnings".into(), json!([warning]));
+            }
+        }
+    }
+
     fn save_current(&mut self, path: &str, overwrite: bool, files_created: &mut usize) -> Result<PathBuf, ToolError> {
         let resolved = self.output_path_allow_overwrite(path, overwrite)?;
+        self.pending_load_warning = None;
         self.engine.settle_layout();
-        let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
-        crate::engine::write_checked_output_file(&resolved, path, "/path", bytes.as_bytes(), overwrite, true)?;
+        self.load_pending_pages_for_write().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e))?;
+        // Refused here, before any file is created, when a page could not be loaded.
+        if let Some(why) = self.engine.doc.pending_pages_error() {
+            return Err(ToolError::new(ErrorCode::InternalError, "", why.to_string()));
+        }
+        let doc = &self.engine.doc;
+        crate::engine::write_checked_output_file(
+            &resolved,
+            path,
+            "/path",
+            |out| doc.to_writer(out).map(|_| ()).map_err(std::io::Error::from),
+            overwrite,
+            true,
+        )?;
         *files_created += 1;
         self.dirty = false;
         self.engine.file_path = Some(path.to_string());
@@ -1312,6 +1356,7 @@ impl Session {
                 self.dirty = false;
                 self.engine.file_path = Some(a.path.clone());
                 self.ledger.clear();
+                self.pending_load_warning = None;
                 self.publish_live_doc_sync().map_err(|e| {
                     ToolError::new(
                         ErrorCode::EditorNotNotified,
@@ -1329,6 +1374,7 @@ impl Session {
                     }
                 }
                 self.attach_enabled_tools_warnings(&mut summary);
+                self.attach_load_warning(&mut summary);
                 Ok(summary)
             }
             "designos_new_document" => {
@@ -1375,7 +1421,9 @@ impl Session {
                     None => (self.titled_save_path().ok_or_else(Self::path_required)?, true),
                 };
                 let resolved = self.save_current(&path, overwrite, files_created)?;
-                Ok(json!({"path": resolved, "saved": true, "doc_revision": self.doc_revision()}))
+                let mut reply = json!({"path": resolved, "saved": true, "doc_revision": self.doc_revision()});
+                self.attach_load_warning(&mut reply);
+                Ok(reply)
             }
             "designos_close_document" => {
                 let a: CloseArgs = parse(args)?;
@@ -1496,7 +1544,7 @@ impl Session {
                     return Err(ToolError::new(ErrorCode::InvalidArguments, "/node_id", format!("Node {} produced an empty image", a.node_id))
                         .with_received(json!(a.node_id)));
                 }
-                crate::engine::write_checked_output_file(&path, &a.path, "/path", &png, false, false)?;
+                crate::engine::write_checked_output_bytes(&path, &a.path, "/path", &png, false, false)?;
                 *files_created += 1;
                 Ok(json!({"path": path, "node_id": a.node_id, "scale": a.scale, "bytes": png.len(), "rendered": true}))
             }
@@ -1506,7 +1554,7 @@ impl Session {
                 self.engine.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.engine.doc)
                     .map_err(|e| ToolError::new(ErrorCode::InternalError, "", format!("Failed to export .fig: {e}")))?;
-                crate::engine::write_checked_output_file(&path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
+                crate::engine::write_checked_output_bytes(&path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
                 *files_created += 1;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({

@@ -421,20 +421,24 @@ impl PageHydrator for OneNodeHydrator {
 }
 
 #[test]
-fn visiting_a_page_after_a_save_does_not_light_the_dot() {
-    // 14 nodes take the full content hash, 5,100 the cheap epoch hash: neither may see the page visit as an edit
+fn a_save_loads_the_pages_that_were_not_open_and_neither_it_nor_a_page_visit_after_it_lights_the_dot() {
+    // 14 nodes take the full content hash, 5,100 the cheap epoch hash: neither may see the load or the visit as an edit
     for n in [10, 5100] {
         let (doc, page2) = two_page_doc(n);
         let (mut s, _d, _path) = external_sim_with(&doc);
         s.shell.app.doc.page_hydrator = Some(Arc::new(Mutex::new(OneNodeHydrator { page: page2, done: false })));
         edit(&mut s);
+        let before_save = s.app().doc.nodes.len();
         s.cmd_key(Key::S);
+        // The save loads pages, so it waits for the frame after its status was painted; the harness has no such frame.
+        s.shell.app.run_queued_work();
         wait(&mut s, SETTLED);
+        assert!(s.app().doc.nodes.len() > before_save, "the save loaded the page that was not open ({n} rects)");
         assert!(!dot(&s), "saved ({n} rects)");
         let (nodes, depth) = (s.app().doc.nodes.len(), s.app().hist.undo_depth());
         s.shell.app.switch_page(page2);
         wait(&mut s, SETTLED);
-        assert!(s.app().doc.nodes.len() > nodes, "the page was expanded ({n} rects)");
+        assert_eq!(s.app().doc.nodes.len(), nodes, "the page is open already ({n} rects)");
         assert_eq!(s.app().hist.undo_depth(), depth, "no undo step: not an edit ({n} rects)");
         assert!(!dot(&s), "a page visit is not an edit ({n} rects)");
     }

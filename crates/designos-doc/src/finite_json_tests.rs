@@ -168,6 +168,48 @@ fn a_document_with_non_finite_numbers_saves_and_reopens_cleanly() {
 }
 
 #[test]
+fn writing_a_document_to_a_writer_gives_the_bytes_of_the_text_and_the_same_count() {
+    let doc = document_with_bad_numbers();
+    let (json, replaced) = doc.to_json_counted().unwrap();
+
+    let mut streamed = Vec::new();
+    let streamed_replaced = doc.to_writer_counted(&mut streamed).unwrap();
+
+    assert_eq!((streamed.as_slice(), streamed_replaced), (json.as_bytes(), replaced));
+    let mut plain = Document::new("plain");
+    plain.add_page("P");
+    let mut plain_streamed = Vec::new();
+    assert_eq!(plain.to_writer_counted(&mut plain_streamed).unwrap(), 0);
+    assert_eq!(plain_streamed, plain.to_json().unwrap().into_bytes());
+}
+
+#[test]
+fn a_document_with_stale_progress_flags_streams_the_text_it_returns() {
+    let mut doc = Document::new("flags");
+    doc.add_page("P");
+    doc.in_progress.insert(crate::NodeId(999), crate::InProgress::new(Some("agent".into()), None, 1));
+    let (json, _) = doc.to_json_counted().unwrap();
+    let mut streamed = Vec::new();
+    doc.to_writer_counted(&mut streamed).unwrap();
+    assert_eq!(streamed, json.as_bytes());
+}
+
+#[test]
+fn a_writer_that_fails_reports_the_error_instead_of_a_short_file() {
+    struct Full;
+    impl std::io::Write for Full {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let err = document_with_bad_numbers().to_writer_counted(Full).unwrap_err();
+    assert!(err.to_string().contains("disk full"), "{err}");
+}
+
+#[test]
 fn a_file_with_null_numbers_opens_and_reports_the_repair() {
     // Exactly what versions before the fix wrote: serde_json's own `null` for every non-finite number.
     let legacy = serde_json::to_string(&document_with_bad_numbers()).unwrap();
