@@ -1207,9 +1207,14 @@ pub fn connector_extent(route: &Route, props: &ConnectorProps, weight: f32) -> R
     r = Rect::new(r.x - pad, r.y - pad, r.w + 2.0 * pad, r.h + 2.0 * pad);
     if let Some(l) = &props.label {
         if !l.content.is_empty() {
+            let fs = l.style.font_size.max(1.0);
+            let lines: Vec<&str> = l.content.split('\n').collect();
+            let chars = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0) as f32;
             let s = label_size_estimate(l);
+            let w = s.x.max(chars * fs * 1.15 + fs * 1.2 + 2.0);
+            let h = s.y.max(lines.len() as f32 * fs * 1.45 + fs * 0.6 + 2.0);
             let m = route.midpoint();
-            r = r.union(&Rect::new(m.x - s.x / 2.0, m.y - s.y / 2.0, s.x, s.y));
+            r = r.union(&Rect::new(m.x - w / 2.0, m.y - h / 2.0, w, h));
         }
     }
     r
