@@ -655,10 +655,18 @@ pub fn dropdown_mixed(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
 }
 
 /// Like `dropdown`, but `checked[i]` decides whether option `i` shows a check mark, so a multi-select
-/// list marks every selected row regardless of what the closed field shows.
-pub fn dropdown_checked(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, options: &[String], checked: &[bool]) -> Option<usize> {
+/// list marks every selected row regardless of what the closed field shows. `mixed` is explicit.
+pub fn dropdown_checked_mixed(
+    ui: &mut Ui,
+    rect: Rect,
+    key: impl crate::widgets::Key,
+    label: &str,
+    options: &[String],
+    checked: &[bool],
+    mixed: bool,
+) -> Option<usize> {
     let items: Vec<MenuItem> = options.iter().enumerate().map(|(i, o)| MenuItem::new(o.clone()).checked(checked.get(i).copied().unwrap_or(false))).collect();
-    dropdown_items(ui, rect, key, label, &items, rect.width())
+    dropdown_items_mixed(ui, rect, key, label, &items, rect.width(), mixed)
 }
 
 /// The label of a mixed value, as the legacy dropdown forms recognise it.
@@ -683,14 +691,8 @@ pub fn dropdown_menu_was_open(ctx: &Context) -> bool {
     ctx.data(|d| d.get_temp::<u64>(dropdown_open_key())).is_some_and(|seen| seen == now || seen + 1 == now)
 }
 
-/// Like `dropdown_checked`, but with ready-made `items` (check marks, dividers) and a menu at
-/// least `min_width` wide. Legacy form: a label that reads exactly "Mixed" is drawn as a mixed value; callers
-/// that know use [`dropdown_items_mixed`].
-pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, items: &[MenuItem], min_width: f32) -> Option<usize> {
-    dropdown_items_mixed(ui, rect, key, label, items, min_width, label == MIXED)
-}
-
-/// [`dropdown_items`] with an explicit `mixed` flag.
+/// Like `dropdown_checked_mixed`, but with ready-made `items` (check marks, dividers) and a menu at least
+/// `min_width` wide.
 pub fn dropdown_items_mixed(
     ui: &mut Ui,
     rect: Rect,
@@ -1336,8 +1338,8 @@ mod tests {
                 }
                 let paint = |ui: &mut Ui| match kind {
                     DropKind::Dropdown => dropdown(ui, dd_rect(), DD_KEY, "Regular", &options),
-                    DropKind::Checked => dropdown_checked(ui, dd_rect(), DD_KEY, "Regular", &options, &checked),
-                    DropKind::Items => dropdown_items(ui, dd_rect(), DD_KEY, "Regular", &items, dd_rect().width()),
+                    DropKind::Checked => dropdown_checked_mixed(ui, dd_rect(), DD_KEY, "Regular", &options, &checked, false),
+                    DropKind::Items => dropdown_items_mixed(ui, dd_rect(), DD_KEY, "Regular", &items, dd_rect().width(), false),
                 };
                 picked = if enabled { paint(ui) } else { ui.add_enabled_ui(false, paint).inner };
                 open = ui.data(|d| d.get_temp::<bool>(dd_id)).unwrap_or(false);

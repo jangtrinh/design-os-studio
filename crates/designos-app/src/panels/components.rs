@@ -8,7 +8,7 @@ use crate::icons::Icon;
 use crate::theme;
 use crate::widgets;
 use crate::widgets::field;
-use crate::widgets::menu::{dropdown_checked, dropdown_mixed, popup_menu, MenuItem, MenuResult};
+use crate::widgets::menu::{dropdown_checked_mixed, dropdown_mixed, popup_menu, MenuItem, MenuResult};
 use designos_doc::*;
 use egui::{Align2, Pos2, Rect, Sense, Ui, Vec2};
 
@@ -767,7 +767,7 @@ fn slot_settings_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, owner: NodeId
             let comps: Vec<NodeId> = all_components_cached(app).into_iter().filter(|x| *x != owner).collect();
             let names: Vec<String> = comps.iter().map(|x| comp_label(&app.doc, *x)).collect();
             let selected: Vec<bool> = comps.iter().map(|x| cfg.preferred.contains(x)).collect();
-            if let Some(i) = dropdown_checked(ui, dd_r, &pref_key, &cur_pref, &names, &selected) {
+            if let Some(i) = dropdown_checked_mixed(ui, dd_r, &pref_key, &cur_pref, &names, &selected, false) {
                 let picked = comps[i];
                 let mut next = cfg.clone();
                 if let Some(pos) = next.preferred.iter().position(|x| *x == picked) {

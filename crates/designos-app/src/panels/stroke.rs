@@ -362,7 +362,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
         });
         if show_dash_cap {
             popover::row(ui, body, 5, "Dash cap", |ui, r| {
-                if let Some(i) = dropdown(ui, r, "strokep-dash-cap", cap_lbl, &caps) {
+                if let Some(i) = dropdown_mixed(ui, r, "strokep-dash-cap", cap_lbl, &caps, common_cap.is_none()) {
                     app.edit_nodes(&ids, |n| {
                         n.stroke.cap = CAPS[i].1;
                         n.stroke_geometry = None;

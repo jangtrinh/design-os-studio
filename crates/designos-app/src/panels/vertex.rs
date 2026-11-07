@@ -27,6 +27,15 @@ fn text_button(ui: &mut Ui, rect: Rect, key: &str, label: &str, enabled: bool) -
     enabled && resp.clicked()
 }
 
+/// The stroke-cap dropdown. A cap the list has no entry for (an arrow, or vertices that disagree) reads "Mixed" in the
+/// mixed ink: label and ink come from the same list position.
+fn cap_dropdown(ui: &mut Ui, rect: Rect, cap: Option<Option<StrokeCap>>) -> Option<usize> {
+    let caps: Vec<String> = CAPS.iter().map(|c| c.0.to_string()).collect();
+    let at = cap.and_then(|c| CAPS.iter().position(|x| x.1 == c));
+    let cur = at.map(|i| caps[i].as_str()).unwrap_or("Mixed");
+    dropdown_mixed(ui, rect, "vtx-cap", cur, &caps, at.is_none())
+}
+
 /// The vertex section; no-op unless the selected vector is being edited.
 pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     let Some(v) = app.canvas.vedit.as_ref() else { return };
@@ -70,11 +79,9 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
 
         sublabel(ui, pane, "Stroke cap");
         let cap = vec::common_vertex(app, |v| v.cap);
-        let caps: Vec<String> = CAPS.iter().map(|c| c.0.to_string()).collect();
-        let cur = cap.and_then(|c| CAPS.iter().position(|x| x.1 == c)).map(|i| caps[i].as_str()).unwrap_or("Mixed");
         let cap_r = pane.full(0.0);
         widgets::record(ui, "vtx-cap", cap_r);
-        if let Some(i) = dropdown_mixed(ui, cap_r, "vtx-cap", cur, &caps, cap.is_none()) {
+        if let Some(i) = cap_dropdown(ui, cap_r, cap) {
             let c = CAPS[i].1;
             vec::set_vertices(app, |v| v.cap = c);
         }
@@ -134,4 +141,38 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     row_end(pane);
     pane.y += 4.0;
     section_sep(ui, pane, false);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Color32, Pos2, Vec2};
+
+    fn mixed_ink(cap: Option<Option<StrokeCap>>, label: &str) -> Option<Color32> {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let _ = cap_dropdown(ui, Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(200.0, 32.0)), cap);
+        });
+        fn find(shape: &egui::Shape, label: &str) -> Option<Color32> {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().find_map(|s| find(s, label)),
+                egui::Shape::Text(t) if t.galley.text() == label => t.galley.job.sections.first().map(|s| s.format.color),
+                _ => None,
+            }
+        }
+        out.shapes.iter().find_map(|cs| find(&cs.shape, label))
+    }
+
+    #[test]
+    fn an_arrow_cap_reads_mixed_in_the_mixed_ink() {
+        assert_eq!(mixed_ink(Some(Some(StrokeCap::ArrowLines)), "Mixed"), Some(theme::TEXT_TERTIARY));
+    }
+
+    #[test]
+    fn disagreeing_vertices_read_mixed_and_a_listed_cap_keeps_its_ink() {
+        assert_eq!(mixed_ink(None, "Mixed"), Some(theme::TEXT_TERTIARY));
+        assert_eq!(mixed_ink(Some(Some(StrokeCap::Round)), "Round"), Some(theme::TEXT));
+    }
 }
