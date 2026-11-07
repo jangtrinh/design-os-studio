@@ -1126,6 +1126,16 @@ mod tests {
     }
 
     #[test]
+    fn detail_controls_are_centred_in_their_32_px_popover_row() {
+        let line = Rect::from_min_size(Pos2::new(10.0, 100.0), Vec2::new(300.0, widgets::popover::ROW_H));
+        let control = centred_in_row(line, Pos2::new(60.0, line.top()), Vec2::new(DETAIL_CONTROL_W, theme::RIGHT_TABS_H));
+        assert_eq!(widgets::popover::ROW_H, theme::CONTROL_XS, "popover rows are 32 tall");
+        assert_eq!(control.top() - line.top(), line.bottom() - control.bottom(), "equal space above and below the control");
+        assert_eq!((control.height(), control.top() - line.top()), (theme::RIGHT_TABS_H, 4.0));
+        assert_eq!(control.left(), 60.0, "the control column does not move");
+    }
+
+    #[test]
     fn a_family_named_mixed_that_is_not_mixed_uses_text() {
         let ctx = egui::Context::default();
         let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() };

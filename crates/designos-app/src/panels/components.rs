@@ -1295,7 +1295,13 @@ mod tests {
         let _ = frame(egui::RawInput::default(), false);
         let before_tab = frame(egui::RawInput::default(), false);
         assert_eq!(rings(&before_tab), 0, "no ring before Tab");
-        let key = |pressed| egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed, repeat: false, modifiers: egui::Modifiers::default() };
+        let key = |pressed| egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: Some(egui::Key::Tab),
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        };
         let _ = frame(egui::RawInput { events: vec![key(true), key(false)], ..Default::default() }, false);
         let focused = frame(egui::RawInput::default(), false);
         assert!(ctx.memory(|m| m.has_focus(toggle_id.get())), "Tab moves focus to the definition toggle, under the id it always had");
@@ -1310,14 +1316,18 @@ mod tests {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
         let frame = |events: Vec<egui::Event>| {
             let mut result = None;
-            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| result = definition_toggle(ui, rect, "def-press", false));
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
+                result = definition_toggle(ui, rect, "def-press", false)
+            });
             (out, result)
         };
         let _ = frame(vec![]);
         let _ = frame(vec![egui::Event::PointerMoved(rect.center())]);
-        let (_, held) = frame(vec![egui::Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        let (_, held) =
+            frame(vec![egui::Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
         assert_eq!(held, None, "pressing alone does not toggle");
-        let (_, released) = frame(vec![egui::Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        let (_, released) =
+            frame(vec![egui::Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
         assert_eq!(released, Some(true), "releasing over the toggle turns it on");
     }
 

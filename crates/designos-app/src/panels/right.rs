@@ -54,7 +54,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     crate::widgets::record(ui, "right-top-share", share_r);
 
     // Present (Button/Tertiary, 32 x 32) and its chevron cell (16 wide visible; the hit box reaches the 8 px gap to Share).
-    let cb = Rect::from_min_size(Pos2::new(share_r.left() - theme::INSET_CONTROL - theme::RIGHT_PRESENT_CHEVRON_W, btn_top), Vec2::new(theme::RIGHT_PRESENT_CHEVRON_W, btn_h));
+    let cb = Rect::from_min_size(
+        Pos2::new(share_r.left() - theme::INSET_CONTROL - theme::RIGHT_PRESENT_CHEVRON_W, btn_top),
+        Vec2::new(theme::RIGHT_PRESENT_CHEVRON_W, btn_h),
+    );
     let cb_hit = Rect::from_min_max(cb.min, Pos2::new(share_r.left(), cb.bottom()));
     let pb = Rect::from_min_size(Pos2::new(cb.left() - btn_h, btn_top), Vec2::splat(btn_h));
     let pr = widgets::kit::button_icon(ui, pb, "present", Icon::Play, widgets::kit::Hierarchy::Tertiary, widgets::kit::Size::Xs, true, false);
@@ -519,7 +522,8 @@ mod tests {
                 let raw = egui::RawInput { screen_rect: Some(screen), time: Some(0.05 * (i + 1) as f64), ..Default::default() };
                 let _ = ctx.run_ui(raw, |ui| show(&mut app, ui, panel));
             }
-            ["right-tab-Design", "right-tab-Prototype"].map(|n| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", n.to_string())))).expect("tab rect"))
+            ["right-tab-Design", "right-tab-Prototype"]
+                .map(|n| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", n.to_string())))).expect("tab rect"))
         };
         let (design_active, prototype_active) = (widths(RightTab::Design), widths(RightTab::Prototype));
         assert_eq!(design_active, prototype_active, "both tabs are measured with the kit tab font, so picking one moves nothing");

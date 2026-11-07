@@ -1110,7 +1110,8 @@ mod tests {
         let region = Rect::from_min_size(Pos2::new(960.0, 40.0), Vec2::new(theme::RIGHT_PANEL_WIDTH, 1200.0));
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1300.0, 1300.0));
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| show(&mut app, ui, region));
-        let get_rect = |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("no rect {name}"));
+        let get_rect =
+            |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("no rect {name}"));
         for name in ["btn-\"mcp-copy-prompt\"", "btn-\"code-connect-terminal\""] {
             assert_eq!(get_rect(name).height(), theme::CONTROL_XS, "{name} is Button/Secondary xs, 32 tall");
         }
