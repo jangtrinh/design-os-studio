@@ -135,6 +135,7 @@ fn spawn_reveal(program: &str, args: &[OsString]) -> std::io::Result<std::proces
 
 /// Launcher failures that showed up after the launcher had started, worded for the error toast. The UI thread
 /// takes them each frame.
+#[cfg(not(test))]
 static LATE_REVEAL_FAILURES: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
 
 #[cfg(test)]
