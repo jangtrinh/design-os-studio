@@ -54,10 +54,18 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 fn show_prototype_settings_btn(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     let btn_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 28.0);
     record(ui, "proto-show-settings", btn_r);
+    // Button/Secondary colours with the previous 12 px label: the font change waits for the geometry step.
     let resp = ui.interact(btn_r, ui.id().with("proto-show-settings"), Sense::click());
-    ui.painter().rect_filled(btn_r, theme::cr(6), if resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) });
-    ui.painter().rect_stroke(btn_r, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-    ui.painter().text(btn_r.center(), Align2::CENTER_CENTER, "Show prototype settings", theme::font_body_strong(), Color32::WHITE);
+    let state = if resp.is_pointer_button_down_on() {
+        crate::widgets::kit::State::Pressed
+    } else if resp.hovered() {
+        crate::widgets::kit::State::Hover
+    } else {
+        crate::widgets::kit::State::Default
+    };
+    let look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Secondary, state);
+    crate::widgets::kit::paint_frame(ui.painter(), btn_r, theme::RADIUS_CONTROL, &look);
+    ui.painter().text(btn_r.center(), Align2::CENTER_CENTER, "Show prototype settings", theme::font_body_strong(), look.text);
     if resp.clicked() {
         app.selection.clear();
     }
@@ -84,7 +92,7 @@ fn prototype_guide_cards(ui: &mut Ui, pane: &mut Pane) {
         pane.y += 8.0;
         let hdr_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 22.0);
         record(ui, key, hdr_r);
-        ui.painter().text(Pos2::new(hdr_r.left(), hdr_r.center().y), Align2::LEFT_CENTER, heading, theme::font_body_strong(), Color32::WHITE);
+        ui.painter().text(Pos2::new(hdr_r.left(), hdr_r.center().y), Align2::LEFT_CENTER, heading, theme::font_body_strong(), theme::TEXT);
         let close_r = Rect::from_min_size(Pos2::new(hdr_r.right() - 20.0, hdr_r.center().y - 10.0), Vec2::splat(20.0));
         record(ui, &format!("{key}-dismiss"), close_r);
         if widgets::icon_button(ui, close_r, (key, "dismiss"), Icon::Close, false, "Dismiss tip").clicked() {
@@ -92,14 +100,9 @@ fn prototype_guide_cards(ui: &mut Ui, pane: &mut Pane) {
         }
         pane.y += 24.0;
         let text_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 48.0);
-        let galley = ui.painter().layout(
-            body_text.to_string(),
-            theme::font_body(),
-            Color32::from_rgb(0xB3, 0xB3, 0xB3),
-            text_r.width(),
-        );
+        let galley = ui.painter().layout(body_text.to_string(), theme::font_body(), theme::TEXT_TERTIARY, text_r.width());
         let h = galley.size().y;
-        ui.painter().galley(text_r.min, galley, Color32::from_rgb(0xB3, 0xB3, 0xB3));
+        ui.painter().galley(text_r.min, galley, theme::TEXT_TERTIARY);
         pane.y += h + 12.0;
         section_sep(ui, pane, false);
     }
@@ -702,7 +705,7 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                     // a tiny overlay thumbnail inside the cell
                     let thumb = Rect::from_center_size(c.center(), Vec2::new(8.0, 8.0));
                     let off = Vec2::new((cx as f32 - 1.0) * 5.0, (ry as f32 - 1.0) * 5.0);
-                    ui.painter().rect_filled(thumb.translate(off), 1.0, if sel { Color32::WHITE } else { theme::ICON_SECONDARY });
+                    ui.painter().rect_filled(thumb.translate(off), 1.0, if sel { theme::ICON_WHITE } else { theme::ICON_SECONDARY });
                     if resp.on_hover_text(proto::position_name(*pos)).clicked() {
                         *position = *pos;
                     }
@@ -724,7 +727,7 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                     theme::BG_SECONDARY
                 },
             );
-            ui.painter().text(mb.center(), Align2::CENTER_CENTER, "Manual", theme::font_caption(), if msel { Color32::WHITE } else { theme::TEXT_SECONDARY });
+            ui.painter().text(mb.center(), Align2::CENTER_CENTER, "Manual", theme::font_caption(), if msel { theme::TEXT } else { theme::TEXT_SECONDARY });
             if mr.clicked() {
                 *position = OverlayPosition::Manual;
             }
@@ -845,7 +848,7 @@ fn transition_ui(ui: &mut Ui, pane: &mut Pane, tr: &mut Option<Transition>) {
                     theme::BG_SECONDARY
                 },
             );
-            ui.painter().text(b.center(), Align2::CENTER_CENTER, glyph, theme::font_body(), if sel { Color32::WHITE } else { theme::TEXT_SECONDARY });
+            ui.painter().text(b.center(), Align2::CENTER_CENTER, glyph, theme::font_body(), if sel { theme::TEXT } else { theme::TEXT_SECONDARY });
             if resp.on_hover_text(proto::direction_name(dir)).clicked() {
                 t.kind = proto::with_direction(t.kind, dir);
             }

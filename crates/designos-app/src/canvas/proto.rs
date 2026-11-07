@@ -161,10 +161,10 @@ fn draw_noodle(p: &egui::Painter, n: &geom::Noodle, col: Color32) {
 
 fn hotspot(p: &egui::Painter, c: Pos2, big: bool) {
     let r = theme::PROTO_HOTSPOT_RADIUS * if big { 1.25 } else { 1.0 };
-    p.circle_filled(c, r + theme::PROTO_HOTSPOT_RING, Color32::WHITE);
+    p.circle_filled(c, r + theme::PROTO_HOTSPOT_RING, theme::ICON_WHITE);
     p.circle_filled(c, r, theme::PROTO_BLUE);
     let arm = (r * 0.55).max(2.0);
-    let plus_stroke = Stroke::new(1.3, Color32::WHITE);
+    let plus_stroke = Stroke::new(1.3, theme::ICON_WHITE);
     p.line_segment([Pos2::new(c.x - arm, c.y), Pos2::new(c.x + arm, c.y)], plus_stroke);
     p.line_segment([Pos2::new(c.x, c.y - arm), Pos2::new(c.x, c.y + arm)], plus_stroke);
 }
@@ -209,8 +209,8 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         let r =
             ERect::from_min_size(Pos2::new(lr.left(), lr.top() - theme::PROTO_FLAG_GAP - theme::PROTO_FLAG_HEIGHT), egui::vec2(w, theme::PROTO_FLAG_HEIGHT));
         p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::PROTO_BLUE);
-        crate::icons::paint(&p, crate::icons::Icon::Flag, Pos2::new(r.left() + 11.0, r.center().y), 12.0, Color32::WHITE);
-        p.text(Pos2::new(r.left() + 21.0, r.center().y), Align2::LEFT_CENTER, &f.name, font, Color32::WHITE);
+        crate::icons::paint(&p, crate::icons::Icon::Flag, Pos2::new(r.left() + 11.0, r.center().y), 12.0, theme::ICON_WHITE);
+        p.text(Pos2::new(r.left() + 21.0, r.center().y), Align2::LEFT_CENTER, &f.name, font, theme::CANVAS_SIZE_BADGE_TEXT);
     }
 
     // Noodles of the selected layers.
