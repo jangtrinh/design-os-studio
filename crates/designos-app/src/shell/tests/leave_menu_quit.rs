@@ -361,6 +361,22 @@ fn terminate_from_dock_or_system_with_nothing_unsaved_quits_at_once() {
 }
 
 #[test]
+fn close_cleanup_is_one_shot_when_eframe_calls_on_exit_after_the_close() {
+    let (mut s, _d, _path) = external_sim_with(&two_rects());
+    assert!(!s.shell.quit_finished);
+
+    // The close event path performs cleanup before the native window disappears.
+    s.shell.finish_quit();
+    assert!(s.shell.quit_finished);
+    assert_eq!(s.shell.quit_cleanup_runs, 1);
+
+    // eframe calls on_exit for the same shutdown; it must not flush or shut down twice.
+    eframe::App::on_exit(&mut s.shell);
+    assert!(s.shell.quit_finished);
+    assert_eq!(s.shell.quit_cleanup_runs, 1, "the second lifecycle callback must not repeat cleanup side effects");
+}
+
+#[test]
 fn terminate_while_the_window_is_hidden_brings_it_back_and_asks_once_it_is_visible() {
     let (mut s, _d, path) = external_sim_with(&two_rects());
     edit(&mut s);
