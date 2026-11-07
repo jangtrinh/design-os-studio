@@ -36,6 +36,22 @@ fn toast_clock_runs_from_the_first_paint(raise: impl FnOnce(&mut Sim), seconds: 
 }
 
 #[test]
+fn distinct_error_waits_for_active_error_to_expire() {
+    let mut s = Sim::new();
+    s.shell.app.show_toast("First error", true);
+    s.frame(vec![]);
+    s.shell.app.show_toast("Second error", true);
+
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some("First error"));
+    assert_eq!(s.app().toast_queue.len(), 1);
+
+    let expires = s.app().now + crate::theme::TOAST_SECONDS + 0.1;
+    frame_at(&mut s, expires);
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some("Second error"));
+    assert!(s.app().toast_queue.is_empty());
+}
+
+#[test]
 fn toast_clock_reveal_toast_survives_a_30s_block_then_lasts_reveal_seconds() {
     toast_clock_runs_from_the_first_paint(
         |s| {
