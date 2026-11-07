@@ -1,7 +1,7 @@
 {
   "v": 1,
-  "compiledAt": "2026-11-07T15:30:29.803Z",
-  "eventCount": 448,
+  "compiledAt": "2026-10-16T05:02:55.379Z",
+  "eventCount": 300,
   "halfLifeDays": 30,
   "personas": {},
   "axes": {},
@@ -10,10 +10,6 @@
     "colors.neutral": {
       "changes": 1,
       "lastReason": "AA contrast fix: raise neutral contrast against #f5f5f7 above 4.5:1"
-    },
-    "typography.font-family-mono": {
-      "changes": 1,
-      "lastReason": "the UI monospace role is the bundled Roboto Mono (principles P5)"
     }
   },
   "designs": {

@@ -2,21 +2,14 @@
   "version": 1,
   "tasks": {
     "a11y": {
-      "nextRunAt": "2026-11-08T22:30:29.551564+07:00",
+      "nextRunAt": "2026-10-17T12:02:55.096036+07:00",
       "lastStatus": "ok",
       "lastSummary": {
         "failures": 0
       },
-      "suppressCount": 9,
-      "runs": 10,
+      "suppressCount": 8,
+      "runs": 9,
       "history": [
-        {
-          "at": "2026-11-07T22:30:29.551564+07:00",
-          "status": "ok",
-          "summary": {
-            "failures": 0
-          }
-        },
         {
           "at": "2026-10-16T12:02:55.096036+07:00",
           "status": "ok",
@@ -83,21 +76,14 @@
       ]
     },
     "specimen": {
-      "nextRunAt": "2026-11-08T22:30:29.551564+07:00",
-      "lastStatus": "worsened",
+      "nextRunAt": "2026-10-17T12:02:55.096036+07:00",
+      "lastStatus": "ok",
       "lastSummary": {
-        "gaps": 1
+        "gaps": 0
       },
       "suppressCount": 8,
-      "runs": 10,
+      "runs": 9,
       "history": [
-        {
-          "at": "2026-11-07T22:30:29.551564+07:00",
-          "status": "worsened",
-          "summary": {
-            "gaps": 1
-          }
-        },
         {
           "at": "2026-10-16T12:02:55.096036+07:00",
           "status": "ok",
@@ -164,21 +150,14 @@
       ]
     },
     "harvest": {
-      "nextRunAt": "2026-11-08T10:30:29.551564+07:00",
-      "lastStatus": "error",
+      "nextRunAt": "2026-10-16T21:37:11.665454+07:00",
+      "lastStatus": "baseline",
       "lastSummary": {
-        "failures": 1
+        "failures": 0
       },
       "suppressCount": 0,
-      "runs": 2,
+      "runs": 1,
       "history": [
-        {
-          "at": "2026-11-07T22:30:29.551564+07:00",
-          "status": "error",
-          "summary": {
-            "failures": 1
-          }
-        },
         {
           "at": "2026-10-16T08:42:37.665454+07:00",
           "status": "baseline",
