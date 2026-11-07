@@ -42,19 +42,49 @@ impl Document {
         order.sort_by_key(|(d, _)| std::cmp::Reverse(*d));
 
         let mut budget = MAX_RELAYOUT_RESOLVES;
+        let mut pending: Vec<(usize, NodeId)> = Vec::new();
+        let direct: Vec<NodeId> = order.iter().map(|(_, id)| *id).collect();
+        let enqueue_parent = |doc: &Document, id: NodeId, pending: &mut Vec<(usize, NodeId)>| {
+            if doc.is_auto_layout_frame(id) && !direct.contains(&id) && !pending.iter().any(|(_, queued)| *queued == id) {
+                pending.push((depth(doc, id), id));
+            }
+        };
+
+        // Solve every directly edited seed first. Ancestors are deferred until all sibling
+        // changes have been applied, so a shared ancestor is solved once using both new sizes.
         for (_, seed) in order {
-            let mut cur = seed;
-            loop {
-                let before = self.get(cur).map(|n| n.size);
-                self.solve_auto_layout_node(cur, 0, &mut budget);
-                let moved = match (before, self.get(cur).map(|n| n.size)) {
-                    (Some(b), Some(a)) => (b.x - a.x).abs() > 1e-3 || (b.y - a.y).abs() > 1e-3,
-                    _ => false,
-                };
-                let parent = self.get(cur).and_then(|n| n.parent);
-                match parent.filter(|p| moved && self.is_auto_layout_frame(*p)) {
-                    Some(p) => cur = p,
-                    None => break,
+            let before = self.get(seed).map(|n| n.size);
+            self.solve_auto_layout_node(seed, 0, &mut budget);
+            let moved = match (before, self.get(seed).map(|n| n.size)) {
+                (Some(b), Some(a)) => (b.x - a.x).abs() > 1e-3 || (b.y - a.y).abs() > 1e-3,
+                _ => false,
+            };
+            if moved {
+                if let Some(parent) = self.get(seed).and_then(|n| n.parent) {
+                    enqueue_parent(self, parent, &mut pending);
+                }
+            }
+        }
+
+        let mut processed = Vec::new();
+        while let Some((_, cur)) = {
+            // Pop the deepest queued ancestor first, matching the seed ordering above.
+            pending.sort_by_key(|(d, _)| *d);
+            pending.pop()
+        } {
+            if processed.contains(&cur) {
+                continue;
+            }
+            processed.push(cur);
+            let before = self.get(cur).map(|n| n.size);
+            self.solve_auto_layout_node(cur, 0, &mut budget);
+            let moved = match (before, self.get(cur).map(|n| n.size)) {
+                (Some(b), Some(a)) => (b.x - a.x).abs() > 1e-3 || (b.y - a.y).abs() > 1e-3,
+                _ => false,
+            };
+            if moved {
+                if let Some(parent) = self.get(cur).and_then(|n| n.parent) {
+                    enqueue_parent(self, parent, &mut pending);
                 }
             }
         }
@@ -904,5 +934,25 @@ mod tests {
         doc.insert(instance, Node::rectangle(child, Rect::new(0.0, 0.0, 375.0, 200.0))).unwrap();
         doc.relayout_subtree(column);
         assert_eq!(doc.get(instance).unwrap().size.y, 200.0, "an expanded instance hugs its children");
+    }
+    #[test]
+    fn shared_hugging_ancestor_is_solved_once_for_two_changed_seeds() {
+        let mut doc = Document::new("shared-ancestor");
+        let page = doc.add_page("Page");
+        let hugging =
+            || AutoLayout { direction: LayoutDirection::Vertical, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..AutoLayout::default() };
+        let parent_id = doc.alloc_id();
+        let parent = doc.insert(page, Node::new(parent_id, NodeKind::Frame(FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() }))).unwrap();
+        let mut seeds = Vec::new();
+        for height in [10.0, 20.0] {
+            let id = doc.alloc_id();
+            let child = doc.insert(parent, Node::new(id, NodeKind::Frame(FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() }))).unwrap();
+            let leaf = doc.alloc_id();
+            doc.insert(child, Node::rectangle(leaf, Rect::new(0.0, 0.0, 40.0, height))).unwrap();
+            seeds.push(child);
+        }
+        reset_solve_calls();
+        doc.relayout_seeds_upward(&[seeds[0], parent, seeds[1], parent]);
+        assert_eq!(solve_calls(), 3, "shared ancestor should be solved once");
     }
 }
