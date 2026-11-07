@@ -1765,6 +1765,14 @@ impl Shell {
         if self.shot.as_ref().is_some_and(|s| s.no_toast) {
             return;
         }
+        // A file manager that started and then gave up (no handler on Linux, a path that is gone) says so now. The
+        // Show in folder toast the user just pressed gives way to it.
+        while let Some(failure) = crate::fig_export::take_late_reveal_failure() {
+            if self.app.toast.as_ref().is_some_and(|t| t.reveal.is_some()) {
+                self.app.toast = None;
+            }
+            self.app.show_toast(failure, true);
+        }
         // The lifetime starts at the first paint. A blocked frame before it (a slow export, a file
         // dialog, a large file opening) must not spend the toast before anyone sees it.
         if let Some(t) = &mut self.app.toast {
@@ -1778,7 +1786,7 @@ impl Shell {
         let hold_for_capture = self.shot.as_ref().is_some_and(|s| !s.requested);
         if !hold_for_capture && self.app.now > self.app.toast.as_ref().map_or(0.0, |t| t.until) {
             self.app.toast = self.app.toast_queue.pop_front().map(|mut next| {
-                let duration = if next.reveal.is_some() { theme::TOAST_REVEAL_SECONDS } else { theme::TOAST_SECONDS };
+                let duration = if next.has_action() { theme::TOAST_REVEAL_SECONDS } else { theme::TOAST_SECONDS };
                 next.duration = duration;
                 next.until = self.app.now + duration;
                 next.armed = false;
@@ -1847,9 +1855,9 @@ impl Shell {
             self.app.web_capture_report_open = !self.app.web_capture_report_open;
         }
         if let (Some("toast-reveal"), Some(file)) = (clicked, reveal) {
-            if let Err(e) = (self.app.reveal_file)(&file) {
+            if let Err(reason) = (self.app.reveal_file)(&file) {
                 self.app.toast = None;
-                self.app.show_toast(e, true);
+                self.app.show_toast(crate::fig_export::reveal_failure_text(&file, &reason), true);
             }
         } else if clicked == Some("toast-enter-path") && enter_path {
             self.app.toast = None;

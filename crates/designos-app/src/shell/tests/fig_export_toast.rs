@@ -85,7 +85,9 @@ fn a_failed_reveal_says_so() {
     s.click(button.center());
 
     let toast = s.app().toast.as_ref().expect("the failure is shown");
-    assert!(toast.error && toast.text.starts_with("Cannot open"), "unexpected toast: {} (error: {})", toast.text, toast.error);
+    let folder = path.parent().unwrap().display().to_string();
+    assert!(toast.error && toast.text.starts_with(&format!("Couldn't open {folder}")), "unexpected toast: {} (error: {})", toast.text, toast.error);
+    assert!(toast.text.ends_with(&format!("Cannot open {}", path.display())), "the reason follows the folder: {}", toast.text);
 }
 
 /// The Home screen over a fresh library, the place the tester ran Export .fig.

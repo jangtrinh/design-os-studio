@@ -190,6 +190,11 @@ impl Toast {
         self.duration = seconds;
         self.until = now + seconds;
     }
+
+    /// True when the toast carries an action button (Show in folder, Enter a path…).
+    pub(crate) fn has_action(&self) -> bool {
+        self.reveal.is_some() || self.enter_path
+    }
 }
 
 pub struct App {
@@ -405,6 +410,11 @@ impl App {
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>, error: bool) {
+        self.raise_toast(text, error);
+    }
+
+    /// Raises a toast like [`App::show_toast`] and returns it where it landed, on screen or in the queue.
+    pub(crate) fn raise_toast(&mut self, text: impl Into<String>, error: bool) -> &mut Toast {
         let mut text = text.into();
         let mut error = error;
         if let Some((at, prev)) = self.pending_flush_notice.take() {
@@ -413,12 +423,37 @@ impl App {
                 error = true;
             }
         }
-        let next = Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None, enter_path: false, duration: theme::TOAST_SECONDS, armed: false };
-        if self.toast.as_ref().is_some_and(|t| t.reveal.is_some() && (!t.armed || self.now < t.until)) {
+        self.place_toast(Toast {
+            text,
+            until: self.now + theme::TOAST_SECONDS,
+            error,
+            reveal: None,
+            enter_path: false,
+            duration: theme::TOAST_SECONDS,
+            armed: false,
+        })
+    }
+
+    /// Puts `next` on screen, or behind the toast on screen when that one carries an action that has not run out.
+    /// A toast with an action is never replaced: the user may be about to press it.
+    fn place_toast(&mut self, next: Toast) -> &mut Toast {
+        if self.toast.as_ref().is_some_and(|t| t.has_action() && (!t.armed || self.now < t.until)) {
             self.toast_queue.push_back(next);
-            return;
+            let last = self.toast_queue.len() - 1;
+            return &mut self.toast_queue[last];
         }
-        self.toast = Some(next);
+        self.toast.insert(next)
+    }
+
+    /// The status of work that is about to block the UI ("Saving… loading all pages"). It is on screen for the next
+    /// paint even when a toast with an action is up; that toast waits at the front of the queue and comes back, with
+    /// its full time, once the status is gone.
+    pub(crate) fn show_status_toast(&mut self, text: impl Into<String>) {
+        let now = self.now;
+        if let Some(displaced) = self.toast.take_if(|t| t.has_action() && (!t.armed || now < t.until)) {
+            self.toast_queue.push_front(displaced);
+        }
+        self.show_toast(text, false);
     }
 
     /// A toast that stays long enough to read and offers to show `path` in its folder.
@@ -428,7 +463,7 @@ impl App {
 
     /// A toast that offers to show `path` in its folder, keeping `error` when a fallback or warning occurred.
     pub fn show_toast_with_reveal_status(&mut self, text: impl Into<String>, error: bool, path: PathBuf) {
-        self.toast = Some(Toast {
+        self.place_toast(Toast {
             text: text.into(),
             until: self.now + theme::TOAST_REVEAL_SECONDS,
             error,
