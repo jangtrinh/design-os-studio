@@ -2,7 +2,7 @@
 
 use super::{
     apply_checked, create_table, delete_cols, delete_rows, insert_cols, insert_rows, merge, move_col, move_row, next_cell, resize_col, resize_row,
-    resize_table, set_cell_text, unmerge, TableOpError, TableStyle, TABLE_MAX_TRACKS,
+    resize_table, set_cell_text, unmerge, TableOpError, TableStyle, TABLE_MAX_SIZE, TABLE_MAX_TRACKS,
 };
 use crate::table::relayout;
 use crate::*;
@@ -665,4 +665,45 @@ fn a_thousand_random_ops_on_a_6x6_table_keep_every_invariant() {
     assert!(stats.refused.contains_key("move_row") || stats.refused.contains_key("move_col"), "a merge was never in the way of a move: {stats:?}");
     assert!(stats.refused.contains_key("merge"), "a merge was never refused: {stats:?}");
     println!("random ops: applied {:?}, refused {:?}", stats.applied, stats.refused);
+}
+
+// ---------------------------------------------------------------- caller-supplied counts and sizes
+
+#[test]
+fn a_huge_insert_count_is_too_large_not_an_overflow() {
+    let (d, _, table) = doc_with_table(2, 2);
+    for count in [usize::MAX, usize::MAX - 1, TABLE_MAX_TRACKS] {
+        assert!(matches!(insert_rows(&d, table, 0, count), Err(TableOpError::TooLarge(_))), "rows, count {count}");
+        assert!(matches!(insert_cols(&d, table, 2, count), Err(TableOpError::TooLarge(_))), "cols, count {count}");
+    }
+    assert!(insert_rows(&d, table, 0, TABLE_MAX_TRACKS - 2).is_ok(), "exactly the limit is allowed");
+    assert!(matches!(insert_rows(&d, table, usize::MAX, 1), Err(TableOpError::IndexOutOfRange(_))));
+    assert!(matches!(merge(&d, table, (0, 0, usize::MAX, usize::MAX)), Err(TableOpError::IndexOutOfRange(_))));
+    assert!(matches!(set_cell_text(&d, table, usize::MAX, 0, "x"), Err(TableOpError::IndexOutOfRange(_))));
+}
+
+#[test]
+fn track_and_table_sizes_are_capped_at_the_schema_limit() {
+    let (mut d, _, table) = doc_with_table(2, 2);
+    let (rows, _) = track_ids(&d, table);
+    run_once(&mut d, |d| resize_row(d, table, rows[0], f32::MAX));
+    // the second request lands on the same clamped size: nothing to do, and nothing overflows
+    assert!(matches!(resize_row(&d, table, rows[0], f32::MAX), Err(TableOpError::NoChange(_))));
+    let g = geometry(&d, table);
+    assert!(g.2.is_finite() && g.3.is_finite(), "table geometry stays finite: {g:?}");
+    assert_eq!(props(&d, table).rows[0].size, TABLE_MAX_SIZE);
+    assert_eq!(check_table_positions(&d, table), Ok(()));
+    run_once(&mut d, |d| resize_row(d, table, rows[1], f32::INFINITY));
+    assert_eq!(props(&d, table).rows[1].size, TABLE_MAX_SIZE);
+    // resize_table clamps a finite request to the limit; non-finite or non-positive input is refused
+    run_once(&mut d, |d| resize_table(d, table, Vec2::new(3e38, 3e38)));
+    let p = props(&d, table);
+    assert!(p.cols.iter().chain(&p.rows).all(|t| t.size.is_finite() && t.size <= TABLE_MAX_SIZE && t.size >= TABLE_MIN_TRACK));
+    let g = geometry(&d, table);
+    assert!(g.2.is_finite() && g.3.is_finite());
+    assert!((p.cols.iter().map(|t| t.size).sum::<f32>() - TABLE_MAX_SIZE).abs() < 1.0, "the width was clamped to the limit");
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -5.0] {
+        assert!(resize_table(&d, table, Vec2::new(bad, 100.0)).is_err(), "{bad}");
+        assert!(resize_table(&d, table, Vec2::new(100.0, bad)).is_err(), "{bad}");
+    }
 }

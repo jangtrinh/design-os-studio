@@ -18,6 +18,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// Most rows or columns one table may have, a guard against a runaway agent call.
 pub const TABLE_MAX_TRACKS: usize = 500;
 
+/// Largest row height, column width or table side. Mirrors the `maximum` of the MCP `size` schema
+/// (`designos-mcp` `engine.rs` `tools()`), so a table can never be sized beyond what an agent may ask for.
+pub const TABLE_MAX_SIZE: f32 = 1_000_000.0;
+
 /// Why a table operation was refused. Every message names the next action.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TableOpError {
@@ -162,10 +166,10 @@ fn id_block(doc: &Document, n: usize) -> u64 {
 }
 
 fn clamp_size(size: f32) -> f32 {
-    if size.is_finite() {
-        size.max(TABLE_MIN_TRACK)
-    } else {
+    if size.is_nan() {
         TABLE_MIN_TRACK
+    } else {
+        size.clamp(TABLE_MIN_TRACK, TABLE_MAX_SIZE)
     }
 }
 
@@ -383,7 +387,7 @@ fn insert_tracks(doc: &Document, table: NodeId, axis: Axis, at: usize, count: us
     if at > len {
         return Err(E::IndexOutOfRange(format!("The table has {len} {word}s. Pick a place from 1 to {}.", len + 1)));
     }
-    if len + count > TABLE_MAX_TRACKS {
+    if count > TABLE_MAX_TRACKS.saturating_sub(len) {
         return Err(E::TooLarge(format!("A table can have at most {TABLE_MAX_TRACKS} {word}s. Add fewer.")));
     }
     // The new cells copy the fills of the neighbouring track, read before anything changes.
@@ -533,9 +537,10 @@ pub fn resize_table(doc: &Document, table: NodeId, new_size: Vec2) -> Result<Com
     if !(new_size.x.is_finite() && new_size.y.is_finite() && new_size.x > 0.0 && new_size.y > 0.0) {
         return Err(E::IndexOutOfRange("Give the table a width and a height above zero.".into()));
     }
-    for (tracks, target) in [(&mut d.props.cols, new_size.x), (&mut d.props.rows, new_size.y)] {
-        let sum: f32 = tracks.iter().map(|t| clamp_size(t.size)).sum();
-        tracks.iter_mut().for_each(|t| t.size = clamp_size(clamp_size(t.size) * target / sum));
+    for (tracks, request) in [(&mut d.props.cols, new_size.x), (&mut d.props.rows, new_size.y)] {
+        let goal = f64::from(request).min(f64::from(TABLE_MAX_SIZE));
+        let sum: f64 = tracks.iter().map(|t| f64::from(clamp_size(t.size))).sum();
+        tracks.iter_mut().for_each(|t| t.size = clamp_size((f64::from(clamp_size(t.size)) * goal / sum) as f32));
     }
     d.finish()
 }
