@@ -43,6 +43,19 @@ fn table(t: &mut T, merged: bool) -> (NodeId, Vec<NodeId>) {
     (table_id, cells)
 }
 
+/// Puts `entries` throwaway lowered children into the lowering registry of this thread by lowering
+/// loose cells through the public entry point (cells never clear the registry themselves). Call it
+/// on a thread whose registry is still empty: that is what lands the registry one below its limit.
+fn fill_registry(entries: usize) {
+    let doc = Document::new("registry filler");
+    let track = TrackId { session: 0, local: 1 };
+    for i in 0..entries as u64 {
+        let mut n = Node::new(NodeId(1_000_000 + i), NodeKind::TableCell(TableCellProps { row: track, col: track, text: default_cell_text("x") }));
+        n.size = Vec2::new(100.0, 40.0);
+        board::lower(&doc, &n).expect("a cell lowers");
+    }
+}
+
 #[test]
 fn merged_block_is_one_cell_without_inner_grid_lines() {
     let mut t = T::new();
@@ -95,6 +108,25 @@ fn cell_text_is_drawn_inside_the_padding() {
 }
 
 #[test]
+fn text_in_a_24_px_column_is_still_drawn() {
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 1, 2, Vec2::new(ORIGIN, ORIGIN));
+    nodes[0].fills = vec![Paint::solid(Color::WHITE)];
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols[0].size = TABLE_MIN_TRACK;
+    }
+    nodes[1].size = Vec2::new(TABLE_MIN_TRACK, TABLE_DEFAULT_ROW_HEIGHT);
+    nodes[2].transform = Affine::translate(TABLE_MIN_TRACK, 0.0);
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text = default_cell_text("W");
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let pm = t.render(300, 100);
+    let ink = (20..44).flat_map(|x| (20..64).map(move |y| (x, y))).filter(|&(x, y)| px(&pm, x, y)[0] < 100).count();
+    assert!(ink > 0, "the text of a 24 px column has ink");
+}
+
+#[test]
 fn scene_index_bounds_match_every_cell_rect() {
     let mut t = T::new();
     let (table_id, cells) = table(&mut t, false);
@@ -118,7 +150,7 @@ fn grid_survives_a_registry_clear_during_the_draw() {
             c.text = default_cell_text(&format!("c{i}"));
         }
     }
-    board::fill_registry_for_tests(49_999);
+    fill_registry(49_999);
     let pm = t.render(560, 200);
     for (x, y) in [(179, 40), (339, 40), (100, 63), (100, 107), (20, 100), (500, 130)] {
         assert_eq!(px(&pm, x, y), STROKE, "grid line at ({x}, {y}) after a registry near its limit");
