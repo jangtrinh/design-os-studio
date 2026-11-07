@@ -2489,17 +2489,22 @@ mod tests {
         shapes.iter().any(|s| matches!(s, egui::Shape::Rect(r) if r.fill == fill && (r.rect.height() - 20.0).abs() < 0.5 && r.rect.width() < 70.0))
     }
 
+    fn has_badge_edge(shapes: &[egui::Shape], edge: Color32) -> bool {
+        shapes.iter().any(|s| matches!(s, egui::Shape::Rect(r) if r.stroke.color == edge && (r.rect.height() - 20.0).abs() < 0.5 && r.rect.width() < 70.0))
+    }
+
     #[test]
     fn contrast_badges_use_status_roles() {
         // (grey level, badge text, background, border-free text colour)
         let rows = [
-            (255u8, "AAA", theme::BG_SUCCESS_PRIMARY, theme::BADGE_SUCCESS_TEXT),
-            (0x80, "AA Large", theme::BG_WARNING_PRIMARY, theme::BADGE_WARNING_TEXT),
-            (0x9A, "Low", theme::BG_ERROR_PRIMARY, theme::BADGE_ERROR_TEXT),
+            (255u8, "AAA", theme::BG_SUCCESS_PRIMARY, theme::BADGE_SUCCESS_TEXT, theme::BADGE_SUCCESS_BORDER),
+            (0x80, "AA Large", theme::BG_WARNING_PRIMARY, theme::BADGE_WARNING_TEXT, theme::BADGE_WARNING_BORDER),
+            (0x9A, "Low", theme::BG_ERROR_PRIMARY, theme::BADGE_ERROR_TEXT, theme::BADGE_ERROR_BORDER),
         ];
-        for (g, label, bg, fg) in rows {
+        for (g, label, bg, fg, edge) in rows {
             let shapes = picker_shapes(&mut solid(g, g, g, 1.0));
             assert!(has_badge_fill(&shapes, bg), "{label}: badge background is the status role");
+            assert!(has_badge_edge(&shapes, edge), "{label}: badge border is the status role");
             assert_eq!(text_color_of(&shapes, label), Some(fg), "{label}: badge text is the status role");
             let ratio = shapes.iter().find_map(|s| match s {
                 egui::Shape::Text(t) if t.galley.text().ends_with(" : 1") => t.galley.job.sections.first().map(|sec| sec.format.color),
@@ -2513,9 +2518,11 @@ mod tests {
             let ratio = wcag_contrast_ratio(l, relative_luminance([0x1E, 0x1E, 0x1E]));
             l >= 0.35 && (4.5..7.0).contains(&ratio)
         });
-        if let Some(g) = aa {
+        {
+            let g = aa.expect("a grey in the AA band");
             let shapes = picker_shapes(&mut solid(g, g, g, 1.0));
             assert!(has_badge_fill(&shapes, theme::BG_SUCCESS_PRIMARY));
+            assert!(has_badge_edge(&shapes, theme::BADGE_SUCCESS_BORDER));
             assert_eq!(text_color_of(&shapes, "AA"), Some(theme::BADGE_SUCCESS_TEXT));
         }
     }
@@ -2529,7 +2536,13 @@ mod tests {
         assert!(shapes.iter().filter(|s| handle(s)).count() >= 2, "one white 12x16 handle per stop");
         let ring = |s: &egui::Shape| matches!(s, egui::Shape::Rect(r) if r.stroke.color == theme::CONTENT_HANDLE_RING && (r.rect.width() - 14.0).abs() < 0.5);
         assert!(shapes.iter().filter(|s| ring(s)).count() >= 2, "a dark ring around each handle");
-        assert_ne!(theme::CONTENT_HANDLE_FILL, theme::BG_BRAND, "the orange slider handle is never used on a track");
+        // The colour area, hue and alpha thumbs are rings: a white stroke over a dark casing.
+        let circle_stroke = |color: Color32| shapes.iter().filter(|s| matches!(s, egui::Shape::Circle(c) if c.stroke.color == color)).count();
+        let solid_shapes = picker_shapes(&mut solid(200, 40, 40, 1.0));
+        let thumbs = |color: Color32| solid_shapes.iter().filter(|s| matches!(s, egui::Shape::Circle(c) if c.stroke.color == color)).count();
+        assert!(thumbs(theme::CONTENT_HANDLE_FILL) >= 3, "white ring on the area, hue and alpha thumbs");
+        assert!(thumbs(theme::CONTENT_HANDLE_RING) >= 3, "dark casing around the area, hue and alpha thumbs");
+        assert!(circle_stroke(theme::BG_BRAND) == 0, "the orange slider handle is never used on a track");
     }
 
     #[test]
