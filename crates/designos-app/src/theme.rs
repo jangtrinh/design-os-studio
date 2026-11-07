@@ -834,11 +834,15 @@ pub const ANNOTATION_TEXT: Color32 = rgb(0x1E1E1E);
 pub const ANNOTATION_LINE: Color32 = rgb(0xFFB800);
 /// Measurement overlay red (distances between layers).
 pub const MEASURE: Color32 = rgb(0xF24822);
+/// Text drawn inside measurement pills.
+pub const MEASURE_LABEL_TEXT: Color32 = TEXT_ON_BRAND;
 pub const CODE_LINE_HEIGHT: f32 = LINE_BODY;
 
 // ---------------------------------------------------------------- prototype
 /// Noodles, hotspots and flow flags use the brand blue.
 pub const PROTO_BLUE: Color32 = BG_BRAND;
+/// Text drawn inside prototype flow flags.
+pub const PROTO_LABEL_TEXT: Color32 = TEXT_ON_BRAND;
 pub const PROTO_NOODLE_WIDTH: f32 = 2.0;
 pub const PROTO_HOTSPOT_RADIUS: f32 = 6.0;
 pub const PROTO_HOTSPOT_RING: f32 = 2.0;
@@ -1457,6 +1461,14 @@ mod tests {
             let ratio = wcag_contrast(TEXT_ON_BRAND, bg);
             assert!(ratio >= 4.5, "TEXT_ON_BRAND on {bg_name} fails AA: {ratio:.2}:1 < 4.5:1");
         }
+    }
+
+    #[test]
+    fn overlay_labels_pass_aa_on_their_coloured_surfaces() {
+        assert!(wcag_contrast(PROTO_LABEL_TEXT, PROTO_BLUE) >= 4.5);
+        assert!(wcag_contrast(MEASURE_LABEL_TEXT, MEASURE) >= 4.5);
+        assert_ne!(PROTO_LABEL_TEXT, Color32::WHITE, "the old white prototype label fails AA");
+        assert_ne!(MEASURE_LABEL_TEXT, Color32::WHITE, "the old white measure label fails AA");
     }
 
     /// `BG_OVERLAY` drawn over white, straight alpha, the conservative C-1.40 / C-1.72 backdrop.

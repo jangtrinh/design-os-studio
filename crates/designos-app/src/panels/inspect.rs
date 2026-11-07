@@ -804,7 +804,7 @@ pub fn measure_overlay(app: &App, ui: &Ui, rect: Rect) {
         let w = text_width(&p, &label, &font) + 10.0;
         let pill = Rect::from_center_size(mid + if horizontal { Vec2::new(0.0, -14.0) } else { Vec2::new(18.0 + w / 2.0, 0.0) }, Vec2::new(w, 16.0));
         p.rect_filled(pill, theme::cr(theme::RADIUS_MARK), MEASURE);
-        p.text(pill.center(), Align2::CENTER_CENTER, label, font, Color32::WHITE);
+        p.text(pill.center(), Align2::CENTER_CENTER, label, font, theme::MEASURE_LABEL_TEXT);
     }
 }
 
