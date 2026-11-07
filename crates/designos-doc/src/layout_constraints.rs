@@ -290,10 +290,11 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
             // centred on it). Clearing it would redraw the line as a centred primitive, half a stroke off,
             // so a plain band is stretched along the line (anything past either end moves with that end).
             // Where stretching would draw something other than Figma's stroke, the outline is cleared and
-            // the line is drawn live, as before: dashes would stretch with the band, a marker cap (an
-            // arrowhead lies inside the line and would stretch too, and a cap Figma draws that the stroke
-            // model has no name for is recorded in `fig_metadata`) would distort, and a line with no
-            // length has no extent to scale. A line has one cap for both ends (`Stroke::cap`).
+            // the line is drawn live, as before: dashes would stretch with the band, a marker cap would
+            // distort (an arrowhead lies inside the line and would stretch too; a cap the stroke model has
+            // no name for, such as a REST arrow spelling or a decorative cap, is recorded by the importers
+            // in `fig_metadata["strokeCap"]` for lines), and a line with no length has no extent to scale.
+            // A line has one cap for both ends (`Stroke::cap`).
             let stretchable = node.stroke.dashes.is_empty() && old_size.x > 1e-3 && !node.stroke.cap.is_arrow() && !node.fig_metadata.contains_key("strokeCap");
             if stretchable {
                 let old_w = old_size.x;
