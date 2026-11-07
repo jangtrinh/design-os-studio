@@ -561,3 +561,348 @@ fn x_over_the_align_row_leaves_a_pen_path_in_progress_alone() {
     assert!(s.app().canvas.pen.is_some(), "the pen path is still in progress");
     assert_eq!(s.app().doc.nodes.len(), nodes_before, "no layer was made from the pen path");
 }
+
+#[test]
+fn quick_create_click_adds_connected_copy_to_the_right() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(120.0, 180.0, 160.0, 100.0)), "Screen A");
+    s.click(center(&s, a));
+    assert_eq!(s.app().selection, vec![a]);
+
+    s.click(dot_of(&s, a, designos_doc::Magnet::Right));
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1, "clicking the right dot creates one connector");
+    let c = cs[0];
+    let copy_id = s.app().selection[0];
+    assert_ne!(copy_id, a);
+    assert_ne!(copy_id, c);
+
+    let copy = s.app().doc.get(copy_id).unwrap();
+    assert_eq!(copy.parent, Some(page));
+    assert_eq!(copy.size, DV::new(160.0, 100.0));
+    assert_eq!(copy.transform.tx, 120.0 + 160.0 + crate::theme::BOARD_QUICK_CREATE_GAP);
+    assert_eq!(copy.transform.ty, 180.0);
+
+    let cn = s.app().doc.get(c).unwrap();
+    assert_eq!(cn.parent, Some(page));
+    assert!(cn.layout_child.absolute);
+    let NodeKind::Connector(p) = &cn.kind else { unreachable!() };
+    assert_eq!((p.start.node, p.start.magnet), (Some(a), designos_doc::Magnet::Right));
+    assert_eq!((p.end.node, p.end.magnet), (Some(copy_id), designos_doc::Magnet::Left));
+    assert_eq!(p.line, designos_doc::ConnectorLine::Elbowed);
+    assert_eq!(p.start_cap, designos_doc::ConnectorCap::None);
+    assert_eq!(p.end_cap, designos_doc::ConnectorCap::Arrow);
+}
+
+#[test]
+fn quick_create_stacks_on_repeated_clicks_without_overlap() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(120.0, 260.0, 120.0, 80.0)), "Card");
+    s.click(center(&s, a));
+    let d = dot_of(&s, a, designos_doc::Magnet::Right);
+    s.click(d);
+    let c1 = s.app().selection[0];
+    s.click(d);
+    let c2 = s.app().selection[0];
+    s.click(d);
+    let c3 = s.app().selection[0];
+
+    assert_ne!(c1, a);
+    assert_ne!(c2, c1);
+    assert_ne!(c3, c2);
+    assert_eq!(connectors(&s).len(), 3);
+
+    let gap = crate::theme::BOARD_QUICK_CREATE_GAP;
+    let expected_x = 120.0 + 120.0 + gap;
+    let step_y = 80.0 + gap * 0.5;
+    let r1 = crate::util::world_aabb(&s.app().doc, c1);
+    let r2 = crate::util::world_aabb(&s.app().doc, c2);
+    let r3 = crate::util::world_aabb(&s.app().doc, c3);
+    assert_eq!((r1.x, r1.y), (expected_x, 260.0));
+    assert_eq!((r2.x, r2.y), (expected_x, 260.0 + step_y));
+    assert_eq!((r3.x, r3.y), (expected_x, 260.0 - step_y));
+    assert!(!crate::agent_busy_frames::rects_overlap(r1, r2));
+    assert!(!crate::agent_busy_frames::rects_overlap(r1, r3));
+    assert!(!crate::agent_busy_frames::rects_overlap(r2, r3));
+}
+
+#[test]
+fn quick_create_copies_a_sticky_with_empty_text_and_starts_editing() {
+    let mut s = board_sim();
+    let page = s.app().page;
+    let custom_color = crate::board::color_of(crate::theme::BOARD_PALETTE[3]);
+    let a = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::sticky(id, DRect::new(200.0, 200.0, 180.0, 180.0), "Keep style only");
+            if let NodeKind::Sticky(st) = &mut n.kind {
+                st.color = custom_color;
+            }
+            n
+        },
+        "Sticky A",
+    );
+    s.click(center(&s, a));
+    assert_eq!(s.app().selection, vec![a]);
+
+    s.click(dot_of(&s, a, designos_doc::Magnet::Right));
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1);
+    let copy_id = s.app().selection[0];
+    assert_ne!(copy_id, a);
+    assert_eq!(s.app().canvas.text.as_ref().map(|t| t.id), Some(copy_id), "text editor opens on the new sticky");
+
+    let copy = s.app().doc.get(copy_id).unwrap();
+    assert_eq!(copy.size, DV::new(180.0, 180.0));
+    let NodeKind::Sticky(st) = &copy.kind else { panic!("expected sticky copy") };
+    assert_eq!(st.color, custom_color);
+    assert!(st.text.content.is_empty(), "copied sticky starts with empty text");
+}
+
+#[test]
+fn quick_create_deep_copies_a_frame() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let outer = add(&mut s, page, |id| Node::frame(id, DRect::new(60.0, 60.0, 900.0, 600.0)), "Section Frame");
+    let card = add(&mut s, outer, |id| Node::frame(id, DRect::new(40.0, 80.0, 200.0, 120.0)), "Card");
+    let _child_rect = rectangle(&mut s, card, "Badge", 16.0, 16.0);
+    let _child_text = add(&mut s, card, |id| Node::text(id, DRect::new(16.0, 64.0, 120.0, 24.0), "Title", designos_doc::TextStyle::default()), "Title");
+
+    s.shell.app.select_only(card);
+    s.frame(vec![]);
+    s.mv(center(&s, card));
+    s.click(dot_of(&s, card, designos_doc::Magnet::Right));
+
+    let copy_id = s.app().selection[0];
+    assert_ne!(copy_id, card);
+    let copy = s.app().doc.get(copy_id).unwrap();
+    assert_eq!(copy.parent, Some(outer), "copy shares the source frame's parent");
+    assert_eq!(copy.children.len(), 2, "deep copy brings all child layers");
+    assert_eq!(copy.transform.tx, 40.0 + 200.0 + crate::theme::BOARD_QUICK_CREATE_GAP);
+    assert_eq!(copy.transform.ty, 80.0);
+
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1);
+    assert_eq!(s.app().doc.get(cs[0]).unwrap().parent, Some(outer), "connector is homed in the shared parent frame");
+}
+
+#[test]
+fn quick_create_hidden_on_locked_and_auto_layout_children() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let locked_frame = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(100.0, 100.0, 160.0, 100.0));
+            n.locked = true;
+            n
+        },
+        "Locked",
+    );
+    s.shell.app.select_only(locked_frame);
+    s.frame(vec![]);
+    s.mv(center(&s, locked_frame));
+    assert_eq!(s.app().board.dots, None, "locked layer shows no quick-create dots");
+    let count_before = s.app().doc.nodes.len();
+    s.cmd_key(Key::Enter);
+    assert_eq!(s.app().doc.nodes.len(), count_before, "Cmd+Enter on a locked layer creates nothing");
+
+    let al_frame = add(
+        &mut s,
+        page,
+        |id| {
+            let mut n = Node::frame(id, DRect::new(100.0, 280.0, 320.0, 120.0));
+            if let Some(fp) = n.kind.frame_props_mut() {
+                fp.auto_layout = Some(designos_doc::AutoLayout::default());
+            }
+            n
+        },
+        "AL",
+    );
+    let al_child = rectangle(&mut s, al_frame, "AL Child", 16.0, 16.0);
+    s.shell.app.select_only(al_child);
+    s.frame(vec![]);
+    s.mv(center(&s, al_child));
+    assert_eq!(s.app().board.dots, None, "direct child of an auto-layout frame shows no quick-create dots");
+    let count_before_al = s.app().doc.nodes.len();
+    s.cmd_key(Key::Enter);
+    assert_eq!(s.app().doc.nodes.len(), count_before_al, "Cmd+Enter on an auto-layout child creates nothing");
+}
+
+#[test]
+fn cmd_enter_quick_creates_to_the_right() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(120.0, 180.0, 160.0, 100.0)), "A");
+    let inner = rectangle(&mut s, a, "Inner", 10.0, 10.0);
+
+    // Plain Enter on a selected frame still selects its children rather than quick-creating.
+    s.shell.app.select_only(a);
+    s.frame(vec![]);
+    s.key(Key::Enter);
+    assert_eq!(s.app().selection, vec![inner], "plain Enter selects children");
+    assert!(connectors(&s).is_empty());
+
+    // Cmd/Ctrl+Enter quick-creates a connected copy to the right.
+    s.shell.app.select_only(a);
+    s.frame(vec![]);
+    s.cmd_key(Key::Enter);
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1);
+    let copy_id = s.app().selection[0];
+    assert_ne!(copy_id, a);
+    let copy = s.app().doc.get(copy_id).unwrap();
+    assert_eq!(copy.transform.tx, 120.0 + 160.0 + crate::theme::BOARD_QUICK_CREATE_GAP);
+    assert_eq!(copy.transform.ty, 180.0);
+    let NodeKind::Connector(p) = &s.app().doc.get(cs[0]).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.node, p.start.magnet), (Some(a), designos_doc::Magnet::Right));
+    assert_eq!((p.end.node, p.end.magnet), (Some(copy_id), designos_doc::Magnet::Left));
+}
+
+#[test]
+fn quick_create_top_places_copy_above_and_connects_top_to_bottom() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(300.0, 320.0, 160.0, 100.0)), "A");
+    s.click(center(&s, a));
+    s.click(dot_of(&s, a, designos_doc::Magnet::Top));
+
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1);
+    let copy_id = s.app().selection[0];
+    let copy = s.app().doc.get(copy_id).unwrap();
+    assert_eq!(copy.transform.tx, 300.0);
+    assert_eq!(copy.transform.ty, 320.0 - 100.0 - crate::theme::BOARD_QUICK_CREATE_GAP);
+    let NodeKind::Connector(p) = &s.app().doc.get(cs[0]).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.node, p.start.magnet), (Some(a), designos_doc::Magnet::Top));
+    assert_eq!((p.end.node, p.end.magnet), (Some(copy_id), designos_doc::Magnet::Bottom));
+}
+
+#[test]
+fn quick_create_bottom_places_copy_below_and_connects_bottom_to_top() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(300.0, 180.0, 160.0, 100.0)), "A");
+    s.click(center(&s, a));
+    s.click(dot_of(&s, a, designos_doc::Magnet::Bottom));
+
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1);
+    let copy_id = s.app().selection[0];
+    let copy = s.app().doc.get(copy_id).unwrap();
+    assert_eq!(copy.transform.tx, 300.0);
+    assert_eq!(copy.transform.ty, 180.0 + 100.0 + crate::theme::BOARD_QUICK_CREATE_GAP);
+    let NodeKind::Connector(p) = &s.app().doc.get(cs[0]).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.node, p.start.magnet), (Some(a), designos_doc::Magnet::Bottom));
+    assert_eq!((p.end.node, p.end.magnet), (Some(copy_id), designos_doc::Magnet::Top));
+}
+
+#[test]
+fn quick_create_left_places_copy_left_and_connects_left_to_right() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(420.0, 180.0, 160.0, 100.0)), "A");
+    s.click(center(&s, a));
+    s.click(dot_of(&s, a, designos_doc::Magnet::Left));
+
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1);
+    let copy_id = s.app().selection[0];
+    let copy = s.app().doc.get(copy_id).unwrap();
+    assert_eq!(copy.transform.tx, 420.0 - 160.0 - crate::theme::BOARD_QUICK_CREATE_GAP);
+    assert_eq!(copy.transform.ty, 180.0);
+    let NodeKind::Connector(p) = &s.app().doc.get(cs[0]).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.node, p.start.magnet), (Some(a), designos_doc::Magnet::Left));
+    assert_eq!((p.end.node, p.end.magnet), (Some(copy_id), designos_doc::Magnet::Right));
+}
+
+#[test]
+fn quick_create_is_one_undo_step() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(120.0, 180.0, 160.0, 100.0)), "A");
+    s.click(center(&s, a));
+    assert_eq!(s.app().selection, vec![a]);
+    let depth0 = s.app().hist.undo_depth();
+
+    s.click(dot_of(&s, a, designos_doc::Magnet::Right));
+    assert_eq!(s.app().hist.undo_depth(), depth0 + 1, "copy and connector commit in one Tx");
+    let copy_id = s.app().selection[0];
+    assert_ne!(copy_id, a);
+    assert_eq!(connectors(&s).len(), 1);
+
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.get(copy_id).is_none(), "one undo removes the copy");
+    assert!(connectors(&s).is_empty(), "one undo removes the connector");
+    assert_eq!(s.app().selection, vec![a], "one undo restores the previous selection");
+}
+
+#[test]
+fn cmd_alt_enter_still_starts_presentation() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(120.0, 180.0, 160.0, 100.0)), "Slide 1");
+    s.shell.app.select_only(a);
+    s.frame(vec![]);
+    let nodes_before = s.app().doc.nodes.len();
+
+    let is_mac = cfg!(target_os = "macos");
+    s.mods = Modifiers { alt: true, ctrl: !is_mac, shift: false, mac_cmd: is_mac, command: true };
+    s.key(Key::Enter);
+    s.mods = Modifiers::NONE;
+
+    assert!(s.app().proto.present.is_some(), "Cmd+Alt+Enter still opens presentation view");
+    assert_eq!(s.app().doc.nodes.len(), nodes_before, "Cmd+Alt+Enter does not quick-create a copy");
+    assert!(connectors(&s).is_empty());
+}
+
+#[test]
+fn dragging_from_a_dot_still_draws_a_connector() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(120.0, 180.0, 160.0, 100.0)), "A");
+    let b = add(&mut s, page, |id| Node::frame(id, DRect::new(520.0, 180.0, 160.0, 100.0)), "B");
+    s.click(center(&s, a));
+    let nodes_before = s.app().doc.nodes.len();
+
+    s.drag(dot_of(&s, a, designos_doc::Magnet::Right), center(&s, b));
+    let cs = connectors(&s);
+    assert_eq!(cs.len(), 1);
+    assert_eq!(s.app().doc.nodes.len(), nodes_before + 1, "dragging from a dot adds only the connector, no copy");
+    let NodeKind::Connector(p) = &s.app().doc.get(cs[0]).unwrap().kind else { unreachable!() };
+    assert_eq!((p.start.node, p.end.node), (Some(a), Some(b)));
+}
+
+#[test]
+fn hot_dot_hover_does_not_mark_document_changed() {
+    let mut s = design_sim();
+    let page = s.app().page;
+    let a = add(&mut s, page, |id| Node::frame(id, DRect::new(120.0, 180.0, 160.0, 100.0)), "A");
+    s.click(center(&s, a));
+    s.frame(vec![]);
+    s.shell.app.canvas.dirty = false;
+    let rev0 = s.app().canvas.tiles.rev();
+
+    let d = dot_of(&s, a, designos_doc::Magnet::Right);
+    s.mv(d);
+    assert!(!s.app().canvas.dirty, "hovering a hot dot must not mark the document dirty");
+    assert_eq!(s.app().canvas.tiles.rev(), rev0, "hovering a hot dot must not bump TileView::rev");
+
+    let plus_lines = s
+        .shapes
+        .iter()
+        .filter(|cs| match &cs.shape {
+            egui::epaint::Shape::LineSegment { points, stroke } => {
+                stroke.color == crate::theme::BG_BRAND
+                    && (points[0] - d).length() <= crate::theme::BOARD_MAGNET_RADIUS * 1.3
+                    && (points[1] - d).length() <= crate::theme::BOARD_MAGNET_RADIUS * 1.3
+            }
+            _ => false,
+        })
+        .count();
+    assert_eq!(plus_lines, 2, "hot dot draws the two perpendicular '+' segments in BG_BRAND inside the ring");
+}
