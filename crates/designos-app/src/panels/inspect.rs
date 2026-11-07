@@ -216,7 +216,10 @@ pub(crate) fn copy(app: &mut App, ui: &Ui, text: String, what: &str) {
 
 pub(crate) fn small_button(ui: &mut Ui, rect: Rect, key: impl widgets::Key, label: &str) -> bool {
     widgets::record(ui, &format!("btn-{key:?}"), rect);
-    crate::widgets::kit::button(ui, rect, ("insp-btn", key), label, crate::widgets::kit::Hierarchy::Secondary, crate::widgets::kit::Size::Xs, true).clicked()
+    let r = ui.interact(rect, ui.id().with(("insp-btn", key)), Sense::click());
+    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+    ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body(), theme::TEXT);
+    r.clicked()
 }
 
 pub(crate) fn section_title(ui: &Ui, c: &mut Cur, label: &str) {
