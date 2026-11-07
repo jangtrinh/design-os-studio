@@ -402,7 +402,10 @@ fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
     body.stroke.side_weights = None;
     let (px, py) = TABLE_CELL_PADDING;
     let bx = Rect::new(px, py, (n.size.x - 2.0 * px).max(0.0), (n.size.y - 2.0 * py).max(0.0));
-    extras.extend(fitted_text(n, 0, TextFrame { rect: bx, props: c.text.clone() }));
+    // wraps at the cell width, the width the table layout measures with
+    let mut props = c.text.clone();
+    props.auto_resize = TextAutoResize::Height;
+    extras.extend(fitted_text(n, 0, TextFrame { rect: bx, props }));
 }
 
 /// A table: its fills as a frame that clips nothing, with the grid lines as one synthetic vector
