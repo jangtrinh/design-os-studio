@@ -675,8 +675,32 @@ fn detach_text_style_in(doc: &mut Document, tx: &mut crate::edit::Tx, nodes: &[N
         if doc.get(nid).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)) && n.style_refs.contains_key(rk)) {
             if let Some(n) = tx.ed.node(doc, nid) {
                 n.style_refs.remove(rk);
+                n.text_style_overrides = designos_doc::OwnedFieldSet::EMPTY;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod detach_tests {
+    use super::*;
+
+    #[test]
+    fn binding_a_size_detaches_the_style_and_leaves_no_stale_override_set() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let id = doc.alloc_id();
+        let mut text = Node::text(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 20.0), "Hi", designos_doc::TextStyle::default());
+        text.style_refs.insert("text".into(), "Body".into());
+        text.text_style_overrides.insert(designos_doc::OwnedField::Weight);
+        doc.insert(page, text).unwrap();
+        let mut tx = crate::edit::Tx::new();
+        detach_text_style_in(&mut doc, &mut tx, &[id]);
+        let mut hist = designos_doc::History::default();
+        tx.commit(&mut doc, &mut hist).unwrap();
+        let n = doc.get(id).unwrap();
+        assert!(!n.style_refs.contains_key("text"));
+        assert!(n.text_style_overrides.is_empty(), "an unlinked layer has no overrides of a style");
     }
 }
 
