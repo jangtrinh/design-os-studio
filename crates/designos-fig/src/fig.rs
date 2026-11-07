@@ -1595,14 +1595,8 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     } else {
         copy(&mut m, nc, "preserveRatio", "preserveRatio");
     }
-    if let Some(hl) = nc.get("hyperlink") {
-        if let Some(u) = fstr(hl, "url").filter(|s| !s.is_empty()) {
-            m.insert("hyperlink".into(), Value::String(u.to_string()));
-        } else if let Some(g) = hl.get("guid").and_then(guid_str) {
-            m.insert("hyperlink".into(), Value::String(format!("guid:{g}")));
-        } else if let Some(s) = hl.as_str().filter(|s| !s.is_empty()) {
-            m.insert("hyperlink".into(), Value::String(s.to_string()));
-        }
+    if let Some(link) = nc.get("hyperlink").and_then(hyperlink_value) {
+        m.insert("hyperlink".into(), Value::String(link));
     }
     if let Some(pd_arr) = nc.get("pluginData").and_then(Value::as_array) {
         let mut pd_map = Map::new();
@@ -3183,6 +3177,17 @@ fn convert_text(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     }
 }
 
+/// A kiwi `Hyperlink` message as the REST node string: the URL, or `guid:s:l` for a link to a layer.
+fn hyperlink_value(hl: &Value) -> Option<String> {
+    if let Some(u) = fstr(hl, "url").filter(|s| !s.is_empty()) {
+        Some(u.to_string())
+    } else if let Some(g) = hl.get("guid").and_then(guid_str) {
+        Some(format!("guid:{g}"))
+    } else {
+        hl.as_str().filter(|s| !s.is_empty()).map(str::to_string)
+    }
+}
+
 /// Per-character style ids and the override table from kiwi `textData`.
 fn text_overrides(m: &mut Map<String, Value>, td: &Value, base_size: Option<f32>, lk: &Lk) {
     if let Some(ids) = td.get("characterStyleIDs").and_then(Value::as_array) {
@@ -3209,6 +3214,17 @@ fn text_overrides(m: &mut Map<String, Value>, td: &Value, base_size: Option<f32>
                     }
                 }
                 table.insert(sid.to_string(), Value::Object(st));
+            }
+        }
+        // A hyperlink override over a text style is a layer property in this model: the first one found
+        // in a flagged entry becomes the layer's link unless the layer has its own.
+        if !m.contains_key("hyperlink") {
+            let link = rest_import::farr(td, "styleOverrideTable")
+                .iter()
+                .filter(|o| o.get("isOverrideOverTextStyle").and_then(Value::as_bool) == Some(true))
+                .find_map(|o| o.get("hyperlink").and_then(hyperlink_value));
+            if let Some(link) = link {
+                m.insert("hyperlink".into(), Value::String(link));
             }
         }
         m.insert("styleOverrideTable".into(), Value::Object(table));

@@ -134,6 +134,10 @@ impl OwnedFieldSet {
         self.0 |= field.bit();
     }
 
+    pub fn remove(&mut self, field: OwnedField) {
+        self.0 &= !field.bit();
+    }
+
     /// Adds every field of `other`.
     pub fn union(&mut self, other: OwnedFieldSet) {
         self.0 |= other.0;
@@ -356,6 +360,19 @@ pub fn text_style_overrides(doc: &Document, node: &Node) -> OwnedFieldSet {
     set
 }
 
+/// Drops the stored overrides of `n` whose value equals the one in `style`, the text style before an edit
+/// of it: such a layer follows its style (a bold turned off again), so the edit must reach it. A weight
+/// bound to a variable stays an override.
+pub fn drop_overrides_equal_to_style(n: &mut Node, style: &TextStyle) {
+    let Some(t) = n.kind.any_text() else { return };
+    let bound = ["fontWeight", "fontStyle"].iter().any(|k| n.variables.bindings.contains_key(*k));
+    for f in STYLE_OVERRIDABLE {
+        if n.text_style_overrides.contains(f) && !(f == OwnedField::Weight && bound) && !style_field_differs(f, &t.style, style) {
+            n.text_style_overrides.remove(f);
+        }
+    }
+}
+
 /// Puts the overridden values of `old` back into `new`, which just took a style's values: an edit of
 /// the style reaches only what a layer does not override. The base style keeps the properties in its
 /// stored set. A character range keeps the weight, italic and decoration in which it differed from the
@@ -430,14 +447,23 @@ mod tests {
     }
 
     #[test]
+    fn the_changed_fields_name_exactly_what_changed() {
+        let before = props(16.0);
+        let mut after = before.clone();
+        after.style.letter_spacing = 1.5;
+        assert_eq!(style_owned_fields_changed(&before, &after).labels(), vec!["Letter spacing"]);
+        assert!(style_owned_fields_changed(&before, &after).has_non_overridable());
+        let mut bold = before.clone();
+        bold.style.set_font_weight(700);
+        assert!(!style_owned_fields_changed(&before, &bold).has_non_overridable());
+    }
+
+    #[test]
     fn a_fill_only_range_split_or_merge_changes_nothing() {
         let mut before = props(16.0);
         before.runs.push(TextRun { start: 0, end: 2, style: TextStyle { fills: vec![Paint::solid(Color::rgb(0, 0, 255))], ..before.style.clone() } });
         let mut after = before.clone();
-        after.runs = vec![
-            TextRun { start: 0, end: 1, style: after.runs[0].style.clone() },
-            TextRun { start: 1, end: 2, style: after.runs[0].style.clone() },
-        ];
+        after.runs = vec![TextRun { start: 0, end: 1, style: after.runs[0].style.clone() }, TextRun { start: 1, end: 2, style: after.runs[0].style.clone() }];
         assert!(style_owned_fields_changed(&before, &after).is_empty(), "same look, different range list");
         after.runs.clear();
         assert!(style_owned_fields_changed(&before, &after).is_empty(), "a colour-only range dropped");
@@ -512,7 +538,11 @@ mod tests {
     #[test]
     fn a_range_that_differs_from_the_base_is_an_override_without_a_stored_bit() {
         let mut n = linked(16.0);
-        n.kind.any_text_mut().unwrap().runs.push(TextRun { start: 0, end: 2, style: TextStyle { font_weight: 700, ..TextStyle { font_size: 16.0, ..Default::default() } } });
+        n.kind.any_text_mut().unwrap().runs.push(TextRun {
+            start: 0,
+            end: 2,
+            style: TextStyle { font_weight: 700, ..TextStyle { font_size: 16.0, ..Default::default() } },
+        });
         assert!(n.text_style_overrides.is_empty());
         assert_eq!(raw_text_style_overrides(&n).labels(), vec!["Weight"]);
     }

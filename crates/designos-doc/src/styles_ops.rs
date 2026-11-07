@@ -200,7 +200,7 @@ pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, 
     for id in linked_style_nodes(doc, key) {
         if let Some(n) = doc.get(id) {
             let mut copy = n.clone();
-            if crate::library_ops::propagate_style_values_with_fields(&mut copy, &style, key, paragraph_fields) {
+            if crate::library_ops::propagate_style_values_with_fields(&mut copy, doc.styles.get(key), &style, key, paragraph_fields) {
                 cmds.push(Command::Update { node: Box::new(copy) });
             }
         }

@@ -771,6 +771,18 @@ fn the_override_pill_sits_inside_the_style_field_inset_from_its_right_edge_and_c
 }
 
 #[test]
+fn the_capture_preset_leaves_a_linked_text_with_two_overrides_on_the_built_in_document() {
+    let mut s = Sim::with(Options { select: Some("Continue".into()), ..Options::default() });
+    let id = s.by_name("Continue");
+    crate::panels::properties::preset_popup(&mut s.shell.app, "text-style-overrides:row", egui::vec2(1440.0, 900.0));
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let doc = &s.app().doc;
+    assert_eq!(designos_doc::text_style_overrides(doc, doc.get(id).unwrap()).labels(), vec!["Weight", "Decoration"], "the pill reads 2");
+    assert!(link_of(&s, id).is_some());
+}
+
+#[test]
 fn mixed_text_and_sticky_selection_shortcuts_edit_both_and_detach_linked_text_style() {
     let (mut s, id) = linked_sim();
     let mut page = id;
