@@ -324,6 +324,9 @@ pub(crate) fn check_child_kind(parent: &NodeKind, child: &NodeKind) -> Result<()
 
 /// Whole-table check: one cell at every live `(row, column)` position, none at a dead or covered one.
 /// Children that are not cells are ignored (the kind check keeps them out).
+///
+/// `History` runs this after every step that touches a table. A commit path that applies commands
+/// outside `History` (a transaction, a live-patch replay) must call it before it commits.
 pub fn check_table_positions(doc: &Document, table_id: NodeId) -> Result<(), String> {
     let Some(table) = doc.get(table_id) else { return Ok(()) };
     let NodeKind::Table(props) = &table.kind else { return Ok(()) };
