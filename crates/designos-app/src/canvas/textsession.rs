@@ -334,36 +334,20 @@ fn text_ref() -> &'static str {
     crate::styles::StyleKind::Text.ref_key()
 }
 
-/// Whether `after` differs from the snapshot on any field owned by a shared text style
-/// (`TextStyle` minus alignment/fills, per-run styles, and style-owned paragraph settings).
-fn style_owned_changed((style, runs, paragraph): (&TextStyle, &[designos_doc::TextRun], (f32, f32, designos_doc::LeadingTrim)), after: &TextProps) -> bool {
-    use designos_doc::lint::token_match::same_text_style;
-    !same_text_style(style, &after.style)
-        || paragraph != (after.paragraph.indent, after.paragraph.list_spacing, after.paragraph.leading_trim)
-        || runs.len() != after.runs.len()
-        || runs.iter().zip(&after.runs).any(|(a, b)| (a.start, a.end) != (b.start, b.end) || !same_text_style(&a.style, &b.style))
-}
-
-fn style_owned_props_changed(before: &TextProps, after: &TextProps) -> bool {
-    style_owned_changed((&before.style, before.runs.as_slice(), (before.paragraph.indent, before.paragraph.list_spacing, before.paragraph.leading_trim)), after)
-}
-
-/// Applies `f` to `n`'s text, detaching its linked text style when any style-owned field changed,
-/// and re-fitting a text node's box.
+/// Applies `f` to `n`'s text and re-fits a text node's box. On a layer linked to a text style, the text
+/// style rule decides the link: weight, italic and decoration edits keep it and are recorded as
+/// overrides; any other style-owned change detaches it (`designos_doc::apply_text_link_rule`).
 pub fn edit_node_text_detaching(n: &mut Node, f: impl FnOnce(&mut TextProps)) {
     let is_text = matches!(n.kind, NodeKind::Text(_));
-    if let Some(t) = n.kind.any_text_mut() {
-        let before = n
-            .style_refs
-            .contains_key(text_ref())
-            .then(|| (t.style.clone(), t.runs.clone(), (t.paragraph.indent, t.paragraph.list_spacing, t.paragraph.leading_trim)));
-        f(t);
-        if before.is_some_and(|(style, runs, paragraph)| style_owned_changed((&style, runs.as_slice(), paragraph), t)) {
-            n.style_refs.remove(text_ref());
-        }
-        if is_text {
-            n.size = layout::fit_text(t, n.size);
-        }
+    let linked = n.style_refs.contains_key(text_ref());
+    let Some(t) = n.kind.any_text_mut() else { return };
+    let before = linked.then(|| t.clone());
+    f(t);
+    if let Some(before) = before {
+        designos_doc::apply_text_link_rule(n, &before);
+    }
+    if let (true, Some(t)) = (is_text, n.kind.any_text()) {
+        n.size = layout::fit_text(t, n.size);
     }
 }
 
@@ -401,30 +385,38 @@ fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: Link
     if let Some(n) = sess.tx.ed.node(doc, id) {
         let is_text = matches!(n.kind, NodeKind::Text(_));
         let style_ref = n.style_refs.get(text_ref()).cloned();
-        if let Some(t) = n.kind.any_text_mut() {
-            let snap = Snap { props: t.clone(), style_ref, caret, anchor };
-            f(t, &mut caret, &mut anchor);
-            let props_changed = *t != snap.props;
+        if n.kind.any_text().is_some() {
+            let snap = Snap { props: n.kind.any_text().cloned().unwrap_or_default(), style_ref, overrides: n.text_style_overrides, caret, anchor };
+            if let Some(t) = n.kind.any_text_mut() {
+                f(t, &mut caret, &mut anchor);
+            }
             match link {
                 LinkEdit::Set(Some(key)) => {
                     n.style_refs.insert(text_ref().into(), key.into());
+                    n.text_style_overrides = designos_doc::OwnedFieldSet::default();
                 }
                 LinkEdit::Set(None) => {
                     n.style_refs.remove(text_ref());
+                    n.text_style_overrides = designos_doc::OwnedFieldSet::default();
                 }
-                LinkEdit::DetachIfStyleOwnedChanged if style_owned_props_changed(&snap.props, t) => {
-                    n.style_refs.remove(text_ref());
+                // Weight, italic and decoration keep the style and are recorded; the rest detaches it.
+                LinkEdit::DetachIfStyleOwnedChanged => {
+                    designos_doc::apply_text_link_rule(n, &snap.props);
                 }
-                LinkEdit::Keep | LinkEdit::DetachIfStyleOwnedChanged => {}
+                LinkEdit::Keep => {}
             }
+            let Some(t) = n.kind.any_text_mut() else { return };
+            let props_changed = *t != snap.props;
             if props_changed {
                 added_faces = designos_fonts::new_faces(&snap.props, t);
             }
-            if props_changed || n.style_refs.get(text_ref()) != snap.style_ref.as_ref() {
+            if props_changed || n.style_refs.get(text_ref()) != snap.style_ref.as_ref() || n.text_style_overrides != snap.overrides {
                 before = Some(snap);
             }
             if is_text {
-                n.size = layout::fit_text(t, n.size);
+                if let Some(t) = n.kind.any_text() {
+                    n.size = layout::fit_text(t, n.size);
+                }
             }
         }
     }
@@ -434,6 +426,7 @@ fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: Link
             let after = Snap {
                 props: sess.tx.ed.node(doc, id).and_then(|n| n.kind.any_text()).cloned().unwrap_or_default(),
                 style_ref: sess.tx.ed.node(doc, id).and_then(|n| n.style_refs.get(text_ref()).cloned()),
+                overrides: sess.tx.ed.node(doc, id).map(|n| n.text_style_overrides).unwrap_or_default(),
                 caret,
                 anchor,
             };
@@ -552,8 +545,9 @@ fn undo_step(app: &mut App, redo: bool) {
     let now = (|| {
         let t = stored_of(app)?;
         let s = app.canvas.text.as_ref()?;
-        let style_ref = app.doc.get(s.id)?.style_refs.get(text_ref()).cloned();
-        Some(Snap { props: t, style_ref, caret: s.caret, anchor: s.anchor })
+        let node = app.doc.get(s.id)?;
+        let style_ref = node.style_refs.get(text_ref()).cloned();
+        Some(Snap { props: t, style_ref, overrides: node.text_style_overrides, caret: s.caret, anchor: s.anchor })
     })();
     let Some(cur) = now else { return };
     let Some(sess) = app.canvas.text.as_mut() else { return };
@@ -568,6 +562,7 @@ fn undo_step(app: &mut App, redo: bool) {
             Some(key) => n.style_refs.insert(text_ref().into(), key),
             None => n.style_refs.remove(text_ref()),
         };
+        n.text_style_overrides = snap.overrides;
         if let Some(t) = n.kind.any_text_mut() {
             *t = snap.props;
             if is_text {
@@ -987,6 +982,88 @@ mod tests {
         assert_eq!(t.content, "hellox");
         assert!(t.runs.is_empty(), "matching typing style should not create a redundant run");
         assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
+    }
+
+    fn link_of(app: &App, id: NodeId) -> Option<String> {
+        app.doc.get(id).unwrap().style_refs.get("text").cloned()
+    }
+
+    fn red() -> Vec<designos_doc::Paint> {
+        vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))]
+    }
+
+    /// A linked text whose characters 0..2 sit in their own run, coloured red and styled like the base.
+    fn linked_text_with_a_red_run() -> (App, NodeId) {
+        let (mut app, id) = app_with_linked_text_style();
+        app.edit_nodes(&[id], |n| {
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.runs = vec![designos_doc::TextRun { start: 0, end: 2, style: TextStyle { fills: red(), ..t.style.clone() } }];
+            }
+        });
+        (app, id)
+    }
+
+    #[test]
+    fn a_colour_only_edit_keeps_the_link_and_merges_the_runs_outside_and_inside_a_session() {
+        for in_session in [false, true] {
+            let (mut app, id) = linked_text_with_a_red_run();
+            if in_session {
+                begin_text_edit(&mut app, id);
+            }
+            crate::panels::typography::set_style(&mut app, &[id], |s| s.fills = red());
+            assert_eq!(link_of(&app, id).as_deref(), Some("Body"), "colour is not a style-owned property (in_session={in_session})");
+            assert!(app.doc.get(id).unwrap().text_style_overrides.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_colour_on_one_word_in_a_session_makes_a_colour_only_run_and_keeps_the_link() {
+        let (mut app, id) = app_with_linked_text_style();
+        begin_text_edit(&mut app, id);
+        set_sel(&mut app, 0, 2, false);
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.fills = red());
+        assert_eq!(text_of(&app, id).runs.len(), 1);
+        assert_eq!(link_of(&app, id).as_deref(), Some("Body"));
+    }
+
+    #[test]
+    fn picking_the_family_the_text_already_has_changes_nothing_and_keeps_the_link() {
+        let (mut app, id) = linked_text_with_a_red_run();
+        let family = text_of(&app, id).style.font_family.clone();
+        // The first pick fits the box to its text; the second changes nothing at all.
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_family = family.clone());
+        let depth = app.hist.undo_depth();
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_family = family.clone());
+        assert_eq!(link_of(&app, id).as_deref(), Some("Body"), "the same family is not a change");
+        assert_eq!(app.hist.undo_depth(), depth, "and it adds no history");
+    }
+
+    #[test]
+    fn a_size_on_one_word_still_detaches_and_a_weight_on_one_word_does_not() {
+        let (mut app, id) = app_with_linked_text_style();
+        begin_text_edit(&mut app, id);
+        set_sel(&mut app, 0, 2, false);
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.set_font_weight(700));
+        assert_eq!(link_of(&app, id).as_deref(), Some("Body"), "a bold range is an override of the style");
+        assert_eq!(designos_doc::text_style_overrides(&app.doc, app.doc.get(id).unwrap()).labels(), vec!["Weight"]);
+
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 30.0);
+        assert_eq!(link_of(&app, id), None, "a size on a word detaches the style");
+        key(&mut app, egui::Key::Z, false, true);
+        assert_eq!(link_of(&app, id).as_deref(), Some("Body"), "undo restores the link");
+        assert_eq!(designos_doc::text_style_overrides(&app.doc, app.doc.get(id).unwrap()).labels(), vec!["Weight"]);
+    }
+
+    #[test]
+    fn typing_in_a_bold_caret_keeps_the_link_and_records_a_weight_override() {
+        let (mut app, id) = app_with_linked_text_style();
+        begin_text_edit(&mut app, id);
+        set_sel(&mut app, 5, 5, false);
+        text_command(&mut app, TextCmd::Bold);
+        insert_text(&mut app, "x", EditKind::Typing);
+        assert_eq!(text_of(&app, id).content, "hellox");
+        assert_eq!(link_of(&app, id).as_deref(), Some("Body"));
+        assert_eq!(designos_doc::text_style_overrides(&app.doc, app.doc.get(id).unwrap()).labels(), vec!["Weight"]);
     }
 
     fn key(app: &mut App, k: egui::Key, shift: bool, ctrl: bool) {

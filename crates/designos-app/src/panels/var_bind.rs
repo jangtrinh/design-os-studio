@@ -661,8 +661,12 @@ pub fn style_numeric(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, pr
     v
 }
 
+/// Whether binding `key` detaches a linked text style: a property the style owns that Figma does not let
+/// a layer override while linked. A weight or font style variable keeps the link and is recorded as an
+/// override instead (`bind_variable_in`).
 fn is_text_style_key(key: &str) -> bool {
     matches!(key, "fontFamily" | "fontStyle" | "fontWeight" | "fontSize" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent")
+        && !designos_doc::binding_key_is_overridable(key)
 }
 
 fn detach_text_style_in(doc: &mut Document, tx: &mut crate::edit::Tx, nodes: &[NodeId]) {
