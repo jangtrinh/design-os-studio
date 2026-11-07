@@ -54,15 +54,18 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 fn show_prototype_settings_btn(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     let btn_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 28.0);
     record(ui, "proto-show-settings", btn_r);
-    let resp = crate::widgets::kit::button(
-        ui,
-        btn_r,
-        "proto-show-settings",
-        "Show prototype settings",
-        crate::widgets::kit::Hierarchy::Secondary,
-        crate::widgets::kit::Size::Xs,
-        true,
-    );
+    // Button/Secondary colours with the previous 12 px label: the font change waits for the geometry step.
+    let resp = ui.interact(btn_r, ui.id().with("proto-show-settings"), Sense::click());
+    let state = if resp.is_pointer_button_down_on() {
+        crate::widgets::kit::State::Pressed
+    } else if resp.hovered() {
+        crate::widgets::kit::State::Hover
+    } else {
+        crate::widgets::kit::State::Default
+    };
+    let look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Secondary, state);
+    crate::widgets::kit::paint_frame(ui.painter(), btn_r, theme::RADIUS_CONTROL, &look);
+    ui.painter().text(btn_r.center(), Align2::CENTER_CENTER, "Show prototype settings", theme::font_body_strong(), look.text);
     if resp.clicked() {
         app.selection.clear();
     }
