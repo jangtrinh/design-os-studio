@@ -1294,6 +1294,7 @@ mod empty_slot_flows;
 mod export_toast;
 mod expose_nested_instances;
 mod fast_drag_draw;
+mod fast_drag_special;
 mod fast_drag_transform;
 mod fig_export_toast;
 mod figma_paste;
