@@ -445,3 +445,59 @@ fn a_modifier_released_while_the_button_is_down_still_shapes_a_corner_radius_at_
     assert!(same(&early, &slow), "the release keeps the Alt held at the release: got {early:?}, want {slow:?}");
     assert_eq!(early_depth, depth, "one undo step either way");
 }
+
+// ---------------------------------------------------------------- a new guide that ends without a release
+
+/// A new guide dragged from the ruler and left (`out`) before something other than a release ends it: no guide is
+/// placed and nothing is added to the undo history.
+fn new_guide_on_the_ruler_then(out: bool, end: impl Fn(&mut Sim, Pos2)) {
+    let mut g = guide();
+    let page = g.sim.app().page;
+    let depth = g.sim.app().hist.undo_depth();
+    g.sim.mv(g.from);
+    g.sim.button(true);
+    g.sim.frame(vec![]);
+    assert!(matches!(g.sim.app().canvas.inter, Interaction::Guide(_)), "the press on the ruler starts a guide");
+    if out {
+        g.sim.mv(g.to);
+        g.sim.mv(g.from);
+    }
+    let elsewhere = g.sim.screen(EMPTY.0, EMPTY.1);
+    end(&mut g.sim, elsewhere);
+    g.sim.one_frame().release().send();
+    g.sim.frame(vec![]);
+    assert_eq!(g.sim.app().doc.guides.get(&page).map_or(0, |l| l.len()), 0, "no guide is placed");
+    assert_eq!(g.sim.app().hist.undo_depth(), depth, "nothing is added to the undo history");
+}
+
+#[test]
+fn a_middle_press_over_an_unmoved_ruler_press_places_no_guide() {
+    new_guide_on_the_ruler_then(false, |sim, _| sim.one_frame().button(PointerButton::Middle, true).send());
+}
+
+#[test]
+fn a_middle_press_over_a_guide_put_back_on_the_ruler_places_no_guide() {
+    new_guide_on_the_ruler_then(true, |sim, _| sim.one_frame().button(PointerButton::Middle, true).send());
+}
+
+#[test]
+fn a_press_after_a_lost_release_over_an_unmoved_ruler_press_places_no_guide() {
+    new_guide_on_the_ruler_then(false, |sim, elsewhere| sim.one_frame().move_to(elsewhere).press().send());
+}
+
+#[test]
+fn a_real_release_then_a_press_in_one_frame_still_inserts_a_point_on_a_vector_segment() {
+    let (mut sim, id) = sim_with_vector();
+    sim.key(Key::Enter);
+    let before = vector_cmds(&sim, id).len();
+    let at = sim.screen(335.0, 820.0);
+    sim.mv(at);
+    sim.button(true);
+    sim.frame(vec![]);
+    assert!(matches!(sim.app().canvas.inter, Interaction::VectorDrag));
+    let elsewhere = sim.screen(EMPTY.0, EMPTY.1);
+    sim.one_frame().release().move_to(elsewhere).press().send();
+    sim.one_frame().release().send();
+    sim.frame(vec![]);
+    assert_eq!(vector_cmds(&sim, id).len(), before + 1, "a click on a segment adds a point");
+}

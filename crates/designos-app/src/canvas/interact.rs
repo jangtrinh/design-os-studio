@@ -1337,9 +1337,12 @@ fn end_open_gesture(app: &mut App, rect: ERect, inp: &Inp) {
             follow_pointer(app, rect, &mut inter, p, page, &ending);
         }
         app.canvas.inter = inter;
-        // a guide whose release never came is moved, never removed
+        // A guide the user grabbed is moved, never removed, by a release that never came. A new guide still on the ruler
+        // stays unplaced: it is an unmoved press, which cancels below.
         if let Interaction::Guide(g) = &mut app.canvas.inter {
-            g.on_ruler = false;
+            if g.index.is_some() {
+                g.on_ruler = false;
+            }
         }
         if unmoved_press(&app.canvas.inter, app) {
             app.cancel_interaction();
