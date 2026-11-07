@@ -201,37 +201,102 @@ fn companion(r: &Row) -> Value {
     }
 }
 
-fn check_row(r: &Row) -> Result<(), String> {
-    let entry = match r.class {
+/// Every row gets its own instance of the button, side by side in the variant, each holding that row's own entry. The
+/// 25,000 layers that make the loader defer the page (more than 25,000 nodes and more than two pages, `rest_import.rs`)
+/// are then built, encoded, opened and saved once for all rows instead of once per row; the rows touch different
+/// instances, so they stay independent.
+fn row_instance(i: usize) -> (u64, u64) {
+    (2, i as u64 + 1)
+}
+
+fn row_name(i: usize) -> String {
+    format!("row {i}")
+}
+
+/// A file with one instance per `(index, entry)`. The shared style nodes and blobs the rows need are added once.
+fn rows_fixture(rows: &[Row], entries: Vec<(usize, Value)>) -> Vec<u8> {
+    let mut extra: Vec<Value> = Vec::new();
+    let mut blobs: Vec<Vec<u8>> = Vec::new();
+    for r in rows {
+        for e in &r.extra {
+            if !extra.contains(e) {
+                extra.push(e.clone());
+            }
+        }
+        for b in &r.blobs {
+            if !blobs.contains(b) {
+                blobs.push(b.clone());
+            }
+        }
+    }
+    assert!(blobs.len() <= 1, "the rows share one blob, `commandsBlob: 0`");
+    for (i, entry) in entries {
+        let symbol = json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": [own_entry_json(entry)]}});
+        extra.push(fig_node(row_instance(i), VARIANT, "INSTANCE", &row_name(i), symbol));
+    }
+    fixture_with(json!({}), json!([]), extra, blobs)
+}
+
+/// The own entry each row's instance holds in `saved`, by row index.
+fn row_entries(saved: &[u8], rows: &[usize]) -> Vec<(usize, Value)> {
+    let mut by_guid: std::collections::HashMap<String, Value> = node_changes(saved).into_iter().map(|nc| (guid_text(&nc["guid"]), nc)).collect();
+    rows.iter()
+        .map(|&i| {
+            let id = row_instance(i);
+            let nc = by_guid.remove(&guid_text(&guid(id.0, id.1))).unwrap_or_else(|| panic!("no instance for row {i} in the saved file"));
+            (i, own_entry_of(nc["symbolData"]["symbolOverrides"].as_array().map(Vec::as_slice).unwrap_or_default()))
+        })
+        .collect()
+}
+
+fn row_instance_node(doc: &Document, i: usize) -> NodeId {
+    let variant = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Type=Simple 03, Breakpoint=Desktop").expect("variant");
+    let name = row_name(i);
+    variant.children.iter().copied().find(|&c| doc.get(c).is_some_and(|n| n.name == name)).unwrap_or_else(|| panic!("no instance for row {i}"))
+}
+
+fn flags_of(doc: &Document, i: usize) -> Vec<OverrideField> {
+    doc.get(row_instance_node(doc, i)).expect("instance").component.overrides.iter().copied().collect()
+}
+
+/// The entry that states the field the row's key belongs to: the key itself, or, for a baked outline or smoothing, the
+/// key beside the field it restates.
+fn full_entry(r: &Row) -> Value {
+    match r.class {
         Class::States => json!({ r.key: r.value.clone() }),
         Class::Outline | Class::Kept => {
-            // Alone, the key states nothing: the field is not flagged and keeps following the main.
-            let alone = fixture_for(vec![own_entry_json(json!({ r.key: r.value.clone() }))], r.extra.clone(), r.blobs.clone());
-            let live = import_fig(&alone).map_err(|e| format!("import: {e}"))?;
-            let flags = &live.get(variant_button(&live)).ok_or("no instance")?.component.overrides;
-            if flags.contains(&r.field) {
-                return Err(format!("{:?} is flagged at open by the key alone (flags {flags:?})", r.field));
-            }
             let mut both = companion(r);
             both[r.key] = r.value.clone();
             both
         }
-    };
-    let fig = fixture_for(vec![own_entry_json(entry)], r.extra.clone(), r.blobs.clone());
-    let recorded = own_entry_of(&saved_entries(&fig, INSTANCE));
-    let live = import_fig(&fig).map_err(|e| format!("import: {e}"))?;
-    let flags = &live.get(variant_button(&live)).ok_or("no instance")?.component.overrides;
-    if !flags.contains(&r.field) {
-        return Err(format!("{:?} is not flagged at open (flags {flags:?})", r.field));
     }
-    let untouched = own_entry_of(&saved_entries(&export_fig(&live).map_err(|e| format!("export: {e}"))?, INSTANCE));
+}
+
+struct Seen {
+    alone_flags: Option<Vec<OverrideField>>,
+    flags: Vec<OverrideField>,
+    recorded: Value,
+    untouched: Value,
+    edited: Value,
+}
+
+fn check_row(r: &Row, s: &Seen) -> Result<(), String> {
+    if let Some(flags) = &s.alone_flags {
+        // Alone, the key states nothing: the field is not flagged and keeps following the main.
+        if flags.contains(&r.field) {
+            return Err(format!("{:?} is flagged at open by the key alone (flags {flags:?})", r.field));
+        }
+    }
+    if !s.flags.contains(&r.field) {
+        return Err(format!("{:?} is not flagged at open (flags {:?})", r.field, s.flags));
+    }
+    let (recorded, untouched, edited) = (&s.recorded, &s.untouched, &s.edited);
     if untouched.get(r.key).is_none() {
         return Err("a save without an edit drops the key".into());
     }
     if r.blobs.is_empty() && untouched != recorded {
         return Err(format!("a save without an edit changed the entry: {recorded} -> {untouched}"));
     }
-    let edited = own_entry_of(&saved_entries(&edit_and_save(&fig, r.edit), INSTANCE));
     match r.class {
         Class::States if r.wrote == r.key && edited.get(r.key) == untouched.get(r.key) => {
             return Err(format!("the recorded key survives an edit of {:?}: {}", r.field, edited.get(r.key).unwrap_or(&Value::Null)));
@@ -250,12 +315,46 @@ fn check_row(r: &Row) -> Result<(), String> {
 #[test]
 fn every_key_that_states_a_field_follows_an_edit_of_that_field() {
     let rows = rows();
-    // Each row opens a file of 25,000 layers a few times; the rows are independent.
-    let failures: Vec<String> = std::thread::scope(|scope| {
-        let runs: Vec<_> = rows.iter().map(|r| scope.spawn(move || check_row(r).err().map(|e| format!("{}: {e}", r.key)))).collect();
-        runs.into_iter().filter_map(|h| h.join().expect("a row panicked")).collect()
-    });
+    let all: Vec<usize> = (0..rows.len()).collect();
+    // The baked outlines and smoothing, each alone in its entry.
+    let lone: Vec<usize> = all.iter().copied().filter(|&i| rows[i].class != Class::States).collect();
+    let alone = rows_fixture(&rows, lone.iter().map(|&i| (i, lone_entry(&rows[i]))).collect());
+    let alone_live = import_fig(&alone).expect("import the keys alone");
+    let alone_flags: Vec<(usize, Vec<OverrideField>)> = lone.iter().map(|&i| (i, flags_of(&alone_live, i))).collect();
+
+    let fig = rows_fixture(&rows, all.iter().map(|&i| (i, full_entry(&rows[i]))).collect());
+    let recorded = row_entries(&fig, &all);
+    let live = import_fig(&fig).expect("import");
+    let flags: Vec<Vec<OverrideField>> = all.iter().map(|&i| flags_of(&live, i)).collect();
+    let untouched = row_entries(&export_fig(&live).expect("export"), &all);
+
+    let mut edited_live = import_fig(&fig).expect("import");
+    for &i in &all {
+        let instance = row_instance_node(&edited_live, i);
+        (rows[i].edit)(edited_live.get_mut(instance).expect("instance"));
+    }
+    let edited = row_entries(&export_fig(&edited_live).expect("export"), &all);
+
+    let failures: Vec<String> = all
+        .iter()
+        .filter_map(|&i| {
+            let seen = Seen {
+                alone_flags: alone_flags.iter().find(|(j, _)| *j == i).map(|(_, f)| f.clone()),
+                flags: flags[i].clone(),
+                recorded: recorded[i].1.clone(),
+                untouched: untouched[i].1.clone(),
+                edited: edited[i].1.clone(),
+            };
+            check_row(&rows[i], &seen).err().map(|e| format!("{}: {e}", rows[i].key))
+        })
+        .collect();
+    println!("own-entry key rows checked: {}", rows.len());
     assert!(failures.is_empty(), "{} of {} keys fail:\n{}", failures.len(), rows.len(), failures.join("\n"));
+}
+
+/// The key alone in its entry.
+fn lone_entry(r: &Row) -> Value {
+    json!({ r.key: r.value.clone() })
 }
 
 #[test]
