@@ -176,6 +176,40 @@ fn scale_paths(paths: &mut [Path], kx: f32, ky: f32) {
     }
 }
 
+/// Maps every x of `paths` for a line of length `old_w` that grew by `grow`: inside the line it scales
+/// by `kx`, before the start it stays, past the end it shifts by `grow`. y is untouched.
+fn stretch_along_line(paths: &mut [Path], old_w: f32, kx: f32, grow: f32) {
+    let map = |p: Vec2| {
+        Vec2::new(
+            if p.x <= 0.0 {
+                p.x
+            } else if p.x >= old_w {
+                p.x + grow
+            } else {
+                p.x * kx
+            },
+            p.y,
+        )
+    };
+    for path in paths {
+        for cmd in &mut path.cmds {
+            match cmd {
+                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => *p = map(*p),
+                PathCmd::QuadTo(c, p) => {
+                    *c = map(*c);
+                    *p = map(*p);
+                }
+                PathCmd::CubicTo(c1, c2, p) => {
+                    *c1 = map(*c1);
+                    *c2 = map(*c2);
+                    *p = map(*p);
+                }
+                PathCmd::Close => {}
+            }
+        }
+    }
+}
+
 /// Whether stroking the centerline `net` live, at the node's own stroke, draws what the baked
 /// `stroke_geometry` draws. Only then may a plain resize drop the bake and let the renderers stroke
 /// the scaled centerline at the unscaled weight; otherwise the bake is scaled with the shape.
@@ -249,6 +283,20 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
             }
             if let Some(sg) = &mut node.stroke_geometry {
                 scale_paths(sg, kx, ky);
+            }
+        }
+        NodeKind::Line => {
+            // A Line's outline is Figma's stroke band, which sits beside the line's own y = 0 (it is not
+            // centred on it). Clearing it would redraw the line as a centred primitive, half a stroke
+            // off. The band stretches along the line; what sticks out past either end (a round, square
+            // or arrow cap) keeps its shape and moves with that end. The line has no height to scale.
+            let old_w = old_size.x;
+            let stretch = |paths: &mut [Path]| stretch_along_line(paths, old_w, kx, new_size.x - old_w);
+            if let Some(fg) = &mut node.fill_geometry {
+                stretch(fg);
+            }
+            if let Some(sg) = &mut node.stroke_geometry {
+                stretch(sg);
             }
         }
         _ => {
