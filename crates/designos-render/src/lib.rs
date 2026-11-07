@@ -888,9 +888,12 @@ impl Renderer<'_> {
         let align = if sh.closed { n.stroke.align } else { designos_doc::StrokeAlign::Center };
         // precomputed outline: already expanded by weight and alignment
         if let Some(sp) = &sh.stroke_paths {
-            let mask = if align == designos_doc::StrokeAlign::Outside {
+            // an inside or outside stroke is stored centered at double weight: keep the wanted side
+            let mask = if align != designos_doc::StrokeAlign::Center {
                 shape_mask(tw, th, sh.fill_paths(), ts).map(|mut m| {
-                    m.invert();
+                    if align == designos_doc::StrokeAlign::Outside {
+                        m.invert();
+                    }
                     if let Some(c) = clip {
                         mask_mul(&mut m, c);
                     }
