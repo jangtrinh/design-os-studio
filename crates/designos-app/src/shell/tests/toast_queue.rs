@@ -340,3 +340,14 @@ fn a_repeated_error_adds_no_toast_but_still_counts() {
     assert_eq!(s.app().error_toast_seq, before + 3, "every raise counts, so a repeated failed import still returns an error");
     assert_eq!(s.app().last_error_toast, "Cannot import comments: other file");
 }
+
+#[test]
+fn enter_a_path_raised_behind_an_export_toast_goes_to_the_queued_toast() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    s.shell.app.show_no_file_dialog_toast(true);
+    let on_screen = s.app().toast.as_ref().unwrap();
+    assert!(!on_screen.enter_path && on_screen.reveal.is_some(), "the export toast on screen keeps only its own action");
+    assert_eq!(s.app().toast_queue.len(), 1, "the no-dialog error waits");
+    assert!(s.app().toast_queue[0].enter_path, "Enter a path lands on the toast that was queued");
+}
