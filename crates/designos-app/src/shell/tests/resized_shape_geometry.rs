@@ -385,33 +385,55 @@ fn typing_a_width_and_a_height_draws_an_imported_shape_at_its_new_size() {
     }
 }
 
+/// An imported plain line keeps its outlined stroke band: the band stretches to the new length and keeps
+/// its place across the line. A dashed line has no band to stretch, so it is drawn live instead.
 #[test]
-fn typing_a_width_drops_the_outlined_stroke_of_an_imported_line() {
-    let mut s = Sim::new();
-    let id = s.shell.app.doc.alloc_id();
-    let mut line = Node::new(id, NodeKind::Line);
-    line.size = DV::new(100.0, 0.0);
-    let id = add(&mut s, line, "Rule");
-    let outline = vec![Path {
-        cmds: vec![
-            PathCmd::MoveTo(DV::new(0.0, -2.0)),
-            PathCmd::LineTo(DV::new(100.0, -2.0)),
-            PathCmd::LineTo(DV::new(100.0, 2.0)),
-            PathCmd::LineTo(DV::new(0.0, 2.0)),
-            PathCmd::Close,
-        ],
-        fill_rule: designos_doc::FillRule::NonZero,
-    }];
-    s.shell.app.doc.get_mut(id).unwrap().stroke_geometry = Some(outline);
-    s.shell.app.selection = vec![id];
-    s.shell.app.changed();
-    s.frame(vec![]);
+fn typing_a_width_stretches_the_outlined_stroke_of_an_imported_line() {
+    for dashed in [false, true] {
+        let mut s = Sim::new();
+        let id = s.shell.app.doc.alloc_id();
+        let mut line = Node::new(id, NodeKind::Line);
+        line.size = DV::new(100.0, 0.0);
+        if dashed {
+            line.stroke.dashes = vec![4.0, 4.0];
+        }
+        let id = add(&mut s, line, "Rule");
+        let outline = vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(DV::new(0.0, -2.0)),
+                PathCmd::LineTo(DV::new(100.0, -2.0)),
+                PathCmd::LineTo(DV::new(100.0, 2.0)),
+                PathCmd::LineTo(DV::new(0.0, 2.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: designos_doc::FillRule::NonZero,
+        }];
+        s.shell.app.doc.get_mut(id).unwrap().stroke_geometry = Some(outline);
+        s.shell.app.selection = vec![id];
+        s.shell.app.changed();
+        s.frame(vec![]);
 
-    type_into(&mut s, "w", "250");
+        type_into(&mut s, "w", "250");
 
-    let n = s.app().doc.get(id).unwrap();
-    assert_eq!(n.size.x, 250.0);
-    assert!(n.stroke_geometry.is_none(), "a stroke outline of the old length is not kept");
+        let n = s.app().doc.get(id).unwrap();
+        assert_eq!(n.size.x, 250.0);
+        if dashed {
+            assert!(n.stroke_geometry.is_none(), "a dashed line's outline of the old length is not kept");
+            continue;
+        }
+        let points: Vec<(f32, f32)> = n
+            .stroke_geometry
+            .as_ref()
+            .expect("a plain line keeps its outline")
+            .iter()
+            .flat_map(|p| p.cmds.iter())
+            .filter_map(|c| match c {
+                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some((p.x, p.y)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(points, vec![(0.0, -2.0), (250.0, -2.0), (250.0, 2.0), (0.0, 2.0)], "the band stretches to the new length and keeps its y");
+    }
 }
 
 #[test]
