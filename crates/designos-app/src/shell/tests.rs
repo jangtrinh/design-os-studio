@@ -1351,6 +1351,7 @@ mod undo_layout_epoch;
 mod unsaved_dot;
 mod variables;
 mod vector;
+mod whiteboard_group;
 
 // Needs the stub agent CLIs of `Sim::use_stub_agent_clis`, which exist on unix only: on Windows the tab runs a real `claude`
 // that is not there, and dies at a moment that depends on machine load, so the terminal bytes the tests read are not stable.
