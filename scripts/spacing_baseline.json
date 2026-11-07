@@ -84,21 +84,20 @@
       "radius_literals": 4
     },
     "dev/compare.rs": {
-      "offset_literals": 30
+      "offset_literals": 27
     },
     "dev/list.rs": {
-      "offset_literals": 5,
-      "radius_literals": 1
+      "offset_literals": 5
     },
     "dev/playground.rs": {
-      "legacy_control_refs": 6
+      "legacy_control_refs": 5
     },
     "dev/preset.rs": {
       "offset_literals": 1
     },
     "dev/sections.rs": {
-      "offset_literals": 61,
-      "radius_literals": 7
+      "offset_literals": 58,
+      "radius_literals": 6
     },
     "find/filter.rs": {
       "offset_literals": 2
@@ -304,18 +303,18 @@
   "totals": {
     "font_literals": 23,
     "inset_literals": 41,
-    "legacy_control_refs": 6,
+    "legacy_control_refs": 5,
     "nonconcentric_pairs": 2,
-    "offset_literals": 1526,
-    "radius_literals": 171
+    "offset_literals": 1520,
+    "radius_literals": 169
   },
   "totals_excluding_own_palette": {
     "font_literals": 2,
     "inset_literals": 41,
-    "legacy_control_refs": 6,
+    "legacy_control_refs": 5,
     "nonconcentric_pairs": 1,
-    "offset_literals": 1250,
-    "radius_literals": 76
+    "offset_literals": 1244,
+    "radius_literals": 74
   },
   "version": 1
 }

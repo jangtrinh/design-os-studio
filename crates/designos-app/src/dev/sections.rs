@@ -11,7 +11,7 @@ use crate::widgets::field;
 use crate::widgets::menu::dropdown;
 use crate::widgets::{self, elide, fmt_num, text_width};
 use designos_doc::*;
-use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, Ui, Vec2};
+use egui::{Align2, Color32, Pos2, Rect, Sense, Ui, Vec2};
 
 pub fn status_color(s: DevStatus) -> Color32 {
     match s {
@@ -32,8 +32,8 @@ pub fn status_pill(p: &egui::Painter, at: Pos2, s: DevStatus) -> f32 {
     let font = theme::font_caption_medium();
     let label = s.label();
     let w = status_pill_width(p, s);
-    let r = Rect::from_min_size(at, Vec2::new(w, 20.0));
-    p.rect_filled(r, theme::cr_pill(r.height()), status_color(s).gamma_multiply(0.22));
+    let r = Rect::from_min_size(at, Vec2::new(w, theme::BADGE_SM));
+    p.rect_filled(r, theme::cr_pill(r.height()), status_color(s).gamma_multiply(super::STATUS_TINT));
     p.circle_filled(Pos2::new(r.left() + 10.0, r.center().y), 3.5, status_color(s));
     p.text(Pos2::new(r.left() + 19.0, r.center().y), Align2::LEFT_CENTER, label, font, theme::TEXT);
     w
@@ -41,10 +41,7 @@ pub fn status_pill(p: &egui::Painter, at: Pos2, s: DevStatus) -> f32 {
 
 fn primary_button(ui: &mut Ui, rect: Rect, key: &str, label: &str) -> bool {
     widgets::record(ui, &format!("dev-{key}"), rect);
-    let r = ui.interact(rect, ui.id().with(("dev-primary", key)), Sense::click());
-    ui.painter().rect_filled(rect, theme::cr_pill(rect.height()), if r.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body_strong(), theme::TEXT);
-    r.clicked()
+    crate::widgets::kit::button(ui, rect, ("dev-primary", key), label, crate::widgets::kit::Hierarchy::Primary, crate::widgets::kit::Size::Xs, true).clicked()
 }
 
 /// Status pill and the Ready for dev actions of the selected layer.
@@ -66,10 +63,11 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         c.y += 28.0;
     }
     let row = c.rect(PAD, 0.0, w, ACTION_ROW_H);
-    // The two buttons of a status share the row by their labels (the secondary one is painted by `small_button`, in `font_body`).
-    let split = |ui: &Ui, primary: &str, secondary: &str| {
-        let primary_w = text_width(ui.painter(), primary, &theme::font_body_strong());
-        split_actions(row, primary_w, text_width(ui.painter(), secondary, &theme::font_body()))
+    // The two buttons of a status share one row while both fit at their natural width. When they do not, they stack:
+    // the primary on a full row, the secondary on a full row below it. A primary label is never elided.
+    let split = |ui: &Ui, primary: &str, secondary: &str| -> (Rect, Rect, String) {
+        let (primary_r, secondary_r) = action_rects(ui.painter(), row, primary, secondary);
+        (primary_r, secondary_r, primary.to_string())
     };
     let mut bottom = row.bottom();
     match status {
@@ -79,9 +77,9 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             }
         }
         Some(DevStatus::ReadyForDev) => {
-            let (primary, other) = split(ui, "Mark completed", "Remove status");
+            let (primary, other, label) = split(ui, "Mark completed", "Remove status");
             bottom = other.bottom();
-            if primary_button(ui, primary, "complete", "Mark completed") {
+            if primary_button(ui, primary, "complete", &label) {
                 app.dev_mark_completed(&[id]);
             }
             if small_button(ui, other, ("dev-clear", 0), "Remove status") {
@@ -89,9 +87,9 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             }
         }
         Some(DevStatus::Changed) => {
-            let (primary, other) = split(ui, "Compare changes", "Mark ready");
+            let (primary, other, label) = split(ui, "Compare changes", "Mark ready");
             bottom = other.bottom();
-            if primary_button(ui, primary, "compare", "Compare changes") {
+            if primary_button(ui, primary, "compare", &label) {
                 super::compare::open(app, id);
             }
             if small_button(ui, other, ("dev-remark", 0), "Mark ready") {
@@ -99,9 +97,9 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             }
         }
         Some(DevStatus::Completed) => {
-            let (primary, other) = split(ui, "Back to ready", "Remove status");
+            let (primary, other, label) = split(ui, "Back to ready", "Remove status");
             bottom = other.bottom();
-            if primary_button(ui, primary, "reopen", "Back to ready") {
+            if primary_button(ui, primary, "reopen", &label) {
                 app.dev_mark_ready(&[id]);
             }
             if small_button(ui, other, ("dev-clear", 1), "Remove status") {
@@ -114,17 +112,23 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
 }
 
 /// Height of the row that holds the action buttons of a status.
-const ACTION_ROW_H: f32 = 28.0;
+const ACTION_ROW_H: f32 = theme::CONTROL_XS;
+
+/// Places the two action buttons of a status in `row`, measuring the labels with the button font.
+fn action_rects(p: &egui::Painter, row: Rect, primary: &str, secondary: &str) -> (Rect, Rect) {
+    let primary_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    split_actions(row, text_width(p, primary, &primary_font), text_width(p, secondary, &theme::font_body()))
+}
 
 /// Splits the action `row` between the primary and the secondary button of a status by their labels, not in halves.
 /// The secondary button hugs its label: the width rounded up to whole pixels (R11) between two control insets. The
-/// primary button takes the rest of the row less the `SPACE_INLINE` gap. When that is too narrow for the primary label
-/// (rounded up) with a segment inset on each side, the buttons stack instead: the primary on the full row, the
+/// primary button takes the rest of the row less the `SPACE_INLINE` gap. When that is narrower than the primary label
+/// (rounded up) with a control inset on each side, the buttons stack instead: the primary on the full row, the
 /// secondary on a full row below it, `SPACE_ROW` apart.
 fn split_actions(row: Rect, primary_label_w: f32, secondary_label_w: f32) -> (Rect, Rect) {
     let secondary_w = secondary_label_w.ceil() + 2.0 * theme::INSET_CONTROL;
     let primary_w = row.width() - theme::SPACE_INLINE - secondary_w;
-    if primary_w < primary_label_w.ceil() + 2.0 * theme::INSET_SEGMENT {
+    if primary_w < primary_label_w.ceil() + 2.0 * theme::INSET_CONTROL {
         let primary = Rect::from_min_size(row.min, Vec2::new(row.width(), ACTION_ROW_H));
         let secondary = primary.translate(Vec2::new(0.0, ACTION_ROW_H + theme::SPACE_ROW));
         return (primary, secondary);
@@ -153,27 +157,23 @@ fn chips(ui: &mut Ui, c: &mut Cur, labels: &[&str], on: &mut Vec<String>) {
     let max_x = c.w - 2.0 * PAD;
     let (mut x, mut y) = (0.0f32, 0.0f32);
     for (i, l) in labels.iter().enumerate() {
-        let w = text_width(ui.painter(), l, &font) + 16.0;
+        let w = text_width(ui.painter(), l, &font) + 2.0 * theme::INSET_CONTROL;
         if x + w > max_x {
             x = 0.0;
             y += 26.0;
         }
-        let r = c.rect(PAD + x, y, w, 22.0);
+        let r = c.rect(PAD + x, y, w, theme::BADGE_SM);
         widgets::record(ui, &format!("annot-chip-{l}"), r);
         let active = on.iter().any(|o| o == l);
         let resp = ui.interact(r, ui.id().with(("annot-chip", i)), Sense::click());
-        let bg = if active {
-            theme::BG_SELECTED
-        } else if resp.hovered() {
-            theme::BG_TERTIARY
-        } else {
-            theme::BG_SECONDARY
-        };
-        ui.painter().rect_filled(r, theme::cr_pill(r.height()), bg);
+        let mut paint = crate::widgets::kit::tag_look(if resp.hovered() { crate::widgets::kit::State::Hover } else { crate::widgets::kit::State::Default });
         if active {
-            ui.painter().rect_stroke(r, theme::cr_pill(r.height()), Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
+            paint.fill = theme::BG_SELECTED;
+            paint.text = theme::TEXT;
+            paint.border = theme::BORDER_SELECTED;
         }
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, l, font.clone(), theme::TEXT);
+        crate::widgets::kit::paint_frame(ui.painter(), r, theme::RADIUS_CONTROL, &paint);
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, l, font.clone(), paint.text);
         if resp.clicked() {
             if active {
                 on.retain(|o| o != l);
@@ -186,21 +186,28 @@ fn chips(ui: &mut Ui, c: &mut Cur, labels: &[&str], on: &mut Vec<String>) {
     c.y += y + 28.0;
 }
 
+fn dev_field(ui: &mut Ui, rect: Rect, key: &str, text: &str, placeholder: &str) -> Option<String> {
+    let id = ui.id().with(("txt", key));
+    field::field_bg(ui, rect, id);
+    let hint = (!placeholder.is_empty()).then_some((placeholder, theme::TEXT_PLACEHOLDER));
+    field::edit_text_hint(ui, rect, id, text, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X, hint)
+}
+
 fn annotation_editor(app: &mut App, ui: &mut Ui, c: &mut Cur, mut edit: AnnotEdit) {
     let w = c.w - 2.0 * PAD;
     let labels: Vec<&'static str> = app.doc.get(edit.node).map(data::applicable_properties).unwrap_or_default();
-    let r = c.rect(PAD, 0.0, w, 28.0);
+    let r = c.rect(PAD, 0.0, w, theme::CONTROL_XS);
     widgets::record(ui, "annot-text", r);
-    if let Some(t) = field::text_input_ph(ui, r, "annot-text", &edit.text, "Add a note") {
+    if let Some(t) = dev_field(ui, r, "annot-text", &edit.text, "Add a note") {
         edit.text = t;
     }
-    c.y += 36.0;
+    c.y += 40.0;
     ui.painter().text(Pos2::new(c.x0 + PAD, c.oy + c.y + 8.0), Align2::LEFT_CENTER, "Pin properties", theme::font_caption(), theme::TEXT_SECONDARY);
     c.y += 20.0;
     chips(ui, c, &labels, &mut edit.props);
-    let row = c.rect(PAD, 0.0, w, 28.0);
+    let row = c.rect(PAD, 0.0, w, ACTION_ROW_H);
     let third = (w - 16.0) / 3.0;
-    let b = |i: f32| Rect::from_min_size(Pos2::new(row.left() + i * (third + 8.0), row.top()), Vec2::new(third, 28.0));
+    let b = |i: f32| Rect::from_min_size(Pos2::new(row.left() + i * (third + 8.0), row.top()), Vec2::new(third, ACTION_ROW_H));
     let mut done = false;
     let mut keep = true;
     if primary_button(ui, b(0.0), "annot-save", "Save") {
@@ -287,21 +294,21 @@ pub fn annotations_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) 
 
 fn link_editor(app: &mut App, ui: &mut Ui, c: &mut Cur, mut edit: LinkEdit) {
     let w = c.w - 2.0 * PAD;
-    let r = c.rect(PAD, 0.0, w, 28.0);
+    let r = c.rect(PAD, 0.0, w, theme::CONTROL_XS);
     widgets::record(ui, "link-label", r);
-    if let Some(t) = field::text_input_ph(ui, r, "link-label", &edit.label, "Label (Storybook, Jira ...)") {
+    if let Some(t) = dev_field(ui, r, "link-label", &edit.label, "Label (Storybook, Jira ...)") {
         edit.label = t;
     }
-    c.y += 34.0;
-    let r = c.rect(PAD, 0.0, w, 28.0);
+    c.y += 38.0;
+    let r = c.rect(PAD, 0.0, w, theme::CONTROL_XS);
     widgets::record(ui, "link-url", r);
-    if let Some(t) = field::text_input_ph(ui, r, "link-url", &edit.url, "https://") {
+    if let Some(t) = dev_field(ui, r, "link-url", &edit.url, "https://") {
         edit.url = t;
     }
-    c.y += 36.0;
-    let row = c.rect(PAD, 0.0, w, 28.0);
+    c.y += 40.0;
+    let row = c.rect(PAD, 0.0, w, ACTION_ROW_H);
     let half = (w - 8.0) / 2.0;
-    let add = Rect::from_min_size(row.min, Vec2::new(half, 28.0));
+    let add = Rect::from_min_size(row.min, Vec2::new(half, ACTION_ROW_H));
     let cancel = add.translate(Vec2::new(half + 8.0, 0.0));
     let mut keep = true;
     let valid = crate::present::url_allowed(&edit.url);
@@ -457,9 +464,11 @@ pub fn code_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         let resp = ui.interact(r, ui.id().with("react-tailwind"), Sense::click());
         ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, "Style with Tailwind classes", theme::font_body(), theme::TEXT_SECONDARY);
         let on = app.dev.react_tailwind;
-        let tr = Rect::from_center_size(Pos2::new(r.right() - 14.0, r.center().y), Vec2::new(28.0, 16.0));
-        ui.painter().rect_filled(tr, theme::cr(8), if on { theme::BG_BRAND } else { theme::BG_TERTIARY });
-        ui.painter().circle_filled(Pos2::new(if on { tr.right() - 8.0 } else { tr.left() + 8.0 }, tr.center().y), 6.0, theme::TEXT);
+        let tr = Rect::from_min_size(
+            Pos2::new(r.right() - theme::CONTROL_SM, r.center().y - theme::LINE_TEXT_SM * 0.5),
+            Vec2::new(theme::CONTROL_SM, theme::LINE_TEXT_SM),
+        );
+        super::paint_switch(ui.painter(), tr, on);
         if resp.clicked() {
             app.dev.react_tailwind = !on;
         }
@@ -700,31 +709,52 @@ mod tests {
 
     #[test]
     fn the_secondary_button_hugs_its_label_and_the_primary_takes_the_rest_of_the_row() {
-        // The "Changed" header at the 209 px inspector row: "Compare changes" (105.84) beside "Mark ready" (64.56).
-        let r = row(209.0);
-        let (primary, secondary) = split_actions(r, 105.84, 64.56);
+        // A wide row: "Compare changes" beside "Mark ready", both at their natural width.
+        let r = row(300.0);
+        let (primary, secondary) = split_actions(r, 118.0, 64.56);
         assert_eq!(secondary.width(), 65.0 + 2.0 * theme::INSET_CONTROL, "the label rounded up between two control insets");
         assert_eq!(primary.left(), r.left());
         assert_eq!(primary.right() + theme::SPACE_INLINE, secondary.left(), "an 8 px gap between the buttons");
         assert_eq!(secondary.right(), r.right(), "the row is filled to its end");
         assert_eq!((primary.top(), secondary.top()), (r.top(), r.top()), "side by side");
-        assert!(primary.width() >= 105.84f32.ceil() + 2.0 * theme::INSET_SEGMENT, "the primary label fits, got {} px", primary.width());
-        // It was 100.5 px (half of the row) for a 105.84 px label.
-        assert!(primary.width() > 100.5);
+        assert!(primary.width() >= 118.0 + 2.0 * theme::INSET_CONTROL, "the primary label fits, got {} px", primary.width());
+    }
+
+    /// The three label pairs of the Dev status header, primary first.
+    const PAIRS: [(&str, &str); 3] = [("Mark completed", "Remove status"), ("Compare changes", "Mark ready"), ("Back to ready", "Remove status")];
+
+    #[test]
+    fn the_primary_label_is_never_elided_at_the_panel_minimum_width() {
+        let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let panel_row = row(theme::RIGHT_PANEL_WIDTH - 2.0 * PAD);
+        paint(|ui| {
+            for (primary_label, secondary_label) in PAIRS {
+                let (primary, secondary) = action_rects(ui.painter(), panel_row, primary_label, secondary_label);
+                let label_w = text_width(ui.painter(), primary_label, &font).ceil();
+                assert!(primary.width() >= label_w + 2.0 * theme::INSET_CONTROL, "{primary_label}: {} px for a {label_w} px label", primary.width());
+                assert!(secondary.top() >= primary.top(), "{secondary_label} sits beside or below the primary");
+                if secondary.top() > primary.top() {
+                    assert_eq!(primary.width(), panel_row.width(), "stacked: the primary has the full row");
+                    assert_eq!(secondary.width(), panel_row.width(), "stacked: the secondary has the full row");
+                }
+            }
+        });
     }
 
     #[test]
-    fn the_three_dev_states_keep_their_buttons_on_one_row_at_the_inspector_width() {
-        for (primary_label, secondary_label) in [(94.28, 83.3), (105.84, 64.56), (79.34, 83.3)] {
-            let (primary, secondary) = split_actions(row(209.0), primary_label, secondary_label);
-            assert_eq!(primary.top(), secondary.top(), "{primary_label} px beside {secondary_label} px stacked");
-        }
+    fn the_buttons_keep_one_row_when_both_fit_at_their_natural_width() {
+        paint(|ui| {
+            for (primary_label, secondary_label) in PAIRS {
+                let (primary, secondary) = action_rects(ui.painter(), row(420.0), primary_label, secondary_label);
+                assert_eq!(primary.top(), secondary.top(), "{primary_label} beside {secondary_label} stacked on a wide row");
+            }
+        });
     }
 
     #[test]
     fn the_buttons_stack_only_when_the_primary_label_does_not_fit_beside_the_secondary() {
         let (primary_label, secondary_label) = (105.84f32, 64.56f32);
-        let need = primary_label.ceil() + 2.0 * theme::INSET_SEGMENT;
+        let need = primary_label.ceil() + 2.0 * theme::INSET_CONTROL;
         let secondary_w = secondary_label.ceil() + 2.0 * theme::INSET_CONTROL;
         // The narrowest row that still fits side by side, and one pixel less.
         let fits = row(need + theme::SPACE_INLINE + secondary_w);
@@ -736,5 +766,155 @@ mod tests {
         assert_eq!(primary, Rect::from_min_size(narrow.min, Vec2::new(narrow.width(), ACTION_ROW_H)), "the primary takes the full row");
         assert_eq!(secondary.width(), narrow.width(), "the secondary button has a full row of its own");
         assert_eq!(secondary.top() - primary.bottom(), theme::SPACE_ROW, "below it, 4 px apart");
+    }
+
+    fn paint(draw: impl FnMut(&mut Ui)) -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(480.0, 200.0))), ..Default::default() };
+        ctx.run_ui(raw, draw).shapes
+    }
+
+    fn label_color(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<Color32> {
+        shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Text(text) if text.galley.text() == needle => Some(text.fallback_color),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn primary_button_label_is_dark_on_brand() {
+        let rect = Rect::from_min_size(Pos2::new(8.0, 8.0), Vec2::new(160.0, theme::CONTROL_XS));
+        let shapes = paint(|ui| {
+            primary_button(ui, rect, "ready", "Ready for dev");
+        });
+        assert_eq!(label_color(&shapes, "Ready for dev"), Some(theme::TEXT_ON_BRAND));
+        let frame = shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(shape) if shape.rect == rect => Some(shape),
+            _ => None,
+        });
+        let frame = frame.expect("primary fill");
+        assert_eq!(frame.fill, theme::BG_BRAND);
+        assert_eq!(frame.corner_radius, theme::cr(theme::RADIUS_CONTROL));
+    }
+
+    /// Every text the panel paints, in paint order.
+    fn painted_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(text) => Some(text.galley.text().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_inspector_shows_every_primary_label_whole_in_the_narrowest_panel() {
+        for (status, label) in [(DevStatus::ReadyForDev, "Mark completed"), (DevStatus::Changed, "Compare changes"), (DevStatus::Completed, "Back to ready")] {
+            let mut d = Document::new("t");
+            let page = d.add_page("p");
+            let id = d.alloc_id();
+            let mut node = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+            node.dev.status = Some(status);
+            let f = d.insert(page, node).unwrap();
+            let mut app = App::new(d);
+            app.ui.dev_mode = true;
+            app.selection = vec![f];
+            let ctx = egui::Context::default();
+            theme::install_fonts(&ctx);
+            let mut texts = Vec::new();
+            for i in 0..3 {
+                let raw = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 800.0))),
+                    time: Some(f64::from(i) * 0.1),
+                    ..Default::default()
+                };
+                let out = ctx.run_ui(raw, |ui| {
+                    crate::panels::inspect::show(&mut app, ui, Rect::from_min_size(Pos2::new(660.0, 100.0), Vec2::new(theme::RIGHT_PANEL_WIDTH - 1.0, 600.0)));
+                });
+                texts = painted_texts(&out.shapes);
+            }
+            assert!(texts.iter().any(|t| t == label), "{label} is painted whole, texts={texts:?}");
+        }
+    }
+
+    #[test]
+    fn status_pill_is_a_tinted_status_count() {
+        let shapes = paint(|ui| {
+            status_pill(ui.painter(), Pos2::new(8.0, 8.0), DevStatus::ReadyForDev);
+        });
+        let tint = theme::DEV_READY.gamma_multiply(0.22);
+        let pill = shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(shape) if shape.fill == tint => Some(shape),
+            _ => None,
+        });
+        let pill = pill.expect("tinted status fill");
+        assert!((pill.rect.height() - theme::BADGE_SM).abs() < 0.5, "pill height {}", pill.rect.height());
+        assert_eq!(label_color(&shapes, DevStatus::ReadyForDev.label()), Some(theme::TEXT));
+    }
+
+    /// Cursor advance of the Dev links section and of its sibling, the Annotations section, after the status header
+    /// has run, for a selected layer with `status` and `links`.
+    fn section_advances(status: Option<DevStatus>, links: usize, annotating: bool) -> (f32, f32) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut node = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+        node.dev.status = status;
+        node.dev.links = (0..links).map(|i| DevLink { label: format!("link {i}"), url: format!("https://example.com/{i}") }).collect();
+        let f = d.insert(page, node).unwrap();
+        let mut app = App::new(d);
+        app.ui.dev_mode = true;
+        app.selection = vec![f];
+        if annotating {
+            app.dev.annot = Some(AnnotEdit { node: f, index: None, text: String::new(), props: Vec::new() });
+        }
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 800.0))), ..Default::default() };
+        let mut out = (0.0, 0.0);
+        let _ = ctx.run_ui(raw, |ui| {
+            let mut c = Cur { x0: 0.0, oy: 0.0, y: 0.0, w: theme::RIGHT_PANEL_WIDTH - 1.0 };
+            status_header(&mut app, ui, &mut c, f);
+            let before = c.y;
+            annotations_section(&mut app, ui, &mut c, f);
+            let annotations = c.y - before;
+            let before = c.y;
+            links_section(&mut app, ui, &mut c, f);
+            out = (c.y - before, annotations);
+        });
+        out
+    }
+
+    /// Advance of a section title alone.
+    fn title_advance() -> f32 {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut advance = 0.0;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut c = Cur { x0: 0.0, oy: 0.0, y: 0.0, w: theme::RIGHT_PANEL_WIDTH - 1.0 };
+            section_title(ui, &mut c, "Dev links");
+            advance = c.y;
+        });
+        advance
+    }
+
+    #[test]
+    fn the_dev_links_section_keeps_the_bottom_inset_of_its_siblings() {
+        // Empty sections: title, the "No ..." row, and the shared 8 px bottom pad.
+        let empty = title_advance() + ROW_H + 8.0;
+        for status in [None, Some(DevStatus::ReadyForDev), Some(DevStatus::Changed), Some(DevStatus::Completed)] {
+            for annotating in [false, true] {
+                let (links, annotations) = section_advances(status, 0, annotating);
+                assert_eq!(links, empty, "links, status {status:?}, note editor open {annotating}");
+                if !annotating {
+                    assert_eq!(annotations, empty, "annotations, status {status:?}");
+                }
+            }
+            // One link row of 36 px, then the same pad.
+            let (links, _) = section_advances(status, 1, false);
+            assert_eq!(links, title_advance() + 36.0 + 8.0, "links with one entry, status {status:?}");
+        }
     }
 }

@@ -643,9 +643,12 @@ fn cluster_baseline_rows(mut items: Vec<OrderItem<'_>>) -> Vec<Vec<OrderItem<'_>
 /// Per row, the names sorted by baseline centre x and by current centre x.
 ///
 /// Sorting by centre rather than left edge keeps a control that grows sideways under an overlapping neighbour in place.
-/// Equal centres break by name only: a half-point y jitter or a centred growth must not flip two widgets that share a
-/// centre. For widgets that do not overlap in x, centre order equals left-edge order, so side-by-side controls stay
-/// guarded; G4/G5 pin every widget's position separately. Cross-row x order is not compared on purpose: a region can
+/// Exactly equal centres break by baseline centre x, then by name: two controls that stack on one centre (a
+/// primary above its secondary, both full row) keep their baseline order instead of taking the order their names
+/// sort to. Only exactly equal centres reach the tie-break, so a swap of two side-by-side controls is still caught.
+/// A vertical flip of such a stacked pair is not a row-order change; the named-widget position check rejects it
+/// because each widget's position is pinned separately. For widgets that do not overlap in x, centre order equals
+/// left-edge order, so side-by-side controls stay guarded. Cross-row x order is not compared on purpose: a region can
 /// hold several columns, and an allow entry that authorises a horizontal move is reviewed on its own.
 fn row_name_sequences(rows: &mut [Vec<OrderItem<'_>>]) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
     let mut base_rows = Vec::with_capacity(rows.len());
@@ -653,7 +656,10 @@ fn row_name_sequences(rows: &mut [Vec<OrderItem<'_>>]) -> (Vec<Vec<String>>, Vec
     for row in rows.iter_mut() {
         row.sort_by(|(ra, _, na), (rb, _, nb)| centre_x(ra).total_cmp(&centre_x(rb)).then_with(|| na.cmp(nb)));
         base_rows.push(row.iter().map(|(_, _, name)| name.to_string()).collect());
-        row.sort_by(|(_, ca, na), (_, cb, nb)| centre_x(ca).total_cmp(&centre_x(cb)).then_with(|| na.cmp(nb)));
+        // Two controls that stack on one centre keep their baseline order; the name only breaks a tie in both.
+        row.sort_by(|(ba, ca, na), (bb, cb, nb)| {
+            centre_x(ca).total_cmp(&centre_x(cb)).then_with(|| centre_x(ba).total_cmp(&centre_x(bb))).then_with(|| na.cmp(nb))
+        });
         cur_rows.push(row.iter().map(|(_, _, name)| name.to_string()).collect());
     }
     (base_rows, cur_rows)
@@ -2033,6 +2039,63 @@ mod tests {
         .expect("valid allow list");
 
         compare_with_stale_check(&base, &cur, &allow, &[]).expect("a button growing left under an overlapping row neighbour must pass G3");
+    }
+
+    /// A pair that stacks on one centre keeps its baseline order, whatever the names sort to.
+    #[test]
+    fn two_buttons_stacking_on_one_centre_keep_g3_order() {
+        let mut base = sample_snapshot("d-editor-default");
+        base.named.insert("zz-primary".into(), NamedWidget { region: "left_panel".into(), rect: [222.0, 100.0, 100.0, 28.0], count: 1 });
+        base.named.insert("aa-secondary".into(), NamedWidget { region: "left_panel".into(), rect: [330.0, 100.0, 100.0, 28.0], count: 1 });
+        let mut cur = base.clone();
+        cur.named.get_mut("zz-primary").unwrap().rect = [222.0, 100.0, 208.0, 28.0];
+        cur.named.get_mut("aa-secondary").unwrap().rect = [222.0, 132.0, 208.0, 28.0];
+        let (base_rows, cur_rows) = {
+            let items: Vec<OrderItem<'_>> = vec![
+                (base.named["zz-primary"].rect, cur.named["zz-primary"].rect, "zz-primary"),
+                (base.named["aa-secondary"].rect, cur.named["aa-secondary"].rect, "aa-secondary"),
+            ];
+            let mut rows = cluster_baseline_rows(items);
+            row_name_sequences(&mut rows)
+        };
+        assert_eq!(base_rows, cur_rows, "stacking on one centre must not reorder the pair");
+    }
+
+    /// A stacked pair whose two buttons swap places vertically is rejected by the named-widget position check, not by row order.
+    #[test]
+    fn a_vertically_flipped_stacked_pair_fails_the_position_check() {
+        let mut base = sample_snapshot("d-editor-default");
+        base.named.insert("zz-primary".into(), NamedWidget { region: "left_panel".into(), rect: [222.0, 100.0, 100.0, 28.0], count: 1 });
+        base.named.insert("aa-secondary".into(), NamedWidget { region: "left_panel".into(), rect: [330.0, 100.0, 100.0, 28.0], count: 1 });
+        let entry = |prefix: &str, anchor: AnchorX, dy: f32| AllowEntry {
+            case: "d-editor-default".into(),
+            region: "left_panel".into(),
+            name_prefix: Some(prefix.into()),
+            anchor_x: Some(anchor),
+            dy: Some(dy),
+            min_dw: Some(108.0),
+            max_dw: Some(108.0),
+            max_dh: Some(32.0),
+            spec: "G".into(),
+            reason: "the pair stacks on full rows".into(),
+            ..Default::default()
+        };
+        let allow =
+            validate_allow_entries(vec![entry("zz-primary", AnchorX::Left, 0.0), entry("aa-secondary", AnchorX::Right, 32.0)]).expect("valid allow list");
+
+        // The declared stacking: the primary stays on top, the secondary drops under it.
+        let mut stacked = base.clone();
+        stacked.named.get_mut("zz-primary").unwrap().rect = [222.0, 100.0, 208.0, 28.0];
+        stacked.named.get_mut("aa-secondary").unwrap().rect = [222.0, 132.0, 208.0, 28.0];
+        compare(&base, &stacked, &allow, &[]).expect("the declared stacking passes");
+
+        // The same two rows with the buttons swapped.
+        let mut flipped = base.clone();
+        flipped.named.get_mut("zz-primary").unwrap().rect = [222.0, 132.0, 208.0, 28.0];
+        flipped.named.get_mut("aa-secondary").unwrap().rect = [222.0, 100.0, 208.0, 28.0];
+        let err = compare(&base, &flipped, &allow, &[]).expect_err("a vertically flipped stacked pair must fail");
+        assert!(err.contains("named widget 'aa-secondary' rect drift"), "the named-widget position check rejects the flip, got: {err}");
+        assert!(!err.contains("G3 row order"), "the row-order check does not see the flip, got: {err}");
     }
 
     /// The baseline-row rule still guards side-by-side controls: swapping two of them in a row that the current

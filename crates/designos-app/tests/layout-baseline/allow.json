@@ -3336,5 +3336,233 @@
     "spec": "I",
     "reason": "rule 4 (R5): Erase is the kit button xs, 32 high, up from 24, and keeps its top edge; the popover frame growing by 8 pushes nothing, so the derived shift is cancelled",
     "dy": -8
+  },
+  {
+    "case": "g-dev-react",
+    "region": "right_panel",
+    "name_prefix": "dev-complete",
+    "min_dh": 4.0,
+    "max_dh": 40.0,
+    "spec": "G",
+    "reason": "Mark completed grows from 28 px to the 32 px inspector button and takes the full row, so its primary label is never elided",
+    "min_dw": 108.0,
+    "max_dw": 108.0
+  },
+  {
+    "case": "g-dev-react",
+    "region": "right_panel",
+    "name_prefix": "btn-(\"dev-clear\", 0)",
+    "min_dh": 4.0,
+    "max_dh": 40.0,
+    "spec": "G",
+    "reason": "Remove status grows from 28 px to the 32 px inspector button and moves under Mark completed on a full-width row of its own",
+    "min_dw": 109.0,
+    "max_dw": 109.0,
+    "anchor_x": "right",
+    "dy": 36.0
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "right_panel",
+    "name_prefix": "dev-complete",
+    "min_dh": 4.0,
+    "max_dh": 40.0,
+    "spec": "G",
+    "reason": "Mark completed grows from 28 px to the 32 px inspector button and takes the full row, so its primary label is never elided",
+    "min_dw": 108.0,
+    "max_dw": 108.0
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "right_panel",
+    "name_prefix": "btn-(\"dev-clear\", 0)",
+    "min_dh": 4.0,
+    "max_dh": 40.0,
+    "spec": "G",
+    "reason": "Remove status grows from 28 px to the 32 px inspector button and moves under Mark completed on a full-width row of its own",
+    "min_dw": 109.0,
+    "max_dw": 109.0,
+    "anchor_x": "right",
+    "dy": 36.0
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "right_panel",
+    "name_prefix": "annot-text",
+    "min_dh": 4.0,
+    "max_dh": 4.0,
+    "spec": "G",
+    "reason": "R8.4 the annotation note field grows from 28 px to the 32 px inspector field"
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "right_panel",
+    "name_prefix": "dev-annot-save",
+    "min_dh": 4.0,
+    "max_dh": 4.0,
+    "spec": "G",
+    "reason": "R8.6 Save grows from 28 px to the 32 px inspector button"
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "right_panel",
+    "name_prefix": "btn-\"annot-cancel\"",
+    "min_dh": 4.0,
+    "max_dh": 4.0,
+    "spec": "G",
+    "reason": "R8.6 Cancel shares the 32 px annotation action row"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0",
+    "x_band": [1359.0, 1565.0],
+    "column": "inspector",
+    "spec": "G",
+    "reason": "The inspector sits behind the compare dialog's full-screen scrim, so the gate sees it in the overlay region; it is its own layout flow and moves 40 px down when the status buttons stack. The band stops at x 1565 so the floating Help button (x 1566, pinned to the window corner) and the panel scrollbar (x 1592) stay out of the column: neither moves with the status block"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0#inspector",
+    "name_prefix": "dev-compare",
+    "min_dh": 4.0,
+    "max_dh": 40.0,
+    "min_dw": 89.0,
+    "max_dw": 89.0,
+    "spec": "G",
+    "reason": "R8.6 the stacked Dev status buttons put Compare changes on its own full-width row: 89 px wider and 4 px taller (28 to 32). The status row grows 40 px in total (28 to 32 + 4 + 32); the widget and row height bounds share one limit, so max_dh is that 40 px row growth"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0#inspector",
+    "name_prefix": "btn-(\"dev-remark\", 0)",
+    "anchor_x": "right",
+    "min_dh": 4.0,
+    "max_dh": 40.0,
+    "min_dw": 128.0,
+    "max_dw": 128.0,
+    "dy": 36.0,
+    "spec": "G",
+    "reason": "R8.6 Mark ready stacks under Compare changes: 128 px wider (full width) and 4 px taller (28 to 32), right edge held, 36 px lower (the 32 px Compare changes row plus the 4 px gap, less the 0 px it already sat from the row top). The row height bound shares the 40 px status row growth"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0",
+    "h_base": 28.0,
+    "min_dh": 0.0,
+    "max_dh": 8.0,
+    "min_dw": 0.0,
+    "max_dw": 8.0,
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "dx": -4.0,
+    "spec": "G",
+    "reason": "R8.6 the compare close control grows from 28 px to the 36 px icon button around its centre and sits 4 px left of the old box, still on its own row"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "scrollbar-track",
+    "min_dh": -8.0,
+    "max_dh": -8.0,
+    "dy": -4.0,
+    "spec": "G",
+    "reason": "R5 R8.6 the compare footer grows from 32 px to 40 px, so the change list gives back 8 px and its track shortens by 8 px; the track keeps its top (measured delta 0,0,0,-8; dy -4 cancels the 4 px the gate derives from the rows above that grow)"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0",
+    "h_base": 32.0,
+    "min_dw": 15.0,
+    "max_dw": 15.0,
+    "min_dh": 4.0,
+    "max_dh": 8.0,
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "dy": -4.0,
+    "spec": "G",
+    "reason": "R5 R8.6 Mark as ready for dev again grows from 32 px to the 40 px dialog button and 15 px wider for its semibold label, right edge held; the dialog footer row grows 8 px upward, so the button sits 4 px above its centre-held position"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "btn-\"compare-done\"",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dx": -15.0,
+    "dy": -4.0,
+    "min_dh": 8.0,
+    "max_dh": 8.0,
+    "spec": "G",
+    "reason": "R5 R8.6 the compare dialog Close button grows from 32 px to the 40 px dialog button, 8 px taller upward (the gate already credits 4 px of that through the rows above, so dy is the other 4 px), and moves 15 px left to make room for the 15 px wider Mark as ready for dev again button"
+  },
+  {
+    "case": "micro-dev-boxmodel",
+    "region": "right_panel",
+    "name_prefix": "dev-ready",
+    "min_dh": 4.0,
+    "max_dh": 4.0,
+    "spec": "G",
+    "reason": "R5 R8.6 Ready for dev grows from 28 px to the 32 px inspector button"
+  },
+  {
+    "case": "g-dev-react",
+    "region": "unknown",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dy": 40.0,
+    "spec": "G",
+    "reason": "The Dev status buttons stack on two full-width rows, so the inspector content past the panel clip, listed under the unknown region, follows the growth of the status block"
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "unknown",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dy": 44.0,
+    "spec": "G",
+    "reason": "The Dev status buttons stack on two full-width rows (40 px) and the open note field and its buttons grow 4 px more, so the inspector content past the panel clip, listed under the unknown region, follows the 44 px the block grows"
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "right_panel",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "inventory_max_delta": 1,
+    "spec": "G",
+    "reason": "The Dev status buttons stack on two full-width rows, so one clipped fragment at the panel bottom leaves the right panel inventory"
+  },
+  {
+    "case": "g-dev-annotate",
+    "region": "right_panel",
+    "region_to": "unknown",
+    "name_prefix": "btn-\"code-connect-terminal\"",
+    "spec": "G",
+    "reason": "With the note editor open the Dev status buttons stack and the annotation fields grow, so the Code Connect button is pushed below the Inspect panel clip and leaves the visible right panel (the panel scrolls, spec G rule 6); only this button, only this case"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0#inspector",
+    "inventory_max_delta": 2,
+    "spec": "G",
+    "reason": "The stacked status buttons push the inspector rows 40 px down, so two 9 px unnamed slivers at the bottom of the column leave the clip (27 to 25 unnamed hit areas)"
+  },
+  {
+    "case": "micro-dev-boxmodel",
+    "region": "right_panel",
+    "h_base": 13.0,
+    "anchor_y": "bottom",
+    "min_dh": -4.0,
+    "max_dh": -4.0,
+    "spec": "G",
+    "reason": "R5 Ready for dev grows 4 px, so the last inspector row, clipped by the panel bottom edge, keeps that edge and loses 4 px of its visible height (13 to 9)"
+  },
+  {
+    "case": "micro-dev-boxmodel",
+    "region": "unknown",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dy": 4.0,
+    "spec": "G",
+    "reason": "Ready for dev grows from 28 px to the 32 px inspector button, so the inspector content past the panel clip, listed under the unknown region, follows the 4 px growth"
   }
 ]
