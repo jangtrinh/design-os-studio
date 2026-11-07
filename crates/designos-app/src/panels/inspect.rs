@@ -222,6 +222,16 @@ pub(crate) fn small_button(ui: &mut Ui, rect: Rect, key: impl widgets::Key, labe
     r.clicked()
 }
 
+/// Horizontal space between the Code Connect badge border and its label, on each side.
+const CODE_CONNECT_BADGE_PAD_X: f32 = theme::SPACE_FACT * 2.0;
+
+/// Badge rect right-aligned in the Code Connect header, sized from the label the kit badge paints.
+fn code_connect_badge_rect(p: &egui::Painter, hdr: Rect, label: &str) -> Rect {
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
+    let w = widgets::text_width(p, label, &font) + 2.0 * (CODE_CONNECT_BADGE_PAD_X + theme::BORDER_WIDTH);
+    Rect::from_min_size(Pos2::new(hdr.right() - w, hdr.center().y - 9.0), Vec2::new(w, 18.0))
+}
+
 pub(crate) fn section_title(ui: &Ui, c: &mut Cur, label: &str) {
     widgets::hline(ui.painter(), c.x0, c.x0 + c.w, c.oy + c.y, theme::BORDER);
     c.y += 1.0;
@@ -495,12 +505,15 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let cc_hdr = c.rect(PAD, 0.0, c.w - 2.0 * PAD, theme::SECTION_TITLE_HEIGHT);
     widgets::record(ui, "dev-code-connect", cc_hdr);
     let cc_resp = ui.interact(cc_hdr, ui.id().with("dev-code-connect"), Sense::click());
+    if cc_resp.hovered() {
+        ui.painter().rect_filled(cc_hdr.expand2(Vec2::new(4.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+    }
     ui.painter().text(Pos2::new(cc_hdr.left(), cc_hdr.center().y), Align2::LEFT_CENTER, "Code Connect", theme::font_body_strong(), theme::TEXT);
     let is_connected = n.dev.annotations.iter().any(|a| a.text.contains("Code Connect:"));
-    let pill_w = if is_connected { 68.0 } else { 64.0 };
-    let pill_r = Rect::from_min_size(Pos2::new(cc_hdr.right() - pill_w, cc_hdr.center().y - 9.0), Vec2::new(pill_w, 18.0));
+    let label = if is_connected { "Connected" } else { "Not started" };
+    let pill_r = code_connect_badge_rect(ui.painter(), cc_hdr, label);
     let tone = if is_connected { crate::widgets::kit::Tone::Success } else { crate::widgets::kit::Tone::Neutral };
-    crate::widgets::kit::count_badge(ui.painter(), pill_r, if is_connected { "Connected" } else { "Not started" }, tone);
+    crate::widgets::kit::count_badge(ui.painter(), pill_r, label, tone);
     if cc_resp.on_hover_text("Click to generate & copy design:os Code Connect snippet").clicked() {
         let comp_ident: String = n.name.chars().filter(|ch| ch.is_alphanumeric()).collect::<String>();
         let comp_ident = if comp_ident.is_empty() { format!("Node{}", id.0) } else { comp_ident };
@@ -1001,6 +1014,45 @@ mod tests {
             assert!(on_hover.contains(&theme::ICON_QUATERNARY_HOVER), "{name}: hover must use ICON_QUATERNARY_HOVER, got {on_hover:?}");
             assert!(!on_hover.contains(&egui::Color32::WHITE), "{name}: no white on hover");
             frame(&mut app, Some(Pos2::new(5.0, 5.0)));
+        }
+    }
+
+    #[test]
+    fn code_connect_label_sits_inside_its_badge_with_the_kit_padding() {
+        for (connected, label, fill) in [(false, "Not started", theme::BADGE_NEUTRAL_BG), (true, "Connected", theme::BG_SUCCESS_PRIMARY)] {
+            let mut d = Document::new("t");
+            let page = d.add_page("p");
+            let f = d.alloc_id();
+            let f = d.insert(page, Node::frame(f, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+            let mut app = App::new(d);
+            app.ui.dev_mode = true;
+            app.selection = vec![f];
+            if connected {
+                app.dev_edit(f, |dev| dev.annotations.push(Annotation { text: "Code Connect: <F />".into(), properties: vec![], category: None }));
+            }
+            let ctx = egui::Context::default();
+            theme::install_fonts(&ctx);
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 800.0));
+            let region = Rect::from_min_size(Pos2::new(660.0, 100.0), Vec2::new(239.0, 600.0));
+            let mut shapes = Vec::new();
+            for i in 0..2 {
+                let raw = egui::RawInput { screen_rect: Some(screen), time: Some(0.1 * (i + 1) as f64), ..Default::default() };
+                shapes = ctx.run_ui(raw, |ui| show(&mut app, ui, region)).shapes;
+            }
+            fn walk(s: &egui::Shape, label: &str, fill: egui::Color32, badge: &mut Option<Rect>, text: &mut Option<Rect>) {
+                match s {
+                    egui::Shape::Rect(r) if r.fill == fill && (r.rect.height() - 18.0).abs() < 0.01 => *badge = Some(r.rect),
+                    egui::Shape::Text(t) if t.galley.job.text == label => *text = Some(Rect::from_min_size(t.pos, t.galley.size())),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, label, fill, badge, text)),
+                    _ => {}
+                }
+            }
+            let (mut badge, mut text) = (None, None);
+            shapes.iter().for_each(|s| walk(&s.shape, label, fill, &mut badge, &mut text));
+            let (badge, text) = (badge.expect("badge rect"), text.expect("badge label"));
+            let pad = CODE_CONNECT_BADGE_PAD_X + theme::BORDER_WIDTH;
+            assert!(text.left() - badge.left() >= pad - 0.5, "{label}: left gap {} < {pad}", text.left() - badge.left());
+            assert!(badge.right() - text.right() >= pad - 0.5, "{label}: right gap {} < {pad}", badge.right() - text.right());
         }
     }
 
