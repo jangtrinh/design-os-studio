@@ -144,13 +144,19 @@ impl ExportSetting {
     }
 }
 
-/// Replaces characters that are invalid in file names on common platforms.
+/// Replaces characters that are invalid in file names on common platforms. On Windows a device name such as `NUL`
+/// also gets a leading underscore; other platforms keep the name.
 pub fn sanitize_file_name(name: &str) -> String {
+    sanitize_file_name_for(name, cfg!(windows))
+}
+
+/// [`sanitize_file_name`] for a chosen platform, so the Windows rule is testable everywhere.
+pub fn sanitize_file_name_for(name: &str, is_windows: bool) -> String {
     let s: String = name.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c }).collect();
     let s = s.trim().trim_matches('.').to_string();
     if s.is_empty() {
         "export".into()
-    } else if is_windows_reserved_name(&s) {
+    } else if is_windows && is_windows_reserved_name(&s) {
         // `NUL.fig` on Windows is the NUL device: the write "works" and the file is never created.
         format!("_{s}")
     } else {
@@ -185,14 +191,16 @@ mod tests {
     #[test]
     fn windows_reserved_device_names_are_not_used_as_file_names() {
         for name in ["NUL", "nul", "CON", "Prn", "AUX", "COM1", "lpt9", "NUL.fig", "con.txt", "NUL .fig"] {
-            let clean = sanitize_file_name(name);
+            let clean = sanitize_file_name_for(name, true);
             assert_eq!(clean, format!("_{}", name.trim()), "{name} is a Windows device name");
+            assert_eq!(sanitize_file_name_for(name, false), name.trim(), "{name} keeps its name off Windows");
         }
         for name in ["NUL@2x", "CONSOLE", "COM10", "COM", "Card", "Untitled", "LPT", "my NUL"] {
-            assert_eq!(sanitize_file_name(name), name, "{name} is an ordinary name");
+            assert_eq!(sanitize_file_name_for(name, true), name, "{name} is an ordinary name");
         }
         let s = ExportSetting { scale: ExportScale::Factor(1.0), format: ExportFormat::Png };
-        assert_eq!(s.file_name("NUL"), "_NUL.png", "an export row on a layer named NUL does not write to the device");
+        let expected = if cfg!(windows) { "_NUL.png" } else { "NUL.png" };
+        assert_eq!(s.file_name("NUL"), expected, "the export path follows the platform it runs on");
     }
 
     fn decode(png: &[u8]) -> tiny_skia::Pixmap {
