@@ -78,6 +78,7 @@ pub mod spec_instance;
 mod spec_relayout_scope_tests;
 mod styles_ops;
 pub mod table;
+pub mod table_ops;
 mod text_fills;
 pub mod text_measure;
 pub mod text_style_ops;
@@ -127,6 +128,7 @@ pub use table::{
     build_table, check_table_positions, default_cell_text, TableCellProps, TableMerge, TableProps, TableTrack, TrackId, TABLE_CELL_PADDING,
     TABLE_DEFAULT_COLUMN_WIDTH, TABLE_DEFAULT_ROW_HEIGHT, TABLE_MIN_TRACK,
 };
+pub use table_ops::{TableOpError, TableStyle, TABLE_MAX_TRACKS};
 pub use text_fills::set_text_fills_everywhere;
 pub use text_style_ops::*;
 pub use textmodel::*;
