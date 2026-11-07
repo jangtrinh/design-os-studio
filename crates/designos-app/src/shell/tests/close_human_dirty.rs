@@ -79,6 +79,8 @@ fn library_file_read_only_close_save_is_invalid_arguments_not_path_required() {
     finish(s, workspace);
 }
 
+// `Session::call` returns the server `ToolError`, which is large; the scope closure forwards it unchanged.
+#[allow(clippy::result_large_err)]
 fn close_while_pumping(s: &mut Sim, session: &mut designos_mcp::server::Session, args: serde_json::Value) -> Result<serde_json::Value, serde_json::Value> {
     std::thread::scope(|scope| {
         let h = scope.spawn(|| session.call("designos_close_document", args));

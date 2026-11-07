@@ -261,12 +261,16 @@ pub(crate) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
                         app.create_style_from(*id, prop);
                     }
                 }
+                // A guard would leave `Pick::Rename` unmatched, and this match must stay exhaustive.
+                #[allow(clippy::collapsible_match)]
                 Some(Pick::Rename) => {
                     if linked_style(app, sel, prop).is_some_and(|k| !style_edit::is_read_only(app, &k)) {
                         ui.data_mut(|d| d.remove_temp::<String>(Id::new(("style-folder-rename", key))));
                         app.props.style_rename = Some(prop);
                     }
                 }
+                // A guard would leave `Pick::RenameFolder` unmatched, and this match must stay exhaustive.
+                #[allow(clippy::collapsible_match)]
                 Some(Pick::RenameFolder(folder)) => {
                     if linked_style(app, sel, prop).is_some_and(|k| !style_edit::is_read_only(app, &k)) {
                         ui.data_mut(|d| d.insert_temp(Id::new(("style-folder-rename", key)), folder));

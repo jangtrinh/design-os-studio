@@ -449,6 +449,8 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     let main_fill = |is_w: bool| sz.in_flow && !grid_parent && (is_w == sz.row_parent);
     for (is_w, d) in [(true, sz.w), (false, sz.h)] {
         match d {
+            // A guard would let a repeated `flex-1` fall through to the `self-stretch` arm below, which would add a class.
+            #[allow(clippy::collapsible_match)]
             Dim::Fill if main_fill(is_w) => {
                 if !c.contains(&"flex-1".to_string()) {
                     c.push("flex-1".into());

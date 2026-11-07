@@ -1173,11 +1173,11 @@ fn user_data_dir() -> Option<PathBuf> {
     }
     #[cfg(target_os = "macos")]
     {
-        return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+        std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"))
     }
     #[cfg(target_os = "windows")]
     {
-        return std::env::var_os("APPDATA").filter(|p| !p.is_empty()).map(PathBuf::from);
+        std::env::var_os("APPDATA").filter(|p| !p.is_empty()).map(PathBuf::from)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -1191,11 +1191,11 @@ fn cache_dir() -> Option<PathBuf> {
     }
     #[cfg(target_os = "macos")]
     {
-        return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+        std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"))
     }
     #[cfg(target_os = "windows")]
     {
-        return std::env::var_os("LOCALAPPDATA").filter(|p| !p.is_empty()).map(PathBuf::from);
+        std::env::var_os("LOCALAPPDATA").filter(|p| !p.is_empty()).map(PathBuf::from)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {

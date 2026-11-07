@@ -1261,17 +1261,15 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
 /// `on_drag` does this on every frame the button is held, but not on the frame of the release.
 fn follow_pointer(app: &mut App, inter: &mut Interaction, pos: Pos2, cur: DV, inp: &Inp) {
     match inter {
-        Interaction::Pending(p) => {
-            if (pos - p.start_screen).length() > theme::DRAG_THRESHOLD_PX {
-                let (node, start, alt) = (p.node, p.start_page, inp.mods.alt);
-                *inter = match start_move(app, node, start, alt) {
-                    Some(mut m) => {
-                        update_move(app, &mut m, cur, inp);
-                        Interaction::Move(m)
-                    }
-                    None => Interaction::None,
-                };
-            }
+        Interaction::Pending(p) if (pos - p.start_screen).length() > theme::DRAG_THRESHOLD_PX => {
+            let (node, start, alt) = (p.node, p.start_page, inp.mods.alt);
+            *inter = match start_move(app, node, start, alt) {
+                Some(mut m) => {
+                    update_move(app, &mut m, cur, inp);
+                    Interaction::Move(m)
+                }
+                None => Interaction::None,
+            };
         }
         Interaction::Move(m) => update_move(app, m, cur, inp),
         Interaction::Resize(r) => update_resize(app, r, cur, inp),

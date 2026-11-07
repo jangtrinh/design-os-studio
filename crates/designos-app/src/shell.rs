@@ -908,6 +908,8 @@ impl Shell {
             Some("web-capture-report") => {
                 app.web_capture_report_open = true;
             }
+            // A guard would send a `micro-` preset containing `:seq:` to the `Some(spec)` arm below, which opens a properties popup.
+            #[allow(clippy::collapsible_match)]
             Some(p) if p.starts_with("micro-") => {
                 if !p.contains(":seq:") {
                     apply_micro_interaction_showcase_preset(&mut app, p);

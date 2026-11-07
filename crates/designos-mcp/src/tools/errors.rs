@@ -1263,15 +1263,11 @@ fn describe_layout_spec_error(val: &Value, prefix: &str) -> Option<String> {
     for (k, v) in obj {
         let field_path = join_spec_path(prefix, k);
         match k.as_str() {
-            "direction" | "dir" | "primary_align" | "justify" | "counter_align" | "align" => {
-                if !v.is_string() {
-                    return Some(format!("{field_path} must be a string. Pass a string value."));
-                }
+            "direction" | "dir" | "primary_align" | "justify" | "counter_align" | "align" if !v.is_string() => {
+                return Some(format!("{field_path} must be a string. Pass a string value."));
             }
-            "wrap" => {
-                if !v.is_boolean() {
-                    return Some(format!("{field_path} must be a boolean. Pass true or false."));
-                }
+            "wrap" if !v.is_boolean() => {
+                return Some(format!("{field_path} must be a boolean. Pass true or false."));
             }
             "gap" | "counter_gap" => {
                 if is_non_finite_f32_number(v) {
@@ -1291,10 +1287,8 @@ fn describe_layout_spec_error(val: &Value, prefix: &str) -> Option<String> {
                     ));
                 }
             }
-            "grid_columns" | "grid_rows" => {
-                if !v.is_null() && !is_u32(v) {
-                    return Some(format!("{field_path} must be a positive integer. Pass a whole number of grid tracks."));
-                }
+            "grid_columns" | "grid_rows" if !v.is_null() && !is_u32(v) => {
+                return Some(format!("{field_path} must be a positive integer. Pass a whole number of grid tracks."));
             }
             _ => {}
         }
@@ -1341,42 +1335,30 @@ fn describe_override_spec_error(val: &Value, prefix: &str) -> Option<String> {
     for (k, v) in obj {
         let field_path = join_spec_path(prefix, k);
         match k.as_str() {
-            "path" | "text" | "fill" | "stroke" | "swap" => {
-                if !v.is_null() && !v.is_string() {
-                    return Some(format!("{field_path} must be a string. Pass a string value."));
+            "path" | "text" | "fill" | "stroke" | "swap" if !v.is_null() && !v.is_string() => {
+                return Some(format!("{field_path} must be a string. Pass a string value."));
+            }
+            "id" if !v.is_null() && v.as_u64().is_none() => {
+                return Some(format!("{field_path} must be a non-negative integer. Pass a numeric node ID."));
+            }
+            "visible" if !v.is_null() && !v.is_boolean() => {
+                return Some(format!("{field_path} must be a boolean. Pass true or false."));
+            }
+            "opacity" if !v.is_null() => {
+                if is_non_finite_f32_number(v) {
+                    return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                }
+                if !is_finite_f32(v) {
+                    return Some(format!("{field_path} must be a number between 0 and 1. Pass a numeric opacity such as 0.8."));
                 }
             }
-            "id" => {
-                if !v.is_null() && v.as_u64().is_none() {
-                    return Some(format!("{field_path} must be a non-negative integer. Pass a numeric node ID."));
-                }
+            "variant" if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) => {
+                return Some(format!(
+                    "{field_path} must be an object mapping variant property names to string values. Pass an object such as {{\"Size\": \"md\"}}."
+                ));
             }
-            "visible" => {
-                if !v.is_null() && !v.is_boolean() {
-                    return Some(format!("{field_path} must be a boolean. Pass true or false."));
-                }
-            }
-            "opacity" => {
-                if !v.is_null() {
-                    if is_non_finite_f32_number(v) {
-                        return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
-                    }
-                    if !is_finite_f32(v) {
-                        return Some(format!("{field_path} must be a number between 0 and 1. Pass a numeric opacity such as 0.8."));
-                    }
-                }
-            }
-            "variant" => {
-                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
-                    return Some(format!(
-                        "{field_path} must be an object mapping variant property names to string values. Pass an object such as {{\"Size\": \"md\"}}."
-                    ));
-                }
-            }
-            "props" => {
-                if !v.is_object() {
-                    return Some(format!("{field_path} must be an object mapping component property names to values. Pass a JSON object."));
-                }
+            "props" if !v.is_object() => {
+                return Some(format!("{field_path} must be an object mapping component property names to values. Pass a JSON object."));
             }
             "slots" => {
                 if let Some(err) = describe_slots_error(v, &field_path) {
@@ -1399,20 +1381,14 @@ fn describe_in_progress_error(val: &Value, prefix: &str) -> Option<String> {
     for (k, v) in obj {
         let field_path = join_spec_path(prefix, k);
         match k.as_str() {
-            "run_id" | "agent" | "agent_name" | "status" => {
-                if !v.is_null() && !v.is_string() {
-                    return Some(format!("{field_path} must be a string. Pass a string value."));
-                }
+            "run_id" | "agent" | "agent_name" | "status" if !v.is_null() && !v.is_string() => {
+                return Some(format!("{field_path} must be a string. Pass a string value."));
             }
-            "started_at_ms" | "since_ms" => {
-                if !v.is_null() && v.as_u64().is_none() {
-                    return Some(format!("{field_path} must be a non-negative integer. Pass a whole number."));
-                }
+            "started_at_ms" | "since_ms" if !v.is_null() && v.as_u64().is_none() => {
+                return Some(format!("{field_path} must be a non-negative integer. Pass a whole number."));
             }
-            "stale_after_s" => {
-                if !v.is_null() && !is_u32(v) {
-                    return Some(format!("{field_path} must be a non-negative integer. Pass a whole number."));
-                }
+            "stale_after_s" if !v.is_null() && !is_u32(v) => {
+                return Some(format!("{field_path} must be a non-negative integer. Pass a whole number."));
             }
             _ => {}
         }
@@ -1434,40 +1410,30 @@ fn describe_spec_value_error_at(val: &Value, prefix: &str) -> Option<String> {
     for (k, v) in obj {
         let field_path = join_spec_path(prefix, k);
         match k.as_str() {
-            "id" => {
-                if !v.is_null() && v.as_u64().is_none() {
-                    return Some(format!("{field_path} must be a non-negative integer. Pass a numeric node ID."));
-                }
+            "id" if !v.is_null() && v.as_u64().is_none() => {
+                return Some(format!("{field_path} must be a non-negative integer. Pass a numeric node ID."));
             }
-            "kind" | "name" => {
-                if !v.is_string() {
-                    return Some(format!("{field_path} must be a string. Pass a string value."));
-                }
+            "kind" | "name" if !v.is_string() => {
+                return Some(format!("{field_path} must be a string. Pass a string value."));
             }
             "component" | "preset" | "width_sizing" | "height_sizing" | "fill" | "stroke" | "text" | "text_color" | "color" | "text_style" | "effect_style"
-            | "grid_style" | "dev_status" | "annotation" => {
-                if !v.is_null() && !v.is_string() {
-                    return Some(format!("{field_path} must be a string. Pass a string value."));
-                }
+            | "grid_style" | "dev_status" | "annotation"
+                if !v.is_null() && !v.is_string() =>
+            {
+                return Some(format!("{field_path} must be a string. Pass a string value."));
             }
-            "variant" => {
-                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
-                    return Some(format!(
-                        "{field_path} must be an object mapping variant property names to string values. Pass an object such as {{\"Size\": \"md\"}}."
-                    ));
-                }
+            "variant" if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) => {
+                return Some(format!(
+                    "{field_path} must be an object mapping variant property names to string values. Pass an object such as {{\"Size\": \"md\"}}."
+                ));
             }
-            "mode" => {
-                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
-                    return Some(format!(
-                        "{field_path} must be an object mapping variable collection names to mode names. Pass an object such as {{\"Theme\": \"Dark\"}}."
-                    ));
-                }
+            "mode" if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) => {
+                return Some(format!(
+                    "{field_path} must be an object mapping variable collection names to mode names. Pass an object such as {{\"Theme\": \"Dark\"}}."
+                ));
             }
-            "props" => {
-                if !v.is_object() {
-                    return Some(format!("{field_path} must be an object mapping component property names to values. Pass a JSON object."));
-                }
+            "props" if !v.is_object() => {
+                return Some(format!("{field_path} must be an object mapping component property names to values. Pass a JSON object."));
             }
             "overrides" => {
                 let Some(arr) = v.as_array() else {
@@ -1496,24 +1462,20 @@ fn describe_spec_value_error_at(val: &Value, prefix: &str) -> Option<String> {
                     return Some(format!("{field_path} must be a number. Pass a numeric coordinate in pixels."));
                 }
             }
-            "min_width" | "max_width" | "min_height" | "max_height" => {
-                if !v.is_null() {
-                    if is_non_finite_f32_number(v) {
-                        return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
-                    }
-                    if !is_finite_f32(v) {
-                        return Some(format!("{field_path} must be a number. Pass a numeric size in pixels."));
-                    }
+            "min_width" | "max_width" | "min_height" | "max_height" if !v.is_null() => {
+                if is_non_finite_f32_number(v) {
+                    return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                }
+                if !is_finite_f32(v) {
+                    return Some(format!("{field_path} must be a number. Pass a numeric size in pixels."));
                 }
             }
-            "width" | "height" | "stroke_weight" | "stroke_width" | "corner_radius" | "radius" | "font_size" | "line_height" => {
-                if !v.is_null() {
-                    if is_non_finite_f32_number(v) {
-                        return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
-                    }
-                    if !is_num_or_var(v) {
-                        return Some(format!("{field_path} must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."));
-                    }
+            "width" | "height" | "stroke_weight" | "stroke_width" | "corner_radius" | "radius" | "font_size" | "line_height" if !v.is_null() => {
+                if is_non_finite_f32_number(v) {
+                    return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                }
+                if !is_num_or_var(v) {
+                    return Some(format!("{field_path} must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."));
                 }
             }
             "opacity" => {
@@ -1526,49 +1488,35 @@ fn describe_spec_value_error_at(val: &Value, prefix: &str) -> Option<String> {
                     ));
                 }
             }
-            "corner_radii" => {
-                if !v.is_null() {
-                    if v.as_array().is_some_and(|a| a.len() == 4 && a.iter().any(is_non_finite_f32_number)) {
-                        return Some(format!("{field_path} must contain finite numbers. Pass smaller numbers."));
-                    }
-                    if !v.as_array().is_some_and(|a| a.len() == 4 && a.iter().all(is_num_or_var)) {
-                        return Some(format!(
-                            "{field_path} must be an array of 4 numbers or \"var:...\" strings ([tl, tr, br, bl]). Pass 4 values such as [8, 8, 8, 8]."
-                        ));
-                    }
+            "corner_radii" if !v.is_null() => {
+                if v.as_array().is_some_and(|a| a.len() == 4 && a.iter().any(is_non_finite_f32_number)) {
+                    return Some(format!("{field_path} must contain finite numbers. Pass smaller numbers."));
+                }
+                if !v.as_array().is_some_and(|a| a.len() == 4 && a.iter().all(is_num_or_var)) {
+                    return Some(format!(
+                        "{field_path} must be an array of 4 numbers or \"var:...\" strings ([tl, tr, br, bl]). Pass 4 values such as [8, 8, 8, 8]."
+                    ));
                 }
             }
-            "col_span" | "row_span" => {
-                if !v.is_null() && !is_u16(v) {
-                    return Some(format!("{field_path} must be a positive integer. Pass a whole number of grid tracks."));
+            "col_span" | "row_span" if !v.is_null() && !is_u16(v) => {
+                return Some(format!("{field_path} must be a positive integer. Pass a whole number of grid tracks."));
+            }
+            "font_weight" if !v.is_null() && !is_u16(v) => {
+                return Some(format!("{field_path} must be a number between 100 and 900 (for example 400, 500, 600, or 700). Pass an integer weight."));
+            }
+            "clips_content" if !v.is_null() && !v.is_boolean() => {
+                return Some(format!("{field_path} must be a boolean. Pass true or false."));
+            }
+            "visible" if !v.is_null() && !v.is_boolean() && !v.is_string() => {
+                return Some(format!("{field_path} must be a boolean or a \"var:...\" string. Pass true, false, or a boolean variable reference."));
+            }
+            "layout" if !v.is_null() => {
+                if let Some(err) = describe_layout_spec_error(v, &field_path) {
+                    return Some(err);
                 }
             }
-            "font_weight" => {
-                if !v.is_null() && !is_u16(v) {
-                    return Some(format!("{field_path} must be a number between 100 and 900 (for example 400, 500, 600, or 700). Pass an integer weight."));
-                }
-            }
-            "clips_content" => {
-                if !v.is_null() && !v.is_boolean() {
-                    return Some(format!("{field_path} must be a boolean. Pass true or false."));
-                }
-            }
-            "visible" => {
-                if !v.is_null() && !v.is_boolean() && !v.is_string() {
-                    return Some(format!("{field_path} must be a boolean or a \"var:...\" string. Pass true, false, or a boolean variable reference."));
-                }
-            }
-            "layout" => {
-                if !v.is_null() {
-                    if let Some(err) = describe_layout_spec_error(v, &field_path) {
-                        return Some(err);
-                    }
-                }
-            }
-            "annotations" => {
-                if !v.as_array().is_some_and(|a| a.iter().all(Value::is_string)) {
-                    return Some(format!("{field_path} must be an array of strings. Pass an array such as [\"Note\"]."));
-                }
+            "annotations" if !v.as_array().is_some_and(|a| a.iter().all(Value::is_string)) => {
+                return Some(format!("{field_path} must be an array of strings. Pass an array such as [\"Note\"]."));
             }
             "in_progress" => {
                 if let Some(err) = describe_in_progress_error(v, &field_path) {

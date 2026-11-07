@@ -789,10 +789,8 @@ mod tests {
         fn walk_fill(shape: &egui::Shape, toggle: Rect, fills: &mut Vec<egui::Color32>, glyphs: &mut Vec<egui::Color32>) {
             match shape {
                 egui::Shape::Rect(r) if r.rect == toggle => fills.push(r.fill),
-                egui::Shape::Mesh(mesh) => {
-                    if mesh.vertices.iter().any(|v| toggle.contains(v.pos)) {
-                        glyphs.extend(mesh.vertices.iter().map(|v| v.color));
-                    }
+                egui::Shape::Mesh(mesh) if mesh.vertices.iter().any(|v| toggle.contains(v.pos)) => {
+                    glyphs.extend(mesh.vertices.iter().map(|v| v.color));
                 }
                 egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk_fill(s, toggle, fills, glyphs)),
                 _ => {}

@@ -191,7 +191,7 @@ impl TerminalState {
         }
 
         let mut entries = self.session_registry.sessions.clone();
-        entries.sort_by(|a, b| (b.last_active_at, b.tab_id).cmp(&(a.last_active_at, a.tab_id)));
+        entries.sort_by_key(|e| std::cmp::Reverse((e.last_active_at, e.tab_id)));
 
         entries
             .into_iter()

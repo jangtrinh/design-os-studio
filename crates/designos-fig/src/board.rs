@@ -215,12 +215,10 @@ pub(crate) fn finish_node(n: &mut Node) {
             n.stroke.join = StrokeJoin::Round;
             n.stroke.cap = StrokeCap::Round;
         }
-        NodeKind::ShapeWithText(_) => {
-            if n.stroke.paints.is_empty() {
-                n.stroke.paints = ink();
-                n.stroke.weight = n.stroke.weight.max(2.0);
-                n.stroke.align = StrokeAlign::Center;
-            }
+        NodeKind::ShapeWithText(_) if n.stroke.paints.is_empty() => {
+            n.stroke.paints = ink();
+            n.stroke.weight = n.stroke.weight.max(2.0);
+            n.stroke.align = StrokeAlign::Center;
         }
         _ => {}
     }

@@ -1,4 +1,5 @@
 #![cfg(unix)]
+#![allow(clippy::result_large_err)]
 
 use designos_mcp::{engine::Engine, server::Session, tools::errors::ErrorCode};
 use serde_json::{json, Value};

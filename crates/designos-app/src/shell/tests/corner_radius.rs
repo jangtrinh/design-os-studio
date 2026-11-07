@@ -13,10 +13,8 @@ fn has_test_rect(s: &Sim, name: &str) -> bool {
 
 fn collect_texts_in_rect(shape: &egui::epaint::Shape, rect: Rect, out: &mut Vec<String>) {
     match shape {
-        egui::epaint::Shape::Text(t) => {
-            if rect.contains(t.pos) {
-                out.push(t.galley.text().to_string());
-            }
+        egui::epaint::Shape::Text(t) if rect.contains(t.pos) => {
+            out.push(t.galley.text().to_string());
         }
         egui::epaint::Shape::Vec(shapes) => {
             for s in shapes {
@@ -37,10 +35,8 @@ fn texts_in_rect(s: &Sim, rect: Rect) -> Vec<String> {
 
 fn collect_text_spans_in_rect(shape: &egui::epaint::Shape, rect: Rect, out: &mut Vec<(String, f32, f32)>) {
     match shape {
-        egui::epaint::Shape::Text(t) => {
-            if rect.contains(t.pos) {
-                out.push((t.galley.text().to_string(), t.pos.x, t.pos.x + t.galley.size().x));
-            }
+        egui::epaint::Shape::Text(t) if rect.contains(t.pos) => {
+            out.push((t.galley.text().to_string(), t.pos.x, t.pos.x + t.galley.size().x));
         }
         egui::epaint::Shape::Vec(shapes) => {
             for s in shapes {

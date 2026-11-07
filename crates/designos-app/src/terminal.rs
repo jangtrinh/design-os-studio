@@ -780,7 +780,7 @@ pub fn resolve_pty_heuristic_status(explicit_status: AgentTabStatus, last_output
         // A stopped or errored tab keeps its status even if trailing PTY bytes arrive (`#684`, `#1194`).
         AgentTabStatus::Stopped => AgentTabStatus::Stopped,
         AgentTabStatus::Error(detail) => AgentTabStatus::Error(detail),
-        other if recent_pty_activity => AgentTabStatus::Working(None),
+        _ if recent_pty_activity => AgentTabStatus::Working(None),
         other => other,
     }
 }
@@ -6810,21 +6810,17 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
             ui.input(|i| {
                 for ev in &i.events {
                     match ev {
-                        Event::Copy => {
-                            if tab.selection.is_some() {
-                                copy_selection = true;
-                            }
+                        Event::Copy if tab.selection.is_some() => {
+                            copy_selection = true;
                         }
                         Event::Paste(text) => {
                             tab.input_line_buffer.push_str(text);
                             raw_bytes.extend_from_slice(&format_paste_bytes(text, bracketed_paste));
                         }
-                        Event::Text(text) => {
-                            if !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && text != "\n" && text != "\r" {
-                                tab.input_line_buffer.push_str(text);
-                                raw_bytes.extend_from_slice(text.as_bytes());
-                                answers_gemini_dialog |= matches!(text.as_bytes(), [b'1'..=b'5']);
-                            }
+                        Event::Text(text) if !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && text != "\n" && text != "\r" => {
+                            tab.input_line_buffer.push_str(text);
+                            raw_bytes.extend_from_slice(text.as_bytes());
+                            answers_gemini_dialog |= matches!(text.as_bytes(), [b'1'..=b'5']);
                         }
                         Event::Key { key, pressed: true, modifiers, .. } => {
                             if modifiers.command {
@@ -6835,10 +6831,8 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                         clear_scrollback = true;
                                         raw_bytes.push(0x0c);
                                     }
-                                    Key::C => {
-                                        if tab.selection.is_some() {
-                                            copy_selection = true;
-                                        }
+                                    Key::C if tab.selection.is_some() => {
+                                        copy_selection = true;
                                     }
                                     Key::Z if modifiers.ctrl && !modifiers.mac_cmd && !modifiers.shift => {
                                         raw_bytes.push(0x1a);

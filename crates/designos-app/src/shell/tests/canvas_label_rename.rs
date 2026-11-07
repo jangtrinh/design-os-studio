@@ -58,10 +58,8 @@ fn collect_texts_in_rect(shapes: &[egui::epaint::ClippedShape], target: egui::Re
 
 fn collect_shape_texts(shape: &egui::epaint::Shape, target: egui::Rect, out: &mut Vec<String>) {
     match shape {
-        egui::epaint::Shape::Text(ts) => {
-            if target.expand(2.0).contains(ts.pos) {
-                out.push(ts.galley.text().to_string());
-            }
+        egui::epaint::Shape::Text(ts) if target.expand(2.0).contains(ts.pos) => {
+            out.push(ts.galley.text().to_string());
         }
         egui::epaint::Shape::Vec(inner) => {
             for s in inner {

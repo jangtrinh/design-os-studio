@@ -411,7 +411,7 @@ impl App {
     /// Libraries with updates waiting (changed or new assets).
     pub fn pending_libraries(&self) -> Vec<PendingLib> {
         let mut v: Vec<PendingLib> = self.libs.pending.values().map(|(_, p)| p.clone()).filter(|p| p.applicable().next().is_some()).collect();
-        v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        v.sort_by_key(|a| a.name.to_lowercase());
         v
     }
 
@@ -570,7 +570,7 @@ impl App {
             let id = if variants > 0 { components_of(&self.doc, node).first().copied().unwrap_or(node) } else { node };
             out.push(AssetEntry { page, container: String::new(), name, id, variants });
         }
-        out.sort_by(|a, b| (a.page.to_lowercase(), a.name.to_lowercase()).cmp(&(b.page.to_lowercase(), b.name.to_lowercase())));
+        out.sort_by_key(|a| (a.page.to_lowercase(), a.name.to_lowercase()));
         out
     }
 

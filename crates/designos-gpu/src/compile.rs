@@ -1114,10 +1114,10 @@ impl Ctx<'_> {
         if allow_fx {
             for e in &n.effects {
                 match e {
-                    Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } => {
-                        if !interactive || (*radius * scale >= 1.0 || offset.x.hypot(offset.y) * scale >= 1.0 || *spread * scale >= 1.0) {
-                            self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha);
-                        }
+                    Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend }
+                        if (!interactive || (*radius * scale >= 1.0 || offset.x.hypot(offset.y) * scale >= 1.0 || *spread * scale >= 1.0)) =>
+                    {
+                        self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha);
                     }
                     Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 && n.background_blur_has_surface() => {
                         self.background_blur(n, &g, ts, clip, inner_bb, scale, *radius);

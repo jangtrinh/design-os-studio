@@ -1227,6 +1227,8 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                     meta.insert("publishID".into(), Value::String(g));
                 }
             }
+            // A guard would let a false condition fall through to the generic `other` arm below, which would import the field as a string.
+            #[allow(clippy::collapsible_match)]
             "editInfo" => {
                 if !large_file && val.is_object() {
                     if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
@@ -1239,6 +1241,8 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                     meta.insert("widgetCachedAncestor".into(), Value::String(g));
                 }
             }
+            // A guard would let a false condition fall through to the generic `other` arm below, which would import the field as a string.
+            #[allow(clippy::collapsible_match)]
             "pluginRelaunchData" => {
                 if val.as_array().is_some_and(|a| !a.is_empty()) {
                     if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
@@ -1251,6 +1255,8 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                     meta.insert("nodeGenerationData".into(), Value::String(s));
                 }
             }
+            // A guard would let a false condition fall through to the generic `other` arm below, which would import the field as a string.
+            #[allow(clippy::collapsible_match)]
             "derivedTextData" | "derivedImmutableFrameData" => {
                 if !large_file && !val.is_null() {
                     if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
@@ -2381,11 +2387,9 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
                     m.insert("componentId".into(), cid.into());
                 }
             }
-            "symbolData" => {
-                if !m.contains_key("componentId") {
-                    if let Some(cid) = val.get("symbolID").and_then(guid_str) {
-                        m.insert("componentId".into(), cid.into());
-                    }
+            "symbolData" if !m.contains_key("componentId") => {
+                if let Some(cid) = val.get("symbolID").and_then(guid_str) {
+                    m.insert("componentId".into(), cid.into());
                 }
             }
             "fillPaints" | "strokePaints" => {
