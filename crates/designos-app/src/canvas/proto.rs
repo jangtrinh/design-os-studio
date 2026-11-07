@@ -210,7 +210,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
             ERect::from_min_size(Pos2::new(lr.left(), lr.top() - theme::PROTO_FLAG_GAP - theme::PROTO_FLAG_HEIGHT), egui::vec2(w, theme::PROTO_FLAG_HEIGHT));
         p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::PROTO_BLUE);
         crate::icons::paint(&p, crate::icons::Icon::Flag, Pos2::new(r.left() + 11.0, r.center().y), 12.0, Color32::WHITE);
-        p.text(Pos2::new(r.left() + 21.0, r.center().y), Align2::LEFT_CENTER, &f.name, font, Color32::WHITE);
+        p.text(Pos2::new(r.left() + 21.0, r.center().y), Align2::LEFT_CENTER, &f.name, font, theme::PROTO_LABEL_TEXT);
     }
 
     // Noodles of the selected layers.
