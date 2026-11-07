@@ -102,6 +102,10 @@ fn reveal_command(os: &str, file: &Path, file_exists: bool) -> (&'static str, Ve
 fn windows_quoted(path: &Path) -> OsString {
     let mut arg = OsString::from("\"");
     arg.push(path);
+    // A backslash right before the closing quote reads as an escaped quote (`"D:\"`). `D:\.` is the same folder.
+    if path.to_string_lossy().ends_with(['\\', '/']) {
+        arg.push(".");
+    }
     arg.push("\"");
     arg
 }
@@ -131,16 +135,42 @@ fn spawn_reveal(program: &str, args: &[OsString]) -> std::io::Result<std::proces
 
 /// Launcher failures that showed up after the launcher had started, worded for the error toast. The UI thread
 /// takes them each frame.
-static LATE_REVEAL_FAILURES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static LATE_REVEAL_FAILURES: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
 
-/// The next failure of a launcher that started but then did not open anything, if one is waiting.
-pub(crate) fn take_late_reveal_failure() -> Option<String> {
-    let mut failures = LATE_REVEAL_FAILURES.lock().unwrap_or_else(|e| e.into_inner());
-    if failures.is_empty() {
-        None
-    } else {
-        Some(failures.remove(0))
+#[cfg(test)]
+thread_local! {
+    /// A test thread keeps its own failures, so tests that run side by side never take each other's.
+    static TEST_LATE_FAILURES: std::cell::RefCell<Vec<(PathBuf, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Records a failure for the file whose Show in folder it was.
+pub(crate) fn push_late_reveal_failure(file: PathBuf, text: String) {
+    #[cfg(test)]
+    TEST_LATE_FAILURES.with(|f| f.borrow_mut().push((file, text)));
+    #[cfg(not(test))]
+    LATE_REVEAL_FAILURES.lock().unwrap_or_else(|e| e.into_inner()).push((file, text));
+}
+
+/// The next failure of a launcher that started but then did not open anything, with the file it was for.
+pub(crate) fn take_late_reveal_failure() -> Option<(PathBuf, String)> {
+    #[cfg(test)]
+    return TEST_LATE_FAILURES.with(|f| {
+        let mut failures = f.borrow_mut();
+        (!failures.is_empty()).then(|| failures.remove(0))
+    });
+    #[cfg(not(test))]
+    {
+        let mut failures = LATE_REVEAL_FAILURES.lock().unwrap_or_else(|e| e.into_inner());
+        (!failures.is_empty()).then(|| failures.remove(0))
     }
+}
+
+/// The window's context, so the watcher thread can wake the UI once when it has a failure to show. One wake, not a
+/// repaint loop: the UI stays idle otherwise.
+static REPAINT_CONTEXT: std::sync::OnceLock<egui::Context> = std::sync::OnceLock::new();
+
+pub(crate) fn remember_repaint_context(ctx: &egui::Context) {
+    let _ = REPAINT_CONTEXT.set(ctx.clone());
 }
 
 /// Why a launcher that has finished did not open anything, or `None` when it worked. Explorer exits with 1 even
@@ -160,7 +190,10 @@ pub(crate) fn watch_reveal(mut child: std::process::Child, file: PathBuf, check_
     std::thread::spawn(move || {
         if let Some(reason) = launcher_failure(child.wait(), check_exit) {
             eprintln!("designos: warn: show in folder failed for {}: {reason}", file.display());
-            LATE_REVEAL_FAILURES.lock().unwrap_or_else(|e| e.into_inner()).push(reveal_failure_text(&file, ""));
+            push_late_reveal_failure(file.clone(), reveal_failure_text(&file, ""));
+            if let Some(ctx) = REPAINT_CONTEXT.get() {
+                ctx.request_repaint();
+            }
         }
     });
 }

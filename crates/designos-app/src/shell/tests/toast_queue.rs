@@ -147,3 +147,111 @@ fn a_comments_warning_export_toast_does_not_flag_the_toast_already_on_screen() {
     assert!(!on_screen.error, "the toast on screen keeps its own state");
     assert!(s.app().toast_queue[0].error, "the warning belongs to the queued toast");
 }
+
+#[test]
+fn a_late_failure_for_an_old_export_leaves_the_newer_export_toast_alone() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    let b_path = reveal_path("b.png");
+    s.shell.app.show_toast_with_reveal("Exported b", b_path.clone());
+    let started = s.app().now;
+    frame_at(&mut s, started + crate::theme::TOAST_REVEAL_SECONDS + 0.1);
+    assert_eq!(s.app().toast.as_ref().unwrap().reveal.as_deref(), Some(b_path.as_path()), "precondition: B is on screen");
+
+    // A's file manager gave up after A's toast was gone.
+    let a_path = reveal_path("a.png");
+    crate::fig_export::push_late_reveal_failure(a_path.clone(), crate::fig_export::reveal_failure_text(&a_path, ""));
+    s.frame(vec![]);
+
+    assert_eq!(s.app().toast.as_ref().unwrap().reveal.as_deref(), Some(b_path.as_path()), "B keeps its Show in folder");
+    let queued = &s.app().toast_queue;
+    assert_eq!(queued.len(), 1);
+    assert!(queued[0].error && queued[0].text == "Couldn't open /tmp/designos-toast-queue", "the error waits and names A's folder: {}", queued[0].text);
+}
+
+#[test]
+fn a_late_failure_replaces_the_export_toast_it_belongs_to() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    let a_path = reveal_path("a.png");
+    crate::fig_export::push_late_reveal_failure(a_path.clone(), crate::fig_export::reveal_failure_text(&a_path, ""));
+    s.frame(vec![]);
+    let toast = s.app().toast.as_ref().expect("the error is on screen");
+    assert!(toast.error && toast.reveal.is_none() && toast.text.starts_with("Couldn't open "), "{}", toast.text);
+}
+
+#[test]
+fn a_stream_of_plain_toasts_does_not_hide_a_queued_export_toast() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    s.shell.app.show_toast("First plain", false);
+    let b_path = reveal_path("b.png");
+    s.shell.app.show_toast_with_reveal("Exported b", b_path.clone());
+    let started = s.app().now;
+    frame_at(&mut s, started + crate::theme::TOAST_REVEAL_SECONDS + 0.1);
+    assert_eq!(s.app().toast.as_ref().unwrap().text, "First plain", "precondition: the plain toast popped ahead of B");
+
+    // A plain toast every 3 s must neither replace the one on screen nor restart its clock.
+    let plain_at = s.app().now;
+    let mut b_seen_after = None;
+    for step in 1..=30 {
+        let t = plain_at + f64::from(step);
+        if step % 3 == 0 {
+            s.shell.app.show_toast(format!("Plain {step}"), false);
+        }
+        frame_at(&mut s, t);
+        if s.app().toast.as_ref().is_some_and(|x| x.reveal.as_deref() == Some(b_path.as_path())) {
+            b_seen_after = Some(t - plain_at);
+            break;
+        }
+    }
+    let waited = b_seen_after.expect("the export toast came back");
+    assert!(waited <= crate::theme::TOAST_SECONDS + 1.1, "B waited {waited} s behind plain toasts, one plain toast lasts {} s", crate::theme::TOAST_SECONDS);
+}
+
+#[test]
+fn relayout_notices_behind_an_export_toast_keep_only_the_latest_and_never_an_error() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    let prefix = designos_doc::RELAYOUT_NOTICE_PREFIX;
+    for i in 0..200 {
+        s.shell.app.show_toast(format!("{prefix}: {i} subtrees skipped past budget"), false);
+        if i == 100 {
+            s.shell.app.show_toast("Undo failed", true);
+        }
+    }
+    let queue = &s.app().toast_queue;
+    assert!(queue.len() <= 3, "queue holds {} toasts", queue.len());
+    assert_eq!(queue.iter().filter(|t| !t.error).count(), 1, "one plain notice");
+    assert!(queue.iter().any(|t| t.error && t.text == "Undo failed"), "the error is never merged away");
+    assert!(queue.iter().any(|t| t.text.ends_with("199 subtrees skipped past budget")), "the latest notice is the one kept");
+
+    // The relayout finishes: nothing is pending, the notice is retired from the queue too.
+    s.shell.app.relayout_moved_geometry();
+    assert!(!s.app().toast_queue.iter().any(|t| t.text.starts_with(prefix)), "no stale relayout notice is left");
+    assert!(s.app().toast_queue.iter().any(|t| t.error), "the error stays");
+}
+
+#[test]
+fn plain_notices_merge_and_error_toasts_are_never_dropped_from_the_queue() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    for i in 0..30 {
+        s.shell.app.show_toast(format!("Plain {i}"), false);
+        s.shell.app.show_toast(format!("Failed {i}"), true);
+    }
+    let queue = &s.app().toast_queue;
+    assert_eq!(queue.iter().filter(|t| t.error).count(), 30, "no error toast is dropped");
+    assert!(queue.iter().filter(|t| !t.error).count() <= 1, "plain notices merge to the latest, or give way once the queue is full");
+}
+
+#[test]
+fn an_import_error_raised_behind_an_export_toast_is_still_counted() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    let before = s.app().error_toast_seq;
+    s.shell.app.import_comments_file(Path::new("/nonexistent/designos-comments.json"));
+    assert_eq!(s.app().error_toast_seq, before + 1, "the failed import is counted even though its toast waits");
+    assert!(s.app().last_error_toast.starts_with("Cannot import comments"), "{}", s.app().last_error_toast);
+    assert!(!s.app().toast.as_ref().unwrap().error, "the toast slot still shows the export toast");
+}

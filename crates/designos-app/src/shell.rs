@@ -1767,11 +1767,12 @@ impl Shell {
         }
         // A file manager that started and then gave up (no handler on Linux, a path that is gone) says so now. The
         // Show in folder toast the user just pressed gives way to it.
-        while let Some(failure) = crate::fig_export::take_late_reveal_failure() {
-            if self.app.toast.as_ref().is_some_and(|t| t.reveal.is_some()) {
+        crate::fig_export::remember_repaint_context(ui.ctx());
+        while let Some((file, text)) = crate::fig_export::take_late_reveal_failure() {
+            if self.app.toast.as_ref().is_some_and(|t| t.reveal.as_deref() == Some(file.as_path())) {
                 self.app.toast = None;
             }
-            self.app.show_toast(failure, true);
+            self.app.show_toast(text, true);
         }
         // The lifetime starts at the first paint. A blocked frame before it (a slow export, a file
         // dialog, a large file opening) must not spend the toast before anyone sees it.

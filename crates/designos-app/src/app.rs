@@ -169,6 +169,9 @@ pub struct CopiedStyle {
     pub text_style: Option<designos_doc::TextStyle>,
 }
 
+/// The most toasts that wait behind the one on screen.
+pub(crate) const TOAST_QUEUE_CAP: usize = 8;
+
 pub struct Toast {
     pub text: String,
     /// When the toast leaves. Armed on the first paint (`armed`), so a blocked frame before that paint does not spend it.
@@ -243,6 +246,10 @@ pub struct App {
     pub(crate) queued_work: Vec<crate::deferred_work::QueuedWork>,
     pub toast: Option<Toast>,
     pub toast_queue: std::collections::VecDeque<Toast>,
+    /// Counts the error toasts raised, whether they reached the screen or the queue, and keeps the latest text. An
+    /// operation that reports an error through a toast reads these instead of the toast slot.
+    pub(crate) error_toast_seq: u64,
+    pub(crate) last_error_toast: String,
     pub file_path: Option<PathBuf>,
     pub now: f64,
     pub keep_tool: bool,
@@ -349,6 +356,8 @@ impl App {
             queued_work: Vec::new(),
             toast: None,
             toast_queue: Default::default(),
+            error_toast_seq: 0,
+            last_error_toast: String::new(),
             file_path: None,
             now: 0.0,
             keep_tool: false,
@@ -434,15 +443,37 @@ impl App {
         })
     }
 
-    /// Puts `next` on screen, or behind the toast on screen when that one carries an action that has not run out.
-    /// A toast with an action is never replaced: the user may be about to press it.
+    /// Puts `next` on screen, or in the queue when the toast on screen carries an action that has not run out, or
+    /// when other toasts already wait. A toast with an action is never replaced (the user may be about to press it),
+    /// and a plain toast never jumps ahead of one that waits, so a stream of plain toasts cannot hide it.
     fn place_toast(&mut self, next: Toast) -> &mut Toast {
-        if self.toast.as_ref().is_some_and(|t| t.has_action() && (!t.armed || self.now < t.until)) {
-            self.toast_queue.push_back(next);
-            let last = self.toast_queue.len() - 1;
-            return &mut self.toast_queue[last];
+        if next.error {
+            self.error_toast_seq += 1;
+            self.last_error_toast = next.text.clone();
+        }
+        let live_action = self.toast.as_ref().is_some_and(|t| t.has_action() && (!t.armed || self.now < t.until));
+        if live_action || !self.toast_queue.is_empty() {
+            return self.enqueue_toast(next);
         }
         self.toast.insert(next)
+    }
+
+    /// Adds `next` at the back of the queue. The queue keeps only the latest plain notice (a newer progress or
+    /// info toast replaces an older queued one) and holds at most [`TOAST_QUEUE_CAP`] toasts by dropping the oldest
+    /// plain notice. An error toast or a toast with an action is never merged away or dropped.
+    fn enqueue_toast(&mut self, next: Toast) -> &mut Toast {
+        let is_plain = |t: &Toast| !t.error && !t.has_action();
+        if is_plain(&next) {
+            self.toast_queue.retain(|t| !is_plain(t));
+        }
+        if self.toast_queue.len() >= TOAST_QUEUE_CAP {
+            if let Some(i) = self.toast_queue.iter().position(is_plain) {
+                self.toast_queue.remove(i);
+            }
+        }
+        self.toast_queue.push_back(next);
+        let last = self.toast_queue.len() - 1;
+        &mut self.toast_queue[last]
     }
 
     /// The status of work that is about to block the UI ("Saving… loading all pages"). It is on screen for the next
@@ -453,7 +484,16 @@ impl App {
         if let Some(displaced) = self.toast.take_if(|t| t.has_action() && (!t.armed || now < t.until)) {
             self.toast_queue.push_front(displaced);
         }
-        self.show_toast(text, false);
+        let text = text.into();
+        self.toast = Some(Toast {
+            until: now + theme::TOAST_SECONDS,
+            text,
+            error: false,
+            reveal: None,
+            enter_path: false,
+            duration: theme::TOAST_SECONDS,
+            armed: false,
+        });
     }
 
     /// A toast that stays long enough to read and offers to show `path` in its folder.
@@ -520,9 +560,11 @@ impl App {
             Some(notice) if self.toast.as_ref().is_none_or(|t| !t.error) => self.show_toast(notice, false),
             Some(_) => {}
             None => {
-                if self.toast.as_ref().is_some_and(|t| !t.error && t.text.starts_with(designos_doc::RELAYOUT_NOTICE_PREFIX)) {
+                let is_notice = |t: &Toast| !t.error && !t.has_action() && t.text.starts_with(designos_doc::RELAYOUT_NOTICE_PREFIX);
+                if self.toast.as_ref().is_some_and(is_notice) {
                     self.toast = None;
                 }
+                self.toast_queue.retain(|t| !is_notice(t));
             }
         }
     }
