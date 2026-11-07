@@ -142,6 +142,26 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(designos_fonts::write_atomic(path, bytes)?)
 }
 
+/// [`write_atomic`] for content that is produced while it is written (see [`designos_fonts::write_atomic_with`]).
+pub fn write_atomic_with(path: &Path, fill: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>) -> Result<()> {
+    Ok(designos_fonts::write_atomic_with(path, fill)?)
+}
+
+/// Streams `doc` into `path` atomically: the same bytes as `to_json_counted`, without the whole text in memory.
+/// Returns how many non-finite numbers were written as their neutral value. A document with unloaded pages is
+/// refused before any file is touched.
+pub fn write_document_atomic(path: &Path, doc: &Document) -> Result<usize> {
+    if let Some(why) = doc.pending_pages_error() {
+        return Err(LibraryError::Invalid(why.to_string()));
+    }
+    let mut replaced = 0;
+    write_atomic_with(path, |out| {
+        replaced = doc.to_writer_counted(out).map_err(std::io::Error::from)?;
+        Ok(())
+    })?;
+    Ok(replaced)
+}
+
 /// Loads a document from any importable file: `.designos` / `.json` (native or
 /// Figma REST), `.fig` or `.svg`.
 pub fn load_external(path: &Path) -> Result<Document> {
@@ -659,6 +679,9 @@ impl Library {
 
     /// [`Self::create_file`], also returning how many non-finite numbers (NaN, infinity) were
     /// written as their neutral value, so the stored file always opens.
+    ///
+    /// Fails, and writes nothing, for a document that still has pages whose content is not loaded
+    /// ([`Document::has_pending_pages`]): the caller owns the document and loads them first.
     pub fn create_file_counted(&self, project: &str, folder: Option<&str>, name: &str, doc: &Document) -> Result<(FileEntry, usize)> {
         let _guard = write_lock();
         let name = clean_name(name, "file")?;
@@ -681,9 +704,8 @@ impl Library {
             thumbnail: None,
             branches: vec![],
         };
-        let (json, replaced) = doc.to_json_counted()?;
         let file_path = self.file_path(project, &entry.id);
-        write_atomic(&file_path, json.as_bytes())?;
+        let replaced = write_document_atomic(&file_path, doc)?;
         m.files.push(entry.clone());
         m.project.modified = now;
         if let Err(err) = self.save_manifest(&m) {
@@ -713,11 +735,13 @@ impl Library {
 
     /// [`Self::save_file`], also returning how many non-finite numbers (NaN, infinity) were written
     /// as their neutral value, counted by the one serialization the save performs.
+    ///
+    /// Fails, and writes nothing, for a document that still has pages whose content is not loaded
+    /// ([`Document::has_pending_pages`]); versions and branches refuse the same way.
     pub fn save_file_counted(&self, id: &str, doc: &Document) -> Result<usize> {
         let _guard = write_lock();
         let (mut m, i) = self.find_file(id)?;
-        let (json, replaced) = doc.to_json_counted()?;
-        write_atomic(&self.file_path(&m.project.id, id), json.as_bytes())?;
+        let replaced = write_document_atomic(&self.file_path(&m.project.id, id), doc)?;
         let now = now_ms();
         m.files[i].modified = now;
         m.project.modified = now;
@@ -759,8 +783,9 @@ impl Library {
 
     pub fn load_file(&self, id: &str) -> Result<Document> {
         let (m, _) = self.find_file(id)?;
-        let text = std::fs::read_to_string(self.file_path(&m.project.id, id))?;
-        Ok(Document::from_json(&text)?)
+        // Read as a stream: a stored file of several GB never sits in memory as one text next to the document.
+        let file = std::fs::File::open(self.file_path(&m.project.id, id))?;
+        Ok(Document::from_reader(std::io::BufReader::with_capacity(1 << 20, file))?)
     }
 
     fn update_file(&self, id: &str, f: impl FnOnce(&mut FileEntry)) -> Result<()> {
@@ -880,26 +905,46 @@ impl Library {
     /// Same as [`Self::import_file`], also returning the parsed [`Document`] so callers
     /// (such as background thumbnail rendering) do not re-read and re-parse the saved file.
     pub fn import_file_with_doc(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document)> {
-        self.import_file_with_doc_counted(path, project, folder).map(|(e, d, _)| (e, d))
+        self.import_file_with_doc_counted(path, project, folder).map(|(e, d, _, _)| (e, d))
     }
 
     /// Like [`Self::import_file_with_doc`], also returning how many non-finite numbers were
-    /// replaced by their neutral value on read or write.
-    pub fn import_file_with_doc_counted(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize)> {
-        let (mut doc, replaced_on_read) = load_external_counted(path)?;
+    /// replaced by their neutral value on read or write, and how many instances the file keeps empty for good
+    /// because it has more nested component copies than can be expanded. Every page of the import is loaded
+    /// before the file is written, and the returned document holds them all.
+    pub fn import_file_with_doc_counted(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize, usize)> {
+        let (doc, replaced_on_read) = load_external_counted(path)?;
         let stem = path.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty());
+        self.store_imported_document(doc, replaced_on_read, stem, project, folder)
+    }
+
+    /// Stores a document that was just read from a file. Pages the reader left unloaded are loaded first.
+    fn store_imported_document(
+        &self,
+        mut doc: Document,
+        replaced_on_read: usize,
+        stem: Option<&str>,
+        project: &str,
+        folder: Option<&str>,
+    ) -> Result<(FileEntry, Document, usize, usize)> {
         let name = if !doc.name.is_empty() { doc.name.clone() } else { stem.unwrap_or("Imported").to_string() };
+        // A large `.fig` comes in with its inactive pages deferred (their instances are empty until the page
+        // loads) and the file keeps no copy of the source, so every page is loaded before the first write.
+        let left_empty = doc.load_pending_pages().map_err(|e| LibraryError::Invalid(format!("Cannot import \"{name}\": {e}")))?;
+        if left_empty > 0 {
+            eprintln!("designos-library: imported \"{name}\" with {left_empty} instances left empty because the file has more nested component copies than can be expanded");
+        }
         let (entry, replaced_on_write) = self.create_file_counted(project, folder, &name, &doc)?;
         let total_replaced = replaced_on_read + replaced_on_write;
         if replaced_on_write == 0 {
-            return Ok((entry, doc, total_replaced));
+            return Ok((entry, doc, total_replaced, left_empty));
         }
         // The import produced NaN or infinity and the stored file holds neutral values instead.
         // Sanitise only the affected items in memory so the editor and the file agree without
         // re-reading or re-parsing the whole stored file.
         eprintln!("designos-library: imported \"{name}\" with {replaced_on_write} non-finite numbers replaced by their neutral value");
         sanitize_document_in_memory(&mut doc)?;
-        Ok((entry, doc, total_replaced))
+        Ok((entry, doc, total_replaced, left_empty))
     }
 
     // ------------------------------------------------------------ recents / search
@@ -1491,5 +1536,76 @@ mod tests {
         // Emptying the trash removes the file's agent-sessions/<id> folder.
         lib.empty_trash().unwrap();
         assert!(!sess_dir.exists(), "empty_trash must remove agent-sessions/<id>");
+    }
+
+    /// A loader with nothing left to load that had to leave `skipped` instances empty (the copy budget).
+    #[derive(Debug)]
+    struct OverBudget {
+        skipped: usize,
+    }
+
+    impl designos_doc::PageHydrator for OverBudget {
+        fn hydrate_page(&mut self, _: &mut Document, _: designos_doc::NodeId) -> bool {
+            false
+        }
+        fn hydrate_all(&mut self, _: &mut Document) -> bool {
+            false
+        }
+        fn is_hydrated(&self, _: designos_doc::NodeId) -> bool {
+            true
+        }
+        fn unexpanded_instances(&self) -> usize {
+            self.skipped
+        }
+        fn take_unexpanded_instances(&mut self) -> usize {
+            std::mem::take(&mut self.skipped)
+        }
+    }
+
+    #[test]
+    fn an_import_reports_how_many_instances_the_file_keeps_empty() {
+        let (_t, lib) = Tmp::new();
+        let p = lib.create_project("P").unwrap();
+        let mut over_budget = doc("big", 1);
+        over_budget.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(OverBudget { skipped: 3 })));
+
+        let (_, _, replaced, left_empty) = lib.store_imported_document(over_budget, 0, None, &p.id, None).unwrap();
+        assert_eq!((replaced, left_empty), (0, 3), "the caller can tell the user");
+
+        let (_, _, _, left_empty) = lib.store_imported_document(doc("small", 1), 0, None, &p.id, None).unwrap();
+        assert_eq!(left_empty, 0, "a normal file reports nothing");
+    }
+
+    /// A write that hits the file-size limit half way through a document larger than the 1 MiB write buffer keeps
+    /// the disk error kind. The limit is set only in a child process, so the shared test binary is untouched.
+    #[cfg(unix)]
+    #[test]
+    fn a_large_save_that_hits_the_size_limit_keeps_the_disk_error_kind() {
+        let dir = std::env::var("DESIGNOS_FSIZE_CHILD");
+        let mut big = Document::new("Big");
+        big.add_page("Page");
+        big.images.insert("blob".into(), (0..3_000_000u32).map(|i| (i % 251) as u8).collect());
+        let Ok(dir) = dir else {
+            let exe = std::env::current_exe().unwrap();
+            let scratch = std::env::temp_dir().join(format!("designos_lib_fsize_{}_{}", std::process::id(), new_id()));
+            std::fs::create_dir_all(&scratch).unwrap();
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg("trap '' XFSZ; ulimit -f 2500; exec \"$0\" --exact store::tests::a_large_save_that_hits_the_size_limit_keeps_the_disk_error_kind --test-threads=1")
+                .arg(&exe)
+                .env("DESIGNOS_FSIZE_CHILD", &scratch)
+                .output()
+                .unwrap();
+            let _ = std::fs::remove_dir_all(&scratch);
+            let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success() && text.contains("1 passed"), "child run failed: {text}");
+            return;
+        };
+        let target = PathBuf::from(dir).join("doc.designos");
+        match write_document_atomic(&target, &big) {
+            Err(LibraryError::Io(io)) => assert_eq!(io.kind(), std::io::ErrorKind::FileTooLarge, "{io}"),
+            other => panic!("expected an io error, got {other:?}"),
+        }
+        assert!(!target.exists(), "no partial file");
     }
 }

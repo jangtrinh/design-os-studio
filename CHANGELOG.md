@@ -2,6 +2,50 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.10] - 2026-11-07
+
+A hotfix release from `main`: a save no longer writes a file that is missing the content of pages that were never opened, and it also brings live connectors to design files, a more faithful `.fig` save, and fixes carried from @NamAIEngineer.
+
+### Added
+- **Connectors.**
+  - Design files get live connectors. The Connector tool sits in the shape dropdown next to Line and Arrow (shortcut X), sticks to two layers, and re-routes when either one moves. Decks do not offer it. A new connector is dark, or white where dark ink would be hard to read on the surface behind it (#1222, PR #1653).
+  - Agents can draw a live connector between two layers with the `connect` op of `designos_apply_batch`, with magnets, routing, end caps and a label (#1227, PR #1623).
+  - A move re-routes only the connectors it touches, and connectors are re-routed after auto layout has shifted other layers, in the same undo step (#1223, PR #1610).
+
+### Fixed
+- **Saving large files.**
+  - A save no longer writes a file that is missing the content of pages that were never opened. This hit large `.fig` files opened with deferred pages: their component instances came in empty. A save that cannot load those pages now refuses and says why instead of writing an empty page. Large `.fig` files imported through Home before this fix: import them again from the original `.fig` (#1670, PR #1672).
+- **`.fig` save.**
+  - A `.fig` save keeps every variable the file uses, deleted ones included, and writes them back as deleted. The "hide from publishing" switch is kept (#1634, PR #1647).
+  - Instance fill and stroke overrides are written as the file recorded them, and a paint an instance only inherits is not written. On a clone of the Untitled UI PRO v8.0 kit, missing variable bindings after reopen went from 23 to 0 (#1634, PR #1647).
+  - Binding a variable by name matches live variables only, and lint suggestions no longer use deleted variables (#1634, PR #1647).
+- **App.**
+  - Quitting from the Dock, logout or shutdown on macOS asks "Save changes?" when a tab has unsaved edits, like Cmd+Q (#977, PR #1645).
+  - Mouse wheel scrolls full-screen agent CLIs in the terminal, and the main screen keeps its scrollback (#1173, PR #1337).
+- **Components and layout.**
+  - Nested Stretch instances keep their size when an enclosing instance syncs; carried from PR #1641 by @NamAIEngineer (#1445, PR #1655).
+  - A branch merge or live patch that would make a component hold an instance of itself is refused with a message naming the cycle; carried from PR #1633 by @NamAIEngineer (#1629, PR #1655).
+  - Hug-width text with a max width wraps at the smaller of its natural width and the max width; carried from PR #1638 by @NamAIEngineer (#1362, PR #1655).
+  - Swapping an instance or reparenting a layer that would make a component hold an instance of itself is refused with a plain message; carried from PR #1082 by @NamAIEngineer (#968, PR #1627).
+- **Effects and images.**
+  - Background blur behind a translucent child of a paintless group blurs at full strength, as in Figma; carried from PR #1632 by @NamAIEngineer (#1626, PR #1658).
+  - Large or cropped image fills no longer allocate a full-picture buffer per tile; carried from PR #1609 by @NamAIEngineer (#1603, PR #1627).
+- **Lint.** Text contrast findings no longer suggest binding a background variable onto the text layer; carried from PR #1199 by @NamAIEngineer (#1089, PR #1627).
+- **CLI and MCP.**
+  - `designos --screenshot` writes a non-empty PNG and exits 0, or exits 1 with a line saying why it could not; builds on PR #1453 by @NamAIEngineer (PR #1652).
+  - An untitled document gets its own private MCP workspace. If it cannot be made, the agent still starts without the `designos` server and says why; carried from PR #1150 by @NamAIEngineer (#1074, PR #1644).
+  - DTCG export keeps collection and mode files whose names differ only by case on case-insensitive filesystems; carried from PR #1374 by @NamAIEngineer (#1325, PR #1644).
+- **Security.**
+  - Private approval folders are refused when macOS gives them an extended ACL; carried from PR #1659 by @NamAIEngineer (#1651, PR #1687).
+  - Prompt text containing "No, suggest changes" no longer locks the composer as if Gemini showed a dialog; carried from PR #1415 by @NamAIEngineer (#1651, PR #1687).
+- **Linux.** The `.deb` declares `libxkbcommon-x11-0`, and a startup failure on Linux gives GPU driver recovery steps; carried from PR #1083 by @NamAIEngineer (#715, PR #1644).
+
+### Changed
+- A save of a large `.fig` now loads every page first, so it takes longer and writes a bigger file. On the Untitled UI PRO v8.0 kit (release build, Apple M4 Max), Save As `.designos` went from 6.6 s to 38.2 s and the stored file from 1.67 GB to 4.95 GB, because the file now holds all 877,261 nodes instead of 207,601 (#1670, PR #1672).
+
+### Known issues
+- On a `.fig` save, overrides set on instances nested inside a main component are still dropped (#1649).
+
 ## [0.7.9] - 2026-11-05
 
 A feature release from `main`: image adjustments, a Project tab for docs, faster FigJam connectors that now survive `.fig` files, and a large set of fixes carried from @NamAIEngineer.

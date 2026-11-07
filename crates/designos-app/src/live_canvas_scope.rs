@@ -13,6 +13,15 @@ use std::collections::BTreeSet;
 const MAX_TOP_LEVEL: usize = 128;
 /// Layers the selected frames may bring along in full; larger frames stay empty shells.
 const FULL_SUBTREE_BUDGET: usize = 5_000;
+/// A document with more layers than this is shared as a scoped canvas, not as a whole copy.
+const SCOPED_CANVAS_NODES: usize = 25_000;
+
+/// Whether the agent gets [`scoped_canvas`] rather than a whole copy: for a large document, and for one with pages that
+/// are not loaded yet. A copy of the latter would share the loader and be serialized by the writer thread with those
+/// pages empty; the scoped canvas is built from the nodes that are there and is no copy of the loader.
+pub fn is_scoped(doc: &Document) -> bool {
+    doc.nodes.len() > SCOPED_CANVAS_NODES || doc.has_pending_pages()
+}
 
 /// The page `page` of `doc` as the agent sees it (see the module docs).
 pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &str) -> Document {
@@ -227,5 +236,35 @@ mod tests {
     fn scope_threshold_and_node_budgets_are_unchanged() {
         assert_eq!(MAX_TOP_LEVEL, 128);
         assert_eq!(FULL_SUBTREE_BUDGET, 5_000);
+        assert_eq!(SCOPED_CANVAS_NODES, 25_000);
+    }
+
+    /// A loader with one page that is not loaded yet.
+    #[derive(Debug)]
+    struct OnePageWaiting(NodeId);
+
+    impl designos_doc::PageHydrator for OnePageWaiting {
+        fn hydrate_page(&mut self, _doc: &mut Document, _page: NodeId) -> bool {
+            false
+        }
+
+        fn hydrate_all(&mut self, _doc: &mut Document) -> bool {
+            false
+        }
+
+        fn is_hydrated(&self, page: NodeId) -> bool {
+            page != self.0
+        }
+    }
+
+    #[test]
+    fn a_small_document_is_shared_whole_unless_pages_are_not_loaded_yet() {
+        let mut doc = Document::new("d");
+        doc.add_page("Loaded");
+        let waiting = doc.add_page("Waiting");
+        assert!(!is_scoped(&doc), "a small document is copied whole");
+
+        doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(OnePageWaiting(waiting))));
+        assert!(is_scoped(&doc), "a copy would share the loader and be written with those pages empty");
     }
 }

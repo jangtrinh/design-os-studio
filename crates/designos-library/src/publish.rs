@@ -115,6 +115,10 @@ impl Library {
     /// existing [`PublishInfo`] on the document wins). Returns the info to
     /// store in the file's library state.
     pub fn publish_library(&self, file_id_or_name: &str, doc: &Document, description: &str) -> Result<PublishInfo> {
+        // A snapshot of a document whose pages are not loaded would publish components with empty instances.
+        if let Some(why) = doc.pending_pages_error() {
+            return Err(LibraryError::Invalid(format!("Cannot publish \"{}\": {why}", doc.name)));
+        }
         let id = doc.library.published.as_ref().map(|p| p.library_id.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| safe_id(file_id_or_name));
         let dir = self.library_dir(&id);
         std::fs::create_dir_all(&dir)?;

@@ -22,7 +22,7 @@ impl Document {
     /// this never walks the containers below a seed, so untouched siblings keep the positions they
     /// have. One [`MAX_RELAYOUT_RESOLVES`] budget covers the whole call; a subtree past it is
     /// queued in `pending_relayout` exactly as for [`Self::relayout_subtree`].
-    pub(crate) fn relayout_seeds_upward(&mut self, seeds: &[NodeId]) {
+    pub fn relayout_seeds_upward(&mut self, seeds: &[NodeId]) {
         let depth = |doc: &Document, id: NodeId| {
             let mut d = 0usize;
             let mut cur = doc.get(id).and_then(|n| n.parent);

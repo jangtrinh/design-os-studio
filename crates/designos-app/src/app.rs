@@ -234,6 +234,8 @@ pub struct App {
     pub system_image: fn() -> Option<crate::system_paste::ClipImage>,
     /// Pastes whose clipboard image is still being read.
     pub paste_jobs: std::collections::VecDeque<crate::system_paste::PasteJob>,
+    /// Work that holds the window for a while, queued behind the status line that announces it (see `deferred_work`).
+    pub(crate) queued_work: Vec<crate::deferred_work::QueuedWork>,
     pub toast: Option<Toast>,
     pub toast_queue: std::collections::VecDeque<Toast>,
     pub file_path: Option<PathBuf>,
@@ -339,6 +341,7 @@ impl App {
             system_text: crate::system_paste::system_text,
             system_image: crate::system_paste::system_image,
             paste_jobs: Default::default(),
+            queued_work: Vec::new(),
             toast: None,
             toast_queue: Default::default(),
             file_path: None,

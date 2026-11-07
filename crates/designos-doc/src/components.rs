@@ -4907,6 +4907,8 @@ mod tests {
         let cmd = sync_instances(&mut f.d, f.comp);
         apply(&mut f.d, cmd);
 
+        // A write loads every page first, in place, so the file holds what the window shows.
+        assert_eq!(f.d.load_pending_pages(), Ok(0));
         let saved = f.d.to_json().expect("serialize .designos");
         let loaded = Document::from_json(&saved).expect("deserialize .designos");
 
