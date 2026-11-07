@@ -232,8 +232,13 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
 
     let mut picked: Option<designos_doc::NodeId> = None;
     let mut hovered_any = None;
+    // A row is picked by the release of a press this picker saw, not by egui's click (see `widgets::menu::release_pick`).
+    // A release on the row of a layer that is gone since the picker opened picks nothing and closes it.
+    let menu_id = Id::new("layer-picker-menu");
+    let release = crate::widgets::menu::release_pick(ctx, menu_id, egui::LayerId::new(egui::Order::Tooltip, menu_id), r, None, None);
+    let mut gone = false;
 
-    egui::Area::new(Id::new("layer-picker-menu")).order(egui::Order::Tooltip).fixed_pos(r.min).show(ctx, |ui| {
+    egui::Area::new(menu_id).order(egui::Order::Tooltip).fixed_pos(r.min).show(ctx, |ui| {
         let (_, _) = ui.allocate_exact_size(r.size(), egui::Sense::hover());
         let p = ui.painter();
         crate::widgets::kit::menu_surface(p, r);
@@ -247,13 +252,16 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
         p.hline(r.left() + 1.0..=r.right() - 1.0, r.top() + header_h, egui::Stroke::new(1.0, crate::theme::BORDER_MENU));
 
         for (idx, &id) in ids.iter().enumerate() {
-            let Some(node) = app.doc.get(id) else { continue };
             let inset = crate::theme::INSET_FRAME;
             let rr =
                 egui::Rect::from_min_size(egui::Pos2::new(r.left() + inset, r.top() + header_h + idx as f32 * row_h), egui::Vec2::new(w - inset * 2.0, row_h));
+            let Some(node) = app.doc.get(id) else {
+                gone |= release.is_some_and(|p| rr.contains(p));
+                continue;
+            };
             let resp = ui.interact(rr, Id::new(("layer-picker-row", id)), egui::Sense::click());
             crate::widgets::record_with(ui, || format!("layer-row-{idx}"), rr);
-            let hov = resp.hovered();
+            let hov = resp.contains_pointer();
             let sel = app.is_selected(id);
             if hov {
                 hovered_any = Some(id);
@@ -269,7 +277,7 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
             let icon_col = if is_comp && !hov { crate::theme::COMPONENT } else { paint.icon };
             crate::icons::paint(p, icon, egui::Pos2::new(rr.left() + 12.0, rr.center().y), crate::theme::LAYER_ICON_SIZE, icon_col);
             p.text(egui::Pos2::new(rr.left() + 26.0, rr.center().y), egui::Align2::LEFT_CENTER, &node.name, crate::theme::font_menu(), paint.text);
-            if resp.clicked() {
+            if crate::widgets::menu::row_picked(&resp, rr, release) {
                 picked = Some(id);
             }
         }
@@ -281,7 +289,8 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
         app.hover_layer = None;
         app.ui.layer_picker = None;
     } else {
-        let close = ctx.input(|i| i.key_pressed(egui::Key::Escape) || (i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !r.contains(p))));
+        let close =
+            gone || ctx.input(|i| i.key_pressed(egui::Key::Escape) || (i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !r.contains(p))));
         if close {
             app.hover_layer = None;
             app.ui.layer_picker = None;

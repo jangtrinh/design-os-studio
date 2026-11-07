@@ -114,7 +114,7 @@ pub fn tool_menu_pos(chevron: Rect, h: f32) -> Pos2 {
 /// Read from the button events, not from a widget response: egui resolves a press against the pointer position at the
 /// END of the frame, so a press followed by a move in the same frame (a slow frame or a quick flick) never reaches the
 /// widget it began on.
-fn primary_pressed_in(ui: &Ui, rect: Rect) -> bool {
+pub(crate) fn primary_pressed_in(ui: &Ui, rect: Rect) -> bool {
     let presses: Vec<Pos2> = ui.input(|i| {
         i.events
             .iter()
