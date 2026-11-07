@@ -12,7 +12,7 @@ use crate::layout;
 use crate::richtext::{self, ListKind, Summary};
 use crate::theme;
 use crate::widgets::field::{self, Prefix};
-use crate::widgets::menu::{dropdown, dropdown_items, MenuItem};
+use crate::widgets::menu::{dropdown, dropdown_items_mixed, MenuItem};
 use crate::widgets::{self};
 use designos_doc::*;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
@@ -207,7 +207,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     let fam_label = sum.family.clone().unwrap_or_else(|| "Mixed".to_string());
     if !var_bind::pill_field(app, ui, fam_r, sel, &["fontFamily"]) {
         let val_r = if in_session { fam_r } else { var_bind::value_rect(app, ui, fam_r, sel, &["fontFamily"], VariableKind::String) };
-        if let Some(f) = family_picker(ui, val_r, &fam_label) {
+        if let Some(f) = family_picker(ui, val_r, &fam_label, sum.family.is_none()) {
             pick_family(app, sel, &f);
         }
         if !in_session {
@@ -227,7 +227,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
             }
             items.push(MenuItem::new("Apply variable\u{2026}"));
         }
-        if let Some(i) = dropdown_items(ui, wt_r, "font-weight", cur, &items, wt_r.width()) {
+        if let Some(i) = dropdown_items_mixed(ui, wt_r, "font-weight", cur, &items, wt_r.width(), sum.weight.is_none()) {
             if i < WEIGHTS.len() {
                 let w = WEIGHTS[i].1;
                 set_style(app, sel, |s| s.set_font_weight(w));
@@ -421,7 +421,7 @@ pub fn set_solid(st: &mut TextStyle, c: Color, opacity: Option<f32>) {
 }
 
 // ------------------------------------------------------------------ font family picker
-pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<String> {
+pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str, mixed: bool) -> Option<String> {
     let id = ui.id().with("font-family");
     #[cfg(test)]
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("field-rect", format!("{:?}", "font-family"))), rect));
@@ -435,7 +435,7 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
     }
     let font = theme::font_body();
     let shown = widgets::elide(p, label, &font, rect.width() - 28.0);
-    let label_color = if label == "Mixed" { theme::TEXT_TERTIARY } else { theme::TEXT };
+    let label_color = if mixed { theme::TEXT_TERTIARY } else { theme::TEXT };
     p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, label_color);
     crate::icons::paint(p, crate::icons::Icon::ChevronDown, Pos2::new(rect.right() - 12.0, rect.center().y), 12.0, theme::ICON_SECONDARY);
     if r.clicked() {
@@ -1116,12 +1116,30 @@ mod tests {
     }
 
     #[test]
+    fn a_family_named_mixed_that_is_not_mixed_uses_text() {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let r = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(200.0, 32.0));
+            let _ = family_picker(ui, r, "Mixed", false);
+        });
+        fn find(shape: &egui::Shape) -> Option<Color32> {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().find_map(find),
+                egui::Shape::Text(t) if t.galley.text() == "Mixed" => t.galley.job.sections.first().map(|s| s.format.color),
+                _ => None,
+            }
+        }
+        assert_eq!(out.shapes.iter().find_map(|cs| find(&cs.shape)), Some(theme::TEXT));
+    }
+
+    #[test]
     fn mixed_family_label_uses_text_tertiary() {
         let ctx = egui::Context::default();
         let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() };
         let out = ctx.run_ui(raw, |ui| {
             let r = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(200.0, 32.0));
-            let _ = family_picker(ui, r, "Mixed");
+            let _ = family_picker(ui, r, "Mixed", true);
         });
         fn find(shape: &egui::Shape) -> Option<Color32> {
             match shape {

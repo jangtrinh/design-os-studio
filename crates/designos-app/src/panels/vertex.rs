@@ -8,7 +8,7 @@ use crate::canvas::vector as vec;
 use crate::icons::Icon;
 use crate::theme;
 use crate::widgets::field::{self, Prefix};
-use crate::widgets::menu::dropdown;
+use crate::widgets::menu::dropdown_mixed;
 use crate::widgets::{self};
 use designos_doc::{HandleMirror, StrokeCap};
 use egui::{Align2, Rect, Sense, Ui};
@@ -74,7 +74,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
         let cur = cap.and_then(|c| CAPS.iter().position(|x| x.1 == c)).map(|i| caps[i].as_str()).unwrap_or("Mixed");
         let cap_r = pane.full(0.0);
         widgets::record(ui, "vtx-cap", cap_r);
-        if let Some(i) = dropdown(ui, cap_r, "vtx-cap", cur, &caps) {
+        if let Some(i) = dropdown_mixed(ui, cap_r, "vtx-cap", cur, &caps, cap.is_none()) {
             let c = CAPS[i].1;
             vec::set_vertices(app, |v| v.cap = c);
         }
@@ -100,7 +100,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
         let options: Vec<String> = MIRROR.iter().map(|s| s.to_string()).collect();
         let mr = pane.full(0.0);
         widgets::record(ui, "vtx-mirror", mr);
-        if let Some(i) = dropdown(ui, mr, "vtx-mirror", shown, &options) {
+        if let Some(i) = dropdown_mixed(ui, mr, "vtx-mirror", shown, &options, !straight && mode.is_none()) {
             match i {
                 0 => {
                     vec::straighten_selected(app);

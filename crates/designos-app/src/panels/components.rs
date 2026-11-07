@@ -8,7 +8,7 @@ use crate::icons::Icon;
 use crate::theme;
 use crate::widgets;
 use crate::widgets::field;
-use crate::widgets::menu::{dropdown, dropdown_checked, popup_menu, MenuItem, MenuResult};
+use crate::widgets::menu::{dropdown_checked, dropdown_mixed, popup_menu, MenuItem, MenuResult};
 use designos_doc::*;
 use egui::{Align2, Pos2, Rect, Sense, Ui, Vec2};
 
@@ -98,11 +98,11 @@ fn instance_header(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     if is_dropdown_open(ui, "instance-swap") {
         let comps = all_components_cached(app);
         let names: Vec<String> = comps.iter().map(|c| comp_label(&app.doc, *c)).collect();
-        if let Some(i) = dropdown(ui, dd, "instance-swap", &label, &names) {
+        if let Some(i) = dropdown_mixed(ui, dd, "instance-swap", &label, &names, false) {
             app.swap_instance(inst, comps[i]);
         }
     } else {
-        let _ = dropdown(ui, dd, "instance-swap", &label, &[]);
+        let _ = dropdown_mixed(ui, dd, "instance-swap", &label, &[], false);
     }
     ui.painter().rect_stroke(
         dd,
@@ -227,9 +227,8 @@ fn description_row(ui: &mut Ui, pane: &mut Pane, text: &str) {
 }
 
 fn instance_boolean_toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> egui::Response {
-    let track = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
     widgets::record(ui, &format!("toggle:{key}"), rect);
-    crate::widgets::kit::toggle(ui, track, key, on, true)
+    crate::widgets::kit::toggle(ui, definition_toggle_track(rect), key, on, true)
 }
 
 /// Whether "Reset all changes" has anything to take back on `inst`: an override anywhere in it, a property value of its
@@ -338,7 +337,7 @@ fn render_instance_prop_rows(
                     PropValue::Variant(s) => s.clone(),
                     _ => String::new(),
                 };
-                if let Some(i) = dropdown(ui, ctl, &key, &cur, options) {
+                if let Some(i) = dropdown_mixed(ui, ctl, &key, &cur, options, false) {
                     edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Variant(options[i].clone())));
                 }
             }
@@ -350,11 +349,11 @@ fn render_instance_prop_rows(
                 if is_dropdown_open(ui, &key) {
                     let comps = all_components_cached(app);
                     let names: Vec<String> = comps.iter().map(|c| comp_label(&app.doc, *c)).collect();
-                    if let Some(i) = dropdown(ui, ctl, &key, &cur, &names) {
+                    if let Some(i) = dropdown_mixed(ui, ctl, &key, &cur, &names, false) {
                         edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Instance(comps[i])));
                     }
                 } else {
-                    let _ = dropdown(ui, ctl, &key, &cur, &[]);
+                    let _ = dropdown_mixed(ui, ctl, &key, &cur, &[], false);
                 }
             }
             _ => {}
@@ -418,11 +417,11 @@ fn instance_slot_content(app: &mut App, ui: &mut Ui, pane: &mut Pane, slot: Node
     if is_dropdown_open(ui, "slot-add-child") {
         let comps = preferred_slot_components(&app.doc, slot);
         let names: Vec<String> = comps.iter().map(|c| comp_label(&app.doc, *c)).collect();
-        if let Some(i) = dropdown(ui, dd, "slot-add-child", "Add instance...", &names) {
+        if let Some(i) = dropdown_mixed(ui, dd, "slot-add-child", "Add instance...", &names, false) {
             app.insert_instance_into_slot(slot, comps[i]);
         }
     } else {
-        let _ = dropdown(ui, dd, "slot-add-child", "Add instance...", &[]);
+        let _ = dropdown_mixed(ui, dd, "slot-add-child", "Add instance...", &[], false);
     }
     row_end(pane);
 
@@ -591,7 +590,7 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
                 }
             }
             (PropKind::Variant { options }, PropValue::Variant(cur)) => {
-                if let Some(i) = dropdown(ui, ctl, &key, cur, options) {
+                if let Some(i) = dropdown_mixed(ui, ctl, &key, cur, options, false) {
                     app.set_prop_default(*def_owner, &def.name, PropValue::Variant(options[i].clone()));
                 }
             }
@@ -600,11 +599,11 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
                 if is_dropdown_open(ui, &key) {
                     let comps: Vec<NodeId> = all_components_cached(app).into_iter().filter(|x| *x != *def_owner && *x != owner).collect();
                     let names: Vec<String> = comps.iter().map(|x| comp_label(&app.doc, *x)).collect();
-                    if let Some(i) = dropdown(ui, ctl, &key, &cur_label, &names) {
+                    if let Some(i) = dropdown_mixed(ui, ctl, &key, &cur_label, &names, false) {
                         app.set_prop_default(*def_owner, &def.name, PropValue::Instance(comps[i]));
                     }
                 } else {
-                    let _ = dropdown(ui, ctl, &key, &cur_label, &[]);
+                    let _ = dropdown_mixed(ui, ctl, &key, &cur_label, &[], false);
                 }
             }
             (PropKind::Slot, _) => {
@@ -779,7 +778,7 @@ fn slot_settings_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, owner: NodeId
                 app.set_slot_config(owner, prop_name, next);
             }
         } else {
-            let _ = dropdown(ui, dd_r, &pref_key, &cur_pref, &[]);
+            let _ = dropdown_mixed(ui, dd_r, &pref_key, &cur_pref, &[], false);
         }
         row_end(pane);
     }
@@ -858,7 +857,7 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         let shown = cur.clone().unwrap_or_else(|| "None".into());
         let r = pane.full(0.0);
         widgets::record(ui, &format!("bind:{label}"), r);
-        if let Some(i) = dropdown(ui, r, ("bind", label), &shown, &opts) {
+        if let Some(i) = dropdown_mixed(ui, r, ("bind", label), &shown, &opts, false) {
             let prop = (i > 0).then(|| opts[i].clone());
             app.bind_prop(id, field, prop.as_deref());
         }
@@ -980,7 +979,7 @@ mod props_panel_tests {
         }
 
         let rect = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(92.0, theme::FIELD_HEIGHT));
-        let track = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
+        let track = definition_toggle_track(rect);
 
         let unfocused_ctx = egui::Context::default();
         theme::install_fonts(&unfocused_ctx);
@@ -1259,6 +1258,30 @@ mod props_panel_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn instance_toggle_track_is_36_by_20() {
+        let cell = Rect::from_min_size(Pos2::new(40.0, 60.0), Vec2::new(88.0, 32.0));
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let _ = instance_boolean_toggle(ui, cell, "prop:Show", true);
+        });
+        fn walk(shape: &egui::Shape, rects: &mut Vec<Rect>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, rects)),
+                egui::Shape::Rect(r) => rects.push(r.rect),
+                _ => {}
+            }
+        }
+        let mut rects = Vec::new();
+        for cs in &out.shapes {
+            walk(&cs.shape, &mut rects);
+        }
+        let track = rects.iter().find(|r| (r.width() - 36.0).abs() < 0.5 && (r.height() - 20.0).abs() < 0.5).expect("a 36x20 track");
+        assert_eq!(track.left(), cell.left());
+        assert!((track.center().y - cell.center().y).abs() < 0.5);
+    }
 
     #[test]
     fn toggle_switch_track_is_36_by_20() {
