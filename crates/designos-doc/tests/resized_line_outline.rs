@@ -53,12 +53,28 @@ fn caps_past_the_ends_keep_their_shape() {
 }
 
 #[test]
-fn a_zero_length_line_keeps_its_outline() {
+fn a_zero_length_line_drops_its_outline() {
     let band = vec![PathCmd::MoveTo(Vec2::new(0.0, -10.0)), PathCmd::LineTo(Vec2::new(0.0, 0.0)), PathCmd::Close];
-    let mut n = line_with_outline(0.0, band.clone());
+    let mut n = line_with_outline(0.0, band);
     apply_constrained_geometry(&mut n, Affine::IDENTITY, Vec2::new(40.0, 0.0));
-    assert!(n.stroke_geometry.is_some(), "never dropped, never NaN");
-    assert!(points(n.stroke_geometry.as_ref().unwrap()).iter().all(|p| p.0.is_finite() && p.1.is_finite()));
+    assert!(n.stroke_geometry.is_none(), "no extent to stretch: drawn live at the new length");
+}
+
+#[test]
+fn dashes_and_marker_caps_drop_the_outline() {
+    let band =
+        || vec![PathCmd::MoveTo(Vec2::new(0.0, -10.0)), PathCmd::LineTo(Vec2::new(100.0, -10.0)), PathCmd::LineTo(Vec2::new(100.0, 0.0)), PathCmd::Close];
+    let mut dashed = line_with_outline(100.0, band());
+    dashed.stroke.dashes = vec![4.0, 4.0];
+    let mut arrow = line_with_outline(100.0, band());
+    arrow.stroke.cap = StrokeCap::ArrowLines;
+    let mut round = line_with_outline(100.0, band());
+    round.stroke.cap = StrokeCap::Round;
+    for n in [&mut dashed, &mut arrow, &mut round] {
+        apply_constrained_geometry(n, Affine::IDENTITY, Vec2::new(200.0, 0.0));
+    }
+    assert!(dashed.stroke_geometry.is_none() && arrow.stroke_geometry.is_none());
+    assert!(round.stroke_geometry.is_some(), "a round cap still stretches");
 }
 
 #[test]
