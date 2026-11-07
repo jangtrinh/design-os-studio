@@ -562,7 +562,7 @@ mod tests {
         assert!(get_rect("dev-plugin-builtin-0").is_some());
         assert!(get_rect("dev-plugins-copy-mcp").is_some());
 
-        // Click Manage & Run Plugins...
+        // Click Manage plugins...
         for down in [true, false] {
             let _ = ctx.run_ui(
                 egui::RawInput {
@@ -581,7 +581,7 @@ mod tests {
                 |ui| show(&mut app, ui, screen),
             );
         }
-        assert!(app.plugins.open, "clicking Manage & Run Plugins must open the plugins modal");
+        assert!(app.plugins.open, "clicking Manage plugins must open the plugins modal");
 
         // Click Share button
         for down in [true, false] {
