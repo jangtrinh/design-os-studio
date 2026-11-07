@@ -120,6 +120,18 @@ fn export_of_a_deferred_page_instance_keeps_a_component_property_it_sets_on_a_ne
 }
 
 #[test]
+fn a_main_edit_and_sync_keeps_the_deferred_instance_record() {
+    let mut live = import_fig(&deferred_fixture()).expect("import");
+    let main = live.nodes.values().find(|n| n.name == "Buttons/Button" && matches!(n.kind, NodeKind::Component(_))).expect("main").id;
+    let label = live.get(main).expect("main").children[0];
+    live.get_mut(label).expect("label").size.x += 5.0;
+    sync_instances(&mut live, main).apply(&mut live).expect("sync");
+
+    let saved = export_fig(&live).expect("export");
+    assert_eq!(reopened_label(&saved), "Go back", "sync must not replace the override record of an unopened instance");
+}
+
+#[test]
 fn export_of_a_deferred_page_instance_points_its_geometry_at_the_blobs_of_the_saved_file() {
     // The entry names blob 3 of the file it came from; the saved file has a blob table of its own.
     let wanted = line_blob(7.0);
