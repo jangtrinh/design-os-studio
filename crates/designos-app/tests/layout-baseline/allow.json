@@ -3565,20 +3565,6 @@
   },
   {
     "case": "micro-dev-boxmodel",
-    "region": "right_panel",
-    "h_base": 13.0,
-    "anchor_y": "bottom",
-    "min_dw": -101.0,
-    "max_dw": -101.0,
-    "min_dh": 10.0,
-    "max_dh": 10.0,
-    "dx": 39.0,
-    "dy": 4.0,
-    "spec": "G",
-    "reason": "R5 Ready for dev grows 4 px, so the last inspector row, clipped by the panel bottom edge, keeps that edge and loses 4 px of its visible height (13 to 9) (spec F: R5: the Inspect buttons above grow by 14 px, so the panel bottom edge now cuts the language dropdown instead of a row below it: the sliver the gate pairs by index is 101 px narrower and 39 px further right, 23 px visible instead of 13, still ending at the bottom edge) [F:boxmodel-sliver]"
-  },
-  {
-    "case": "micro-dev-boxmodel",
     "region": "unknown",
     "anchor_x": "left",
     "anchor_y": "top",
