@@ -239,7 +239,7 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, key: &str, t: &TextStyle, f
     popover::row(ui, body, first, "Font", |ui, rc| {
         if !super::var_bind::style_pill_field(app, ui, rc, key, "fontFamily") {
             let val_r = super::var_bind::style_value_rect(app, ui, rc, key, "fontFamily", VariableKind::String);
-            if let Some(family) = typography::family_picker(ui, val_r, &t.font_family) {
+            if let Some(family) = typography::family_picker(ui, val_r, &t.font_family, false) {
                 set(app, &|ts| ts.font_family = family.clone());
             }
             super::var_bind::style_hover_button(app, ui, rc, key, "fontFamily", VariableKind::String);

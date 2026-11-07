@@ -8,7 +8,7 @@ use crate::app::App;
 use crate::icons::Icon;
 use crate::theme;
 use crate::widgets::field::{self, Prefix};
-use crate::widgets::menu::dropdown;
+use crate::widgets::menu::{dropdown, dropdown_mixed};
 use crate::widgets::{self, popover};
 use designos_doc::*;
 use egui::{Id, Rect, Ui};
@@ -239,7 +239,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         let start_r = pane.full(0.0);
         let swap_r = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         widgets::record(ui, "stroke-start-point", start_r);
-        if let Some(i) = dropdown(ui, start_r, "stroke-start-point", endpoint_cap_label(start_cap), &endpoint_opts) {
+        if let Some(i) = dropdown_mixed(ui, start_r, "stroke-start-point", endpoint_cap_label(start_cap), &endpoint_opts, start_cap.is_none()) {
             let chosen = ENDPOINT_CAPS[i].1;
             app.edit_nodes(&open_ids, |n| set_node_endpoint_cap(n, false, chosen));
         }
@@ -253,7 +253,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         pane.y += SUB_LABEL_ADVANCE;
         let end_r = pane.full(0.0);
         widgets::record(ui, "stroke-end-point", end_r);
-        if let Some(i) = dropdown(ui, end_r, "stroke-end-point", endpoint_cap_label(end_cap), &endpoint_opts) {
+        if let Some(i) = dropdown_mixed(ui, end_r, "stroke-end-point", endpoint_cap_label(end_cap), &endpoint_opts, end_cap.is_none()) {
             let chosen = ENDPOINT_CAPS[i].1;
             app.edit_nodes(&open_ids, |n| set_node_endpoint_cap(n, true, chosen));
         }
@@ -307,7 +307,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
         let caps = CAPS.map(|c| c.0.to_string());
         let cap_lbl = cap_label(common_cap);
         popover::row(ui, body, 0, "Cap", |ui, r| {
-            if let Some(i) = dropdown(ui, r, "strokep-cap", cap_lbl, &caps) {
+            if let Some(i) = dropdown_mixed(ui, r, "strokep-cap", cap_lbl, &caps, common_cap.is_none()) {
                 app.edit_nodes(&ids, |n| {
                     n.stroke.cap = CAPS[i].1;
                     // a solid open path ends in its end points: they follow the cap
@@ -362,7 +362,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect, st: &PopState
         });
         if show_dash_cap {
             popover::row(ui, body, 5, "Dash cap", |ui, r| {
-                if let Some(i) = dropdown(ui, r, "strokep-dash-cap", cap_lbl, &caps) {
+                if let Some(i) = dropdown_mixed(ui, r, "strokep-dash-cap", cap_lbl, &caps, common_cap.is_none()) {
                     app.edit_nodes(&ids, |n| {
                         n.stroke.cap = CAPS[i].1;
                         n.stroke_geometry = None;
