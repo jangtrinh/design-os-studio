@@ -35,8 +35,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     }
     let active_user = std::env::var("USER").unwrap_or_else(|_| "jangtrinh".into());
     let initial = active_user.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_else(|| "J".to_string());
-    p.circle_filled(av_center, 10.0, egui::Color32::from_rgb(0xF5, 0x9E, 0x0B));
-    p.text(av_center, Align2::CENTER_CENTER, initial, theme::font_caption_strong(), egui::Color32::WHITE);
+    p.circle_filled(av_center, 10.0, crate::comments::ui::avatar_color(&active_user));
+    p.text(av_center, Align2::CENTER_CENTER, initial, theme::font_caption_strong(), theme::TEXT_ON_BRAND);
     icons::paint(&p, Icon::ChevronDown, Pos2::new(av_center.x + 17.0, av_center.y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
     if av_resp.on_hover_text(format!("Active user: {active_user}")).clicked() {
         let doc_title = if app.doc.name.is_empty() { "Untitled" } else { &app.doc.name };
@@ -115,13 +115,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         let w = widgets::text_width(&p, label, &font) + theme::RIGHT_TAB_PAD_X * 2.0;
         let r = Rect::from_min_size(Pos2::new(x, ty), Vec2::new(w, theme::RIGHT_TABS_H));
         widgets::record(ui, &format!("right-tab-{label}"), r);
-        let resp = ui.interact(r, ui.id().with(("tab", label)), Sense::click());
-        if sel {
-            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-        } else if resp.hovered() {
-            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-        }
-        p.text(r.center(), Align2::CENTER_CENTER, label, font, if sel { theme::TEXT } else { theme::TEXT_SECONDARY });
+        let resp = crate::widgets::kit::tab(ui, r, ("tab", label), label, sel);
         if resp.clicked() {
             app.ui.right_tab = Some(tab);
         }
@@ -168,13 +162,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let help_r = Rect::from_center_size(help_center, Vec2::splat(28.0));
     let help_resp = ui.interact(help_r, ui.id().with("right-help-btn"), Sense::click());
     let hp = ui.painter();
-    hp.circle_filled(
-        help_center,
-        14.0,
-        if help_resp.hovered() { egui::Color32::from_rgb(0x38, 0x38, 0x38) } else { egui::Color32::from_rgb(0x2C, 0x2C, 0x2C) },
-    );
-    hp.circle_stroke(help_center, 14.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(0x38, 0x38, 0x38)));
-    icons::paint(hp, Icon::Help, help_center, 14.0, egui::Color32::from_rgb(0xB3, 0xB3, 0xB3));
+    if help_resp.hovered() {
+        hp.circle_filled(help_center, 14.0, theme::BG_HOVER);
+    }
+    icons::paint(hp, Icon::Help, help_center, 14.0, if help_resp.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY });
     crate::widgets::record(ui, "help-button", help_r);
     if help_resp.on_hover_text("Keyboard shortcuts & help").clicked() {
         app.show_shortcuts();
@@ -201,7 +192,7 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
         widgets::record(ui, &format!("dev-plugin-builtin-{idx}"), row_r);
         let resp = ui.interact(row_r, ui.id().with(("dev-plugin-builtin", idx)), Sense::click());
         p.rect_filled(row_r, theme::cr(6), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-        icons::paint(&p, Icon::Dev, Pos2::new(row_r.left() + 14.0, row_r.center().y), 14.0, egui::Color32::from_rgb(0x1B, 0xC4, 0x7D));
+        icons::paint(&p, Icon::Dev, Pos2::new(row_r.left() + 14.0, row_r.center().y), 14.0, theme::DEV_READY);
         p.text(Pos2::new(row_r.left() + 28.0, row_r.top() + 13.0), Align2::LEFT_CENTER, *title, theme::font_body_strong(), theme::TEXT);
         p.text(Pos2::new(row_r.left() + 28.0, row_r.top() + 28.0), Align2::LEFT_CENTER, *subtitle, theme::font_caption(), theme::TEXT_SECONDARY);
         if resp.clicked() {
@@ -265,12 +256,8 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
     let open_r = Rect::from_min_size(Pos2::new(region.left() + pad, y), Vec2::new(w, 28.0));
     widgets::record(ui, "dev-plugins-open-modal", open_r);
     let open_resp = ui.interact(open_r, ui.id().with("dev-plugins-open-modal"), Sense::click());
-    p.rect_filled(
-        open_r,
-        theme::cr(6),
-        if open_resp.hovered() { egui::Color32::from_rgb(0x1B, 0xC4, 0x7D).gamma_multiply(1.1) } else { egui::Color32::from_rgb(0x1B, 0xC4, 0x7D) },
-    );
-    p.text(open_r.center(), Align2::CENTER_CENTER, "Manage & Run Plugins\u{2026}", theme::font_body_strong(), egui::Color32::WHITE);
+    p.rect_filled(open_r, theme::cr(6), if open_resp.hovered() { theme::DEV_READY_HOVER } else { theme::DEV_READY });
+    p.text(open_r.center(), Align2::CENTER_CENTER, "Manage & Run Plugins\u{2026}", theme::font_body_strong(), theme::TEXT_ON_BRAND);
     if open_resp.clicked() {
         app.open_plugins();
     }
@@ -419,6 +406,71 @@ mod tests {
         let (css, count) = tailwind_theme_tokens(&d);
         assert_eq!(count, 1);
         assert!(css.contains("--space-large") && !css.contains("space-old"), "{css}");
+    }
+
+    /// Paints the header of a fresh app for two frames and returns what the second frame drew, plus the
+    /// recorded rect of every name in `names`.
+    fn paint_header(dev_mode: bool, names: &[&str]) -> (Vec<egui::epaint::ClippedShape>, Vec<Rect>) {
+        let mut d = Document::new("TestDoc");
+        d.add_page("Page 1");
+        let mut app = App::new(d);
+        app.ui.dev_mode = dev_mode;
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0));
+        let mut shapes = Vec::new();
+        for i in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(screen), time: Some(0.05 * (i + 1) as f64), ..Default::default() };
+            shapes = ctx.run_ui(raw, |ui| show(&mut app, ui, screen)).shapes;
+        }
+        let rects = names
+            .iter()
+            .map(|n| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", n.to_string())))).unwrap_or_else(|| panic!("no recorded rect {n}")))
+            .collect();
+        (shapes, rects)
+    }
+
+    /// Fill colours of every filled rect or circle whose bounds sit exactly on `target`.
+    fn fills_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> Vec<egui::Color32> {
+        fn walk(shape: &egui::Shape, target: Rect, out: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Rect(r) if r.rect == target => out.push(r.fill),
+                egui::Shape::Circle(c) if Rect::from_center_size(c.center, Vec2::splat(c.radius * 2.0)).center() == target.center() => out.push(c.fill),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, target, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        shapes.iter().for_each(|s| walk(&s.shape, target, &mut out));
+        out
+    }
+
+    /// Colour of the first text run that reads `text` inside `within`.
+    fn text_colour(shapes: &[egui::epaint::ClippedShape], text: &str, within: Rect) -> Option<egui::Color32> {
+        fn walk(shape: &egui::Shape, text: &str, within: Rect, out: &mut Option<egui::Color32>) {
+            match shape {
+                egui::Shape::Text(t) if out.is_none() && t.galley.job.text == text && within.contains(t.pos + t.galley.size() * 0.5) => {
+                    *out = t.galley.job.sections.first().map(|s| s.format.color);
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, text, within, out)),
+                _ => {}
+            }
+        }
+        let mut out = None;
+        shapes.iter().for_each(|s| walk(&s.shape, text, within, &mut out));
+        out
+    }
+
+    #[test]
+    fn avatar_uses_identity_colours_and_a_dark_initial() {
+        let (shapes, rects) = paint_header(false, &["right-top-avatar"]);
+        let user = std::env::var("USER").unwrap_or_else(|_| "jangtrinh".into());
+        let initial = user.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_else(|| "J".into());
+        let disc = Rect::from_center_size(Pos2::new(rects[0].left() + 13.0, rects[0].center().y), Vec2::splat(20.0));
+        let fills = fills_on(&shapes, disc);
+        assert!(fills.contains(&crate::comments::ui::avatar_color(&user)), "avatar disc must use the identity colour for {user}, got {fills:?}");
+        assert!(theme::AVATAR_COLORS.contains(&fills[0]));
+        assert_eq!(text_colour(&shapes, &initial, rects[0]), Some(theme::TEXT_ON_BRAND), "initial must be TEXT_ON_BRAND");
     }
 
     #[test]
