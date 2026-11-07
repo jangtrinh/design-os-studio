@@ -5891,6 +5891,103 @@ mod tests {
     }
 
     #[test]
+    fn resized_vector_in_instance_keeps_scaled_paths_through_main_sync() {
+        let mut d = Document::new("ResizedVector");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        let mut f = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        f.name = "Mark".into();
+        let comp = d.insert(page, f).unwrap();
+        let gid = d.alloc_id();
+        let mut g = Node::new(gid, NodeKind::Vector { paths: box_outline(100.0), network: None });
+        g.name = "Glyph".into();
+        g.size = Vec2::new(100.0, 100.0);
+        g.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        g.fill_geometry = Some(box_outline(100.0));
+        d.insert(comp, g).unwrap();
+        let c = create_component(&mut d, comp);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, comp, page, Vec2::new(200.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let glyph = child_named(&d, inst, "Glyph");
+
+        // Type W = 250 on the vector inside the instance.
+        let mut gn = d.get(glyph).unwrap().clone();
+        let before = gn.clone();
+        let tf = gn.transform;
+        crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(250.0, 100.0));
+        gn.component.overrides = record_override(&before, &gn);
+        apply(&mut d, Command::Update { node: Box::new(gn) });
+        let width = |d: &Document| match &d.get(glyph).unwrap().kind {
+            NodeKind::Vector { paths, .. } => path_bbox(paths).2,
+            other => panic!("expected Vector, got {other:?}"),
+        };
+        assert_eq!(d.get(glyph).unwrap().size.x, 250.0);
+        assert_eq!(width(&d), 250.0, "the resize scales the path");
+
+        // Change only the main's opacity, then sync.
+        let mut m = d.get(gid).unwrap().clone();
+        m.opacity = 0.5;
+        apply(&mut d, Command::Update { node: Box::new(m) });
+        let c = sync_instances(&mut d, comp);
+        apply(&mut d, c);
+
+        let g = d.get(glyph).unwrap();
+        assert_eq!(g.size.x, 250.0);
+        assert_eq!(width(&d), 250.0, "the path keeps the resized geometry after a main sync");
+        let fg = g.fill_geometry.as_ref().map(|p| path_bbox(p).2);
+        assert_eq!(fg, Some(250.0), "the fill bake keeps the resized geometry too");
+    }
+
+    #[test]
+    fn resized_boolean_operand_in_instance_keeps_scaled_paths_through_main_sync() {
+        let mut d = Document::new("ResizedOperand");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        let mut f = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        f.name = "Mark".into();
+        let comp = d.insert(page, f).unwrap();
+        let bid = d.alloc_id();
+        let mut b = Node::new(bid, NodeKind::BooleanOp(BooleanOp::Union));
+        b.name = "Bool".into();
+        b.size = Vec2::new(100.0, 100.0);
+        let bool_main = d.insert(comp, b).unwrap();
+        let gid = d.alloc_id();
+        let mut g = Node::new(gid, NodeKind::Vector { paths: box_outline(100.0), network: None });
+        g.name = "Operand".into();
+        g.size = Vec2::new(100.0, 100.0);
+        g.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        d.insert(bool_main, g).unwrap();
+        let c = create_component(&mut d, comp);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, comp, page, Vec2::new(200.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let operand = child_named(&d, child_named(&d, inst, "Bool"), "Operand");
+
+        let mut on = d.get(operand).unwrap().clone();
+        let before = on.clone();
+        let tf = on.transform;
+        crate::layout_constraints::apply_constrained_geometry(&mut on, tf, Vec2::new(250.0, 100.0));
+        on.component.overrides = record_override(&before, &on);
+        apply(&mut d, Command::Update { node: Box::new(on) });
+
+        let mut m = d.get(gid).unwrap().clone();
+        m.opacity = 0.5;
+        apply(&mut d, Command::Update { node: Box::new(m) });
+        let c = sync_instances(&mut d, comp);
+        apply(&mut d, c);
+
+        let n = d.get(operand).unwrap();
+        assert_eq!(n.size.x, 250.0);
+        match &n.kind {
+            NodeKind::Vector { paths, .. } => assert_eq!(path_bbox(paths).2, 250.0, "the operand keeps the resized path after a main sync"),
+            other => panic!("expected Vector, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn copy_field_size_on_imported_shapes_after_main_resize() {
         let mut stale = Vec::new();
         for (label, kind) in [
