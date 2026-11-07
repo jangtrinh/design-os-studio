@@ -211,23 +211,36 @@ impl Command {
                 Command::SetImages { add: removed, remove: added }
             }
             Command::Batch(cmds) => {
-                // All or nothing: when a command fails, the ones already applied are undone, newest first.
                 let mut inv = Vec::with_capacity(cmds.len());
                 for c in cmds {
-                    match c.apply(doc) {
-                        Ok(i) => inv.push(i),
-                        Err(e) => {
-                            for i in inv.into_iter().rev() {
-                                let _ = i.apply(doc);
-                            }
-                            return Err(e);
-                        }
-                    }
+                    inv.push(c.apply(doc)?);
                 }
                 inv.reverse();
                 Command::Batch(inv)
             }
         })
+    }
+
+    /// Like [`Self::apply`], but a `Batch` that fails applies nothing: the commands it already applied
+    /// are undone, newest first (nested batches too). `History` runs every step this way, so a
+    /// refused step leaves no half-applied edit behind. Plain `apply` keeps its partial behaviour for
+    /// the callers (transactions, replay) that rely on it.
+    pub fn apply_atomic(self, doc: &mut Document) -> Result<Command, DocError> {
+        let Command::Batch(cmds) = self else { return self.apply(doc) };
+        let mut inv = Vec::with_capacity(cmds.len());
+        for c in cmds {
+            match c.apply_atomic(doc) {
+                Ok(i) => inv.push(i),
+                Err(e) => {
+                    for i in inv.into_iter().rev() {
+                        let _ = i.apply(doc);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        inv.reverse();
+        Ok(Command::Batch(inv))
     }
 
     /// Returns `true` when this command (or its inverse stored on the undo stack) directly targets `id`,
@@ -379,7 +392,7 @@ impl History {
     }
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, |d, c| c.apply(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
@@ -388,14 +401,14 @@ impl History {
     /// [`Self::fold_since`] can fold the contiguous agent tail on stop without folding
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, |d, c| c.apply(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, |d, c| c.apply(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, ..Default::default() });
         Ok(())
     }
@@ -796,7 +809,7 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
 /// [`table::check_table_positions`]). A table left broken rolls the step back with its own inverse.
 /// Either way a refusal returns the error with the command that re-does the step, so the caller can
 /// put the step back on its stack and leave the document and both stacks as they were (a command
-/// that fails changes nothing: `Command::Batch` undoes what it already applied). The command is
+/// that fails changes nothing: `Command::apply_atomic` undoes what a batch already applied). The command is
 /// kept only when it involves a table, so an ordinary step costs no clone. The table ids are
 /// collected before `apply` runs, because a removed cell's parent is gone afterwards.
 fn guarded(
@@ -820,7 +833,7 @@ fn guarded(
 /// Applies `c`; a step whose layout was recorded replays as stored, any other re-solves auto layout.
 fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<Command, DocError> {
     if layout_recorded && doc.pending_relayout().is_empty() {
-        c.apply(doc)
+        c.apply_atomic(doc)
     } else {
         apply_and_relayout(doc, c)
     }
@@ -836,7 +849,7 @@ fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<C
 fn apply_and_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
     let mut seeds = Vec::new();
     collect_relayout_seeds(doc, &c, &mut seeds);
-    let inv = c.apply(doc)?;
+    let inv = c.apply_atomic(doc)?;
     doc.relayout_seeds_upward(&seeds);
     Ok(inv)
 }
