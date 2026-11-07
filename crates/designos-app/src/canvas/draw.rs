@@ -431,9 +431,16 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
                 continue;
             }
         }
-        let corners =
-            [world.apply(DV::ZERO), world.apply(DV::new(n.size.x, 0.0)), world.apply(DV::new(n.size.x, n.size.y)), world.apply(DV::new(0.0, n.size.y))]
-                .map(|c| app.view.to_screen(rect.min, c));
+        let page_corners =
+            [world.apply(DV::ZERO), world.apply(DV::new(n.size.x, 0.0)), world.apply(DV::new(n.size.x, n.size.y)), world.apply(DV::new(0.0, n.size.y))];
+        // A slot's dashed box stops where an ancestor clips its content; nothing painted means nothing outlined.
+        let page_corners = if is_slot {
+            let Some(c) = clipped_chrome_corners(&app.doc, id, page_corners) else { continue };
+            c
+        } else {
+            page_corners
+        };
+        let corners = page_corners.map(|c| app.view.to_screen(rect.min, c));
         if is_comp_set && !app.is_selected(id) {
             dashed_quad(p, &corners, 6.0, 4.0, Stroke::new(1.25, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.85)));
         }
@@ -478,6 +485,33 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
             p.text(pill.center(), Align2::CENTER_CENTER, "Slice", font, Color32::WHITE);
         }
     }
+}
+
+/// Page-space corners of `id`'s box cut by every clip-content ancestor, or `None` when the clip hides it
+/// entirely. Axis-aligned chains are cut exactly; a rotated or skewed node or clip keeps `corners` (the
+/// unclipped box), because a rotated clip has no single rectangle to cut against.
+fn clipped_chrome_corners(doc: &designos_doc::Document, id: NodeId, corners: [DV; 4]) -> Option<[DV; 4]> {
+    let aligned = |t: &Affine| t.b == 0.0 && t.c == 0.0 && t.a > 0.0 && t.d > 0.0;
+    if !aligned(&super::fast_world_transform(doc, id)) {
+        return Some(corners);
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (corners[0].x, corners[0].y, corners[2].x, corners[2].y);
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(a) = cur {
+        let Some(an) = doc.get(a) else { break };
+        if an.kind.frame_props().is_some_and(|f| f.clips_content) {
+            let w = super::fast_world_transform(doc, a);
+            if !aligned(&w) {
+                return Some(corners);
+            }
+            x0 = x0.max(w.tx);
+            y0 = y0.max(w.ty);
+            x1 = x1.min(w.tx + w.a * an.size.x);
+            y1 = y1.min(w.ty + w.d * an.size.y);
+        }
+        cur = an.parent;
+    }
+    (x1 > x0 && y1 > y0).then(|| [DV::new(x0, y0), DV::new(x1, y0), DV::new(x1, y1), DV::new(x0, y1)])
 }
 
 /// Screen rect of the centered `+` button inside an empty slot placeholder,
@@ -1396,6 +1430,61 @@ fn draw_pen(app: &App, p: &Painter, rect: ERect, pts: &[create::PenPoint], point
 mod tests {
     use super::*;
     use designos_doc::Document;
+
+    /// A 240x555 list frame at page y 100 holding a 576-high slot (21 units more than the list shows).
+    fn slot_in_list_scene(clips: bool) -> (App, NodeId, NodeId) {
+        let mut doc = Document::new("slot-clip");
+        let page = doc.add_page("Page 1");
+        let panel_id = doc.alloc_id();
+        let panel = doc.insert(page, Node::frame(panel_id, Rect::new(0.0, 0.0, 240.0, 700.0))).unwrap();
+        let list_id = doc.alloc_id();
+        let list = doc.insert(panel, Node::frame(list_id, Rect::new(0.0, 100.0, 240.0, 555.0))).unwrap();
+        doc.get_mut(list).unwrap().kind = NodeKind::Frame(designos_doc::FrameProps { clips_content: clips, ..Default::default() });
+        let slot_id = doc.alloc_id();
+        let slot = doc.insert(list, Node::frame(slot_id, Rect::new(0.0, 0.0, 240.0, 576.0))).unwrap();
+        doc.get_mut(slot).unwrap().component.is_slot = true;
+        let row_id = doc.alloc_id();
+        let row = doc.insert(slot, Node::rectangle(row_id, Rect::new(0.0, 540.0, 240.0, 36.0))).unwrap();
+        let mut app = App::new(doc);
+        app.page = page;
+        app.canvas_rect = ERect::from_min_size(Pos2::ZERO, EV::new(1440.0, 900.0));
+        app.view.offset = DV::ZERO;
+        app.view.zoom = 1.0;
+        // no scene index yet: the chrome list comes from the tree walk
+        app.canvas.dirty = true;
+        (app, slot, row)
+    }
+
+    /// Union of everything the slot chrome paints, in screen space (zoom 1, no offset: page space).
+    fn slot_chrome_bounds(app: &App) -> Option<ERect> {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(app.canvas_rect), ..Default::default() };
+        let shapes = ctx.run_ui(raw, |ui| draw_component_slot_and_slice_chrome(app, ui.painter(), app.canvas_rect)).shapes;
+        shapes.iter().map(|c| c.shape.visual_bounding_rect()).filter(|r| r.is_finite()).reduce(|a, b| a.union(b))
+    }
+
+    #[test]
+    fn slot_dashed_box_stops_at_the_clipping_list_frame() {
+        let (app, ..) = slot_in_list_scene(true);
+        let b = slot_chrome_bounds(&app).expect("the slot paints chrome");
+        assert!(b.max.y <= 655.0 + 1.0, "dashed box reaches {} but the list ends at 655", b.max.y);
+        assert!(b.min.y >= 100.0 - 1.0, "dashed box starts at {}", b.min.y);
+    }
+
+    #[test]
+    fn slot_dashed_box_keeps_its_full_box_without_clip_content() {
+        let (app, ..) = slot_in_list_scene(false);
+        let b = slot_chrome_bounds(&app).expect("the slot paints chrome");
+        assert!(b.max.y >= 676.0 - 1.0, "unclipped slot keeps its 576 box, got {}", b.max.y);
+    }
+
+    #[test]
+    fn clipped_overhang_selects_neither_the_slot_nor_its_hidden_row() {
+        let (app, slot, row) = slot_in_list_scene(true);
+        // page y 665 is inside the slot's box (100..676) but below the list (ends 655)
+        let hit = super::super::hit::hit_test(&app.doc, app.page, v2(10.0, 665.0), 2.0, true, &[]);
+        assert!(hit != Some(slot) && hit != Some(row), "hit {hit:?} on the clipped overhang");
+    }
 
     #[test]
     fn large_page_label_rects_hit_marquee_and_snap_under_5ms() {
