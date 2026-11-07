@@ -24,15 +24,15 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let right = rect.right();
     let left = rect.left();
 
-    // User avatar pill + chevron on top-left of right inspector header.
-    let top_btn_h = theme::RIGHT_BTN_SIZE.min(24.0);
-    let av_r = Rect::from_min_size(Pos2::new(left + 8.0, rect.top() + theme::RIGHT_BTN_Y), Vec2::new(38.0, top_btn_h));
+    // Header row: avatar pill on the left, then Present, its chevron and Share anchored from the right edge. Every
+    // control is the kit's xs height; Share hugs its label, so Present and the chevron follow its measured width.
+    let btn_top = rect.top() + theme::RIGHT_BTN_Y;
+    let btn_h = theme::RIGHT_BTN_SIZE;
+    let av_r = Rect::from_min_size(Pos2::new(left + 8.0, btn_top), Vec2::new(38.0, btn_h));
     let av_center = Pos2::new(left + 21.0, av_r.center().y);
     crate::widgets::record(ui, "right-top-avatar", av_r);
     let av_resp = ui.interact(av_r, ui.id().with("right-top-avatar"), Sense::click());
-    if av_resp.hovered() {
-        p.rect_filled(av_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-    }
+    widgets::kit::paint_icon_bg(&p, av_r, &av_resp, false, theme::cr(theme::RADIUS_CONTROL));
     let active_user = std::env::var("USER").unwrap_or_else(|_| "jangtrinh".into());
     let initial = active_user.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_else(|| "J".to_string());
     p.circle_filled(av_center, 10.0, crate::comments::ui::avatar_color(&active_user));
@@ -45,35 +45,30 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         app.show_toast(stats, false);
     }
 
-    // Present button + chevron (24px height, aligned with Share button).
-    let pb = Rect::from_min_size(Pos2::new(right - theme::RIGHT_PRESENT_FROM_RIGHT - 46.0, rect.top() + theme::RIGHT_BTN_Y), Vec2::splat(top_btn_h));
-    let pr = ui.interact(pb, ui.id().with("present"), Sense::click());
-    widgets::button_bg(&p, pb, &pr, false, theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL));
-    icons::paint(&p, Icon::Play, pb.center(), 14.0, theme::ICON);
-    let cb = Rect::from_min_size(pb.right_top(), Vec2::new(theme::RIGHT_PRESENT_CHEVRON_W, top_btn_h));
-    let cr = ui.interact(cb, ui.id().with("present-chev"), Sense::click());
-    widgets::button_bg(&p, cb, &cr, false, theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0));
-    icons::paint(&p, Icon::ChevronDown, cb.center(), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
+    // Share: Button/Primary xs. Width = label + a pad on each side, right edge INSET_CONTROL from the panel edge.
+    let share_label_w = widgets::text_width(&p, "Share", &theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold));
+    let share_w = (share_label_w + 2.0 * (theme::INSET_CONTROL + theme::INSET_SEGMENT)).round();
+    let share_r = Rect::from_min_size(Pos2::new(right - theme::INSET_CONTROL - share_w, btn_top), Vec2::new(share_w, btn_h));
+    let share_resp = widgets::kit::button(ui, share_r, "share-btn", "Share", widgets::kit::Hierarchy::Primary, widgets::kit::Size::Xs, true);
+    crate::widgets::record(ui, "share-button", share_r);
+    crate::widgets::record(ui, "right-top-share", share_r);
+
+    // Present (Button/Tertiary, 32 x 32) and its chevron cell (16 wide visible; the hit box reaches the 8 px gap to Share).
+    let cb = Rect::from_min_size(Pos2::new(share_r.left() - theme::INSET_CONTROL - theme::RIGHT_PRESENT_CHEVRON_W, btn_top), Vec2::new(theme::RIGHT_PRESENT_CHEVRON_W, btn_h));
+    let cb_hit = Rect::from_min_max(cb.min, Pos2::new(share_r.left(), cb.bottom()));
+    let pb = Rect::from_min_size(Pos2::new(cb.left() - btn_h, btn_top), Vec2::splat(btn_h));
+    let pr = widgets::kit::button_icon(ui, pb, "present", Icon::Play, widgets::kit::Hierarchy::Tertiary, widgets::kit::Size::Xs, true, false);
+    let cr = ui.interact(cb_hit, ui.id().with("present-chev"), Sense::click());
+    widgets::kit::paint_icon_bg(&p, cb, &cr, false, theme::cr(theme::RADIUS_CONTROL));
+    let chevron_ink = if cr.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY };
+    icons::paint(&p, Icon::ChevronDown, cb.center(), theme::CHEVRON_SMALL, chevron_ink);
     crate::widgets::record(ui, "present-button", pb);
     crate::widgets::record(ui, "present-chevron", cb);
+    crate::widgets::record(ui, "present-chevron-hit", cb_hit);
     if pr.clicked() || cr.clicked() {
         app.start_present();
     }
 
-    // Share button at far right (aligned on the same y = RIGHT_BTN_Y and 24px height as Present).
-    let share_r = Rect::from_min_size(Pos2::new(right - theme::RIGHT_PRESENT_FROM_RIGHT, rect.top() + theme::RIGHT_BTN_Y), Vec2::new(48.0, top_btn_h));
-    let share_resp = ui.interact(share_r, ui.id().with("share-btn"), Sense::click());
-    let share_fill = if share_resp.is_pointer_button_down_on() {
-        theme::BG_BRAND_PRESSED
-    } else if share_resp.hovered() {
-        theme::BG_BRAND_HOVER
-    } else {
-        theme::BG_BRAND
-    };
-    p.rect_filled(share_r, theme::cr(theme::RADIUS_CONTROL), share_fill);
-    p.text(share_r.center(), Align2::CENTER_CENTER, "Share", theme::font_body_strong(), theme::TEXT_ON_BRAND);
-    crate::widgets::record(ui, "share-button", share_r);
-    crate::widgets::record(ui, "right-top-share", share_r);
     if share_resp.clicked() {
         let doc_name = if app.doc.name.is_empty() { "Untitled" } else { &app.doc.name };
         let file_ref = app
@@ -164,14 +159,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let hp = ui.painter();
     hp.rect_filled(footer_r, 0.0, theme::BG);
     widgets::hline(hp, rect.left() + 1.0, right, footer_top, theme::BORDER);
-    let help_center = Pos2::new(rect.right() - 20.0, footer_r.center().y);
-    let help_r = Rect::from_center_size(help_center, Vec2::splat(28.0));
-    let help_resp = ui.interact(help_r, ui.id().with("right-help-btn"), Sense::click());
-    let hp = ui.painter();
-    if help_resp.hovered() {
-        hp.circle_filled(help_center, 14.0, theme::BG_HOVER);
-    }
-    icons::paint(hp, Icon::Help, help_center, 14.0, if help_resp.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY });
+    let help_r = Rect::from_center_size(Pos2::new(right - theme::INSET_CONTROL - theme::CONTROL_XS * 0.5, footer_r.center().y), Vec2::splat(theme::CONTROL_XS));
+    let help_resp = widgets::kit::button_icon(ui, help_r, "right-help-btn", Icon::Help, widgets::kit::Hierarchy::Icon, widgets::kit::Size::Xs, true, false);
     crate::widgets::record(ui, "help-button", help_r);
     if help_resp.on_hover_text("Keyboard shortcuts & help").clicked() {
         app.show_shortcuts();
@@ -263,7 +252,7 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
     widgets::record(ui, "dev-plugins-open-modal", open_r);
     let open_resp = ui.interact(open_r, ui.id().with("dev-plugins-open-modal"), Sense::click());
     p.rect_filled(open_r, theme::cr(6), if open_resp.hovered() { theme::DEV_READY_HOVER } else { theme::DEV_READY });
-    p.text(open_r.center(), Align2::CENTER_CENTER, "Manage & Run Plugins\u{2026}", theme::font_body_strong(), theme::TEXT_ON_BRAND);
+    p.text(open_r.center(), Align2::CENTER_CENTER, "Manage plugins\u{2026}", theme::font_body_strong(), theme::TEXT_ON_BRAND);
     if open_resp.clicked() {
         app.open_plugins();
     }
@@ -424,10 +413,11 @@ mod tests {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0));
+        let panel = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::RIGHT_PANEL_WIDTH, 800.0));
         let mut shapes = Vec::new();
         for i in 0..2 {
             let raw = egui::RawInput { screen_rect: Some(screen), time: Some(0.05 * (i + 1) as f64), ..Default::default() };
-            shapes = ctx.run_ui(raw, |ui| show(&mut app, ui, screen)).shapes;
+            shapes = ctx.run_ui(raw, |ui| show(&mut app, ui, panel)).shapes;
         }
         let rects = names
             .iter()
@@ -476,6 +466,41 @@ mod tests {
             assert!(fills.contains(&theme::BG_BRAND), "dev_mode={dev_mode}: Share fill must be BG_BRAND, got {fills:?}");
             assert_eq!(text_colour(&shapes, "Share", share), Some(theme::TEXT_ON_BRAND), "dev_mode={dev_mode}: Share label must be TEXT_ON_BRAND");
         }
+    }
+
+    #[test]
+    fn present_chevron_hit_box_meets_the_target_floor() {
+        let (_, r) = paint_header(false, &["present-button", "present-chevron", "present-chevron-hit", "right-top-share"]);
+        let (present, cell, hit, share) = (r[0], r[1], r[2], r[3]);
+        assert!(hit.width() >= theme::TARGET_MIN, "chevron hit box must be at least TARGET_MIN wide, got {}", hit.width());
+        assert!(hit.height() >= theme::RIGHT_BTN_SIZE, "chevron hit box must be at least RIGHT_BTN_SIZE tall, got {}", hit.height());
+        assert!(hit.left() >= present.right() && hit.right() <= share.left(), "hit box {hit:?} must sit between Present {present:?} and Share {share:?}");
+        assert!(!hit.intersects(share.shrink(0.01)) && !hit.intersects(present.shrink(0.01)), "hit box overlaps a neighbour");
+        assert!(hit.contains_rect(cell), "the hit box {hit:?} must contain the visible cell {cell:?}");
+        assert_eq!(cell.width(), theme::RIGHT_PRESENT_CHEVRON_W, "the visible chevron cell stays 16 wide");
+        assert_eq!((theme::RIGHT_PRESENT_CHEVRON_W, theme::RIGHT_PRESENT_FROM_RIGHT), (16.0, 56.0), "both frozen constants keep their values");
+    }
+
+    #[test]
+    fn header_controls_are_xs_tall_and_do_not_overlap() {
+        let names = ["right-top-avatar", "present-button", "present-chevron", "share-button", "right-tab-Design"];
+        let (_, r) = paint_header(false, &names);
+        let (avatar, present, cell, share, tab) = (r[0], r[1], r[2], r[3], r[4]);
+        for (name, rect) in [("avatar", avatar), ("present", present), ("chevron cell", cell), ("share", share)] {
+            assert_eq!((rect.top(), rect.bottom()), (theme::RIGHT_BTN_Y, theme::RIGHT_BTN_Y + theme::CONTROL_XS), "{name} must span y 8..40, got {rect:?}");
+        }
+        assert_eq!((avatar.width(), present.width()), (38.0, 32.0));
+        assert_eq!(share.right(), theme::RIGHT_PANEL_WIDTH - theme::INSET_CONTROL, "Share ends 8 px from the right edge");
+        assert!((share.width() - 60.0).abs() <= 2.0, "Share hugs its label at about 60 wide, got {}", share.width());
+        assert_eq!(cell.left(), present.right(), "the chevron cell follows Present");
+        assert_eq!(share.left() - cell.right(), theme::INSET_CONTROL, "gap between chevron cell and Share is INSET_CONTROL");
+        let row = [avatar, present, cell, share];
+        for pair in row.windows(2) {
+            assert!(pair[0].right() <= pair[1].left(), "controls overlap: {:?} then {:?}", pair[0], pair[1]);
+        }
+        assert_eq!(tab.top(), theme::RIGHT_TABS_Y, "the tab strip stays at y 48");
+        assert!(tab.top() >= avatar.bottom() + theme::INSET_CONTROL, "the tab strip sits 8 px under the header controls");
+        assert_eq!((theme::RIGHT_TABS_H, theme::RIGHT_ZOOM_W), (24.0, 55.0), "zoom stays 55 x 24 inside the tab strip");
     }
 
     #[test]

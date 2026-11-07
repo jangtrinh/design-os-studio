@@ -222,6 +222,16 @@ pub(crate) fn small_button(ui: &mut Ui, rect: Rect, key: impl widgets::Key, labe
     r.clicked()
 }
 
+/// Button/Secondary xs for the Inspect sections: the kit button (32 tall, 14 Semibold label) under the record name and
+/// interact id `small_button` uses, so nothing downstream sees a different widget.
+fn secondary_button(ui: &mut Ui, rect: Rect, key: impl widgets::Key, label: &str) -> bool {
+    widgets::record(ui, &format!("btn-{key:?}"), rect);
+    widgets::kit::button(ui, rect, ("insp-btn", key), label, widgets::kit::Hierarchy::Secondary, widgets::kit::Size::Xs, true).clicked()
+}
+
+/// Gap under a full-width Inspect button before the next section.
+const BUTTON_GAP: f32 = theme::SPACE_INLINE - theme::INSET_SEGMENT;
+
 /// Horizontal space between the Code Connect badge border and its label, on each side.
 const CODE_CONNECT_BADGE_PAD_X: f32 = theme::SPACE_FACT * 2.0;
 
@@ -493,11 +503,11 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let prompt_text = format!("{prompt_lead}\n{prompt_uri}");
     crate::dev::code_view::prompt_box(ui, c, prompt_lead, &prompt_uri);
     c.y += theme::SPACE_INLINE;
-    let copy_mcp_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 28.0);
-    if small_button(ui, copy_mcp_r, "mcp-copy-prompt", "Copy design:os MCP link") {
+    let copy_mcp_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, theme::CONTROL_XS);
+    if secondary_button(ui, copy_mcp_r, "mcp-copy-prompt", "Copy design:os MCP link") {
         copy(app, ui, prompt_text.clone(), "MCP prompt");
     }
-    c.y += 34.0;
+    c.y += theme::CONTROL_XS + BUTTON_GAP;
 
     // Section B: `Code Connect` (Dev Mode section with status pill + snippet action).
     widgets::hline(ui.painter(), c.x0, c.x0 + c.w, c.oy + c.y, theme::BORDER);
@@ -506,7 +516,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     widgets::record(ui, "dev-code-connect", cc_hdr);
     let cc_resp = ui.interact(cc_hdr, ui.id().with("dev-code-connect"), Sense::click());
     if cc_resp.hovered() {
-        ui.painter().rect_filled(cc_hdr.expand2(Vec2::new(4.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+        ui.painter().rect_filled(cc_hdr.expand2(Vec2::new(theme::SPACE_FACT, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
     ui.painter().text(Pos2::new(cc_hdr.left(), cc_hdr.center().y), Align2::LEFT_CENTER, "Code Connect", theme::font_body_strong(), theme::TEXT);
     let is_connected = n.dev.annotations.iter().any(|a| a.text.contains("Code Connect:"));
@@ -539,15 +549,15 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     ui.painter().galley(cc_text_r.min, cc_galley, theme::TEXT_TERTIARY);
     c.y += cc_h + 8.0;
 
-    let cc_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 26.0);
-    if small_button(ui, cc_r, "code-connect-terminal", "Send to agent") {
+    let cc_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, theme::CONTROL_XS);
+    if secondary_button(ui, cc_r, "code-connect-terminal", "Send to agent") {
         match crate::terminal::export_selection_and_comments_to_pty(&mut app.terminal, &app.doc, app.page, &app.selection, app.file_path.as_deref()) {
             Ok(_) => app.show_toast("Sent selection to agent", false),
             Err(e) => app.show_toast(e, true),
         }
         app.show_agents_panel();
     }
-    c.y += 32.0;
+    c.y += theme::CONTROL_XS + BUTTON_GAP;
 
     // Section C: `v Layer properties` / Layout.
     widgets::hline(ui.painter(), c.x0, c.x0 + c.w, c.oy + c.y, theme::BORDER);
@@ -555,6 +565,8 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let lp_hdr = c.rect(PAD, 0.0, c.w - 2.0 * PAD, theme::SECTION_TITLE_HEIGHT);
     icons::paint(ui.painter(), Icon::ChevronDown, Pos2::new(lp_hdr.left() + 5.0, lp_hdr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
     ui.painter().text(Pos2::new(lp_hdr.left() + 16.0, lp_hdr.center().y), Align2::LEFT_CENTER, "Layer properties", theme::font_body_strong(), theme::TEXT);
+    // Stays the 88 x 20 small button: Button/Secondary xs with its 14 Semibold label is 102 px wide and would overlap the
+    // 12 px "Layer properties" title in this row, so it waits for a layout decision (own row, shorter copy or a smaller font).
     let redline_r = Rect::from_min_size(Pos2::new(lp_hdr.right() - 88.0, lp_hdr.center().y - 10.0), Vec2::new(88.0, 20.0));
     widgets::record(ui, "dev-add-redlines", redline_r);
     if small_button(ui, redline_r, "dev-add-redlines", "+ Add redlines") {
@@ -694,16 +706,16 @@ fn inspect_keyframes_section(app: &mut App, ui: &mut Ui, c: &mut Cur, n: &Node, 
         return;
     }
     section_title(ui, c, "Animation & Keyframes");
-    let kf_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 28.0);
+    let kf_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, theme::CONTROL_XS);
     widgets::record(ui, "dev-keyframes-copy", kf_r);
     let kf_css = format!(
         "@keyframes node_{}_enter {{\n  from {{ opacity: 0; transform: translateY(4px); }}\n  to {{ opacity: 1; transform: translateY(0); }}\n}}",
         id.0
     );
-    if small_button(ui, kf_r, "dev-keyframes-copy", "Copy @keyframes CSS") {
+    if secondary_button(ui, kf_r, "dev-keyframes-copy", "Copy @keyframes CSS") {
         copy(app, ui, kf_css, "@keyframes CSS");
     }
-    c.y += 34.0;
+    c.y += theme::CONTROL_XS + BUTTON_GAP;
 }
 
 // ------------------------------------------------------------------ measurements
@@ -1082,6 +1094,35 @@ mod tests {
         }];
         d.insert(page, n).unwrap();
         assert_eq!(collect_assets(&d, i), vec![Asset::Image("abc".into()), Asset::Svg, Asset::Png2x]);
+    }
+
+    #[test]
+    fn inspect_section_buttons_are_secondary_xs() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let f = d.alloc_id();
+        let f = d.insert(page, Node::frame(f, designos_doc::Rect::new(12.0, 24.0, 320.0, 180.0))).unwrap();
+        let mut app = App::new(d);
+        app.ui.dev_mode = true;
+        app.selection = vec![f];
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(960.0, 40.0), Vec2::new(theme::RIGHT_PANEL_WIDTH, 1200.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1300.0, 1300.0));
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| show(&mut app, ui, region));
+        let get_rect = |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("no rect {name}"));
+        for name in ["btn-\"mcp-copy-prompt\"", "btn-\"code-connect-terminal\""] {
+            assert_eq!(get_rect(name).height(), theme::CONTROL_XS, "{name} is Button/Secondary xs, 32 tall");
+        }
+        // "+ Add redlines" keeps its 88 x 20 slot: at 14 Semibold the label needs a 102 px button, which overlaps the
+        // 12 px "Layer properties" title in the same row. Changing it needs a layout decision, not a geometry tweak.
+        let redlines = get_rect("dev-add-redlines");
+        assert_eq!((redlines.width(), redlines.height()), (88.0, 20.0));
+        let p = ctx.layer_painter(egui::LayerId::background());
+        let label_w = widgets::text_width(&p, "Add redlines", &theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold));
+        let title_w = widgets::text_width(&p, "Layer properties", &theme::font_body_strong());
+        let free = (theme::RIGHT_PANEL_WIDTH - 2.0 * PAD) - 16.0 - title_w;
+        assert!(label_w + 2.0 * theme::INSET_CONTROL > free, "if this fails the xs redlines button fits beside its title: label {label_w}, free {free}");
     }
 
     #[test]
