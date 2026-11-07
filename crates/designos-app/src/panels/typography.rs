@@ -588,11 +588,16 @@ fn seg_rect(ui: &mut Ui, rect: Rect, key: &str, labels: &[&str], selected: Optio
 
 /// A labelled row of the Details popover (32px pitch). `dim` greys the label (feature missing in the font).
 fn detail_row(ui: &mut Ui, body: Rect, y: f32, label: &str, dim: bool, control: impl FnOnce(&mut Ui, Rect)) {
-    let line = Rect::from_min_size(Pos2::new(body.left(), body.top() + 8.0 + y), Vec2::new(body.width(), 24.0));
+    let line = Rect::from_min_size(Pos2::new(body.left(), body.top() + 8.0 + y), Vec2::new(body.width(), widgets::popover::ROW_H));
     let font = theme::font_body();
     let color = if dim { theme::TEXT_TERTIARY } else { theme::TEXT_SECONDARY };
     widgets::text_on_baseline(ui.painter(), body.left() + DETAIL_LABEL_X, widgets::centered_baseline(line, &font), label, font, color);
-    control(ui, Rect::from_min_size(Pos2::new(body.left() + DETAIL_CONTROL_X, line.top()), Vec2::new(DETAIL_CONTROL_W, 24.0)));
+    control(ui, centred_in_row(line, Pos2::new(body.left() + DETAIL_CONTROL_X, line.top()), Vec2::new(DETAIL_CONTROL_W, theme::RIGHT_TABS_H)));
+}
+
+/// `size` placed at `origin` (the row's top left of the control column) and centred vertically in the 32 px popover row `line`.
+fn centred_in_row(line: Rect, origin: Pos2, size: Vec2) -> Rect {
+    Rect::from_min_size(Pos2::new(origin.x, line.center().y - size.y * 0.5), size)
 }
 
 /// OpenType feature tags of the face a style resolves to, cached per font generation.
@@ -780,8 +785,12 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
 
         // ---- 1. 3-Tab Segmented Control: [ Basic | Details | Variable ]
         let tab_y = next();
-        let tabs_r =
-            Rect::from_min_size(Pos2::new(body.left() + DETAIL_LABEL_X, body.top() + 8.0 + tab_y), Vec2::new(body.width() - DETAIL_LABEL_X * 2.0, 24.0));
+        let tabs_row = Rect::from_min_size(Pos2::new(body.left(), body.top() + 8.0 + tab_y), Vec2::new(body.width(), widgets::popover::ROW_H));
+        let tabs_r = centred_in_row(
+            tabs_row,
+            Pos2::new(body.left() + DETAIL_LABEL_X, tabs_row.top()),
+            Vec2::new(body.width() - DETAIL_LABEL_X * 2.0, theme::RIGHT_TABS_H),
+        );
         widgets::record(ui, "det-tabs", tabs_r);
         if let Some(t_idx) = seg_rect(ui, tabs_r, "det-tabs", &["Basic", "Details", "Variable"], Some(active_tab)) {
             active_tab = t_idx;
@@ -921,7 +930,8 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
                         let tag = format!("ss{set:02}");
                         let on = val(&tag) == Some(1);
                         let x = body.left() + DETAIL_LABEL_X + i as f32 * (SET_CHIP_W + SET_CHIP_GAP);
-                        let r = Rect::from_min_size(Pos2::new(x, body.top() + 8.0 + line_y), Vec2::new(SET_CHIP_W, 24.0));
+                        let chip_row = Rect::from_min_size(Pos2::new(x, body.top() + 8.0 + line_y), Vec2::new(SET_CHIP_W, widgets::popover::ROW_H));
+                        let r = centred_in_row(chip_row, chip_row.min, Vec2::new(SET_CHIP_W, theme::RIGHT_TABS_H));
                         widgets::record(ui, &format!("det-ss-{set}"), r);
                         let resp = ui.interact(r, ui.id().with(("det-ss", row, i)), Sense::click());
                         let chip = if on {

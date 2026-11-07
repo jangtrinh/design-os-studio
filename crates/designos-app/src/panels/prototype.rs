@@ -731,7 +731,7 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
             }
             pane.y += 3.0 * 28.0 + 8.0;
             if *position == OverlayPosition::Manual {
-                let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, 24.0));
+                let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, theme::FIELD_HEIGHT));
                 let y = x.translate(Vec2::new(60.0, 0.0));
                 if let Some(v) = field::num_field(ui, x, ("pop-ox", ai), Prefix::Text("X"), Some(offset.x), "") {
                     offset.x = v;
@@ -748,11 +748,14 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                 *background = if v { Some(Color::rgba(0, 0, 0, 102)) } else { None };
             }
             if let Some(bg) = *background {
-                let hex = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(72.0, 24.0));
-                let op = Rect::from_min_size(hex.right_top() + Vec2::new(8.0, 0.0), Vec2::new(48.0, 24.0));
+                let hex = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(72.0, theme::FIELD_HEIGHT));
+                let op = Rect::from_min_size(hex.right_top() + Vec2::new(8.0, 0.0), Vec2::new(48.0, theme::FIELD_HEIGHT));
                 widgets::swatch(
                     ui.painter(),
-                    Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, pane.oy + pane.y + 4.0), Vec2::splat(16.0)),
+                    Rect::from_min_size(
+                        Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, hex.center().y - theme::SWATCH_SIZE * 0.5),
+                        Vec2::splat(theme::SWATCH_SIZE),
+                    ),
                     Color32::from_rgba_unmultiplied((bg.r * 255.0) as u8, (bg.g * 255.0) as u8, (bg.b * 255.0) as u8, (bg.a * 255.0) as u8),
                 );
                 if let Some(s) = field::text_input(ui, hex, ("pop-bg-hex", ai), &bg.to_hex()) {
@@ -777,7 +780,7 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
             if let Some(d) = dest_dropdown(ui, pane, &app.doc, &format!("scroll-{key}"), "Scroll to", *dest, &opts) {
                 *dest = d;
             }
-            let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, 24.0));
+            let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, theme::FIELD_HEIGHT));
             let y = x.translate(Vec2::new(60.0, 0.0));
             ui.painter().text(
                 Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, x.center().y),

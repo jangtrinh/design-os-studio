@@ -112,7 +112,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     };
     for (tab, label) in tab_labels {
         let sel = tab == active;
-        let font = if sel { theme::font_body_strong() } else { theme::font_body() };
+        // Measured with the font the kit tab paints (text-xs Semibold, selected or not), so a tab keeps its width when it is picked.
+        let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Semibold);
         let w = widgets::text_width(&p, label, &font) + theme::RIGHT_TAB_PAD_X * 2.0;
         let r = Rect::from_min_size(Pos2::new(x, ty), Vec2::new(w, theme::RIGHT_TABS_H));
         widgets::record(ui, &format!("right-tab-{label}"), r);
@@ -501,6 +502,27 @@ mod tests {
         assert_eq!(tab.top(), theme::RIGHT_TABS_Y, "the tab strip stays at y 48");
         assert!(tab.top() >= avatar.bottom() + theme::INSET_CONTROL, "the tab strip sits 8 px under the header controls");
         assert_eq!((theme::RIGHT_TABS_H, theme::RIGHT_ZOOM_W), (24.0, 55.0), "zoom stays 55 x 24 inside the tab strip");
+    }
+
+    #[test]
+    fn tab_widths_do_not_change_when_another_tab_is_picked() {
+        let widths = |tab: RightTab| {
+            let mut d = Document::new("TestDoc");
+            d.add_page("Page 1");
+            let mut app = App::new(d);
+            app.ui.right_tab = Some(tab);
+            let ctx = egui::Context::default();
+            theme::install_fonts(&ctx);
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0));
+            let panel = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::RIGHT_PANEL_WIDTH, 800.0));
+            for i in 0..2 {
+                let raw = egui::RawInput { screen_rect: Some(screen), time: Some(0.05 * (i + 1) as f64), ..Default::default() };
+                let _ = ctx.run_ui(raw, |ui| show(&mut app, ui, panel));
+            }
+            ["right-tab-Design", "right-tab-Prototype"].map(|n| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", n.to_string())))).expect("tab rect"))
+        };
+        let (design_active, prototype_active) = (widths(RightTab::Design), widths(RightTab::Prototype));
+        assert_eq!(design_active, prototype_active, "both tabs are measured with the kit tab font, so picking one moves nothing");
     }
 
     #[test]

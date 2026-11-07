@@ -669,7 +669,7 @@ pub fn dropdown_checked_mixed(
     dropdown_items_mixed(ui, rect, key, label, &items, rect.width(), mixed)
 }
 
-/// The label of a mixed value, as the legacy dropdown forms recognise it.
+/// The label of a mixed value, as the legacy dropdown form recognises it.
 const MIXED: &str = "Mixed";
 
 fn dropdown_open_key() -> Id {
@@ -1502,7 +1502,7 @@ mod tests {
         for kind in [DropKind::Dropdown, DropKind::Checked, DropKind::Items] {
             let mut s = DropSim::new(kind);
             s.focus_dd();
-            assert!(focus_ring_on(&s.shapes, dd_rect()), "focused closed {kind:?} must paint the BORDER_SELECTED inside stroke through dropdown_items");
+            assert!(focus_ring_on(&s.shapes, dd_rect()), "focused closed {kind:?} must paint the BORDER_SELECTED inside stroke through dropdown_items_mixed");
         }
     }
 

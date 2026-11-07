@@ -71,13 +71,22 @@ fn definition_toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<boo
     let r = ui.interact(rect, ui.id().with(("tog", key)), Sense::click());
     widgets::record(ui, &format!("toggle:{key}"), rect);
     let sw = definition_toggle_track(rect);
-    let state = if on { crate::widgets::kit::State::Selected } else { crate::widgets::kit::State::Default };
+    // Same states as the instance toggle (`kit::toggle`): hover shows, a press keeps the value it already shows.
+    let state = match crate::widgets::kit::state_of(&r, on, true) {
+        crate::widgets::kit::State::Pressed if on => crate::widgets::kit::State::Selected,
+        crate::widgets::kit::State::Pressed => crate::widgets::kit::State::Default,
+        other => other,
+    };
     let look = crate::widgets::kit::toggle_look(state);
     let p = ui.painter();
-    crate::widgets::kit::paint_frame(p, sw, theme::radius_full(sw.height()).round() as u8, &look);
+    let radius = theme::radius_full(sw.height()).round();
+    crate::widgets::kit::paint_frame(p, sw, radius as u8, &look);
     let knob = theme::radius_full(theme::LAYER_ICON_SIZE);
     let kx = if on { sw.right() - theme::INSET_SEGMENT - knob } else { sw.left() + theme::INSET_SEGMENT + knob };
     p.circle_filled(Pos2::new(kx, sw.center().y), knob, look.icon);
+    if crate::widgets::kit::keyboard_focus(ui, r.id) {
+        crate::widgets::kit::focus_ring(ui.painter(), sw, radius);
+    }
     r.clicked().then_some(!on)
 }
 
@@ -653,7 +662,7 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
                 ui.interact(lab, ui.id().with(("expose-label", cand.id)), Sense::hover()).on_hover_text(&cand.name);
             }
             let ctl = pane.col(1, 0.0);
-            let track = Rect::from_min_size(Pos2::new(ctl.left(), ctl.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
+            let track = definition_toggle_track(ctl);
             // Keyed by the nested instance, not its name: two nested instances can share one.
             let key = format!("expose-nested:{}", cand.id.0);
             widgets::record(ui, &key, track);
@@ -1258,6 +1267,59 @@ mod props_panel_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn definition_toggle_shows_a_focus_ring_on_tab_and_keeps_its_interact_id() {
+        let rect = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(92.0, theme::FIELD_HEIGHT));
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let (first_id, toggle_id) = (std::cell::Cell::new(egui::Id::NULL), std::cell::Cell::new(egui::Id::NULL));
+        let frame = |input: egui::RawInput, request_focus: bool| {
+            ctx.run_ui(input, |ui| {
+                let first = ui.push_id("tab-before-definition-bool", |ui| ui.add(egui::Button::new("Before toggle"))).inner;
+                first_id.set(first.id);
+                if request_focus {
+                    first.request_focus();
+                }
+                toggle_id.set(ui.id().with(("tog", "def-bool")));
+                let _ = definition_toggle(ui, rect, "def-bool", false);
+            })
+        };
+        let rings = |out: &egui::FullOutput| {
+            out.shapes
+                .iter()
+                .filter(|c| matches!(&c.shape, egui::epaint::Shape::Rect(s) if s.stroke.color == theme::FOCUS_RING && s.stroke.width == 2.0))
+                .count()
+        };
+        let _ = frame(egui::RawInput::default(), true);
+        let _ = frame(egui::RawInput::default(), false);
+        let before_tab = frame(egui::RawInput::default(), false);
+        assert_eq!(rings(&before_tab), 0, "no ring before Tab");
+        let key = |pressed| egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed, repeat: false, modifiers: egui::Modifiers::default() };
+        let _ = frame(egui::RawInput { events: vec![key(true), key(false)], ..Default::default() }, false);
+        let focused = frame(egui::RawInput::default(), false);
+        assert!(ctx.memory(|m| m.has_focus(toggle_id.get())), "Tab moves focus to the definition toggle, under the id it always had");
+        assert_eq!(rings(&focused), 1, "exactly one focus ring while the definition toggle has keyboard focus");
+    }
+
+    #[test]
+    fn definition_toggle_does_not_flip_while_the_press_is_held() {
+        let rect = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(92.0, theme::FIELD_HEIGHT));
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+        let frame = |events: Vec<egui::Event>| {
+            let mut result = None;
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| result = definition_toggle(ui, rect, "def-press", false));
+            (out, result)
+        };
+        let _ = frame(vec![]);
+        let _ = frame(vec![egui::Event::PointerMoved(rect.center())]);
+        let (_, held) = frame(vec![egui::Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        assert_eq!(held, None, "pressing alone does not toggle");
+        let (_, released) = frame(vec![egui::Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        assert_eq!(released, Some(true), "releasing over the toggle turns it on");
+    }
 
     #[test]
     fn instance_toggle_track_is_36_by_20() {
