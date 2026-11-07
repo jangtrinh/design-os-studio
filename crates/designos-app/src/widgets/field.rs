@@ -650,7 +650,7 @@ fn num_field_inner(
         super::text_width(&p, suffix.trim_start(), &font) + if suffix.starts_with(' ') { theme::FIELD_SUFFIX_GAP } else { 0.0 }
     };
     let text_rect = Rect::from_min_max(Pos2::new(rect.left() + pw, rect.top()), Pos2::new((rect.right() - suffix_w).max(rect.left() + pw), rect.bottom()));
-    let hint = Some(("Mixed", theme::TEXT_SECONDARY));
+    let hint = Some(("Mixed", theme::TEXT_TERTIARY));
     let pad = if has_prefix { 0.0 } else { theme::FIELD_PLAIN_X };
     let is_percent_field = suffix.contains('%');
     let committed = edit_num_text(ui, text_rect, id, value, is_percent_field, font.clone(), theme::TEXT, pad, hint);
@@ -752,6 +752,25 @@ mod tests {
         assert_eq!(parse_number("-4"), Some(-4.0));
         assert_eq!(parse_number("abc"), None);
         assert_eq!(parse_number("1/0"), None);
+    }
+
+    #[test]
+    fn mixed_hint_uses_text_tertiary() {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let r = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(96.0, 32.0));
+            let _ = num_field(ui, r, "mixed-w", Prefix::Text("W"), None, "");
+        });
+        fn find(shape: &egui::Shape) -> Option<Color32> {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().find_map(find),
+                egui::Shape::Text(t) if t.galley.text() == "Mixed" => t.galley.job.sections.first().map(|s| s.format.color),
+                _ => None,
+            }
+        }
+        let color = out.shapes.iter().find_map(|cs| find(&cs.shape));
+        assert_eq!(color, Some(theme::TEXT_TERTIARY));
     }
 
     #[test]
