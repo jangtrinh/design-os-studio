@@ -274,7 +274,23 @@ fn outline(app: &App, p: &Painter, rect: ERect, id: NodeId, col: Color32, width:
     if let Some(route) = designos_doc::connector_route(&app.doc, id) {
         let pw = parent_world(&app.doc, id);
         let pts: Vec<Pos2> = route.polyline().into_iter().map(|q| app.view.to_screen(rect.min, pw.apply(q))).collect();
-        p.add(egui::Shape::line(pts, Stroke::new(width + 2.0, col.gamma_multiply(0.45))));
+        let stroke = Stroke::new(width + 2.0, col.gamma_multiply(0.45));
+        // the outline breaks at the label, which the renderer paints on a white box over the line
+        let label = app.doc.get(id).and_then(|n| designos_render::board::connector_label_box(&app.doc, n)).map(|b| {
+            let w = super::fast_world_transform(&app.doc, id);
+            let corners = [v2(b.x, b.y), v2(b.x + b.w, b.y), v2(b.x + b.w, b.y + b.h), v2(b.x, b.y + b.h)];
+            ERect::from_points(&corners.map(|c| app.view.to_screen(rect.min, w.apply(c))))
+        });
+        match label {
+            Some(lr) => {
+                for run in super::selection_overlap::polyline_outside_rect(&pts, lr) {
+                    p.add(egui::Shape::line(run, stroke));
+                }
+            }
+            None => {
+                p.add(egui::Shape::line(pts, stroke));
+            }
+        }
         return;
     }
     let corners = super::fast_world_corners(&app.doc, id).map(|c| app.view.to_screen(rect.min, c));
@@ -1156,7 +1172,10 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
             if let Some(label) = label.filter(|_| !only_connectors) {
                 let bottom = s.iter().map(|c| c.y).fold(f32::MIN, f32::max);
                 let cx = s.iter().map(|c| c.x).sum::<f32>() / 4.0;
-                badge(&p, Pos2::new(cx, bottom + theme::CANVAS_BADGE_OFFSET + 3.0), &label, col);
+                // drops below the bottom magnet dot when the selected layer shows its magnets
+                let below_magnet =
+                    app.wb_connectors_enabled() && matches!(app.selection.as_slice(), [one] if app.board.dots == Some(*one) || app.board.target == Some(*one));
+                badge(&p, Pos2::new(cx, super::selection_overlap::size_badge_top(bottom, below_magnet)), &label, col);
             }
             if let Some(tidy_r) = tidy_up_pill_rect(app, rect) {
                 p.rect_filled(tidy_r, theme::cr(3), FIGMA_PINK);

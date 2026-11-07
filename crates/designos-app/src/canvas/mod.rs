@@ -17,6 +17,7 @@ pub mod polyfill;
 pub mod proto;
 pub mod reorder;
 pub mod rulers;
+pub mod selection_overlap;
 pub mod snap;
 pub mod textsession;
 pub mod tiles;

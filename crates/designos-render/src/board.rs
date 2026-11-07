@@ -169,6 +169,15 @@ pub fn text_frame(doc: &Document, n: &Node) -> Option<TextFrame> {
     }
 }
 
+/// Background box of connector `n`'s label in the connector's own space: the box the renderer
+/// paints white over the line. `None` without a label or with an empty one (nothing is painted).
+pub fn connector_label_box(doc: &Document, n: &Node) -> Option<Rect> {
+    let NodeKind::Connector(c) = &n.kind else { return None };
+    let label = c.label.as_ref().filter(|l| !l.content.is_empty())?;
+    let route = local_route(doc, n)?;
+    Some(label_frame(route.midpoint(), label).0)
+}
+
 /// Lowers `n` (a board item) to a body node with synthetic children, or `None` for other kinds.
 pub fn lower(doc: &Document, n: &Node) -> Option<Node> {
     let mut extras: Vec<Node> = Vec::new();
@@ -440,6 +449,39 @@ mod tests {
         // two caps, label background and label text
         assert_eq!(body.children.len(), 4);
         assert!(body.children.iter().all(|c| is_synthetic(*c) && get(&doc, *c).is_some()));
+    }
+
+    #[test]
+    fn connector_label_box_is_the_painted_background_and_needs_text() {
+        let mut ids = (NodeId(0), NodeId(0));
+        let doc = doc_with(|d, page| {
+            let a = d.alloc_id();
+            let a = d.insert(page, Node::sticky(a, Rect::new(0.0, 0.0, 100.0, 100.0), "a")).unwrap();
+            let b = d.alloc_id();
+            let b = d.insert(page, Node::sticky(b, Rect::new(300.0, 0.0, 100.0, 100.0), "b")).unwrap();
+            let mut with = |text: &str| {
+                let id = d.alloc_id();
+                let mut props =
+                    ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+                let mut label = d::board_text(14.0, TextAlignH::Center, TextAlignV::Center);
+                label.content = text.into();
+                props.label = Some(label);
+                let cid = d.insert(page, Node::connector(id, props)).unwrap();
+                d::sync_connector(d, cid);
+                cid
+            };
+            ids = (with("Open settings"), with(""));
+        });
+        let n = doc.get(ids.0).unwrap();
+        let bx = connector_label_box(&doc, n).expect("a labelled connector has a label box");
+        // the same box the lowered connector paints white over its line
+        let body = lower(&doc, n).unwrap();
+        let bg = body.children.iter().map(|c| get(&doc, *c).unwrap()).find(|c| matches!(c.kind, NodeKind::Rectangle)).expect("label background");
+        assert_eq!((bx.x, bx.y, bx.w, bx.h), (bg.transform.tx, bg.transform.ty, bg.size.x, bg.size.y));
+        // and it sits on the line: the route midpoint is inside it
+        let mid = local_route(&doc, n).unwrap().midpoint();
+        assert!(bx.x <= mid.x && mid.x <= bx.x + bx.w && bx.y <= mid.y && mid.y <= bx.y + bx.h);
+        assert!(connector_label_box(&doc, doc.get(ids.1).unwrap()).is_none(), "an empty label paints no box");
     }
 
     #[test]
