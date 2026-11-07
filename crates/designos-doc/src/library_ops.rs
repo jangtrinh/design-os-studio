@@ -1014,7 +1014,7 @@ impl<'a> Trial<'a> {
             self.doc.nodes.values().filter(|n| n.style_refs.values().any(|v| *v == local) && !is_library_node(self.doc, n.id)).map(|n| n.id).collect();
         for id in targets {
             let mut n = self.doc.nodes[&id].clone();
-            if apply_style_values_with_fields(&mut n, &style, &local, paragraph_fields) {
+            if propagate_style_values_with_fields(&mut n, &style, &local, paragraph_fields) {
                 self.push(Command::Update { node: Box::new(n) });
             }
         }
@@ -1089,6 +1089,8 @@ pub fn apply_style_values_with_fields(n: &mut Node, style: &Style, key: &str, pa
         Style::Text(ts) => {
             if let NodeKind::Text(t) = &mut n.kind {
                 if n.style_refs.get("text").is_some_and(|k| k == key) {
+                    // Every value is the style's now, so the layer overrides nothing.
+                    n.text_style_overrides = OwnedFieldSet::default();
                     let (align_h, align_v) = (t.style.align_h, t.style.align_v);
                     let paragraph = t.paragraph.clone();
                     t.style = TextStyle { fills: t.style.fills.clone(), align_h, align_v, ..ts.clone() };
@@ -1127,6 +1129,19 @@ pub fn apply_style_values_with_fields(n: &mut Node, style: &Style, key: &str, pa
             }
         }
     }
+    *n != before
+}
+
+/// [`apply_style_values_with_fields`] for a style that was edited: a text layer keeps the properties it
+/// overrides (see [`Node::text_style_overrides`]) and takes the style's values for the rest. Any other
+/// style kind behaves like the plain apply.
+pub fn propagate_style_values_with_fields(n: &mut Node, style: &Style, key: &str, paragraph_fields: Option<u8>) -> bool {
+    if raw_text_style_overrides(n).is_empty() || !matches!(style, Style::Text(_)) {
+        return apply_style_values_with_fields(n, style, key, paragraph_fields);
+    }
+    let before = n.clone();
+    apply_style_values_with_fields(n, style, key, paragraph_fields);
+    keep_overridden_fields(n, &before);
     *n != before
 }
 

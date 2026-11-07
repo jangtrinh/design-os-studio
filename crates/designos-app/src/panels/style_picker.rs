@@ -117,6 +117,7 @@ enum Pick {
     Create,
     Rename,
     RenameFolder(String),
+    Reapply,
     Detach,
     Delete,
     Edit,
@@ -167,11 +168,33 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
         items.push(MenuItem::new("Rename folder").disabled(read_only).tooltip(ro_tip));
         picks.push(Some(Pick::RenameFolder(folder)));
     }
+    if prop == StyleProperty::Text {
+        let overridden = override_names(app, sel);
+        items.push(MenuItem::new("Reapply style").disabled(overridden.is_empty()).tooltip(if overridden.is_empty() {
+            "No overrides to clear".to_string()
+        } else {
+            format!("Restore {} from the style", overridden.join(", "))
+        }));
+        picks.push(Some(Pick::Reapply));
+    }
     items.push(MenuItem::new("Detach style").disabled(!linked));
     items.push(MenuItem::new("Delete style").disabled(!linked || delete_ro).tooltip(delete_tip));
     items.push(MenuItem::new("Edit style").disabled(!linked || read_only).tooltip(ro_tip));
     picks.extend([Some(Pick::Detach), Some(Pick::Delete), Some(Pick::Edit)]);
     (items, picks)
+}
+
+/// Index of the menu row labelled `label`, so tests can click it.
+#[cfg(test)]
+pub(crate) fn menu_row_index(app: &App, sel: &[NodeId], prop: StyleProperty, label: &str) -> usize {
+    menu_model(app, sel, prop).0.iter().position(|i| i.label == label).unwrap_or_else(|| panic!("the menu has a {label} row"))
+}
+
+/// The row of the menu labelled `label`, so tests can read its state and tooltip.
+#[cfg(test)]
+pub(crate) fn menu_row(app: &App, sel: &[NodeId], prop: StyleProperty, label: &str) -> MenuItem {
+    let at = menu_row_index(app, sel, prop, label);
+    menu_model(app, sel, prop).0.swap_remove(at)
 }
 
 /// The "Edit style" row of the menu (always the last one), so tests can read its label and state.
@@ -273,6 +296,9 @@ pub(crate) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
                         app.props.style_rename = Some(prop);
                     }
                 }
+                Some(Pick::Reapply) => {
+                    app.reapply_text_style(sel);
+                }
                 Some(Pick::Detach) => {
                     app.detach_style_of(sel, prop);
                 }
@@ -333,7 +359,8 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         let resp = ui.interact(row, id, Sense::click());
         field::field_bg(ui, row, id);
         icons::paint(ui.painter(), Icon::Styles, Pos2::new(row.left() + 14.0, row.center().y), 16.0, theme::ICON_SECONDARY);
-        let shown = widgets::elide(ui.painter(), &name, &theme::font_body(), row.width() - 36.0);
+        let pill_w = if prop == StyleProperty::Text { overrides_pill_width(ui, &override_names(app, sel)) } else { 0.0 };
+        let shown = widgets::elide(ui.painter(), &name, &theme::font_body(), row.width() - 36.0 - pill_w);
         ui.painter().text(Pos2::new(row.left() + 28.0, row.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), theme::TEXT);
         if resp.double_clicked() && !read_only {
             app.props.style_rename = Some(prop);
@@ -350,7 +377,53 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
     if widgets::icon_button(ui, minus, (tag, "detach"), Icon::Minus, false, "Detach style").clicked() {
         app.detach_style_of(sel, prop);
     }
+    if prop == StyleProperty::Text {
+        overrides_pill(app, ui, sel, edit);
+    }
     pane.y += theme::FIELD_HEIGHT + 8.0;
+}
+
+/// Names of the text style properties the selected text layers override, each once, in display order.
+fn override_names(app: &App, sel: &[NodeId]) -> Vec<&'static str> {
+    let mut set = OwnedFieldSet::EMPTY;
+    for n in sel.iter().filter_map(|id| app.doc.get(*id)) {
+        if !text_style_overrides(n).is_empty() {
+            set.union(n.text_style_overrides);
+        }
+    }
+    set.labels()
+}
+
+/// Gap between the override pill and the edit button to its right.
+const PILL_GAP: f32 = theme::SPACE_FACT;
+
+fn pill_font() -> egui::FontId {
+    theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium)
+}
+
+/// Width the override pill takes in the style row, gap included; 0 without overrides. The pill holds only
+/// the count: what it counts is in its tooltip and in the menu's "Reapply style".
+fn overrides_pill_width(ui: &Ui, names: &[&str]) -> f32 {
+    if names.is_empty() {
+        return 0.0;
+    }
+    let text = names.len().to_string();
+    (widgets::text_width(ui.painter(), &text, &pill_font()) + 2.0 * theme::SPACE_INLINE).max(theme::BADGE_SM) + PILL_GAP
+}
+
+/// The count of overridden properties as a pill at the right end of the text style's name, left of the
+/// edit button `edit`. Nothing when no selected layer overrides its style.
+fn overrides_pill(app: &App, ui: &mut Ui, sel: &[NodeId], edit: Rect) {
+    let names = override_names(app, sel);
+    if names.is_empty() {
+        return;
+    }
+    let w = overrides_pill_width(ui, &names) - PILL_GAP;
+    let pill = Rect::from_min_size(Pos2::new(edit.left() - PILL_GAP - w, edit.center().y - theme::BADGE_SM / 2.0), egui::vec2(w, theme::BADGE_SM));
+    widgets::record(ui, "text-style-overrides", pill);
+    widgets::kit::count_badge(ui.painter(), pill, &names.len().to_string(), widgets::kit::Tone::Neutral);
+    let tip = format!("{} {}: {}", names.len(), if names.len() == 1 { "override" } else { "overrides" }, names.join(", "));
+    ui.interact(pill, Id::new(("text-style", "overrides")), Sense::hover()).on_hover_text(tip);
 }
 
 #[cfg(test)]

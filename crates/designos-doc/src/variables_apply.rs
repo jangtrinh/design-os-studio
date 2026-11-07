@@ -561,12 +561,7 @@ pub fn node_has_style_bindings(doc: &Document, node: &Node) -> bool {
 /// Removes direct typography bindings owned by a text style. Leaving a node binding in place
 /// would make it override the linked style when `resolve_node` applies bindings.
 pub fn detach_text_style_bindings(node: &mut Node) {
-    node.variables.bindings.retain(|key, _| {
-        !matches!(
-            key.as_str(),
-            "fontFamily" | "fontStyle" | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent"
-        )
-    });
+    node.variables.bindings.retain(|key, _| !TEXT_STYLE_BINDING_KEYS.contains(&key.as_str()));
 }
 
 /// The node with its variable bindings (and linked style bindings) applied. Borrowed when it has none.
@@ -586,6 +581,10 @@ pub fn resolve_node<'a>(doc: &Document, node: &'a Node) -> Cow<'a, Node> {
                 Cow::Borrowed(bkey.as_str())
             };
             if node.variables.bindings.contains_key(node_key.as_ref()) {
+                continue;
+            }
+            // A property the layer overrides keeps its own value: the style's variable must not redraw it.
+            if slot == "text" && OwnedField::from_binding_key(bkey).is_some_and(|f| node.text_style_overrides.contains(f)) {
                 continue;
             }
             if let Some(v) = doc.resolve_variable(node.id, var) {
