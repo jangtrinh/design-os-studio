@@ -2508,6 +2508,21 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             m.insert(clear_key.into(), Value::Bool(true));
         }
     }
+    // Effects follow the same style-link rules as paints.  A style-only effect
+    // override must carry the style's values, while a raw effect override
+    // detaches the inherited link.
+    let own_effects = rest_import::farr(o, "effects");
+    let from_style = obj.get("styleIdForEffect").and_then(|r| lk.style_node(r)).filter(|_| !own_effects.iter().any(effect_has_variable));
+    if let Some(sn) = from_style {
+        m.insert("effects".into(), Value::Array(rest_import::farr(sn, "effects").iter().filter_map(convert_effect).collect()));
+    } else if obj.contains_key("effects") {
+        m.insert("effects".into(), Value::Array(own_effects.iter().filter_map(convert_effect).collect()));
+    }
+    if obj.contains_key("styleIdForEffect") {
+        insert_style_override_link(&mut m, obj, lk, "styleIdForEffect", "effect", "_clearEffectStyle");
+    } else if obj.contains_key("effects") {
+        m.insert("_clearEffectStyle".into(), Value::Bool(true));
+    }
     if has_borders {
         let mut iw = Map::new();
         iw.insert("fromFig".into(), Value::Bool(true));
@@ -2840,6 +2855,14 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                             insert_style_override_link(&mut set, inst_obj, lk, style, slot, clear_key);
                         }
                     }
+                    // Figma repeats the instance's effect list in a root
+                    // self-override even when the effect style itself was not
+                    // overridden.  Drop that stale copy so the linked style
+                    // remains authoritative instead of mixing both lists.
+                    if o.get("styleIdForEffect").is_none() && inst_obj.contains_key("styleIdForEffect") && set.remove("_clearEffectStyle").is_some() {
+                        set.remove("effects");
+                        insert_style_override_link(&mut set, inst_obj, lk, "styleIdForEffect", "effect", "_clearEffectStyle");
+                    }
                 }
             }
         }
@@ -3045,6 +3068,10 @@ fn convert_effect(e: &Value) -> Option<Value> {
         }
     }
     Some(Value::Object(m))
+}
+
+fn effect_has_variable(e: &Value) -> bool {
+    ["colorVar", "effectOpacityVar", "radiusVar", "spreadVar", "xVar", "yVar"].iter().any(|key| e.get(*key).is_some())
 }
 
 // ------------------------------------------------------------------ text
@@ -3327,6 +3354,77 @@ mod tests {
     fn guid_session_max_minus_one_local_max_is_a_real_id() {
         assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX - 1, u32::MAX)).as_deref(), Some("4294967294:4294967295"));
         assert_eq!(guid_str(&json!({"sessionID": u32::MAX - 1, "localID": u32::MAX})).as_deref(), Some("4294967294:4294967295"));
+    }
+
+    #[test]
+    fn fig_instance_effect_style_ignores_stale_root_self_override() {
+        let guid = |session, local| json!({"sessionID": session, "localID": local});
+        let style = json!({
+            "guid": guid(9, 1),
+            "type": "STYLE",
+            "styleType": "EFFECT",
+            "effects": [{"type": "LAYER_BLUR", "radius": 8.0, "visible": true}],
+        });
+        let instance = json!({
+            "guid": guid(1, 1),
+            "type": "INSTANCE",
+            "styleIdForEffect": {"guid": guid(9, 1)},
+            "symbolData": {
+                "symbolID": guid(2, 1),
+                "symbolOverrides": [{
+                    "guidPath": [guid(1, 1)],
+                    "effects": [{"type": "LAYER_BLUR", "radius": 2.0, "visible": true}],
+                }],
+            },
+        });
+        let entries = vec![entry_from_json(style).unwrap(), entry_from_json(instance.clone()).unwrap()];
+        let lk = Lk::new(&entries, &[]);
+        let overrides = override_entries(&instance, instance["symbolData"].get("symbolOverrides"), &lk, false);
+        let set = overrides.first().and_then(|v| v.get("set")).expect("root self override");
+        assert_eq!(set["styles"]["effect"], "9:1");
+        assert!(set.get("effects").is_none(), "stale copied effects must not override the linked style");
+        assert!(set.get("_clearEffectStyle").is_none());
+    }
+
+    #[test]
+    fn fig_effect_style_override_uses_linked_effect_values() {
+        let guid = |session, local| json!({"sessionID": session, "localID": local});
+        let style = json!({
+            "guid": guid(9, 1),
+            "type": "STYLE",
+            "styleType": "EFFECT",
+            "effects": [{"type": "LAYER_BLUR", "radius": 8.0, "visible": true}],
+        });
+        let entries = vec![entry_from_json(style).unwrap()];
+        let lk = Lk::new(&entries, &[]);
+        let override_entry = json!({
+            "styleIdForEffect": {"guid": guid(9, 1)},
+            "effects": [{"type": "LAYER_BLUR", "radius": 2.0, "visible": true}],
+        });
+        let set = convert_override(&override_entry, &lk);
+        assert_eq!(set["styles"]["effect"], "9:1");
+        assert_eq!(set["effects"][0]["radius"], 8.0);
+        assert!(set.get("_clearEffectStyle").is_none());
+    }
+
+    #[test]
+    fn fig_effect_variable_override_keeps_its_own_values() {
+        let guid = |session, local| json!({"sessionID": session, "localID": local});
+        let style = json!({
+            "guid": guid(9, 1),
+            "type": "STYLE",
+            "styleType": "EFFECT",
+            "effects": [{"type": "DROP_SHADOW", "radius": 8.0, "visible": true}],
+        });
+        let entries = vec![entry_from_json(style).unwrap()];
+        let lk = Lk::new(&entries, &[]);
+        let override_entry = json!({
+            "styleIdForEffect": {"guid": guid(9, 1)},
+            "effects": [{"type": "DROP_SHADOW", "radius": 2.0, "radiusVar": "variable:radius", "visible": true}],
+        });
+        let set = convert_override(&override_entry, &lk);
+        assert_eq!(set["styles"]["effect"], "9:1");
+        assert_eq!(set["effects"][0]["radius"], 2.0);
     }
 
     #[test]
