@@ -78,6 +78,7 @@ pub mod spec_instance;
 mod spec_relayout_scope_tests;
 mod styles_ops;
 pub mod table;
+pub mod table_ops;
 mod text_fills;
 pub mod text_measure;
 pub mod text_style_ops;
