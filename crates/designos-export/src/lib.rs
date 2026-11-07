@@ -144,15 +144,38 @@ impl ExportSetting {
     }
 }
 
-/// Replaces characters that are invalid in file names on common platforms.
+/// Replaces characters that are invalid in file names on common platforms. On Windows a device name such as `NUL`
+/// also gets a leading underscore; other platforms keep the name.
 pub fn sanitize_file_name(name: &str) -> String {
+    sanitize_file_name_for(name, cfg!(windows))
+}
+
+/// [`sanitize_file_name`] for a chosen platform, so the Windows rule is testable everywhere.
+pub fn sanitize_file_name_for(name: &str, is_windows: bool) -> String {
     let s: String = name.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c }).collect();
     let s = s.trim().trim_matches('.').to_string();
     if s.is_empty() {
         "export".into()
+    } else if is_windows && is_windows_reserved_name(&s) {
+        // `NUL.fig` on Windows is the NUL device: the write "works" and the file is never created.
+        format!("_{s}")
     } else {
         s
     }
+}
+
+/// True for a name Windows reserves for a device (`CON`, `PRN`, `AUX`, `NUL`, `COM0`-`COM9`, `LPT0`-`LPT9`), in any
+/// case. The reservation covers the part before the first dot and ignores trailing spaces, so `nul.txt` is reserved
+/// and `NUL@2x.png` is not.
+fn is_windows_reserved_name(name: &str) -> bool {
+    let base = name.split('.').next().unwrap_or(name).trim_end().to_ascii_uppercase();
+    matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|p| {
+            base.strip_prefix(p).is_some_and(|n| {
+                let mut chars = n.chars();
+                matches!((chars.next(), chars.next()), (Some(d), None) if d.is_ascii_digit() || matches!(d, '\u{b9}' | '\u{b2}' | '\u{b3}'))
+            })
+        })
 }
 
 #[cfg(test)]
@@ -168,6 +191,21 @@ mod tests {
         n.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
         d.insert(page, n).unwrap();
         (d, id)
+    }
+
+    #[test]
+    fn windows_reserved_device_names_are_not_used_as_file_names() {
+        for name in ["NUL", "nul", "CON", "Prn", "AUX", "COM1", "lpt9", "COM\u{b9}", "LPT\u{b2}", "com\u{b3}.txt", "NUL.fig", "con.txt", "NUL .fig"] {
+            let clean = sanitize_file_name_for(name, true);
+            assert_eq!(clean, format!("_{}", name.trim()), "{name} is a Windows device name");
+            assert_eq!(sanitize_file_name_for(name, false), name.trim(), "{name} keeps its name off Windows");
+        }
+        for name in ["NUL@2x", "CONSOLE", "COM10", "COM", "Card", "Untitled", "LPT", "my NUL"] {
+            assert_eq!(sanitize_file_name_for(name, true), name, "{name} is an ordinary name");
+        }
+        let s = ExportSetting { scale: ExportScale::Factor(1.0), format: ExportFormat::Png };
+        let expected = if cfg!(windows) { "_NUL.png" } else { "NUL.png" };
+        assert_eq!(s.file_name("NUL"), expected, "the export path follows the platform it runs on");
     }
 
     fn decode(png: &[u8]) -> tiny_skia::Pixmap {

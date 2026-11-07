@@ -2559,16 +2559,18 @@ impl App {
                 }
                 // Figma REST comments (`/v1/files/:key/comments`) are merged the same way.
                 if crate::comments::import::is_comments_payload(&text) {
+                    let errors_before = self.error_toast_seq;
                     self.import_comments_file(&p);
-                    if let Some(t) = self.toast.as_ref().filter(|t| t.error) {
-                        return Err(t.text.clone());
+                    if self.error_toast_seq != errors_before {
+                        return Err(self.last_error_toast.clone());
                     }
                     return Ok(());
                 }
                 if crate::variables::is_variables_payload(&text) {
+                    let errors_before = self.error_toast_seq;
                     self.import_variables_file(&p);
-                    if let Some(t) = self.toast.as_ref().filter(|t| t.error) {
-                        return Err(t.text.clone());
+                    if self.error_toast_seq != errors_before {
+                        return Err(self.last_error_toast.clone());
                     }
                     return Ok(());
                 }

@@ -84,6 +84,8 @@ fn a_home_export_reads_the_comments_of_the_exported_file_not_of_the_open_documen
     crate::home::apply(&mut app, Act::ExportFig(with_comments.id.clone()));
     let toast = app.toast.as_ref().expect("the export says how it went");
     assert!(toast.text.starts_with("Exported .fig to ") && toast.text.ends_with(&format!(". {NOTICE}")), "{}", toast.text);
+    // The first toast has a Show in folder button, so the next one waits behind it; this test reads each in turn.
+    app.toast = None;
 
     // And the other way round: an open document with comments, an exported file without.
     app.open_library_file(&with_comments.id);
