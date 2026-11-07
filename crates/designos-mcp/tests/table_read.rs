@@ -59,3 +59,25 @@ fn get_node_returns_the_cell_json_with_its_text() {
     assert!(kind["row"]["local"].is_u64() && kind["col"]["local"].is_u64(), "{res}");
     assert_eq!(res["node"]["parent"].as_u64(), Some(table));
 }
+
+#[test]
+fn get_metadata_shows_the_span_of_a_merged_cell() {
+    let (mut e, table) = engine_with_table();
+    let table_id = NodeId(table);
+    let (first, covered) = {
+        let t = e.doc.get(table_id).unwrap();
+        (t.children[0], [t.children[1], t.children[3], t.children[4]])
+    };
+    for id in covered {
+        e.doc.remove(id).unwrap();
+    }
+    let NodeKind::Table(p) = &mut e.doc.get_mut(table_id).unwrap().kind else { unreachable!() };
+    let (row, col) = (p.rows[0].id, p.cols[0].id);
+    p.merges.push(designos_doc::TableMerge { row, col, row_span: 2, col_span: 2 });
+    let res = e.call("designos_get_metadata", json!({})).unwrap();
+    let xml = res["xml"].as_str().unwrap();
+    assert_eq!(xml.matches("rowspan=\"2\" colspan=\"2\"").count(), 1, "{xml}");
+    assert!(xml.contains(&format!("<table-cell id=\"{}\"", first.0)));
+    assert_eq!(xml.matches("<table-cell ").count(), 6, "{xml}");
+    assert_eq!(xml.matches("rowspan").count(), 1, "unmerged cells carry no span: {xml}");
+}

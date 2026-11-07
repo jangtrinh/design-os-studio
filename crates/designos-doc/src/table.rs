@@ -322,6 +322,48 @@ pub(crate) fn check_child_kind(parent: &NodeKind, child: &NodeKind) -> Result<()
     }
 }
 
+fn is_table_kind(k: &NodeKind) -> bool {
+    matches!(k, NodeKind::Table(_) | NodeKind::TableCell(_))
+}
+
+/// Applies [`check_child_kind`] to every parent-child pair an `Insert` payload installs: the root
+/// under `parent`, and each node under the payload node whose `children` lists it.
+pub(crate) fn check_insert_payload(parent: &NodeKind, nodes: &[Node]) -> Result<(), DocError> {
+    let Some(root) = nodes.first() else { return Ok(()) };
+    check_child_kind(parent, &root.kind)?;
+    if !nodes.iter().any(|n| is_table_kind(&n.kind)) {
+        return Ok(());
+    }
+    let kinds: HashMap<NodeId, &NodeKind> = nodes.iter().map(|n| (n.id, &n.kind)).collect();
+    for n in nodes {
+        for child in n.children.iter().filter_map(|c| kinds.get(c)) {
+            check_child_kind(&n.kind, child)?;
+        }
+    }
+    Ok(())
+}
+
+/// A table or a cell never becomes another kind, and no other node becomes one.
+pub(crate) fn check_kind_change(old: &NodeKind, new: &NodeKind) -> Result<(), DocError> {
+    if (is_table_kind(old) || is_table_kind(new)) && std::mem::discriminant(old) != std::mem::discriminant(new) {
+        return Err(DocError::Table(format!("A table or a cell cannot change into another kind. {NEXT_ACTION}")));
+    }
+    Ok(())
+}
+
+/// Whether `cmd` can be refused by a table rule, which is when `History` keeps a copy of it.
+pub(crate) fn involves_tables(doc: &Document, cmd: &Command) -> bool {
+    let table_kind = |id: NodeId| doc.get(id).is_some_and(|n| is_table_kind(&n.kind));
+    match cmd {
+        Command::Insert { parent, nodes, .. } => table_kind(*parent) || nodes.iter().any(|n| is_table_kind(&n.kind)),
+        Command::Remove { id } => doc.get(*id).and_then(|n| n.parent).is_some_and(table_kind),
+        Command::Reparent { id, parent, .. } => table_kind(*id) || table_kind(*parent),
+        Command::Update { node } => is_table_kind(&node.kind) || table_kind(node.id),
+        Command::Batch(cmds) => cmds.iter().any(|c| involves_tables(doc, c)),
+        _ => false,
+    }
+}
+
 /// Whole-table check: one cell at every live `(row, column)` position, none at a dead or covered one.
 /// Children that are not cells are ignored (the kind check keeps them out).
 ///
@@ -331,6 +373,9 @@ pub fn check_table_positions(doc: &Document, table_id: NodeId) -> Result<(), Str
     let Some(table) = doc.get(table_id) else { return Ok(()) };
     let NodeKind::Table(props) = &table.kind else { return Ok(()) };
     let grid = Grid::new(props);
+    if grid.rows == 0 || grid.cols == 0 {
+        return Err(format!("A table needs at least one row and one column. {NEXT_ACTION}"));
+    }
     if grid.fixed > 0 || grid.row_ix.len() != grid.rows || grid.col_ix.len() != grid.cols {
         return Err(format!("The table's rows, columns or merges are inconsistent. {NEXT_ACTION}"));
     }

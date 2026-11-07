@@ -74,6 +74,8 @@ pub struct TableRepairs {
     pub merges_fixed: usize,
     /// Cells inside a merged block, folded into its anchor.
     pub covered_cells_folded: usize,
+    /// Children of a table that are not cells (a rectangle, a nested table), moved to the table's parent, just after it.
+    pub children_moved_out: usize,
 }
 
 impl TableRepairs {
@@ -88,6 +90,7 @@ impl TableRepairs {
             + self.cells_added
             + self.merges_fixed
             + self.covered_cells_folded
+            + self.children_moved_out
     }
 }
 
@@ -301,8 +304,12 @@ fn repair_table(doc: &mut Document, id: NodeId, rep: &mut TableRepairs) {
     let mut kept: BTreeMap<(usize, usize), NodeId> = BTreeMap::new();
     let mut folds: Vec<(NodeId, (usize, usize))> = Vec::new();
     let mut unknown: Vec<NodeId> = Vec::new();
+    let mut foreign: Vec<NodeId> = Vec::new();
     for cid in children {
-        let Some(NodeKind::TableCell(c)) = doc.nodes.get(&cid).map(|n| &n.kind) else { continue };
+        let Some(NodeKind::TableCell(c)) = doc.nodes.get(&cid).map(|n| &n.kind) else {
+            foreign.push(cid);
+            continue;
+        };
         match grid.position_of(c) {
             None => unknown.push(cid),
             Some(pos) => {
@@ -362,6 +369,15 @@ fn repair_table(doc: &mut Document, id: NodeId, rep: &mut TableRepairs) {
     }
     for cid in removed {
         let _ = doc.remove(cid);
+    }
+    // Anything that is not a cell moves to the table's parent, directly after the table.
+    if let Some(parent) = doc.nodes[&id].parent {
+        for (n, cid) in foreign.into_iter().enumerate() {
+            let at = doc.nodes[&parent].children.iter().position(|c| *c == id).map_or(usize::MAX, |i| i + 1 + n);
+            if doc.reparent(cid, parent, at).is_ok() {
+                rep.children_moved_out += 1;
+            }
+        }
     }
     if let Some(NodeKind::Table(p)) = doc.nodes.get_mut(&id).map(|n| &mut n.kind) {
         *p = props;

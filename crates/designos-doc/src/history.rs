@@ -86,9 +86,7 @@ impl Command {
                 if !p.kind.can_hold_children() {
                     return Err(DocError::NotAContainer(parent));
                 }
-                if let Some(first) = nodes.first() {
-                    table::check_child_kind(&p.kind, &first.kind)?;
-                }
+                table::check_insert_payload(&p.kind, &nodes)?;
                 let index = index.min(p.children.len());
                 p.children.insert(index, root);
                 let many = nodes.len() > 64;
@@ -124,6 +122,9 @@ impl Command {
                 Command::Reparent { id, parent: old_parent, index: old_index }
             }
             Command::Update { mut node } => {
+                if let Some(cur) = doc.get(node.id) {
+                    table::check_kind_change(&cur.kind, &node.kind)?;
+                }
                 let cur = doc.get_mut(node.id).ok_or(DocError::NotFound(node.id))?;
                 node.parent = cur.parent;
                 node.children = std::mem::take(&mut cur.children);
@@ -210,9 +211,18 @@ impl Command {
                 Command::SetImages { add: removed, remove: added }
             }
             Command::Batch(cmds) => {
+                // All or nothing: when a command fails, the ones already applied are undone, newest first.
                 let mut inv = Vec::with_capacity(cmds.len());
                 for c in cmds {
-                    inv.push(c.apply(doc)?);
+                    match c.apply(doc) {
+                        Ok(i) => inv.push(i),
+                        Err(e) => {
+                            for i in inv.into_iter().rev() {
+                                let _ = i.apply(doc);
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
                 inv.reverse();
                 Command::Batch(inv)
@@ -783,10 +793,12 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
 /// layout is queued. With a queue present it re-solves like any other step, so a queued subtree is
 /// never drained against a state the step restored without that solve.
 /// Applies one undo step with `apply`, then checks every table the step touched (see
-/// [`table::check_table_positions`]). A table left broken rolls the step back with its own inverse:
-/// the error is returned with the command that re-does the step, so the caller can put it back on its
-/// stack and leave the document and both stacks as they were. The table ids are collected before
-/// `apply` runs, because a removed cell's parent is gone afterwards.
+/// [`table::check_table_positions`]). A table left broken rolls the step back with its own inverse.
+/// Either way a refusal returns the error with the command that re-does the step, so the caller can
+/// put the step back on its stack and leave the document and both stacks as they were (a command
+/// that fails changes nothing: `Command::Batch` undoes what it already applied). The command is
+/// kept only when it involves a table, so an ordinary step costs no clone. The table ids are
+/// collected before `apply` runs, because a removed cell's parent is gone afterwards.
 fn guarded(
     doc: &mut Document,
     c: Command,
@@ -794,16 +806,18 @@ fn guarded(
 ) -> Result<Command, Box<(DocError, Option<Command>)>> {
     let mut touched = std::collections::BTreeSet::new();
     table::touched_tables(doc, &c, &mut touched);
-    let inv = apply(doc, c).map_err(|e| Box::new((e, None)))?;
+    let backup = table::involves_tables(doc, &c).then(|| c.clone());
+    let inv = apply(doc, c).map_err(|e| Box::new((e, backup)))?;
     match table::check_touched(doc, &touched) {
         Ok(()) => Ok(inv),
-        Err(e) => {
-            let restored = inv.apply(doc).ok();
-            Err(Box::new((e, restored)))
-        }
+        Err(e) => match inv.apply(doc) {
+            Ok(restored) => Err(Box::new((e, Some(restored)))),
+            Err(re) => Err(Box::new((DocError::Table(format!("{e} Rolling the step back also failed: {re}")), None))),
+        },
     }
 }
 
+/// Applies `c`; a step whose layout was recorded replays as stored, any other re-solves auto layout.
 fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<Command, DocError> {
     if layout_recorded && doc.pending_relayout().is_empty() {
         c.apply(doc)

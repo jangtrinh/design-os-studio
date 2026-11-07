@@ -390,6 +390,10 @@ impl<'a> WalkCtx<'a> {
                 if let Some(table) = node.parent.and_then(|p| self.doc.get(p)).and_then(|p| if let NodeKind::Table(t) = &p.kind { Some(t) } else { None }) {
                     attrs.push(("row", index(&table.rows, c.row).map_or("?".to_string(), |i| i.to_string())));
                     attrs.push(("col", index(&table.cols, c.col).map_or("?".to_string(), |i| i.to_string())));
+                    if let Some(m) = table.merges.iter().find(|m| m.row == c.row && m.col == c.col).filter(|m| m.row_span > 1 || m.col_span > 1) {
+                        attrs.push(("rowspan", m.row_span.to_string()));
+                        attrs.push(("colspan", m.col_span.to_string()));
+                    }
                 }
             }
             _ => {}

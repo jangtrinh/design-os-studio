@@ -538,3 +538,180 @@ fn a_row_grows_to_its_tallest_cell_but_the_stored_height_stays() {
     apply_relayout(&mut d, table);
     assert_eq!(frame_of(&d, cell(&d, table, 0, 1).unwrap()).3, 40.0, "the row shrinks back to the stored height");
 }
+
+// ---------------------------------------------------------------- review round 2
+
+/// `node` as a child of `parent` inside an `Insert` payload.
+fn child_of(parent: &mut Node, mut node: Node) -> Node {
+    node.parent = Some(parent.id);
+    parent.children.push(node.id);
+    node
+}
+
+#[test]
+fn insert_checks_every_node_of_the_payload_not_only_the_root() {
+    let (mut d, page, table) = doc_with_table(2, 2);
+    let mut h = History::default();
+    let p = props(&d, table);
+
+    // a frame that carries a cell
+    let fid = d.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 50.0, 50.0));
+    let loose = new_cell(&mut d, &p, 0, 0);
+    let loose = child_of(&mut frame, loose);
+    assert_refused_and_untouched(&mut d, &mut h, Command::Insert { parent: page, index: 0, nodes: vec![frame, loose] });
+
+    // a table that carries a rectangle
+    let mut nodes = build_table(&mut d, 2, 2, Vec2::ZERO);
+    let rid = d.alloc_id();
+    let rect = Node::rectangle(rid, Rect::new(0.0, 0.0, 5.0, 5.0));
+    let rect = child_of(&mut nodes[0], rect);
+    nodes.push(rect);
+    assert_refused_and_untouched(&mut d, &mut h, Command::Insert { parent: page, index: 0, nodes });
+
+    // a table that carries a table
+    let mut outer = build_table(&mut d, 2, 2, Vec2::ZERO);
+    let inner = build_table(&mut d, 1, 1, Vec2::ZERO);
+    let inner_root = child_of(&mut outer[0], inner[0].clone());
+    outer.push(inner_root);
+    outer.extend(inner.into_iter().skip(1));
+    assert_refused_and_untouched(&mut d, &mut h, Command::Insert { parent: page, index: 0, nodes: outer });
+
+    // a whole well-formed table still goes in
+    let good = build_table(&mut d, 2, 2, Vec2::ZERO);
+    h.exec_user(&mut d, Command::Insert { parent: page, index: 0, nodes: good }).unwrap();
+}
+
+#[test]
+fn changing_the_kind_of_a_table_or_cell_is_refused() {
+    let (mut d, page, table) = doc_with_table(2, 2);
+    let mut h = History::default();
+    let id = cell(&d, table, 0, 0).unwrap();
+    let mut to_text = d.get(id).unwrap().clone();
+    to_text.kind = NodeKind::Text(default_cell_text("now text"));
+    assert_refused_and_untouched(&mut d, &mut h, Command::Update { node: Box::new(to_text) });
+
+    let mut to_frame = d.get(table).unwrap().clone();
+    to_frame.kind = NodeKind::Frame(Default::default());
+    assert_refused_and_untouched(&mut d, &mut h, Command::Update { node: Box::new(to_frame) });
+
+    let rid = d.alloc_id();
+    d.insert(page, Node::rectangle(rid, Rect::new(0.0, 0.0, 5.0, 5.0))).unwrap();
+    let mut to_cell = d.get(rid).unwrap().clone();
+    to_cell.kind = NodeKind::TableCell(TableCellProps { row: props(&d, table).rows[0].id, col: props(&d, table).cols[0].id, text: default_cell_text("") });
+    assert_refused_and_untouched(&mut d, &mut h, Command::Update { node: Box::new(to_cell) });
+
+    // an edit that keeps the kind is still a plain update
+    let mut renamed = d.get(id).unwrap().clone();
+    renamed.name = "Header".into();
+    h.exec_user(&mut d, Command::Update { node: Box::new(renamed) }).unwrap();
+}
+
+/// A document where a rectangle sits in a frame, then the frame is turned into a table behind
+/// the history's back (a legacy file), so the inverse of an earlier step is now refused.
+fn history_with_a_step_that_can_no_longer_be_replayed() -> (Document, History, NodeId) {
+    let mut d = Document::new("Replay");
+    let page = d.add_page("P");
+    let frame = d.alloc_id();
+    d.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    let rect = d.alloc_id();
+    d.insert(page, Node::rectangle(rect, Rect::new(0.0, 0.0, 5.0, 5.0))).unwrap();
+    let mut h = History::default();
+    h.exec_user(&mut d, Command::Reparent { id: rect, parent: frame, index: 0 }).unwrap();
+    (d, h, frame)
+}
+
+fn make_table(d: &mut Document, id: NodeId) {
+    d.get_mut(id).unwrap().kind = NodeKind::Table(TableProps::grid(1, 1));
+}
+
+#[test]
+fn a_refused_undo_keeps_the_step_and_both_stacks() {
+    let (mut d, mut h, frame) = history_with_a_step_that_can_no_longer_be_replayed();
+    let rect = d.get(frame).unwrap().children[0];
+    let page = d.pages[0];
+    h.exec_user(&mut d, Command::Reparent { id: rect, parent: page, index: 0 }).unwrap();
+    make_table(&mut d, frame);
+    let (before, depth) = (snapshot(&d), h.undo_depth());
+    let err = h.undo(&mut d).expect_err("the inverse puts a rectangle back into a table");
+    assert!(matches!(err, DocError::Table(_)), "{err:?}");
+    assert_eq!((snapshot(&d), h.undo_depth(), h.can_redo()), (before, depth, false));
+}
+
+#[test]
+fn a_refused_redo_keeps_the_step_and_both_stacks() {
+    let (mut d, mut h, frame) = history_with_a_step_that_can_no_longer_be_replayed();
+    assert!(h.undo(&mut d).unwrap());
+    make_table(&mut d, frame);
+    let before = snapshot(&d);
+    let err = h.redo(&mut d).expect_err("the step puts a rectangle into a table");
+    assert!(matches!(err, DocError::Table(_)), "{err:?}");
+    assert_eq!((snapshot(&d), h.can_redo(), h.can_undo()), (before, true, false));
+}
+
+#[test]
+fn a_table_cannot_lose_its_last_row_or_column() {
+    let (mut d, _, table) = doc_with_table(1, 2);
+    let mut h = History::default();
+    let mut p = props(&d, table);
+    p.rows.clear();
+    let mut steps: Vec<Command> = d.get(table).unwrap().children.iter().map(|&id| Command::Remove { id }).collect();
+    steps.push(with_props(&d, table, p));
+    let msg = assert_refused_and_untouched(&mut d, &mut h, Command::Batch(steps));
+    assert!(msg.contains("table operation"), "{msg}");
+    assert_eq!(check_table_positions(&d, table), Ok(()));
+
+    let mut empty = d.get(table).unwrap().clone();
+    empty.kind = NodeKind::Table(TableProps { rows: vec![], cols: vec![], merges: vec![], next_track: 1 });
+    empty.children.clear();
+    d.nodes.insert(table, empty);
+    assert!(check_table_positions(&d, table).is_err(), "the guard and the load repair agree that this table is broken");
+}
+
+#[test]
+fn a_user_step_with_a_refused_command_applies_nothing() {
+    let (mut d, page, table) = doc_with_table(2, 2);
+    let mut h = History::default();
+    let victim = cell(&d, table, 0, 0).unwrap();
+    let group = d.alloc_id();
+    // group a cell: Insert a group on the page, then move the cell into it
+    let group_it = vec![
+        Command::Insert { parent: page, index: 0, nodes: vec![Node::new(group, NodeKind::Group)] },
+        Command::Reparent { id: victim, parent: group, index: 0 },
+    ];
+    assert_refused_and_untouched(&mut d, &mut h, Command::Batch(group_it));
+    assert!(d.get(group).is_none(), "no stray group is left behind");
+
+    // an earlier, valid command of the same step is rolled back too
+    let mut renamed = d.get(table).unwrap().clone();
+    renamed.name = "Renamed".into();
+    let step = vec![Command::Update { node: Box::new(renamed) }, Command::Reparent { id: victim, parent: page, index: 0 }];
+    assert_refused_and_untouched(&mut d, &mut h, Command::Batch(step));
+    assert_eq!(d.get(table).unwrap().name, "Table");
+}
+
+#[test]
+fn repair_moves_foreign_children_out_of_a_table_after_it() {
+    let (mut d, page, table) = doc_with_table(2, 2);
+    let rect = d.alloc_id();
+    d.insert(table, Node::rectangle(rect, Rect::new(0.0, 0.0, 5.0, 5.0))).unwrap();
+    let inner = build_table(&mut d, 1, 1, Vec2::ZERO);
+    let inner_id = inner[0].id;
+    for n in inner {
+        let is_root = n.id == inner_id;
+        d.nodes.insert(n.id, n);
+        if is_root {
+            d.nodes.get_mut(&inner_id).unwrap().parent = Some(table);
+            d.nodes.get_mut(&table).unwrap().children.push(inner_id);
+        }
+    }
+    let rep = d.validate_and_repair();
+    assert_eq!(rep.tables.children_moved_out, 2);
+    let order = d.get(page).unwrap().children.clone();
+    let at = order.iter().position(|&id| id == table).unwrap();
+    assert_eq!(&order[at + 1..], &[rect, inner_id], "both follow the table, in order");
+    assert_eq!(d.get(rect).unwrap().parent, Some(page));
+    assert_eq!(d.get(table).unwrap().children.len(), 4);
+    assert_eq!(check_table_positions(&d, table), Ok(()));
+    assert!(d.validate_and_repair().is_clean());
+}
