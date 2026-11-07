@@ -126,3 +126,73 @@ fn studio_line_without_an_outline_is_unchanged() {
     // centred on its own y
     assert_eq!(ink(&render(&t)), (35, 44, 20, 219));
 }
+
+fn render_wide(t: &T) -> Pixmap {
+    let mut pm = Pixmap::new(360, 100).unwrap();
+    render_page(&t.doc, t.page, &Viewport::default(), &mut pm);
+    pm
+}
+
+/// Runs of dark pixels along one row.
+fn runs_on_row(pm: &Pixmap, y: u32) -> usize {
+    let mut runs = 0;
+    let mut inside = false;
+    for x in 0..pm.width() {
+        let dark = pm.pixel(x, y).unwrap().red() < 128;
+        if dark && !inside {
+            runs += 1;
+        }
+        inside = dark;
+    }
+    runs
+}
+
+#[test]
+fn dashed_line_keeps_its_dash_period_after_a_resize() {
+    // a 2 px line with 4/4 dashes: the bake holds 13 dash rectangles of the old length
+    let mut t = T::new();
+    let id = line(&mut t, None, ORIGIN, 100.0, true);
+    let dashes: Vec<Path> = (0..13)
+        .map(|i| {
+            let x = i as f32 * 8.0;
+            let end = (x + 4.0).min(100.0);
+            let cmds = vec![
+                PathCmd::MoveTo(Vec2::new(x, -2.0)),
+                PathCmd::LineTo(Vec2::new(end, -2.0)),
+                PathCmd::LineTo(Vec2::new(end, 0.0)),
+                PathCmd::LineTo(Vec2::new(x, 0.0)),
+                PathCmd::Close,
+            ];
+            Path { cmds, fill_rule: FillRule::NonZero }
+        })
+        .collect();
+    let n = t.node(id);
+    n.stroke.weight = 2.0;
+    n.stroke.dashes = vec![4.0, 4.0];
+    n.stroke_geometry = Some(dashes);
+    resize(&mut t.doc, id, Vec2::new(300.0, 0.0));
+    let runs = runs_on_row(&render_wide(&t), 39);
+    assert!((36..=39).contains(&runs), "300 px of 4/4 dashes is about 38 dashes, not {runs}");
+}
+
+#[test]
+fn zero_length_line_resized_draws_its_new_extent() {
+    let mut t = T::new();
+    let id = line(&mut t, None, ORIGIN, 0.0, true);
+    resize(&mut t.doc, id, Vec2::new(40.0, 0.0));
+    let (_, _, x0, x1) = ink(&render(&t));
+    assert_eq!((x0, x1), (20, 59), "ink spans the 0..40 extent");
+}
+
+#[test]
+fn arrow_cap_line_resized_is_drawn_live_like_a_fresh_one() {
+    let mut t = T::new();
+    let id = line(&mut t, None, ORIGIN, 100.0, true);
+    t.node(id).stroke.cap = StrokeCap::ArrowLines;
+    resize(&mut t.doc, id, Vec2::new(200.0, 0.0));
+    assert!(t.doc.get(id).unwrap().stroke_geometry.is_none(), "the outline is cleared");
+    let mut fresh = T::new();
+    let f = line(&mut fresh, None, ORIGIN, 200.0, false);
+    fresh.node(f).stroke.cap = StrokeCap::ArrowLines;
+    assert_eq!(render(&t).data(), render(&fresh).data());
+}
