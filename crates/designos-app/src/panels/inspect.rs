@@ -216,10 +216,7 @@ pub(crate) fn copy(app: &mut App, ui: &Ui, text: String, what: &str) {
 
 pub(crate) fn small_button(ui: &mut Ui, rect: Rect, key: impl widgets::Key, label: &str) -> bool {
     widgets::record(ui, &format!("btn-{key:?}"), rect);
-    let r = ui.interact(rect, ui.id().with(("insp-btn", key)), Sense::click());
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body(), theme::TEXT);
-    r.clicked()
+    crate::widgets::kit::button(ui, rect, ("insp-btn", key), label, crate::widgets::kit::Hierarchy::Secondary, crate::widgets::kit::Size::Xs, true).clicked()
 }
 
 pub(crate) fn section_title(ui: &Ui, c: &mut Cur, label: &str) {
@@ -347,7 +344,8 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let link_r = Rect::from_center_size(Pos2::new(hdr.right() - 48.0, hdr.center().y), Vec2::splat(20.0));
     widgets::record(ui, "dev-inspect-link", link_r);
     let link_resp = ui.interact(link_r, ui.id().with("dev-inspect-link"), Sense::click());
-    icons::paint(ui.painter(), Icon::Connector, link_r.center(), 13.0, if link_resp.hovered() { Color32::WHITE } else { theme::ICON_SECONDARY });
+    crate::widgets::kit::paint_icon_bg(ui.painter(), link_r, &link_resp, false, theme::cr(theme::RADIUS_CONTROL));
+    icons::paint(ui.painter(), Icon::Connector, link_r.center(), 13.0, if link_resp.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY });
     if link_resp.on_hover_text("Copy node link").clicked() {
         copy(app, ui, format!("designos://open?node={}", id.0), "node link");
     }
@@ -355,7 +353,8 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let code_r = Rect::from_center_size(Pos2::new(hdr.right() - 26.0, hdr.center().y), Vec2::splat(20.0));
     widgets::record(ui, "dev-inspect-code", code_r);
     let code_resp = ui.interact(code_r, ui.id().with("dev-inspect-code"), Sense::click());
-    icons::paint(ui.painter(), Icon::Dev, code_r.center(), 13.0, if code_resp.hovered() { Color32::WHITE } else { theme::ICON_SECONDARY });
+    crate::widgets::kit::paint_icon_bg(ui.painter(), code_r, &code_resp, false, theme::cr(theme::RADIUS_CONTROL));
+    icons::paint(ui.painter(), Icon::Dev, code_r.center(), 13.0, if code_resp.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY });
     if code_resp.on_hover_text("Copy active language snippet").clicked() {
         let snippet = app.dev_code_for(id, app.dev.lang, app.dev.react_tailwind);
         copy(app, ui, snippet, app.dev.lang.label());
@@ -364,12 +363,13 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let more_r = Rect::from_center_size(Pos2::new(hdr.right() - 6.0, hdr.center().y), Vec2::splat(20.0));
     widgets::record(ui, "dev-inspect-more", more_r);
     let more_resp = ui.interact(more_r, ui.id().with("dev-inspect-more"), Sense::click());
+    crate::widgets::kit::paint_icon_bg(ui.painter(), more_r, &more_resp, false, theme::cr(theme::RADIUS_CONTROL));
     ui.painter().text(
         more_r.center(),
         Align2::CENTER_CENTER,
         "•••",
         theme::font_caption_strong(),
-        if more_resp.hovered() { Color32::WHITE } else { theme::ICON_SECONDARY },
+        if more_resp.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY },
     );
     if more_resp.on_hover_text("Copy full multi-language code bundle (CSS + React + SwiftUI + UIKit + Compose + Android XML)").clicked() {
         let bundle = format!(
@@ -412,7 +412,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     widgets::record(ui, "dev-mcp-btn", mcp_hdr);
     let mcp_resp = ui.interact(mcp_hdr, ui.id().with("dev-mcp-btn"), Sense::click());
     icons::paint(ui.painter(), Icon::ChevronDown, Pos2::new(mcp_hdr.left() + 5.0, mcp_hdr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
-    ui.painter().text(Pos2::new(mcp_hdr.left() + 16.0, mcp_hdr.center().y), Align2::LEFT_CENTER, "MCP", theme::font_body_strong(), Color32::WHITE);
+    ui.painter().text(Pos2::new(mcp_hdr.left() + 16.0, mcp_hdr.center().y), Align2::LEFT_CENTER, "MCP", theme::font_body_strong(), theme::TEXT);
     icons::paint(ui.painter(), Icon::Help, Pos2::new(mcp_hdr.right() - 44.0, mcp_hdr.center().y), 13.0, theme::ICON_SECONDARY);
     icons::paint(ui.painter(), Icon::StrokeSettings, Pos2::new(mcp_hdr.right() - 24.0, mcp_hdr.center().y), 13.0, theme::ICON_SECONDARY);
     icons::paint(ui.painter(), Icon::Plus, Pos2::new(mcp_hdr.right() - 4.0, mcp_hdr.center().y), 13.0, theme::ICON_SECONDARY);
@@ -438,7 +438,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
         Align2::LEFT_CENTER,
         "Selection details",
         theme::font_body_strong(),
-        Color32::from_rgb(0xB3, 0xB3, 0xB3),
+        theme::TEXT_TERTIARY,
     );
     c.y += 22.0;
 
@@ -492,25 +492,12 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let cc_hdr = c.rect(PAD, 0.0, c.w - 2.0 * PAD, theme::SECTION_TITLE_HEIGHT);
     widgets::record(ui, "dev-code-connect", cc_hdr);
     let cc_resp = ui.interact(cc_hdr, ui.id().with("dev-code-connect"), Sense::click());
-    ui.painter().text(Pos2::new(cc_hdr.left(), cc_hdr.center().y), Align2::LEFT_CENTER, "Code Connect", theme::font_body_strong(), Color32::WHITE);
+    ui.painter().text(Pos2::new(cc_hdr.left(), cc_hdr.center().y), Align2::LEFT_CENTER, "Code Connect", theme::font_body_strong(), theme::TEXT);
     let is_connected = n.dev.annotations.iter().any(|a| a.text.contains("Code Connect:"));
     let pill_w = if is_connected { 68.0 } else { 64.0 };
     let pill_r = Rect::from_min_size(Pos2::new(cc_hdr.right() - pill_w, cc_hdr.center().y - 9.0), Vec2::new(pill_w, 18.0));
-    let pill_bg = if is_connected {
-        Color32::from_rgb(0x16, 0x4E, 0x33)
-    } else if cc_resp.hovered() {
-        Color32::from_rgb(0x45, 0x45, 0x45)
-    } else {
-        Color32::from_rgb(0x38, 0x38, 0x38)
-    };
-    ui.painter().rect_filled(pill_r, theme::cr(4), pill_bg);
-    ui.painter().text(
-        pill_r.center(),
-        Align2::CENTER_CENTER,
-        if is_connected { "Connected" } else { "Not started" },
-        theme::font_caption(),
-        if is_connected { Color32::from_rgb(0x4A, 0xDE, 0x80) } else { Color32::from_rgb(0xB3, 0xB3, 0xB3) },
-    );
+    let tone = if is_connected { crate::widgets::kit::Tone::Success } else { crate::widgets::kit::Tone::Neutral };
+    crate::widgets::kit::count_badge(ui.painter(), pill_r, if is_connected { "Connected" } else { "Not started" }, tone);
     if cc_resp.on_hover_text("Click to generate & copy design:os Code Connect snippet").clicked() {
         let comp_ident: String = n.name.chars().filter(|ch| ch.is_alphanumeric()).collect::<String>();
         let comp_ident = if comp_ident.is_empty() { format!("Node{}", id.0) } else { comp_ident };
@@ -531,9 +518,9 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
 
     let cc_desc = "Publish components to a library, then you can connect them to your codebase with Code Connect. Learn more";
     let cc_text_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 44.0);
-    let cc_galley = ui.painter().layout(cc_desc.to_string(), theme::font_body(), Color32::from_rgb(0x8C, 0x8C, 0x8C), cc_text_r.width());
+    let cc_galley = ui.painter().layout(cc_desc.to_string(), theme::font_body(), theme::TEXT_TERTIARY, cc_text_r.width());
     let cc_h = cc_galley.size().y;
-    ui.painter().galley(cc_text_r.min, cc_galley, Color32::from_rgb(0x8C, 0x8C, 0x8C));
+    ui.painter().galley(cc_text_r.min, cc_galley, theme::TEXT_TERTIARY);
     c.y += cc_h + 8.0;
 
     let cc_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 26.0);
@@ -551,7 +538,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     c.y += 1.0;
     let lp_hdr = c.rect(PAD, 0.0, c.w - 2.0 * PAD, theme::SECTION_TITLE_HEIGHT);
     icons::paint(ui.painter(), Icon::ChevronDown, Pos2::new(lp_hdr.left() + 5.0, lp_hdr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
-    ui.painter().text(Pos2::new(lp_hdr.left() + 16.0, lp_hdr.center().y), Align2::LEFT_CENTER, "Layer properties", theme::font_body_strong(), Color32::WHITE);
+    ui.painter().text(Pos2::new(lp_hdr.left() + 16.0, lp_hdr.center().y), Align2::LEFT_CENTER, "Layer properties", theme::font_body_strong(), theme::TEXT);
     let redline_r = Rect::from_min_size(Pos2::new(lp_hdr.right() - 88.0, lp_hdr.center().y - 10.0), Vec2::new(88.0, 20.0));
     widgets::record(ui, "dev-add-redlines", redline_r);
     if small_button(ui, redline_r, "dev-add-redlines", "+ Add redlines") {
@@ -605,7 +592,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
                     Align2::LEFT_CENTER,
                     group_label,
                     theme::font_caption_strong(),
-                    Color32::from_rgb(0x8C, 0x8C, 0x8C),
+                    theme::TEXT_TERTIARY,
                 );
                 c.y += 20.0;
             }
@@ -804,7 +791,7 @@ pub fn measure_overlay(app: &App, ui: &Ui, rect: Rect) {
         let w = text_width(&p, &label, &font) + 10.0;
         let pill = Rect::from_center_size(mid + if horizontal { Vec2::new(0.0, -14.0) } else { Vec2::new(18.0 + w / 2.0, 0.0) }, Vec2::new(w, 16.0));
         p.rect_filled(pill, theme::cr(theme::RADIUS_MARK), MEASURE);
-        p.text(pill.center(), Align2::CENTER_CENTER, label, font, Color32::WHITE);
+        p.text(pill.center(), Align2::CENTER_CENTER, label, font, theme::CANVAS_SIZE_BADGE_TEXT);
     }
 }
 
@@ -955,6 +942,63 @@ mod tests {
         // text spans x 10..90, the rectangle starts at x = 120: a 30px gap
         let g = measure(page_aabb(&app.doc, t).unwrap(), page_aabb(&app.doc, r).unwrap());
         assert!(g.iter().any(|g| (g.value - 30.0).abs() < 1e-3));
+    }
+
+    /// Colours painted inside `within`: image tints and text colours.
+    fn colours_in(shapes: &[egui::epaint::ClippedShape], within: Rect) -> Vec<egui::Color32> {
+        fn walk(shape: &egui::Shape, within: Rect, out: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Mesh(m) => {
+                    if m.vertices.iter().all(|v| within.contains(v.pos) || within.expand(1.0).contains(v.pos)) {
+                        out.extend(m.vertices.iter().map(|v| v.color));
+                    }
+                }
+                egui::Shape::Text(t) if within.contains(t.pos + t.galley.size() * 0.5) => {
+                    out.extend(t.galley.job.sections.iter().map(|s| s.format.color));
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, within, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        shapes.iter().for_each(|s| walk(&s.shape, within, &mut out));
+        out
+    }
+
+    #[test]
+    fn inspect_header_icons_never_paint_white() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let f = d.alloc_id();
+        let f = d.insert(page, Node::frame(f, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+        let mut app = App::new(d);
+        app.ui.dev_mode = true;
+        app.selection = vec![f];
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 800.0));
+        let region = Rect::from_min_size(Pos2::new(660.0, 100.0), Vec2::new(239.0, 600.0));
+        let mut t = 0.0;
+        let mut frame = |app: &mut App, pointer: Option<Pos2>| {
+            t += 0.1;
+            let events = pointer.map(egui::Event::PointerMoved).into_iter().collect();
+            ctx.run_ui(egui::RawInput { screen_rect: Some(screen), time: Some(t), events, ..Default::default() }, |ui| show(app, ui, region)).shapes
+        };
+        frame(&mut app, None);
+        let rest = frame(&mut app, None);
+        let rect_of = |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("no rect {name}"));
+        for name in ["dev-inspect-link", "dev-inspect-code", "dev-inspect-more"] {
+            let r = rect_of(name);
+            let at_rest = colours_in(&rest, r);
+            assert!(at_rest.contains(&theme::ICON_QUATERNARY), "{name}: icon must rest on ICON_QUATERNARY, got {at_rest:?}");
+            assert!(!at_rest.contains(&egui::Color32::WHITE), "{name}: no white at rest");
+            frame(&mut app, Some(r.center()));
+            let hot = frame(&mut app, Some(r.center()));
+            let on_hover = colours_in(&hot, r);
+            assert!(on_hover.contains(&theme::ICON_QUATERNARY_HOVER), "{name}: hover must use ICON_QUATERNARY_HOVER, got {on_hover:?}");
+            assert!(!on_hover.contains(&egui::Color32::WHITE), "{name}: no white on hover");
+            frame(&mut app, Some(Pos2::new(5.0, 5.0)));
+        }
     }
 
     #[test]
