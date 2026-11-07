@@ -10674,13 +10674,15 @@
     "case": "f-type-details",
     "region": "overlay:Foreground/0",
     "h_base": 24,
+    "x_band": [
+      1060.0,
+      1350.0
+    ],
     "anchor_x": "left",
-    "anchor_y": "centre",
-    "min_dh": 8,
-    "max_dh": 8,
+    "anchor_y": "top",
     "dy": 4,
     "spec": "F",
-    "reason": "type details: the 24 px control of every label row is a 32 px field (centred growth, top kept) and the tab strip and chips are centred 4 px lower in their 32 px row; centre anchoring keeps the rows from stacking the growth"
+    "reason": "type details: every 24 px control of the popover (selects, checkboxes, chips, segmented tabs, bind icons) is centred in its 32 px row, 4 px lower than the top-aligned control it replaces; the band holds the popover only, not the inspector column behind it"
   },
   {
     "case": "f-prototype-tab",

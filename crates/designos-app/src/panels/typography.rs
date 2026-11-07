@@ -592,7 +592,7 @@ fn detail_row(ui: &mut Ui, body: Rect, y: f32, label: &str, dim: bool, control: 
     let font = theme::font_body();
     let color = if dim { theme::TEXT_TERTIARY } else { theme::TEXT_SECONDARY };
     widgets::text_on_baseline(ui.painter(), body.left() + DETAIL_LABEL_X, widgets::centered_baseline(line, &font), label, font, color);
-    control(ui, centred_in_row(line, Pos2::new(body.left() + DETAIL_CONTROL_X, line.top()), Vec2::new(DETAIL_CONTROL_W, theme::FIELD_HEIGHT)));
+    control(ui, centred_in_row(line, Pos2::new(body.left() + DETAIL_CONTROL_X, line.top()), Vec2::new(DETAIL_CONTROL_W, theme::RIGHT_TABS_H)));
 }
 
 /// `size` placed at `origin` (the row's top left of the control column) and centred vertically in the 32 px popover row `line`.

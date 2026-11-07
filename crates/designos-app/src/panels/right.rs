@@ -542,6 +542,17 @@ mod tests {
     }
 
     #[test]
+    fn help_button_interact_rect_is_exactly_32_by_32() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut app = header_app();
+        let root = run_header(3, Vec::new(), &ctx, &mut app);
+        let help = ctx.read_response(root.with("right-help-btn")).expect("the help button registered").rect;
+        assert_eq!((help.width(), help.height()), (theme::CONTROL_XS, theme::CONTROL_XS), "help is Button/Icon xs, 32 x 32, got {help:?}");
+        assert_eq!(help.right(), theme::RIGHT_PANEL_WIDTH - theme::INSET_CONTROL, "right edge 8 px from the panel edge");
+    }
+
+    #[test]
     fn present_chevron_interact_area_is_the_24_px_hit_box() {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
