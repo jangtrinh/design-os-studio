@@ -546,6 +546,12 @@ Enum FontVariantPosition
 Enum FontStyle
     NORMAL = 0
     ITALIC = 1
+Enum SemanticWeight
+    NORMAL = 0
+    BOLD = 1
+Enum SemanticItalic
+    NORMAL = 0
+    ITALIC = 1
 Enum SnapshotCaptureMode
     FULL = 0
     PARTIAL = 1
@@ -1373,6 +1379,9 @@ Message NodeChange
     styleIdForFill = 332 : StyleId
     styleIdForStrokeFill = 333 : StyleId
     styleIdForText = 334 : StyleId
+    isOverrideOverTextStyle = 376 : Bool
+    semanticWeight = 374 : SemanticWeight
+    semanticItalic = 375 : SemanticItalic
     styleIdForEffect = 335 : StyleId
     styleIdForGrid = 336 : StyleId
     isStateGroup = 225 : Bool
