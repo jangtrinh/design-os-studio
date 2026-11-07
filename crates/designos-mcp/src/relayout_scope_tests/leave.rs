@@ -106,6 +106,16 @@ fn a_batch_delete_inside_a_fixed_size_frame_moves_nothing_outside_it() {
 }
 
 #[test]
+fn a_batch_apply_spec_inside_a_fixed_size_frame_moves_nothing_outside_it() {
+    let Holder { mut e, holder, tail, .. } = fixed_holder();
+    let before = geometry(&e.doc);
+    e.call("designos_apply_batch", json!({"ops":[{"op":"apply_spec","parent":holder.0,"spec":{"kind":"rectangle","name":"new","width":20,"height":20}}]}))
+        .unwrap();
+    assert_eq!(moved_outside(&e, &before, holder), Vec::<u64>::new());
+    assert_eq!(ty(&e, tail), 200.0);
+}
+
+#[test]
 fn a_batch_move_out_of_a_fixed_size_frame_re_solves_the_frame_it_joins_and_not_the_one_it_left_above() {
     let Holder { mut e, screen, holder, b, tail, .. } = fixed_holder();
     let sink = add_frame(
