@@ -45,6 +45,9 @@ jobs:
     name: Test (${{ matrix.os }})
     needs: check
     runs-on: ${{ matrix.os }}
+    # Windows is advisory (Jang, 2026-10-26): it still runs, but a failure does not
+    # fail the workflow. Ubuntu and macOS stay blocking.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:

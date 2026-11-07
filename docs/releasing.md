@@ -55,7 +55,10 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
 
 ## Checklist
 
-1. Make sure `main` is green. macOS tests and Clippy must pass; we verify releases on macOS, and the Windows and Linux packages are not verified before release.
+1. Make sure `main` is green. macOS and Ubuntu tests and Clippy must pass; we verify releases on macOS, and the Windows and Linux packages are not verified before release.
+   - **Windows CI is advisory** (decision 2026-10-26). `Test (windows-latest)` still runs on every PR and push, but it uses `continue-on-error` and is not a required check, so a red Windows leg never blocks a merge or a tag. Ubuntu and macOS stay blocking.
+   - Record the Windows result in the release notes, for example: "Windows CI: passed" or "Windows CI: advisory, N tests failing (#issue)".
+   - Windows bugs reported by users are triaged as outside bug reports at P0.
 2. On a branch, bump `version` under `[workspace.package]` in the root `Cargo.toml` and run `cargo update -w` so `Cargo.lock` updates. Commit both (`release: X.Y.Z`) and open a PR. `main` is protected, so the release commit lands through a squash merge like any other change. The workflow's `version-check` job fails the release when the tag and this version differ.
 3. Once the release PR is merged, run the dry run (below) on `main` and smoke-test its `.dmg`. Then tag that same squash commit and push the tag. Release tags cannot be moved or deleted afterwards, so the tagged commit must be the one you tested:
 
