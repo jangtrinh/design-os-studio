@@ -60,6 +60,7 @@ fn applying_a_text_style_removes_owned_typography_bindings_in_the_same_undo_step
     let (mut app, id, _) = number_variable_doc(18.0, 32.0);
     add_body_style(&mut app, "Body", 60.0);
     app.doc.get_mut(id).unwrap().variables.bindings.insert("fills/0".into(), "unrelated-color".into());
+    app.doc.get_mut(id).unwrap().variables.bindings.insert("opacity".into(), "unrelated-opacity".into());
     let before = app.doc.get(id).unwrap().clone();
 
     app.apply_style(&[id], "Body");
@@ -67,6 +68,7 @@ fn applying_a_text_style_removes_owned_typography_bindings_in_the_same_undo_step
     let node = app.doc.get(id).unwrap();
     assert!(!node.variables.bindings.contains_key("fontSize"));
     assert_eq!(node.variables.bindings.get("fills/0"), Some(&"unrelated-color".to_string()));
+    assert_eq!(node.variables.bindings.get("opacity"), Some(&"unrelated-opacity".to_string()));
     assert_eq!(node.kind.any_text().unwrap().style.font_size, 60.0);
     assert_eq!(resolve_node(&app.doc, node).kind.any_text().unwrap().style.font_size, 60.0);
 
@@ -98,6 +100,7 @@ fn creating_a_text_style_uses_resolved_values_and_carries_shared_bindings() {
     assert_eq!(style.font_size, 32.0, "the style must represent the value drawn in the active mode");
     assert_eq!(app.doc.style_meta[&key].bindings.get("fontSize"), Some(&variable));
     assert_eq!(app.doc.get(id).unwrap().style_refs.get("text"), Some(&key));
+    assert_eq!(app.doc.get(id).unwrap().kind.any_text().unwrap().style.font_size, 32.0, "the layer and its new style agree on the stored size");
 }
 
 #[test]
