@@ -2354,7 +2354,15 @@ pub fn apply_spec_command_with<'m>(
     let parent_has_al = pnode.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
     let mut saved_parent_geom = Vec::new();
     if parent_has_al {
-        doc.walk(parent, |n, _| saved_parent_geom.push((n.id, n.transform, n.size)));
+        let mut save_root = parent;
+        while let Some(anc) = doc.get(save_root).and_then(|n| n.parent) {
+            if doc.get(anc).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() {
+                save_root = anc;
+            } else {
+                break;
+            }
+        }
+        doc.walk(save_root, |n, _| saved_parent_geom.push((n.id, n.transform, n.size)));
     }
 
     let rollback = |doc: &mut Document, ctx: &mut SpecBuildCtx<'_>, data_before: crate::spec_data::SpecDataSnapshot| {
@@ -2398,8 +2406,10 @@ pub fn apply_spec_command_with<'m>(
         }
     };
 
-    let relayout_root = if parent_has_al { parent } else { root_id };
-    doc.relayout_subtree(relayout_root);
+    doc.relayout_subtree(root_id);
+    if parent_has_al {
+        doc.relayout_seeds_upward(&[parent]);
+    }
     doc.flush_pending_relayout();
 
     let mut nodes = Vec::new();
