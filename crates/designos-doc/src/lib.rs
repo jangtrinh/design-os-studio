@@ -81,6 +81,7 @@ pub mod table;
 mod text_fills;
 pub mod text_measure;
 pub mod text_style_ops;
+mod text_style_overrides;
 mod textmodel;
 mod variables;
 mod variables_apply;
@@ -129,6 +130,7 @@ pub use table::{
 };
 pub use text_fills::set_text_fills_everywhere;
 pub use text_style_ops::*;
+pub use text_style_overrides::*;
 pub use textmodel::*;
 pub use variables::*;
 pub use variables_apply::*;

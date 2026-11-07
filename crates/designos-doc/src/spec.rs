@@ -1518,9 +1518,10 @@ impl Document {
         Ok(id)
     }
 
-    /// Applies the explicit `font_size`, `line_height` and `font_weight` of `spec` to the text node
-    /// `id` after its text style, so they override the style. Binding `font_size` to a variable
-    /// together with `text_style` detaches the style link (`STYLE_DETACHED_BY_SPEC`).
+    /// Applies the explicit `font_size`, `line_height`, `font_weight` and `font_family` of `spec` to the
+    /// text node `id` after its text style, so they override the style. The text style rule decides what
+    /// that does to the link: a weight keeps it and is recorded as an override; a size, line height or
+    /// family (literal or bound to a variable) detaches it (`STYLE_DETACHED_BY_SPEC`).
     #[allow(clippy::too_many_arguments)]
     fn apply_text_overrides(
         &mut self,
@@ -1532,6 +1533,8 @@ impl Document {
         libraries: &[LibrarySnapshot],
         report: &mut SpecApplyReport,
     ) -> Result<(), SpecBindError> {
+        let before = self.get(id).and_then(|n| n.kind.any_text()).cloned();
+        let mut detach_path = None;
         if let Some(fs) = &spec.font_size {
             if let Some(v) = self.bind_or_eval_number(id, node_kind, fs, &["fontSize"], "font_size", format!("{path}.font_size"), index, libraries, report)? {
                 if let Some(n) = self.get_mut(id) {
@@ -1539,18 +1542,8 @@ impl Document {
                         tp.style.font_size = v.max(1.0);
                     }
                 }
-            } else if spec.text_style.is_some() {
-                if let Some(n) = self.get_mut(id) {
-                    if n.style_refs.remove("text").is_some() {
-                        report.warnings.push(SpecWarning {
-                            code: "STYLE_DETACHED_BY_SPEC".to_string(),
-                            path: format!("{path}.font_size"),
-                            token: spec.text_style.clone(),
-                            replacement: None,
-                            message: Some("A variable-bound font_size overrides and detaches text_style.".to_string()),
-                        });
-                    }
-                }
+            } else {
+                detach_path = Some("font_size");
             }
         }
         if let Some(lh) = &spec.line_height {
@@ -1562,6 +1555,8 @@ impl Document {
                         tp.style.line_height = LineHeight::Pixels(v.max(0.0));
                     }
                 }
+            } else {
+                detach_path = detach_path.or(Some("line_height"));
             }
         }
         if let Some(fw) = spec.font_weight {
@@ -1578,6 +1573,25 @@ impl Document {
                         tp.style.font_family = ff.trim().to_string();
                     }
                 }
+            }
+        }
+        if let (Some(before), Some(n)) = (before, self.get_mut(id)) {
+            let linked = n.style_refs.get("text").cloned();
+            let mut outcome = apply_text_link_rule(n, &before);
+            if outcome == LinkOutcome::Kept && detach_path.is_some() {
+                // A variable-bound size or line height is not in the values, so the rule cannot see it.
+                n.style_refs.remove("text");
+                n.text_style_overrides = OwnedFieldSet::EMPTY;
+                outcome = LinkOutcome::Detached;
+            }
+            if outcome == LinkOutcome::Detached {
+                report.warnings.push(SpecWarning {
+                    code: "STYLE_DETACHED_BY_SPEC".to_string(),
+                    path: format!("{path}.{}", detach_path.unwrap_or("font_size")),
+                    token: linked.or_else(|| spec.text_style.clone()),
+                    replacement: None,
+                    message: Some("A size, line height or family set on the layer overrides and detaches text_style.".to_string()),
+                });
             }
         }
         Ok(())

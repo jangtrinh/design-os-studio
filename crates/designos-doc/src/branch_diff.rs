@@ -647,6 +647,7 @@ fn hash_node_props(node: &Node) -> u64 {
     if !node.style_refs.is_empty() {
         4u8.hash(&mut h);
         let _ = node.style_refs.serialize(HashSerializer(&mut h));
+        node.text_style_overrides.hash(&mut h);
     }
     if node.fill_geometry.is_some() || node.stroke_geometry.is_some() {
         5u8.hash(&mut h);
@@ -868,7 +869,7 @@ pub fn node_group_eq(a: &Node, b: &Node, group: Group) -> bool {
         Group::Constraints => a.constraints == b.constraints,
         Group::LayoutChild => a.layout_child == b.layout_child,
         Group::Mask => a.is_mask == b.is_mask && a.mask_type == b.mask_type,
-        Group::StyleRefs => a.style_refs == b.style_refs,
+        Group::StyleRefs => a.style_refs == b.style_refs && a.text_style_overrides == b.text_style_overrides,
         Group::Variables => a.variables == b.variables,
         Group::Component => eq_component_group(a, b),
         Group::Prototype => a.prototype == b.prototype,

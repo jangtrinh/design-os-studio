@@ -1783,7 +1783,13 @@ fn apply_set_style_op(
                 continue;
             }
             let mut updated = base.clone();
-            apply_style_values_with_fields(&mut updated, style, key, style_meta.get(key).and_then(|m| m.text_paragraph_fields));
+            designos_doc::propagate_style_values_with_fields(
+                &mut updated,
+                doc.styles.get(key),
+                style,
+                key,
+                style_meta.get(key).and_then(|m| m.text_paragraph_fields),
+            );
             resize_hug_text(doc, &mut updated);
             match pending {
                 Some(i) => cmds[i] = Command::Update { node: Box::new(updated) },

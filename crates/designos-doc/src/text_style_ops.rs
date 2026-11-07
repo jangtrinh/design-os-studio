@@ -37,9 +37,6 @@ pub fn shared_text_style(doc: &Document, nodes: &[NodeId]) -> Option<TextStyle> 
     shared_text_style_data(doc, nodes).map(|(style, _)| style)
 }
 
-const TEXT_STYLE_BINDING_KEYS: [&str; 8] =
-    ["fontFamily", "fontStyle", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent"];
-
 fn typography_bindings(doc: &Document, node: &Node) -> BTreeMap<String, String> {
     TEXT_STYLE_BINDING_KEYS.iter().filter_map(|key| doc.effective_binding(node.id, key).map(|value| ((*key).to_string(), value.to_string()))).collect()
 }
@@ -80,7 +77,7 @@ fn next_free_name(doc: &Document) -> String {
 
 /// Creates the text style `Text style N` from the text layers among `nodes` (their shared base
 /// style: family, size, weight, line height, letter spacing and the rest), links every one of them
-/// to it and returns the new key with the command. The layers keep their values. Refused when no
+/// to it and returns the new key with the command. The layers take the style's values (what they draw, so a bound property is stored as the value it resolves to). Refused when no
 /// node is a text layer, or when their type is not one style (see [`shared_text_style`]).
 pub fn create_text_style_from_nodes(doc: &Document, nodes: &[NodeId]) -> Result<(String, Command), StyleOpError> {
     let layers = text_layers(doc, nodes)?;
@@ -118,6 +115,26 @@ pub fn create_text_style_from_nodes(doc: &Document, nodes: &[NodeId]) -> Result<
     Ok((name, Command::Batch(cmds)))
 }
 
+/// "Reapply text style": every text layer among `nodes` that overrides its linked text style gets the
+/// style's values back, loses the variable bindings the style owns and has no overrides left. The link
+/// stays. Layers with no overrides are left alone, so the command is empty when nothing is overridden.
+/// The caller re-fits the layers' boxes.
+pub fn reapply_text_style(doc: &Document, nodes: &[NodeId]) -> Result<Command, StyleOpError> {
+    let mut cmds = Vec::new();
+    for id in nodes.iter().collect::<std::collections::BTreeSet<_>>() {
+        let n = doc.get(*id).ok_or(DocError::NotFound(*id))?;
+        let (Some(key), false) = (n.style_refs.get(TEXT_REF), text_style_overrides(doc, n).is_empty()) else { continue };
+        let Some(style @ Style::Text(_)) = doc.styles.get(key) else { continue };
+        let mut copy = n.clone();
+        detach_text_style_bindings(&mut copy);
+        // A hyperlink is never the style's own value, so clearing the overrides clears it too.
+        copy.hyperlink = None;
+        apply_style_values_with_fields(&mut copy, style, key, doc.style_meta.get(key).and_then(|m| m.text_paragraph_fields));
+        cmds.push(Command::Update { node: Box::new(copy) });
+    }
+    Ok(Command::Batch(cmds))
+}
+
 /// Drops the text style link of every node of `nodes` that has one. The nodes keep their values and
 /// the style itself stays in the document.
 pub fn detach_text_style(doc: &Document, nodes: &[NodeId]) -> Result<Command, StyleOpError> {
@@ -127,6 +144,7 @@ pub fn detach_text_style(doc: &Document, nodes: &[NodeId]) -> Result<Command, St
         if n.style_refs.contains_key(TEXT_REF) {
             let mut unlinked = n.clone();
             unlinked.style_refs.remove(TEXT_REF);
+            unlinked.text_style_overrides = OwnedFieldSet::default();
             cmds.push(Command::Update { node: Box::new(unlinked) });
         }
     }
@@ -356,5 +374,165 @@ mod tests {
         }
         assert!(matches!(create_text_style_from_nodes(&d, &[t]), Err(StyleOpError::NothingToStyle(_))));
         assert!(shared_text_style(&d, &[t]).is_none());
+    }
+
+    /// A text layer `t` (16 px) and a second `u` (16 px), both linked to the style "Body" (16 px).
+    fn linked_pair() -> (Document, NodeId, NodeId) {
+        let (mut d, t, _) = fixture();
+        let u = add_text_like(&mut d, t, "World");
+        for id in [t, u] {
+            if let NodeKind::Text(tp) = &mut d.get_mut(id).unwrap().kind {
+                tp.style.font_size = 16.0;
+            }
+            d.get_mut(id).unwrap().style_refs.insert("text".into(), "Body".into());
+        }
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..Default::default() }));
+        d.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+        (d, t, u)
+    }
+
+    fn set_weight_override(d: &mut Document, id: NodeId, weight: u16) {
+        let n = d.get_mut(id).unwrap();
+        if let NodeKind::Text(tp) = &mut n.kind {
+            tp.style.set_font_weight(weight);
+        }
+        n.text_style_overrides.insert(OwnedField::Weight);
+    }
+
+    fn size_of(d: &Document, id: NodeId) -> f32 {
+        d.get(id).unwrap().kind.any_text().unwrap().style.font_size
+    }
+
+    fn weight_of(d: &Document, id: NodeId) -> u16 {
+        d.get(id).unwrap().kind.any_text().unwrap().style.font_weight
+    }
+
+    #[test]
+    fn editing_the_style_keeps_the_weight_a_layer_overrides_and_updates_its_size() {
+        let (mut d, t, u) = linked_pair();
+        set_weight_override(&mut d, u, 700);
+        let cmd = update_style(&d, "Body", Style::Text(TextStyle { font_size: 18.0, font_weight: 500, ..Default::default() })).unwrap();
+        apply(&mut d, cmd);
+        assert_eq!((size_of(&d, t), weight_of(&d, t)), (18.0, 500), "the plain layer follows the style");
+        assert_eq!((size_of(&d, u), weight_of(&d, u)), (18.0, 700), "the layer keeps its weight and takes the new size");
+        assert_eq!(d.get(u).unwrap().text_style_overrides.labels(), vec!["Weight"]);
+        assert_eq!(d.get(u).unwrap().style_refs.get("text").map(String::as_str), Some("Body"));
+    }
+
+    #[test]
+    fn editing_the_style_keeps_a_bold_range_and_moves_the_rest_with_the_style() {
+        let (mut d, t, _) = linked_pair();
+        if let NodeKind::Text(tp) = &mut d.get_mut(t).unwrap().kind {
+            // "Hel" bold, and "lo" in a colour-only range: only the bold range overrides the weight.
+            tp.runs.push(TextRun { start: 0, end: 3, style: TextStyle { font_weight: 700, ..tp.style.clone() } });
+            tp.runs.push(TextRun { start: 3, end: 5, style: TextStyle { fills: vec![Paint::solid(Color::rgb(255, 0, 0))], ..tp.style.clone() } });
+        }
+        let cmd = update_style(&d, "Body", Style::Text(TextStyle { font_size: 18.0, font_weight: 500, ..Default::default() })).unwrap();
+        apply(&mut d, cmd);
+        let tp = d.get(t).unwrap().kind.any_text().unwrap();
+        assert_eq!((tp.style.font_size, tp.style.font_weight), (18.0, 500));
+        assert_eq!((tp.runs[0].style.font_weight, tp.runs[0].style.font_size), (700, 18.0), "the bold range keeps its weight");
+        assert_eq!((tp.runs[1].style.font_weight, tp.runs[1].style.font_size), (500, 18.0), "a colour-only range follows the style");
+        assert!(d.get(t).unwrap().text_style_overrides.is_empty(), "a range override needs no stored bit");
+        assert_eq!(text_style_overrides(&d, d.get(t).unwrap()).labels(), vec!["Weight"]);
+    }
+
+    #[test]
+    fn a_bold_turned_off_again_follows_a_later_style_edit() {
+        let (mut d, t, _) = linked_pair();
+        // Bold on, then off: the stored bit stays but the layer shows the style's own weight.
+        set_weight_override(&mut d, t, 700);
+        set_weight_override(&mut d, t, 400);
+        assert!(text_style_overrides(&d, d.get(t).unwrap()).is_empty(), "nothing is overridden any more");
+        let cmd = update_style(&d, "Body", Style::Text(TextStyle { font_size: 16.0, font_weight: 500, ..Default::default() })).unwrap();
+        apply(&mut d, cmd);
+        assert_eq!(weight_of(&d, t), 500, "the edit reaches a layer that follows its style");
+        assert!(d.get(t).unwrap().text_style_overrides.is_empty());
+    }
+
+    #[test]
+    fn reapplying_restores_the_style_values_clears_bindings_hyperlink_and_overrides_and_keeps_the_link() {
+        let (mut d, t, u) = linked_pair();
+        set_weight_override(&mut d, t, 700);
+        d.get_mut(t).unwrap().hyperlink = Some("https://example.com".into());
+        d.get_mut(t).unwrap().variables.bindings.insert("fontWeight".into(), "weight".into());
+        d.get_mut(t).unwrap().variables.bindings.insert("fills/0".into(), "colour".into());
+        let before = d.get(t).unwrap().clone();
+        let mut hist = History::default();
+        let cmd = reapply_text_style(&d, &[t, u]).unwrap();
+        hist.exec(&mut d, cmd).unwrap();
+        let n = d.get(t).unwrap();
+        assert_eq!(weight_of(&d, t), 400);
+        assert!(n.text_style_overrides.is_empty() && n.hyperlink.is_none());
+        assert!(!n.variables.bindings.contains_key("fontWeight"));
+        assert_eq!(n.variables.bindings.get("fills/0").map(String::as_str), Some("colour"), "bindings the style does not own stay");
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
+        assert!(hist.undo(&mut d).unwrap());
+        assert_eq!(d.get(t).unwrap(), &before, "one undo restores the overrides");
+        assert!(!hist.undo(&mut d).unwrap(), "and it was a single step");
+    }
+
+    #[test]
+    fn reapplying_clears_a_bold_range_too() {
+        let (mut d, t, _) = linked_pair();
+        if let NodeKind::Text(tp) = &mut d.get_mut(t).unwrap().kind {
+            tp.runs.push(TextRun { start: 0, end: 3, style: TextStyle { font_weight: 700, ..tp.style.clone() } });
+        }
+        let cmd = reapply_text_style(&d, &[t]).unwrap();
+        apply(&mut d, cmd);
+        assert!(text_style_overrides(&d, d.get(t).unwrap()).is_empty());
+        assert_eq!(d.get(t).unwrap().kind.any_text().unwrap().runs[0].style.font_weight, 400);
+    }
+
+    #[test]
+    fn reapplying_with_nothing_overridden_is_an_empty_command() {
+        let (d, t, u) = linked_pair();
+        assert!(matches!(reapply_text_style(&d, &[t, u]).unwrap(), Command::Batch(v) if v.is_empty()));
+    }
+
+    #[test]
+    fn detaching_clears_the_overrides_and_keeps_the_values() {
+        let (mut d, t, _) = linked_pair();
+        set_weight_override(&mut d, t, 700);
+        let cmd = detach_text_style(&d, &[t]).unwrap();
+        apply(&mut d, cmd);
+        let n = d.get(t).unwrap();
+        assert!(n.style_refs.is_empty() && n.text_style_overrides.is_empty());
+        assert_eq!(weight_of(&d, t), 700);
+    }
+
+    #[test]
+    fn applying_a_style_clears_the_overrides_it_replaces() {
+        let (mut d, t, _) = linked_pair();
+        set_weight_override(&mut d, t, 700);
+        let mut copy = d.get(t).unwrap().clone();
+        apply_style_values_with_fields(&mut copy, &d.styles["Body"].clone(), "Body", None);
+        assert!(copy.text_style_overrides.is_empty());
+        assert_eq!(copy.kind.any_text().unwrap().style.font_weight, 400);
+    }
+
+    #[test]
+    fn binding_a_style_variable_in_a_non_default_mode_makes_no_override() {
+        let (mut d, t) = bound_fixture();
+        // Link the layer (stored 18, drawn under its own binding) to a style, then bind the style.
+        d.get_mut(t).unwrap().variables.bindings.remove("fontSize");
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 18.0, ..Default::default() }));
+        d.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+        d.get_mut(t).unwrap().style_refs.insert("text".into(), "Body".into());
+        let cmd = bind_style_property(&d, "Body", "fontSize", "size").unwrap();
+        apply(&mut d, cmd);
+        let n = d.get(t).unwrap();
+        assert_eq!(stored_and_drawn_size(&d, t), (32.0, 32.0), "the layer sits in Dark and draws the dark value");
+        assert!(n.text_style_overrides.is_empty() && text_style_overrides(&d, n).is_empty(), "binding the style is not an override");
+    }
+
+    #[test]
+    fn the_overrides_serialize_only_when_present() {
+        let (mut d, t, _) = linked_pair();
+        let plain = serde_json::to_value(d.get(t).unwrap()).unwrap();
+        assert!(plain.get("text_style_overrides").is_none());
+        set_weight_override(&mut d, t, 700);
+        let node: Node = serde_json::from_value(serde_json::to_value(d.get(t).unwrap()).unwrap()).unwrap();
+        assert_eq!(node.text_style_overrides.labels(), vec!["Weight"]);
     }
 }

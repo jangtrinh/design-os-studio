@@ -111,6 +111,10 @@ pub struct Node {
     /// Style id per property ("fill", "stroke", "text", "effect", "grid").
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub style_refs: BTreeMap<String, String>,
+    /// Properties of the linked text style this text layer overrides (empty without a link). An edit of
+    /// the style leaves these alone; "Reapply text style" clears them.
+    #[serde(default, skip_serializing_if = "OwnedFieldSet::is_empty")]
+    pub text_style_overrides: OwnedFieldSet,
     /// Precomputed fill outline in local space (Figma `fillGeometry`). When
     /// present, renderers may use it instead of deriving geometry, e.g. for
     /// boolean operations whose result was computed by Figma.
@@ -395,6 +399,7 @@ impl Node {
             is_mask: false,
             mask_type: MaskType::default(),
             style_refs: BTreeMap::new(),
+            text_style_overrides: OwnedFieldSet::default(),
             fill_geometry: None,
             stroke_geometry: None,
             component: ComponentLink::default(),

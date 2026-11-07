@@ -200,7 +200,7 @@ pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, 
     for id in linked_style_nodes(doc, key) {
         if let Some(n) = doc.get(id) {
             let mut copy = n.clone();
-            if crate::library_ops::apply_style_values_with_fields(&mut copy, &style, key, paragraph_fields) {
+            if crate::library_ops::propagate_style_values_with_fields(&mut copy, doc.styles.get(key), &style, key, paragraph_fields) {
                 cmds.push(Command::Update { node: Box::new(copy) });
             }
         }
@@ -251,11 +251,14 @@ pub fn bind_style_property(doc: &Document, key: &str, property: &str, variable: 
                     }
                 }
             }
+            // A text layer that overrides this property keeps its own value.
+            let overridden = n.style_refs.get("text").is_some_and(|k| k == key)
+                && OwnedField::from_binding_key(property).is_some_and(|f| n.text_style_overrides.contains(f));
             if n.style_refs.get("fill").is_some_and(|k| k == key)
                 || n.style_refs.get("text").is_some_and(|k| k == key)
                 || n.style_refs.get("effect").is_some_and(|k| k == key)
             {
-                if !copy.variables.bindings.contains_key(property) {
+                if !copy.variables.bindings.contains_key(property) && !overridden {
                     set_bound_property(&mut copy, property, &val);
                 }
             }

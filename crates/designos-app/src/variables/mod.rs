@@ -314,6 +314,8 @@ impl App {
             if let Some(n) = tx.ed.node(&mut self.doc, *id) {
                 n.variables.bindings.insert(key.clone(), var.to_string());
                 set_bound_property(n, key, val);
+                // A weight or font style variable on a layer with a text style is an override of it.
+                designos_doc::record_typography_bind(n, key);
             }
             layout::relayout_around(&mut self.doc, &mut tx.ed, *id);
         }
