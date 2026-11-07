@@ -63,9 +63,15 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     // Share button at far right (aligned on the same y = RIGHT_BTN_Y and 24px height as Present).
     let share_r = Rect::from_min_size(Pos2::new(right - theme::RIGHT_PRESENT_FROM_RIGHT, rect.top() + theme::RIGHT_BTN_Y), Vec2::new(48.0, top_btn_h));
     let share_resp = ui.interact(share_r, ui.id().with("share-btn"), Sense::click());
-    let share_col = if app.ui.dev_mode { egui::Color32::from_rgb(0x1B, 0xC4, 0x7D) } else { egui::Color32::from_rgb(0x0D, 0x99, 0xFF) };
-    p.rect_filled(share_r, egui::CornerRadius::same(6), if share_resp.hovered() { share_col.gamma_multiply(1.1) } else { share_col });
-    p.text(share_r.center(), Align2::CENTER_CENTER, "Share", theme::font_body_strong(), egui::Color32::WHITE);
+    let share_fill = if share_resp.is_pointer_button_down_on() {
+        theme::BG_BRAND_PRESSED
+    } else if share_resp.hovered() {
+        theme::BG_BRAND_HOVER
+    } else {
+        theme::BG_BRAND
+    };
+    p.rect_filled(share_r, theme::cr(theme::RADIUS_CONTROL), share_fill);
+    p.text(share_r.center(), Align2::CENTER_CENTER, "Share", theme::font_body_strong(), theme::TEXT_ON_BRAND);
     crate::widgets::record(ui, "share-button", share_r);
     crate::widgets::record(ui, "right-top-share", share_r);
     if share_resp.clicked() {
@@ -459,6 +465,17 @@ mod tests {
         let mut out = None;
         shapes.iter().for_each(|s| walk(&s.shape, text, within, &mut out));
         out
+    }
+
+    #[test]
+    fn share_is_the_brand_primary_with_a_dark_label() {
+        for dev_mode in [false, true] {
+            let (shapes, rects) = paint_header(dev_mode, &["right-top-share"]);
+            let share = rects[0];
+            let fills = fills_on(&shapes, share);
+            assert!(fills.contains(&theme::BG_BRAND), "dev_mode={dev_mode}: Share fill must be BG_BRAND, got {fills:?}");
+            assert_eq!(text_colour(&shapes, "Share", share), Some(theme::TEXT_ON_BRAND), "dev_mode={dev_mode}: Share label must be TEXT_ON_BRAND");
+        }
     }
 
     #[test]
