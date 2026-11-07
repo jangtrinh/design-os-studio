@@ -167,10 +167,7 @@ fn an_unbolded_word_inside_a_bold_layer_stays_regular_through_a_round_trip() {
 
 #[test]
 fn an_italic_layer_with_an_underlined_word_keeps_both_through_a_round_trip() {
-    assert_mixed_round_trip(
-        mixed_doc(|s| s.italic = true, &[OwnedField::Italic], |s| s.decoration = TextDecoration::Underline),
-        vec!["Italic", "Decoration"],
-    );
+    assert_mixed_round_trip(mixed_doc(|s| s.italic = true, &[OwnedField::Italic], |s| s.decoration = TextDecoration::Underline), vec!["Italic", "Decoration"]);
 }
 
 #[test]
