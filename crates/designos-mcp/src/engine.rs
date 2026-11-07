@@ -532,16 +532,7 @@ impl Engine {
             "designos_get_node" => {
                 let a: NodeArgs = parse(args)?;
                 let n = self.node(a.node_id)?;
-                let mut node_val = serde_json::to_value(n).map_err(|e| e.to_string())?;
-                // The stored bit set is not meant for readers: report the overridden properties by name,
-                // including the ones a character range carries.
-                if let Some(obj) = node_val.as_object_mut() {
-                    let names = designos_doc::text_style_overrides(&self.doc, n).labels();
-                    obj.remove("text_style_overrides");
-                    if !names.is_empty() {
-                        obj.insert("text_style_overrides".into(), json!(names));
-                    }
-                }
+                let mut node_val = self.node_reply_json(n.id);
                 let ip = self.doc.get_in_progress(n.id).cloned();
                 if let (Some(obj), Some(ip_ref)) = (node_val.as_object_mut(), &ip) {
                     obj.insert("in_progress".into(), serde_json::to_value(ip_ref).map_err(|e| e.to_string())?);
@@ -833,7 +824,7 @@ impl Engine {
                 let mut resp = json!({
                     "root_node_id": root_id,
                     "parent_id": parent.0,
-                    "node": self.doc.get(root_id),
+                    "node": self.node_reply_json(root_id),
                     "changed": true,
                     "name_to_id": report.name_to_id,
                     "instances": report.instances,
@@ -1254,7 +1245,7 @@ impl Engine {
                     "root_name": report.root_name,
                     "summary_toast": report.summary_toast(),
                     "report": report,
-                    "node": self.doc.get(report.root_node_id),
+                    "node": self.node_reply_json(report.root_node_id),
                     "changed": true
                 }))
             }
@@ -1404,6 +1395,22 @@ impl Engine {
         self.doc.flush_pending_relayout();
     }
 
+    /// The node as a reply carries it (`null` when it is gone).
+    fn node_reply_json(&self, id: NodeId) -> Value {
+        let Some(n) = self.doc.get(id) else { return Value::Null };
+        let mut v = serde_json::to_value(n).unwrap_or(Value::Null);
+        // The stored bit set is not meant for readers: report the overridden properties by name,
+        // including the ones a character range carries.
+        if let Some(obj) = v.as_object_mut() {
+            let names = designos_doc::text_style_overrides(&self.doc, n).labels();
+            obj.remove("text_style_overrides");
+            if !names.is_empty() {
+                obj.insert("text_style_overrides".into(), json!(names));
+            }
+        }
+        v
+    }
+
     pub(crate) fn node(&self, id: u64) -> Result<&Node, ToolError> {
         self.node_at(id, "/node_id")
     }
@@ -1539,7 +1546,7 @@ impl Engine {
         crate::tools::fill_write::write_fill(&mut self.doc, &mut node, parent_id, FillTarget::NewLayer, a.fill.as_deref(), a.fills, &mut warnings)?;
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
         self.relayout(id);
-        let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
+        let mut out = json!({"node":self.node_reply_json(id),"parent_id":parent_id.0,"changed":true});
         if !measured_with_fallback.is_empty() {
             out["measured_with_fallback"] = json!(measured_with_fallback);
         }
@@ -1580,7 +1587,7 @@ impl Engine {
                 self.relayout(id);
             }
         }
-        let mut out = json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed});
+        let mut out = json!({"node":self.node_reply_json(NodeId(a.node_id)),"changed":changed});
         attach_warnings(&mut out, &warnings);
         crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
@@ -3144,6 +3151,31 @@ mod tests {
         assert!(big["node"]["style_refs"].get("text").is_none(), "a size detaches the style");
         assert!(big["warnings"].as_array().unwrap().iter().any(|w| w["code"] == "STYLE_DETACHED_BY_SPEC"));
         assert!(big["node"].get("text_style_overrides").is_none());
+    }
+
+    #[test]
+    fn every_reply_that_carries_a_node_names_its_text_style_overrides() {
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+        e.doc.styles.insert("Body".into(), designos_doc::Style::Text(designos_doc::TextStyle { font_size: 16.0, ..Default::default() }));
+        e.doc
+            .style_meta
+            .insert("Body".into(), designos_doc::StyleMeta { name: "Body".into(), property: designos_doc::StyleProperty::Text, ..Default::default() });
+        let applied = e
+            .call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "text", "text": "Hi", "text_style": "Body", "font_weight": 700}}))
+            .unwrap();
+        let id = applied["root_node_id"].as_u64().unwrap();
+        let names = json!(["Weight"]);
+        assert_eq!(applied["node"]["text_style_overrides"], names, "apply_spec");
+        let got = e.call("designos_get_node", json!({"node_id": id})).unwrap();
+        assert_eq!(got["node"]["text_style_overrides"], names, "get_node");
+        let updated = e.call("designos_update_node", json!({"node_id": id, "name": "Renamed"})).unwrap();
+        assert_eq!(updated["node"]["text_style_overrides"], names, "update_node");
+        // A layer without overrides has no field in any reply, never a number.
+        let plain = e.call("designos_create_node", json!({"parent_id": page.0, "kind": "text", "name": "Plain"})).unwrap();
+        assert!(plain["node"].get("text_style_overrides").is_none(), "create_node");
+        let unstyled = e.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "text", "text": "Hi"}})).unwrap();
+        assert!(unstyled["node"].get("text_style_overrides").is_none(), "apply_spec without a style");
     }
 
     #[test]
