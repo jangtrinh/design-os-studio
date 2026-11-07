@@ -10029,10 +10029,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "d-editor-default",
@@ -10041,10 +10041,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "j-palette",
@@ -10053,10 +10053,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "i-agents",
@@ -10065,10 +10065,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "f-picker",
@@ -10077,10 +10077,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "d-editor-selected",
@@ -10089,10 +10089,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "i-agents-chat",
@@ -10101,10 +10101,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "k-variables-floating",
@@ -10113,10 +10113,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "e-no-selection",
@@ -10125,10 +10125,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "j-cmdk",
@@ -10137,10 +10137,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "f-picker-gradient",
@@ -10149,10 +10149,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "j-find",
@@ -10161,10 +10161,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "d-menu-main",
@@ -10173,10 +10173,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "i-agents-picker",
@@ -10185,10 +10185,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "f-effects-menu",
@@ -10197,10 +10197,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "d-menu-main-file",
@@ -10209,10 +10209,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "f-stroke-settings",
@@ -10221,10 +10221,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "i-agents-start-failure",
@@ -10233,10 +10233,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "d-menu-shape",
@@ -10245,10 +10245,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "i-agents-approval-command",
@@ -10257,10 +10257,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "d-menu-zoom",
@@ -10269,10 +10269,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "g-spec-reader",
@@ -10281,10 +10281,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-components-variables",
@@ -10293,10 +10293,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "f-edit-style-color",
@@ -10305,10 +10305,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "i-terminal",
@@ -10317,10 +10317,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "edit-style-effect",
@@ -10329,10 +10329,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-scale-tool",
@@ -10341,10 +10341,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "agents-skills",
@@ -10353,10 +10353,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "edit-style-grid",
@@ -10365,10 +10365,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-vector-edit",
@@ -10377,10 +10377,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-vector-edit",
@@ -10389,10 +10389,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "agents-approval-queued",
@@ -10401,10 +10401,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "j-check-designs",
@@ -10413,10 +10413,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "kit-editor",
@@ -10425,10 +10425,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "effect-noise",
@@ -10437,10 +10437,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "agents-approval-open-tab",
@@ -10449,10 +10449,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "check-designs-fixed",
@@ -10461,10 +10461,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "effect-texture",
@@ -10473,10 +10473,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "kit-agents",
@@ -10485,10 +10485,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "effect-glass",
@@ -10497,10 +10497,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "ai-image-menu",
@@ -10509,10 +10509,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "picker-page",
@@ -10521,10 +10521,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "ai-image-expand",
@@ -10533,10 +10533,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "fill-d9",
@@ -10545,10 +10545,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "ai-image-erase",
@@ -10557,10 +10557,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "web-capture-report",
@@ -10569,10 +10569,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-autolayout",
@@ -10581,10 +10581,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-layer-picker",
@@ -10593,10 +10593,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-css-grid",
@@ -10605,10 +10605,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-inspector-math",
@@ -10617,10 +10617,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-selection-corner",
@@ -10629,10 +10629,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-shape-controls",
@@ -10641,10 +10641,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-smart-selection",
@@ -10653,10 +10653,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "micro-typography-multiedit",
@@ -10665,10 +10665,10 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dh": 2,
-    "max_dh": 4,
+    "max_dh": 2,
     "dy": -8,
     "spec": "F",
-    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32; its own height holds, and the header growth above is not passed on (dy -8)"
+    "reason": "footer: this widget shares a row with the help button, which grows with it from 28 to 32 and lifts this row's union height by exactly 2 (the row check intersects the bounds of every covered widget, and the region-wide entry alone leaves 0); its own height holds, so the bound is the row's 2 px and no more, and the header growth above is not passed on (dy -8)"
   },
   {
     "case": "f-type-details",
