@@ -23,6 +23,12 @@ struct PickerStopBindState {
     has_vars: bool,
     open_key: Option<String>,
     bound_stops: std::collections::BTreeMap<String, (String, Option<egui::Color32>)>,
+    cached_paint: Option<Paint>,
+    cached_ids: Vec<NodeId>,
+    cached_target: Option<super::properties::PickTarget>,
+    cached_runtime_id: u64,
+    cached_epoch: u64,
+    cached_library_stamp: u64,
 }
 
 #[derive(Clone, Default)]
@@ -197,10 +203,6 @@ fn lib_meta_stamp(app: &App) -> u64 {
         e.id.hash(&mut h);
         e.version.hash(&mut h);
     }
-    for u in app.libs.pending_all() {
-        u.library_id.hash(&mut h);
-        u.version.hash(&mut h);
-    }
     h.finish()
 }
 
@@ -339,6 +341,10 @@ fn narrow_for_bind(rect: Rect, reserve: bool) -> Rect {
     }
 }
 
+fn tracks_gradient_stops(kind: &PaintKind) -> bool {
+    crate::widgets::picker::mode_of(kind).is_gradient()
+}
+
 /// Returns the sub-rect available for a node field's value widget when `keys[0]` is not bound,
 /// reserving the right-hand `TARGET_MIN + BORDER_WIDTH` strip whenever a matching variable exists.
 pub fn value_rect(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) -> Rect {
@@ -358,7 +364,52 @@ pub fn style_value_rect(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
 
 pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
     sync_picker_paint_from_doc(app);
-    let mut state = PickerStopBindState::default();
+    // Stop bindings only exist for gradient paints. Solid and image pickers
+    // used to walk every selected node's bindings on every frame even though
+    // they can never render a stop field. Clear the cached state when the
+    // picker changes mode so a previous gradient cannot leak into the next
+    // picker, then avoid the per-frame allocations entirely.
+    let Some(pk) = app.props.picker.as_ref() else {
+        ctx.data_mut(|d| d.insert_temp(picker_state_id(), PickerStopBindState::default()));
+        return;
+    };
+    if !matches!(pk.target, super::properties::PickTarget::Fill(_) | super::properties::PickTarget::Stroke(_)) || !tracks_gradient_stops(&pk.paint.kind) {
+        ctx.data_mut(|d| d.insert_temp(picker_state_id(), PickerStopBindState::default()));
+        return;
+    }
+    let target = pk.target;
+    let open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first()).map(String::as_str);
+    let runtime_id = app.doc.runtime_id();
+    let epoch = app.doc.mutation_epoch();
+    let library_stamp = lib_meta_stamp(app);
+    let cache_valid = ctx.data(|d| {
+        d.get_temp::<PickerStopBindState>(picker_state_id()).is_some_and(|s| {
+            s.cached_target == Some(target)
+                && s.cached_ids.as_slice() == pk.ids.as_slice()
+                && s.cached_paint.as_ref() == Some(&pk.paint)
+                && s.cached_runtime_id == runtime_id
+                && s.cached_epoch == epoch
+                && s.cached_library_stamp == library_stamp
+        })
+    });
+    if cache_valid {
+        ctx.data_mut(|d| {
+            d.get_temp_mut_or_default::<PickerStopBindState>(picker_state_id()).open_key = open_key.map(str::to_owned);
+        });
+        return;
+    }
+    let ids = pk.ids.clone();
+    let paint = pk.paint.clone();
+    let mut state = PickerStopBindState {
+        cached_ids: ids.clone(),
+        cached_target: Some(target),
+        cached_paint: Some(paint),
+        cached_runtime_id: runtime_id,
+        cached_epoch: epoch,
+        cached_library_stamp: library_stamp,
+        open_key: open_key.map(str::to_owned),
+        ..Default::default()
+    };
     let pk_info = app.props.picker.as_ref().and_then(|pk| {
         let prefix = match pk.target {
             super::properties::PickTarget::Fill(pi) => Some(("fills", pi)),
@@ -422,6 +473,84 @@ pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
         }
     }
     ctx.data_mut(|d| d.insert_temp(picker_state_id(), state));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{picker_state_id, sync_picker_context, PickerStopBindState};
+    use crate::app::App;
+    use crate::edit::Tx;
+    use crate::panels::properties::{PickTarget, Picker};
+    use designos_doc::{Color, Document, GradientStop, Paint, PaintKind, Vec2};
+    use egui::{Context, Pos2, Rect};
+
+    #[test]
+    fn solid_picker_clears_gradient_stop_context() {
+        let mut doc = Document::new("PickerContext");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        let paint = Paint::solid(Color::BLACK);
+        app.props.picker = Some(Picker {
+            target: PickTarget::Fill(0),
+            tx: Tx::new(),
+            anchor: Rect::from_min_max(Pos2::ZERO, Pos2::ZERO),
+            ids: vec![page],
+            paint: paint.clone(),
+            state: crate::widgets::picker::State::new(&paint),
+            sources: Vec::new(),
+            eyedrop: false,
+        });
+        let ctx = Context::default();
+        ctx.data_mut(|data| {
+            let mut stale = PickerStopBindState::default();
+            stale.prefix = Some(("fills", 0));
+            data.insert_temp(picker_state_id(), stale);
+        });
+
+        sync_picker_context(&mut app, &ctx);
+
+        let state = ctx.data(|data| data.get_temp::<PickerStopBindState>(picker_state_id()));
+        assert!(state.is_some_and(|state| state.prefix.is_none()), "solid picker must not retain gradient stop state");
+    }
+
+    #[test]
+    fn unchanged_gradient_picker_reuses_binding_context() {
+        let mut doc = Document::new("PickerContext");
+        let page = doc.add_page("Page 1");
+        let paint = Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [Vec2::ZERO, Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: designos_doc::BlendMode::Normal,
+        };
+        let mut app = App::new(doc);
+        app.props.picker = Some(Picker {
+            target: PickTarget::Fill(0),
+            tx: Tx::new(),
+            anchor: Rect::from_min_max(Pos2::ZERO, Pos2::ZERO),
+            ids: vec![page],
+            paint: paint.clone(),
+            state: crate::widgets::picker::State::new(&paint),
+            sources: Vec::new(),
+            eyedrop: false,
+        });
+        let ctx = Context::default();
+        sync_picker_context(&mut app, &ctx);
+        ctx.data_mut(|data| {
+            data.get_temp_mut_or_default::<PickerStopBindState>(picker_state_id()).bound_stops.insert("sentinel".into(), ("cached".into(), None));
+        });
+        sync_picker_context(&mut app, &ctx);
+        let state = ctx.data(|data| data.get_temp::<PickerStopBindState>(picker_state_id()));
+        assert!(state.is_some_and(|state| state.bound_stops.contains_key("sentinel")), "unchanged picker must reuse cached binding context");
+
+        app.doc.bump_mutation_epoch();
+        sync_picker_context(&mut app, &ctx);
+        let state = ctx.data(|data| data.get_temp::<PickerStopBindState>(picker_state_id()));
+        assert!(state.is_some_and(|state| !state.bound_stops.contains_key("sentinel")), "document changes must invalidate cached binding context");
+    }
 }
 
 /// Remaps index-keyed variable bindings under `prefix` (e.g. `"fills/0/stops/"` or `"effects/"`)
