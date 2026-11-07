@@ -1534,3 +1534,81 @@ fn a_nested_component_copy_in_an_instance_drops_the_definitions_slot_settings() 
     assert_eq!(instanced.len(), 1);
     assert!(instanced[0].component.slot_configs.is_empty(), "settings belong to the definition, not to the copy");
 }
+
+// ---------------------------------------------------------------- detached preferred: sets, chains, cycles
+
+/// A detached component named `name` with a slot `Body` that prefers `preferred`.
+fn detached_component(doc: &mut Document, name: &str, preferred: Vec<NodeId>) -> NodeId {
+    let id = doc.alloc_id();
+    let mut n = Node::new(id, NodeKind::Component(FrameProps::default()));
+    n.name = name.into();
+    if !preferred.is_empty() {
+        n.component.props.push(ComponentPropDef { name: "Body".into(), kind: PropKind::Slot, default: PropValue::Slot(Vec::new()) });
+        n.component.slot_configs.insert("Body".into(), SlotPropConfig { preferred, ..Default::default() });
+    }
+    doc.nodes.insert(id, n);
+    id
+}
+
+/// A page holding `Panel`, whose slot prefers `preferred`.
+fn panel_preferring(doc: &mut Document, preferred: Vec<NodeId>) {
+    let page = doc.add_page("Page");
+    let id = doc.alloc_id();
+    let mut panel = Node::new(id, NodeKind::Component(FrameProps::default()));
+    panel.name = "Panel".into();
+    panel.component.props.push(ComponentPropDef { name: "Body".into(), kind: PropKind::Slot, default: PropValue::Slot(Vec::new()) });
+    panel.component.slot_configs.insert("Body".into(), SlotPropConfig { preferred, ..Default::default() });
+    doc.insert(page, panel).unwrap();
+}
+
+fn count_named(doc: &Document, name: &str) -> usize {
+    doc.nodes.values().filter(|n| n.name == name).count()
+}
+
+#[test]
+fn a_detached_set_and_its_variant_both_preferred_are_written_once() {
+    let mut doc = Document::new("set");
+    let set_id = doc.alloc_id();
+    let mut set = Node::new(set_id, NodeKind::ComponentSet(FrameProps::default()));
+    set.name = "Badge Set".into();
+    let variant_id = doc.alloc_id();
+    let mut variant = Node::new(variant_id, NodeKind::Component(FrameProps::default()));
+    variant.name = "Badge Variant".into();
+    variant.parent = Some(set_id);
+    set.children.push(variant_id);
+    doc.nodes.insert(set_id, set);
+    doc.nodes.insert(variant_id, variant);
+    panel_preferring(&mut doc, vec![set_id, variant_id]);
+
+    let once = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!((count_named(&once, "Badge Set"), count_named(&once, "Badge Variant")), (1, 1));
+    let twice = import_fig(&export_fig(&once).unwrap()).unwrap();
+    assert_eq!((count_named(&twice, "Badge Set"), count_named(&twice, "Badge Variant")), (1, 1), "a second save adds no copy");
+}
+
+#[test]
+fn a_detached_component_preferred_only_by_another_detached_component_survives() {
+    let mut doc = Document::new("chain");
+    let b = detached_component(&mut doc, "B", Vec::new());
+    let a = detached_component(&mut doc, "A", vec![b]);
+    panel_preferring(&mut doc, vec![a]);
+
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!((count_named(&rt, "A"), count_named(&rt, "B")), (1, 1));
+    let (a_rt, b_rt) = (find(&rt, "A").id, find(&rt, "B").id);
+    assert_eq!(find(&rt, "A").component.slot_configs.get("Body").map(|c| c.preferred.clone()), Some(vec![b_rt]));
+    assert_eq!(find(&rt, "Panel").component.slot_configs.get("Body").map(|c| c.preferred.clone()), Some(vec![a_rt]));
+}
+
+#[test]
+fn two_detached_components_that_prefer_each_other_are_each_written_once() {
+    let mut doc = Document::new("cycle");
+    let a = detached_component(&mut doc, "A", Vec::new());
+    let b = detached_component(&mut doc, "B", vec![a]);
+    doc.get_mut(a).unwrap().component.props.push(ComponentPropDef { name: "Body".into(), kind: PropKind::Slot, default: PropValue::Slot(Vec::new()) });
+    doc.get_mut(a).unwrap().component.slot_configs.insert("Body".into(), SlotPropConfig { preferred: vec![b], ..Default::default() });
+    panel_preferring(&mut doc, vec![a]);
+
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!((count_named(&rt, "A"), count_named(&rt, "B")), (1, 1));
+}

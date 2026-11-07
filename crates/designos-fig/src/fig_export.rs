@@ -669,21 +669,51 @@ fn is_attached(doc: &Document, id: NodeId) -> bool {
     false
 }
 
+/// Whether `id` or one of its ancestors is in `set`.
+fn self_or_ancestor_in(doc: &Document, id: NodeId, set: &std::collections::BTreeSet<NodeId>) -> bool {
+    let mut cur = Some(id);
+    for _ in 0..=doc.nodes.len() {
+        let Some(c) = cur else { return false };
+        if set.contains(&c) {
+            return true;
+        }
+        cur = doc.get(c).and_then(|n| n.parent);
+    }
+    false
+}
+
 /// Components that only a slot's preferred list keeps alive: they sit on no page, yet the slot definition
 /// writes their guid. They are exported on the internal canvas so the guid resolves on import.
+///
+/// A detached component that is itself written can in turn prefer another detached one, so the search runs
+/// to a fixed point. A node under another collected node (a variant of a preferred set) is written with
+/// that node, not again on its own.
 fn detached_slot_preferred(doc: &Document) -> Vec<NodeId> {
-    let mut out = std::collections::BTreeSet::new();
-    for (&holder, n) in &doc.nodes {
-        if n.component.slot_configs.is_empty() || !is_attached(doc, holder) {
-            continue;
-        }
-        for pid in n.component.slot_configs.values().flat_map(|c| c.preferred.iter().copied()) {
-            if doc.get(pid).is_some() && !is_attached(doc, pid) {
-                out.insert(pid);
+    let mut found = std::collections::BTreeSet::new();
+    loop {
+        let before = found.len();
+        for (&holder, n) in &doc.nodes {
+            if n.component.slot_configs.is_empty() || !(is_attached(doc, holder) || self_or_ancestor_in(doc, holder, &found)) {
+                continue;
+            }
+            for pid in n.component.slot_configs.values().flat_map(|c| c.preferred.iter().copied()) {
+                if doc.get(pid).is_some() && !is_attached(doc, pid) {
+                    found.insert(pid);
+                }
             }
         }
+        if found.len() == before {
+            break;
+        }
     }
-    out.into_iter().collect()
+    found
+        .iter()
+        .copied()
+        .filter(|&id| {
+            let parent = doc.get(id).and_then(|n| n.parent);
+            !parent.is_some_and(|p| self_or_ancestor_in(doc, p, &found))
+        })
+        .collect()
 }
 
 fn collect_page_handoff(cx: &ExportCtx, page: NodeId) -> Vec<V> {
