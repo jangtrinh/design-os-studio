@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::icons::Icon;
 use crate::theme;
 use crate::widgets::field::{self, Prefix};
-use crate::widgets::menu::{dropdown, dropdown_items, popup_menu, MenuItem, MenuResult};
+use crate::widgets::menu::{dropdown, dropdown_items_mixed, popup_menu, MenuItem, MenuResult};
 use crate::widgets::picker::{blend_group_ends, BLEND_MODES};
 use crate::widgets::{self, popover};
 use designos_doc::Vec2 as DVec2;
@@ -658,8 +658,9 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 FxTarget::Style => shadow_blend(e).into_iter().collect(),
             };
             let (label, current) = blend_label(&blends);
+            let blends_differ = blends.first().is_some_and(|f| blends.iter().any(|b| b != f));
             let modes = shadow_blend_modes();
-            if let Some(k) = dropdown_items(ui, rc, ("fxp-blend", i), &label, &shadow_blend_items(&modes, current), BLEND_MENU_WIDTH) {
+            if let Some(k) = dropdown_items_mixed(ui, rc, ("fxp-blend", i), &label, &shadow_blend_items(&modes, current), BLEND_MENU_WIDTH, blends_differ) {
                 let mode = modes[k].0;
                 edit_effect(app, tgt, i, |e| set_shadow_blend(e, mode));
             }

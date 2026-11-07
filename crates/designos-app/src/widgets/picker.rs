@@ -973,12 +973,12 @@ fn hue_bar(p: &Painter, r: Rect, dim: bool) {
 }
 
 fn thumb_ring(p: &Painter, c: Pos2, outer: f32, ring: f32, fill: Option<Color32>, dim: bool) {
-    let shadow = Color32::from_black_alpha(0x4D);
+    let shadow = theme::CONTENT_HANDLE_RING;
     p.circle_stroke(c, outer + 0.5, Stroke::new(1.0, if dim { kit::half_color(shadow) } else { shadow }));
     if let Some(f) = fill {
         p.circle_filled(c, outer - ring, if dim { kit::half_color(f) } else { f });
     }
-    let white = Color32::WHITE;
+    let white = theme::CONTENT_HANDLE_FILL;
     p.circle_stroke(c, outer - ring / 2.0, Stroke::new(ring, if dim { kit::half_color(white) } else { white }));
 }
 
@@ -990,7 +990,7 @@ pub fn paint_swatch(p: &Painter, rect: Rect, paint: &Paint) {
         k => {
             let stops = stops_of(k).cloned().unwrap_or_default();
             if stops.is_empty() {
-                p.rect_filled(rect, theme::cr(theme::SWATCH_RADIUS), Color32::from_gray(0x80));
+                p.rect_filled(rect, theme::cr(theme::SWATCH_RADIUS), theme::SWATCH_PLACEHOLDER);
                 return;
             }
             checker(p, rect, 4.0);
@@ -1481,21 +1481,22 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         super::record(ui, "picker-contrast-bar", bar_r);
         let p = ui.painter();
         let icon_c = Pos2::new(bar_r.left() + 7.0, bar_r.center().y);
-        let fg_col = Color32::from_rgb(0xE4, 0xE4, 0xE7);
+        let fg_col = theme::TEXT;
         p.circle_stroke(icon_c, 5.5, Stroke::new(1.2, fg_col));
         p.rect_filled(Rect::from_min_max(Pos2::new(icon_c.x - 5.0, icon_c.y - 4.5), Pos2::new(icon_c.x, icon_c.y + 4.5)), 2.0, fg_col);
         p.text(Pos2::new(bar_r.left() + 18.0, bar_r.center().y), Align2::LEFT_CENTER, format!("{ratio:.2} : 1"), theme::font_body_strong(), fg_col);
-        let (badge_txt, badge_bg, badge_fg, badge_w) = if ratio >= 7.0 {
-            ("AAA", Color32::from_rgb(0x17, 0x30, 0x2A), Color32::from_rgb(0x4C, 0xC5, 0x8B), 44.0)
+        let (badge_txt, badge_bg, badge_fg, badge_edge, badge_w) = if ratio >= 7.0 {
+            ("AAA", theme::BG_SUCCESS_PRIMARY, theme::BADGE_SUCCESS_TEXT, theme::BADGE_SUCCESS_BORDER, 44.0)
         } else if ratio >= 4.5 {
-            ("AA", Color32::from_rgb(0x17, 0x30, 0x2A), Color32::from_rgb(0x4C, 0xC5, 0x8B), 38.0)
+            ("AA", theme::BG_SUCCESS_PRIMARY, theme::BADGE_SUCCESS_TEXT, theme::BADGE_SUCCESS_BORDER, 38.0)
         } else if ratio >= 3.0 {
-            ("AA Large", Color32::from_rgb(0x33, 0x27, 0x15), Color32::from_rgb(0xF5, 0xA5, 0x24), 64.0)
+            ("AA Large", theme::BG_WARNING_PRIMARY, theme::BADGE_WARNING_TEXT, theme::BADGE_WARNING_BORDER, 64.0)
         } else {
-            ("Low", Color32::from_rgb(0x36, 0x1D, 0x21), Color32::from_rgb(0xF3, 0x65, 0x7A), 40.0)
+            ("Low", theme::BG_ERROR_PRIMARY, theme::BADGE_ERROR_TEXT, theme::BADGE_ERROR_BORDER, 40.0)
         };
         let badge_r = Rect::from_min_size(Pos2::new(bar_r.right() - badge_w, bar_r.top()), Vec2::new(badge_w, 20.0));
-        p.rect_filled(badge_r, theme::cr(4), badge_bg);
+        p.rect_filled(badge_r, theme::cr(theme::RADIUS_SEGMENT), badge_bg);
+        p.rect_stroke(badge_r, theme::cr(theme::RADIUS_SEGMENT), Stroke::new(theme::BORDER_WIDTH, badge_edge), StrokeKind::Inside);
         p.text(badge_r.center(), Align2::CENTER_CENTER, badge_txt, theme::font_caption_strong(), badge_fg);
         y += CONTRAST_BAR_H;
         hline(ui.painter(), rect.left(), rect.right(), y - 1.0, theme::BORDER);
@@ -1537,8 +1538,8 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                     }
                     let v_thresh = 0.5 * (lo + hi);
                     let dot_pos = Pos2::new(area.left() + s * area.width(), area.top() + (1.0 - v_thresh) * area.height());
-                    p.circle_filled(dot_pos, 2.0, Color32::from_black_alpha(110));
-                    p.circle_filled(dot_pos, 1.4, Color32::from_white_alpha(220));
+                    p.circle_filled(dot_pos, 2.0, theme::CONTENT_MARK_SHADOW);
+                    p.circle_filled(dot_pos, 1.4, theme::CONTENT_MARK_LIGHT);
                 }
             }
         }
@@ -1752,7 +1753,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         }
         p.rect_filled(r, rad, if stop_bound { kit::half_color(*col) } else { *col });
         if luminance(*col) < 0.3 || col.a() < 255 {
-            let stroke_col = Color32::from_white_alpha(0x1A);
+            let stroke_col = theme::BORDER_TRANSLUCENT;
             p.rect_stroke(r, rad, Stroke::new(2.0, if stop_bound { kit::half_color(stroke_col) } else { stroke_col }), StrokeKind::Inside);
         }
         if !stop_bound && resp.hovered() {
@@ -2331,13 +2332,13 @@ fn gradient_bar(ui: &mut Ui, bar: Rect, st: &mut State, paint: &mut Paint, out: 
         let selected = st.sel == i;
         let p = ui.painter();
         let sq = Rect::from_center_size(c, Vec2::new(12.0, 16.0));
-        p.rect_stroke(sq.expand(1.0), theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_black_alpha(0x4D)), StrokeKind::Outside);
-        p.rect_filled(sq, theme::cr(4), Color32::WHITE);
+        p.rect_stroke(sq.expand(1.0), theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::CONTENT_HANDLE_RING), StrokeKind::Outside);
+        p.rect_filled(sq, theme::cr(4), theme::CONTENT_HANDLE_FILL);
         let inner = sq.shrink(if selected { 3.0 } else { 2.5 });
         checker(&p.with_clip_rect(inner), inner, 3.0);
-        p.rect_filled(inner, theme::cr(2), c32(to_u8(s.color, 1.0)));
+        p.rect_filled(inner, theme::cr(theme::RADIUS_MARK), c32(to_u8(s.color, 1.0)));
         if selected {
-            p.rect_stroke(sq.expand(2.0), theme::cr(6), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Outside);
+            p.rect_stroke(sq.expand(2.0), theme::cr(theme::RADIUS_SEGMENT), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Outside);
         }
     }
     let del = ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) && !ui.memory(|m| m.focused().is_some());
@@ -2450,6 +2451,98 @@ mod tests {
         st.hsv.h = 0.6;
         st.sync([0, 0, 0, 255]);
         assert!((st.hsv.h - 0.6).abs() < 1e-6);
+    }
+
+    /// Every shape of one picker frame, flattened.
+    fn picker_shapes(paint: &mut Paint) -> Vec<egui::Shape> {
+        fn flatten(shape: &egui::Shape, out: &mut Vec<egui::Shape>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| flatten(s, out)),
+                other => out.push(other.clone()),
+            }
+        }
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut st = State::new(paint);
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 700.0))), ..Default::default() };
+        raw.time = Some(0.0);
+        let sources: Vec<(String, Vec<Color32>)> = vec![("On this page".into(), vec![])];
+        let env = Env { paint_types: true, sources: &sources, styles: &[], can_add_style: false };
+        let full = ctx.run_ui(raw, |ui| {
+            let _ = show(ui, Pos2::ZERO, &mut st, paint, &env);
+        });
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            flatten(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    fn text_color_of(shapes: &[egui::Shape], text: &str) -> Option<Color32> {
+        shapes.iter().find_map(|s| match s {
+            egui::Shape::Text(t) if t.galley.text() == text => t.galley.job.sections.first().map(|sec| sec.format.color),
+            _ => None,
+        })
+    }
+
+    fn has_badge_fill(shapes: &[egui::Shape], fill: Color32) -> bool {
+        shapes.iter().any(|s| matches!(s, egui::Shape::Rect(r) if r.fill == fill && (r.rect.height() - 20.0).abs() < 0.5 && r.rect.width() < 70.0))
+    }
+
+    fn has_badge_edge(shapes: &[egui::Shape], edge: Color32) -> bool {
+        shapes.iter().any(|s| matches!(s, egui::Shape::Rect(r) if r.stroke.color == edge && (r.rect.height() - 20.0).abs() < 0.5 && r.rect.width() < 70.0))
+    }
+
+    #[test]
+    fn contrast_badges_use_status_roles() {
+        // (grey level, badge text, background, border-free text colour)
+        let rows = [
+            (255u8, "AAA", theme::BG_SUCCESS_PRIMARY, theme::BADGE_SUCCESS_TEXT, theme::BADGE_SUCCESS_BORDER),
+            (0x80, "AA Large", theme::BG_WARNING_PRIMARY, theme::BADGE_WARNING_TEXT, theme::BADGE_WARNING_BORDER),
+            (0x9A, "Low", theme::BG_ERROR_PRIMARY, theme::BADGE_ERROR_TEXT, theme::BADGE_ERROR_BORDER),
+        ];
+        for (g, label, bg, fg, edge) in rows {
+            let shapes = picker_shapes(&mut solid(g, g, g, 1.0));
+            assert!(has_badge_fill(&shapes, bg), "{label}: badge background is the status role");
+            assert!(has_badge_edge(&shapes, edge), "{label}: badge border is the status role");
+            assert_eq!(text_color_of(&shapes, label), Some(fg), "{label}: badge text is the status role");
+            let ratio = shapes.iter().find_map(|s| match s {
+                egui::Shape::Text(t) if t.galley.text().ends_with(" : 1") => t.galley.job.sections.first().map(|sec| sec.format.color),
+                _ => None,
+            });
+            assert_eq!(ratio, Some(theme::TEXT), "{label}: ratio text is TEXT");
+        }
+        // AA shares the success roles with AAA.
+        let aa = (0..=255u8).find(|g| {
+            let l = relative_luminance([*g, *g, *g]);
+            let ratio = wcag_contrast_ratio(l, relative_luminance([0x1E, 0x1E, 0x1E]));
+            l >= 0.35 && (4.5..7.0).contains(&ratio)
+        });
+        {
+            let g = aa.expect("a grey in the AA band");
+            let shapes = picker_shapes(&mut solid(g, g, g, 1.0));
+            assert!(has_badge_fill(&shapes, theme::BG_SUCCESS_PRIMARY));
+            assert!(has_badge_edge(&shapes, theme::BADGE_SUCCESS_BORDER));
+            assert_eq!(text_color_of(&shapes, "AA"), Some(theme::BADGE_SUCCESS_TEXT));
+        }
+    }
+
+    #[test]
+    fn track_handles_keep_a_white_fill_and_a_dark_ring() {
+        let stops = vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }];
+        let mut paint = Paint { kind: PaintKind::LinearGradient { stops, handles: default_handles(Mode::Linear) }, ..Paint::solid(Color::BLACK) };
+        let shapes = picker_shapes(&mut paint);
+        let handle = |s: &egui::Shape| matches!(s, egui::Shape::Rect(r) if r.fill == theme::CONTENT_HANDLE_FILL && (r.rect.width() - 12.0).abs() < 0.5 && (r.rect.height() - 16.0).abs() < 0.5);
+        assert!(shapes.iter().filter(|s| handle(s)).count() >= 2, "one white 12x16 handle per stop");
+        let ring = |s: &egui::Shape| matches!(s, egui::Shape::Rect(r) if r.stroke.color == theme::CONTENT_HANDLE_RING && (r.rect.width() - 14.0).abs() < 0.5);
+        assert!(shapes.iter().filter(|s| ring(s)).count() >= 2, "a dark ring around each handle");
+        // The colour area, hue and alpha thumbs are rings: a white stroke over a dark casing.
+        let circle_stroke = |color: Color32| shapes.iter().filter(|s| matches!(s, egui::Shape::Circle(c) if c.stroke.color == color)).count();
+        let solid_shapes = picker_shapes(&mut solid(200, 40, 40, 1.0));
+        let thumbs = |color: Color32| solid_shapes.iter().filter(|s| matches!(s, egui::Shape::Circle(c) if c.stroke.color == color)).count();
+        assert!(thumbs(theme::CONTENT_HANDLE_FILL) >= 3, "white ring on the area, hue and alpha thumbs");
+        assert!(thumbs(theme::CONTENT_HANDLE_RING) >= 3, "dark casing around the area, hue and alpha thumbs");
+        assert!(circle_stroke(theme::BG_BRAND) == 0, "the orange slider handle is never used on a track");
     }
 
     #[test]
