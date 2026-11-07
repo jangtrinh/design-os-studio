@@ -91,6 +91,14 @@ pub struct AllowEntry {
     /// regions because its geometry is not comparable across regions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region_to: Option<String>,
+    /// With `x_band`: at compare time every widget (named and unnamed, in the baseline and the current
+    /// snapshot) of `region` whose own left edge lies in `x_band` is re-keyed to the region
+    /// `"{region}#{column}"`, so a column that is its own layout flow (for example an inspector behind a
+    /// full-screen scrim) is paired, row-clustered, shifted and ordered apart from the rest of the region.
+    /// Other entries target the derived region by that name. The entry sets no bound, and counts as matched
+    /// only when it re-keys a widget on each side and leaves a baseline widget of `region` outside the band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor_x: Option<AnchorX>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -387,6 +395,35 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
         if has_negative_size_delta && !has_r5_token {
             return Err(format!("allow.json[{idx}]: negative dw/dh requires R5 in reason, got {:?}", e.reason));
         }
+        if let Some(label) = &e.column {
+            if label.trim().is_empty() {
+                return Err(format!("allow.json[{idx}]: column label must be non-empty"));
+            }
+            if label.contains('#') || e.region.contains('#') {
+                return Err(format!("allow.json[{idx}]: column label and region must not contain '#', got column={label:?} region={:?}", e.region));
+            }
+            if e.x_band.is_none() {
+                return Err(format!("allow.json[{idx}]: column needs x_band"));
+            }
+            let other_fields = [
+                ("name_prefix", e.name_prefix.is_some()),
+                ("h_base", e.h_base.is_some()),
+                ("region_to", e.region_to.is_some()),
+                ("min_dw", e.min_dw.is_some()),
+                ("max_dw", e.max_dw.is_some()),
+                ("min_dh", e.min_dh.is_some()),
+                ("max_dh", e.max_dh.is_some()),
+                ("dx", e.dx.is_some()),
+                ("dy", e.dy.is_some()),
+                ("gap_dy", e.gap_dy.is_some()),
+                ("inventory_max_delta", e.inventory_max_delta.is_some()),
+                ("anchor_x", e.anchor_x.is_some()),
+                ("anchor_y", e.anchor_y.is_some()),
+            ];
+            if let Some((field, _)) = other_fields.into_iter().find(|(_, set)| *set) {
+                return Err(format!("allow.json[{idx}]: column entries only split a region and cannot also set {field}"));
+            }
+        }
         if let Some(to) = &e.region_to {
             if e.name_prefix.is_none() {
                 return Err(format!("allow.json[{idx}]: region_to needs name_prefix"));
@@ -413,7 +450,7 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
             }
         }
         if let Some([lo, hi]) = e.x_band {
-            if e.h_base.is_none() && e.name_prefix.is_none() {
+            if e.h_base.is_none() && e.name_prefix.is_none() && e.column.is_none() {
                 return Err(format!("allow.json[{idx}]: x_band needs h_base or name_prefix"));
             }
             if lo > hi {
@@ -428,6 +465,23 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
             let b = &entries[j];
             let cases_overlap = a.case == b.case || a.case == "*" || b.case == "*";
             if !cases_overlap || a.region != b.region {
+                continue;
+            }
+            if let (Some(la), Some(lb)) = (&a.column, &b.column) {
+                if la == lb {
+                    return Err(format!(
+                        "allow.json[{i}] and allow.json[{j}]: two column entries for case='{}' region='{}' share the label {la:?}",
+                        b.case, b.region
+                    ));
+                }
+                if x_bands_overlap(a.x_band, b.x_band) {
+                    return Err(format!(
+                        "allow.json[{i}] and allow.json[{j}]: column entries for case='{}' region='{}' have overlapping x_band ranges",
+                        b.case, b.region
+                    ));
+                }
+            }
+            if a.column.is_some() || b.column.is_some() {
                 continue;
             }
             let sa = entry_specificity(a);
@@ -493,7 +547,7 @@ fn best_matching_entry<'a>(allow: &'a AllowList, case: &str, region: &str, name:
         .entries
         .iter()
         .enumerate()
-        .filter(|(_, e)| e.region_to.is_none() && entry_matches_widget(e, case, region, name, base_rect))
+        .filter(|(_, e)| e.region_to.is_none() && e.column.is_none() && entry_matches_widget(e, case, region, name, base_rect))
         .max_by_key(|(_, e)| (entry_specificity(e), e.name_prefix.as_ref().map_or(0, |s| s.len()), usize::from(e.case != "*")))
 }
 
@@ -638,7 +692,55 @@ fn vertical_order_violation(rows: &[Vec<OrderItem<'_>>]) -> Option<String> {
 }
 
 /// Compare `cur` against `base` enforcing Rules G1–G5.
+/// Re-key the widgets of every `column` entry that applies to `case_id` in one snapshot. Returns, per entry
+/// index, how many widgets were re-keyed. The band test is the one `entry_matches_widget` uses.
+fn apply_column_entries(snap: &mut LayoutSnapshot, allow: &AllowList, case_id: &str) -> BTreeMap<usize, usize> {
+    let mut rekeyed: BTreeMap<usize, usize> = BTreeMap::new();
+    for (idx, e) in allow.entries.iter().enumerate() {
+        let (Some(label), Some([lo, hi])) = (&e.column, e.x_band) else {
+            continue;
+        };
+        if e.case != case_id && e.case != "*" {
+            continue;
+        }
+        let derived = format!("{}#{label}", e.region);
+        let in_band = |rect: &[f32; 4]| rect[0] >= lo && rect[0] <= hi;
+        let mut count = 0;
+        for w in snap.named.values_mut().filter(|w| w.region == e.region && in_band(&w.rect)) {
+            w.region = derived.clone();
+            count += 1;
+        }
+        for w in snap.unnamed.iter_mut().filter(|w| w.region == e.region && in_band(&w.rect)) {
+            w.region = derived.clone();
+            count += 1;
+        }
+        rekeyed.insert(idx, count);
+    }
+    rekeyed
+}
+
 pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, virtualized_regions: &[String]) -> Result<CompareReport, String> {
+    let case_id = if !cur.case.is_empty() { cur.case.as_str() } else { base.case.as_str() };
+    if !allow.entries.iter().any(|e| e.column.is_some() && (e.case == case_id || e.case == "*")) {
+        return compare_keyed(base, cur, allow, virtualized_regions);
+    }
+    let mut base_keyed = base.clone();
+    let mut cur_keyed = cur.clone();
+    let base_counts = apply_column_entries(&mut base_keyed, allow, case_id);
+    let cur_counts = apply_column_entries(&mut cur_keyed, allow, case_id);
+    let mut report = compare_keyed(&base_keyed, &cur_keyed, allow, virtualized_regions)?;
+    for (idx, b_count) in base_counts {
+        let e = &allow.entries[idx];
+        // A baseline widget still keyed to `region` after the re-key lies outside the band.
+        let outside = base_keyed.named.values().any(|w| w.region == e.region) || base_keyed.unnamed.iter().any(|w| w.region == e.region);
+        if b_count > 0 && cur_counts.get(&idx).copied().unwrap_or(0) > 0 && outside {
+            report.matched_allow_indices.insert(idx);
+        }
+    }
+    Ok(report)
+}
+
+fn compare_keyed(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, virtualized_regions: &[String]) -> Result<CompareReport, String> {
     let case_id = if !cur.case.is_empty() { cur.case.as_str() } else { base.case.as_str() };
 
     if base.size != cur.size {
@@ -2210,6 +2312,196 @@ mod tests {
         let allow = validate_allow_entries(vec![region_to_entry("k-case", "left_panel")]).expect("valid");
         let err = compare_with_stale_check(&base, &cur, &allow, &[]).expect_err("stale");
         assert!(err.contains("stale allow.json[0]"), "{err}");
+    }
+
+    fn column_entry(label: &str, band: [f32; 2]) -> AllowEntry {
+        AllowEntry {
+            case: "k-case".into(),
+            region: "canvas".into(),
+            x_band: Some(band),
+            column: Some(label.into()),
+            spec: "K".into(),
+            reason: "the inspector is its own layout flow".into(),
+            ..Default::default()
+        }
+    }
+
+    fn status_grow_entry(region: &str) -> AllowEntry {
+        AllowEntry {
+            case: "k-case".into(),
+            region: region.into(),
+            name_prefix: Some("status".into()),
+            min_dh: Some(40.0),
+            max_dh: Some(40.0),
+            spec: "K".into(),
+            reason: "status buttons stack, 32 -> 72".into(),
+            ..Default::default()
+        }
+    }
+
+    /// A stationary control that may grow at most 8, like the 28 -> 36 canvas controls.
+    fn still_entry(region: &str) -> AllowEntry {
+        AllowEntry {
+            case: "k-case".into(),
+            region: region.into(),
+            name_prefix: Some("still".into()),
+            max_dh: Some(8.0),
+            spec: "K".into(),
+            reason: "R5: control 30 -> 38".into(),
+            ..Default::default()
+        }
+    }
+
+    fn unnamed_in(region: &str, rect: [f32; 4]) -> UnnamedWidget {
+        UnnamedWidget { region: region.into(), rect, sense: vec!["click".into()] }
+    }
+
+    /// One stationary named control at x=100 and an inspector column at x>=1300 whose top control grows 40
+    /// and pushes the one below it down 40.
+    fn column_row_pair() -> (LayoutSnapshot, LayoutSnapshot) {
+        let mut base = sample_snapshot("k-case");
+        base.named.insert("still".into(), named_in("canvas", [100.0, 300.0, 60.0, 30.0]));
+        base.named.insert("status".into(), named_in("canvas", [1300.0, 300.0, 60.0, 32.0]));
+        base.named.insert("below".into(), named_in("canvas", [1300.0, 400.0, 60.0, 24.0]));
+        let mut cur = base.clone();
+        cur.named.insert("status".into(), named_in("canvas", [1300.0, 300.0, 60.0, 72.0]));
+        cur.named.insert("below".into(), named_in("canvas", [1300.0, 440.0, 60.0, 24.0]));
+        (base, cur)
+    }
+
+    #[test]
+    fn column_validation_rules() {
+        let band = [1300.0, 1440.0];
+        let bare = AllowEntry { x_band: None, ..column_entry("inspector", band) };
+        let err = validate_allow_entries(vec![bare]).expect_err("needs x_band");
+        assert!(err.contains("column needs x_band"), "{err}");
+        let cases: Vec<(&str, AllowEntry)> = vec![
+            ("name_prefix", AllowEntry { name_prefix: Some("a".into()), ..column_entry("inspector", band) }),
+            ("h_base", AllowEntry { h_base: Some(24.0), ..column_entry("inspector", band) }),
+            ("region_to", AllowEntry { region_to: Some("rail".into()), ..column_entry("inspector", band) }),
+            ("min_dw", AllowEntry { min_dw: Some(1.0), ..column_entry("inspector", band) }),
+            ("max_dw", AllowEntry { max_dw: Some(1.0), ..column_entry("inspector", band) }),
+            ("min_dh", AllowEntry { min_dh: Some(1.0), ..column_entry("inspector", band) }),
+            ("max_dh", AllowEntry { max_dh: Some(1.0), ..column_entry("inspector", band) }),
+            ("dx", AllowEntry { dx: Some(1.0), ..column_entry("inspector", band) }),
+            ("dy", AllowEntry { dy: Some(1.0), ..column_entry("inspector", band) }),
+            ("gap_dy", AllowEntry { gap_dy: Some(1.0), ..column_entry("inspector", band) }),
+            ("inventory_max_delta", AllowEntry { inventory_max_delta: Some(1), ..column_entry("inspector", band) }),
+            ("anchor_x", AllowEntry { anchor_x: Some(AnchorX::Right), ..column_entry("inspector", band) }),
+            ("anchor_y", AllowEntry { anchor_y: Some(AnchorY::Bottom), ..column_entry("inspector", band) }),
+        ];
+        for (field, entry) in cases {
+            let err = validate_allow_entries(vec![entry]).expect_err(field);
+            assert!(err.contains(&format!("cannot also set {field}")), "{field}: {err}");
+        }
+        for label in ["", "  ", "in#spector"] {
+            let err = validate_allow_entries(vec![column_entry(label, band)]).expect_err("bad label");
+            assert!(err.contains("column label"), "{label:?}: {err}");
+        }
+        let hash_region = AllowEntry { region: "canvas#x".into(), ..column_entry("inspector", band) };
+        assert!(validate_allow_entries(vec![hash_region]).is_err(), "region with '#' is rejected");
+        let err = validate_allow_entries(vec![column_entry("a", [1000.0, 1300.0]), column_entry("b", band)]).expect_err("overlap");
+        assert!(err.contains("overlapping x_band"), "{err}");
+        let err = validate_allow_entries(vec![column_entry("a", [0.0, 100.0]), column_entry("a", band)]).expect_err("same label");
+        assert!(err.contains("share the label"), "{err}");
+        validate_allow_entries(vec![column_entry("a", [0.0, 100.0]), column_entry("b", band)]).expect("disjoint bands with distinct labels are valid");
+    }
+
+    #[test]
+    fn column_splits_cross_column_row_coupling() {
+        let (base, cur) = column_row_pair();
+        let without = validate_allow_entries(vec![status_grow_entry("canvas"), still_entry("canvas")]).expect("valid");
+        let err = compare(&base, &cur, &without, &[]).expect_err("the stationary control shares the growing row");
+        assert!(err.contains("dh=40"), "{err}");
+        let with = validate_allow_entries(vec![column_entry("inspector", [1300.0, 1440.0]), status_grow_entry("canvas#inspector"), still_entry("canvas")])
+            .expect("valid");
+        let report = compare_with_stale_check(&base, &cur, &with, &[]).expect("the column row no longer couples with the stationary control");
+        assert!(report.matched_allow_indices.contains(&0), "the column entry counts as matched");
+        assert!(report.matched_allow_indices.contains(&1), "the entry on the derived region counts as matched");
+    }
+
+    #[test]
+    fn column_stops_crossing_pairs() {
+        let mut base = sample_snapshot("k-case");
+        base.named.insert("status".into(), named_in("canvas", [1300.0, 300.0, 60.0, 32.0]));
+        base.unnamed.push(unnamed_in("canvas", [1375.0, 400.0, 100.0, 24.0]));
+        base.unnamed.push(unnamed_in("canvas", [1375.0, 500.0, 100.0, 24.0]));
+        base.unnamed.push(unnamed_in("canvas", [1000.0, 510.0, 190.0, 32.0]));
+        let mut cur = base.clone();
+        cur.named.insert("status".into(), named_in("canvas", [1300.0, 300.0, 60.0, 72.0]));
+        cur.unnamed = vec![
+            unnamed_in("canvas", [1375.0, 440.0, 100.0, 24.0]),
+            unnamed_in("canvas", [1000.0, 506.0, 190.0, 40.0]),
+            unnamed_in("canvas", [1375.0, 540.0, 100.0, 24.0]),
+        ];
+        let button = AllowEntry {
+            case: "k-case".into(),
+            region: "canvas".into(),
+            h_base: Some(32.0),
+            anchor_y: Some(AnchorY::Centre),
+            max_dh: Some(8.0),
+            spec: "K".into(),
+            reason: "R5: dialog button 32 -> 40".into(),
+            ..Default::default()
+        };
+        let without = validate_allow_entries(vec![status_grow_entry("canvas"), button.clone()]).expect("valid");
+        compare(&base, &cur, &without, &[]).expect_err("index pairing crosses the dialog button and the inspector row");
+        let with = validate_allow_entries(vec![column_entry("inspector", [1300.0, 1440.0]), status_grow_entry("canvas#inspector"), button]).expect("valid");
+        compare_with_stale_check(&base, &cur, &with, &[]).expect("each column pairs on its own");
+    }
+
+    #[test]
+    fn column_keeps_cross_column_moves_visible() {
+        let allow = validate_allow_entries(vec![column_entry("inspector", [1300.0, 1440.0])]).expect("valid");
+        let (base, mut cur) = column_row_pair();
+        cur.named.insert("below".into(), named_in("canvas", [900.0, 400.0, 60.0, 24.0]));
+        let err = compare(&base, &cur, &allow, &[]).expect_err("a named widget leaving the band changes region");
+        assert!(err.contains("G3 named widget 'below' changed region"), "{err}");
+
+        let mut base = sample_snapshot("k-case");
+        base.named.insert("still".into(), named_in("canvas", [100.0, 300.0, 60.0, 30.0]));
+        base.unnamed.push(unnamed_in("canvas", [1375.0, 400.0, 100.0, 24.0]));
+        base.unnamed.push(unnamed_in("canvas", [1000.0, 400.0, 100.0, 24.0]));
+        let mut cur = base.clone();
+        cur.unnamed[0] = unnamed_in("canvas", [900.0, 400.0, 100.0, 24.0]);
+        let err = compare(&base, &cur, &allow, &[]).expect_err("an unnamed widget crossing the band changes both counts");
+        assert!(err.contains("G4 unnamed widget count mismatch"), "{err}");
+    }
+
+    #[test]
+    fn column_entry_is_stale_when_empty_or_whole_region() {
+        let (base, _) = column_row_pair();
+        let cur = base.clone();
+        let empty = validate_allow_entries(vec![column_entry("nothing", [600.0, 700.0])]).expect("valid");
+        let err = compare_with_stale_check(&base, &cur, &empty, &[]).expect_err("an empty band is stale");
+        assert!(err.contains("stale allow.json[0]"), "{err}");
+        let whole = validate_allow_entries(vec![column_entry("all", [0.0, 2000.0])]).expect("valid");
+        let err = compare_with_stale_check(&base, &cur, &whole, &[]).expect_err("a band holding every widget is stale");
+        assert!(err.contains("stale allow.json[0]"), "{err}");
+        let ok = validate_allow_entries(vec![column_entry("inspector", [1300.0, 1440.0])]).expect("valid");
+        compare_with_stale_check(&base, &cur, &ok, &[]).expect("a real column is not stale");
+    }
+
+    #[test]
+    fn entries_target_the_derived_region() {
+        let (base, cur) = column_row_pair();
+        let entry_only = validate_allow_entries(vec![status_grow_entry("canvas#inspector"), still_entry("canvas")]).expect("valid");
+        let err = compare_with_stale_check(&base, &cur, &entry_only, &[]).expect_err("without the column entry the derived region does not exist");
+        assert!(err.contains("dh=40") || err.contains("stale allow.json[0]"), "{err}");
+        let with = validate_allow_entries(vec![column_entry("inspector", [1300.0, 1440.0]), status_grow_entry("canvas#inspector"), still_entry("canvas")])
+            .expect("valid");
+        let report = compare_with_stale_check(&base, &cur, &with, &[]).expect("derived-region entry matches the re-keyed widget");
+        assert!(report.matched_allow_indices.contains(&1));
+    }
+
+    #[test]
+    fn column_entry_for_another_case_changes_nothing() {
+        let (mut base, mut cur) = column_row_pair();
+        base.case = "other-case".into();
+        cur.case = "other-case".into();
+        let allow = validate_allow_entries(vec![column_entry("inspector", [1300.0, 1440.0]), status_grow_entry("canvas#inspector"), still_entry("canvas")])
+            .expect("valid");
+        compare(&base, &cur, &allow, &[]).expect_err("the column entry is scoped to k-case, so the coupling still fails");
     }
 
     /// Test 6b: `"*"` without `name_prefix` or `h_base` fails to parse.
