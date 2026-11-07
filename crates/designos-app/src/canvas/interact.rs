@@ -412,8 +412,22 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
     // press starts another gesture over the open one, and what it did stays in the document outside undo.
     // A release before this frame's press ends the gesture wherever that press lands: on a panel it never reaches
     // the canvas, and the gesture would follow the held button.
-    let open_gesture =
-        matches!(app.canvas.inter, Interaction::Draw(_) | Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_));
+    let open_gesture = matches!(
+        app.canvas.inter,
+        Interaction::Draw(_)
+            | Interaction::Pending(_)
+            | Interaction::Move(_)
+            | Interaction::Resize(_)
+            | Interaction::Rotate(_)
+            | Interaction::CornerRadius(_)
+            | Interaction::AutoLayoutDrag(_)
+            | Interaction::SmartSelectionDrag(_)
+            | Interaction::ShapeControl(_)
+            | Interaction::Guide(_)
+            | Interaction::Pencil(_)
+            | Interaction::Connect(_)
+            | Interaction::VectorDrag
+    );
     if new_press && open_gesture && (hovered || inp.prior_release_pos.is_some()) {
         end_open_gesture(app, rect, &inp);
     }
@@ -1100,8 +1114,17 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         Interaction::ZoomMarquee { cur: c, .. } => {
             *c = cur;
         }
-        Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_) => follow_pointer(app, &mut inter, pos, cur, inp),
-        Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
+        Interaction::Pending(_)
+        | Interaction::Move(_)
+        | Interaction::Resize(_)
+        | Interaction::Rotate(_)
+        | Interaction::CornerRadius(_)
+        | Interaction::AutoLayoutDrag(_)
+        | Interaction::SmartSelectionDrag(_)
+        | Interaction::ShapeControl(_)
+        | Interaction::Guide(_)
+        | Interaction::Pencil(_)
+        | Interaction::VectorDrag => follow_pointer(app, rect, &mut inter, pos, cur, inp),
         Interaction::Connect(c) => crate::board::connect::drag(app, c, cur, inp.mods),
         Interaction::Marquee { start, cur: c, base, matching } => {
             if inp.space {
@@ -1146,6 +1169,47 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
                 app.selection = sel;
             }
         }
+        Interaction::Draw(d) => update_draw(app, d, cur, inp),
+        Interaction::Builder => builder::drag(app, cur),
+        Interaction::PenDrag => {
+            if let Some(pen) = &mut app.canvas.pen {
+                if let Some(last) = pen.pts.last_mut() {
+                    if dist(last.pos, cur) * zoom > 3.0 {
+                        // Shift keeps the handle on a 45 degree angle
+                        let cur = if inp.mods.shift { create::snap_to_45(last.pos, cur) } else { cur };
+                        last.hout = Some(cur);
+                        last.hin = Some(sub(scale(last.pos, 2.0), cur));
+                    }
+                }
+            }
+        }
+        Interaction::None => {}
+    }
+    if matches!(app.canvas.inter, Interaction::None) {
+        app.canvas.inter = inter;
+    }
+}
+
+/// Takes a pending click or an open drag (move, resize, rotate, corner radius, auto layout spacing, smart selection,
+/// shape control, guide, pencil stroke, vector edit) to the pointer at `pos` (`cur` in page space).
+/// `on_drag` does this on every frame the button is held, but not on the frame of the release.
+fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2, cur: DV, inp: &Inp) {
+    match inter {
+        Interaction::Pending(p) => {
+            if (pos - p.start_screen).length() > theme::DRAG_THRESHOLD_PX {
+                let (node, start, alt) = (p.node, p.start_page, inp.mods.alt);
+                *inter = match start_move(app, node, start, alt) {
+                    Some(mut m) => {
+                        update_move(app, &mut m, cur, inp);
+                        Interaction::Move(m)
+                    }
+                    None => Interaction::None,
+                };
+            }
+        }
+        Interaction::Move(m) => update_move(app, m, cur, inp),
+        Interaction::Resize(r) => update_resize(app, r, cur, inp),
+        Interaction::Rotate(r) => update_rotate(app, r, cur, inp),
         Interaction::CornerRadius(cr) => {
             cr.tx.ed.revert(&mut app.doc);
             let inv = app.doc.world_transform(cr.id).invert().unwrap_or(Affine::IDENTITY);
@@ -1166,11 +1230,10 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
             app.changed();
         }
         Interaction::AutoLayoutDrag(ad) => {
-            if dist(ad.start_page, cur) * zoom > theme::DRAG_THRESHOLD_PX {
+            if dist(ad.start_page, cur) * app.view.zoom > theme::DRAG_THRESHOLD_PX {
                 ad.moved = true;
             }
             if !ad.moved {
-                app.canvas.inter = inter;
                 return;
             }
             ad.tx.ed.revert(&mut app.doc);
@@ -1224,63 +1287,23 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
             layout::relayout_around(&mut app.doc, &mut ad.tx.ed, ad.id);
             app.changed();
         }
-        Interaction::SmartSelectionDrag(sd) => {
-            update_smart_selection_drag(app, sd, cur);
-        }
+        Interaction::SmartSelectionDrag(sd) => update_smart_selection_drag(app, sd, cur),
         Interaction::ShapeControl(sc) => {
             update_shape_control(app, sc, cur, inp.mods.shift);
         }
-        Interaction::Draw(d) => update_draw(app, d, cur, inp),
+        Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
         Interaction::Pencil(pts) => {
-            if pts.last().map(|l| dist(*l, cur) * zoom > 1.5).unwrap_or(true) {
+            if pts.last().map(|l| dist(*l, cur) * app.view.zoom > 1.5).unwrap_or(true) {
                 pts.push(cur);
             }
         }
         Interaction::VectorDrag => vector::drag(app, cur, inp.mods),
-        Interaction::Builder => builder::drag(app, cur),
-        Interaction::PenDrag => {
-            if let Some(pen) = &mut app.canvas.pen {
-                if let Some(last) = pen.pts.last_mut() {
-                    if dist(last.pos, cur) * zoom > 3.0 {
-                        // Shift keeps the handle on a 45 degree angle
-                        let cur = if inp.mods.shift { create::snap_to_45(last.pos, cur) } else { cur };
-                        last.hout = Some(cur);
-                        last.hin = Some(sub(scale(last.pos, 2.0), cur));
-                    }
-                }
-            }
-        }
-        Interaction::None => {}
-    }
-    if matches!(app.canvas.inter, Interaction::None) {
-        app.canvas.inter = inter;
-    }
-}
-
-/// Takes a pending click, a move, a resize or a rotate to the pointer at `pos` (`cur` in page space).
-/// `on_drag` does this on every frame the button is held, but not on the frame of the release.
-fn follow_pointer(app: &mut App, inter: &mut Interaction, pos: Pos2, cur: DV, inp: &Inp) {
-    match inter {
-        Interaction::Pending(p) => {
-            if (pos - p.start_screen).length() > theme::DRAG_THRESHOLD_PX {
-                let (node, start, alt) = (p.node, p.start_page, inp.mods.alt);
-                *inter = match start_move(app, node, start, alt) {
-                    Some(mut m) => {
-                        update_move(app, &mut m, cur, inp);
-                        Interaction::Move(m)
-                    }
-                    None => Interaction::None,
-                };
-            }
-        }
-        Interaction::Move(m) => update_move(app, m, cur, inp),
-        Interaction::Resize(r) => update_resize(app, r, cur, inp),
-        Interaction::Rotate(r) => update_rotate(app, r, cur, inp),
         _ => {}
     }
 }
 
-/// Ends the draw, move, resize or rotate that a new press finds open.
+/// Ends the draw or drag (move, resize, rotate, corner radius, auto layout, smart selection, shape control, guide, pencil,
+/// connector, vector edit) that a new press finds open.
 /// A primary press ends it where the primary button went up before that press, with the modifiers held then. A
 /// primary press with no release before it means the release was lost: the gesture ends as it was last drawn, because
 /// the pointer is now somewhere that has nothing to do with it. A middle press leaves the primary button live, so the
@@ -1294,7 +1317,7 @@ fn end_open_gesture(app: &mut App, rect: ERect, inp: &Inp) {
         let mut inter = std::mem::take(&mut app.canvas.inter);
         if let Some(p) = end {
             let page = app.view.to_page(rect.min, p);
-            follow_pointer(app, &mut inter, p, page, &ending);
+            follow_pointer(app, rect, &mut inter, p, page, &ending);
         }
         if !matches!(inter, Interaction::Pending(_)) {
             app.canvas.inter = inter;
@@ -1602,7 +1625,7 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
     let mut inter = std::mem::take(&mut app.canvas.inter);
     let cur = end.map(|p| app.view.to_page(rect.min, p));
     if let (Some(pos), Some(page)) = (end, cur) {
-        follow_pointer(app, &mut inter, pos, page, inp);
+        follow_pointer(app, rect, &mut inter, pos, page, inp);
     }
     app.canvas.guides.clear();
     app.canvas.measures.clear();
