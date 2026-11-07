@@ -3331,6 +3331,18 @@ impl<'a> Ctx<'a> {
         if set.get("effects").is_some() {
             n.effects = farr(set, "effects").iter().filter_map(parse_effect).collect();
         }
+        if let (NodeKind::Ellipse(arc), Some(a)) = (&mut n.kind, set.get("arcData").filter(|_| keep("arcData"))) {
+            // an overridden ring or pie: only the keys the override carries replace the main component's arc
+            arc.start = fnum(a, "startingAngle").unwrap_or(arc.start);
+            arc.end = fnum(a, "endingAngle").unwrap_or(arc.end);
+            arc.inner_radius = fnum(a, "innerRadius").unwrap_or(arc.inner_radius);
+            if !has("fillGeometry") {
+                n.fill_geometry = None;
+            }
+            if !has("strokeGeometry") {
+                n.stroke_geometry = None;
+            }
+        }
         if let Some(r) = set.get("rectangleCornerRadii").and_then(Value::as_array).filter(|a| a.len() == 4) {
             for (i, x) in r.iter().enumerate() {
                 n.corner_radii[i] = num(x).unwrap_or(0.0);

@@ -32,6 +32,7 @@ pub mod vectorops;
 pub use backdrop_index::BackdropIndex;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 pub use diff_image::{render_diff_image, DiffImageResult};
+pub use geom::inscribed_point;
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
 pub use lint_env::RenderLintEnv;
@@ -888,9 +889,12 @@ impl Renderer<'_> {
         let align = if sh.closed { n.stroke.align } else { designos_doc::StrokeAlign::Center };
         // precomputed outline: already expanded by weight and alignment
         if let Some(sp) = &sh.stroke_paths {
-            let mask = if align == designos_doc::StrokeAlign::Outside {
+            // an inside or outside stroke is stored centered at double weight: keep the wanted side
+            let mask = if align == designos_doc::StrokeAlign::Outside || (align == designos_doc::StrokeAlign::Inside && !sh.fill_paths().is_empty()) {
                 shape_mask(tw, th, sh.fill_paths(), ts).map(|mut m| {
-                    m.invert();
+                    if align == designos_doc::StrokeAlign::Outside {
+                        m.invert();
+                    }
                     if let Some(c) = clip {
                         mask_mul(&mut m, c);
                     }

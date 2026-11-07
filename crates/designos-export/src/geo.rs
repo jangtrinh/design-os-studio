@@ -126,23 +126,17 @@ fn ellipse_cmds(w: f32, h: f32, arc: &ArcData) -> Option<Vec<PathCmd>> {
     Some(out)
 }
 
+/// Points are given on the unit circle and land on the ellipse inscribed in the box, as the canvas draws them.
 fn poly_cmds(w: f32, h: f32, pts: &[(f32, f32)]) -> Option<Vec<PathCmd>> {
     if pts.len() < 3 || w <= 0.0 || h <= 0.0 {
         return None;
     }
-    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-    for (x, y) in pts {
-        x0 = x0.min(*x);
-        y0 = y0.min(*y);
-        x1 = x1.max(*x);
-        y1 = y1.max(*y);
-    }
-    let (sw, sh) = ((x1 - x0).max(1e-6), (y1 - y0).max(1e-6));
     let mut out: Vec<PathCmd> = pts
         .iter()
         .enumerate()
         .map(|(i, (x, y))| {
-            let p = v((x - x0) / sw * w, (y - y0) / sh * h);
+            let (px, py) = designos_render::inscribed_point(w, h, (*x, *y));
+            let p = v(px, py);
             if i == 0 {
                 PathCmd::MoveTo(p)
             } else {

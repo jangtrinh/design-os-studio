@@ -106,6 +106,10 @@ fn child_shapes(doc: &Document, child: &Node, tol: f32) -> Option<Shapes> {
     let mut shapes: Shapes = if matches!(child.kind, NodeKind::Group) {
         combine(doc, child, OverlayRule::Union, tol)?
     } else {
+        // a ring as wide as its disc is an operand with no area, not a missing one
+        if matches!(&child.kind, NodeKind::Ellipse(arc) if crate::geom::is_hairline_ring(arc)) {
+            return Some(Shapes::new());
+        }
         let shape: Shape = node_shape(doc, child, tol)?;
         if !shape.fillable {
             return None;

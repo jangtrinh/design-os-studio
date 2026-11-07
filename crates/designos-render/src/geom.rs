@@ -223,18 +223,25 @@ pub fn smooth_rounded_rect(w: f32, h: f32, radii: [f32; 4], smoothing: f32) -> O
     pb.finish()
 }
 
+/// An ellipse whose inner radius reaches the outer one: it has a path but no area.
+pub(crate) fn is_hairline_ring(arc: &d::ArcData) -> bool {
+    arc.inner_radius >= 0.999
+}
+
 fn ellipse_path(w: f32, h: f32, arc: &d::ArcData) -> Option<sk::Path> {
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
     let (cx, cy, rx, ry) = (w / 2.0, h / 2.0, w / 2.0, h / 2.0);
+    // a ring whose inner radius reaches the outer one has no width: it is a single circle, not two
+    let hairline = is_hairline_ring(arc);
     let ir = arc.inner_radius.clamp(0.0, 0.999);
     let raw = arc.end - arc.start;
     let full = raw.abs() >= TAU - 1e-4;
     let mut pb = sk::PathBuilder::new();
     if full {
         oval(&mut pb, cx, cy, rx, ry, false);
-        if ir > 0.0 {
+        if ir > 0.0 && !hairline {
             oval(&mut pb, cx, cy, rx * ir, ry * ir, true);
         }
         return pb.finish();
@@ -250,7 +257,10 @@ fn ellipse_path(w: f32, h: f32, arc: &d::ArcData) -> Option<sk::Path> {
     let a1 = a0 + sweep;
     let pt = |a: f32, r: f32| (cx + rx * r * a.cos(), cy + ry * r * a.sin());
     let (sx, sy) = pt(a0, 1.0);
-    if ir > 0.0 {
+    if hairline {
+        pb.move_to(sx, sy);
+        arc_to(&mut pb, cx, cy, rx, ry, a0, sweep);
+    } else if ir > 0.0 {
         pb.move_to(sx, sy);
         arc_to(&mut pb, cx, cy, rx, ry, a0, sweep);
         let (ex, ey) = pt(a1, ir);
@@ -266,22 +276,21 @@ fn ellipse_path(w: f32, h: f32, arc: &d::ArcData) -> Option<sk::Path> {
     pb.finish()
 }
 
-/// Polygon/star outline normalised to fill the node bounds; every vertex is
+/// Maps a point of the unit circle onto the ellipse inscribed in a `w` x `h` box, where Figma places
+/// polygon and star vertices. Shared with the exporters so they match the canvas.
+pub fn inscribed_point(w: f32, h: f32, (x, y): (f32, f32)) -> (f32, f32) {
+    ((x + 1.0) / 2.0 * w, (y + 1.0) / 2.0 * h)
+}
+
+/// Polygon/star outline with `pts` given on the unit circle: they land on the ellipse inscribed in the
+/// node box, as Figma places them, so a box that is not the points' own bounds does not stretch the shape. Every vertex is
 /// rounded with `radius` (node units, reduced where the adjacent edges are too
 /// short to hold it).
 fn poly_path(w: f32, h: f32, pts: &[(f32, f32)], radius: f32) -> Option<sk::Path> {
     if pts.len() < 3 || w <= 0.0 || h <= 0.0 {
         return None;
     }
-    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-    for (x, y) in pts {
-        x0 = x0.min(*x);
-        y0 = y0.min(*y);
-        x1 = x1.max(*x);
-        y1 = y1.max(*y);
-    }
-    let (sw, sh) = ((x1 - x0).max(1e-6), (y1 - y0).max(1e-6));
-    let pts: Vec<(f32, f32)> = pts.iter().map(|(x, y)| ((x - x0) / sw * w, (y - y0) / sh * h)).collect();
+    let pts: Vec<(f32, f32)> = pts.iter().map(|p| inscribed_point(w, h, *p)).collect();
     let mut pb = sk::PathBuilder::new();
     if radius <= 0.0 {
         for (i, (px, py)) in pts.iter().enumerate() {
@@ -463,7 +472,12 @@ fn derived_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
             s.is_rect = true;
             Some(s)
         }
-        NodeKind::Ellipse(arc) => Some(Shape::single(ellipse_path(w, h, arc)?, sk::FillRule::Winding, true)),
+        NodeKind::Ellipse(arc) => {
+            let mut s = Shape::single(ellipse_path(w, h, arc)?, sk::FillRule::Winding, true);
+            // a ring as wide as its disc has no area to fill; its stroke still follows the path
+            s.fillable = !is_hairline_ring(arc);
+            Some(s)
+        }
         NodeKind::Line => {
             let mut pb = sk::PathBuilder::new();
             pb.move_to(0.0, 0.0);

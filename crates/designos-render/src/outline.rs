@@ -283,7 +283,12 @@ fn dashed_rect_center_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path> 
 pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
     let align = if sh.closed { n.stroke.align } else { d::StrokeAlign::Center };
     if let Some(sp) = &sh.stroke_paths {
-        let clip = if align == d::StrokeAlign::Outside { StrokeClip::Outside } else { StrokeClip::None };
+        let clip = match align {
+            d::StrokeAlign::Outside => StrokeClip::Outside,
+            // a shape with no fill area has nothing to clip an inside stroke to
+            d::StrokeAlign::Inside if !sh.fill_paths().is_empty() => StrokeClip::Inside,
+            d::StrokeAlign::Inside | d::StrokeAlign::Center => StrokeClip::None,
+        };
         return Some(StrokePlan { outline: sp.clone(), clip });
     }
     if sh.is_rect && n.stroke.side_weights.is_some() {

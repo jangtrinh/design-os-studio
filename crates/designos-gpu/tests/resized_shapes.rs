@@ -86,12 +86,17 @@ fn flattened_star(t: &mut T, at: Vec2, side: f32) -> NodeId {
 fn resized_flattened_star_matches_cpu() {
     let mut t = T::new();
     let star = flattened_star(&mut t, Vec2::new(20.0, 20.0), 100.0);
-    let box_ = Rect::new(20.0, 20.0, 100.0, 100.0);
+    // the star's points sit on its inscribed circle, so the flattened vector is the star's own bounds, not the 100 x 100 box
+    let (origin, flat_size) = {
+        let n = t.doc.get(star).unwrap();
+        (Vec2::new(n.transform.tx, n.transform.ty), n.size)
+    };
+    let box_ = Rect::new(origin.x, origin.y, flat_size.x, flat_size.y);
     assert_ink_fills(&cpu_render(&t), box_, "before the resize");
 
     resize(&mut t.doc, star, Vec2::new(200.0, 70.0));
 
-    let box_ = Rect::new(20.0, 20.0, 200.0, 70.0);
+    let box_ = Rect::new(origin.x, origin.y, 200.0, 70.0);
     assert_ink_fills(&cpu_render(&t), box_, "CPU, after the resize");
     let Some(mut g) = gpu() else { return };
     let c = compare(&mut g, "resized_star", &t.doc, t.page, Viewport::default(), VIEW, 8);
