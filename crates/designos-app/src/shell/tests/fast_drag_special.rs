@@ -296,48 +296,44 @@ fn reference(make: fn() -> Gesture) -> (Vec<f32>, Vec<f32>) {
 }
 
 fn commits_where_released(make: fn() -> Gesture) {
-    {
-        let (before, want) = reference(make);
-        let mut g = make();
-        g.open_at_the_end();
-        let depth = g.sim.app().hist.undo_depth();
-        // the pointer is back at the middle of the drag when the frame starts; the button goes up at `to` and the next
-        // press lands somewhere else
-        let (b, elsewhere) = (g.to, g.sim.screen(EMPTY.0, EMPTY.1));
-        g.sim.mv(g.from + (b - g.from) * 0.5);
-        g.sim.one_frame().move_to(b).release().move_to(elsewhere).press().send();
-        if g.press_reopens {
-            let v = g.sim.app().canvas.vedit.as_ref().expect("still editing");
-            assert!(v.drag.is_none(), "{}: the new press does not continue the old drag", g.name);
-        } else {
-            assert!(!g.is_open(), "{}: the new press does not continue the old drag", g.name);
-        }
-        assert_eq!(g.sim.app().hist.undo_depth(), depth + 1, "{}: the drag is one step in the undo history", g.name);
-        assert!(same(&g.values(), &want), "{}: ends where the button went up\n   got {:?}\n  want {want:?}", g.name, g.values());
-
-        g.sim.one_frame().release().send();
-        g.sim.frame(vec![]);
-        g.sim.cmd_key(Key::Z);
-        assert!(same(&g.values(), &before), "{}: one undo restores it, got {:?}", g.name, g.values());
-        assert_eq!(g.sim.app().hist.undo_depth(), depth, "{}: the drag was one undo step", g.name);
+    let (before, want) = reference(make);
+    let mut g = make();
+    g.open_at_the_end();
+    let depth = g.sim.app().hist.undo_depth();
+    // the pointer is back at the middle of the drag when the frame starts; the button goes up at `to` and the next
+    // press lands somewhere else
+    let (b, elsewhere) = (g.to, g.sim.screen(EMPTY.0, EMPTY.1));
+    g.sim.mv(g.from + (b - g.from) * 0.5);
+    g.sim.one_frame().move_to(b).release().move_to(elsewhere).press().send();
+    if g.press_reopens {
+        let v = g.sim.app().canvas.vedit.as_ref().expect("still editing");
+        assert!(v.drag.is_none(), "{}: the new press does not continue the old drag", g.name);
+    } else {
+        assert!(!g.is_open(), "{}: the new press does not continue the old drag", g.name);
     }
+    assert_eq!(g.sim.app().hist.undo_depth(), depth + 1, "{}: the drag is one step in the undo history", g.name);
+    assert!(same(&g.values(), &want), "{}: ends where the button went up\n   got {:?}\n  want {want:?}", g.name, g.values());
+
+    g.sim.one_frame().release().send();
+    g.sim.frame(vec![]);
+    g.sim.cmd_key(Key::Z);
+    assert!(same(&g.values(), &before), "{}: one undo restores it, got {:?}", g.name, g.values());
+    assert_eq!(g.sim.app().hist.undo_depth(), depth, "{}: the drag was one undo step", g.name);
 }
 
 fn commits_when_the_press_is_off_the_canvas(make: fn() -> Gesture) {
-    {
-        let (_, want) = reference(make);
-        let mut g = make();
-        g.open_at_the_end();
-        let depth = g.sim.app().hist.undo_depth();
-        let b = g.to;
-        let rect = g.sim.app().canvas_rect;
-        let on_a_panel = Pos2::new(rect.min.x - 20.0, rect.center().y);
-        g.sim.mv(g.from + (b - g.from) * 0.5);
-        g.sim.one_frame().move_to(b).release().move_to(on_a_panel).press().send();
-        assert!(!g.is_open(), "{}: the drag does not follow the held button over the panel", g.name);
-        assert_eq!(g.sim.app().hist.undo_depth(), depth + 1, "{}: the drag is in the undo history", g.name);
-        assert!(same(&g.values(), &want), "{}: ends where the button went up, got {:?}", g.name, g.values());
-    }
+    let (_, want) = reference(make);
+    let mut g = make();
+    g.open_at_the_end();
+    let depth = g.sim.app().hist.undo_depth();
+    let b = g.to;
+    let rect = g.sim.app().canvas_rect;
+    let on_a_panel = Pos2::new(rect.min.x - 20.0, rect.center().y);
+    g.sim.mv(g.from + (b - g.from) * 0.5);
+    g.sim.one_frame().move_to(b).release().move_to(on_a_panel).press().send();
+    assert!(!g.is_open(), "{}: the drag does not follow the held button over the panel", g.name);
+    assert_eq!(g.sim.app().hist.undo_depth(), depth + 1, "{}: the drag is in the undo history", g.name);
+    assert!(same(&g.values(), &want), "{}: ends where the button went up, got {:?}", g.name, g.values());
 }
 
 /// One pair of tests per gesture, so a failure names the drag that dropped its change.
@@ -355,3 +351,97 @@ macro_rules! gesture_tests {
 }
 
 gesture_tests!(corner_radius, auto_layout_spacing, smart_selection, shape_control, guide, pencil, connector, vector_edit);
+
+// ---------------------------------------------------------------- a synthesized end makes no edit
+
+fn vector_state(sim: &Sim, id: NodeId) -> (usize, Vec<designos_doc::PathCmd>) {
+    (sim.app().hist.undo_depth(), vector_cmds(sim, id))
+}
+
+/// A press on a vector segment or vertex that never moved, then something other than a release ends it: the point is
+/// not inserted and the vertex does not toggle between sharp and smooth.
+fn unmoved_vector_press_then(end: impl Fn(&mut Sim, Pos2)) {
+    for spot in [(335.0, 820.0), (370.0, 840.0)] {
+        let (mut sim, id) = sim_with_vector();
+        sim.key(Key::Enter);
+        assert!(sim.app().canvas.vedit.is_some());
+        let before = vector_state(&sim, id);
+        let at = sim.screen(spot.0, spot.1);
+        sim.mv(at);
+        sim.button(true);
+        sim.frame(vec![]);
+        assert!(matches!(sim.app().canvas.inter, Interaction::VectorDrag), "{spot:?}: the press opens a vector drag");
+        let elsewhere = sim.screen(EMPTY.0, EMPTY.1);
+        end(&mut sim, elsewhere);
+        sim.one_frame().release().send();
+        sim.frame(vec![]);
+        assert_eq!(vector_state(&sim, id), before, "{spot:?}: an unmoved press that was ended without a release edits nothing");
+    }
+}
+
+#[test]
+fn a_middle_press_over_an_unmoved_vector_press_makes_no_edit() {
+    unmoved_vector_press_then(|sim, _| sim.one_frame().button(PointerButton::Middle, true).send());
+}
+
+#[test]
+fn a_press_after_a_lost_release_over_an_unmoved_vector_press_makes_no_edit() {
+    unmoved_vector_press_then(|sim, elsewhere| sim.one_frame().move_to(elsewhere).press().send());
+}
+
+#[test]
+fn a_guide_whose_release_is_lost_off_the_window_is_moved_not_removed() {
+    let mut g = guide();
+    let page = g.sim.app().page;
+    g.sim.drag(g.from, g.to);
+    // pick the guide up again, drag it off the canvas, and lose the release
+    let at = g.to;
+    let off = Pos2::new(g.sim.app().canvas_rect.min.x - 30.0, at.y);
+    g.sim.mv(at);
+    g.sim.button(true);
+    g.sim.mv(at + Vec2::new(40.0, 0.0));
+    g.sim.mv(off);
+    assert!(matches!(g.sim.app().canvas.inter, Interaction::Guide(_)), "the guide is picked up");
+    let elsewhere = g.sim.screen(EMPTY.0, EMPTY.1);
+    g.sim.one_frame().move_to(elsewhere).press().send();
+    assert_eq!(g.sim.app().doc.guides.get(&page).map_or(0, |l| l.len()), 1, "the guide is still there");
+}
+
+/// A pointer button event with the modifiers held when it happened.
+fn button_event(at: Pos2, pressed: bool, modifiers: Modifiers) -> Event {
+    Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers }
+}
+
+#[test]
+fn a_modifier_released_while_the_button_is_down_still_shapes_a_corner_radius_at_the_release() {
+    // Alt rounds one corner. It is held through the drag and up again by the time the frame with the release is drawn.
+    let drag_with_alt = |alt_up_early: bool| {
+        let mut g = corner_radius();
+        let (a, b) = (g.from, g.to);
+        g.sim.mods = Modifiers::ALT;
+        g.sim.mv(a);
+        g.sim.button(true);
+        for i in 1..=4 {
+            g.sim.mv(a + (b - a) * (i as f32 / 4.0));
+        }
+        if alt_up_early {
+            g.sim.mods = Modifiers::NONE;
+            g.sim.frame(vec![button_event(b, false, Modifiers::ALT)]);
+        } else {
+            g.sim.button(false);
+        }
+        g.sim.mods = Modifiers::NONE;
+        g.sim.frame(vec![]);
+        (g.values(), g.sim.app().hist.undo_depth())
+    };
+    let (slow, depth) = drag_with_alt(false);
+    let (early, early_depth) = drag_with_alt(true);
+    let plain = {
+        let mut g = corner_radius();
+        g.sim.drag(g.from, g.to);
+        g.values()
+    };
+    assert!(!same(&slow, &plain), "Alt changes the result, or the comparison proves nothing");
+    assert!(same(&early, &slow), "the release keeps the Alt held at the release: got {early:?}, want {slow:?}");
+    assert_eq!(early_depth, depth, "one undo step either way");
+}

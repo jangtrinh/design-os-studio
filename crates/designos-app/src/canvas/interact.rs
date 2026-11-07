@@ -1303,7 +1303,8 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
 }
 
 /// Ends the draw or drag (move, resize, rotate, corner radius, auto layout, smart selection, shape control, guide, pencil,
-/// connector, vector edit) that a new press finds open.
+/// connector, vector edit) that a new press finds open. The connector follows the pointer inside `on_release`, not
+/// `follow_pointer`.
 /// A primary press ends it where the primary button went up before that press, with the modifiers held then. A
 /// primary press with no release before it means the release was lost: the gesture ends as it was last drawn, because
 /// the pointer is now somewhere that has nothing to do with it. A middle press leaves the primary button live, so the
@@ -1323,8 +1324,45 @@ fn end_open_gesture(app: &mut App, rect: ERect, inp: &Inp) {
             app.canvas.inter = inter;
         }
     }
-    if !matches!(app.canvas.inter, Interaction::None) {
-        on_release(app, rect, &ending, end);
+    if matches!(app.canvas.inter, Interaction::None) {
+        return;
+    }
+    let real_release = if inp.pressed { inp.prior_release_pos.is_some() } else { inp.release_pos.is_some() };
+    if !real_release && ends_without_a_release(&app.canvas.inter) {
+        // Ended by a middle press or by a press after a lost release, not by the pointer letting go: the drag follows the
+        // pointer to where it is, commits only if it changed something, and never runs the click its release would.
+        let mut inter = std::mem::take(&mut app.canvas.inter);
+        if let Some(p) = end {
+            let page = app.view.to_page(rect.min, p);
+            follow_pointer(app, rect, &mut inter, p, page, &ending);
+        }
+        app.canvas.inter = inter;
+        // a guide whose release never came is moved, never removed
+        if let Interaction::Guide(g) = &mut app.canvas.inter {
+            g.on_ruler = false;
+        }
+        if unmoved_press(&app.canvas.inter, app) {
+            app.cancel_interaction();
+            return;
+        }
+        on_release(app, rect, &ending, None);
+        return;
+    }
+    on_release(app, rect, &ending, end);
+}
+
+/// The drags whose release does more than commit: a click on a vector, a gap box, a pencil dot, a guide on a ruler.
+fn ends_without_a_release(inter: &Interaction) -> bool {
+    matches!(inter, Interaction::AutoLayoutDrag(_) | Interaction::VectorDrag | Interaction::Pencil(_) | Interaction::Guide(_))
+}
+
+/// A press that has not moved yet, which its release would turn into a click the user did not make.
+fn unmoved_press(inter: &Interaction, app: &App) -> bool {
+    match inter {
+        Interaction::AutoLayoutDrag(a) => !a.moved,
+        Interaction::VectorDrag => !vector_drag_changed(app),
+        Interaction::Pencil(pts) => pts.len() <= 1,
+        _ => false,
     }
 }
 
