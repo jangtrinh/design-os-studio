@@ -1844,6 +1844,12 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             if !ov.is_empty() {
                 m.insert("_overrides".into(), Value::Array(ov));
             }
+            if let Some(kept) = keep_symbol_overrides(sd, lk) {
+                m.insert("_keptOverrides".into(), Value::String(kept.text));
+                if !kept.own_keys.is_empty() {
+                    m.insert("_keptOwnKeys".into(), Value::Array(kept.own_keys.into_iter().map(Value::String).collect()));
+                }
+            }
             let derived = override_entries(nc, nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData"))), lk, true);
             if !derived.is_empty() {
                 m.insert("_derived".into(), Value::Array(derived));
@@ -2721,6 +2727,62 @@ fn resolve_override_grid_anchor(
         set.insert(key.into(), json!(i));
         set.insert(guid_key.into(), Value::String(id));
     }
+}
+
+/// The override entries of an instance exactly as the file states them, as compact JSON text, with the two kinds of
+/// reference that only mean something inside this file's tables: the bytes of every geometry blob the entries name
+/// (by blob index) and the name of every component property they assign (by definition id). A writer that carries
+/// the entries over without loading the instance re-adds those to its own tables. Kept only for files large enough to
+/// defer pages, where an instance on an unloaded page keeps nothing else of what the file said about it.
+///
+/// Also lists the keys the instance's own entry (the one whose path is its main component alone) carries, as the file
+/// names them: the loader flags the fields those keys state (see [`crate::own_entry_keys`]).
+fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
+    if !lk.large_file {
+        return None;
+    }
+    let sd = sd?;
+    let entries = sd.get("symbolOverrides")?.as_array().filter(|a| !a.is_empty())?;
+    let mut blobs = Map::new();
+    let mut props = Map::new();
+    let main = sd.get("symbolID").and_then(guid_str);
+    let mut own_keys: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for e in entries {
+        if main.as_ref().is_some_and(|m| guid_path(e) == std::slice::from_ref(m)) {
+            own_keys.extend(e.as_object().into_iter().flat_map(|o| o.keys().map(String::as_str)));
+        }
+        for key in ["fillGeometry", "strokeGeometry"] {
+            for g in rest_import::farr(e, key) {
+                let Some(idx) = g.get("commandsBlob").and_then(Value::as_u64) else { continue };
+                if let Some(bytes) = usize::try_from(idx).ok().and_then(|i| lk.blobs.get(i)) {
+                    blobs.entry(idx.to_string()).or_insert_with(|| Value::String(kiwi::hex(bytes)));
+                }
+            }
+        }
+        for a in rest_import::farr(e, "componentPropAssignments") {
+            let Some(def) = a.get("defID").and_then(guid_str) else { continue };
+            if let Some((key, _)) = lk.prop_defs.get(&def) {
+                props.entry(def).or_insert_with(|| Value::String(key.split('#').next().unwrap_or(key).to_string()));
+            }
+        }
+    }
+    // Written piece by piece: the entries are the bulk of it and are not copied.
+    let main = serde_json::to_string(&main).ok()?;
+    let entries = serde_json::to_string(entries).ok()?;
+    let blobs = serde_json::to_string(&blobs).ok()?;
+    let props = serde_json::to_string(&props).ok()?;
+    Some(KeptOverrides {
+        text: format!("{{\"main\":{main},\"entries\":{entries},\"blobs\":{blobs},\"props\":{props}}}"),
+        own_keys: own_keys.into_iter().map(String::from).collect(),
+    })
+}
+
+/// What [`keep_symbol_overrides`] keeps of an instance's `symbolOverrides`.
+struct KeptOverrides {
+    /// The entries, their geometry blobs and component property names, as JSON text.
+    text: String,
+    /// The distinct keys of the instance's own entry (or entries).
+    own_keys: Vec<String>,
 }
 
 /// Override entries of `instance`. Cell anchors in them resolve against the grid they sit in: for a

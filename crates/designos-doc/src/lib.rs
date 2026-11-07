@@ -544,6 +544,57 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn take_last_error(&mut self) -> Option<String> {
         None
     }
+    /// What the file stated for `instance` (its override entries) while the instance's page has not been loaded:
+    /// the loader's own record, as text only the loader's format reader can interpret. `None` once the page is loaded,
+    /// or when the file stated nothing for it. Read-only: nothing is taken, loaded or marked.
+    fn pending_instance_overrides(&self, _instance: NodeId) -> Option<String> {
+        None
+    }
+    /// The derived data (the sizes, transforms and outlines the producing app computed for the nodes inside the
+    /// instance) the file stated for `instance` while its page has not been loaded, with the same rules as
+    /// [`Self::pending_instance_overrides`].
+    fn pending_instance_derived(&self, _instance: NodeId) -> Option<PendingDerived> {
+        None
+    }
+    /// A digest, taken when the file was opened, of each field the file's record overrides on `instance` itself, with
+    /// the same rules as [`Self::pending_instance_overrides`]. The loader flags those fields on the instance, so a
+    /// writer that finds a digest moved knows the user edited that field. The document does not interpret the digests.
+    fn pending_instance_self_digests(&self, _instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
+        None
+    }
+}
+
+/// One outline of a [`PendingDerivedEntry`]: the path commands as a `.fig` stores them.
+#[derive(Clone, Debug)]
+pub struct PendingOutline {
+    /// Which outline of the file this is: two outlines with the same id have the same bytes, so a writer can store them
+    /// once.
+    pub id: u64,
+    pub even_odd: bool,
+    pub bytes: std::sync::Arc<[u8]>,
+}
+
+/// What the file computed for one node inside an instance, as the page loader holds it.
+#[derive(Clone, Debug, Default)]
+pub struct PendingDerivedEntry {
+    /// Ids (`session:local`) of the nodes from the instance's main component down to the node.
+    pub path: Vec<String>,
+    pub size: Option<[f32; 2]>,
+    /// The node's transform as `[a, b, c, d, tx, ty]`.
+    pub transform: Option<[f32; 6]>,
+    pub fill: Vec<PendingOutline>,
+    pub stroke: Vec<PendingOutline>,
+}
+
+/// The derived data of an instance on a page that is not loaded, and what it was computed from.
+#[derive(Clone, Debug)]
+pub struct PendingDerived {
+    /// A fingerprint of the main component the data was computed for, and of the mains inside it, as they were when the
+    /// file was opened. The loader and the format writer share its definition; the document does not interpret it.
+    pub fingerprint: u64,
+    pub entries: Vec<PendingDerivedEntry>,
+    /// The mains the file's record swaps nested instances to, which the fingerprint also covers.
+    pub swap_mains: Vec<NodeId>,
 }
 
 mod serde_images {
@@ -734,6 +785,35 @@ impl Document {
             self.mark_tree_full_dirty();
         }
         changed
+    }
+
+    /// The override entries the file stated for `instance` while its page has not been loaded (see
+    /// [`PageHydrator::pending_instance_overrides`]). Read-only: a writer reads it to carry the entries over without
+    /// loading the page, and the document's page loader is left exactly as it was.
+    ///
+    /// All three `pending_instance_*` accessors read the page loader, which clones of the document share (it is behind
+    /// an `Arc`). A clone exported after the live document opened a page finds no record for that page's instances that
+    /// are still childless in the clone, and exports them without overrides or derived data.
+    pub fn pending_instance_overrides(&self, instance: NodeId) -> Option<String> {
+        let h = self.page_hydrator.as_ref()?;
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.pending_instance_overrides(instance)
+    }
+
+    /// The derived data the file stated for `instance` while its page has not been loaded (see
+    /// [`PageHydrator::pending_instance_derived`]). Read-only, like [`Self::pending_instance_overrides`].
+    pub fn pending_instance_derived(&self, instance: NodeId) -> Option<PendingDerived> {
+        let h = self.page_hydrator.as_ref()?;
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.pending_instance_derived(instance)
+    }
+
+    /// The digests of the fields the file's record overrides on `instance` itself, taken when the file was opened (see
+    /// [`PageHydrator::pending_instance_self_digests`]). Read-only, like [`Self::pending_instance_overrides`].
+    pub fn pending_instance_self_digests(&self, instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
+        let h = self.page_hydrator.as_ref()?;
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.pending_instance_self_digests(instance)
     }
 
     /// Number of instances skipped by deferred page hydration due to hitting the clone budget.

@@ -12,10 +12,12 @@ use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
 use crate::FigError;
 use designos_doc::*;
 use serde_json::json;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 mod carrier;
 mod grid;
+mod kept_derived;
+mod kept_overrides;
 pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
 
 /// Plugin id under which Studio keeps node data that has no field in Figma's NodeChange schema. It travels
@@ -203,6 +205,11 @@ fn validate_shader_refs(doc: &Document, schema: &crate::kiwi::Schema) -> Result<
 
 /// Serializes `doc` into a `.fig` binary archive (ZIP containing `canvas.fig`,
 /// `meta.json`, and `images/<hash>`).
+///
+/// `doc` is only read. An instance on a page the document's page loader has not opened yet has no children to read
+/// its overrides from, so it is written with the override entries and the derived data the file stated for it (the
+/// derived data only while its main component is as it was when the file was opened); no page is opened and the loader
+/// is left as it was.
 pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
     let schema = export_schema();
     validate_shader_refs(doc, schema)?;
@@ -238,6 +245,12 @@ struct ExportCtx<'a> {
     used_guids: HashSet<(u32, u32)>,
     next_local: u32,
     node_guids: BTreeMap<NodeId, (u32, u32)>,
+    /// `node_guids` the other way round, built the first time a guid has to be resolved to a node.
+    nodes_by_guid: Option<BTreeMap<(u32, u32), NodeId>>,
+    /// Fingerprints of the main components whose instances are checked for stale derived data.
+    fingerprints: crate::component_fingerprint::Fingerprints,
+    /// Outline id (see `PendingOutline`) -> its index in `blobs`, so an outline several entries share is stored once.
+    shared_blobs: BTreeMap<u64, u32>,
     coll_guids: BTreeMap<String, (u32, u32)>,
     mode_guids: BTreeMap<String, (u32, u32)>,
     var_guids: BTreeMap<String, (u32, u32)>,
@@ -304,6 +317,9 @@ impl<'a> ExportCtx<'a> {
             used_guids: used,
             next_local: 1,
             node_guids: BTreeMap::new(),
+            nodes_by_guid: None,
+            fingerprints: Default::default(),
+            shared_blobs: BTreeMap::new(),
             coll_guids: BTreeMap::new(),
             mode_guids: BTreeMap::new(),
             var_guids: BTreeMap::new(),
@@ -455,6 +471,11 @@ impl<'a> ExportCtx<'a> {
                 return g;
             }
         }
+    }
+
+    /// The node written with `g` as its guid.
+    fn node_with_guid(&mut self, g: (u32, u32)) -> Option<NodeId> {
+        self.nodes_by_guid.get_or_insert_with(|| self.node_guids.iter().map(|(&id, &guid)| (guid, id)).collect()).get(&g).copied()
     }
 
     fn add_blob(&mut self, bytes: Vec<u8>) -> u32 {
@@ -1035,7 +1056,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if node.component.is_slot_content {
         fields.push(("isSlotContent", V::Bool(true)));
     }
-    if let Some(src) = node.component.source.and_then(|s| cx.node_guids.get(&s).copied()) {
+    if let Some(src) = authored_source_guid(cx, id) {
         fields.push(("overrideKey", guid(src.0, src.1)));
     } else if in_component {
         fields.push(("overrideKey", guid(nguid.0, nguid.1)));
@@ -1520,12 +1541,20 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             if let Some(comp_id) = component.and_then(|c| cx.node_guids.get(&c).copied()) {
                 sd.push(("symbolID", guid(comp_id.0, comp_id.1)));
             }
-            let sym_overrides = collect_instance_overrides(cx, id);
+            // An instance whose page is not loaded has no children to read overrides from: the entries the file stated
+            // for it are written as they were. Any other instance is read from its children.
+            let kept = component.and_then(|main| kept_overrides::pending_symbol_overrides(cx, id, main));
+            let sym_overrides = kept.unwrap_or_else(|| collect_instance_overrides(cx, id));
             if !sym_overrides.is_empty() {
                 sd.push(("symbolOverrides", V::Array(sym_overrides)));
             }
             if !sd.is_empty() {
                 fields.push(("symbolData", msg(sd)));
+            }
+            // Likewise the derived data (sizes, transforms, outlines) the file stated for an instance on a page that is
+            // not loaded, while its main component is as it was when the file was opened.
+            if let Some(derived) = component.and_then(|main| kept_derived::pending_derived_symbol_data(cx, id, main)) {
+                fields.push(("derivedSymbolData", V::Array(derived)));
             }
             if let Some(k) = component_key {
                 fields.push(("componentKey", V::String(k.clone())));
@@ -2079,7 +2108,41 @@ fn overridden_node_modes(n: &Node, src: Option<&Node>) -> BTreeMap<String, Strin
     n.variables.modes.iter().filter(|(k, v)| sn.variables.modes.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
+/// Walks `component.source` from `id` to the authored template node inside a main component,
+/// stopping before an `Instance` steps to the `NodeKind::Component` it instantiates.
+fn authored_source_node(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut cur = id;
+    let mut origin = None;
+    for _ in 0..64 {
+        let Some(n) = doc.get(cur) else { break };
+        let Some(src) = n.component.source else { break };
+        if src == cur {
+            break;
+        }
+        if doc.get(src).is_some_and(|sn| matches!(sn.kind, NodeKind::Component(_))) {
+            break;
+        }
+        origin = Some(src);
+        cur = src;
+    }
+    origin
+}
+
+fn authored_source_guid(cx: &ExportCtx<'_>, id: NodeId) -> Option<(u32, u32)> {
+    let orig = authored_source_node(cx.doc, id)?;
+    if let Some(g) = cx.doc.get(orig).and_then(|n| n.source_id.as_deref()).and_then(|s| s.rsplit(';').next()).and_then(parse_guid_pair) {
+        return Some(g);
+    }
+    cx.node_guids.get(&orig).copied()
+}
+
 fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
+    collect_instance_overrides_for(cx, inst_id, None)
+}
+
+/// [`collect_instance_overrides`] where `own_fields`, when given, replaces the fields the instance itself is read as
+/// overriding (its own entry then states exactly those).
+fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_fields: Option<&BTreeSet<OverrideField>>) -> Vec<V> {
     let mut out = Vec::new();
     let Some(inst) = cx.doc.get(inst_id) else { return out };
     let mut stack: Vec<(NodeId, Vec<(u32, u32)>)> = inst.children.iter().rev().map(|&cid| (cid, Vec::new())).collect();
@@ -2096,8 +2159,10 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
         let Some(n) = cx.doc.get(cid) else { continue };
         let own = cid == inst_id;
         if !own {
-            let step_g =
-                n.component.source.and_then(|s| cx.node_guids.get(&s).copied()).or_else(|| cx.node_guids.get(&cid).copied()).unwrap_or((1, cid.0 as u32));
+            let step_g = authored_source_guid(cx, cid)
+                .or_else(|| n.source_id.as_deref().and_then(|s| s.rsplit(';').next()).and_then(parse_guid_pair))
+                .or_else(|| cx.node_guids.get(&cid).copied())
+                .unwrap_or((1, cid.0 as u32));
             path.push(step_g);
         }
 
@@ -2147,7 +2212,11 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
 
         // The instance's own bindings, override level and detached id are fields of its node change already, so
         // only a flagged field makes an entry for it; they are left out of it below.
-        if !n.component.overrides.is_empty()
+        let ovs = match own_fields {
+            Some(fields) if own => fields,
+            _ => &n.component.overrides,
+        };
+        if !ovs.is_empty()
             || (!own
                 && (has_fill_var
                     || has_stroke_var
@@ -2169,7 +2238,6 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
                 ov.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
             }
 
-            let ovs = &n.component.overrides;
             if ovs.contains(&OverrideField::Name) {
                 ov.push(("name", V::String(n.name.clone())));
             }

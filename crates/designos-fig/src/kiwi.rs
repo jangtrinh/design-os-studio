@@ -1013,7 +1013,7 @@ fn guid_struct_kv(session: u32, local: u32) -> KiwiValue {
     KiwiValue::Struct(vec![("sessionID".into(), KiwiValue::Uint(session)), ("localID".into(), KiwiValue::Uint(local))])
 }
 
-fn decode_hex_bytes(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_hex_bytes(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }

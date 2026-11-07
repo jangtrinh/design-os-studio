@@ -680,6 +680,12 @@ struct Overrides {
     set: Vec<OverrideEntry>,
     derived: Vec<OverrideEntry>,
     fast_derived: Vec<crate::fig::FastDerivedEntry>,
+    /// The entries of `symbolOverrides` as the file states them (`_keptOverrides`, text only a `.fig` writer reads).
+    /// Present only for files large enough to defer pages; it goes with the instance's overrides once they are applied.
+    kept: Option<Box<str>>,
+    /// The keys the instance's own entry carries in the file (`_keptOwnKeys`), which name the fields it overrides on the
+    /// instance itself (see [`crate::own_entry_keys`]). Present with `kept`.
+    own_keys: Vec<Box<str>>,
 }
 
 #[derive(Debug)]
@@ -699,6 +705,10 @@ fn parse_override_entries(v: Option<&Value>) -> Vec<OverrideEntry> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn own_keys_of(v: Option<&Value>) -> Vec<Box<str>> {
+    v.and_then(Value::as_array).map(|a| a.iter().filter_map(|k| k.as_str().map(Box::from)).collect()).unwrap_or_default()
 }
 
 fn take_override_entries(v: Option<&mut Value>) -> Vec<OverrideEntry> {
@@ -1152,8 +1162,19 @@ impl<'a> Ctx<'a> {
                 }
             }
             let fast_derived = fstr(&v, "id").and_then(|sid| self.fast_derived_map.as_deref_mut().and_then(|m| m.remove(sid))).unwrap_or_default();
-            let ov = Overrides { set: take_override_entries(v.get_mut("_overrides")), derived: take_override_entries(v.get_mut("_derived")), fast_derived };
-            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() {
+            let kept = match v.get_mut("_keptOverrides").map(std::mem::take) {
+                Some(Value::String(t)) if !t.is_empty() => Some(t.into_boxed_str()),
+                _ => None,
+            };
+            let own_keys = own_keys_of(v.get("_keptOwnKeys"));
+            let ov = Overrides {
+                set: take_override_entries(v.get_mut("_overrides")),
+                derived: take_override_entries(v.get_mut("_derived")),
+                fast_derived,
+                kept,
+                own_keys,
+            };
+            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() || ov.kept.is_some() {
                 self.overrides.insert(id, ov);
             }
         }
@@ -1260,8 +1281,16 @@ impl<'a> Ctx<'a> {
                 }
             }
             let fast_derived = fstr(v, "id").and_then(|sid| self.fast_derived_map.as_deref_mut().and_then(|m| m.remove(sid))).unwrap_or_default();
-            let ov = Overrides { set: parse_override_entries(v.get("_overrides")), derived: parse_override_entries(v.get("_derived")), fast_derived };
-            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() {
+            let kept = v.get("_keptOverrides").and_then(Value::as_str).filter(|t| !t.is_empty()).map(Box::from);
+            let own_keys = own_keys_of(v.get("_keptOwnKeys"));
+            let ov = Overrides {
+                set: parse_override_entries(v.get("_overrides")),
+                derived: parse_override_entries(v.get("_derived")),
+                fast_derived,
+                kept,
+                own_keys,
+            };
+            if !ov.set.is_empty() || !ov.derived.is_empty() || !ov.fast_derived.is_empty() || ov.kept.is_some() {
                 self.overrides.insert(id, ov);
             }
         }
@@ -1947,6 +1976,39 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+        let mut self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>> = HashMap::new();
+        for &inst in pending_by_page.values().flatten() {
+            let digests = self.flag_pending_self_overrides(inst);
+            if !digests.is_empty() {
+                self_digests.insert(inst, digests);
+            }
+        }
+        let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        let mut instance_fingerprints = HashMap::new();
+        let mut swap_mains_of: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        for &inst in pending_by_page.values().flatten() {
+            if self.overrides.get(&inst).is_none_or(|o| o.fast_derived.is_empty()) {
+                continue;
+            }
+            if let Some(&main) = targets.get(&inst) {
+                let swaps = self.record_swap_targets(inst);
+                let mains = crate::component_fingerprint::instance_mains(&self.doc, inst, main, &swaps);
+                instance_fingerprints.insert(inst, fingerprints.of_mains(&self.doc, &mains));
+                swap_mains_of.insert(inst, swaps);
+            }
+        }
+        drop(fingerprints);
+        let mut derived_outlines: HashMap<usize, std::sync::Arc<[u8]>> = HashMap::new();
+        for inst in pending_by_page.values().flatten() {
+            let Some(ov) = self.overrides.get(inst) else { continue };
+            for d in &ov.fast_derived {
+                for &(idx, odd) in d.fill_geometry.iter().chain(d.stroke_geometry.iter()).flatten() {
+                    if let (std::collections::hash_map::Entry::Vacant(slot), Some(path)) = (derived_outlines.entry(idx), self.blob_cache.get(&(idx, odd))) {
+                        slot.insert(crate::fig_export::path_to_commands_blob(path).into());
+                    }
+                }
+            }
+        }
         let hydrator = DeferredFigHydrator {
             pending_by_page,
             hydrated_pages,
@@ -1970,8 +2032,47 @@ impl<'a> Ctx<'a> {
             budget_exhausted: self.budget_exhausted,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
+            instance_fingerprints,
+            derived_outlines,
+            swap_mains_of,
+            self_digests,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
+    }
+
+    /// Flags on the still childless instance `inst` the fields its file record overrides on the instance itself (the
+    /// entry that names its main), as opening its page would, so that syncing a main component leaves them alone. Returns
+    /// the digests of the instance's overridden fields as they are now (see [`crate::instance_self_digest`]).
+    fn flag_pending_self_overrides(&mut self, inst: NodeId) -> BTreeMap<OverrideField, u64> {
+        let mut flagged: Vec<OverrideField> = Vec::new();
+        if let Some(ov) = self.overrides.get(&inst) {
+            // A field a save can restate is flagged by the keys the file's own entry carries, not by what the loader made
+            // of them: it folds, renames and drops some (a style link without paints, for one).
+            flagged.extend(ov.own_keys.iter().filter_map(|k| crate::own_entry_keys::field_stated_by(k)));
+            // The other fields (layout, text) are only kept from syncing; nothing restates them.
+            let mut no_maps = HashMap::new();
+            for e in ov.set.iter().filter(|e| e.path.len() <= 1) {
+                if self.resolve_path_cached(inst, &e.path, &mut no_maps) != Some(inst) {
+                    continue;
+                }
+                if let Some(obj) = e.set.as_object() {
+                    flagged.extend(obj.keys().filter_map(|k| override_field(k, false)).filter(|f| !crate::instance_self_digest::SELF_FIELDS.contains(f)));
+                }
+            }
+        }
+        // The raw keys are spent once the fields are flagged; the hydrator keeps the rest of the record.
+        if let Some(ov) = self.overrides.get_mut(&inst) {
+            ov.own_keys = Vec::new();
+        }
+        let holds_derived = self.overrides.get(&inst).is_some_and(|o| !o.fast_derived.is_empty());
+        let Some(node) = self.doc.get_mut(inst) else { return BTreeMap::new() };
+        node.component.overrides.extend(flagged);
+        let mut digests = crate::instance_self_digest::digests(node);
+        // The derived data of the instance was computed for the size it has now, flagged or not.
+        if holds_derived {
+            digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
+        }
+        digests
     }
 
     /// Instances of components defined in other files (`remote: true` in the
@@ -2323,6 +2424,24 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+    }
+
+    /// Components the file's record for `inst` swaps nested instances to.
+    fn record_swap_targets(&self, inst: NodeId) -> Vec<NodeId> {
+        let mut out: Vec<NodeId> = Vec::new();
+        if let Some(ov) = self.overrides.get(&inst) {
+            for e in &ov.set {
+                out.extend(fstr(&e.set, "componentId").and_then(|c| self.ids.get(c)).copied());
+                if let Some(props) = e.set.get("componentProperties").and_then(Value::as_object) {
+                    let swapped = props.values().filter(|p| fstr(p, "type") == Some("INSTANCE_SWAP")).filter_map(|p| p.get("value").and_then(Value::as_str));
+                    out.extend(swapped.filter_map(|c| self.ids.get(c)).copied());
+                }
+            }
+        }
+        out.retain(|t| matches!(self.doc.get(*t).map(|n| &n.kind), Some(NodeKind::Component(_))));
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// Components the instance's property values and overrides may swap a nested instance to (a superset is
@@ -3581,6 +3700,15 @@ struct DeferredFigHydrator {
     budget_exhausted: bool,
     unexpanded_instances: BTreeSet<NodeId>,
     last_error: Option<String>,
+    /// Instance -> the fingerprint, when the file was opened, of every main its derived data was computed against, for
+    /// the instances that still have derived data here (see [`crate::component_fingerprint`]).
+    instance_fingerprints: HashMap<NodeId, u64>,
+    /// Blob index -> the bytes of the outline, for the outlines the derived data of the held instances names.
+    derived_outlines: HashMap<usize, std::sync::Arc<[u8]>>,
+    /// Instance -> the mains its file record swaps nested instances to (part of its fingerprint).
+    swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
+    /// Instance -> digest of each field it overrides on itself, as the file was opened.
+    self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -3748,6 +3876,38 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn take_last_error(&mut self) -> Option<String> {
         self.last_error.take()
+    }
+
+    fn pending_instance_overrides(&self, instance: NodeId) -> Option<String> {
+        self.overrides.get(&instance)?.kept.as_deref().map(String::from)
+    }
+
+    fn pending_instance_derived(&self, instance: NodeId) -> Option<designos_doc::PendingDerived> {
+        let derived = &self.overrides.get(&instance)?.fast_derived;
+        let fingerprint = *self.instance_fingerprints.get(&instance)?;
+        let swap_mains = self.swap_mains_of.get(&instance).cloned().unwrap_or_default();
+        let outlines = |list: &Option<Vec<(usize, bool)>>| -> Vec<designos_doc::PendingOutline> {
+            list.iter()
+                .flatten()
+                .filter_map(|&(idx, even_odd)| Some(designos_doc::PendingOutline { id: idx as u64, even_odd, bytes: self.derived_outlines.get(&idx)?.clone() }))
+                .collect()
+        };
+        let entries: Vec<designos_doc::PendingDerivedEntry> = derived
+            .iter()
+            .map(|d| designos_doc::PendingDerivedEntry {
+                path: d.path.clone(),
+                size: d.size.map(|s| [s.x, s.y]),
+                transform: d.transform.map(|t| [t.a, t.b, t.c, t.d, t.tx, t.ty]),
+                fill: outlines(&d.fill_geometry),
+                stroke: outlines(&d.stroke_geometry),
+            })
+            .filter(|e| e.size.is_some() || e.transform.is_some() || !e.fill.is_empty() || !e.stroke.is_empty())
+            .collect();
+        (!entries.is_empty()).then_some(designos_doc::PendingDerived { fingerprint, entries, swap_mains })
+    }
+
+    fn pending_instance_self_digests(&self, instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
+        self.self_digests.get(&instance).cloned()
     }
 }
 
@@ -4785,6 +4945,10 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
+            instance_fingerprints: HashMap::new(),
+            derived_outlines: HashMap::new(),
+            swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -4825,6 +4989,10 @@ mod expand_depth_tests {
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
             last_error: None,
+            instance_fingerprints: HashMap::new(),
+            derived_outlines: HashMap::new(),
+            swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));
