@@ -1219,7 +1219,16 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
 
     // ---- Typography
-    if let NodeKind::Text(t) = &n0.kind {
+    // Text-bearing nodes (for example Sticky notes) share the Typography controls. Prefer a
+    // regular Text node when one is selected so alignment/list previews retain their existing
+    // semantics, but do not let selection order hide the controls for a mixed selection.
+    let text_node = if is_text {
+        Some(n0.clone())
+    } else {
+        sel.iter().filter_map(|id| app.doc.get(*id).map(|n| resolve_node(&app.doc, n).into_owned())).find(|n| matches!(n.kind, NodeKind::Text(_)))
+    };
+    if let Some(text_node) = &text_node {
+        let Some(t) = text_node.kind.any_text() else { return };
         section_sep(ui, pane, false);
         title(ui, pane, "Typography", None, false);
         super::typography::section(app, ui, pane, sel, t);
@@ -1487,7 +1496,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
 
     // ---- Fill
-    if matches!(n0.kind, NodeKind::Text(_)) {
+    if text_node.is_some() {
         // Text colour lives in the text style, not in `Node::fills`.
         section_sep(ui, pane, false);
         title(ui, pane, "Fill", None, false);
