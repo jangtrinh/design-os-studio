@@ -2115,7 +2115,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         p_mut.children.insert(target_idx, root_id);
                     }
                 }
-                relayout_for_node(&mut trial, parent);
+                relayout_containers(&mut trial, &[parent]);
                 relayout_for_node(&mut trial, root_id);
 
                 let mut nodes = Vec::new();
@@ -2157,7 +2157,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 prev_node = Some(root_id);
                 created_roots.push(CreatedRootRecord { alias: a.alias.clone(), root_id, created_ids: subtree_ids });
                 collected_cmds.push(Command::Insert { parent, index: target_idx, nodes });
-                relayout_targets.push(parent);
+                container_targets.push(parent);
                 relayout_targets.push(root_id);
                 let before_bounds = node_page_bounds(&trial, root_id);
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: root_id, before_bounds });
