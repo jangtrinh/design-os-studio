@@ -1760,19 +1760,6 @@
       ]
     },
     {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        1048.0,
-        88.0,
-        4.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
       "region": "tab_bar",
       "rect": [
         92.0,
