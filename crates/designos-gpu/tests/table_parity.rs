@@ -49,6 +49,19 @@ fn insert_table(t: &mut T, rows: usize, cols: usize, origin: Vec2, merged: bool,
     table_id
 }
 
+/// Puts `entries` throwaway lowered children into the lowering registry of this thread by lowering
+/// loose cells through the public entry point (cells never clear the registry themselves). Call it
+/// on a thread whose registry is still empty: that is what lands the registry one below its limit.
+fn fill_registry(entries: usize) {
+    let doc = Document::new("registry filler");
+    let track = TrackId { session: 0, local: 1 };
+    for i in 0..entries as u64 {
+        let mut n = Node::new(NodeId(1_000_000 + i), NodeKind::TableCell(TableCellProps { row: track, col: track, text: default_cell_text("x") }));
+        n.size = Vec2::new(100.0, 40.0);
+        board::lower(&doc, &n).expect("a cell lowers");
+    }
+}
+
 fn scene() -> T {
     let mut t = T::new();
     insert_table(&mut t, 3, 3, Vec2::new(20.0, 20.0), false, &[(0, "Tên"), (1, "Số lượng"), (4, "Việt Nam, những người bạn đồng hành thân thiết nhất")]);
@@ -72,24 +85,22 @@ fn tables_match_the_cpu_reference() {
     }
 }
 
+/// The GPU compile on its own meets a registry one below its limit: the grid must still be compiled.
+/// (In the pixel test above the CPU render runs first and its table lowering clears the registry.)
 #[test]
-fn grid_survives_a_registry_clear_on_the_gpu_path() {
-    let Some(mut g) = gpu() else { return };
+fn gpu_compile_keeps_the_grid_near_the_registry_limit() {
     let mut t = T::new();
-    let table = insert_table(&mut t, 3, 3, Vec2::new(20.0, 20.0), false, &[(0, "a"), (1, "b"), (2, "c"), (3, "d"), (4, "e"), (5, "f")]);
-    let _ = table;
-    board::fill_registry_for_tests(49_999);
-    let c = compare(&mut g, "table_registry_clear", &t.doc, t.page, Viewport::default(), (520, 160), 8);
-    // a 1 px line centred on an integer coordinate covers half of two pixels: the darker one is the line
-    let darkest = |pm: &designos_render::tiny_skia::Pixmap, x: u32, y: u32, dx: u32, dy: u32| {
-        (0..2).map(|k| pm.pixel(x - k * dx, y - k * dy).unwrap().red()).min().unwrap()
-    };
-    for (x, y, dx, dy) in [(180, 40, 1, 0), (340, 40, 1, 0), (100, 64, 0, 1), (100, 108, 0, 1)] {
-        for (name, pm) in [("cpu", &c.cpu), ("gpu", &c.gpu)] {
-            let d = darkest(pm, x, y, dx, dy);
-            assert!(d < 0xF4 - 60, "{name} grid line at ({x}, {y}): red {d}");
-        }
-    }
+    let cells: Vec<(usize, &str)> = (0..9).map(|i| (i, "x")).collect();
+    insert_table(&mut t, 3, 3, Vec2::new(20.0, 20.0), false, &cells);
+    let vp = Viewport::default();
+    let empty_page = T::new();
+    let blank = SceneCompiler::new().compile(&empty_page.doc, empty_page.page, 1, &vp, (520, 160)).stats();
+    // the near-limit compile goes first: the filler needs an empty registry to land one below the limit
+    fill_registry(49_999);
+    let near = SceneCompiler::new().compile(&t.doc, t.page, 1, &vp, (520, 160)).stats();
+    let fresh = SceneCompiler::new().compile(&t.doc, t.page, 1, &vp, (520, 160)).stats();
+    assert!(fresh.triangles > blank.triangles, "the table draws: {} vs blank {}", fresh.triangles, blank.triangles);
+    assert_eq!(near.triangles, fresh.triangles, "grid lost on the GPU path near the registry limit");
 }
 
 /// A page of blurred rectangles opens many programs; a table never adds one.
@@ -117,6 +128,9 @@ fn a_large_table_opens_no_offscreen_program() {
         }
     }
     Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
-    let with_table = interactive().compile(&t.doc, t.page, 1, &vp, (1000, 1000)).programs.len();
+    let compiled = interactive().compile(&t.doc, t.page, 1, &vp, (1000, 1000));
+    let blank_draws = interactive().compile(&T::new().doc, T::new().page, 1, &vp, (1000, 1000)).stats().draws;
+    assert!(compiled.stats().draws > blank_draws, "the table is drawn: {} draws vs blank {blank_draws}", compiled.stats().draws);
+    let with_table = compiled.programs.len();
     assert_eq!(with_table, empty, "a 50x50 table opened {with_table} programs, an empty page {empty}");
 }

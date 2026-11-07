@@ -368,20 +368,6 @@ fn lower_connector(doc: &Document, n: &Node, body: &mut Node, extras: &mut Vec<N
     Some(())
 }
 
-/// Fills the registry with `entries` throwaway nodes, so a test can reach the size at which
-/// [`lower`] forgets old children. Not for production code.
-#[doc(hidden)]
-pub fn fill_registry_for_tests(entries: usize) {
-    SYNTH.with(|s| {
-        let mut s = s.borrow_mut();
-        s.clear();
-        for i in 0..entries as u64 {
-            let id = NodeId(SYNTH_BIT | ((1 << 40) + i) << 4);
-            s.insert(id, Rc::new(Node::new(id, NodeKind::Group)));
-        }
-    });
-}
-
 /// A table cell: its fills as a plain rectangle, and its text inside the cell minus the padding.
 /// The text wraps at the cell width and never shrinks to fit.
 fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
@@ -392,7 +378,7 @@ fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
     body.stroke.weight = 0.0;
     body.stroke.side_weights = None;
     let (px, py) = TABLE_CELL_PADDING;
-    let bx = Rect::new(px, py, (n.size.x - 2.0 * px).max(0.0), (n.size.y - 2.0 * py).max(0.0));
+    let bx = Rect::new(px, py, (n.size.x - 2.0 * px).max(1.0), (n.size.y - 2.0 * py).max(1.0));
     // wraps at the cell width, the width the table layout measures with
     let mut props = c.text.clone();
     props.auto_resize = TextAutoResize::Height;
