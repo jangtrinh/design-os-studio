@@ -369,7 +369,10 @@ fn a_failed_reveal_names_the_folder_in_a_short_message() {
 #[test]
 fn a_document_named_after_a_windows_device_exports_to_a_real_file() {
     let dir = scratch("device-name");
-    for (stem, file) in [("NUL", "_NUL.fig"), ("con", "_con.fig"), ("Com1", "_Com1.fig")] {
+    // Only Windows renames a device name; macOS and Linux keep the name the user gave.
+    let prefix = if cfg!(windows) { "_" } else { "" };
+    for stem in ["NUL", "con", "Com1"] {
+        let file = format!("{prefix}{stem}.fig");
         let done = export_new(&doc_named(stem), &dir, stem).unwrap();
         assert_eq!(done.path, dir.join(file), "{stem} must not name the device");
         assert!(done.path.is_file());
