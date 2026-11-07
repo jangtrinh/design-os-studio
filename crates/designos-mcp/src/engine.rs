@@ -2857,7 +2857,11 @@ mod tests {
         if let Some(t) = n.kind.any_text_mut() {
             t.style.set_font_weight(700);
             // A bold range reports too, without a stored bit.
-            t.runs.push(designos_doc::TextRun { start: 0, end: 1, style: designos_doc::TextStyle { decoration: designos_doc::TextDecoration::Underline, ..t.style.clone() } });
+            t.runs.push(designos_doc::TextRun {
+                start: 0,
+                end: 1,
+                style: designos_doc::TextStyle { decoration: designos_doc::TextDecoration::Underline, ..t.style.clone() },
+            });
         }
         n.text_style_overrides.insert(designos_doc::OwnedField::Weight);
         let node = e.call("designos_get_node", json!({"node_id":id})).unwrap();
@@ -3135,9 +3139,8 @@ mod tests {
         let read = e.call("designos_get_node", json!({"node_id": id})).unwrap();
         assert_eq!(read["node"]["text_style_overrides"], json!(["Weight"]));
 
-        let big = e
-            .call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "text", "text": "Hi", "text_style": "Body", "font_size": 24}}))
-            .unwrap();
+        let big =
+            e.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "text", "text": "Hi", "text_style": "Body", "font_size": 24}})).unwrap();
         assert!(big["node"]["style_refs"].get("text").is_none(), "a size detaches the style");
         assert!(big["warnings"].as_array().unwrap().iter().any(|w| w["code"] == "STYLE_DETACHED_BY_SPEC"));
         assert!(big["node"].get("text_style_overrides").is_none());
