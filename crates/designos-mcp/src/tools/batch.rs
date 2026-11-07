@@ -1406,8 +1406,11 @@ pub(crate) fn relayout_seeds(doc: &mut Document, leaves: &[NodeId], containers: 
     let mut seeds = Vec::with_capacity(leaves.len() * 2 + containers.len());
     for &id in leaves {
         seeds.push(id);
-        if let Some(parent) = doc.get(id).and_then(|n| n.parent) {
-            seeds.push(parent);
+        let is_auto_layout = doc.get(id).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some();
+        if !is_auto_layout {
+            if let Some(parent) = doc.get(id).and_then(|n| n.parent) {
+                seeds.push(parent);
+            }
         }
     }
     seeds.extend_from_slice(containers);

@@ -68,6 +68,54 @@ fn deleting_a_layer_inside_a_fixed_size_frame_moves_nothing_outside_it() {
 }
 
 #[test]
+fn changing_bound_padding_on_a_fixed_size_frame_moves_nothing_outside_it() {
+    let Holder { mut e, holder, tail, .. } = fixed_holder();
+    e.call(
+        "designos_apply_batch",
+        json!({ "ops": [{ "op": "set_variables",
+            "upsert_collections": [{ "id": "space", "name": "Space", "modes": [{ "id": "m1", "name": "One" }], "default_mode": "m1" }],
+            "upsert_variables": [{ "id": "pad", "name": "pad", "collection": "space", "kind": "number", "values": { "m1": 0 } }] }] }),
+    )
+    .unwrap();
+    e.doc.get_mut(holder).unwrap().variables.bindings.insert("paddingLeft".into(), "pad".into());
+    let before = geometry(&e.doc);
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "set_variables", "upsert_variables": [{ "id": "pad", "values": { "m1": 20 } }] }] })).unwrap();
+
+    assert_eq!(moved_outside(&e, &before, holder), Vec::<u64>::new());
+    assert_eq!(ty(&e, tail), 200.0, "the tail keeps the place the document stored");
+}
+
+#[test]
+fn changing_bound_inset_stroke_on_a_fixed_size_frame_moves_nothing_outside_it() {
+    let Holder { mut e, holder, tail, .. } = fixed_holder();
+    {
+        let node = e.doc.get_mut(holder).unwrap();
+        node.stroke.paints = vec![designos_doc::Paint::solid(designos_doc::Color::BLACK)];
+        node.stroke.weight = 2.0;
+        node.stroke.align = designos_doc::StrokeAlign::Inside;
+        node.variables.bindings.insert("strokeWeight".into(), "border".into());
+        if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+            al.layout_version = 0;
+            al.stroke_included = true;
+        }
+    }
+    e.call(
+        "designos_apply_batch",
+        json!({ "ops": [{ "op": "set_variables",
+            "upsert_collections": [{ "id": "paint", "name": "Paint", "modes": [{ "id": "m1", "name": "One" }], "default_mode": "m1" }],
+            "upsert_variables": [{ "id": "border", "name": "border", "collection": "paint", "kind": "number", "values": { "m1": 2 } }] }] }),
+    )
+    .unwrap();
+    let before = geometry(&e.doc);
+
+    e.call("designos_apply_batch", json!({ "ops": [{ "op": "set_variables", "upsert_variables": [{ "id": "border", "values": { "m1": 10 } }] }] })).unwrap();
+
+    assert_eq!(moved_outside(&e, &before, holder), Vec::<u64>::new());
+    assert_eq!(ty(&e, tail), 200.0, "the tail keeps the place the document stored");
+}
+
+#[test]
 fn deleting_a_layer_inside_a_hug_frame_shrinks_it_and_re_solves_the_frame_above() {
     let Holder { mut e, holder, b, tail, .. } =
         holder_with(auto_layout(LayoutDirection::Horizontal, Sizing::Hug, Sizing::Hug, LayoutAlign::Start, 0.0), Rect::new(0.0, 0.0, 120.0, 56.0));
