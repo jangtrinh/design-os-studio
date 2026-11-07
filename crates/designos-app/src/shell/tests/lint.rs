@@ -198,12 +198,13 @@ fn design_os_gates_audit_all_studio_screens_zero_overflow_zero_purple_and_valid_
                 });
             }
         }
-        let bar = crate::panels::toolbar::toolbar_rect(s.ctx.content_rect());
+        let extra = crate::panels::toolbar::bar_extra_settled(&s.shell.app, s.ctx.content_rect());
+        let bar = crate::panels::toolbar::toolbar_rect_x(s.ctx.content_rect(), extra);
         if bar.height() < 24.0 {
             all.push(lint::Finding { what: "[editor chrome] bottom toolbar below 24px height floor".into(), detail: format!("rect {:?}", bar) });
         }
         for gi in 0..crate::canvas::tools::GROUPS.len() {
-            let gb = crate::panels::toolbar::group_button_rect(s.ctx.content_rect(), gi);
+            let gb = crate::panels::toolbar::group_button_rect_x(s.ctx.content_rect(), gi, extra);
             if gb.width() < 24.0 || gb.height() < 24.0 {
                 all.push(lint::Finding { what: format!("[editor chrome] toolbar group button {gi} below 24x24px floor"), detail: format!("rect {:?}", gb) });
             }

@@ -372,6 +372,20 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         'std::env::var_os("DESIGNOS_SESSION_DIR").or_else(|| Some("/tmp/designos-live-doc.json".into()))',
     ),
     (
+        "50. a planted FigJam label in the Whiteboard toolbar group",
+        "Z18",
+        "panels/toolbar_whiteboard.rs",
+        '.on_hover_text("Whiteboard   W")',
+        '.on_hover_text("FigJam   W")',
+    ),
+    (
+        "51. a planted lowercase figjam literal in a new panel",
+        "Z18",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const KIND: &str = "figjam";',
+    ),
+    (
         "49. obfuscated concat!(\"/tmp/designos-\", \"live-agent-out.spec.json\") in terminal.rs",
         "Z17",
         "terminal.rs",

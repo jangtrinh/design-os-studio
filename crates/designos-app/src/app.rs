@@ -90,6 +90,8 @@ pub enum MenuKind {
     FileName,
     /// The "Actions…" command palette (Ctrl+K).
     Palette,
+    /// The `...` menu of the Whiteboard group's row, holding the tools that did not fit.
+    WhiteboardMore,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -205,6 +207,8 @@ pub struct App {
     pub tool: Tool,
     /// Last picked tool index per toolbar group.
     pub group_pick: [usize; GROUPS.len()],
+    /// The Design toolbar's Whiteboard group: expanded state, its saved setting and its overflow.
+    pub wb_group: crate::panels::toolbar_whiteboard::WbGroup,
     pub view: View,
     pub canvas_rect: egui::Rect,
     pub canvas: CanvasState,
@@ -321,6 +325,7 @@ impl App {
             hover_layer: None,
             tool: Tool::Move,
             group_pick: [0; GROUPS.len()],
+            wb_group: Default::default(),
             view: View::default(),
             canvas_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
             canvas: CanvasState::default(),

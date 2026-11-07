@@ -7,7 +7,7 @@ Every visible button, input bar, scrollbar, tab, menu item, and agent CLI runtim
 `design:os studio` (`crates/designos-app/src/`) must execute real state mutation, real OS
 clipboard/filesystem I/O, or real CLI subprocess execution.
 
-Verifies 17 hard invariants (`Z01..Z17`):
+Verifies 18 hard invariants (`Z01..Z18`):
   - Z01: `terminal.rs` has `runtime_binary_available` and real CLI invocation
          (`claude -p`, `codex exec`, `agy -p`, `grok -p`) in `submit_chat_prompt`.
   - Z02: `terminal.rs` `set_active_runtime` mutates `tab.preset` (not just renaming `tab.title`)
@@ -58,12 +58,16 @@ this gate fails.
          a new violation fails, a baseline entry that no longer occurs fails as "fixed, remove from baseline".
          `--write-ux-baseline` only shrinks (it refuses to add or raise an entry); `--allow-grow` is a
          bootstrap escape for a scanner coverage change and needs reviewer sign-off.
+  - Z18: no "FigJam" (any case) in the UI strings or asset file names of new Studio code. The product word is
+         "Board". Frozen legacy sites in `home/mod.rs` and `tabs.rs` are counted in `FIGJAM_LEGACY_ALLOWED`: a new
+         occurrence fails, and a count that fell must be lowered ("fixed, shrink the baseline"). Import code
+         (`designos-fig`) is outside this tree.
   - Z12: `widgets/picker.rs` `Mode::Image` creates real `Paint::Image` / `app.doc.images`
          entries, and `panels/mod.rs::scrollbar` + `variables/view.rs::hscrollbar` support
          `Sense::click_and_drag()`.
 
 Exit code:
-  0 when 17/17 invariants pass, 1 if any invariant fails.
+  0 when 18/18 invariants pass, 1 if any invariant fails.
 """
 
 from __future__ import annotations
@@ -973,6 +977,41 @@ def check_z17(sources: "SourceSet") -> Tuple[bool, str]:
     return False, f"global `/tmp/designos-live-` or `designos-live-selection.spec.json` found in shipped code: {hits}"
 
 
+FIGJAM_RX = re.compile(r"figjam", re.IGNORECASE)
+# Shipped sites that predate the rule, frozen at today's count (file -> occurrences in shipped code).
+FIGJAM_LEGACY_ALLOWED: Dict[str, int] = {"home/mod.rs": 8, "tabs.rs": 1}
+
+
+def _is_test_source(rel: str) -> bool:
+    name = rel.rsplit("/", 1)[-1]
+    return name == "tests.rs" or name.endswith("_tests.rs") or "/tests/" in f"/{rel}"
+
+
+def figjam_asset_paths() -> List[str]:
+    """Asset files of the app crate (outside `src`) whose name says FigJam."""
+    app_root = APP_SRC.parent
+    return sorted(
+        p.relative_to(app_root).as_posix()
+        for p in app_root.rglob("*")
+        if p.is_file() and FIGJAM_RX.search(p.name) and APP_SRC not in p.parents and "target" not in p.relative_to(app_root).parts
+    )
+
+
+def check_z18(sources: "SourceSet", asset_paths: Optional[List[str]] = None) -> Tuple[bool, str]:
+    counts = {
+        rel: len(FIGJAM_RX.findall(sources.code(rel)))
+        for rel in sorted(sources.files)
+        if not _is_test_source(rel)
+    }
+    counts = {rel: n for rel, n in counts.items() if n}
+    grown = {rel: (n, FIGJAM_LEGACY_ALLOWED.get(rel, 0)) for rel, n in counts.items() if n > FIGJAM_LEGACY_ALLOWED.get(rel, 0)}
+    shrunk = {rel: (counts.get(rel, 0), n) for rel, n in FIGJAM_LEGACY_ALLOWED.items() if counts.get(rel, 0) < n}
+    assets = figjam_asset_paths() if asset_paths is None else asset_paths
+    if not grown and not shrunk and not assets:
+        return True, f"no new `FigJam` in shipped UI strings or asset names; frozen legacy sites {FIGJAM_LEGACY_ALLOWED}"
+    return False, f"new FigJam strings (file: found, allowed) {grown}; fixed legacy sites, lower FIGJAM_LEGACY_ALLOWED {shrunk}; FigJam-named assets {assets}"
+
+
 def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]]:
     sources = sources or SourceSet.from_disk()
     read_src = sources.raw
@@ -1008,6 +1047,7 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
         ("Z15", "terminal.rs + cmdk.rs", "No fake template synthesis or canned Executed via transcript in Agents panel; synthesize_spec_from_prompt stays private to cmdk.rs", lambda: check_z15(sources)),
         ("Z16", "registered label helpers in designos-app/src", "UX writing: action labels at registered button/menu helpers and label fns <=3 words, no count in them (ratchet vs ux_writing_baseline.json)", lambda: check_z16(sources)),
         ("Z17", "terminal.rs + mcp/server.rs", "No global /tmp/designos-live-* or designos-live-selection.spec.json fallback in shipped code", lambda: check_z17(sources)),
+        ("Z18", "designos-app/src + designos-mcp/src", "No new FigJam word in shipped UI strings or asset names (legacy sites frozen in FIGJAM_LEGACY_ALLOWED)", lambda: check_z18(sources)),
     ]
 
     results: List[Dict[str, Any]] = []

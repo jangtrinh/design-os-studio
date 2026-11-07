@@ -19,6 +19,7 @@ pub mod style_edit;
 mod style_edit_grid_rows;
 pub mod style_picker;
 pub mod toolbar;
+pub mod toolbar_whiteboard;
 pub mod typography;
 pub mod var_bind;
 pub mod vertex;

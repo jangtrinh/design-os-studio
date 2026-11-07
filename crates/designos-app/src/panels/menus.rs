@@ -685,7 +685,7 @@ pub fn preset_menu(ctx: &Context, app: &mut App, spec: &str, screen: Rect) -> bo
                 _ => 4,
             };
             app.ui.menu = Some(MenuKind::ToolGroup(g));
-            app.ui.menu_anchor = Some(super::toolbar::chevron_rect(screen, g));
+            app.ui.menu_anchor = Some(super::toolbar::chevron_rect_x(screen, g, super::toolbar::bar_extra_settled(app, screen)));
         }
         "palette" => run(app, ctx, Action::OpenPalette),
         "zoom" => {
@@ -878,7 +878,27 @@ pub fn show(app: &mut App, ctx: &Context) {
             let items = to_items(&nodes);
             let h = theme::MENU_PADDING * 2.0 + items.len() as f32 * theme::MENU_ITEM_HEIGHT;
             // Hung off the chevron that opened it; the window rect only stands in when nothing recorded one.
-            let pos = super::toolbar::tool_menu_pos(anchor.unwrap_or_else(|| super::toolbar::chevron_rect(screen, g)), h);
+            let pos = super::toolbar::tool_menu_pos(
+                anchor.unwrap_or_else(|| super::toolbar::chevron_rect_x(screen, g, super::toolbar::bar_extra_settled(app, screen))),
+                h,
+            );
+            match popup_tree(ctx, id, pos, theme::TOOL_MENU_WIDTH, &items, anchor) {
+                TreeResult::Picked(path) => {
+                    app.ui.menu = None;
+                    if let Some(a) = resolve(&nodes, &path) {
+                        run(app, ctx, a);
+                    }
+                }
+                TreeResult::Closed => app.ui.menu = None,
+                TreeResult::Open => {}
+            }
+        }
+        MenuKind::WhiteboardMore => {
+            let nodes: Vec<Node> =
+                app.wb_group.overflow().iter().map(|t| leaf(tool_menu_label(*t), t.shortcut(), Action::Tool(*t)).icon(super::toolbar::tool_icon(*t))).collect();
+            let items = to_items(&nodes);
+            let h = theme::MENU_PADDING * 2.0 + items.len() as f32 * theme::MENU_ITEM_HEIGHT;
+            let pos = super::toolbar::tool_menu_pos(anchor.unwrap_or(Rect::from_min_size(screen.center(), Vec2::splat(theme::TOOL_BUTTON))), h);
             match popup_tree(ctx, id, pos, theme::TOOL_MENU_WIDTH, &items, anchor) {
                 TreeResult::Picked(path) => {
                     app.ui.menu = None;
