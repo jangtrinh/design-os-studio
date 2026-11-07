@@ -2862,33 +2862,6 @@
       ]
     },
     {
-      "region": "overlay:Middle/0",
-      "rect": [
-        240.0,
-        335.0,
-        200.0,
-        1.0
-      ],
-      "sense": [
-        "click",
-        "drag",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Middle/0",
-      "rect": [
-        8.0,
-        380.0,
-        224.0,
-        8.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
       "region": "right_panel",
       "rect": [
         1537.0,
@@ -3482,19 +3455,6 @@
         942.0,
         184.0,
         32.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        1050.0,
-        88.0,
-        2.0
       ],
       "sense": [
         "click",
