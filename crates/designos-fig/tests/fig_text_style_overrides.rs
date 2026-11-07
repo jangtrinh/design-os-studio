@@ -107,6 +107,72 @@ fn the_file_carries_the_overrides_as_flagged_table_entries_and_nothing_studio_on
     assert!(!studio_only, "no Studio-only plugin data for the overrides");
 }
 
+/// One linked layer "Mixed": the layer-wide override `layer` (applied to the base and stored) plus one
+/// range over the first two characters that changes `word` on top of it.
+fn mixed_doc(layer: fn(&mut TextStyle), stored: &[OwnedField], word: fn(&mut TextStyle)) -> Document {
+    let mut doc = linked_doc();
+    let id = by_name(&doc, "Plain").id;
+    let n = doc.get_mut(id).unwrap();
+    n.name = "Mixed".into();
+    let t = n.kind.any_text_mut().unwrap();
+    layer(&mut t.style);
+    let mut run = t.style.clone();
+    word(&mut run);
+    t.runs.push(TextRun { start: 0, end: 2, style: run });
+    for f in stored {
+        n.text_style_overrides.insert(*f);
+    }
+    doc
+}
+
+fn drawn_full(n: &Node) -> Vec<(u16, bool, TextDecoration)> {
+    let t = n.kind.any_text().unwrap();
+    (0..t.content.len())
+        .map(|i| {
+            let s = t.runs.iter().find(|r| r.start <= i && i < r.end).map(|r| &r.style).unwrap_or(&t.style);
+            (s.font_weight, s.italic, s.decoration)
+        })
+        .collect()
+}
+
+fn assert_mixed_round_trip(doc: Document, labels: Vec<&'static str>) {
+    let want = drawn_full(by_name(&doc, "Mixed"));
+    let back = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+    let n = by_name(&back, "Mixed");
+    assert!(n.style_refs.contains_key("text"), "the link stays");
+    assert_eq!(effective(&back, "Mixed"), labels, "same overrides, same count");
+    assert_eq!(drawn_full(n), want, "every character keeps its weight, italic and decoration");
+}
+
+#[test]
+fn a_bold_layer_with_an_underlined_word_keeps_both_through_a_round_trip() {
+    assert_mixed_round_trip(
+        mixed_doc(|s| s.set_font_weight(700), &[OwnedField::Weight], |s| s.decoration = TextDecoration::Underline),
+        vec!["Weight", "Decoration"],
+    );
+}
+
+#[test]
+fn an_underlined_layer_with_a_bold_word_keeps_both_through_a_round_trip() {
+    assert_mixed_round_trip(
+        mixed_doc(|s| s.decoration = TextDecoration::Underline, &[OwnedField::Decoration], |s| s.set_font_weight(700)),
+        vec!["Weight", "Decoration"],
+    );
+}
+
+#[test]
+fn an_unbolded_word_inside_a_bold_layer_stays_regular_through_a_round_trip() {
+    assert_mixed_round_trip(mixed_doc(|s| s.set_font_weight(700), &[OwnedField::Weight], |s| s.set_font_weight(400)), vec!["Weight"]);
+}
+
+#[test]
+fn an_italic_layer_with_an_underlined_word_keeps_both_through_a_round_trip() {
+    assert_mixed_round_trip(
+        mixed_doc(|s| s.italic = true, &[OwnedField::Italic], |s| s.decoration = TextDecoration::Underline),
+        vec!["Italic", "Decoration"],
+    );
+}
+
 #[test]
 fn a_base_value_that_differs_from_the_linked_style_is_stale_not_an_override() {
     let mut doc = linked_doc();

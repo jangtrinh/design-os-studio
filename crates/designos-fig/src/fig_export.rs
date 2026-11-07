@@ -3257,15 +3257,6 @@ struct TableRun<'a> {
 /// overrides: Figma reads the base values of a linked layer from the style, so a layer-wide override has
 /// to travel as a range to survive.
 fn table_runs(tp: &TextProps, link: Option<OwnedFieldSet>) -> Vec<TableRun<'_>> {
-    let mut rows: Vec<TableRun<'_>> = tp
-        .runs
-        .iter()
-        .map(|r| {
-            let diff = designos_doc::text_style_diff(&r.style, &tp.style);
-            let over = link.filter(|_| !diff.is_empty() && !diff.has_non_overridable()).map(|_| diff);
-            TableRun { start: r.start, end: r.end, style: &r.style, over }
-        })
-        .collect();
     let stored = link.unwrap_or_default();
     let mut layer_wide = OwnedFieldSet::EMPTY;
     for f in [OwnedField::Weight, OwnedField::Italic, OwnedField::Decoration] {
@@ -3273,6 +3264,19 @@ fn table_runs(tp: &TextProps, link: Option<OwnedFieldSet>) -> Vec<TableRun<'_>> 
             layer_wide.insert(f);
         }
     }
+    // A range row carries its own difference from the base and the layer-wide overrides, because Figma
+    // reads a linked layer's base values from the style: a row that left them out would lose them.
+    let mut rows: Vec<TableRun<'_>> = tp
+        .runs
+        .iter()
+        .map(|r| {
+            let mut over = designos_doc::text_style_diff(&r.style, &tp.style);
+            let overridable_only = !over.has_non_overridable();
+            over.union(layer_wide);
+            let over = link.filter(|_| overridable_only && !over.is_empty()).map(|_| over);
+            TableRun { start: r.start, end: r.end, style: &r.style, over }
+        })
+        .collect();
     if !layer_wide.is_empty() && !tp.content.is_empty() {
         let len = tp.content.len();
         let mut covered: Vec<(usize, usize)> = tp.runs.iter().map(|r| (r.start.min(len), r.end.min(len))).collect();
