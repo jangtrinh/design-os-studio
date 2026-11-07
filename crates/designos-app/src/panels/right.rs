@@ -49,9 +49,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let share_label_w = widgets::text_width(&p, "Share", &theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold));
     let share_w = (share_label_w + 2.0 * (theme::INSET_CONTROL + theme::INSET_SEGMENT)).round();
     let share_r = Rect::from_min_size(Pos2::new(right - theme::INSET_CONTROL - share_w, btn_top), Vec2::new(share_w, btn_h));
-    let share_resp = widgets::kit::button(ui, share_r, "share-btn", "Share", widgets::kit::Hierarchy::Primary, widgets::kit::Size::Xs, true);
-    crate::widgets::record(ui, "share-button", share_r);
-    crate::widgets::record(ui, "right-top-share", share_r);
+    // Widgets register in screen order (Present, chevron, Share) so Tab follows what the eye sees; the rects come first.
 
     // Present (Button/Tertiary, 32 x 32) and its chevron cell (16 wide visible; the hit box reaches the 8 px gap to Share).
     let cb = Rect::from_min_size(
@@ -71,6 +69,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     if pr.clicked() || cr.clicked() {
         app.start_present();
     }
+    let share_resp = widgets::kit::button(ui, share_r, "share-btn", "Share", widgets::kit::Hierarchy::Primary, widgets::kit::Size::Xs, true);
+    crate::widgets::record(ui, "share-button", share_r);
+    crate::widgets::record(ui, "right-top-share", share_r);
 
     if share_resp.clicked() {
         let doc_name = if app.doc.name.is_empty() { "Untitled" } else { &app.doc.name };
@@ -504,7 +505,75 @@ mod tests {
         }
         assert_eq!(tab.top(), theme::RIGHT_TABS_Y, "the tab strip stays at y 48");
         assert!(tab.top() >= avatar.bottom() + theme::INSET_CONTROL, "the tab strip sits 8 px under the header controls");
-        assert_eq!((theme::RIGHT_TABS_H, theme::RIGHT_ZOOM_W), (24.0, 55.0), "zoom stays 55 x 24 inside the tab strip");
+    }
+
+    /// Runs the header for `frames` frames with `events` on the last one; returns the context, the root id the panel
+    /// draws under, and the app.
+    fn run_header(frames: usize, events: Vec<egui::Event>, ctx: &egui::Context, app: &mut App) -> egui::Id {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0));
+        let panel = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::RIGHT_PANEL_WIDTH, 800.0));
+        let root = std::cell::Cell::new(egui::Id::NULL);
+        for i in 0..frames {
+            let ev = if i + 1 == frames { events.clone() } else { Vec::new() };
+            let raw = egui::RawInput { screen_rect: Some(screen), time: Some(0.05 * (i + 1) as f64), events: ev, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                root.set(ui.id());
+                show(app, ui, panel);
+            });
+        }
+        root.get()
+    }
+
+    fn header_app() -> App {
+        let mut d = Document::new("TestDoc");
+        d.add_page("Page 1");
+        App::new(d)
+    }
+
+    #[test]
+    fn zoom_control_stays_55_by_24_inside_the_tab_strip() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut app = header_app();
+        let root = run_header(3, Vec::new(), &ctx, &mut app);
+        let zoom = ctx.read_response(root.with("zoom")).expect("the zoom control registered").rect;
+        assert_eq!((zoom.width(), zoom.height()), (theme::RIGHT_ZOOM_W, theme::RIGHT_TABS_H), "zoom is 55 x 24, got {zoom:?}");
+        assert_eq!(zoom.top(), theme::RIGHT_TABS_Y);
+    }
+
+    #[test]
+    fn present_chevron_interact_area_is_the_24_px_hit_box() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut app = header_app();
+        let root = run_header(3, Vec::new(), &ctx, &mut app);
+        let area = ctx.read_response(root.with("present-chev")).expect("the chevron registered").rect;
+        let share = ctx.read_response(root.with("share-btn")).expect("share registered").rect;
+        let present = ctx.read_response(root.with("present")).expect("present registered").rect;
+        assert!(area.width() >= theme::TARGET_MIN && area.height() >= theme::RIGHT_BTN_SIZE, "click area {area:?} is below the target floor");
+        assert!(area.left() >= present.right() && area.right() <= share.left(), "click area {area:?} overlaps Present {present:?} or Share {share:?}");
+    }
+
+    #[test]
+    fn tab_moves_through_the_header_in_screen_order() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut app = header_app();
+        let tab =
+            |pressed| egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed, repeat: false, modifiers: egui::Modifiers::NONE };
+        // Frame 1 registers the avatar, frames 2-3 let egui settle; then focus the avatar.
+        let root = run_header(3, Vec::new(), &ctx, &mut app);
+        let ids = [("present", root.with("present")), ("present-chev", root.with("present-chev")), ("share-btn", root.with("share-btn"))];
+        ctx.memory_mut(|m| m.request_focus(root.with("right-top-avatar")));
+        let _ = run_header(2, Vec::new(), &ctx, &mut app);
+        let mut order = Vec::new();
+        for _ in 0..3 {
+            let _ = run_header(1, vec![tab(true), tab(false)], &ctx, &mut app);
+            let _ = run_header(1, Vec::new(), &ctx, &mut app);
+            let focused = ids.iter().find(|(_, id)| ctx.memory(|m| m.has_focus(*id))).map(|(n, _)| *n);
+            order.push(focused.unwrap_or("none"));
+        }
+        assert_eq!(order, ["present", "present-chev", "share-btn"], "Tab follows the screen order after the avatar");
     }
 
     #[test]

@@ -835,10 +835,13 @@ pub fn wcag_contrast_ratio(l1: f32, l2: f32) -> f32 {
 /// Image rows (rotate, tile scale, the seven adjustments) are a full control tall with a 1 px gap; the studio preset buttons
 /// below them keep their own 29 px step.
 const IMAGE_ROW_H: f32 = theme::CONTROL_XS;
-const IMAGE_ROW_STEP: f32 = IMAGE_ROW_H + 1.0;
+/// The gap between two image rows is one hairline.
+const IMAGE_ROW_STEP: f32 = IMAGE_ROW_H + theme::BORDER_WIDTH;
 const IMAGE_PRESET_STEP: f32 = 29.0;
-/// Rows that step by `IMAGE_ROW_STEP` in the tallest layout (Tile scale mode): rotate, tile scale and seven adjustments.
-const IMAGE_STEPPED_ROWS: f32 = 9.0;
+/// Adjustment sliders, in panel order.
+const ADJ_LABELS: [&str; 7] = ["Exposure", "Contrast", "Saturation", "Temperature", "Tint", "Highlights", "Shadows"];
+/// Rows that step by `IMAGE_ROW_STEP` in the tallest layout (Tile scale mode): rotate, tile scale and the adjustments.
+const IMAGE_STEPPED_ROWS: f32 = (2 + ADJ_LABELS.len()) as f32;
 const IMAGE_PANEL_BODY_H: f32 = 468.0 + IMAGE_STEPPED_ROWS * (IMAGE_ROW_STEP - IMAGE_PRESET_STEP);
 const IMAGE_BTN_H: f32 = theme::TARGET_MIN;
 const IMAGE_PRESET_H: f32 = 26.0;
@@ -1238,7 +1241,6 @@ fn show_image_mode(ui: &mut Ui, rect: Rect, y: f32, st: &mut State, paint: &mut 
     }
     iy += IMAGE_HDR_STEP;
 
-    const ADJ_LABELS: [&str; 7] = ["Exposure", "Contrast", "Saturation", "Temperature", "Tint", "Highlights", "Shadows"];
     for (idx, label) in ADJ_LABELS.iter().copied().enumerate() {
         let row_r = Rect::from_min_size(Pos2::new(rect.left() + PAD, iy), Vec2::new(AREA, IMAGE_ROW_H));
         text_on_baseline(ui.painter(), row_r.left(), centered_baseline(row_r, &theme::font_caption()), label, theme::font_caption(), theme::TEXT_SECONDARY);

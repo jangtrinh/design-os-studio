@@ -7847,7 +7847,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -7861,7 +7861,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -7917,7 +7917,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -7987,7 +7987,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8043,7 +8043,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8071,7 +8071,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8099,7 +8099,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8113,7 +8113,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8127,7 +8127,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8155,7 +8155,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8169,7 +8169,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8323,7 +8323,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8351,7 +8351,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8449,7 +8449,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8589,7 +8589,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8617,7 +8617,7 @@
     "anchor_y": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": 2,
+    "min_dh": 4,
     "max_dh": 4,
     "dx": -2,
     "spec": "F",
@@ -8630,7 +8630,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8642,7 +8642,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8654,7 +8654,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8666,7 +8666,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8678,7 +8678,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8690,7 +8690,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8702,7 +8702,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8714,7 +8714,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8726,7 +8726,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8738,7 +8738,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8750,7 +8750,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8762,7 +8762,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8774,7 +8774,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8786,7 +8786,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8798,7 +8798,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8810,7 +8810,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8822,7 +8822,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8834,7 +8834,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8846,7 +8846,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8858,7 +8858,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8870,7 +8870,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8882,7 +8882,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8894,7 +8894,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8906,7 +8906,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8918,7 +8918,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8930,7 +8930,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8942,7 +8942,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8954,7 +8954,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8966,7 +8966,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8978,7 +8978,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -8990,7 +8990,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9002,7 +9002,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9014,7 +9014,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9026,7 +9026,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9038,7 +9038,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9050,7 +9050,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9062,7 +9062,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9074,7 +9074,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9086,7 +9086,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9098,7 +9098,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9110,7 +9110,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9122,7 +9122,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9134,7 +9134,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9146,7 +9146,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9158,7 +9158,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9170,7 +9170,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9182,7 +9182,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9194,7 +9194,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9206,7 +9206,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9218,7 +9218,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9230,7 +9230,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9242,7 +9242,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9254,7 +9254,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9266,7 +9266,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9278,7 +9278,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9290,7 +9290,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9302,7 +9302,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9314,7 +9314,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9326,7 +9326,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9338,7 +9338,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9350,7 +9350,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9362,7 +9362,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9374,7 +9374,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9386,7 +9386,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9398,7 +9398,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9410,7 +9410,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9422,7 +9422,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9434,7 +9434,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9446,7 +9446,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -9458,7 +9458,7 @@
     "anchor_x": "left",
     "anchor_y": "top",
     "min_dw": 0,
-    "max_dw": 4,
+    "max_dw": 2,
     "dy": -8,
     "spec": "F",
     "reason": "header: tab widths are measured with the kit tab font (text-xs Semibold) for every tab, so a tab is up to 4 px wider and the next tab follows; the tab strip itself stays at y 48"
@@ -10673,11 +10673,14 @@
   {
     "case": "f-type-details",
     "region": "overlay:Foreground/0",
+    "h_base": 24,
     "anchor_x": "left",
-    "anchor_y": "top",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
     "dy": 4,
     "spec": "F",
-    "reason": "type details: every control and label row of the popover is centred in its 32 px row, 4 px lower than the top-aligned 24 px control it replaces"
+    "reason": "type details: the 24 px control of every label row is a 32 px field (centred growth, top kept) and the tab strip and chips are centred 4 px lower in their 32 px row; centre anchoring keeps the rows from stacking the growth"
   },
   {
     "case": "f-prototype-tab",
