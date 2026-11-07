@@ -4,7 +4,7 @@
 use super::*;
 use crate::theme;
 use crate::util::*;
-use designos_doc::layout_solver::{place_children, ChildIn};
+use designos_doc::layout_solver::{grid_row_gap, place_children, ChildIn};
 use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, Sizing, MAX_GRID_TRACKS};
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
@@ -257,7 +257,7 @@ pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, kids: &[ChildIn
     let [pt, pr, pb, pl] = al.padding;
     let cols = (if al.grid_columns > 0 { al.grid_columns as usize } else { 3 }).clamp(1, designos_doc::MAX_GRID_TRACKS);
     let col_gap = al.item_spacing.max(0.0);
-    let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
+    let row_gap = grid_row_gap(al);
 
     // Place the children exactly as the solver does (explicit rows and columns, spans, then auto flow), so the
     // rows and cells drawn here are the ones the layout lays out.
