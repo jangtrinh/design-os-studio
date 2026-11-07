@@ -170,7 +170,12 @@ pub fn sanitize_file_name_for(name: &str, is_windows: bool) -> String {
 fn is_windows_reserved_name(name: &str) -> bool {
     let base = name.split('.').next().unwrap_or(name).trim_end().to_ascii_uppercase();
     matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || ["COM", "LPT"].iter().any(|p| base.strip_prefix(p).is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit()))
+        || ["COM", "LPT"].iter().any(|p| {
+            base.strip_prefix(p).is_some_and(|n| {
+                let mut chars = n.chars();
+                matches!((chars.next(), chars.next()), (Some(d), None) if d.is_ascii_digit() || matches!(d, '\u{b9}' | '\u{b2}' | '\u{b3}'))
+            })
+        })
 }
 
 #[cfg(test)]
@@ -190,7 +195,7 @@ mod tests {
 
     #[test]
     fn windows_reserved_device_names_are_not_used_as_file_names() {
-        for name in ["NUL", "nul", "CON", "Prn", "AUX", "COM1", "lpt9", "NUL.fig", "con.txt", "NUL .fig"] {
+        for name in ["NUL", "nul", "CON", "Prn", "AUX", "COM1", "lpt9", "COM\u{b9}", "LPT\u{b2}", "com\u{b3}.txt", "NUL.fig", "con.txt", "NUL .fig"] {
             let clean = sanitize_file_name_for(name, true);
             assert_eq!(clean, format!("_{}", name.trim()), "{name} is a Windows device name");
             assert_eq!(sanitize_file_name_for(name, false), name.trim(), "{name} keeps its name off Windows");

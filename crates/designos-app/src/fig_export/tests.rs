@@ -443,3 +443,12 @@ fn a_relative_file_path_still_exports_to_a_full_path() {
     assert!(dir.is_absolute(), "the toast must show a full path, got {}", dir.display());
     assert!(dir.ends_with("some-relative-folder") && stem == "Relative", "{} / {stem}", dir.display());
 }
+
+#[test]
+fn reveal_command_gives_explorer_a_drive_root_it_can_read() {
+    // `"D:\"` would end in an escaped quote; `D:\.` names the same folder.
+    let (_, args) = reveal_command("windows", Path::new(r"D:\"), false);
+    assert_eq!(args, vec![std::ffi::OsString::from(r#""D:\.""#)]);
+    let (_, args) = reveal_command("windows", Path::new(r"D:\"), true);
+    assert_eq!(args, vec![std::ffi::OsString::from(r#"/select,"D:\.""#)]);
+}
