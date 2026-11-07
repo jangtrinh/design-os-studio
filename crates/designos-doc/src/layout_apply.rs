@@ -15,10 +15,11 @@ impl Document {
         self.relayout_bottom_up(root, &mut budget);
     }
 
-    /// Re-solves only the auto-layout frames in `seeds`, each once, deepest first, and then climbs:
-    /// after a frame is solved, its auto-layout parent is solved too only when the frame's own size
-    /// changed (a hugging frame bubbling a new size up). The climb stops at the first frame whose
-    /// size held, or at the first ancestor that is not auto layout. Unlike [`Self::relayout_subtree`]
+    /// Re-solves the layout containers in `seeds`, each once, deepest first, and then climbs:
+    /// after a container is solved, its layout parent is solved too only when the container's own
+    /// transform or size changed (a group fit or hugging frame bubbling a new size up). The climb
+    /// stops at the first container whose geometry held, or at the first ancestor that is not a
+    /// layout container. Unlike [`Self::relayout_subtree`]
     /// this never walks the containers below a seed, so untouched siblings keep the positions they
     /// have. One [`MAX_RELAYOUT_RESOLVES`] budget covers the whole call; a subtree past it is
     /// queued in `pending_relayout` exactly as for [`Self::relayout_subtree`].
