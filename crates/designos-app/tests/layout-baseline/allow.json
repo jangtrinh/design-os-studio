@@ -3415,22 +3415,34 @@
   {
     "case": "g-dev-compare",
     "region": "overlay:Foreground/0",
-    "name_prefix": "dev-compare",
-    "min_dh": 4.0,
-    "max_dh": 15.0,
-    "dy": -2.0,
+    "x_band": [1359.0, 1565.0],
+    "column": "inspector",
     "spec": "G",
-    "reason": "R8.6 Compare changes grows from 28 px to the 32 px inspector button and sits 2 px higher so its centre stays on the same row. The stacked status buttons share one row with the Assets rail control, which the taller footer pushes down; the row grows 15 px (engine limit: widget dh and row dh share these bounds, so the widget bound is widened to the row growth)"
+    "reason": "The inspector sits behind the compare dialog's full-screen scrim, so the gate sees it in the overlay region; it is its own layout flow and moves 40 px down when the status buttons stack. The band stops at x 1565 so the floating Help button (x 1566, pinned to the window corner) and the panel scrollbar (x 1592) stay out of the column: neither moves with the status block"
   },
   {
     "case": "g-dev-compare",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "btn-(\"dev-remark\", 0)",
+    "region": "overlay:Foreground/0#inspector",
+    "name_prefix": "dev-compare",
     "min_dh": 4.0,
-    "max_dh": 15.0,
-    "dy": -2.0,
+    "max_dh": 40.0,
+    "min_dw": 89.0,
+    "max_dw": 89.0,
     "spec": "G",
-    "reason": "R8.6 Mark ready grows from 28 px to the 32 px inspector button and sits 2 px higher so its centre stays beside Compare changes. The stacked status buttons share one row with the Assets rail control, which the taller footer pushes down; the row grows 15 px (engine limit: widget dh and row dh share these bounds, so the widget bound is widened to the row growth)"
+    "reason": "R8.6 the stacked Dev status buttons put Compare changes on its own full-width row: 89 px wider and 4 px taller (28 to 32). The status row grows 40 px in total (28 to 32 + 4 + 32); the widget and row height bounds share one limit, so max_dh is that 40 px row growth"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0#inspector",
+    "name_prefix": "btn-(\"dev-remark\", 0)",
+    "anchor_x": "right",
+    "min_dh": 4.0,
+    "max_dh": 40.0,
+    "min_dw": 128.0,
+    "max_dw": 128.0,
+    "dy": 36.0,
+    "spec": "G",
+    "reason": "R8.6 Mark ready stacks under Compare changes: 128 px wider (full width) and 4 px taller (28 to 32), right edge held, 36 px lower (the 32 px Compare changes row plus the 4 px gap, less the 0 px it already sat from the row top). The row height bound shares the 40 px status row growth"
   },
   {
     "case": "g-dev-compare",
@@ -3441,9 +3453,10 @@
     "min_dw": 0.0,
     "max_dw": 8.0,
     "anchor_x": "right",
+    "anchor_y": "centre",
     "dx": -4.0,
     "spec": "G",
-    "reason": "R8.6 the compare close control grows from 28 px to the 36 px icon button and sits 4 px left of the old box, still on its own row"
+    "reason": "R8.6 the compare close control grows from 28 px to the 36 px icon button around its centre and sits 4 px left of the old box, still on its own row"
   },
   {
     "case": "g-dev-compare",
@@ -3451,9 +3464,9 @@
     "name_prefix": "scrollbar-track",
     "min_dh": -8.0,
     "max_dh": -8.0,
-    "dy": -2.0,
+    "dy": -4.0,
     "spec": "G",
-    "reason": "R5 R8.6 the compare footer grows from 32 px to 40 px, so the change list gives back 8 px and its track shortens by 8 px. The status row above grows by 4 px and the track keeps its top."
+    "reason": "R5 R8.6 the compare footer grows from 32 px to 40 px, so the change list gives back 8 px and its track shortens by 8 px; the track keeps its top (measured delta 0,0,0,-8; dy -4 cancels the 4 px the gate derives from the rows above that grow)"
   },
   {
     "case": "g-dev-compare",
@@ -3465,8 +3478,22 @@
     "max_dh": 8.0,
     "anchor_x": "right",
     "anchor_y": "centre",
+    "dy": -4.0,
     "spec": "G",
-    "reason": "R5 R8.6 Mark as ready for dev again grows from 32 px to the 40 px dialog button around its centre and 15 px wider for its semibold label, right edge held"
+    "reason": "R5 R8.6 Mark as ready for dev again grows from 32 px to the 40 px dialog button and 15 px wider for its semibold label, right edge held; the dialog footer row grows 8 px upward, so the button sits 4 px above its centre-held position"
+  },
+  {
+    "case": "g-dev-compare",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "btn-\"compare-done\"",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dx": -15.0,
+    "dy": -4.0,
+    "min_dh": 8.0,
+    "max_dh": 8.0,
+    "spec": "G",
+    "reason": "R5 R8.6 the compare dialog Close button grows from 32 px to the 40 px dialog button, 8 px taller upward (the gate already credits 4 px of that through the rows above, so dy is the other 4 px), and moves 15 px left to make room for the 15 px wider Mark as ready for dev again button"
   },
   {
     "case": "micro-dev-boxmodel",
@@ -3476,15 +3503,6 @@
     "max_dh": 4.0,
     "spec": "G",
     "reason": "R5 R8.6 Ready for dev grows from 28 px to the 32 px inspector button"
-  },
-  {
-    "case": "g-dev-compare",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "btn-\"code-connect-terminal\"",
-    "min_dh": -8.0,
-    "max_dh": 0.0,
-    "spec": "G",
-    "reason": "R5 the Code Connect button behind the dialog sits on the same row as the change-list track, which shortens by 8 px when the footer grows; the button itself keeps its height"
   },
   {
     "case": "g-dev-react",
@@ -3523,11 +3541,10 @@
   },
   {
     "case": "g-dev-compare",
-    "region": "overlay:Foreground/0",
+    "region": "overlay:Foreground/0#inspector",
     "inventory_max_delta": 2,
     "spec": "G",
-    "reason": "The taller compare footer and status row leave two fewer unnamed hit areas visible inside the dialog clip (27 to 25). max_dh 15 only because an entry without a name matches every uncovered widget in the region, including the Assets rail control that shares the stacked-button row",
-    "max_dh": 15.0
+    "reason": "The stacked status buttons push the inspector rows 40 px down, so two 9 px unnamed slivers at the bottom of the column leave the clip (27 to 25 unnamed hit areas)"
   },
   {
     "case": "micro-dev-boxmodel",
