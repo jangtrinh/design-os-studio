@@ -13,7 +13,7 @@ pub fn entries(app: &App) -> Vec<(MenuItem, TableAction)> {
             let reason = plan(app, a).err();
             let mut item = MenuItem::new(a.label());
             if let Some(why) = reason {
-                item = item.disabled(true).tooltip(&why);
+                item = item.disabled(true).tooltip(why.message());
             }
             if matches!(a, TableAction::InsertColRight | TableAction::DeleteCol | TableAction::UnmergeCells) {
                 item = item.sep();

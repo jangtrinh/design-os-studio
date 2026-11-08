@@ -1115,66 +1115,74 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
 
     // ---- Position
     title(ui, pane, "Position", None, false);
-    sublabel(ui, pane, "Alignment");
-    let h = [Icon::AlignLeft, Icon::AlignHCenter, Icon::AlignRight];
-    let v = [Icon::AlignTop, Icon::AlignVCenter, Icon::AlignBottom];
-    let shift_align = ui.input(|i| i.modifiers.shift) && app.selection.len() >= 2;
-    if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X, "alignh", &h, None) {
-        let kind = [Align::Left, Align::HCenter, Align::Right][i];
-        if shift_align {
-            app.align_selection_as_group(kind);
-        } else {
-            app.align(kind);
+    // a cell sits where its table's rows and columns put it: its geometry is read-only (disabled, not hidden)
+    let cell_sel = sel.iter().any(|id| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::TableCell(_))));
+    ui.add_enabled_ui(!cell_sel, |ui| {
+        sublabel(ui, pane, "Alignment");
+        let h = [Icon::AlignLeft, Icon::AlignHCenter, Icon::AlignRight];
+        let v = [Icon::AlignTop, Icon::AlignVCenter, Icon::AlignBottom];
+        let shift_align = ui.input(|i| i.modifiers.shift) && app.selection.len() >= 2;
+        if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X, "alignh", &h, None) {
+            let kind = [Align::Left, Align::HCenter, Align::Right][i];
+            if shift_align {
+                app.align_selection_as_group(kind);
+            } else {
+                app.align(kind);
+            }
         }
-    }
-    if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X + 3.0 * theme::SEGMENT_W + theme::SEGMENT_GROUP_GAP, "alignv", &v, None) {
-        let kind = [Align::Top, Align::VCenter, Align::Bottom][i];
-        if shift_align {
-            app.align_selection_as_group(kind);
-        } else {
-            app.align(kind);
+        if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X + 3.0 * theme::SEGMENT_W + theme::SEGMENT_GROUP_GAP, "alignv", &v, None) {
+            let kind = [Align::Top, Align::VCenter, Align::Bottom][i];
+            if shift_align {
+                app.align_selection_as_group(kind);
+            } else {
+                app.align(kind);
+            }
         }
-    }
-    let dist_r = pane.rect(theme::DISTRIBUTE_BTN_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
-    widgets::record(ui, "distribute", dist_r);
-    if widgets::icon_button(ui, dist_r, "distribute", Icon::Distribute, false, "Distribute spacing").clicked() {
-        app.distribute_selection();
-    }
-    row_end(pane);
-    sublabel(ui, pane, "Position");
-    let geom = mixed_value_summary(&app.doc, sel);
-    let xs = geom.x;
-    let ys = geom.y;
-    if let Some(x) = field::num_field(ui, pane.col(0, 0.0), "x", Prefix::Text("X"), xs, "") {
-        app.edit_nodes(sel, |n| n.transform.tx = x);
-    }
-    if let Some(y) = field::num_field(ui, pane.col(1, 0.0), "y", Prefix::Text("Y"), ys, "") {
-        app.edit_nodes(sel, |n| n.transform.ty = y);
-    }
-    row_end(pane);
-    sublabel(ui, pane, "Rotation");
-    let rot = geom.rotation_deg;
-    if let Some(deg) = field::num_field(ui, pane.col(0, 0.0), "rot", Prefix::Icon(Icon::Rotation), rot, "°") {
-        if multi {
-            // A group rotates as one body around its bounding-box centre.
-            app.rotate_selection(-(deg - rot.unwrap_or(0.0)).to_radians());
-        } else {
-            let rad = -deg.to_radians();
-            app.edit_nodes(sel, |n| n.transform = crate::canvas::handles::rotate_about_center(&n.transform, n.size, rad));
+        let dist_r = pane.rect(theme::DISTRIBUTE_BTN_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        widgets::record(ui, "distribute", dist_r);
+        if widgets::icon_button(ui, dist_r, "distribute", Icon::Distribute, false, "Distribute spacing").clicked() {
+            app.distribute_selection();
         }
-    }
-    for i in 0..3 {
-        widgets::record(ui, &format!("xform:{i}"), pane.rect(theme::FIELD_COL_X[1] + i as f32 * theme::SEGMENT_W, 0.0, theme::SEGMENT_W, theme::FIELD_HEIGHT));
-    }
-    if let Some(i) = segmented(ui, pane, theme::FIELD_COL_X[1], "xform", &[Icon::Rotate90, Icon::FlipH, Icon::FlipV], None) {
-        match i {
-            0 => app.rotate_selection(-std::f32::consts::FRAC_PI_2),
-            1 => app.flip_selection(true),
-            _ => app.flip_selection(false),
+        row_end(pane);
+        sublabel(ui, pane, "Position");
+        let geom = mixed_value_summary(&app.doc, sel);
+        let xs = geom.x;
+        let ys = geom.y;
+        if let Some(x) = field::num_field(ui, pane.col(0, 0.0), "x", Prefix::Text("X"), xs, "") {
+            app.edit_nodes(sel, |n| n.transform.tx = x);
         }
-    }
-    row_end(pane);
-    pane.y += 4.0;
+        if let Some(y) = field::num_field(ui, pane.col(1, 0.0), "y", Prefix::Text("Y"), ys, "") {
+            app.edit_nodes(sel, |n| n.transform.ty = y);
+        }
+        row_end(pane);
+        sublabel(ui, pane, "Rotation");
+        let rot = geom.rotation_deg;
+        if let Some(deg) = field::num_field(ui, pane.col(0, 0.0), "rot", Prefix::Icon(Icon::Rotation), rot, "°") {
+            if multi {
+                // A group rotates as one body around its bounding-box centre.
+                app.rotate_selection(-(deg - rot.unwrap_or(0.0)).to_radians());
+            } else {
+                let rad = -deg.to_radians();
+                app.edit_nodes(sel, |n| n.transform = crate::canvas::handles::rotate_about_center(&n.transform, n.size, rad));
+            }
+        }
+        for i in 0..3 {
+            widgets::record(
+                ui,
+                &format!("xform:{i}"),
+                pane.rect(theme::FIELD_COL_X[1] + i as f32 * theme::SEGMENT_W, 0.0, theme::SEGMENT_W, theme::FIELD_HEIGHT),
+            );
+        }
+        if let Some(i) = segmented(ui, pane, theme::FIELD_COL_X[1], "xform", &[Icon::Rotate90, Icon::FlipH, Icon::FlipV], None) {
+            match i {
+                0 => app.rotate_selection(-std::f32::consts::FRAC_PI_2),
+                1 => app.flip_selection(true),
+                _ => app.flip_selection(false),
+            }
+        }
+        row_end(pane);
+        pane.y += 4.0;
+    });
 
     let al_frame = is_frame && !multi && n0.kind.frame_props().map(|f| f.auto_layout.is_some()).unwrap_or(false);
 
@@ -1197,7 +1205,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     if !al_frame {
         section_sep(ui, pane, false);
         title(ui, pane, "Layout", None, false);
-        dimensions_ui(app, ui, pane, sel, &fresh, is_line);
+        ui.add_enabled_ui(!cell_sel, |ui| dimensions_ui(app, ui, pane, sel, &fresh, is_line));
         if parent_al || is_text {
             resizing_ui(app, ui, pane, sel, &n0);
         }
@@ -1618,7 +1626,13 @@ fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], ge
     let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui, r| field::num_field(ui, r, "w", Prefix::Text("W"), ws, ""));
     let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui, r| field::num_field(ui, r, "h", Prefix::Text("H"), hs, "")) };
     if w_new.is_some() || h_new.is_some() {
-        resize_selection(app, sel, w_new, h_new);
+        match sel {
+            // a table's size is the sum of its tracks: the table operation keeps the two in step
+            [one] if matches!(app.doc.get(*one).map(|n| &n.kind), Some(NodeKind::Table(_))) => {
+                crate::board::table::select::resize_from_inspector(app, *one, w_new, h_new)
+            }
+            _ => resize_selection(app, sel, w_new, h_new),
+        }
     }
     // The aspect lock covers the nodes that have both a width and a height. A line has only a width and never gets one.
     let lockable = |app: &App, id: NodeId| app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Line));

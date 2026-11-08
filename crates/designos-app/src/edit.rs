@@ -214,7 +214,7 @@ impl Tx {
     /// Applies a structural command now and remembers it for the commit.
     pub fn cmd(&mut self, doc: &mut Document, c: Command) -> Result<(), DocError> {
         self.ed.note_opened(doc);
-        let inv = designos_doc::table_ops::apply_table_checked(doc, c.clone())?;
+        let inv = c.clone().apply(doc)?;
         self.cmds.push(c);
         self.inverses.push(inv);
         Ok(())

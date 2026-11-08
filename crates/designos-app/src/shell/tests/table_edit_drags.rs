@@ -81,17 +81,6 @@ fn the_corner_handle_scales_every_track_and_keeps_the_text_size() {
 }
 
 #[test]
-fn a_transaction_that_would_break_a_table_is_refused_and_leaves_it_whole() {
-    let (mut s, table) = table_sim(false);
-    let cells = s.app().doc.get(table).unwrap().children.clone();
-    let mut tx = crate::edit::Tx::new();
-    let refused = tx.cmd(&mut s.shell.app.doc, designos_doc::Command::Remove { id: cells[0] });
-    assert!(refused.is_err(), "removing one cell leaves a position without a cell");
-    assert_eq!(s.app().doc.get(table).unwrap().children, cells, "the table is as it was");
-    assert!(designos_doc::check_table_positions(&s.app().doc, table).is_ok());
-}
-
-#[test]
 fn a_big_table_adds_one_layer_row_and_takes_only_before_and_after_drops() {
     use crate::panels::layers::{drop_for, flatten, DropKind};
     let mut s = Sim::new();

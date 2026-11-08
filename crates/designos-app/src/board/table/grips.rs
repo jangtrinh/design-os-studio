@@ -71,6 +71,10 @@ fn mid(edges: &[f32], i: usize) -> f32 {
 
 /// Pointer areas, in screen px, of everything a selected table offers around `pos`.
 pub fn areas(app: &App, geo: &TableGeo, pos: Pos2) -> Vec<(Hover, Rect)> {
+    // the chrome is laid out along the screen axes: a rotated table gets none (its menu still works)
+    if geo.world.b.abs() > 1e-4 || geo.world.c.abs() > 1e-4 || geo.world.a < 0.0 || geo.world.d < 0.0 {
+        return Vec::new();
+    }
     let (rows, cols) = (geo.props.rows.len(), geo.props.cols.len());
     let tl = screen(app, geo, 0.0, 0.0);
     let br = screen(app, geo, *geo.col_x.last().unwrap_or(&0.0), *geo.row_y.last().unwrap_or(&0.0));
@@ -85,7 +89,12 @@ pub fn areas(app: &App, geo: &TableGeo, pos: Pos2) -> Vec<(Hover, Rect)> {
     let gx = tl.x - GRIP_GAP;
     let gy = tl.y - GRIP_GAP;
     let area = |c: Pos2| Rect::from_center_size(c, egui::vec2(GRIP_AREA, GRIP_AREA));
-    // plus first: it is the smaller target and sits on a line, the grip on a track
+    // the grip is tested first: a 24 px box on screen, whatever the zoom, centred on the drawn grip
+    let gy_mid = screen(app, geo, 0.0, mid(&geo.row_y, row)).y;
+    out.push((Hover::Grip { rows: true, index: row }, area(Pos2::new(gx, gy_mid))));
+    let gx_mid = screen(app, geo, mid(&geo.col_x, col), 0.0).x;
+    out.push((Hover::Grip { rows: false, index: col }, area(Pos2::new(gx_mid, gy))));
+    // the "+" gets what the grips leave: it sits on a line, the grip on a track
     let line_row =
         (0..=rows).min_by(|a, b| (screen(app, geo, 0.0, geo.row_y[*a]).y - pos.y).abs().total_cmp(&(screen(app, geo, 0.0, geo.row_y[*b]).y - pos.y).abs()));
     let line_col =
@@ -96,24 +105,6 @@ pub fn areas(app: &App, geo: &TableGeo, pos: Pos2) -> Vec<(Hover, Rect)> {
     if let Some(j) = line_col {
         out.push((Hover::Plus { rows: false, index: j }, area(Pos2::new(screen(app, geo, geo.col_x[j], 0.0).x, gy))));
     }
-    let (ry0, ry1) = (screen(app, geo, 0.0, geo.row_y[row]).y, screen(app, geo, 0.0, geo.row_y[row + 1]).y);
-    let gy_mid = screen(app, geo, 0.0, mid(&geo.row_y, row)).y;
-    out.push((
-        Hover::Grip { rows: true, index: row },
-        Rect::from_min_max(
-            Pos2::new(gx - GRIP_AREA / 2.0, ry0.min(gy_mid - GRIP_AREA / 2.0)),
-            Pos2::new(gx + GRIP_AREA / 2.0, ry1.max(gy_mid + GRIP_AREA / 2.0)),
-        ),
-    ));
-    let (cx0, cx1) = (screen(app, geo, geo.col_x[col], 0.0).x, screen(app, geo, geo.col_x[col + 1], 0.0).x);
-    let gx_mid = screen(app, geo, mid(&geo.col_x, col), 0.0).x;
-    out.push((
-        Hover::Grip { rows: false, index: col },
-        Rect::from_min_max(
-            Pos2::new(cx0.min(gx_mid - GRIP_AREA / 2.0), gy - GRIP_AREA / 2.0),
-            Pos2::new(cx1.max(gx_mid + GRIP_AREA / 2.0), gy + GRIP_AREA / 2.0),
-        ),
-    ));
     // inner lines: drag to resize
     let inside = pos.x >= tl.x && pos.x <= br.x && pos.y >= tl.y && pos.y <= br.y;
     if inside {
@@ -131,6 +122,10 @@ pub fn areas(app: &App, geo: &TableGeo, pos: Pos2) -> Vec<(Hover, Rect)> {
 
 /// The first area under `pos` (the order of [`areas`] is the priority: lines last).
 pub fn hover_at(app: &App, pos: Pos2) -> Option<(NodeId, Hover)> {
+    // while a cell is edited the chrome is hidden, so it must not act either
+    if app.canvas.text.is_some() {
+        return None;
+    }
     let table = active_table(app)?;
     let geo = TableGeo::of(&app.doc, table)?;
     let all = areas(app, &geo, pos);
@@ -215,8 +210,12 @@ pub fn release(app: &mut App, d: TableDrag) {
             let Some(geo) = TableGeo::of(&app.doc, table) else { return };
             let id = if rows { geo.row_id(index) } else { geo.col_id(index) };
             let cmd = if rows { table_ops::resize_row(&app.doc, table, id, size) } else { table_ops::resize_col(&app.doc, table, id, size) };
-            if let Ok(cmd) = cmd {
-                commit(app, table, cmd, if rows { "Resize row" } else { "Resize column" });
+            match cmd {
+                Ok(cmd) => {
+                    commit(app, table, cmd, if rows { "Resize row" } else { "Resize column" });
+                }
+                Err(table_ops::TableOpError::NoChange(_)) => {}
+                Err(e) => app.show_toast(e.to_string(), true),
             }
         }
         TableDrag::Reorder { table, rows, from, to, refusal } => {
@@ -238,6 +237,7 @@ pub fn release(app: &mut App, d: TableDrag) {
                         }
                     }
                 }
+                Err(table_ops::TableOpError::NoChange(_)) => {}
                 Err(e) => app.show_toast(e.to_string(), true),
             }
         }

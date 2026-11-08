@@ -369,8 +369,12 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         }
     }
 
-    if app.canvas.text.is_none() && !typing && crate::board::table::select::start_edit_on_text(app, &ctx) {
-        ts::text_keys(app, &ctx);
+    for back in std::mem::take(&mut app.canvas.table_tabs) {
+        crate::board::table::select::tab_select(app, back);
+    }
+    if app.canvas.text.is_none() && !typing {
+        // opens the session; the block below types into it, once
+        crate::board::table::select::start_edit_on_text(app, &ctx);
     }
     if app.canvas.text.is_some() {
         ts::text_keys(app, &ctx);
@@ -395,7 +399,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         }
     }
 
-    app.canvas.pointer_page = inp.pos.filter(|p| rect.contains(*p)).map(|p| app.view.to_page(rect.min, p));
+    app.canvas.pointer_page = inp.pos.or(app.canvas.shot_pointer).filter(|p| rect.contains(*p)).map(|p| app.view.to_page(rect.min, p));
     if app.canvas.vedit.is_some() {
         vector::hover(app, rect, inp.pos);
     }
@@ -763,6 +767,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         return;
     }
     // Text editing: click inside the edited node moves the caret, elsewhere ends editing.
+    let mut ended_edit = false;
     if let Some(sess) = &app.canvas.text {
         let id = sess.id;
         if ts::node_contains(app, id, page) {
@@ -770,6 +775,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
             return;
         }
         finish_text(app, true);
+        ended_edit = true;
     }
     let mid = inp.mid_pressed && !inp.pressed;
     if !mid
@@ -782,7 +788,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         return;
     }
     let over_handle = handle_hit(app, rect, pos);
-    if over_handle.is_none() && !mid && !inp.space && crate::board::table::select::on_press(app, pos, page, inp.mods.shift) {
+    if over_handle.is_none() && !mid && !inp.space && crate::board::table::select::on_press(app, pos, page, inp.mods.shift, !ended_edit) {
         return;
     }
     // a magnet dot starts a connector; in a design file a resize handle or Alt (copy-drag) wins over a dot

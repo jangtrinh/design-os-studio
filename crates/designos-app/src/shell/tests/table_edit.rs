@@ -7,7 +7,7 @@ use designos_doc::{NodeKind, TableStyle, Vec2 as DVec};
 
 const ORIGIN: f32 = 5000.0;
 
-fn text_of_cell(s: &Sim, id: NodeId) -> String {
+pub(super) fn text_of_cell(s: &Sim, id: NodeId) -> String {
     match &s.app().doc.get(id).unwrap().kind {
         NodeKind::TableCell(c) => c.text.content.clone(),
         _ => panic!("not a cell"),
@@ -16,7 +16,12 @@ fn text_of_cell(s: &Sim, id: NodeId) -> String {
 
 /// A 3x3 table on the page of the demo file, far from its content, with the top-left 2x2 merged.
 pub(super) fn table_sim(merged: bool) -> (Sim, NodeId) {
-    let mut s = Sim::new();
+    table_sim_in(Options::default(), merged)
+}
+
+/// [`table_sim`] in a file opened with `opts` (a board, for instance).
+pub(super) fn table_sim_in(opts: Options, merged: bool) -> (Sim, NodeId) {
+    let mut s = Sim::with(opts);
     {
         let app = &mut s.shell.app;
         let page = app.page;

@@ -1347,6 +1347,7 @@ mod system_paste_and_drop;
 mod tab_disk_state;
 mod table_edit;
 mod table_edit_drags;
+mod table_edit_fixes;
 mod text_styles;
 mod toast_clock;
 mod toast_queue;

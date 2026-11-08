@@ -39,11 +39,12 @@ fn select_block(app: &mut App, table: NodeId, anchor: NodeId, to: NodeId) {
 }
 
 /// Press on the canvas while a table or its cells are selected. Returns whether the press was taken.
-pub fn on_press(app: &mut App, pos: Pos2, page: Vec2, shift: bool) -> bool {
+/// `chrome` is false for the press that ended a text edit: it only ends the edit, it never presses a grip.
+pub fn on_press(app: &mut App, pos: Pos2, page: Vec2, shift: bool, chrome: bool) -> bool {
     if !matches!(app.tool, crate::canvas::tools::Tool::Move) {
         return false;
     }
-    if let Some((table, hover)) = grips::hover_at(app, pos) {
+    if let Some((table, hover)) = grips::hover_at(app, pos).filter(|_| chrome) {
         if let Some(d) = grips::press(app, table, hover, page) {
             app.canvas.inter = Interaction::Table(d);
         }
@@ -100,7 +101,7 @@ pub fn double_click(app: &mut App, page: Vec2) -> bool {
 /// A printable key on one selected cell starts editing it; the typed text goes into the session.
 pub fn start_edit_on_text(app: &mut App, ctx: &egui::Context) -> bool {
     let Some(cell) = single_cell(app) else { return false };
-    let typed = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(s) if s.chars().any(|c| !c.is_control()))));
+    let typed = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(s) if s.chars().any(|c| !c.is_control() && !c.is_whitespace()))));
     if typed {
         begin_text_edit(app, cell);
     }
@@ -159,6 +160,7 @@ pub fn commit_cell(app: &mut App, mut sess: TextSession, add_row: bool) -> Optio
         app.show_toast("This edit would break the table. Try again.", true);
         return None;
     }
+    super::reflow_parents(app, &mut tx, table, None);
     let label = if add_row { "Add row" } else { "Edit cell" };
     app.run_tx_labeled(tx, Some(label.into()));
     app.canvas.dirty = true;
@@ -270,6 +272,7 @@ pub fn commit_table_resize(app: &mut App, r: crate::canvas::ResizeState) -> Opti
             ok &= tx.cmd(&mut app.doc, cmd).is_ok();
         }
     }
+    super::reflow_parents(app, &mut tx, id, None);
     if !ok {
         tx.cancel(&mut app.doc);
         app.show_toast("The table could not be resized. Try again.", true);
@@ -278,4 +281,17 @@ pub fn commit_table_resize(app: &mut App, r: crate::canvas::ResizeState) -> Opti
     }
     app.canvas.dirty = true;
     None
+}
+
+/// The W / H fields of a selected table: scale every track in proportion, as the corner handles do.
+pub fn resize_from_inspector(app: &mut App, table: NodeId, w: Option<f32>, h: Option<f32>) {
+    let Some(cur) = app.doc.get(table).map(|n| n.size) else { return };
+    let size = Vec2::new(w.unwrap_or(cur.x), h.unwrap_or(cur.y));
+    match table_ops::resize_table(&app.doc, table, size) {
+        Ok(cmd) => {
+            super::commit(app, table, cmd, "Resize table");
+        }
+        Err(table_ops::TableOpError::NoChange(_)) => {}
+        Err(e) => app.show_toast(e.to_string(), true),
+    }
 }

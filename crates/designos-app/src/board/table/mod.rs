@@ -200,16 +200,34 @@ impl TableAction {
     }
 }
 
-fn refusal(e: TableOpError) -> String {
-    e.to_string()
+/// Why an action did nothing: `Nothing` leaves the table as it is and is not worth a message, `Refused` is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    Nothing(String),
+    Refused(String),
+}
+
+impl Refusal {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Nothing(m) | Self::Refused(m) => m,
+        }
+    }
+}
+
+fn refusal(e: TableOpError) -> Refusal {
+    match e {
+        TableOpError::NoChange(m) => Refusal::Nothing(m),
+        other => Refusal::Refused(other.to_string()),
+    }
 }
 
 /// The command `action` would run on the current selection, or why it cannot. Pure: the menu uses it to
 /// decide which entries are enabled, so an entry is never live without effect.
-pub fn plan(app: &App, action: TableAction) -> Result<(Command, &'static str), String> {
-    let (table, (r0, c0, r1, c1)) = selected_block(app).ok_or_else(|| "Select a cell of a table first.".to_string())?;
+pub fn plan(app: &App, action: TableAction) -> Result<(Command, &'static str), Refusal> {
+    let (table, (r0, c0, r1, c1)) = selected_block(app).ok_or_else(|| Refusal::Refused("Select a cell of a table first.".into()))?;
     let doc = &app.doc;
-    let geo = TableGeo::of(doc, table).ok_or_else(|| "This table is broken. Undo the last edit.".to_string())?;
+    let geo = TableGeo::of(doc, table).ok_or_else(|| Refusal::Refused("This table is broken. Undo the last edit.".into()))?;
     let (rows, cols) = (geo.props.rows.len(), geo.props.cols.len());
     let ids = |range: std::ops::RangeInclusive<usize>, rows_axis: bool| -> Vec<TrackId> {
         range.map(|i| if rows_axis { geo.row_id(i) } else { geo.col_id(i) }).collect()
@@ -261,6 +279,7 @@ fn clear_content(doc: &Document, table: NodeId, geo: &TableGeo, sel: &[NodeId]) 
 
 /// Runs `cmd` as one undo step with `label`. A refused command leaves the document as it was and says why.
 pub fn commit(app: &mut App, table: NodeId, cmd: Command, label: &str) -> bool {
+    let parent = app.doc.get(table).and_then(|n| n.parent);
     let mut tx = Tx::new();
     if let Err(e) = tx.cmd(&mut app.doc, cmd) {
         tx.cancel(&mut app.doc);
@@ -275,6 +294,7 @@ pub fn commit(app: &mut App, table: NodeId, cmd: Command, label: &str) -> bool {
             return false;
         }
     }
+    reflow_parents(app, &mut tx, table, parent);
     app.canvas.dirty = true;
     app.run_tx_labeled(tx, Some(label.to_string()))
 }
@@ -290,7 +310,8 @@ pub fn run(app: &mut App, action: TableAction) -> bool {
             }
             ok
         }
-        Err(msg) => {
+        Err(Refusal::Nothing(_)) => false,
+        Err(Refusal::Refused(msg)) => {
             app.show_toast(msg, true);
             false
         }
@@ -321,5 +342,14 @@ pub fn drag_view(app: &App) -> TableDragView<'_> {
     match &app.canvas.inter {
         crate::canvas::Interaction::Table(d) => TableDragView::Drag(d),
         _ => TableDragView::None,
+    }
+}
+
+/// Lays out the auto-layout frames around a table whose size changed, into the same transaction, so a
+/// Hug frame grows with its table and one undo gives both back.
+pub fn reflow_parents(app: &mut App, tx: &mut Tx, table: NodeId, parent: Option<NodeId>) {
+    let from = if app.doc.get(table).is_some() { Some(table) } else { parent };
+    if let Some(id) = from {
+        crate::layout::relayout_up(&mut app.doc, &mut tx.ed, id);
     }
 }

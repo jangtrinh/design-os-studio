@@ -669,6 +669,7 @@ impl Shell {
             app.ui.pixel_grid = true;
         }
         app.startup_zoom = opts.zoom.map(|z| z / 100.0);
+        app.canvas.shot_pointer = opts.pointer.map(|(x, y)| Pos2::new(x, y));
         app.startup_fit_selection = opts.zoom_fit;
         if let Some(kind) = &opts.layout_grid {
             let target = app.selection.first().copied();
@@ -2106,6 +2107,18 @@ impl eframe::App for Shell {
                 egui::Event::Key { key: egui::Key::Tab, pressed, modifiers, .. } if !modifiers.command => {
                     if *pressed {
                         sess.tabs.push(modifiers.shift);
+                    }
+                    false
+                }
+                _ => true,
+            });
+        } else if crate::board::table::select::single_cell(&self.app).is_some() {
+            // Tab on a selected cell steps to the next cell: egui must not also move its focus to a field
+            let tabs = &mut self.app.canvas.table_tabs;
+            raw.events.retain(|e| match e {
+                egui::Event::Key { key: egui::Key::Tab, pressed, modifiers, .. } if !modifiers.command && !modifiers.alt => {
+                    if *pressed {
+                        tabs.push(modifiers.shift);
                     }
                     false
                 }

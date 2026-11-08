@@ -29,6 +29,8 @@ pub struct Options {
     /// Initial zoom in percent (`--zoom 800`) or fit selection (`--zoom fit`).
     pub zoom: Option<f32>,
     pub zoom_fit: bool,
+    /// With `--screenshot`: the window position of the pointer (`--pointer 400,300`), for hover states.
+    pub pointer: Option<(f32, f32)>,
     /// Show the rulers.
     pub rulers: bool,
     /// Draw the canvas with the GPU renderer (`--screenshot` otherwise always uses the
@@ -349,6 +351,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 } else {
                     o.zoom = Some(parse_zoom(&v).ok_or_else(|| format!("invalid zoom '{v}' (expected 1..25600, e.g. 800 or 800%)"))?);
                 }
+            }
+            "--pointer" => {
+                let v = it.next().ok_or("--pointer needs x,y in window pixels")?;
+                let (x, y) = v.split_once(',').ok_or("--pointer needs x,y in window pixels")?;
+                o.pointer = Some((x.trim().parse().map_err(|_| "--pointer needs numbers")?, y.trim().parse().map_err(|_| "--pointer needs numbers")?));
             }
             "--edit-text" => o.edit_text = Some(it.next().ok_or("--edit-text needs a text layer name")?),
             "--select-text" => {
