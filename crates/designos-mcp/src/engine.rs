@@ -1612,13 +1612,74 @@ impl Engine {
                 self.relayout(id);
             }
         }
-        let mut out = json!({"node":self.node_reply_json(NodeId(a.node_id)),"changed":changed});
+        let bound = match a.property_variables.as_ref().filter(|m| !m.is_empty()) {
+            Some(map) => Some(self.bind_property_variables(id, map)?),
+            None => None,
+        };
+        let mut out = json!({"node":self.node_reply_json(NodeId(a.node_id)),"changed":changed || bound.is_some()});
+        if let Some(issues) = bound.filter(|i| !i.is_empty()) {
+            out["property_binding_issues"] = Value::Array(issues);
+        }
         attach_warnings(&mut out, &warnings);
         crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
         }
         Ok(out)
+    }
+
+    /// Binds (or with `None` unbinds) component properties of instance `id` to variables as one undo step, and
+    /// returns one entry per property whose variable gives a value the property cannot take (it keeps its last value).
+    fn bind_property_variables(&mut self, id: NodeId, map: &std::collections::BTreeMap<String, Option<String>>) -> Result<Vec<Value>, ToolError> {
+        use designos_doc::PropBindError;
+        let comp = self
+            .doc
+            .get(id)
+            .and_then(designos_doc::instance_component)
+            .ok_or_else(|| ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/property_variables", format!("node {} is not an instance", id.0)))?;
+        let defs = designos_doc::prop_defs(&self.doc, comp);
+        let libraries = crate::tools::library_source::load_enabled_snapshots(&self.doc);
+        let mut index = designos_doc::SpecBindIndex::build(&self.doc);
+        let mut resolved: Vec<(String, Option<String>)> = Vec::with_capacity(map.len());
+        for (name, reference) in map {
+            let path = format!("/property_variables/{name}");
+            let def = defs
+                .iter()
+                .find(|d| d.name == *name)
+                .ok_or_else(|| ToolError::new(ErrorCode::UnknownComponentProperty, &path, format!("the component has no property \"{name}\"")))?;
+            let var = match reference {
+                None => None,
+                Some(r) => {
+                    let kind = designos_doc::bindable_prop_kind(&def.kind).ok_or_else(|| {
+                        ToolError::new(
+                            ErrorCode::PropertyTypeMismatch,
+                            &path,
+                            format!("property \"{name}\" takes no variable: only boolean, text and variant properties do"),
+                        )
+                    })?;
+                    let var_id = designos_doc::resolve_variable_ref_of_kind(&mut self.doc, &mut index, &libraries, r, name, &path, Some(kind))
+                        .map_err(|e| crate::tools::errors::from_spec_error(designos_doc::SpecError::from(e), &path))?;
+                    Some(var_id)
+                }
+            };
+            resolved.push((def.name.clone(), var));
+        }
+        let edits: Vec<(&str, Option<&str>)> = resolved.iter().map(|(n, v)| (n.as_str(), v.as_deref())).collect();
+        let cmd = designos_doc::bind_prop_variables(&mut self.doc, id, &edits).map_err(|e| match e {
+            PropBindError::NoSuchVariable(_) => ToolError::new(ErrorCode::UnknownVariable, "/property_variables", e.to_string()),
+            PropBindError::KindMismatch { .. } | PropBindError::NotBindable(_) => {
+                ToolError::new(ErrorCode::VariableTypeMismatch, "/property_variables", e.to_string())
+            }
+            PropBindError::NoSuchProperty(_) => ToolError::new(ErrorCode::UnknownComponentProperty, "/property_variables", e.to_string()),
+            PropBindError::NotAnInstance(_) => ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/property_variables", e.to_string()),
+        })?;
+        self.exec(cmd)?;
+        self.relayout(id);
+        Ok(resolved
+            .iter()
+            .filter(|(_, v)| v.is_some())
+            .filter_map(|(name, _)| designos_doc::prop_binding_problem(&self.doc, id, name).map(|p| json!({"property": name, "problem": p.to_string()})))
+            .collect())
     }
 }
 
@@ -1807,6 +1868,9 @@ struct UpdateArgs {
     fill: Option<String>,
     #[serde(default)]
     fills: Option<Vec<designos_doc::Paint>>,
+    /// Component properties of an instance bound to variables: `{property: "var:Collection/Name"}`; `null` unbinds.
+    #[serde(default)]
+    property_variables: Option<std::collections::BTreeMap<String, Option<String>>>,
     #[serde(default)]
     diff_image: bool,
     #[serde(default)]
@@ -2415,7 +2479,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "update_node",
         "Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"property_variables":{"type":"object","description":"Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.","additionalProperties":{"type":["string","null"]}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["node_id"],
         json!({
             "node": {"type": "object"},

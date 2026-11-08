@@ -1037,6 +1037,11 @@ pub(crate) fn apply_instance_props_with_ctx(
     let non_variant_defs: Vec<&ComponentPropDef> = defs.iter().filter(|d| !matches!(d.kind, PropKind::Variant { .. } | PropKind::Slot)).collect();
     let valid_prop_names: Vec<String> = non_variant_defs.iter().map(|d| d.name.clone()).collect();
 
+    // A `"var:..."` string binds the property to that variable (boolean, text and variant properties); every other
+    // value is the property's own value.
+    let (bound, props): (Vec<(&String, &Value)>, Vec<(&String, &Value)>) =
+        props.iter().partition(|(_, v)| v.as_str().is_some_and(|s| s.trim_start().starts_with("var:")));
+
     for (key, raw_val) in props {
         let def = non_variant_defs
             .iter()
@@ -1143,6 +1148,50 @@ pub(crate) fn apply_instance_props_with_ctx(
             }
         }
     }
+    bind_instance_props(doc, instance_id, &defs, &bound, ctx)
+}
+
+/// Binds the component properties named in `bound` (`(property, "var:..." reference)`) of instance `instance_id`.
+fn bind_instance_props(
+    doc: &mut Document,
+    instance_id: NodeId,
+    defs: &[ComponentPropDef],
+    bound: &[(&String, &Value)],
+    ctx: &mut SpecBuildCtx<'_>,
+) -> Result<(), SpecError> {
+    if bound.is_empty() {
+        return Ok(());
+    }
+    let mut index = SpecBindIndex::build(doc);
+    let mut edits: Vec<(String, String)> = Vec::with_capacity(bound.len());
+    for (key, raw) in bound {
+        let path = format!("props.{key}");
+        let def = defs.iter().find(|d| d.name == **key).or_else(|| defs.iter().find(|d| d.name.split('#').next() == Some(key.as_str()))).ok_or_else(|| {
+            SpecError::named(
+                "UNKNOWN_COMPONENT_PROPERTY",
+                format!("Unknown component property '{key}'"),
+                Some(path.clone()),
+                defs.iter().filter(|d| bindable_prop_kind(&d.kind).is_some()).map(|d| d.name.clone()).collect(),
+                None,
+            )
+        })?;
+        let kind = bindable_prop_kind(&def.kind).ok_or_else(|| {
+            SpecError::named(
+                "PROPERTY_TYPE_MISMATCH",
+                format!("Property '{key}' takes no variable: only boolean, text and variant properties do"),
+                Some(path.clone()),
+                Vec::new(),
+                None,
+            )
+        })?;
+        let var_id = resolve_variable_ref_of_kind(doc, &mut index, ctx.snapshots, raw.as_str().unwrap_or_default(), key, &path, Some(kind))?;
+        edits.push((def.name.clone(), var_id));
+    }
+    let refs: Vec<(&str, Option<&str>)> = edits.iter().map(|(n, v)| (n.as_str(), Some(v.as_str()))).collect();
+    let cmd = bind_prop_variables(doc, instance_id, &refs)
+        .map_err(|e| SpecError::named("PROPERTY_TYPE_MISMATCH", e.to_string(), Some("props".into()), Vec::new(), None))?;
+    cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
+    ctx.bindings_created += edits.len();
     Ok(())
 }
 
@@ -2105,6 +2154,14 @@ impl Document {
                     props.insert(k.clone(), Value::String(s));
                 }
                 PropValue::Variant(_) | PropValue::Slot(_) => {}
+            }
+        }
+
+        // A bound property is written as the variable it follows, which stands for its stored value too.
+        let index = SpecBindIndex::build(self);
+        for (name, var) in prop_bindings_of(n) {
+            if let Some(r) = self.export_var_ref(&index, var) {
+                props.insert(name.to_string(), Value::String(r));
             }
         }
 

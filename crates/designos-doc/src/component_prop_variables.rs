@@ -153,31 +153,46 @@ pub fn prop_bindings_of(n: &Node) -> impl Iterator<Item = (&str, &str)> {
     n.variables.bindings.iter().filter_map(|(k, v)| Some((prop_binding_name(k)?, v.as_str())))
 }
 
-/// Binds property `name` of instance `inst` to `var`, or with `None` unbinds it, and applies the value the variable
-/// gives in the instance's modes (one command, one undo step). Unbinding keeps the last value the property had.
-/// A variable whose value the property cannot take (a variant name that is no option) is still bound; the property
-/// keeps its last valid value and [`prop_binding_problem`] says why.
+/// Binds property `name` of instance `inst` to `var`, or with `None` unbinds it; see [`bind_prop_variables`].
 pub fn bind_prop_variable(doc: &mut Document, inst: NodeId, name: &str, var: Option<&str>) -> Result<Command, PropBindError> {
+    bind_prop_variables(doc, inst, &[(name, var)])
+}
+
+/// Binds each `(property name, variable)` of instance `inst` (`None` unbinds) and applies the value each variable
+/// gives in the instance's modes: one command, one undo step. Unbinding keeps the last value the property had. A
+/// variable whose value the property cannot take (a variant name that is no option) is still bound; the property keeps
+/// its last valid value and [`prop_binding_problem`] says why. Nothing changes when any entry is refused.
+pub fn bind_prop_variables(doc: &mut Document, inst: NodeId, edits: &[(&str, Option<&str>)]) -> Result<Command, PropBindError> {
     let n = doc.get(inst).filter(|n| matches!(n.kind, NodeKind::Instance { .. })).ok_or(PropBindError::NotAnInstance(inst))?;
-    let def = def_of(doc, n, name).ok_or_else(|| PropBindError::NoSuchProperty(name.to_string()))?;
-    let key = prop_binding_key(name);
-    let Some(var) = var else {
-        return Ok(set_instance_prop_edit(doc, inst, |n| {
-            n.variables.bindings.remove(&key);
-        })
-        .0);
-    };
-    let expected = bindable_prop_kind(&def.kind).ok_or_else(|| PropBindError::NotBindable(name.to_string()))?;
-    let v = doc.variables.get(var).ok_or_else(|| PropBindError::NoSuchVariable(var.to_string()))?;
-    if v.kind != expected {
-        return Err(PropBindError::KindMismatch { property: name.to_string(), expected, found: v.kind });
+    // (property name, variable to bind or None, value the variable gives now)
+    let mut planned: Vec<(String, Option<String>, Option<PropValue>)> = Vec::with_capacity(edits.len());
+    for &(name, var) in edits {
+        let def = def_of(doc, n, name).ok_or_else(|| PropBindError::NoSuchProperty(name.to_string()))?;
+        let Some(var) = var else {
+            planned.push((name.to_string(), None, None));
+            continue;
+        };
+        let expected = bindable_prop_kind(&def.kind).ok_or_else(|| PropBindError::NotBindable(name.to_string()))?;
+        let v = doc.variables.get(var).ok_or_else(|| PropBindError::NoSuchVariable(var.to_string()))?;
+        if v.kind != expected {
+            return Err(PropBindError::KindMismatch { property: name.to_string(), expected, found: v.kind });
+        }
+        planned.push((name.to_string(), Some(var.to_string()), resolve_for_def(doc, inst, &def, var).ok()));
     }
-    let value = resolve_for_def(doc, inst, &def, var).ok();
-    let var = var.to_string();
     Ok(set_instance_prop_edit(doc, inst, |n| {
-        n.variables.bindings.insert(key, var);
-        if let Some(v) = value {
-            n.component.values.insert(name.to_string(), v);
+        for (name, var, value) in planned {
+            let key = prop_binding_key(&name);
+            match var {
+                Some(var) => {
+                    n.variables.bindings.insert(key, var);
+                    if let Some(v) = value {
+                        n.component.values.insert(name, v);
+                    }
+                }
+                None => {
+                    n.variables.bindings.remove(&key);
+                }
+            }
         }
     })
     .0)
@@ -234,7 +249,7 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
         });
     }
     if scope.all {
-        candidates.extend(doc.nodes.values().map(|n| n.id));
+        candidates.extend(doc.nodes.values().filter(|n| has_prop_binding(n)).map(|n| n.id));
     }
     let stale: Vec<(NodeId, Vec<(String, PropValue)>)> = candidates
         .into_iter()
@@ -272,6 +287,13 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
     }
     undo.reverse();
     Ok((!undo.is_empty()).then(|| Command::Batch(undo)))
+}
+
+/// Applies the values of every bound property to its instance, with no undo step: for a document that was just read
+/// (an imported file whose assignment holds only the variable's alias), so its layers show what the variables give.
+pub fn settle_bound_props(doc: &mut Document) {
+    let scope = PropResyncScope { all: true, ..Default::default() };
+    let _ = apply_prop_resync(doc, &scope);
 }
 
 /// Property bindings whose value the property does not take: one `(instance, property, problem)` per binding.
