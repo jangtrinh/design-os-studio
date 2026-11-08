@@ -815,3 +815,93 @@ fn libraries_description_hint_sits_inside_the_field() {
     assert!(hint.pos.x >= field.left() + theme::INSET_CONTROL - 0.5, "the hint starts {} px from the field edge", hint.pos.x - field.left());
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Adds "Theme (extended)" to the open document with an override of `Radius/Card` in its first mode, opens it, and
+/// returns its id with the modes of the extension.
+fn open_extended_theme(s: &mut Sim) -> (String, String, String) {
+    use designos_doc::{VariableStore, VariableValue};
+    let doc = &mut s.shell.app.doc;
+    let mut store = VariableStore::from_doc(doc);
+    let theme = store.collections.values().find(|c| c.name == "Theme").expect("Theme").id.clone();
+    let radius = store.variables.values().find(|v| v.name == "Radius/Card").expect("Radius/Card").id.clone();
+    let ext = store.extend_collection(&theme, "Theme (extended)").expect("extension");
+    let (first, second) = (store.collections[&ext].modes[0].id.clone(), store.collections[&ext].modes[1].id.clone());
+    assert!(store.set_override(&ext, &radius, &first, VariableValue::Number(30.0)));
+    doc.variables = store.variables;
+    doc.variable_collections = store.collections;
+    s.shell.app.vars.collection = Some(ext.clone());
+    settle(s);
+    (ext, first, second)
+}
+
+fn radius_id(s: &Sim) -> String {
+    s.app().doc.variables.values().find(|v| v.name == "Radius/Card").expect("Radius/Card").id.clone()
+}
+
+#[test]
+fn an_extended_collection_lists_inherited_variables_marks_overrides_and_resets_them() {
+    let mut s = Sim::with(Options { panel: Some("variables".into()), ..Options::default() });
+    settle(&mut s);
+    let (ext, first, second) = open_extended_theme(&mut s);
+    let radius = radius_id(&s);
+
+    // the inherited variable is listed with its overridden value, and shows the parent's value in the other mode
+    let cell = s.rect_of(&format!("vars-cell:Radius/Card:{first}"));
+    assert!(cell.width() > 0.0);
+    let field = s.rect_of(&format!("vars-num:Radius/Card:{first}"));
+    let shown = texts_of(&s).into_iter().find(|t| field.contains(t.pos + egui::vec2(1.0, 1.0)) && t.galley.job.text == "30");
+    assert!(shown.is_some(), "the override value is drawn in the first mode");
+    assert_eq!(s.app().doc.extended_value(&ext, &radius, &second), Some(designos_doc::VariableValue::Number(12.0)), "the other mode follows the parent");
+    // the overridden value carries the blue dot, inside its cell
+    let dot = s.rect_of(&format!("vars-override:Radius/Card:{first}"));
+    assert!(cell.contains(dot.center()), "the dot sits in the overridden cell");
+    assert!(s.rect_of("vars-extends").width() > 0.0, "the note says where the variables come from");
+
+    // hovering the row offers a reset button that meets the pointer floor; clicking it resets in one undo step
+    s.mv(cell.center());
+    let reset = s.rect_of(&format!("vars-reset:Radius/Card:{first}"));
+    assert!(reset.width() >= theme::TARGET_MIN && reset.height() >= theme::TARGET_MIN, "reset target is {:?}", reset.size());
+    assert!(cell.contains(reset.center()));
+    s.click(reset.center());
+    frames(&mut s, 3);
+    assert!(s.app().doc.variable_collections[&ext].extension_override(&radius, &first).is_none(), "the override is gone");
+    assert_eq!(s.app().doc.extended_value(&ext, &radius, &first), Some(designos_doc::VariableValue::Number(12.0)));
+    s.cmd_key(egui::Key::Z);
+    frames(&mut s, 3);
+    assert!(s.app().doc.variable_collections[&ext].extension_override(&radius, &first).is_some(), "undo brings it back");
+}
+
+#[test]
+fn removing_in_an_extended_collection_never_touches_the_parent_variable() {
+    let mut s = Sim::with(Options { panel: Some("variables".into()), ..Options::default() });
+    settle(&mut s);
+    let _ = open_extended_theme(&mut s);
+    let radius = radius_id(&s);
+    let before = s.app().doc.variables.len();
+    let row = s.rect_of("vars-row:Radius/Card");
+    s.click(row.center());
+    frames(&mut s, 2);
+    s.key(egui::Key::Delete);
+    frames(&mut s, 3);
+    assert_eq!(s.app().doc.variables.len(), before, "no variable was removed");
+    assert!(s.app().doc.variables.contains_key(&radius), "the parent's variable is still there");
+    s.cmd_key(egui::Key::D);
+    frames(&mut s, 3);
+    assert_eq!(s.app().doc.variables.len(), before, "nothing was duplicated into the parent");
+}
+
+#[test]
+fn groups_of_an_extended_collection_open_no_menu_and_no_rename() {
+    let mut s = Sim::with(Options { panel: Some("variables".into()), ..Options::default() });
+    settle(&mut s);
+    let _ = open_extended_theme(&mut s);
+    s.right_click(s.rect_of("vars-group:Radius").center());
+    assert!(s.app().vars.menu.is_none(), "an extended collection has no group menu: its groups are its parent's");
+    s.shell.app.vars.group = None;
+    s.frame(vec![]);
+    let header = s.rect_of("vars-header:Radius");
+    s.click(header.center());
+    s.click(header.center());
+    frames(&mut s, 2);
+    assert!(s.app().vars.renaming.is_none(), "a group of an extended collection is not renamed here");
+}

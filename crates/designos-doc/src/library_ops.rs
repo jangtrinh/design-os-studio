@@ -295,13 +295,38 @@ pub fn publishable_assets(doc: &Document) -> Vec<(String, LibraryAssetKind, Stri
     }
     // A soft-deleted collection or variable is not published as an asset (a variable's `is_publishable` says so);
     // `snapshot` still carries one that a published component binds to, so the component renders as it does here.
-    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted()) {
+    // An extended collection is not published: the import side does not yet carry its parent link, mode ids and
+    // override keys across documents.
+    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted() && !c.is_extension()) {
         out.push((format!("col:{id}"), LibraryAssetKind::VariableCollection, c.name.clone()));
     }
-    for (id, v) in doc.variables.iter().filter(|(id, v)| !imported.contains(id.as_str()) && v.is_publishable()) {
+    for (id, v) in doc.variables.iter().filter(|(id, v)| !imported.contains(id.as_str()) && v.is_publishable() && !in_extension(doc, v)) {
         out.push((format!("var:{id}"), LibraryAssetKind::Variable, v.name.clone()));
     }
     out
+}
+
+/// True for a variable whose collection extends another: it is not published, and neither is that collection.
+fn in_extension(doc: &Document, v: &Variable) -> bool {
+    doc.variable_collections.get(&v.collection).is_some_and(VariableCollection::is_extension)
+}
+
+/// Names of the published components that pick a mode of an extended collection. Extended collections are not
+/// published, so the published copy of such a component shows the parent's value instead; the publish flow says so.
+pub fn publish_warnings(doc: &Document) -> Vec<String> {
+    let extensions: BTreeSet<&str> = doc.variable_collections.values().filter(|c| c.is_extension()).map(|c| c.id.as_str()).collect();
+    if extensions.is_empty() {
+        return Vec::new();
+    }
+    let mut names = Vec::new();
+    for (key, kind, name) in publishable_assets(doc) {
+        let root = key.strip_prefix('c').or_else(|| key.strip_prefix('s')).and_then(|s| s.parse::<u64>().ok()).map(NodeId);
+        let (Some(root), true) = (root, matches!(kind, LibraryAssetKind::Component | LibraryAssetKind::ComponentSet)) else { continue };
+        if subtree(&doc.nodes, root).iter().any(|id| doc.nodes.get(id).is_some_and(|n| n.variables.modes.keys().any(|c| extensions.contains(c.as_str())))) {
+            names.push(name);
+        }
+    }
+    names
 }
 
 /// Captures the publishable assets of `doc` (and what they reference) as a
@@ -358,7 +383,8 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
         }
     }
     for id in &var_ids {
-        if let Some(v) = doc.variables.get(id) {
+        // an extended collection, and any variable that names one, never travels: no caller can leak one through here
+        if let Some(v) = doc.variables.get(id).filter(|v| !in_extension(doc, v)) {
             snap.variables.insert(id.clone(), v.clone());
             if let Some(c) = doc.variable_collections.get(&v.collection) {
                 snap.variable_collections.insert(c.id.clone(), c.clone());

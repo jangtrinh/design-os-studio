@@ -16,7 +16,7 @@ use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
     apply_style_values_with_fields, recorded_text_paragraph_fields, resolve_easeui_color, style_property, text_style_paragraph_fields_after_update, Color,
     Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect, SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable,
-    VariableCollection, VariableKind, VariableMode, VariableValue,
+    VariableCollection, VariableKind, VariableMode, VariableStore, VariableValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1490,12 +1490,22 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
     let path = format!("/ops/{op_idx}");
     let mut collections = doc.variable_collections.clone();
     let mut variables = doc.variables.clone();
+    let mut unmapped_modes: Vec<(String, String)> = Vec::new();
 
     for c_in in &op.upsert_collections {
         if c_in.id.trim().is_empty() {
             return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "collection id must not be empty"));
         }
         let existing = collections.get(&c_in.id).cloned();
+        if existing.as_ref().is_some_and(|e| e.is_extension()) && (!c_in.modes.is_empty() || c_in.default_mode.is_some()) {
+            return Err(op_failed_error(
+                op_idx,
+                "set_variables",
+                ErrorCode::InvalidArguments,
+                &path,
+                format!("collection '{}' extends another collection: its modes follow the parent, set values per mode with upsert_variables", c_in.id),
+            ));
+        }
         let modes = if !c_in.modes.is_empty() {
             c_in.modes.clone()
         } else if let Some(ex) = &existing {
@@ -1508,6 +1518,10 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
             .clone()
             .or_else(|| existing.as_ref().map(|e| e.default_mode.clone()))
             .unwrap_or_else(|| modes.first().map(|m| m.id.clone()).unwrap_or_else(|| "light".into()));
+        if let Some(ex) = &existing {
+            // modes the parent no longer has: its extensions stop mapping to them, as when a mode is deleted in the panel
+            unmapped_modes.extend(ex.modes.iter().filter(|m| !modes.iter().any(|n| n.id == m.id)).map(|m| (c_in.id.clone(), m.id.clone())));
+        }
         let name = c_in.name.clone().or_else(|| existing.as_ref().map(|e| e.name.clone())).unwrap_or_else(|| c_in.id.clone());
         let vars_list = c_in.variables.clone().or_else(|| existing.as_ref().map(|e| e.variables.clone())).unwrap_or_default();
         collections.insert(
@@ -1525,6 +1539,8 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
         );
     }
 
+    // (variable, mode, value); `None` is a null value: reset the override of an extended collection's mode
+    let mut writes: Vec<(String, String, Option<VariableValue>)> = Vec::new();
     for v_in in &op.upsert_variables {
         if v_in.id.trim().is_empty() {
             return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "variable id must not be empty"));
@@ -1561,10 +1577,16 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
                 format!("variable collection '{collection_id}' not found"),
             ));
         }
-        let mut values = existing.as_ref().map(|e| e.values.clone()).unwrap_or_default();
+        // values are written below through the variable store (set_value, set_alias, reset_override), which owns the
+        // rules for extended collections and alias cycles; this record only keeps what the variable already has
+        let values = existing.as_ref().map(|e| e.values.clone()).unwrap_or_default();
         for (mode_id, raw_val) in &v_in.values {
+            if raw_val.is_null() {
+                writes.push((v_in.id.clone(), mode_id.clone(), None));
+                continue;
+            }
             let parsed_val = parse_variable_value(raw_val, kind).map_err(|(code, msg)| op_failed_error(op_idx, "set_variables", code, &path, msg))?;
-            values.insert(mode_id.clone(), parsed_val);
+            writes.push((v_in.id.clone(), mode_id.clone(), Some(parsed_val)));
         }
         let name = v_in.name.clone().or_else(|| existing.as_ref().map(|e| e.name.clone())).unwrap_or_else(|| v_in.id.clone());
         let var = Variable {
@@ -1589,12 +1611,26 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
         }
     }
 
+    let rules_before = VariableStore { variables: doc.variables.clone(), collections: doc.variable_collections.clone() }.extension_violations();
+    let mut store = VariableStore { variables, collections };
     for del_id in &op.delete_variables {
-        variables.remove(del_id);
-        for col in collections.values_mut() {
+        store.forget_overrides_of(del_id);
+        store.variables.remove(del_id);
+        for col in store.collections.values_mut() {
             col.variables.retain(|v| v != del_id);
         }
     }
+    for (coll, mode) in &unmapped_modes {
+        store.unmap_parent_mode(coll, mode);
+    }
+    if let Err(why) = store.apply_value_writes(writes) {
+        return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, why));
+    }
+    // an import can leave a store that already breaks an extension rule; the op is refused only for a break it adds
+    if let Err(why) = store.rules_added_since(&rules_before) {
+        return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, why));
+    }
+    let VariableStore { variables, collections } = store;
 
     if variables == doc.variables && collections == doc.variable_collections {
         return Ok((None, 0));

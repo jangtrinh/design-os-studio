@@ -312,7 +312,13 @@ impl App {
                 if let Some(f) = &self.lib_file {
                     let _ = lib.set_library_source_file(&info.library_id, Some(&f.id));
                 }
-                self.show_toast(format!("Published {} v{}", info.name, info.version), false);
+                // extended collections are not published: say which components then show the parent's values
+                let picks = publish_warnings(&self.doc);
+                let mut text = format!("Published {} v{}", info.name, info.version);
+                if !picks.is_empty() {
+                    text.push_str(&format!(". Extended collections are not published, so {} show the parent's values", picks.join(", ")));
+                }
+                self.show_toast(text, false);
                 self.doc.library.published = Some(info);
                 self.libs.invalidate();
                 self.refresh_libraries();

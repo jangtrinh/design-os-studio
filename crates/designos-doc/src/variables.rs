@@ -232,15 +232,20 @@ impl Document {
         let mut id = variable.to_string();
         for _ in 0..MAX_ALIAS_DEPTH {
             let v = self.variables.get(&id)?;
-            let mode = self.variable_mode_with_overrides(node, &v.collection, mode_overrides)?;
-            let coll = self.variable_collections.get(&v.collection)?;
-            let value = self
-                .resolve_multi_axis_value_with_modes(node, v, &mode, mode_overrides)
-                .or_else(|| v.values.get(&mode))
-                .or_else(|| v.values.get(&coll.default_mode))?;
+            let value = match self.node_extension_value(node, v, mode_overrides) {
+                Some(extended) => extended,
+                None => {
+                    let mode = self.variable_mode_with_overrides(node, &v.collection, mode_overrides)?;
+                    let coll = self.variable_collections.get(&v.collection)?;
+                    self.resolve_multi_axis_value_with_modes(node, v, &mode, mode_overrides)
+                        .or_else(|| v.values.get(&mode))
+                        .or_else(|| v.values.get(&coll.default_mode))?
+                        .clone()
+                }
+            };
             match value {
-                VariableValue::Alias(next) => id = next.clone(),
-                other => return Some(other.clone()),
+                VariableValue::Alias(next) => id = next,
+                other => return Some(other),
             }
         }
         None

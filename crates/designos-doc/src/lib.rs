@@ -88,6 +88,7 @@ mod textmodel;
 mod variables;
 mod variables_apply;
 mod variables_edit;
+mod variables_extend;
 pub mod vector;
 mod vector_fit;
 mod writer_command;
@@ -139,6 +140,7 @@ pub use textmodel::*;
 pub use variables::*;
 pub use variables_apply::*;
 pub use variables_edit::*;
+pub use variables_extend::*;
 pub use vector::{HandleMirror, VectorNetwork};
 pub use vector_fit::{fit_polyline, Anchor};
 pub use writer_command::*;
@@ -1744,6 +1746,7 @@ impl Document {
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
         doc.migrate_text();
+        doc.normalize_extensions();
         (doc, report)
     }
 

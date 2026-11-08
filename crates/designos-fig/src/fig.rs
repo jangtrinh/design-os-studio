@@ -321,12 +321,14 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         .collect();
     let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
     let dropped_variable_bindings = dropped_effect_variable_bindings(&entries);
+    let dropped_variable_overrides = count_variable_override_nodes(&entries);
     let rest = entries_to_rest(entries, &blob_refs, &name);
     if large {
         release_os_memory();
     }
     let (mut doc, mut report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
     report.dropped_variable_bindings += dropped_variable_bindings;
+    report.dropped_variable_overrides += dropped_variable_overrides;
     for (sid, sp) in style_sort_positions {
         if let Some(meta) = doc.style_meta.get_mut(&sid) {
             meta.sort_position = Some(sp);
@@ -340,6 +342,12 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         release_os_memory();
     }
     Ok((doc, report))
+}
+
+/// How many `VARIABLE_OVERRIDE` nodes (node type 35) `entries` hold. The importer reads none of them: the field layout
+/// of that node is UNVERIFIED (no real extended-collection file was available; the schema gives it no fields of its own).
+fn count_variable_override_nodes(entries: &[Entry]) -> usize {
+    entries.iter().filter(|e| fstr(&e.json, "type") == Some("VARIABLE_OVERRIDE")).count()
 }
 
 /// Effect fields whose variable binding Studio does not carry: the glass fields other than the frost radius,
@@ -791,6 +799,12 @@ pub(crate) fn message_to_rest(msg: &KiwiValue, name: &str) -> Value {
 /// enums by name), as `fig2json` prints them. For synthetic test fixtures.
 #[doc(hidden)]
 pub fn import_fig_node_changes(changes: &Value, name: &str) -> Result<Document, FigError> {
+    import_fig_node_changes_with_report(changes, name).map(|(doc, _)| doc)
+}
+
+/// [`import_fig_node_changes`] with the report of what the import left out (see
+/// [`rest_import::ImportReport::dropped_variable_overrides`]).
+pub fn import_fig_node_changes_with_report(changes: &Value, name: &str) -> Result<(Document, rest_import::ImportReport), FigError> {
     let list = changes.as_array().or_else(|| changes.get("nodeChanges").and_then(Value::as_array)).cloned().unwrap_or_default();
     let owned_blobs: Vec<Vec<u8>> = changes
         .get("blobs")
@@ -804,8 +818,12 @@ pub fn import_fig_node_changes(changes: &Value, name: &str) -> Result<Document, 
         })
         .unwrap_or_default();
     let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
-    let rest = nodes_to_rest(list, &blob_refs, name);
-    rest_import::import_rest_value(&rest, true)
+    let entries: Vec<Entry> = list.into_iter().filter_map(entry_from_json).collect();
+    let dropped_variable_overrides = count_variable_override_nodes(&entries);
+    let rest = entries_to_rest(entries, &blob_refs, name);
+    let (doc, mut report) = rest_import::import_rest_value_with_blobs_and_budget(&rest, true, &[], None, rest_import::CLONE_BUDGET_TOTAL)?;
+    report.dropped_variable_overrides += dropped_variable_overrides;
+    Ok((doc, report))
 }
 
 fn nodes_to_rest(changes: Vec<Value>, blobs: &[&[u8]], name: &str) -> Value {
@@ -2145,8 +2163,14 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
 /// `explicitVariableModes` (collection id -> mode id) from `variableModeBySetMap`.
 fn explicit_modes(nc: &Value, lk: &Lk) -> Option<Value> {
     let entries = nc.get("variableModeBySetMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]);
-    let out: Map<String, Value> =
-        entries.iter().filter_map(|e| Some((lk.set_id(e.get("variableSetID")?)?, Value::String(guid_str(e.get("variableModeID")?)?)))).collect();
+    // A layer that picks a mode of an extended collection names the extension next to the collection it extends.
+    let out: Map<String, Value> = entries
+        .iter()
+        .filter_map(|e| {
+            let set = e.get("variableSetExtensionID").or_else(|| e.get("variableSetID"))?;
+            Some((lk.set_id(set)?, Value::String(guid_str(e.get("variableModeID")?)?)))
+        })
+        .collect();
     (!out.is_empty()).then_some(Value::Object(out))
 }
 

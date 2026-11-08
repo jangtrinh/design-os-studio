@@ -626,6 +626,9 @@ pub struct ImportReport {
     /// (other than its frost radius) and of a noise (other than its colour and opacity) on every layer and effect
     /// style. The field keeps its stored value; only the binding is dropped.
     pub dropped_variable_bindings: usize,
+    /// How many `VARIABLE_OVERRIDE` nodes the file holds and the importer did not read. Their layout is not known
+    /// (no real sample), so an extended collection that Figma stored through them arrives without those overrides.
+    pub dropped_variable_overrides: usize,
     /// How many distinct variables the document's bindings refer to that are absent from the document's variables.
     ///
     /// Every binding counts, whatever it binds (fills, strokes, effects, gradient stops, text metrics or any other
@@ -816,13 +819,14 @@ pub fn import_rest_json_with_budget(json: &str, clone_budget_total: usize) -> Re
     import_rest_value_with_blobs_and_budget(&v, true, &[], None, clone_budget_total)
 }
 
-/// Maps an already-parsed REST-shaped value. `expand_instances` clones the
-/// component subtree into childless instances (used by `.fig`, where instance
-/// children are often not stored).
+#[cfg(test)]
 pub(crate) fn import_rest_value(v: &Value, expand_instances: bool) -> Result<Document, FigError> {
     import_rest_value_with_blobs(v, expand_instances, &[], None)
 }
 
+/// Maps an already-parsed REST-shaped value. `expand_instances` clones the
+/// component subtree into childless instances (used by `.fig`, where instance
+/// children are often not stored).
 pub(crate) fn import_rest_value_owned_with_budget<'a>(
     mut v: Value,
     expand_instances: bool,
@@ -938,7 +942,12 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
     drop(v);
-    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len(), dropped_variable_bindings: 0, missing_variable_bindings };
+    let report = ImportReport {
+        instances_left_unexpanded: cx.unexpanded_instances.len(),
+        dropped_variable_bindings: 0,
+        dropped_variable_overrides: 0,
+        missing_variable_bindings,
+    };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);
@@ -1077,7 +1086,12 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
-    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len(), dropped_variable_bindings: 0, missing_variable_bindings };
+    let report = ImportReport {
+        instances_left_unexpanded: cx.unexpanded_instances.len(),
+        dropped_variable_bindings: 0,
+        dropped_variable_overrides: 0,
+        missing_variable_bindings,
+    };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);

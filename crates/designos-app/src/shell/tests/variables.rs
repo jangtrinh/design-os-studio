@@ -641,8 +641,8 @@ fn deleting_a_collection_selects_one_the_file_owns_not_a_library_one() {
     open_view(&mut s, true);
     let row = s.rect_of("vars-coll:Theme");
     s.right_click(row.center());
-    // Rename, Duplicate, Delete
-    for _ in 0..3 {
+    // Rename, Duplicate, Extend collection, Delete
+    for _ in 0..4 {
         s.key(Key::ArrowDown);
     }
     s.key(Key::Enter);

@@ -201,7 +201,7 @@
   },
   {
     "name": "designos_get_variables",
-    "description": "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes.",
+    "description": "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. A collection that extends another has an `extension` block (parent_collection_id, mode_map, inherited_variable_ids, overrides with value and parent_value); `extendable` marks a collection others may extend. Set an override with designos_apply_batch set_variables, using the extension's own mode id; a null value there resets the override.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

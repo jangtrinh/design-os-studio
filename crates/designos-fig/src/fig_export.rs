@@ -495,6 +495,15 @@ impl<'a> ExportCtx<'a> {
         self.var_guids.get(id).copied().or_else(|| self.var_guids.get(&format!("VariableID:{id}")).copied()).or_else(|| parse_guid_pair(id))
     }
 
+    /// `VariableSetID` of an extended collection's parent: the parent's node when this file holds it, else the
+    /// library key it was imported with.
+    fn extension_parent_ref(&self, parent: &ParentCollection) -> Option<V> {
+        match self.resolve_coll_guid(&parent.collection).filter(|_| !parent.collection.is_empty()) {
+            Some(g) => Some(msg(vec![("guid", guid(g.0, g.1))])),
+            None => parent.set_key.as_ref().map(|key| msg(vec![("assetRef", msg(vec![("key", V::String(key.clone()))]))])),
+        }
+    }
+
     fn resolve_coll_guid(&self, id: &str) -> Option<(u32, u32)> {
         self.coll_guids.get(id).copied().or_else(|| self.coll_guids.get(&format!("VariableCollectionId:{id}")).copied()).or_else(|| parse_guid_pair(id))
     }
@@ -751,12 +760,22 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
                 ordered_modes.push(m);
             }
         }
+        let extension = c.extension();
         let modes: Vec<V> = ordered_modes
             .iter()
             .enumerate()
             .map(|(mi, m)| {
                 let mguid = cx.mode_guids[&m.id];
-                msg(vec![("id", guid(mguid.0, mguid.1)), ("name", V::String(m.name.clone())), ("sortPosition", V::String(pos_str(mi)))])
+                let mut fields = vec![("id", guid(mguid.0, mguid.1)), ("name", V::String(m.name.clone())), ("sortPosition", V::String(pos_str(mi)))];
+                if let Some(ext) = &extension {
+                    if let Some(parent) = cx.extension_parent_ref(&ext.parent) {
+                        fields.push(("parentVariableSetId", parent));
+                        if let Some(&pm) = ext.mode_map.get(&m.id).and_then(|pm| cx.mode_guids.get(pm)) {
+                            fields.push(("parentModeId", guid(pm.0, pm.1)));
+                        }
+                    }
+                }
+                msg(fields)
             })
             .collect();
         let mut fields = vec![
@@ -772,6 +791,9 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         }
         if let Some(lib) = &c.source_library_key {
             fields.push(("sourceLibraryKey", V::String(lib.clone())));
+        }
+        if c.is_extendable() {
+            fields.push(("isCollectionExtendable", V::Bool(true)));
         }
         // A collection the file deleted but kept for the variables still in use is written back as deleted.
         if c.is_soft_deleted() {
@@ -790,20 +812,33 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
             VariableKind::String => "STRING",
             VariableKind::Boolean => "BOOLEAN",
         };
+        let encode = |val: &VariableValue| match val {
+            VariableValue::Color(c) => Some(msg(vec![("dataType", en("COLOR")), ("value", msg(vec![("colorValue", color(c.r, c.g, c.b, c.a))]))])),
+            VariableValue::Number(f) => Some(msg(vec![("dataType", en("FLOAT")), ("value", msg(vec![("floatValue", fl(*f))]))])),
+            VariableValue::String(s) => Some(msg(vec![("dataType", en("STRING")), ("value", msg(vec![("textValue", V::String(s.clone()))]))])),
+            VariableValue::Boolean(b) => Some(msg(vec![("dataType", en("BOOLEAN")), ("value", msg(vec![("boolValue", V::Bool(*b))]))])),
+            VariableValue::Alias(target) => {
+                let tguid = cx.resolve_var_guid(target)?;
+                Some(msg(vec![("dataType", en("ALIAS")), ("value", msg(vec![("alias", msg(vec![("guid", guid(tguid.0, tguid.1))]))]))]))
+            }
+        };
         let mut val_entries = Vec::new();
         for (mode_id, val) in &v.values {
             let Some(&mguid) = cx.mode_guids.get(mode_id) else { continue };
-            let vdata = match val {
-                VariableValue::Color(c) => msg(vec![("dataType", en("COLOR")), ("value", msg(vec![("colorValue", color(c.r, c.g, c.b, c.a))]))]),
-                VariableValue::Number(f) => msg(vec![("dataType", en("FLOAT")), ("value", msg(vec![("floatValue", fl(*f))]))]),
-                VariableValue::String(s) => msg(vec![("dataType", en("STRING")), ("value", msg(vec![("textValue", V::String(s.clone()))]))]),
-                VariableValue::Boolean(b) => msg(vec![("dataType", en("BOOLEAN")), ("value", msg(vec![("boolValue", V::Bool(*b))]))]),
-                VariableValue::Alias(target) => {
-                    let Some(tguid) = cx.resolve_var_guid(target) else { continue };
-                    msg(vec![("dataType", en("ALIAS")), ("value", msg(vec![("alias", msg(vec![("guid", guid(tguid.0, tguid.1))]))]))])
-                }
-            };
+            let Some(vdata) = encode(val) else { continue };
             val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
+        }
+        // UNVERIFIED layout (no real extended-collection `.fig` was available; the alternative is `VARIABLE_OVERRIDE`
+        // nodes, which the importer counts and does not read): the overrides of an extended collection are written as
+        // extra entries on the overridden variable, keyed by the extension's own mode ids. Overrides of a variable
+        // this file does not hold are not written (see `ParentCollection::set_key`).
+        // Overrides of an extended collection sit on the overridden variable, keyed by the extension's own mode ids.
+        for ext in cx.doc.variable_collections.values().filter(|c| c.is_extension()) {
+            for (mode_id, val) in ext.extension().iter().filter_map(|e| e.overrides.get(&v.id).cloned()).flatten() {
+                let Some(&mguid) = cx.mode_guids.get(&mode_id) else { continue };
+                let Some(vdata) = encode(&val) else { continue };
+                val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
+            }
         }
         // The REST variable payload spells the stroke colour scope `STROKE_COLOR`,
         // while the native `.fig` schema uses `STROKE`. Normalize before schema
@@ -2010,9 +2045,32 @@ fn encode_node_mode_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     for (cid, mid) in &vars.modes {
         let Some(cg) = cx.resolve_coll_guid(cid) else { continue };
         let Some(&mg) = cx.mode_guids.get(mid) else { continue };
-        mode_entries.push(msg(vec![("variableSetID", msg(vec![("guid", guid(cg.0, cg.1))])), ("variableModeID", guid(mg.0, mg.1))]));
+        // A mode of an extended collection is named next to the collection at the root of its chain.
+        let root =
+            cx.doc.variable_collections.get(cid).filter(|c| c.is_extension()).and_then(|_| extension_root(cx.doc, cid)).and_then(|r| cx.resolve_coll_guid(&r));
+        let entry = match root {
+            Some(rg) => vec![
+                ("variableSetID", msg(vec![("guid", guid(rg.0, rg.1))])),
+                ("variableModeID", guid(mg.0, mg.1)),
+                ("variableSetExtensionID", msg(vec![("guid", guid(cg.0, cg.1))])),
+            ],
+            None => vec![("variableSetID", msg(vec![("guid", guid(cg.0, cg.1))])), ("variableModeID", guid(mg.0, mg.1))],
+        };
+        mode_entries.push(msg(entry));
     }
     mode_entries
+}
+
+/// Id of the collection at the root of the chain `coll` extends.
+fn extension_root(doc: &Document, coll: &str) -> Option<String> {
+    let mut cur = doc.variable_collections.get(coll)?.extension_parent_id()?;
+    for _ in 0..8 {
+        match doc.variable_collections.get(cur)?.extension_parent_id() {
+            Some(next) => cur = next,
+            None => return Some(cur.to_string()),
+        }
+    }
+    None
 }
 
 fn node_fills(node: &Node) -> &[Paint] {

@@ -852,3 +852,22 @@ fn selection_styles_section_shows_library_styles_when_file_has_no_local_styles()
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(root_text_only);
 }
+
+#[test]
+fn publishing_says_which_components_pick_a_mode_of_an_extended_collection() {
+    let root = tmp("extension-pick");
+    let mut s = sim(&root);
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let theme = store.collections.values().find(|c| c.name == "Theme").expect("Theme").id.clone();
+    let brand = store.extend_collection(&theme, "Brand").expect("extension");
+    let brand_mode = store.collections[&brand].modes[0].id.clone();
+    let doc = &mut s.shell.app.doc;
+    doc.variables = store.variables;
+    doc.variable_collections = store.collections;
+    let comp = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_))).map(|n| (n.id, n.name.clone())).expect("the demo has a component");
+    doc.get_mut(comp.0).unwrap().variables.modes.insert(brand, brand_mode);
+    assert!(s.shell.app.publish_file(), "publishing still proceeds");
+    let toast = s.app().toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+    assert!(toast.contains(&comp.1) && toast.contains("not published"), "the toast names the component: {toast}");
+    let _ = std::fs::remove_dir_all(root);
+}

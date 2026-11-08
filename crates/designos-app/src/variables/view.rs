@@ -139,7 +139,19 @@ fn in_group(folder: &str, group: Option<&str>) -> bool {
 /// The variables the panel lists for a collection, in display order. A soft-deleted variable stays in the store so
 /// layers bound to it resolve, but it is not one of the collection's variables, whatever its list says.
 fn listed_variables<'a>(view: &'a VariableStore, coll: &'a VariableCollection) -> impl Iterator<Item = &'a Variable> {
-    coll.variables.iter().filter_map(|id| view.variables.get(id)).filter(|v| !v.is_soft_deleted())
+    // an extended collection lists what it inherits from its parent
+    let ids = if coll.is_extension() { view.inherited_variable_ids(&coll.id) } else { coll.variables.clone() };
+    ids.into_iter().filter_map(move |id| view.variables.get(&id)).filter(|v| !v.is_soft_deleted())
+}
+
+/// An inherited variable as the extended collection `ext` shows it: one value per mode of `ext`, the override where
+/// there is one and the parent's value elsewhere. The value cells draw it like any variable of the collection.
+fn project_inherited(view: &VariableStore, ext: &VariableCollection, v: &Variable) -> Variable {
+    let mut shown = v.clone();
+    shown.collection = ext.id.clone();
+    shown.values = ext.modes.iter().filter_map(|m| Some((m.id.clone(), view.extended_value(&ext.id, &v.id, &m.id)?))).collect();
+    shown.mode_extensions.clear();
+    shown
 }
 
 /// Group paths of a collection in tree order with their depth.
@@ -324,7 +336,13 @@ fn keys(app: &mut App, ctx: &Context, view: &VariableStore) {
     for ev in events {
         let egui::Event::Key { key, pressed: true, modifiers, .. } = ev else { continue };
         // library variables can be selected but never edited, renamed, duplicated or deleted
-        let sel: Vec<String> = app.vars.selected.iter().filter(|s| view.variables.contains_key(*s) && !view.is_library_variable(s)).cloned().collect();
+        // an extended collection lists its parent's variables: they are edited in the parent, never from here
+        let in_extension = app.vars.collection.as_ref().and_then(|c| view.collections.get(c)).is_some_and(VariableCollection::is_extension);
+        let sel: Vec<String> = if in_extension {
+            Vec::new()
+        } else {
+            app.vars.selected.iter().filter(|s| view.variables.contains_key(*s) && !view.is_library_variable(s)).cloned().collect()
+        };
         match key {
             Key::Escape => {
                 if !app.vars.selected.is_empty() {
@@ -536,6 +554,8 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
             );
             if read_only {
                 library::paint_lock(ui, Pos2::new(count.left() - 10.0, row.center().y), 12.0);
+            } else if c.is_extension() {
+                icons::paint(&p, Icon::Link, Pos2::new(count.left() - SIDE_BADGE_GAP, row.center().y), SIDE_BADGE_SIZE, theme::ICON_TERTIARY);
             }
         }
         if resp.clicked() && !selected {
@@ -636,7 +656,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                     app.vars.scroll = 0.0;
                 }
             }
-            if resp.secondary_clicked() && path.is_some() && !coll.is_library() {
+            if resp.secondary_clicked() && path.is_some() && !coll.is_library() && !coll.is_extension() {
                 let pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(row.left_bottom());
                 app.vars.menu = Some(VarMenu { kind: VarMenuKind::Folder(cid.clone(), key.clone()), pos, anchor: Rect::from_min_size(pos, Vec2::ZERO) });
             }
@@ -756,12 +776,23 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
     let p = ui.painter().clone();
     let x0 = g.main_left();
     widgets::hline(&p, x0, g.panel.right(), g.bottom_line(), theme::BORDER);
-    let read_only = coll.is_library();
-    let label = if read_only { library::NOTE } else { "Create variable" };
+    let read_only = coll.is_library() || coll.is_extension();
+    let note = extension_note(fr.view, coll);
+    let label = match (&note, read_only) {
+        (Some(n), _) => n.as_str(),
+        (None, true) => library::NOTE,
+        (None, false) => "Create variable",
+    };
     let w = 34.0 + widgets::text_width(&p, label, &theme::font_body()) + 8.0;
     let top = g.bottom_line() + 1.0 + (theme::VAR_BOTTOM_H - 1.0 - theme::FIELD_HEIGHT) / 2.0;
     let b = Rect::from_min_size(Pos2::new(x0 + 8.0, top), Vec2::new(w, theme::FIELD_HEIGHT));
-    if read_only {
+    if let Some(note) = &note {
+        // an extended collection inherits its variables: say from where, in the space "Create variable" would take
+        icons::paint(&p, Icon::Link, Pos2::new(b.left() + NOTE_ICON_X, b.center().y), NOTE_ICON_SIZE, theme::ICON_TERTIARY);
+        p.text(Pos2::new(b.left() + NOTE_TEXT_X, b.center().y), Align2::LEFT_CENTER, note, theme::font_body(), theme::TEXT_SECONDARY);
+        widgets::record(ui, "vars-extends", b);
+        ui.interact(b, Id::new("vars-extends"), Sense::hover()).on_hover_text(EXTENSION_TIP);
+    } else if read_only {
         // a library collection has no "Create variable": say why, in the space it would take
         library::paint_read_only_note(ui, b);
     } else {
@@ -809,6 +840,64 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
     let _ = (coll, fr);
 }
 
+// ------------------------------------------------------------------ extended collections
+
+/// Where the "Extends ..." note puts its icon and text, laid out like the "Create variable" button it replaces.
+const NOTE_ICON_X: f32 = 14.0;
+const NOTE_ICON_SIZE: f32 = 14.0;
+const NOTE_TEXT_X: f32 = 34.0;
+/// The link glyph left of an extended collection's count in the sidebar.
+const SIDE_BADGE_GAP: f32 = 10.0;
+const SIDE_BADGE_SIZE: f32 = 12.0;
+/// Distance of the override dot from the left edge of its cell, and the gap before a reset button.
+const OVERRIDE_DOT_X: f32 = 5.0;
+const RESET_GAP: f32 = 4.0;
+
+/// Hover text of the "Extends ..." note.
+const EXTENSION_TIP: &str = "Parent values, until you override them";
+
+/// "Extends Theme" for an extended collection (the parent's name, else its library key), else `None`.
+fn extension_note(view: &VariableStore, coll: &VariableCollection) -> Option<String> {
+    let ext = coll.extension()?;
+    let parent = view.collections.get(&ext.parent.collection).map(|c| c.name.clone()).unwrap_or_else(|| "a library collection".into());
+    Some(format!("Extends {parent}"))
+}
+
+/// Width the reset button of an overridden value takes at the right edge of its cell while the row is hovered.
+fn reset_slot(overridden: bool, hot: bool, read_only: bool) -> f32 {
+    if overridden && hot && !read_only {
+        theme::TARGET_MIN + RESET_GAP
+    } else {
+        0.0
+    }
+}
+
+/// Marks an overridden value with a blue dot at the left of its cell (no hover of its own). While the row is hovered a
+/// reset button at the right edge restores the parent's value.
+fn override_marker(ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, hot: bool, fr: &mut Frame) {
+    if !fr.view.is_overridden(&v.collection, &v.id, mode) {
+        return;
+    }
+    let cy = cell.center().y;
+    let dot = Pos2::new(cell.left() + OVERRIDE_DOT_X, cy);
+    ui.painter().circle_filled(dot, 2.5, theme::INFO);
+    widgets::record(ui, &format!("vars-override:{}:{}", v.name, mode), Rect::from_center_size(dot, Vec2::splat(6.0)));
+    if reset_slot(true, hot, false) == 0.0 {
+        return;
+    }
+    let hit = Rect::from_center_size(Pos2::new(cell.right() - theme::TARGET_MIN / 2.0, cy), Vec2::splat(theme::TARGET_MIN));
+    widgets::record(ui, &format!("vars-reset:{}:{}", v.name, mode), hit);
+    let r = ui.interact(hit, Id::new(("vars-reset", &v.id, mode)), Sense::click());
+    if r.hovered() {
+        ui.painter().rect_filled(hit, theme::cr(theme::RADIUS_CONTROL), theme::BG_PRESSED);
+    }
+    icons::paint(ui.painter(), Icon::Rotation, hit.center(), 14.0, theme::INFO);
+    if r.clicked() {
+        fr.work.reset_override(&v.collection, &v.id, mode);
+    }
+    r.on_hover_text("Reset to parent");
+}
+
 // ------------------------------------------------------------------ table
 
 fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCollection) {
@@ -816,7 +905,8 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
     let x0 = g.main_left();
     let right = g.panel.right();
     let n = coll.modes.len().max(1);
-    let read_only = coll.is_library();
+    // an extended collection takes its modes and variables from its parent; only values can be overridden
+    let read_only = coll.is_library() || coll.is_extension();
     let mw = g.mode_w(n);
     let modes_left = g.modes_left();
     let hy = g.head_top();
@@ -865,7 +955,9 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
                 }
                 Row::Var(id) => {
                     fr.slots.push(Slot { top: r.top(), bottom: slot_bottom, kind: SlotKind::Var(id.clone()) });
-                    let Some(v) = fr.view.variables.get(id) else { continue };
+                    let Some(stored) = fr.view.variables.get(id) else { continue };
+                    let inherited = coll.is_extension().then(|| project_inherited(fr.view, coll, stored));
+                    let v = inherited.as_ref().unwrap_or(stored);
                     let hot = ptr.is_some_and(|pp| r.contains(pp)) && !over_popup;
                     variable_row(app, ui, g, r, coll, v, hot, mw, sx, fr);
                 }
@@ -997,7 +1089,7 @@ fn header_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &str, path: &
     let group_fg = theme::TEXT_TERTIARY;
     icons::paint(&p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, Pos2::new(x + 4.0, r.center().y), 12.0, group_fg);
     let label = split_name(path).1;
-    let read_only = fr.view.is_library_collection(coll);
+    let read_only = fr.view.is_structure_locked(coll);
     let renaming = app.vars.renaming == Some(('f', key.clone())) && !read_only;
     let text_r = Rect::from_min_max(Pos2::new(x + 20.0, r.top() + 8.0), Pos2::new(name_cell.right() - 8.0, r.bottom() - 8.0));
     widgets::record(ui, &format!("vars-header:{path}"), text_r);
@@ -1035,7 +1127,7 @@ fn header_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &str, path: &
 fn variable_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &VariableCollection, v: &Variable, hot: bool, mw: f32, sx: f32, fr: &mut Frame) {
     let p = ui.painter().clone();
     let selected = app.vars.selected.contains(&v.id);
-    let read_only = coll.is_library();
+    let read_only = coll.is_library() || coll.is_extension();
     let dragging = app.vars.drag.as_ref().is_some_and(|d| d.var == v.id);
     if selected {
         p.rect_filled(r, 0.0, theme::BG_SELECTED);
@@ -1285,8 +1377,14 @@ fn move_into_group(store: &mut VariableStore, id: &str, group: Option<&str>) {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, hot: bool, opacity: bool, fr: &mut Frame) {
+    value_cell_body(app, ui, cell, v, mode, hot, opacity, fr);
+    override_marker(ui, cell, v, mode, hot, fr);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn value_cell_body(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, hot: bool, opacity: bool, fr: &mut Frame) {
     // a variable of a library collection is shown, never edited
-    let ro = fr.view.is_library_variable(&v.id);
+    let ro = fr.view.collections.get(&v.collection).is_some_and(VariableCollection::is_library);
     let id = Id::new(("vars-cell", &v.id, mode, opacity));
     let value = v.values.get(mode).cloned().unwrap_or_else(|| default_value(v.kind));
     let p = ui.painter().clone();
@@ -1314,8 +1412,10 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
         }
         return;
     }
-    let bind_rect = Rect::from_center_size(Pos2::new(cell.right() - 16.0, cy), Vec2::splat(20.0));
-    let mut field_right = cell.right() - 8.0;
+    // an overridden value keeps the right edge free for its reset button
+    let reset_w = reset_slot(fr.view.is_overridden(&v.collection, &v.id, mode), hot, ro);
+    let bind_rect = Rect::from_center_size(Pos2::new(cell.right() - 16.0 - reset_w, cy), Vec2::splat(20.0));
+    let mut field_right = cell.right() - 8.0 - reset_w;
     if hot && opacity && !ro {
         field_right = bind_rect.left() - 4.0;
     }
@@ -1465,7 +1565,14 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
         // a library collection can be duplicated into an editable local copy, nothing else
         VarMenuKind::Collection(id) => {
             let read_only = fr.view.is_library_collection(id);
-            vec![MenuItem::new("Rename").disabled(read_only), MenuItem::new("Duplicate"), MenuItem::new("Delete").disabled(read_only)]
+            // extending needs a parent that allows it: the file's own collection always does, a library one only when its publisher said so
+            let cannot_extend = fr.view.collections.get(id).is_none_or(|c| c.is_library() && !c.is_extendable());
+            vec![
+                MenuItem::new("Rename").disabled(read_only),
+                MenuItem::new("Duplicate"),
+                MenuItem::new("Extend collection").disabled(cannot_extend),
+                MenuItem::new("Delete").disabled(read_only),
+            ]
         }
         VarMenuKind::Folder(..) => vec![MenuItem::new("Rename group")],
         VarMenuKind::Settings => {
@@ -1565,6 +1672,13 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                 }
                 (VarMenuKind::Collection(id), 1) => {
                     if let Some(n) = fr.work.duplicate_collection(id) {
+                        app.vars.collection = Some(n);
+                        app.vars.group = None;
+                    }
+                }
+                (VarMenuKind::Collection(id), 2) => {
+                    let name = fr.work.collections.get(id).map(|c| format!("{} (extended)", c.name)).unwrap_or_else(|| "Extended collection".into());
+                    if let Some(n) = fr.work.extend_collection(id, &name) {
                         app.vars.collection = Some(n);
                         app.vars.group = None;
                     }
@@ -1758,6 +1872,18 @@ pub fn store_item(store: &VariableStore, v: &Variable) -> PickItem {
     PickItem { id: v.id.clone(), group: coll.map(|c| c.name.clone()).unwrap_or_default(), name: v.name.clone(), kind: v.kind, preview }
 }
 
+/// Writes a colour picked for `var` in `mode` through the variable store, so a colour picked in a mode of an extended
+/// collection becomes an override instead of a value the parent variable never reads.
+fn apply_picked_color(doc: &mut Document, var: &str, mode: &str, color: Color) -> bool {
+    let mut store = VariableStore::from_doc(doc);
+    if !store.set_value(var, mode, VariableValue::Color(color)) {
+        return false;
+    }
+    doc.variables = store.variables;
+    doc.variable_collections = store.collections;
+    true
+}
+
 fn run_cell_picker(app: &mut App, ctx: &Context) {
     let Some(mut pk) = app.vars.cell_picker.take() else { return };
     let screen = ctx.content_rect();
@@ -1774,11 +1900,7 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
         rect
     });
     if changed {
-        let c = from_c32(pk.color);
-        if let Some(v) = app.doc.variables.get_mut(&pk.var) {
-            v.values.insert(pk.mode.clone(), VariableValue::Color(c));
-            v.clear_derived_mode_extensions(&pk.mode);
-        }
+        apply_picked_color(&mut app.doc, &pk.var, &pk.mode, from_c32(pk.color));
         app.changed();
     }
     let (pressed, ptr, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(Key::Escape)));
@@ -1799,6 +1921,27 @@ mod tests {
 
     fn soft_delete(store: &mut VariableStore, id: &str) {
         store.variables.get_mut(id).unwrap().extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+    }
+
+    #[test]
+    fn a_colour_picked_in_an_extension_mode_is_an_override_and_leaves_the_parent_variable_alone() {
+        let mut store = VariableStore::default();
+        let theme = store.add_collection("Theme");
+        let light = store.collections[&theme].default_mode.clone();
+        let bg = store.add_variable(&theme, "bg", VariableKind::Color).unwrap();
+        assert!(store.set_value(&bg, &light, VariableValue::Color(Color::WHITE)));
+        let brand = store.extend_collection(&theme, "Brand").unwrap();
+        let brand_light = store.collections[&brand].modes[0].id.clone();
+        let mut doc = Document::new("d");
+        doc.variables = store.variables;
+        doc.variable_collections = store.collections;
+
+        assert!(apply_picked_color(&mut doc, &bg, &brand_light, Color::rgb(255, 0, 0)));
+        assert_eq!(doc.variables[&bg].values.len(), 1, "the parent variable gains no value for an extension mode");
+        assert_eq!(doc.extended_value(&brand, &bg, &brand_light), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+        assert!(VariableStore::from_doc(&doc).is_overridden(&brand, &bg, &brand_light));
+        assert!(apply_picked_color(&mut doc, &bg, &light, Color::BLACK), "the parent's own mode still edits the parent");
+        assert_eq!(doc.variables[&bg].values[&light], VariableValue::Color(Color::BLACK));
     }
 
     #[test]
