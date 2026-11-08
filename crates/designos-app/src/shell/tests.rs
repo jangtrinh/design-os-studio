@@ -1272,6 +1272,7 @@ mod click_selection;
 mod clipboard_shortcuts;
 mod close_human_dirty;
 mod close_tab_kinds;
+mod color_profile;
 mod comments;
 mod components;
 mod components_cycles;

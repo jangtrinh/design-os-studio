@@ -1,5 +1,6 @@
 pub mod assets;
 pub mod check_designs;
+pub mod color_profile;
 pub mod components;
 pub mod context;
 pub mod effects;

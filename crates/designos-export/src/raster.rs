@@ -8,7 +8,7 @@
 
 use crate::bounds::try_render_bounds;
 use designos_doc::{Affine, Color, Document, Node, NodeId, NodeKind, PaintKind, Rect, Vec2};
-use designos_render::{checked_pixmap_size, render_node, render_page, Viewport};
+use designos_render::{checked_pixmap_size, render_node, render_node_native, render_page, render_page_native, Viewport};
 use std::collections::BTreeSet;
 use tiny_skia::Pixmap;
 
@@ -78,8 +78,27 @@ impl std::fmt::Display for ExportScale {
     }
 }
 
-/// Renders `node` at `scale`, including effect overflow. Transparent background.
+/// Renders `node` at `scale`, including effect overflow. Transparent background. A Display P3
+/// document is converted to sRGB, so the pixels suit any sRGB consumer.
 pub fn render_export(doc: &Document, node: NodeId, scale: f32) -> Option<Pixmap> {
+    render_export_in(doc, node, scale, false)
+}
+
+/// [`render_export`] whose pixels are in the document's own colour profile (no conversion): the
+/// file written from them must carry that profile's tag, as [`export_png`] does.
+fn render_export_native(doc: &Document, node: NodeId, scale: f32) -> Option<Pixmap> {
+    render_export_in(doc, node, scale, true)
+}
+
+fn render_export_in(doc: &Document, node: NodeId, scale: f32, native: bool) -> Option<Pixmap> {
+    let draw_node = |d: &Document, n: NodeId, sc: f32| if native { render_node_native(d, n, sc) } else { render_node(d, n, sc) };
+    let draw_page = |d: &Document, p: NodeId, vp: &Viewport, pm: &mut Pixmap| {
+        if native {
+            render_page_native(d, p, vp, pm)
+        } else {
+            render_page(d, p, vp, pm)
+        }
+    };
     let n = designos_doc::resolve_node(doc, doc.get(node)?);
     let scale = scale.clamp(0.01, 32.0);
     let is_page = matches!(n.kind, NodeKind::Page { .. });
@@ -87,18 +106,18 @@ pub fn render_export(doc: &Document, node: NodeId, scale: f32) -> Option<Pixmap>
     let b = try_render_bounds(doc, node)?;
     let nominal = Rect::new(0.0, 0.0, n.size.x, n.size.y);
     if !is_page && !is_group && b == nominal {
-        return render_node(doc, node, scale);
+        return draw_node(doc, node, scale);
     }
     let (w, h) = checked_pixmap_size(b.w * scale, b.h * scale)?;
     let mut pm = Pixmap::new(w, h)?;
     let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: scale, dpr: 1.0 };
     if is_page {
         let vp = Viewport { offset: Vec2::new(b.x, b.y), ..vp };
-        render_page(doc, node, &vp, &mut pm);
+        draw_page(doc, node, &vp, &mut pm);
         return Some(pm);
     }
     let (scratch, page) = scratch_doc(doc, node, Vec2::new(-b.x, -b.y));
-    render_page(&scratch, page, &vp, &mut pm);
+    draw_page(&scratch, page, &vp, &mut pm);
     Some(pm)
 }
 
@@ -106,6 +125,7 @@ pub fn render_export(doc: &Document, node: NodeId, scale: f32) -> Option<Pixmap>
 /// resolving bound variables per node in the subtree without cloning the whole document.
 fn scratch_doc(doc: &Document, root: NodeId, at: Vec2) -> (Document, NodeId) {
     let mut out = Document::new(doc.name.clone());
+    out.color_profile = doc.color_profile;
     if let Some(max) = doc.nodes.keys().max() {
         out.reserve_ids(*max);
     }
@@ -196,12 +216,11 @@ pub fn encode_jpg_pixmap(pm: &Pixmap, quality: u8) -> Vec<u8> {
     }
 }
 
-/// PNG bytes of `node` at `scale` (1.0 = 100%).
+/// PNG bytes of `node` at `scale` (1.0 = 100%). A Display P3 document is written in Display P3 and
+/// tagged as such; an sRGB document is written as it always was.
 pub fn export_png(doc: &Document, node: NodeId, scale: f32) -> Vec<u8> {
-    match render_export(doc, node, scale) {
-        Some(pm) => encode_png_pixmap(&pm),
-        None => Vec::new(),
-    }
+    let Some(pm) = render_export_native(doc, node, scale) else { return Vec::new() };
+    crate::png_profile::tag_png(encode_png_pixmap(&pm), doc.color_profile)
 }
 
 /// JPEG bytes of `node` at `scale`; transparency is flattened onto white.

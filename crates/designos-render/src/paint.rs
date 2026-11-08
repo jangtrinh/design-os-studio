@@ -101,8 +101,43 @@ fn draw_custom(target: &mut sk::Pixmap, mode: CustomBlend, draw: impl FnOnce(&mu
 }
 
 /// Environment needed to resolve paints.
+#[derive(Clone, Copy)]
 pub struct PaintEnv<'a> {
     pub doc: &'a Document,
+    /// Convert the document's colour profile to sRGB while drawing. Off for a render whose output is
+    /// tagged with the document's own profile (a Display P3 export).
+    pub to_srgb: bool,
+}
+
+impl<'a> PaintEnv<'a> {
+    /// Draws for an sRGB surface: a Display P3 document's colours are converted.
+    pub fn new(doc: &'a Document) -> Self {
+        Self { doc, to_srgb: true }
+    }
+
+    /// Draws the document's colour numbers as they are (output tagged with the document profile).
+    pub fn native(doc: &'a Document) -> Self {
+        Self { doc, to_srgb: false }
+    }
+
+    /// `n` with its grain colours converted the way [`Self::col`] converts, `None` when unchanged.
+    pub fn noise(&self, n: &d::NoiseEffect) -> Option<d::NoiseEffect> {
+        if self.to_srgb {
+            self.doc.color_profile.noise_to_srgb(n)
+        } else {
+            None
+        }
+    }
+
+    /// `c` as it must be drawn: converted from the document profile to sRGB, or `c` itself for an
+    /// sRGB document or a native render.
+    pub fn col(&self, c: &d::Color) -> d::Color {
+        if self.to_srgb {
+            self.doc.color_profile.to_srgb(c)
+        } else {
+            *c
+        }
+    }
 }
 
 type ImgKey = (u64, u32, u32);
@@ -177,10 +212,10 @@ pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32
     result
 }
 
-fn gradient_stops(stops: &[d::GradientStop], alpha: f32) -> Vec<sk::GradientStop> {
+fn gradient_stops(env: &PaintEnv, stops: &[d::GradientStop], alpha: f32) -> Vec<sk::GradientStop> {
     let mut s: Vec<&d::GradientStop> = stops.iter().collect();
     s.sort_by(|a, b| a.pos.partial_cmp(&b.pos).unwrap_or(std::cmp::Ordering::Equal));
-    s.iter().map(|g| sk::GradientStop::new(g.pos.clamp(0.0, 1.0), sk_color(&g.color, alpha))).collect()
+    s.iter().map(|g| sk::GradientStop::new(g.pos.clamp(0.0, 1.0), sk_color(&env.col(&g.color), alpha))).collect()
 }
 
 /// Unit gradient space -> node-local transform.
@@ -217,7 +252,7 @@ fn eval_stops(stops: &[d::GradientStop], t: f32, alpha: f32) -> [f32; 4] {
 }
 
 /// Rasterises an angular or diamond gradient into a device-space pixmap.
-fn raster_gradient(kind: &PaintKind, size: Vec2, ts: &sk::Transform, alpha: f32, region: (i32, i32, i32, i32)) -> Option<sk::Pixmap> {
+fn raster_gradient(env: &PaintEnv, kind: &PaintKind, size: Vec2, ts: &sk::Transform, alpha: f32, region: (i32, i32, i32, i32)) -> Option<sk::Pixmap> {
     let (x0, y0, x1, y1) = region;
     let (w, h) = ((x1 - x0).max(0) as u32, (y1 - y0).max(0) as u32);
     let mut pm = sk::Pixmap::new(w.max(1), h.max(1))?;
@@ -226,7 +261,7 @@ fn raster_gradient(kind: &PaintKind, size: Vec2, ts: &sk::Transform, alpha: f32,
         PaintKind::DiamondGradient { handles, stops } => (handles, stops, false),
         _ => return None,
     };
-    let mut sorted = stops.clone();
+    let mut sorted: Vec<d::GradientStop> = stops.iter().map(|g| d::GradientStop { color: env.col(&g.color), ..*g }).collect();
     sorted.sort_by(|a, b| a.pos.partial_cmp(&b.pos).unwrap_or(std::cmp::Ordering::Equal));
     let m = ts.pre_concat(gradient_to_local(handles, size));
     let inv = m.invert()?;
@@ -277,19 +312,19 @@ pub fn with_paint<R>(
     let mut paint = sk::Paint { anti_alias: true, blend_mode: blend_mode(p.blend), ..Default::default() };
     match &p.kind {
         PaintKind::Solid(c) => {
-            paint.set_color(sk_color(c, a));
+            paint.set_color(sk_color(&env.col(c), a));
             Some(f(&paint))
         }
         PaintKind::Shader(_) => None,
         PaintKind::LinearGradient { handles, stops } | PaintKind::RadialGradient { handles, stops } => {
             let radial = matches!(p.kind, PaintKind::RadialGradient { .. });
-            let st = gradient_stops(stops, a);
+            let st = gradient_stops(env, stops, a);
             if st.is_empty() {
                 return None;
             }
             if st.len() == 1 {
                 let c = stops[0].color;
-                paint.set_color(sk_color(&c, a));
+                paint.set_color(sk_color(&env.col(&c), a));
                 return Some(f(&paint));
             }
             let tr = gradient_to_local(handles, size);
@@ -312,7 +347,7 @@ pub fn with_paint<R>(
             if region.2 <= region.0 || region.3 <= region.1 {
                 return None;
             }
-            let pm = raster_gradient(&p.kind, size, ts, a, region)?;
+            let pm = raster_gradient(env, &p.kind, size, ts, a, region)?;
             let inv = ts.invert()?;
             let shader_ts = sk::Transform::from_translate(region.0 as f32, region.1 as f32).post_concat(inv);
             paint.shader = sk::Pattern::new(pm.as_ref(), sk::SpreadMode::Pad, sk::FilterQuality::Nearest, 1.0, shader_ts);

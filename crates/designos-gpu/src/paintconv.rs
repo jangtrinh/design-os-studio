@@ -78,8 +78,8 @@ fn stops_key(stops: &[d::GradientStop]) -> u64 {
 }
 
 impl PaintCache {
-    fn ramp(&mut self, stops: &[d::GradientStop]) -> Arc<RampData> {
-        let mut sorted: Vec<d::GradientStop> = stops.to_vec();
+    fn ramp(&mut self, profile: d::ColorProfile, stops: &[d::GradientStop]) -> Arc<RampData> {
+        let mut sorted: Vec<d::GradientStop> = stops.iter().map(|s| d::GradientStop { pos: s.pos, color: profile.to_srgb(&s.color) }).collect();
         sorted.sort_by(|a, b| a.pos.partial_cmp(&b.pos).unwrap_or(std::cmp::Ordering::Equal));
         for s in &mut sorted {
             s.pos = clamp01(s.pos);
@@ -131,7 +131,7 @@ impl PaintCache {
         match &p.kind {
             PaintKind::Solid(c) => {
                 inst.q[0] = KIND_SOLID;
-                inst.c0 = color4(c, a);
+                inst.c0 = color4(&doc.color_profile.to_srgb(c), a);
                 inst.t[2] = 1.0;
                 Some(PaintInst { inst, ramp: None, image: None })
             }
@@ -145,7 +145,7 @@ impl PaintCache {
                 }
                 if stops.len() == 1 {
                     inst.q[0] = KIND_SOLID;
-                    inst.c0 = color4(&stops[0].color, a);
+                    inst.c0 = color4(&doc.color_profile.to_srgb(&stops[0].color), a);
                     inst.t[2] = 1.0;
                     return Some(PaintInst { inst, ramp: None, image: None });
                 }
@@ -158,7 +158,7 @@ impl PaintCache {
                 };
                 inst.c1 = [inv.sx, inv.ky, inv.kx, inv.sy];
                 inst.c2 = [inv.tx, inv.ty, 0.0, 0.0];
-                Some(PaintInst { inst, ramp: Some(self.ramp(stops)), image: None })
+                Some(PaintInst { inst, ramp: Some(self.ramp(doc.color_profile, stops)), image: None })
             }
             PaintKind::Image { image_ref, scale_mode, params } => {
                 let img = self.image(doc, image_ref)?;

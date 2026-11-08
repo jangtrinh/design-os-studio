@@ -22,7 +22,7 @@ fn sanitize_finite(v: f32) -> f32 {
 }
 
 #[inline]
-fn srgb_channel_to_linear(v: f32) -> f32 {
+pub(crate) fn srgb_channel_to_linear(v: f32) -> f32 {
     let c = sanitize_unit(v);
     if c <= 0.040_45 {
         c / 12.92
@@ -32,7 +32,7 @@ fn srgb_channel_to_linear(v: f32) -> f32 {
 }
 
 #[inline]
-fn linear_channel_to_srgb(v: f32) -> f32 {
+pub(crate) fn linear_channel_to_srgb(v: f32) -> f32 {
     let c = sanitize_unit(v);
     if c <= 0.003_130_8 {
         12.92 * c

@@ -345,7 +345,7 @@ pub fn render_node_into(doc: &Document, id: NodeId, ts: sk::Transform, grid_ts: 
     }
     n.blend = d::BlendMode::PassThrough;
     crate::effects::set_grid_origin(&grid_ts);
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide: &[] };
+    let r = Renderer { doc, env: PaintEnv::new(doc), cull: None, runtime_opacities: &[], hide: &[] };
     let ts = ts.pre_concat(crate::geom::to_sk_transform(&n.transform));
     r.draw_node(&n, ts, pm, None, None);
 }

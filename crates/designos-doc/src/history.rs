@@ -61,6 +61,10 @@ pub enum Command {
     },
     /// Replace Check designs settings (rule toggles, contrast level, ignored findings).
     SetCheckDesignsSettings(CheckDesignsSettings),
+    /// Replace the colour profile the document's colour values are written in.
+    SetColorProfile {
+        profile: ColorProfile,
+    },
     /// Replace all variables and collections (variable edits).
     SetVariables {
         variables: BTreeMap<String, Variable>,
@@ -188,6 +192,10 @@ impl Command {
                 Command::SetGuides { page, guides: old.unwrap_or_default() }
             }
             Command::SetPrototypeDevice { device } => Command::SetPrototypeDevice { device: std::mem::replace(&mut doc.prototype_device, device) },
+            Command::SetColorProfile { profile } => {
+                doc.mark_full_dirty();
+                Command::SetColorProfile { profile: std::mem::replace(&mut doc.color_profile, profile) }
+            }
             Command::SetCheckDesignsSettings(settings) => {
                 doc.bump_mutation_epoch();
                 Command::SetCheckDesignsSettings(std::mem::replace(&mut doc.check_designs, settings))
@@ -284,6 +292,7 @@ impl Command {
             | Command::SetPrototypeDevice { .. }
             | Command::SetVariables { .. }
             | Command::SetImages { .. }
+            | Command::SetColorProfile { .. }
             | Command::SetCheckDesignsSettings(_) => false,
         }
     }
@@ -721,6 +730,7 @@ impl Command {
             | Command::Reparent { .. }
             | Command::RemovePage { .. }
             | Command::SetImages { .. }
+            | Command::SetColorProfile { .. }
             | Command::SetCheckDesignsSettings(_) => 0,
         }
     }

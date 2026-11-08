@@ -621,6 +621,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 /// Page background row: swatch, hex and opacity in one 184x24 field group plus a visibility toggle.
 fn page_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     let settings = title(ui, pane, "Page", Some(Icon::Opacity), false);
+    super::color_profile::control(app, ui, pane);
     let bg = match app.doc.get(app.page).map(|n| &n.kind) {
         Some(NodeKind::Page { background }) => *background,
         _ => Color::WHITE,

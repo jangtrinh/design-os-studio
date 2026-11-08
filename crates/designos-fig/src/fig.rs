@@ -884,6 +884,8 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         (!pd_map.is_empty()).then_some(Value::Object(pd_map))
     });
 
+    let doc_color_profile: Option<String> = doc_idx.and_then(|d| fstr(&entries[d].json, "documentColorProfile")).map(str::to_string);
+
     drop(entries);
     drop(children);
     drop(visited);
@@ -894,6 +896,9 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": pages},
         "styles": styles,
     });
+    if let Some(profile) = doc_color_profile {
+        out["document"]["documentColorProfile"] = Value::String(profile);
+    }
     if let Some(pd) = doc_plugin_data {
         out["document"]["pluginData"] = pd;
     }

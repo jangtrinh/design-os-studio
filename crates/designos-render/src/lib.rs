@@ -97,8 +97,20 @@ impl Default for Viewport {
 
 /// Draws `page` (background + all visible descendants) into `target`.
 pub fn render_page(doc: &Document, page: NodeId, vp: &Viewport, target: &mut tiny_skia::Pixmap) {
+    render_page_with_env(PaintEnv::new(doc), page, vp, target);
+}
+
+/// [`render_page`] that keeps the document's colour numbers as they are instead of converting a
+/// Display P3 document to sRGB: the pixels are in the document's own profile, so the file written
+/// from them must be tagged with it. Identical to [`render_page`] for an sRGB document.
+pub fn render_page_native(doc: &Document, page: NodeId, vp: &Viewport, target: &mut tiny_skia::Pixmap) {
+    render_page_with_env(PaintEnv::native(doc), page, vp, target);
+}
+
+fn render_page_with_env(env: PaintEnv, page: NodeId, vp: &Viewport, target: &mut tiny_skia::Pixmap) {
+    let doc = env.doc;
     let bg = match doc.get(page).map(|n| &n.kind) {
-        Some(NodeKind::Page { background }) => paint::sk_color(background, 1.0),
+        Some(NodeKind::Page { background }) => paint::sk_color(&env.col(background), 1.0),
         _ => sk::Color::from_rgba8(0x5A, 0x5A, 0x5A, 0xFF),
     };
     target.fill(bg);
@@ -106,7 +118,7 @@ pub fn render_page(doc: &Document, page: NodeId, vp: &Viewport, target: &mut tin
     let s = vp.zoom * vp.dpr;
     let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
     effects::set_grid_origin(&ts);
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide: &[] };
+    let r = Renderer { doc, env, cull: None, runtime_opacities: &[], hide: &[] };
     r.draw_children(&p.children, ts, target, None, None);
 }
 
@@ -139,8 +151,9 @@ pub(crate) fn render_with_transform_and_opacities(
     index: Option<&SceneIndex>,
     runtime_opacities: &[(NodeId, f32)],
 ) {
+    let env = PaintEnv::new(doc);
     let bg = match doc.get(page).map(|n| &n.kind) {
-        Some(NodeKind::Page { background }) => paint::sk_color(background, 1.0),
+        Some(NodeKind::Page { background }) => paint::sk_color(&env.col(background), 1.0),
         _ => sk::Color::from_rgba8(0x5A, 0x5A, 0x5A, 0xFF),
     };
     target.fill(bg);
@@ -152,7 +165,7 @@ pub(crate) fn render_with_transform_and_opacities(
         let win = ((-1.0 - ts.tx) / ts.sx, (-1.0 - ts.ty) / ts.sy, (w + 1.0 - ts.tx) / ts.sx, (h + 1.0 - ts.ty) / ts.sy);
         Cull { index, win }
     });
-    let r = Renderer { doc, env: PaintEnv { doc }, cull, runtime_opacities, hide: &[] };
+    let r = Renderer { doc, env: PaintEnv::new(doc), cull, runtime_opacities, hide: &[] };
     r.draw_children(&p.children, ts, target, None, None);
 }
 
@@ -181,14 +194,24 @@ pub fn checked_pixmap_size(w: f32, h: f32) -> Option<(u32, u32)> {
 /// exports and per-frame diffs. `None` if the node is missing or the image would exceed
 /// [`MAX_PIXMAP_SIDE`] / [`MAX_PIXMAP_PIXELS`].
 pub fn render_node(doc: &Document, node: NodeId, scale: f32) -> Option<tiny_skia::Pixmap> {
+    render_node_with_env(PaintEnv::new(doc), node, scale)
+}
+
+/// [`render_node`] that keeps the document's colour numbers as they are (see [`render_page_native`]).
+pub fn render_node_native(doc: &Document, node: NodeId, scale: f32) -> Option<tiny_skia::Pixmap> {
+    render_node_with_env(PaintEnv::native(doc), node, scale)
+}
+
+fn render_node_with_env(env: PaintEnv, node: NodeId, scale: f32) -> Option<tiny_skia::Pixmap> {
+    let doc = env.doc;
     let n = &*resolve_node(doc, doc.get(node)?);
     let (w, h) = checked_pixmap_size(n.size.x * scale, n.size.y * scale)?;
     let mut pm = tiny_skia::Pixmap::new(w, h)?;
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide: &[] };
+    let r = Renderer { doc, env, cull: None, runtime_opacities: &[], hide: &[] };
     let ts = sk::Transform::from_scale(scale, scale);
     effects::set_grid_origin(&ts);
     if let NodeKind::Page { background } = &n.kind {
-        pm.fill(paint::sk_color(background, 1.0));
+        pm.fill(paint::sk_color(&env.col(background), 1.0));
         r.draw_children(&n.children, ts, &mut pm, None, None);
     } else {
         r.draw_node(n, ts, &mut pm, None, None);
@@ -239,12 +262,12 @@ fn render_backdrop_with(
         }
         _ => designos_doc::Color::WHITE,
     };
-    pm.fill(paint::sk_color(&bg_color, 1.0));
+    pm.fill(paint::sk_color(&PaintEnv::new(doc).col(&bg_color), 1.0));
     let p = doc.get(page)?;
     let ts = sk::Transform::from_row(scale, 0.0, 0.0, scale, -rect.x * scale, -rect.y * scale);
     effects::set_grid_origin(&ts);
     let Some(index) = index else {
-        let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide };
+        let r = Renderer { doc, env: PaintEnv::new(doc), cull: None, runtime_opacities: &[], hide };
         r.draw_children(&p.children, ts, &mut pm, None, None);
         return Some(pm);
     };
@@ -257,7 +280,7 @@ fn render_backdrop_with(
     let reach = scene.blurry.iter().filter(|(b, _)| index::overlaps(*b, win)).map(|(_, r)| *r).fold(0.0f32, f32::max);
     win = (win.0 - reach, win.1 - reach, win.2 + reach, win.3 + reach);
     let children = index.top_level_near(win);
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: Some(Cull { index: scene, win }), runtime_opacities: &[], hide };
+    let r = Renderer { doc, env: PaintEnv::new(doc), cull: Some(Cull { index: scene, win }), runtime_opacities: &[], hide };
     r.draw_children(&children, ts, &mut pm, None, None);
     Some(pm)
 }
@@ -613,6 +636,7 @@ impl Renderer<'_> {
         for e in &n.effects {
             match e {
                 Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } => {
+                    let color = &self.env.col(color);
                     if let Some((rr, fill_alpha)) = fast_rrect {
                         if shadow::drop_shadow_rrect(target, clip, rr, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha, fill_alpha, &sil) {
                             continue;
@@ -642,6 +666,7 @@ impl Renderer<'_> {
         // 3. inner shadows
         for e in &n.effects {
             if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
+                let color = &self.env.col(color);
                 effects::inner_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *blend, alpha, &sil);
             }
         }
@@ -650,7 +675,8 @@ impl Renderer<'_> {
         for e in &n.effects {
             if let Effect::Noise(nz) = e {
                 if nz.visible {
-                    fx::noise(target, clip, bb, scale, nz, alpha, &sil);
+                    let converted = self.env.noise(nz);
+                    fx::noise(target, clip, bb, scale, converted.as_ref().unwrap_or(nz), alpha, &sil);
                 }
             }
         }
@@ -709,7 +735,7 @@ impl Renderer<'_> {
                     return;
                 };
                 self.knockout_children(&children[i + 1..], parent_ts, &mut layer);
-                let r = Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide };
+                let r = Renderer { doc: self.doc, env: self.env, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide };
                 let mask_node = mask::mask_stencil(child);
                 if child.mask_type == designos_doc::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
                     r.draw_vector_group_children(&mask_node.children, ts, &mut mask_layer, None, None);
@@ -815,7 +841,7 @@ impl Renderer<'_> {
             designos_doc::SilhouetteSource::Children => {
                 let kids = n.paint_children();
                 // silhouettes are drawn offset from the page grid, so no culling
-                let r = Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide };
+                let r = Renderer { doc: self.doc, env: self.env, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide };
                 match self.content_clip(n, shape, ts2, pm) {
                     ContentClip::Mask(m) => r.draw_children(&kids, ts2, pm, Some(&m), None),
                     ContentClip::Empty => {}

@@ -23,6 +23,7 @@ mod grid_stroke;
 pub mod html;
 pub mod language;
 mod pdf;
+mod png_profile;
 mod raster;
 mod react;
 mod slots;
