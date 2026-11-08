@@ -233,3 +233,71 @@ jobs:
 
       - name: Validate HTML codegen with html-validate
         run: cargo test -p designos-export --lib html::tests::card_passes_html_validate --locked -- --ignored --exact
+
+  native-export-compile:
+    name: Native Export Compile (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    env:
+      KOTLIN_VERSION: "2.1.10"
+      ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            label: swiftc · macos-15
+            targets: --target swift
+          - os: ubuntu-latest
+            label: kotlinc + aapt2 · ubuntu-latest
+            targets: --target kotlin --target android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-java@v4
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install pinned kotlinc and Android build-tools (aapt2)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            unzip pkg-config libfontconfig1-dev
+          curl -fsSL -o /tmp/kotlin-compiler.zip \
+            "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
+          sudo rm -rf /opt/kotlinc
+          sudo unzip -q /tmp/kotlin-compiler.zip -d /opt
+          rm -f /tmp/kotlin-compiler.zip
+          echo "/opt/kotlinc/bin" >> "$GITHUB_PATH"
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          AAPT2_DIR="${SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"
+          if [[ ! -x "${AAPT2_DIR}/aapt2" ]]; then
+            SDKMANAGER="${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+            if [[ ! -x "$SDKMANAGER" ]]; then
+              SDKMANAGER="$(find "$SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+            fi
+            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" >/dev/null
+          fi
+          echo "$AAPT2_DIR" >> "$GITHUB_PATH"
+          /opt/kotlinc/bin/kotlinc -version
+          "${AAPT2_DIR}/aapt2" version
+
+      - name: Validate compile-check script syntax
+        shell: bash
+        run: bash -n scripts/ci/native-export-compile-check.sh
+
+      - name: Compile-check native exports (planted-error self-test + real fixtures)
+        shell: bash
+        run: ./scripts/ci/native-export-compile-check.sh ${{ matrix.targets }} --self-test
+
