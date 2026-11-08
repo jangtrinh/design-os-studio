@@ -752,7 +752,8 @@ impl<'a> FrameRun<'a> {
                 src_extent: [self.frame.size.0 as f32, self.frame.size.1 as f32],
                 dst_extent: [self.frame.out_size.0 as f32, self.frame.out_size.1 as f32],
                 src_tex: [src.w as f32, src.h as f32],
-                pad: [0.0; 2],
+                edge_mode: 0,
+                pad: 0,
             },
         );
         let bg = uniform_bg(
@@ -1517,7 +1518,7 @@ impl<'a> FrameRun<'a> {
         pass.draw(0..3, 0..1);
     }
 
-    fn resample(&mut self, enc: &mut wgpu::CommandEncoder, src: &Lease, src_extent: (u32, u32), dst_extent: (u32, u32)) -> Lease {
+    fn resample(&mut self, enc: &mut wgpu::CommandEncoder, src: &Lease, src_extent: (u32, u32), dst_extent: (u32, u32), transparent_edges: bool) -> Lease {
         let dst = self.r.plain_pool.acquire(&self.r.dev, dst_extent.0, dst_extent.1, self.r.frame_no);
         let ub = self.r.ring.alloc(
             &self.r.dev,
@@ -1526,7 +1527,8 @@ impl<'a> FrameRun<'a> {
                 src_extent: [src_extent.0 as f32, src_extent.1 as f32],
                 dst_extent: [dst_extent.0 as f32, dst_extent.1 as f32],
                 src_tex: [src.w as f32, src.h as f32],
-                pad: [0.0; 2],
+                edge_mode: transparent_edges as u32,
+                pad: 0,
             },
         );
         let bg = uniform_bg(
@@ -1564,14 +1566,14 @@ impl<'a> FrameRun<'a> {
     fn blur(&mut self, enc: &mut wgpu::CommandEncoder, src: &Lease, w: u32, h: u32, sigma: f32, clamp: bool) -> Lease {
         if sigma < 0.05 {
             // nothing to do: hand back a copy so the caller can release both
-            return self.resample(enc, src, (w, h), (w, h));
+            return self.resample(enc, src, (w, h), (w, h), !clamp);
         }
         let mut k = 1u32;
         while sigma / k as f32 > MAX_DIRECT_SIGMA && k < 32 {
             k *= 2;
         }
         let (sw, sh) = (w.div_ceil(k).max(1), h.div_ceil(k).max(1));
-        let (small, owned) = if k > 1 { (self.resample(enc, src, (w, h), (sw, sh)), true) } else { (src.clone(), false) };
+        let (small, owned) = if k > 1 { (self.resample(enc, src, (w, h), (sw, sh), !clamp), true) } else { (src.clone(), false) };
         let s = sigma / k as f32;
         let tmp = self.blur_pass(enc, &small, (sw, sh), s, [1, 0], clamp);
         if owned {
@@ -1580,7 +1582,7 @@ impl<'a> FrameRun<'a> {
         let done = self.blur_pass(enc, &tmp, (sw, sh), s, [0, 1], clamp);
         self.r.plain_pool.release(&tmp);
         if k > 1 {
-            let up = self.resample(enc, &done, (sw, sh), (w, h));
+            let up = self.resample(enc, &done, (sw, sh), (w, h), !clamp);
             self.r.plain_pool.release(&done);
             up
         } else {
