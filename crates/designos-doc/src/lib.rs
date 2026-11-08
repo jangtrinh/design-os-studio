@@ -26,6 +26,9 @@ mod color_space;
 mod comments;
 #[cfg(test)]
 mod component_cycle_tests;
+mod component_prop_variables;
+#[cfg(test)]
+mod component_prop_variables_tests;
 mod components;
 mod connector_home;
 mod connector_index;
@@ -108,6 +111,7 @@ pub use changelog_features::*;
 pub use color_profile::{ColorProfile, SrgbPixelConverter};
 pub use color_space::*;
 pub use comments::*;
+pub use component_prop_variables::*;
 pub use components::*;
 pub use connector_home::*;
 pub use connector_index::*;

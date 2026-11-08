@@ -593,6 +593,10 @@ pub fn resolve_node<'a>(doc: &Document, node: &'a Node) -> Cow<'a, Node> {
         }
     }
     for (key, var) in &node.variables.bindings {
+        // A component property binding is applied to the instance's stored values (see `bind_prop_variable`).
+        if prop_binding_name(key).is_some() {
+            continue;
+        }
         if let Some(v) = doc.resolve_variable(node.id, var) {
             set_bound_property(out.get_or_insert_with(|| node.clone()), key, &v);
         }

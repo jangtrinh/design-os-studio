@@ -821,24 +821,37 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
     }
 }
 
-/// Applies `c`, then re-solves every table whose cell text it changed, as part of the same undo step.
-/// The row heights follow the text whoever wrote it. Nothing changes without a layout measurer
-/// (the stored heights are kept) or when the rows already fit.
+/// Applies `c`, then re-solves every table whose cell text it changed and re-applies the values of component
+/// properties bound to variables that `c` moved (a mode switch, a variable edit, a binding edit), as part of the same
+/// undo step. The row heights follow the text whoever wrote it. Nothing changes without a layout measurer (the stored
+/// heights are kept) or when the rows already fit.
 fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
     let mut edited = std::collections::BTreeSet::new();
     table::text_edited_tables(doc, &c, &mut edited);
+    let prop_scope = prop_resync_scope(doc, &c);
     let inv = c.apply_atomic(doc)?;
-    let fix: Vec<Command> = edited.iter().flat_map(|&t| table::relayout(doc, t)).collect();
-    if fix.is_empty() {
-        return Ok(inv);
-    }
-    match Command::Batch(fix).apply_atomic(doc) {
-        Ok(fix_inv) => Ok(Command::Batch(vec![fix_inv, inv])),
-        Err(e) => {
-            let _ = inv.apply(doc);
-            Err(e)
+    let mut steps = vec![inv];
+    if !prop_scope.is_empty() {
+        match apply_prop_resync(doc, &prop_scope) {
+            Ok(Some(resync_inv)) => steps.insert(0, resync_inv),
+            Ok(None) => {}
+            Err(e) => {
+                let _ = Command::Batch(steps).apply(doc);
+                return Err(e);
+            }
         }
     }
+    let fix: Vec<Command> = edited.iter().flat_map(|&t| table::relayout(doc, t)).collect();
+    if !fix.is_empty() {
+        match Command::Batch(fix).apply_atomic(doc) {
+            Ok(fix_inv) => steps.insert(0, fix_inv),
+            Err(e) => {
+                let _ = Command::Batch(steps).apply(doc);
+                return Err(e);
+            }
+        }
+    }
+    Ok(if steps.len() == 1 { steps.remove(0) } else { Command::Batch(steps) })
 }
 
 /// Applies one undo or redo step. A layout-recorded step is replayed as stored while no deferred
