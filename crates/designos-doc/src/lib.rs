@@ -55,6 +55,9 @@ mod load_repair;
 mod load_repair_tests;
 mod motion;
 mod motion_copy;
+mod motion_eval;
+#[cfg(test)]
+mod motion_eval_tests;
 mod motion_ops;
 #[cfg(test)]
 mod motion_tests;
@@ -125,6 +128,7 @@ pub use library_ops::*;
 pub use load_repair::*;
 pub use motion::*;
 pub use motion_copy::{reid_copied_motion, reid_copied_motion_mapped, reid_copied_motion_with};
+pub use motion_eval::*;
 pub use motion_ops::*;
 pub use node::*;
 pub use openpencil::*;
