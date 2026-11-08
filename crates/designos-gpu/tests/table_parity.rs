@@ -85,6 +85,169 @@ fn tables_match_the_cpu_reference() {
     }
 }
 
+/// Cell (0, 0) of a table with no fill or grid holds ten lines in a 160 x 44 box: on both renderers
+/// the text has ink in its cell and none outside it.
+#[test]
+fn overflowing_cell_text_stays_inside_its_cell_on_both_renderers() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 2, 2, Vec2::new(20.0, 20.0));
+    nodes[0].stroke.weight = 0.0;
+    nodes[0].stroke.paints.clear();
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text = default_cell_text("W\nW\nW\nW\nW\nW\nW\nW\nW\nW");
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let c = compare(&mut g, "table_overflow", &t.doc, t.page, Viewport::default(), (320, 200), 8);
+    for (name, pm) in [("cpu", &c.cpu), ("gpu", &c.gpu)] {
+        let (mut inside, mut outside) = (0, 0);
+        for y in 0..200u32 {
+            for x in 0..320u32 {
+                let p = pm.pixel(x, y).unwrap();
+                if p.red() >= 160 {
+                    continue;
+                }
+                if (20..180).contains(&x) && (20..64).contains(&y) {
+                    inside += 1;
+                } else {
+                    outside += 1;
+                }
+            }
+        }
+        assert!(inside > 20, "{name}: the text is drawn in its cell ({inside})");
+        assert_eq!(outside, 0, "{name}: no ink outside the cell box");
+    }
+    assert!(c.report.ratio < 0.02, "{:?}", c.report);
+}
+
+/// A new revision of an unchanged 100x100 table compiles without shaping any text again.
+#[test]
+fn a_second_compile_of_an_unchanged_100x100_table_shapes_no_text() {
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 100, 100, Vec2::ZERO);
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 0.1, dpr: 1.0 };
+    let before = designos_render::shaping_runs();
+    SceneCompiler::new().compile(&t.doc, t.page, 1, &vp, (1600, 440));
+    let first = designos_render::shaping_runs() - before;
+    assert_eq!(first, 10_000, "the first compile shapes each cell's text exactly once, for the fit check and the painter together");
+    let before = designos_render::shaping_runs();
+    SceneCompiler::new().compile(&t.doc, t.page, 2, &vp, (1600, 440));
+    assert_eq!(designos_render::shaping_runs() - before, 0, "a new revision of the same table is not shaped again");
+}
+
+/// The same at 200 x 200 (40,000 texts, more than the layout cache holds) with one compiler across
+/// revisions, as the canvas has: the fit check keeps its own line boxes, so a new revision shapes nothing.
+#[test]
+fn a_second_compile_of_an_unchanged_200x200_table_shapes_no_text() {
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 200, 200, Vec2::ZERO);
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 0.05, dpr: 1.0 };
+    let mut compiler = SceneCompiler::new();
+    let before = designos_render::shaping_runs();
+    compiler.compile(&t.doc, t.page, 1, &vp, (1600, 440));
+    let first = designos_render::shaping_runs() - before;
+    assert_eq!(first, 40_000, "the first compile shapes each cell's text exactly once");
+    let before = designos_render::shaping_runs();
+    compiler.compile(&t.doc, t.page, 2, &vp, (1600, 440));
+    assert_eq!(designos_render::shaping_runs() - before, 0, "a new revision of the same table is not shaped again");
+}
+
+/// Offscreen programs of a 20x20 table turned 15 degrees, every cell holding `texts[0]` except cell 0
+/// which holds `texts[1]`, compiled the interactive way, next to those of an empty page.
+fn rotated_table_programs(texts: [&str; 2]) -> (usize, usize) {
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let interactive = || {
+        let mut c = SceneCompiler::new();
+        c.geom.budget = Some(Duration::from_millis(8));
+        c
+    };
+    let t0 = T::new();
+    let empty = interactive().compile(&t0.doc, t0.page, 1, &vp, (3000, 3000)).programs.len();
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 20, 20, Vec2::new(500.0, 100.0));
+    nodes[0].transform = Affine { tx: 500.0, ty: 100.0, ..Affine::rotate(15f32.to_radians()) };
+    nodes[0].fills = vec![Paint::solid(Color::WHITE)];
+    nodes[0].stroke.paints = vec![Paint::solid(Color::BLACK)];
+    nodes[0].stroke.weight = 1.0;
+    for (i, n) in nodes.iter_mut().skip(1).enumerate() {
+        n.size = Vec2::new(60.0, 30.0);
+        n.transform = Affine::translate((i % 20) as f32 * 60.0, (i / 20) as f32 * 30.0);
+        if let NodeKind::TableCell(c) = &mut n.kind {
+            c.text = default_cell_text(texts[usize::from(i == 0)]);
+            c.text.style.font_size = 8.0;
+        }
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let with = interactive().compile(&t.doc, t.page, 1, &vp, (3000, 3000)).programs.len();
+    (empty, with)
+}
+
+/// A turned table whose text fits opens no program: its cells stay plain rectangles.
+#[test]
+fn a_rotated_table_with_fitting_text_opens_no_offscreen_program() {
+    let (empty, with) = rotated_table_programs(["a", "a"]);
+    assert_eq!(with, empty, "a rotated 20x20 table opened {with} programs, an empty page {empty}");
+}
+
+/// One cell whose text overflows clips, which costs that cell exactly one program.
+#[test]
+fn a_rotated_table_with_one_overflowing_cell_opens_exactly_one_program() {
+    let (empty, with) = rotated_table_programs(["a", "a\na\na\na\na\na"]);
+    assert_eq!(with, empty + 1, "one overflowing cell opened {} programs", with.saturating_sub(empty));
+}
+
+/// A 15 degree turned table with ten lines in its first cell and nothing else: on both renderers the
+/// ink stays in that cell's turned box (1.5 px of anti-aliasing allowed) and the two agree.
+#[test]
+fn overflowing_text_of_a_rotated_cell_stays_inside_the_cell_on_both_renderers() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 2, 2, Vec2::ZERO);
+    let turn = Affine { tx: 120.0, ty: 20.0, ..Affine::rotate(15f32.to_radians()) };
+    nodes[0].transform = turn;
+    nodes[0].stroke.weight = 0.0;
+    nodes[0].stroke.paints.clear();
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text = default_cell_text("W\nW\nW\nW\nW\nW\nW\nW\nW\nW");
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let (w, h) = (520u32, 360u32);
+    let c = compare(&mut g, "table_rotated_overflow", &t.doc, t.page, Viewport::default(), (w, h), 8);
+    let back = turn.invert().expect("a turned table inverts");
+    let (cw, ch) = (TABLE_DEFAULT_COLUMN_WIDTH, TABLE_DEFAULT_ROW_HEIGHT);
+    for (name, pm) in [("cpu", &c.cpu), ("gpu", &c.gpu)] {
+        let (mut inside, mut outside) = (0, 0);
+        for y in 0..h {
+            for x in 0..w {
+                if pm.pixel(x, y).unwrap().red() >= 160 {
+                    continue;
+                }
+                let l = back.apply(Vec2::new(x as f32 + 0.5, y as f32 + 0.5));
+                if l.x >= -1.5 && l.x <= cw + 1.5 && l.y >= -1.5 && l.y <= ch + 1.5 {
+                    inside += 1;
+                } else {
+                    outside += 1;
+                }
+            }
+        }
+        assert!(inside > 20, "{name}: the text is drawn ({inside})");
+        assert_eq!(outside, 0, "{name}: no ink outside the turned cell");
+    }
+    assert!(c.report.ratio < 0.02, "{:?}", c.report);
+}
+
 /// The GPU compile on its own meets a registry one below its limit: the grid must still be compiled.
 /// (In the pixel test above the CPU render runs first and its table lowering clears the registry.)
 #[test]

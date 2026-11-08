@@ -324,6 +324,287 @@ fn a_text_edited_while_a_gesture_holds_the_pass_joins_it() {
     assert!(size_of(&app, texts[0]).x > edited.x + 20.0);
 }
 
+/// A 1x1 table, 144 wide so its text box is 120, whose cell holds `WRAPPED` in `family` with the
+/// 40 px row the file stores.
+fn opened_table(family: &str, served: &[&str]) -> (App, NodeId, NodeId) {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let mut nodes = designos_doc::build_table(&mut d, 1, 1, Vec2::new(0.0, 0.0));
+    let (table, cell) = (nodes[0].id, nodes[1].id);
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols[0].size = 144.0;
+        p.rows[0].size = 40.0;
+    }
+    nodes[0].size = Vec2::new(144.0, 40.0);
+    nodes[1].size = Vec2::new(144.0, 40.0);
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text.content = WRAPPED.into();
+        c.text.style.font_family = family.into();
+    }
+    designos_doc::Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    let mut app = App::new(d);
+    app.fonts = testkit::serving(served);
+    (app, table, cell)
+}
+
+#[test]
+fn a_table_row_grows_to_the_wrapped_text_of_a_face_that_arrives_late() {
+    let (mut app, table, cell) = opened_table("TestRefTbl1", &["TestRefTbl1"]);
+    designos_doc::apply_table_relayout(&mut app.doc, table);
+    let with_stand_in = size_of(&app, cell).y;
+    let depth = app.hist.undo_depth();
+    arrive(&mut app);
+    let with_face = size_of(&app, cell).y;
+    assert!(with_face > with_stand_in + 20.0, "the row was {with_stand_in} with the stand-in and is {with_face} with the face");
+    assert_eq!(size_of(&app, table).y, with_face, "the table follows its row");
+    assert_eq!(app.hist.undo_depth(), depth, "a late face is not an edit");
+}
+
+#[test]
+fn a_table_in_other_families_is_left_alone_when_a_face_arrives() {
+    let (mut app, table, cell) = opened_table("Inter", &["TestRefTbl2"]);
+    // a text elsewhere in the document asks for a family that has to be fetched, so a face does arrive
+    let page = app.doc.get(table).and_then(|n| n.parent).unwrap();
+    text_node(&mut app.doc, page, "TestRefTbl2", NARROW, TextAutoResize::WidthAndHeight, FILE_BOX);
+    // the stored row is shorter than the wrapped Inter text needs: a re-solve would move it
+    assert!(!designos_doc::table::relayout(&app.doc, table).is_empty(), "a re-solve would change this table");
+    let before = size_of(&app, cell);
+    let epoch = app.doc.mutation_epoch();
+    arrive(&mut app);
+    assert!(designos_render::resolve_font("TestRefTbl2", 400, false).is_some_and(|f| f.family == "TestRefTbl2"), "the face did arrive");
+    assert_eq!(size_of(&app, cell), before, "the table in Inter did not move");
+    assert_eq!(app.doc.mutation_epoch(), epoch, "the document was not written");
+}
+
+/// A 20 x 20 table (400 cells) of `WRAPPED` text in `family`, 144 wide columns, stored 40 px rows.
+fn opened_big_table(family: &str, served: &[&str]) -> (App, NodeId, NodeId) {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let mut nodes = designos_doc::build_table(&mut d, 20, 20, Vec2::new(0.0, 0.0));
+    let table = nodes[0].id;
+    let first = nodes[1].id;
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols.iter_mut().for_each(|c| c.size = 144.0);
+        p.rows.iter_mut().for_each(|r| r.size = 40.0);
+    }
+    for n in nodes.iter_mut().skip(1) {
+        n.size = Vec2::new(144.0, 40.0);
+        if let NodeKind::TableCell(c) = &mut n.kind {
+            c.text.content = WRAPPED.into();
+            c.text.style.font_family = family.into();
+        }
+    }
+    designos_doc::Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    let mut app = App::new(d);
+    app.fonts = testkit::serving(served);
+    (app, table, first)
+}
+
+#[test]
+fn a_big_tables_layout_is_spread_over_frames_not_done_in_one() {
+    let (mut app, table, first) = opened_big_table("TestRefTbl3", &["TestRefTbl3"]);
+    app.fonts.refit.budget = Duration::ZERO;
+    load_only(&mut app);
+    assert!(app.text_refit_pending(), "the first slice left the table for the next frame");
+    assert_eq!(size_of(&app, first).y, 40.0, "the table has not been laid out yet");
+    let mut frames = 1;
+    while app.text_refit_pending() {
+        app.poll_fonts();
+        frames += 1;
+        assert!(frames <= 8, "{frames} frames for 400 cells in slices of 128");
+    }
+    assert!(frames >= 4, "400 cells took {frames} frames: the slices are 128 cells");
+    assert!(size_of(&app, first).y > 60.0, "and the rows follow the face in the end: {:?}", size_of(&app, first));
+    let _ = table;
+}
+
+#[test]
+fn a_gesture_holds_the_table_layout_after_a_face_arrives() {
+    let (mut app, table, cell) = opened_table("TestRefTbl4", &["TestRefTbl4"]);
+    let row = size_of(&app, cell).y;
+    let mut tx = Tx::new();
+    tx.ed.node(&mut app.doc, table).unwrap().size.x += 1.0;
+    app.canvas.inter = Interaction::Resize(ResizeState {
+        tx,
+        handle: Handle::R,
+        kind: ResizeKind::Single { id: table, world0: Affine::IDENTITY, t0: Affine::IDENTITY, size0: Vec2::new(144.0, 40.0) },
+        targets: Vec::new(),
+    });
+    load_only(&mut app);
+    assert!(app.text_refit_pending() && app.text_refit_held(), "the table waits for the gesture");
+    let epoch = app.doc.mutation_epoch();
+    for _ in 0..3 {
+        app.poll_fonts();
+    }
+    assert_eq!(app.doc.mutation_epoch(), epoch, "nothing is written while the gesture runs");
+    assert_eq!(size_of(&app, cell).y, row);
+    if let Interaction::Resize(r) = &mut app.canvas.inter {
+        r.tx.ed.revert(&mut app.doc);
+    }
+    app.canvas.inter = Interaction::None;
+    settle(&mut app);
+    assert!(size_of(&app, cell).y > row + 20.0, "the queue was kept, and the table follows the face once the gesture ended");
+}
+
+/// A library file opened and left alone is not written back because a late face changed its table's
+/// row heights: they are derived from the text, so the file still holds what the document holds.
+#[test]
+fn a_late_face_does_not_make_an_untouched_library_file_dirty_or_rewrite_it() {
+    let dir = std::env::temp_dir().join(format!("designos-refit-lib-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut d = Document::new("File");
+    let page = d.add_page("p");
+    let mut nodes = designos_doc::build_table(&mut d, 1, 1, Vec2::new(0.0, 0.0));
+    let (table, cell) = (nodes[0].id, nodes[1].id);
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols[0].size = 144.0;
+        p.rows[0].size = 40.0;
+    }
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text.content = WRAPPED.into();
+        c.text.style.font_family = "TestRefTbl5".into();
+    }
+    designos_doc::Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    let lib = designos_library::Library::open(dir.join("library")).unwrap();
+    let proj = lib.create_project("Project").unwrap();
+    let entry = lib.create_file(&proj.id, None, "File", &d).unwrap();
+    let mut app = App::new(Document::new("empty"));
+    app.fonts = testkit::serving(&["TestRefTbl5"]);
+    app.lib = Some(lib.clone());
+    app.open_library_file(&entry.id);
+    let _ = table;
+    let cell_height = |app: &App| size_of(app, cell).y;
+    let at_open = cell_height(&app);
+    let modified = lib.file(&entry.id).unwrap().modified;
+    let saves = app.autosave.saves;
+    arrive(&mut app);
+    assert!(cell_height(&app) > at_open + 20.0, "the late face did change the row: {at_open} then {}", cell_height(&app));
+    let ctx = egui::Context::default();
+    for step in 1..=40 {
+        app.now = 100.0 + step as f64 * 0.1;
+        // every frame takes the revision a change marked, as the canvas does
+        crate::canvas::tiles::take_rev(&mut app);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+    }
+    assert_eq!(app.autosave.saves, saves, "autosave wrote nothing");
+    assert_eq!(lib.file(&entry.id).unwrap().modified, modified, "the file was not rewritten");
+    assert!(!app.has_unsaved_edits(), "and the tab shows no dot");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A library file holding a 1 x 1 (or `n` x `n`) table in `family` and a marker rectangle, opened in the app.
+struct OpenFile {
+    app: App,
+    lib: designos_library::Library,
+    entry: String,
+    cell: NodeId,
+    marker: NodeId,
+    dir: std::path::PathBuf,
+}
+
+fn open_file_with_table(family: &str, n: usize, tag: &str) -> OpenFile {
+    let dir = std::env::temp_dir().join(format!("designos-refit-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut d = Document::new("File");
+    let page = d.add_page("p");
+    let mut nodes = designos_doc::build_table(&mut d, n, n, Vec2::new(0.0, 0.0));
+    let cell = nodes[1].id;
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols.iter_mut().for_each(|c| c.size = 144.0);
+        p.rows.iter_mut().for_each(|r| r.size = 40.0);
+    }
+    for node in nodes.iter_mut().skip(1) {
+        node.size = Vec2::new(144.0, 40.0);
+        if let NodeKind::TableCell(c) = &mut node.kind {
+            c.text.content = WRAPPED.into();
+            c.text.style.font_family = family.into();
+        }
+    }
+    designos_doc::Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    let marker = d.alloc_id();
+    let mut m = Node::new(marker, NodeKind::Rectangle);
+    m.size = Vec2::new(10.0, 10.0);
+    m.transform = Affine::translate(-100.0, -100.0);
+    d.insert(page, m).unwrap();
+    let lib = designos_library::Library::open(dir.join("library")).unwrap();
+    let proj = lib.create_project("Project").unwrap();
+    let entry = lib.create_file(&proj.id, None, "File", &d).unwrap();
+    let mut app = App::new(Document::new("empty"));
+    app.fonts = testkit::serving(&[family]);
+    app.lib = Some(lib.clone());
+    app.open_library_file(&entry.id);
+    OpenFile { app, lib, entry: entry.id, cell, marker, dir }
+}
+
+fn autosave_ticks(app: &mut App, from: f64, count: usize) {
+    let ctx = egui::Context::default();
+    for step in 1..=count {
+        app.now = from + step as f64 * 0.1;
+        crate::canvas::tiles::take_rev(app);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| app.autosave_tick(ui.ctx()));
+    }
+}
+
+fn move_marker(f: &mut OpenFile, x: f32) {
+    f.app.edit_nodes(&[f.marker], |n| n.transform = Affine::translate(x, -100.0));
+}
+
+fn marker_x_on_disk(f: &OpenFile) -> f32 {
+    f.lib.load_file(&f.entry).unwrap().get(f.marker).unwrap().transform.translation().x
+}
+
+/// A face arrives and lays out a table while the file holds an unsaved edit: the edit must still reach
+/// the file, and the document must stay dirty until it does. Rebasing the saved state onto the new row
+/// heights is only for a document that matched its file.
+fn assert_the_edit_outlives_the_layout(f: &mut OpenFile, row_before: f32) {
+    assert!(size_of(&f.app, f.cell).y > row_before, "the table was laid out with the face");
+    assert!(f.app.has_unsaved_edits(), "the document is still dirty after the layout");
+    autosave_ticks(&mut f.app, 100.0, 40);
+    f.app.flush_autosave();
+    assert_eq!(marker_x_on_disk(f), 500.0, "the edit reached the file");
+    assert!(!f.app.has_unsaved_edits(), "and it is clean once saved");
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[test]
+fn an_edit_with_a_save_pending_reaches_the_file_when_a_late_face_lays_out_a_table() {
+    let mut f = open_file_with_table("TestRefEd1", 1, "pending");
+    move_marker(&mut f, 500.0);
+    autosave_ticks(&mut f.app, 10.0, 1); // one tick has seen the edit: its save is pending
+    let before = size_of(&f.app, f.cell).y;
+    arrive(&mut f.app);
+    assert_the_edit_outlives_the_layout(&mut f, before);
+}
+
+#[test]
+fn an_edit_no_autosave_tick_has_seen_reaches_the_file_when_a_late_face_lays_out_a_table() {
+    let mut f = open_file_with_table("TestRefEd2", 1, "unseen");
+    let before = size_of(&f.app, f.cell).y;
+    move_marker(&mut f, 500.0);
+    arrive(&mut f.app);
+    assert_the_edit_outlives_the_layout(&mut f, before);
+}
+
+#[test]
+fn an_edit_made_between_two_warm_up_slices_reaches_the_file() {
+    let mut f = open_file_with_table("TestRefEd3", 20, "slices");
+    f.app.fonts.refit.budget = Duration::ZERO;
+    load_only(&mut f.app);
+    assert!(f.app.text_refit_pending(), "the table layout is sliced");
+    f.app.poll_fonts();
+    move_marker(&mut f, 500.0);
+    let before = size_of(&f.app, f.cell).y;
+    let mut frames = 0;
+    while f.app.text_refit_pending() {
+        f.app.poll_fonts();
+        frames += 1;
+        assert!(frames < 50, "the pass ends");
+    }
+    assert_the_edit_outlives_the_layout(&mut f, before);
+}
+
 mod after_edits;
 mod guards;
 mod open_edit;

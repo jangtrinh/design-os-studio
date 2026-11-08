@@ -200,7 +200,8 @@ struct CellSlot<'a> {
 ///
 /// Pure. Returns one `Command::Update` per cell whose transform or size changes, plus one for the
 /// table's size (the sum of its tracks). A merge anchor spans its tracks. With a layout measurer
-/// installed a row grows to fit its tallest single-row cell (owner ruling OQ-6); the stored
+/// installed a row grows to fit its tallest single-row cell, and the last row of a merged block grows by
+/// what the block's text lacks (owner ruling OQ-6); the stored
 /// `TableTrack.size` keeps the user's height, so a `.fig` round trip never ratchets rows taller.
 pub fn relayout(doc: &Document, table_id: NodeId) -> Vec<Command> {
     let Some(table) = doc.get(table_id) else { return Vec::new() };
@@ -220,10 +221,21 @@ pub fn relayout(doc: &Document, table_id: NodeId) -> Vec<Command> {
     let col_w: Vec<f32> = props.cols.iter().map(|t| track_len(t.size)).collect();
     let mut row_h: Vec<f32> = props.rows.iter().map(|t| track_len(t.size)).collect();
     if let Some(measurer) = text_measure::layout_measurer() {
-        for s in slots.iter().filter(|s| s.span.0 == 1 && !s.props.text.content.is_empty()) {
+        let needed = |s: &CellSlot| {
             let width = col_w[s.pos.1..s.pos.1 + s.span.1].iter().sum::<f32>() - 2.0 * TABLE_CELL_PADDING.0;
-            let text = text_measure::intrinsic_text_size(&s.props.text, Some(width.max(1.0)), Some(measurer.as_ref()));
-            row_h[s.pos.0] = row_h[s.pos.0].max(text.y + 2.0 * TABLE_CELL_PADDING.1);
+            text_measure::intrinsic_text_size(&s.props.text, Some(width.max(1.0)), Some(measurer.as_ref())).y + 2.0 * TABLE_CELL_PADDING.1
+        };
+        for s in slots.iter().filter(|s| s.span.0 == 1 && !s.props.text.content.is_empty()) {
+            row_h[s.pos.0] = row_h[s.pos.0].max(needed(s));
+        }
+        // A merged block with taller text than its rows grows its last row by the shortfall. Blocks
+        // are settled bottom edge first so the result does not depend on child order.
+        let mut blocks: Vec<&CellSlot> = slots.iter().filter(|s| s.span.0 > 1 && !s.props.text.content.is_empty()).collect();
+        blocks.sort_by_key(|s| (s.pos.0 + s.span.0, s.pos.0, s.pos.1));
+        for s in blocks {
+            let last = s.pos.0 + s.span.0 - 1;
+            let have: f32 = row_h[s.pos.0..=last].iter().sum();
+            row_h[last] += (needed(s) - have).max(0.0);
         }
     }
     let offsets = |sizes: &[f32]| -> Vec<f32> {
@@ -258,11 +270,81 @@ pub fn relayout(doc: &Document, table_id: NodeId) -> Vec<Command> {
     cmds
 }
 
+/// A table's text being measured ahead of its layout, a slice of cells at a time, so a big table's cold
+/// cost (a table's worth of shaping) can be spread over frames and the layout itself then only reads
+/// the measurer's cache. The jobs are listed once, in [`TableWarm::new`]; each [`TableWarm::step`] then
+/// does its share, so the work for a table is O(cells) however many slices it takes.
+pub struct TableWarm {
+    table: NodeId,
+    /// A cell with text and the width its text wraps at, as [`relayout`] measures it.
+    jobs: Vec<(NodeId, f32)>,
+    next: usize,
+}
+
+impl TableWarm {
+    /// The jobs of `table_id`. `None` when there is no such table or no layout measurer to warm.
+    pub fn new(doc: &Document, table_id: NodeId) -> Option<Self> {
+        let table = doc.get(table_id)?;
+        let NodeKind::Table(props) = &table.kind else { return None };
+        text_measure::layout_measurer()?;
+        let grid = Grid::new(props);
+        let col_w: Vec<f32> = props.cols.iter().map(|t| track_len(t.size)).collect();
+        let jobs = table
+            .children
+            .iter()
+            .filter_map(|&id| {
+                let NodeKind::TableCell(c) = &doc.get(id)?.kind else { return None };
+                if c.text.content.is_empty() {
+                    return None;
+                }
+                let pos = grid.position_of(c).filter(|p| !grid.covered.contains(p))?;
+                let span = grid.span(pos);
+                let width = col_w[pos.1..pos.1 + span.1].iter().sum::<f32>() - 2.0 * TABLE_CELL_PADDING.0;
+                Some((id, width.max(1.0)))
+            })
+            .collect();
+        Some(Self { table: table_id, jobs, next: 0 })
+    }
+
+    pub fn table(&self) -> NodeId {
+        self.table
+    }
+
+    /// Measures the next `count` cells. Returns whether every cell has been measured.
+    pub fn step(&mut self, doc: &Document, count: usize) -> bool {
+        let Some(measurer) = text_measure::layout_measurer() else {
+            self.next = self.jobs.len();
+            return true;
+        };
+        let end = (self.next + count).min(self.jobs.len());
+        for &(id, width) in &self.jobs[self.next..end] {
+            if let Some(NodeKind::TableCell(c)) = doc.get(id).map(|n| &n.kind) {
+                text_measure::intrinsic_text_size(&c.text, Some(width), Some(measurer.as_ref()));
+            }
+        }
+        self.next = end;
+        self.done()
+    }
+
+    pub fn done(&self) -> bool {
+        self.next >= self.jobs.len()
+    }
+}
+
 /// Applies [`relayout`] for `table_id` straight to `doc` (load repair, tests).
 pub(crate) fn apply_relayout(doc: &mut Document, table_id: NodeId) {
-    for cmd in relayout(doc, table_id) {
+    apply_table_relayout(doc, table_id);
+}
+
+/// Applies [`relayout`] for `table_id` straight to `doc`, outside any undo step, and says whether it
+/// moved anything. For writes that are not an edit, such as measuring again once a font has loaded.
+pub fn apply_table_relayout(doc: &mut Document, table_id: NodeId) -> bool {
+    let cmds = relayout(doc, table_id);
+    let changed = !cmds.is_empty();
+    for cmd in cmds {
         let _ = cmd.apply(doc);
     }
+    changed
 }
 
 /// The anchor cell under `local`, a point in the table's own coordinates; `None` outside the table.
@@ -429,6 +511,23 @@ pub(crate) fn touched_tables(doc: &Document, cmd: &Command, out: &mut BTreeSet<N
             _ => {}
         },
         Command::Batch(cmds) => cmds.iter().for_each(|c| touched_tables(doc, c, out)),
+        _ => {}
+    }
+}
+
+/// Tables that have a cell whose text `cmd` changes (before the command runs). Every writer of cell
+/// text (find and replace, paste, lint fix, the editor) goes through such an update, so
+/// `History` re-solves these tables in the same step and no text is left hidden by a stored row height.
+pub(crate) fn text_edited_tables(doc: &Document, cmd: &Command, out: &mut BTreeSet<NodeId>) {
+    match cmd {
+        Command::Update { node } => {
+            if let (Some(old), NodeKind::TableCell(new)) = (doc.get(node.id), &node.kind) {
+                if matches!(&old.kind, NodeKind::TableCell(o) if o.text != new.text) {
+                    out.extend(old.parent.filter(|p| doc.get(*p).is_some_and(|t| matches!(t.kind, NodeKind::Table(_)))));
+                }
+            }
+        }
+        Command::Batch(cmds) => cmds.iter().for_each(|c| text_edited_tables(doc, c, out)),
         _ => {}
     }
 }

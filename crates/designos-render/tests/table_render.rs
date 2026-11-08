@@ -194,6 +194,321 @@ fn lowered_document_keeps_lowered_cells_whatever_the_order() {
     }
 }
 
+/// A 2x2 table with no fill and no grid whose cell (0, 0) holds far more text than its stored
+/// 160 x 44 box. Returns the ink counted inside and outside that box.
+fn overflowing_cell_render() -> (usize, usize) {
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 2, 2, Vec2::new(ORIGIN, ORIGIN));
+    nodes[0].stroke.weight = 0.0;
+    nodes[0].stroke.paints.clear();
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text = default_cell_text("W\nW\nW\nW\nW\nW\nW\nW\nW\nW");
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let pm = t.render(400, 240);
+    let ink = |inside: bool| {
+        (0..240u32)
+            .flat_map(|y| (0..400u32).map(move |x| (x, y)))
+            .filter(|&(x, y)| ((20..180).contains(&x) && (20..64).contains(&y)) == inside && px(&pm, x, y)[0] < 160)
+            .count()
+    };
+    (ink(true), ink(false))
+}
+
+#[test]
+fn cell_text_taller_than_its_cell_never_paints_outside_it() {
+    let (inside, outside) = overflowing_cell_render();
+    assert!(inside > 20, "the text is drawn in its cell: {inside}");
+    assert_eq!(outside, 0, "no ink outside the cell box");
+}
+
+/// The lowered kind of cell (0, 0) of a 2x2 table whose first cell holds `text` in its 160 x 44 box.
+fn lowered_cell_kind(text: &str) -> NodeKind {
+    let mut t = T::new();
+    let nodes = build_table(&mut t.doc, 2, 2, Vec2::new(ORIGIN, ORIGIN));
+    let cell = nodes[1].id;
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    if let NodeKind::TableCell(c) = &mut t.node(cell).kind {
+        c.text = default_cell_text(text);
+    }
+    board::lower(&t.doc, t.doc.get(cell).unwrap()).expect("a cell lowers").kind
+}
+
+#[test]
+fn a_cell_whose_text_fits_stays_a_plain_rectangle() {
+    assert!(matches!(lowered_cell_kind("Việt Nam"), NodeKind::Rectangle));
+    assert!(matches!(lowered_cell_kind(""), NodeKind::Rectangle));
+    assert!(matches!(lowered_cell_kind("Ô"), NodeKind::Rectangle));
+}
+
+#[test]
+fn only_a_cell_whose_text_does_not_fit_is_clipped() {
+    let tall = lowered_cell_kind("W\nW\nW\nW\nW\nW");
+    assert!(matches!(&tall, NodeKind::Frame(f) if f.clips_content), "too tall: {tall:?}");
+    let wide = lowered_cell_kind("Supercalifragilisticexpialidociousandmoreletters");
+    assert!(matches!(&wide, NodeKind::Frame(f) if f.clips_content), "one word wider than the cell: {wide:?}");
+}
+
+/// A `n` x `n` table whose cells hold different texts, on a page.
+fn big_table(t: &mut T, n: usize) {
+    let mut nodes = build_table(&mut t.doc, n, n, Vec2::new(0.0, 0.0));
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+}
+
+#[test]
+fn a_second_render_of_an_unchanged_100x100_table_shapes_no_text() {
+    use designos_render::{render_page, shaping_runs, tiny_skia::Pixmap, Viewport};
+    let mut t = T::new();
+    big_table(&mut t, 100);
+    // 16000 x 4400 px of table drawn into 1600 x 440: every cell is in view and lowered
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 0.1, dpr: 1.0 };
+    let mut pm = Pixmap::new(1600, 440).unwrap();
+    let before = shaping_runs();
+    render_page(&t.doc, t.page, &vp, &mut pm);
+    let first = shaping_runs() - before;
+    assert_eq!(first, 10_000, "the first render shapes each cell's text exactly once, for the fit check and the painter together");
+    let before = shaping_runs();
+    render_page(&t.doc, t.page, &vp, &mut pm);
+    assert_eq!(shaping_runs() - before, 0, "an unchanged table is not shaped again");
+}
+
+fn install_measurer() {
+    designos_doc::text_measure::set_layout_measurer(Some(std::sync::Arc::new(designos_render::RenderTextMeasure)));
+}
+
+/// Find and replace of a word that is in the table's layer name and in a cell makes one command that
+/// renames the table and rewrites the cell. The row must still grow to the new text.
+#[test]
+fn replace_all_that_also_renames_the_table_still_grows_the_row() {
+    use designos_doc::find::{find_text, replace, FindOptions, Scope};
+    install_measurer();
+    for name in ["Table", "Revenue by month"] {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let mut nodes = build_table(&mut d, 3, 3, Vec2::ZERO);
+        let (table, cell) = (nodes[0].id, nodes[1].id);
+        nodes[0].name = name.into();
+        if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+            c.text = default_cell_text("Revenue");
+        }
+        Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+        designos_doc::apply_table_relayout(&mut d, table);
+        let before = d.get(cell).unwrap().size.y;
+        let found = find_text(&d, &Scope::Page(page), "Revenue", FindOptions::default());
+        assert_eq!(found.len(), if name == "Table" { 1 } else { 2 }, "the query hits the cell {} the name", if name == "Table" { "only, not" } else { "and" });
+        let cmd = replace(&d, &found, "Revenue\nline 2\nline 3\nline 4\nline 5");
+        History::default().exec(&mut d, cmd).unwrap();
+        assert!(d.get(cell).unwrap().size.y > before + 40.0, "{name:?}: the row grew from {before} to {}", d.get(cell).unwrap().size.y);
+        assert!(designos_doc::table::relayout(&d, table).is_empty(), "{name:?}: the table is solved");
+    }
+}
+
+/// A table op that changes one cell's text, then the history step that applies it, shape the new text
+/// once and nothing else: the history step finds every other text already measured.
+#[test]
+fn a_table_op_text_edit_shapes_only_the_new_text() {
+    install_measurer();
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let mut nodes = build_table(&mut d, 20, 20, Vec2::ZERO);
+    let table = nodes[0].id;
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    designos_doc::apply_table_relayout(&mut d, table);
+    let mut h = History::default();
+    for text in ["Edited", "Edited\nin\nthree"] {
+        let before = designos_render::shaping_runs();
+        let cmd = designos_doc::table_ops::set_cell_text(&d, table, 3, 4, text).unwrap();
+        h.exec(&mut d, cmd).unwrap();
+        assert_eq!(designos_render::shaping_runs() - before, 1, "{text:?}: one new text, shaped once");
+    }
+}
+
+/// Accented single-line text at 70 % line height and 32 px overhangs its line box. The cell does not
+/// clip it: every glyph pixel a free text node would paint is painted in the cell.
+#[test]
+fn accented_text_at_a_small_line_height_is_not_clipped_by_its_cell() {
+    install_measurer();
+    for (percent, size) in [(70.0, 32.0), (50.0, 48.0)] {
+        accented_text_in_a_cell(percent, size);
+    }
+}
+
+fn accented_text_in_a_cell(percent: f32, size: f32) {
+    let text = "Ágjpqy Ťý";
+    let style = |t: &mut TextProps| {
+        t.style.font_size = size;
+        t.style.line_height = LineHeight::Percent(percent);
+    };
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 1, 1, Vec2::new(40.0, 40.0));
+    let (table, cell) = (nodes[0].id, nodes[1].id);
+    nodes[0].stroke.weight = 0.0;
+    nodes[0].stroke.paints.clear();
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols[0].size = 400.0;
+    }
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text = default_cell_text(text);
+        style(&mut c.text);
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    designos_doc::apply_table_relayout(&mut t.doc, table);
+    let cell_node = t.doc.get(cell).unwrap().clone();
+    assert!(matches!(board::lower(&t.doc, &cell_node).unwrap().kind, NodeKind::Rectangle), "{percent} % at {size} px: the line box fits, no clip");
+    let ink = |pm: &designos_render::tiny_skia::Pixmap| {
+        (0..pm.height()).flat_map(|y| (0..pm.width()).map(move |x| (x, y))).filter(|&(x, y)| px(pm, x, y)[0] < 160).count()
+    };
+    let in_cell = ink(&t.render(520, 260));
+    // the same text as a free layer where the cell puts it
+    let mut free = T::new();
+    let mut props = default_cell_text(text);
+    style(&mut props);
+    props.auto_resize = TextAutoResize::Height;
+    let (px_, py_) = TABLE_CELL_PADDING;
+    let id = free.doc.alloc_id();
+    let mut node = Node::new(id, NodeKind::Text(props));
+    node.transform = Affine::translate(40.0 + px_, 40.0 + py_);
+    node.size = Vec2::new(cell_node.size.x - 2.0 * px_, cell_node.size.y - 2.0 * py_);
+    free.doc.insert(free.page, node).unwrap();
+    let free_ink = ink(&free.render(520, 260));
+    assert!(free_ink > 100, "the text has ink: {free_ink}");
+    assert_eq!(in_cell, free_ink, "{percent} % at {size} px: the cell paints every glyph pixel the text paints on its own");
+}
+
+/// Times table layout of a 200 x 200 table with the renderer's measurer: the first solve (nothing
+/// cached, as after a font arrives), a second one, and cell-text edits through `History`. Run with
+/// `--release --ignored --nocapture`; it prints the times and asserts nothing about speed.
+#[test]
+#[ignore = "prints timings"]
+fn relayout_cost_probe() {
+    install_measurer();
+    for n in [200usize, 400] {
+        relayout_cost_of(n);
+    }
+}
+
+fn relayout_cost_of(n: usize) {
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, n, n, Vec2::new(0.0, 0.0));
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    let table = nodes[0].id;
+    let cell = nodes[1 + 5 * n + 5].id;
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let t0 = std::time::Instant::now();
+    let mut warm = designos_doc::table::TableWarm::new(&t.doc, table).unwrap();
+    eprintln!("{n}x{n} list the jobs: {:?}", t0.elapsed());
+    let (mut slices, mut slowest) = (0, std::time::Duration::ZERO);
+    let t0 = std::time::Instant::now();
+    while !warm.done() {
+        let s0 = std::time::Instant::now();
+        warm.step(&t.doc, 128);
+        slowest = slowest.max(s0.elapsed());
+        slices += 1;
+    }
+    eprintln!("{n}x{n} warm-up: {slices} slices of 128 cells, slowest {slowest:?}, total {:?}", t0.elapsed());
+    let t0 = std::time::Instant::now();
+    designos_doc::apply_table_relayout(&mut t.doc, table);
+    eprintln!("{n}x{n} final solve after the warm-up: {:?}", t0.elapsed());
+    let t0 = std::time::Instant::now();
+    designos_doc::apply_table_relayout(&mut t.doc, table);
+    eprintln!("{n}x{n} warm solve again: {:?}", t0.elapsed());
+    let mut h = History::default();
+    for text in ["Edited", "Edited again"] {
+        let mut node = t.doc.get(cell).unwrap().clone();
+        if let NodeKind::TableCell(c) = &mut node.kind {
+            c.text.content = text.into();
+        }
+        let t0 = std::time::Instant::now();
+        h.exec(&mut t.doc, Command::Update { node: Box::new(node) }).unwrap();
+        eprintln!("{n}x{n} history edit to {text:?}: {:?}", t0.elapsed());
+    }
+}
+
+/// Resident memory of this process before and after the layout cache holds 100 x 100 cell texts.
+/// Run with `--release --ignored --nocapture`.
+#[test]
+#[ignore = "prints memory"]
+fn layout_cache_memory_probe() {
+    use designos_render::{render_page, tiny_skia::Pixmap, Viewport};
+    let rss = || {
+        let out = std::process::Command::new("ps").args(["-o", "rss=", "-p", &std::process::id().to_string()]).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().unwrap_or(0)
+    };
+    let mut t = T::new();
+    big_table(&mut t, 100);
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 0.1, dpr: 1.0 };
+    let mut pm = Pixmap::new(1600, 440).unwrap();
+    render_page(&t.doc, t.page, &vp, &mut pm);
+    let before = rss();
+    let mut t2 = T::new();
+    big_table(&mut t2, 100);
+    for n in t2.doc.nodes.values_mut() {
+        if let NodeKind::TableCell(c) = &mut n.kind {
+            c.text.content.push('!');
+        }
+    }
+    render_page(&t2.doc, t2.page, &vp, &mut pm);
+    let after = rss();
+    eprintln!("rss before {before} KB, after a second 10,000 layouts {after} KB, grown {} KB", after.saturating_sub(before));
+}
+
+/// Times a 100 x 10 table of fitting text inside a clipping frame at 2x as it lowers now, and with every
+/// cell forced to clip. Run with `--ignored --nocapture`; it prints the numbers and asserts nothing
+/// about speed, because timings depend on the machine.
+#[test]
+#[ignore = "prints timings"]
+fn clip_cost_probe() {
+    use designos_render::{render_page, tiny_skia::Pixmap, Viewport};
+    let (rows, cols) = (100usize, 10usize);
+    let mut t = T::new();
+    let frame = t.doc.alloc_id();
+    let mut fr = Node::frame(frame, Rect::new(0.0, 0.0, cols as f32 * 160.0, rows as f32 * 44.0));
+    if let NodeKind::Frame(f) = &mut fr.kind {
+        f.clips_content = true;
+    }
+    t.doc.insert(t.page, fr).unwrap();
+    let mut nodes = build_table(&mut t.doc, rows, cols, Vec2::new(0.0, 0.0));
+    let table = nodes[0].id;
+    for n in nodes[1..].iter_mut() {
+        if let NodeKind::TableCell(c) = &mut n.kind {
+            c.text = default_cell_text("Cell text");
+        }
+    }
+    Command::Insert { parent: frame, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let lowered = board::lowered_document(&t.doc).unwrap();
+    let mut forced = lowered.clone();
+    for id in t.doc.get(table).unwrap().children.clone() {
+        if let Some(n) = forced.get_mut(id) {
+            n.kind = NodeKind::Frame(FrameProps { clips_content: true, ..FrameProps::default() });
+        }
+    }
+    let (w, h) = ((cols as f32 * 160.0 * 2.0) as u32, (rows as f32 * 44.0 * 2.0) as u32);
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 2.0, dpr: 1.0 };
+    for round in 0..3 {
+        // the forced pass is slow in a debug build: once is enough to see the gap
+        for (label, d) in [("as lowered", &lowered), ("every cell clipped", &forced)].into_iter().filter(|(l, _)| round == 0 || *l == "as lowered") {
+            let mut pm = Pixmap::new(w, h).unwrap();
+            let t0 = std::time::Instant::now();
+            render_page(d, t.page, &vp, &mut pm);
+            eprintln!("round {round} {label}: {:?}", t0.elapsed());
+        }
+    }
+}
+
 /// Writes the documents the visual evidence is captured from. Set `DESIGNOS_TABLE_EVIDENCE_DIR` and run
 /// `cargo test -p designos-render --test table_render -- --ignored write_evidence_documents`.
 #[test]

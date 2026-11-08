@@ -11,6 +11,7 @@
 //! angular and diamond gradients, gradients that fade, arrow heads, outlined text) is never drawn
 //! wrong: the whole frame is then written as the renderer's lossless image, with the same text layer.
 
+use crate::bounds::table_stroke_outset;
 use designos_doc::{resolve_node, Document, NodeId, NodeKind};
 use std::io::Write;
 use text_layer::{TextFonts, FONT_OBJECTS};
@@ -87,16 +88,21 @@ pub fn export_pdf(doc: &Document, slides: &[NodeId]) -> Result<Vec<u8>, String> 
     if slides.len() > MAX_PAGES {
         return Err(format!("Export at most {MAX_PAGES} frames at a time."));
     }
+    // A table's border hangs half its weight outside the table box: its page grows by that much on
+    // each side, as its PNG and SVG exports do. Read before lowering turns the table into a frame.
+    let insets: Vec<f32> = slides.iter().map(|id| doc.get(*id).map_or(0.0, |n| table_stroke_outset(&resolve_node(doc, n)).ceil())).collect();
     let lowered = designos_render::board::lowered_document(doc);
     let doc = lowered.as_ref().unwrap_or(doc);
     // Validate the complete selection before spending time emitting any page. Sizes are the sizes the
     // canvas shows, with variable bindings applied.
-    for id in slides {
+    for (id, inset) in slides.iter().zip(&insets) {
         let node = doc.get(*id).ok_or_else(|| format!("Frame {} no longer exists.", id.0))?;
         if !matches!(node.kind, NodeKind::Frame(_)) {
             return Err(format!("{} is not a frame; only frames export as PDF pages.", node.name));
         }
+        // the page is the frame plus the border that hangs outside it
         let size = resolve_node(doc, node).size;
+        let size = designos_doc::Vec2::new(size.x + 2.0 * inset, size.y + 2.0 * inset);
         if !size.x.is_finite() || !size.y.is_finite() || size.x < 1.0 || size.y < 1.0 || size.x > 19_200.0 || size.y > 19_200.0 {
             return Err("Frame dimensions must be finite and between 1 and 19,200 pixels.".into());
         }
@@ -104,8 +110,8 @@ pub fn export_pdf(doc: &Document, slides: &[NodeId]) -> Result<Vec<u8>, String> 
     let mut fonts = TextFonts::default();
     let mut pages: Vec<PageOutput> = Vec::with_capacity(slides.len());
     let mut size = 0usize;
-    for id in slides {
-        let page = build_page(doc, *id, &mut fonts)?;
+    for (id, inset) in slides.iter().zip(&insets) {
+        let page = build_page(doc, *id, *inset, &mut fonts)?;
         size = size.saturating_add(page.body.len()).saturating_add(page.image.as_ref().map_or(0, |i| i.data.len()));
         if size > MAX_OUTPUT {
             return Err("PDF exceeds the 128 MiB export limit. Export fewer frames at a time.".into());
@@ -429,7 +435,7 @@ mod raster_page {
     //! first PDF exporter wrote every page. Each design pixel maps to 0.75 PDF points; the image is
     //! rendered at up to twice that resolution and transparency is composited over white.
 
-    use designos_doc::{Document, NodeId};
+    use designos_doc::{Document, NodeId, Rect};
     use flate2::{write::ZlibEncoder, Compression};
     use std::io::Write;
 
@@ -443,9 +449,15 @@ mod raster_page {
     }
 
     /// Renders frame `id` (variables resolved, board items lowered) at up to 2x and deflates it.
-    pub(super) fn flatten(doc: &Document, id: NodeId, width: f32, height: f32) -> Result<PageImage, String> {
+    /// `width` x `height` is the page, which reaches `inset` past the frame box on every side.
+    pub(super) fn flatten(doc: &Document, id: NodeId, width: f32, height: f32, inset: f32) -> Result<PageImage, String> {
         let scale = 2.0_f32.min(MAX_SIDE / width).min(MAX_SIDE / height);
-        let pixmap = designos_render::render_node(doc, id, scale).ok_or("Cannot render this slide for PDF export.")?;
+        let pixmap = if inset > 0.0 {
+            crate::raster::render_bounded(doc, id, scale, Rect::new(-inset, -inset, width, height), false)
+        } else {
+            designos_render::render_node(doc, id, scale)
+        }
+        .ok_or("Cannot render this slide for PDF export.")?;
         // tiny-skia stores premultiplied RGBA. Adding the missing white alpha
         // gives opaque RGB directly, without a lossy unpremultiply round-trip.
         let mut compressor = ZlibEncoder::new(Vec::new(), Compression::default());
@@ -796,15 +808,17 @@ mod vector_page {
     }
 
     /// Builds the content of the validated frame `id`.
-    pub(super) fn build_page(doc: &Document, id: NodeId, fonts: &mut TextFonts) -> Result<PageOutput, String> {
+    /// `inset` is how far the frame's paint reaches outside its box (a table's outer border); the page
+    /// grows by it on every side.
+    pub(super) fn build_page(doc: &Document, id: NodeId, inset: f32, fonts: &mut TextFonts) -> Result<PageOutput, String> {
         let raw = doc.get(id).ok_or_else(|| format!("Frame {} no longer exists.", id.0))?;
         let root = resolve_node(doc, raw);
-        let (width, height) = (root.size.x, root.size.y);
-        let mut builder = PageBuilder::new(doc, fonts, Vec2::new(width, height));
+        let (width, height) = (root.size.x + 2.0 * inset, root.size.y + 2.0 * inset);
+        let mut builder = PageBuilder::new(doc, fonts, Vec2::new(width, height), inset);
         let image = match raster_reason(doc, id) {
             Some(reason) => {
                 builder.flattened_page(&root, reason);
-                Some(raster_page::flatten(doc, id, width, height)?)
+                Some(raster_page::flatten(doc, id, width, height, inset)?)
             }
             None => {
                 builder.vector_page(&root);
@@ -817,8 +831,10 @@ mod vector_page {
     struct PageBuilder<'a, 'f> {
         doc: &'a Document,
         fonts: &'f mut TextFonts,
-        /// Frame size in design pixels.
+        /// Page size in design pixels: the frame size plus `inset` on every side.
         page: Vec2,
+        /// Where the frame's top-left corner sits on the page.
+        inset: f32,
         body: String,
         resources: PageResources,
         uses_wide_font: bool,
@@ -830,15 +846,16 @@ mod vector_page {
     }
 
     impl<'a, 'f> PageBuilder<'a, 'f> {
-        fn new(doc: &'a Document, fonts: &'f mut TextFonts, page: Vec2) -> Self {
+        fn new(doc: &'a Document, fonts: &'f mut TextFonts, page: Vec2, inset: f32) -> Self {
             Self {
                 doc,
                 fonts,
                 page,
+                inset,
                 body: String::new(),
                 resources: PageResources::default(),
                 uses_wide_font: false,
-                ctm: Affine::IDENTITY,
+                ctm: Affine::translate(inset, inset),
                 visible: [0.0, 0.0, page.x, page.y],
             }
         }
@@ -851,6 +868,9 @@ mod vector_page {
         fn enter_design_space(&mut self) {
             let (_, height_pt) = self.page_points();
             let _ = writeln!(self.body, "q\n{} 0 0 -{} 0 {height_pt} cm", num(POINTS_PER_PIXEL), num(POINTS_PER_PIXEL));
+            if self.inset > 0.0 {
+                let _ = writeln!(self.body, "1 0 0 1 {0} {0} cm", num(self.inset));
+            }
         }
 
         /// White backdrop, then the frame's content clipped to its bounds. The frame's own transform is not
@@ -859,7 +879,7 @@ mod vector_page {
             let (width_pt, height_pt) = self.page_points();
             let _ = writeln!(self.body, "1 1 1 rg 0 0 {width_pt} {height_pt} re f");
             self.enter_design_space();
-            let _ = writeln!(self.body, "0 0 {} {} re W n", num(self.page.x), num(self.page.y));
+            let _ = writeln!(self.body, "{} {} {} {} re W n", num(0.0 - self.inset), num(0.0 - self.inset), num(self.page.x), num(self.page.y));
             if is_drawn(root) {
                 self.contents(root);
             }

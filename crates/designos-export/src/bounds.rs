@@ -28,6 +28,17 @@ fn grow(r: Rect, l: f32, t: f32, rt: f32, b: f32) -> Rect {
     Rect::new(r.x - l, r.y - t, r.w + l + rt, r.h + t + b)
 }
 
+/// How far a table's border reaches outside its box. A table draws its grid as one centred stroke,
+/// so the outer border hangs half its weight outside the box whatever the stroke alignment says.
+pub(crate) fn table_stroke_outset(n: &Node) -> f32 {
+    let visible = n.stroke.weight > 0.0 && n.stroke.paints.iter().any(|p| p.visible && p.opacity > 0.0);
+    if matches!(n.kind, NodeKind::Table(_)) && visible {
+        n.stroke.weight / 2.0
+    } else {
+        0.0
+    }
+}
+
 /// How far a node's own paint reaches outside its box: (left, top, right, bottom).
 pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
     let (mut eff_l, mut eff_t, mut eff_r, mut eff_b) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
@@ -42,7 +53,9 @@ pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
 
     let stroke_weight = n.stroke.side_weights.map(|s| s.iter().fold(0.0f32, |m, &w| m.max(w))).unwrap_or(n.stroke.weight);
     let has_stroke = n.stroke.paints.iter().any(|p| p.visible) && stroke_weight > 0.0;
-    let stroke_outset = if has_stroke {
+    let stroke_outset = if matches!(n.kind, NodeKind::Table(_)) {
+        table_stroke_outset(n)
+    } else if has_stroke {
         match n.stroke.align {
             StrokeAlign::Inside => 0.0,
             StrokeAlign::Center => stroke_weight / 2.0,

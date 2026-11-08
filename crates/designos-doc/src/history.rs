@@ -410,7 +410,7 @@ impl History {
     }
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, false, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, false, apply_with_table_relayout).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
@@ -419,14 +419,14 @@ impl History {
     /// [`Self::fold_since`] can fold the contiguous agent tail on stop without folding
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, false, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, false, apply_with_table_relayout).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, false, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, false, apply_with_table_relayout).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, ..Default::default() });
         Ok(())
     }
@@ -818,6 +818,26 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
             }
         }
         _ => {}
+    }
+}
+
+/// Applies `c`, then re-solves every table whose cell text it changed, as part of the same undo step.
+/// The row heights follow the text whoever wrote it. Nothing changes without a layout measurer
+/// (the stored heights are kept) or when the rows already fit.
+fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
+    let mut edited = std::collections::BTreeSet::new();
+    table::text_edited_tables(doc, &c, &mut edited);
+    let inv = c.apply_atomic(doc)?;
+    let fix: Vec<Command> = edited.iter().flat_map(|&t| table::relayout(doc, t)).collect();
+    if fix.is_empty() {
+        return Ok(inv);
+    }
+    match Command::Batch(fix).apply_atomic(doc) {
+        Ok(fix_inv) => Ok(Command::Batch(vec![fix_inv, inv])),
+        Err(e) => {
+            let _ = inv.apply(doc);
+            Err(e)
+        }
     }
 }
 

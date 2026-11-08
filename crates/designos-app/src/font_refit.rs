@@ -25,11 +25,15 @@
 use crate::app::App;
 use crate::edit::Edit;
 use crate::layout;
+use designos_doc::table::TableWarm;
 use designos_doc::{Node, NodeId, NodeKind, TextAutoResize, TextProps, Vec2};
 use designos_fonts::{scripts_in, FontRequest, Script};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
+
+/// Table cells whose text is measured again between two reads of the clock.
+const TABLE_SLICE: usize = 128;
 
 /// How long one frame spends re-fitting texts before it leaves the rest for the next one.
 const FRAME_BUDGET: Duration = Duration::from_millis(8);
@@ -45,6 +49,8 @@ pub struct TextRefit {
     stand_in: BTreeMap<NodeId, (Vec2, TextProps)>,
     /// Texts to re-measure, in id order.
     queue: BTreeSet<NodeId>,
+    /// Tables with a cell the arrived faces shape, to lay out again once no gesture holds the pass.
+    tables: BTreeMap<NodeId, Option<TableWarm>>,
     /// The frames that hug a fitted text and are not laid out yet, deepest first, each with one text
     /// to start from.
     parents: BTreeMap<(Reverse<usize>, NodeId), NodeId>,
@@ -57,7 +63,15 @@ pub struct TextRefit {
 
 impl Default for TextRefit {
     fn default() -> Self {
-        Self { doc: 0, stand_in: BTreeMap::new(), queue: BTreeSet::new(), parents: BTreeMap::new(), arrived: None, budget: FRAME_BUDGET }
+        Self {
+            doc: 0,
+            stand_in: BTreeMap::new(),
+            queue: BTreeSet::new(),
+            tables: BTreeMap::new(),
+            parents: BTreeMap::new(),
+            arrived: None,
+            budget: FRAME_BUDGET,
+        }
     }
 }
 
@@ -205,13 +219,35 @@ impl App {
             refit.stand_in.remove(&id);
         }
         refit.arrived.get_or_insert_with(Arrived::default).merge(arrived);
+        self.queue_tables_shaped_by(families);
+    }
+
+    /// Queues the tables that have a cell shaped by one of `families`: a row is as tall as its text,
+    /// and the text is taller or shorter in the face that arrived than in the stand-in. Table geometry
+    /// is derived from the text, never a stored measure of the file, so unlike a text box this covers
+    /// every table. The pass lays them out later, a slice at a time ([`App::step_text_refit`]).
+    fn queue_tables_shaped_by(&mut self, families: &[String]) {
+        let arrived = Arrived::new(families);
+        let found: Vec<NodeId> = self
+            .doc
+            .nodes
+            .values()
+            .filter(|n| matches!(n.kind, NodeKind::Table(_)))
+            .filter(|t| t.children.iter().filter_map(|c| self.doc.get(*c)).any(|c| matches!(&c.kind, NodeKind::TableCell(cell) if arrived.shapes(&cell.text))))
+            .map(|t| t.id)
+            .collect();
+        if !found.is_empty() {
+            let refit = &mut self.fonts.refit;
+            refit.adopt(self.doc.runtime_id());
+            refit.tables.extend(found.into_iter().map(|id| (id, None)));
+        }
     }
 
     /// Texts or frames of the open document are waiting to be re-fitted or laid out: the caller
     /// keeps repainting until they are done.
     pub fn text_refit_pending(&self) -> bool {
         let refit = &self.fonts.refit;
-        refit.doc == self.doc.runtime_id() && !(refit.queue.is_empty() && refit.parents.is_empty())
+        refit.doc == self.doc.runtime_id() && !(refit.queue.is_empty() && refit.parents.is_empty() && refit.tables.is_empty())
     }
 
     /// A drag, a text session or a scrub is in progress, so the pass waits for it.
@@ -234,9 +270,22 @@ impl App {
         let mut refit = std::mem::take(&mut self.fonts.refit);
         let start = Instant::now();
         let budget = refit.budget;
-        let in_time = |worked: usize| worked == 0 || start.elapsed() < budget;
+        // The layout of a table whose text is all measured goes alone at the start of a frame: it is one
+        // table's worth of work that cannot be cut, so it gets the frame to itself.
+        let ready = refit.tables.iter().find(|(_, w)| w.as_ref().is_some_and(TableWarm::done)).map(|(id, _)| *id);
+        let solved_alone = ready.is_some();
+        let in_time = |worked: usize| !solved_alone && (worked == 0 || start.elapsed() < budget);
         let mut ed = Edit::new();
         let mut worked = 0;
+        let mut tables_moved = false;
+        // A document that was exactly its file stays so: the new row heights are derived, not an edit
+        let mut rebase_saved = false;
+        if let Some(id) = ready {
+            refit.tables.remove(&id);
+            let was_clean = crate::home::doc_hash(&self.doc) == self.autosave.saved_hash;
+            tables_moved = designos_doc::apply_table_relayout(&mut self.doc, id);
+            rebase_saved = tables_moved && was_clean;
+        }
         while in_time(worked) {
             let Some(id) = refit.queue.pop_first() else { break };
             worked += 1;
@@ -257,6 +306,28 @@ impl App {
                 refit.stand_in.remove(&id);
             }
         }
+        // A table's text is measured again with the face that arrived, TABLE_SLICE cells per clock
+        // read, from a cursor that persists, so a big table's cold cost (a table's worth of shaping) is
+        // spread over frames and its jobs are listed once. When all of it is measured the layout itself
+        // only reads the measurer's cache, and runs alone in a later frame.
+        while in_time(worked) {
+            let Some(id) = refit.tables.iter().find(|(_, w)| !w.as_ref().is_some_and(TableWarm::done)).map(|(id, _)| *id) else { break };
+            worked += 1;
+            let slot = refit.tables.get_mut(&id).expect("listed just now");
+            if slot.is_none() {
+                *slot = TableWarm::new(&self.doc, id);
+            }
+            match slot {
+                Some(warm) => {
+                    warm.step(&self.doc, TABLE_SLICE);
+                }
+                None => {
+                    // nothing to warm (no measurer, or the table is gone): lay it out as it is
+                    refit.tables.remove(&id);
+                    tables_moved |= designos_doc::apply_table_relayout(&mut self.doc, id);
+                }
+            }
+        }
         // Once every text is in place, each frame that hugs one is laid out once, deepest first.
         if refit.queue.is_empty() {
             while in_time(worked) {
@@ -274,7 +345,7 @@ impl App {
                 }
             }
         }
-        if !ed.before_nodes().is_empty() {
+        if tables_moved || !ed.before_nodes().is_empty() {
             // the boxes moved behind the canvas's back, like a deferred relayout
             self.changed();
             self.canvas.tiles.invalidate_all();
@@ -283,7 +354,12 @@ impl App {
             // and the recorded steps before it no longer hold the geometry around what it moved
             self.hist.forget_layout_recorded();
         }
-        if refit.queue.is_empty() {
+        if rebase_saved {
+            // the file holds what the document held before: the new heights are not a change to save
+            self.autosave.seen_rev = self.canvas.tiles.rev();
+            self.autosave.saved_hash = crate::home::doc_hash(&self.doc);
+        }
+        if refit.queue.is_empty() && refit.tables.is_empty() {
             refit.arrived = None;
         }
         self.fonts.refit = refit;

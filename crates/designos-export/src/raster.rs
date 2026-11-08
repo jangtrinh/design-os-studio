@@ -92,13 +92,6 @@ fn render_export_native(doc: &Document, node: NodeId, scale: f32) -> Option<Pixm
 
 fn render_export_in(doc: &Document, node: NodeId, scale: f32, native: bool) -> Option<Pixmap> {
     let draw_node = |d: &Document, n: NodeId, sc: f32| if native { render_node_native(d, n, sc) } else { render_node(d, n, sc) };
-    let draw_page = |d: &Document, p: NodeId, vp: &Viewport, pm: &mut Pixmap| {
-        if native {
-            render_page_native(d, p, vp, pm)
-        } else {
-            render_page(d, p, vp, pm)
-        }
-    };
     let n = designos_doc::resolve_node(doc, doc.get(node)?);
     let scale = scale.clamp(0.01, 32.0);
     let is_page = matches!(n.kind, NodeKind::Page { .. });
@@ -108,16 +101,33 @@ fn render_export_in(doc: &Document, node: NodeId, scale: f32, native: bool) -> O
     if !is_page && !is_group && b == nominal {
         return draw_node(doc, node, scale);
     }
+    render_bounded(doc, node, scale, b, native)
+}
+
+/// Draws `page` of `d` into `pm`, in the document's own colour profile when `native`, else in sRGB.
+fn draw_page(native: bool, d: &Document, page: NodeId, vp: &Viewport, pm: &mut Pixmap) {
+    if native {
+        render_page_native(d, page, vp, pm)
+    } else {
+        render_page(d, page, vp, pm)
+    }
+}
+
+/// Renders `node` at `scale` into the local-space rectangle `b`, which may reach outside its box.
+/// `native` keeps the document's own colour profile; otherwise the pixels are converted to sRGB.
+pub(crate) fn render_bounded(doc: &Document, node: NodeId, scale: f32, b: Rect, native: bool) -> Option<Pixmap> {
+    let n = designos_doc::resolve_node(doc, doc.get(node)?);
+    let is_page = matches!(n.kind, NodeKind::Page { .. });
     let (w, h) = checked_pixmap_size(b.w * scale, b.h * scale)?;
     let mut pm = Pixmap::new(w, h)?;
     let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: scale, dpr: 1.0 };
     if is_page {
         let vp = Viewport { offset: Vec2::new(b.x, b.y), ..vp };
-        draw_page(doc, node, &vp, &mut pm);
+        draw_page(native, doc, node, &vp, &mut pm);
         return Some(pm);
     }
     let (scratch, page) = scratch_doc(doc, node, Vec2::new(-b.x, -b.y));
-    draw_page(&scratch, page, &vp, &mut pm);
+    draw_page(native, &scratch, page, &vp, &mut pm);
     Some(pm)
 }
 
