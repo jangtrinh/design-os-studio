@@ -40,6 +40,7 @@ CANONICAL_LINT_RULE_IDS: Set[str] = {
     "clipped-full",
     "clipped-partial",
     "collapsed-size",
+    "component-property-variable",
     "contrast",
     "deeply-nested",
     "default-layer-name",

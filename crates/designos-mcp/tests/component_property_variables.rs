@@ -177,3 +177,72 @@ fn a_variant_value_that_is_no_option_is_reported_and_keeps_the_variant() {
     assert!(reply["property_binding_issues"][0]["problem"].as_str().unwrap().contains("Huge"));
     assert_eq!(s.e.doc.get(inst).and_then(instance_component), Some(mains[0]), "the instance keeps its variant");
 }
+
+#[test]
+fn update_node_with_name_and_invalid_prop_vars_leaves_document_and_undo_untouched() {
+    let mut s = setup();
+    let orig_name = s.e.doc.get(s.inst).unwrap().name.clone();
+    let orig_depth = s.e.history.undo_depth();
+    let err = s.e.call("designos_update_node", json!({"node_id": s.inst.0, "name": "Renamed", "prop_vars": {"Show icon": "var:Theme/title"}})).unwrap_err();
+    let err_json: Value = err.to_json_value();
+    assert!(err_json["error"]["code"].as_str().is_some_and(|c| c.contains("VARIABLE") || c.contains("TYPE")), "{err_json}");
+    assert_eq!(s.e.doc.get(s.inst).unwrap().name, orig_name, "node name must remain unchanged on prop_vars error");
+    assert!(s.e.doc.get(s.inst).unwrap().variables.bindings.is_empty(), "bindings must remain empty");
+    assert_eq!(s.e.history.undo_depth(), orig_depth, "undo stack must remain untouched");
+}
+
+#[test]
+fn update_node_with_name_and_valid_prop_vars_undoes_both_in_one_step() {
+    let mut s = setup();
+    let orig_name = s.e.doc.get(s.inst).unwrap().name.clone();
+    let orig_depth = s.e.history.undo_depth();
+    let reply =
+        s.e.call("designos_update_node", json!({"node_id": s.inst.0, "name": "CTA", "prop_vars": {"Show icon": "var:Theme/show", "Label": "var:Theme/title"}}))
+            .unwrap();
+    assert_eq!(reply["changed"], true, "{reply}");
+    assert_eq!(s.e.doc.get(s.inst).unwrap().name, "CTA");
+    assert_eq!(s.e.doc.get(s.inst).unwrap().variables.bindings.get(&key("Show icon")).map(String::as_str), Some("show"));
+    assert_eq!(s.e.doc.get(s.inst).unwrap().variables.bindings.get(&key("Label")).map(String::as_str), Some("title"));
+    assert_eq!(label_text(&s.e.doc, s.inst), "Pay");
+    assert_eq!(s.e.history.undo_depth(), orig_depth + 1, "mixed update must be one undo step");
+
+    s.e.call("designos_undo", json!({})).unwrap();
+    assert_eq!(s.e.doc.get(s.inst).unwrap().name, orig_name, "one undo must restore the node name");
+    assert!(!s.e.doc.get(s.inst).unwrap().variables.bindings.keys().any(|k| prop_binding_name(k).is_some()), "one undo must remove the property bindings");
+    assert_eq!(label_text(&s.e.doc, s.inst), "Label", "one undo must restore the bound child text");
+    assert_eq!(s.e.history.undo_depth(), orig_depth);
+}
+
+#[test]
+fn apply_spec_warns_when_bound_variant_variable_is_not_an_option() {
+    let mut s = setup();
+    let page = s.e.resolve_default_page().unwrap();
+    let d = &mut s.e.doc;
+    let mut mains = Vec::new();
+    for name in ["Size=Small", "Size=Large"] {
+        let id = d.alloc_id();
+        let mut v = Node::frame(id, Rect::new(0.0, 100.0, 100.0, 40.0));
+        v.name = name.into();
+        let v = d.insert(page, v).unwrap();
+        create_component(d, v).apply(d).unwrap();
+        mains.push(v);
+    }
+    combine_as_variants(d, &mains).apply(d).unwrap();
+    d.variables.insert("size".into(), variable("size", VariableKind::String, VariableValue::String("Huge".into()), VariableValue::String("Large".into())));
+    d.variable_collections.get_mut("theme").unwrap().variables.push("size".into());
+
+    let applied =
+        s.e.call(
+            "designos_apply_spec",
+            json!({"parent_id": page.0, "spec": {"kind": "instance", "component": format!("node:{}", mains[0].0), "props": {"Size": "var:Theme/size"}}}),
+        )
+        .unwrap();
+    let inst = NodeId(applied["root_node_id"].as_u64().unwrap());
+    assert_eq!(s.e.doc.get(inst).unwrap().variables.bindings.get(&key("Size")).map(String::as_str), Some("size"));
+    assert_eq!(s.e.doc.get(inst).and_then(instance_component), Some(mains[0]), "the instance stays on Small");
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings.iter().any(|w| { w["path"] == "props.Size" && w["message"].as_str().is_some_and(|m| m.contains("Size") && m.contains("Huge")) }),
+        "expected a spec warning for the invalid variant value, got: {applied}"
+    );
+}

@@ -1193,6 +1193,17 @@ fn bind_instance_props(
         .map_err(|e| SpecError::named("PROPERTY_TYPE_MISMATCH", e.to_string(), Some("props".into()), Vec::new(), None))?;
     cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
     ctx.bindings_created += edits.len();
+    for (name, _) in &edits {
+        if let Some(problem) = crate::prop_binding_problem(doc, instance_id, name) {
+            ctx.warnings.push(crate::SpecWarning {
+                code: "PROPERTY_BINDING_ISSUE".to_string(),
+                path: format!("props.{name}"),
+                token: None,
+                replacement: None,
+                message: Some(format!("{name}: {problem}")),
+            });
+        }
+    }
     Ok(())
 }
 

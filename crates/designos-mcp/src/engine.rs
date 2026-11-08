@@ -1603,18 +1603,85 @@ impl Engine {
             },
         )?;
         let id = node.id;
+        let prop_map = a.prop_vars.as_ref().filter(|m| !m.is_empty());
+        let saved_vars =
+            (prop_map.is_some() && !self.doc.library.enabled.is_empty()).then(|| (self.doc.variables.clone(), self.doc.variable_collections.clone()));
+        let restore_vars = |doc: &mut Document,
+                            saved: Option<(
+            std::collections::BTreeMap<String, designos_doc::Variable>,
+            std::collections::BTreeMap<String, designos_doc::VariableCollection>,
+        )>| {
+            if let Some((vars, colls)) = saved {
+                doc.variables = vars;
+                doc.variable_collections = colls;
+            }
+        };
+        let resolved_props = match prop_map {
+            Some(map) => match self.resolve_prop_vars(id, map) {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    restore_vars(&mut self.doc, saved_vars);
+                    return Err(e);
+                }
+            },
+            None => None,
+        };
+        let planned_bind = match (&resolved_props, changed) {
+            (None, _) => None,
+            (Some(resolved), false) => match self.plan_prop_vars_cmd(id, resolved) {
+                Ok(cmd) => Some(cmd),
+                Err(e) => {
+                    restore_vars(&mut self.doc, saved_vars);
+                    return Err(e);
+                }
+            },
+            (Some(resolved), true) => {
+                let field_cmd = designos_doc::writer_command(&self.doc, Command::Update { node: Box::new(node.clone()) }).cmd;
+                let field_inv = match field_cmd.clone().apply(&mut self.doc) {
+                    Ok(inv) => inv,
+                    Err(e) => {
+                        restore_vars(&mut self.doc, saved_vars);
+                        return Err(ToolError::new(ErrorCode::InternalError, "", e.to_string()));
+                    }
+                };
+                let bind_res = self.plan_prop_vars_cmd(id, resolved);
+                let _ = field_inv.apply(&mut self.doc);
+                let bind_cmd = match bind_res {
+                    Ok(cmd) => cmd,
+                    Err(e) => {
+                        restore_vars(&mut self.doc, saved_vars);
+                        return Err(e);
+                    }
+                };
+                let mut cmds = match field_cmd {
+                    Command::Batch(v) => v,
+                    other => vec![other],
+                };
+                match bind_cmd {
+                    Command::Batch(v) => cmds.extend(v),
+                    other => cmds.push(other),
+                }
+                Some(Command::Batch(cmds))
+            }
+        };
         let before_doc = a.diff_image.then(|| self.doc.clone());
         let baseline = crate::tools::issues::PreCallBaseline::capture(&self.doc, &[id], &self.session_options.issues, a.lint, self.lint_env());
-        if changed {
-            let affects_layout = self.doc.get(id).is_some_and(|old| crate::tools::relayout_scope::update_affects_layout(&self.doc, old, &node));
-            self.exec(Command::Update { node: Box::new(node) })?;
-            if affects_layout {
-                self.relayout(id);
+        let bound = match (changed, resolved_props, planned_bind) {
+            (false, None, _) => None,
+            (true, None, _) => {
+                let affects_layout = self.doc.get(id).is_some_and(|old| crate::tools::relayout_scope::update_affects_layout(&self.doc, old, &node));
+                self.exec(Command::Update { node: Box::new(node) })?;
+                if affects_layout {
+                    self.relayout(id);
+                }
+                None
             }
-        }
-        let bound = match a.prop_vars.as_ref().filter(|m| !m.is_empty()) {
-            Some(map) => Some(self.bind_prop_vars(id, map)?),
-            None => None,
+            (_, Some(resolved), Some(cmd)) => {
+                self.exec(cmd)?;
+                self.relayout(id);
+                Some(self.prop_vars_issues(id, &resolved))
+            }
+            (_, Some(_), None) => unreachable!(),
         };
         let mut out = json!({"node":self.node_reply_json(NodeId(a.node_id)),"changed":changed || bound.is_some()});
         if let Some(issues) = bound.filter(|i| !i.is_empty()) {
@@ -1628,10 +1695,7 @@ impl Engine {
         Ok(out)
     }
 
-    /// Binds (or with `None` unbinds) component properties of instance `id` to variables as one undo step, and
-    /// returns one entry per property whose variable gives a value the property cannot take (it keeps its last value).
-    fn bind_prop_vars(&mut self, id: NodeId, map: &std::collections::BTreeMap<String, Option<String>>) -> Result<Vec<Value>, ToolError> {
-        use designos_doc::PropBindError;
+    fn resolve_prop_vars(&mut self, id: NodeId, map: &std::collections::BTreeMap<String, Option<String>>) -> Result<Vec<(String, Option<String>)>, ToolError> {
         let comp = self
             .doc
             .get(id)
@@ -1664,20 +1728,26 @@ impl Engine {
             };
             resolved.push((def.name.clone(), var));
         }
+        Ok(resolved)
+    }
+
+    fn plan_prop_vars_cmd(&mut self, id: NodeId, resolved: &[(String, Option<String>)]) -> Result<Command, ToolError> {
+        use designos_doc::PropBindError;
         let edits: Vec<(&str, Option<&str>)> = resolved.iter().map(|(n, v)| (n.as_str(), v.as_deref())).collect();
-        let cmd = designos_doc::bind_prop_variables(&mut self.doc, id, &edits).map_err(|e| match e {
+        designos_doc::bind_prop_variables(&mut self.doc, id, &edits).map_err(|e| match e {
             PropBindError::NoSuchVariable(_) => ToolError::new(ErrorCode::UnknownVariable, "/prop_vars", e.to_string()),
             PropBindError::KindMismatch { .. } | PropBindError::NotBindable(_) => ToolError::new(ErrorCode::VariableTypeMismatch, "/prop_vars", e.to_string()),
             PropBindError::NoSuchProperty(_) => ToolError::new(ErrorCode::UnknownComponentProperty, "/prop_vars", e.to_string()),
             PropBindError::NotAnInstance(_) => ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/prop_vars", e.to_string()),
-        })?;
-        self.exec(cmd)?;
-        self.relayout(id);
-        Ok(resolved
+        })
+    }
+
+    fn prop_vars_issues(&self, id: NodeId, resolved: &[(String, Option<String>)]) -> Vec<Value> {
+        resolved
             .iter()
             .filter(|(_, v)| v.is_some())
             .filter_map(|(name, _)| designos_doc::prop_binding_problem(&self.doc, id, name).map(|p| json!({"property": name, "problem": p.to_string()})))
-            .collect())
+            .collect()
     }
 }
 
