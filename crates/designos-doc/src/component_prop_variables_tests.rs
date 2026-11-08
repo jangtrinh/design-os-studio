@@ -336,6 +336,48 @@ fn the_linter_flags_a_property_that_cannot_follow_its_variable() {
     assert!(findings[0].message.contains("Size") && findings[0].message.contains("Huge"), "{}", findings[0].message);
 }
 
+fn spec_of(v: serde_json::Value) -> NodeSpec {
+    serde_json::from_value(v).expect("a valid spec")
+}
+
+#[test]
+fn apply_spec_binds_properties_and_export_spec_writes_them_back() {
+    let mut f = fx();
+    let spec = spec_of(serde_json::json!({
+        "kind": "instance", "component": format!("node:{}", f.comp.0),
+        "props": {"Show icon": "var:Theme/show", "Label": "var:Theme/title"}
+    }));
+    let report = f.d.apply_spec_with_libraries(f.page, &spec, &[]).expect("the spec applies");
+    let inst = report.root_node_id;
+    let n = f.d.get(inst).unwrap();
+    assert_eq!(n.variables.bindings.get(&prop_binding_key("Show icon")).map(String::as_str), Some("show"));
+    assert_eq!(n.variables.bindings.get(&prop_binding_key("Label")).map(String::as_str), Some("title"));
+    assert_eq!(text_of(&f.d, child_named(&f.d, inst, "label")), "Pay", "the bound value is applied");
+    assert_eq!(report.bindings_created, 2);
+
+    let exported = f.d.export_spec(inst).expect("export");
+    assert_eq!(exported.props.get("Show icon"), Some(&serde_json::json!("var:Theme/show")));
+    assert_eq!(exported.props.get("Label"), Some(&serde_json::json!("var:Theme/title")));
+    let again = f.d.apply_spec_with_libraries(f.page, &exported, &[]).expect("the exported spec applies");
+    assert_eq!(f.d.get(again.root_node_id).unwrap().variables.bindings, f.d.get(inst).unwrap().variables.bindings);
+}
+
+#[test]
+fn apply_spec_refuses_a_variable_of_the_wrong_type_and_binds_a_variant() {
+    let mut f = fx();
+    let bad = spec_of(serde_json::json!({"kind": "instance", "component": format!("node:{}", f.comp.0), "props": {"Show icon": "var:Theme/title"}}));
+    let before = f.d.nodes.len();
+    assert!(f.d.apply_spec_with_libraries(f.page, &bad, &[]).is_err(), "a text variable does not bind a boolean property");
+    assert_eq!(f.d.nodes.len(), before, "nothing is left behind");
+
+    let mut v = variant_fx();
+    let page = v.d.pages[0];
+    let spec = spec_of(serde_json::json!({"kind": "instance", "component": format!("node:{}", v.small.0), "props": {"Size": "var:Theme/size"}}));
+    let report = v.d.apply_spec_with_libraries(page, &spec, &[]).expect("a variant property binds");
+    assert_eq!(v.d.get(report.root_node_id).unwrap().variables.bindings.get(&prop_binding_key("Size")).map(String::as_str), Some("size"));
+    let _ = (v.host, v.inst, v.large, &mut v.h);
+}
+
 #[test]
 fn a_binding_set_through_a_plain_node_update_is_applied_too() {
     let mut f = fx();

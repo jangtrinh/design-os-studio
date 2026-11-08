@@ -938,6 +938,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     }
     cx.link_remote_components(&v);
     crate::variables::import_variables_value(&mut cx.doc, &v);
+    designos_doc::settle_bound_props(&mut cx.doc);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
@@ -1083,6 +1084,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     }
     cx.link_remote_components(v);
     crate::variables::import_variables_value(&mut cx.doc, v);
+    designos_doc::settle_bound_props(&mut cx.doc);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
@@ -1793,6 +1795,15 @@ impl<'a> Ctx<'a> {
                     }
                     _ => continue,
                 };
+                // REST `boundVariables.value`: the variable the property follows. An assignment that holds only
+                // the alias leaves its value to the variable (see `settle_bound_props`).
+                let bound = d.get("boundVariables").and_then(|b| b.get("value")).and_then(|a| fstr(a, "id"));
+                if let Some(var) = bound.filter(|_| matches!(fstr(d, "type"), Some("BOOLEAN" | "TEXT" | "VARIANT"))) {
+                    n.variables.bindings.insert(designos_doc::prop_binding_key(&name), var.to_string());
+                    if val.is_none() {
+                        continue;
+                    }
+                }
                 n.component.values.insert(name, pv);
             }
         }
