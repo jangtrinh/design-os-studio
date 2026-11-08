@@ -1254,9 +1254,13 @@ pub fn auto_fix_design_gate(doc: &mut Document, page: NodeId, selection: &[NodeI
             }
         }
 
+        let before_text = node.kind.any_text().filter(|t| t.style.font_size < 11.0 && node.style_refs.contains_key("text")).cloned();
         if let Some(tp) = node.kind.any_text_mut() {
             if tp.style.font_size < 11.0 {
                 tp.style.font_size = 11.0;
+                if let Some(before) = before_text.as_ref() {
+                    designos_doc::apply_text_link_rule(node, before);
+                }
                 changed = true;
             }
         }
@@ -1760,6 +1764,49 @@ mod tests {
         assert!(!after.warnings.iter().any(|w| w.rule == "Spacing Rhythm (4px)"));
         assert!(!after.warnings.iter().any(|w| w.rule == "Tap Target (>=32px)"));
         assert!(!after.warnings.iter().any(|w| w.rule == "Text Readability (>=11px)"));
+    }
+
+    #[test]
+    fn design_gate_font_fix_detaches_linked_text_style() {
+        let mut doc = Document::new("linked text");
+        let page = doc.add_page("Page");
+        let id = doc.alloc_id();
+        let mut text = designos_doc::Node::text(
+            id,
+            designos_doc::Rect::new(0.0, 0.0, 100.0, 20.0),
+            "Tiny",
+            designos_doc::TextStyle { font_size: 9.0, ..Default::default() },
+        );
+        text.style_refs.insert("text".into(), "Body".into());
+        doc.insert(page, text).unwrap();
+        doc.styles.insert("Body".into(), designos_doc::Style::Text(designos_doc::TextStyle { font_size: 9.0, ..Default::default() }));
+        doc.style_meta
+            .insert("Body".into(), designos_doc::StyleMeta { name: "Body".into(), property: designos_doc::StyleProperty::Text, ..Default::default() });
+
+        assert_eq!(auto_fix_design_gate(&mut doc, page, &[], None), 1);
+        let fixed = doc.get(id).unwrap();
+        assert_eq!(fixed.kind.any_text().unwrap().style.font_size, 11.0);
+        assert!(!fixed.style_refs.contains_key("text"));
+    }
+
+    #[test]
+    fn design_gate_font_fix_keeps_valid_links_and_handles_unlinked_text() {
+        for (size, linked) in [(11.0, true), (16.0, true), (9.0, false)] {
+            let mut doc = Document::new("text controls");
+            let page = doc.add_page("Page");
+            let id = doc.alloc_id();
+            let mut text = Node::text(id, Rect::new(0.0, 0.0, 100.0, 20.0), "Copy", TextStyle { font_size: size, ..Default::default() });
+            if linked {
+                text.style_refs.insert("text".into(), "Body".into());
+            }
+            doc.insert(page, text).unwrap();
+            let count = auto_fix_design_gate(&mut doc, page, &[id], None);
+            assert_eq!(count, usize::from(size < 11.0));
+            let node = doc.get(id).unwrap();
+            assert_eq!(node.style_refs.contains_key("text"), linked);
+            assert_eq!(node.kind.any_text().unwrap().content, "Copy");
+            assert_eq!(node.kind.any_text().unwrap().style.font_size, size.max(11.0));
+        }
     }
 
     /// A page the fixes can change in several places and leave alone in others: a screen with a small button,
