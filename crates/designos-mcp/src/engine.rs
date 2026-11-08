@@ -582,7 +582,17 @@ impl Engine {
                 for v in variables.as_object_mut().into_iter().flat_map(|m| m.values_mut()).filter_map(|v| v.as_object_mut()) {
                     v.entry("code_syntax").or_insert_with(|| json!({}));
                 }
-                Ok(json!({"variables":variables,"collections":live_collections,"effective_bindings":effective}))
+                let mut collections = json!(live_collections);
+                for (id, c) in &live_collections {
+                    let Some(entry) = collections.get_mut(id.as_str()).and_then(|v| v.as_object_mut()) else { continue };
+                    if c.is_extendable() {
+                        entry.insert("extendable".into(), json!(true));
+                    }
+                    if let Some(ext) = c.extension() {
+                        entry.insert("extension".into(), extension_report(&self.doc, c, &ext));
+                    }
+                }
+                Ok(json!({"variables":variables,"collections":collections,"effective_bindings":effective}))
             }
             "designos_generate_code" => {
                 let a: CodeArgs = parse(args)?;
@@ -2698,6 +2708,36 @@ pub fn tools() -> Vec<Value> {
     out
 }
 
+/// The `extension` block of an extended collection in `designos_get_variables`: the parent, the mode mapping, the
+/// variables it inherits and each override next to the parent value it replaces.
+fn extension_report(doc: &Document, c: &designos_doc::VariableCollection, ext: &designos_doc::CollectionExtension) -> Value {
+    let overrides: Vec<Value> = ext
+        .overrides
+        .iter()
+        .flat_map(|(variable, by_mode)| {
+            by_mode.iter().map(move |(mode, value)| {
+                let parent_value = ext.mode_map.get(mode).and_then(|pm| {
+                    let parent = doc.variable_collections.get(&ext.parent.collection)?;
+                    if parent.is_extension() {
+                        doc.extended_value(&parent.id, variable, pm)
+                    } else {
+                        let v = doc.variables.get(variable)?;
+                        v.values.get(pm).or_else(|| v.values.get(&parent.default_mode)).cloned()
+                    }
+                });
+                json!({"variable_id":variable,"mode_id":mode,"value":value,"parent_value":parent_value})
+            })
+        })
+        .collect();
+    json!({
+        "parent_collection_id": (!ext.parent.collection.is_empty()).then_some(&ext.parent.collection),
+        "parent_library_key": ext.parent.set_key,
+        "mode_map": ext.mode_map,
+        "inherited_variable_ids": doc.inherited_variable_ids(&c.id),
+        "overrides": overrides,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2762,6 +2802,39 @@ mod tests {
         let svg = e.call("designos_generate_code", json!({"node_id":id,"language":"svg"})).unwrap();
         assert!(svg["code"].as_str().unwrap().contains("width=\"240\""));
         assert_eq!(e.doc.to_json().unwrap(), before);
+    }
+    #[test]
+    fn get_variables_reports_the_parent_and_overrides_of_an_extended_collection() {
+        use designos_doc::{Color, VariableKind, VariableStore, VariableValue};
+        let mut e = Engine::default();
+        let mut store = VariableStore::default();
+        let theme = store.add_collection("Theme");
+        let light = store.collections[&theme].default_mode.clone();
+        let dark = store.add_mode(&theme, "Dark").unwrap();
+        let bg = store.add_variable(&theme, "bg", VariableKind::Color).unwrap();
+        let text = store.add_variable(&theme, "text", VariableKind::Color).unwrap();
+        for (var, mode, c) in [(&bg, &light, Color::WHITE), (&bg, &dark, Color::BLACK), (&text, &light, Color::BLACK), (&text, &dark, Color::WHITE)] {
+            assert!(store.set_value(var, mode, VariableValue::Color(c)));
+        }
+        let brand = store.extend_collection(&theme, "Brand").unwrap();
+        let brand_dark = store.collections[&brand].modes[1].id.clone();
+        assert!(store.set_override(&brand, &bg, &brand_dark, VariableValue::Color(Color::rgb(255, 0, 0))));
+        e.doc.variables = store.variables.clone();
+        e.doc.variable_collections = store.collections.clone();
+
+        let listed = e.call("designos_get_variables", json!({})).unwrap();
+        let ext = &listed["collections"][&brand]["extension"];
+        assert_eq!(ext["parent_collection_id"], json!(theme), "{listed}");
+        assert_eq!(ext["inherited_variable_ids"], json!([bg, text]));
+        assert_eq!(ext["mode_map"][&brand_dark], json!(dark));
+        let overrides = ext["overrides"].as_array().unwrap();
+        assert_eq!(overrides.len(), 1, "{ext}");
+        assert_eq!(overrides[0]["variable_id"], json!(bg));
+        assert_eq!(overrides[0]["mode_id"], json!(brand_dark));
+        assert_eq!(overrides[0]["value"], json!({"Color": Color::rgb(255, 0, 0)}));
+        assert_eq!(overrides[0]["parent_value"], json!({"Color": Color::BLACK}));
+        assert_eq!(listed["collections"][&theme]["extendable"], json!(true));
+        assert!(listed["collections"][&theme].get("extension").is_none(), "a plain collection has no extension block");
     }
     #[test]
     fn variable_listing_leaves_out_soft_deleted_variables_but_a_binding_to_one_still_resolves() {

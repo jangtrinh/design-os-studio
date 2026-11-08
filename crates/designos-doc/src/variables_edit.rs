@@ -398,6 +398,16 @@ impl VariableStore {
         for _ in 0..16 {
             let v = self.variables.get(&id)?;
             let c = self.collections.get(&v.collection)?;
+            // a mode of an extended collection shows the override or the parent's value; an alias keeps that mode
+            if let Some(ext) = self.extension_owning_mode(&mode, &id) {
+                match self.extended_value(&ext, &id, &mode)? {
+                    VariableValue::Alias(next) => {
+                        id = next;
+                        continue;
+                    }
+                    other => return Some(other),
+                }
+            }
             let m = if c.modes.iter().any(|x| x.id == mode) { mode.clone() } else { c.default_mode.clone() };
             match v.values.get(&m).or_else(|| v.values.get(&c.default_mode))? {
                 VariableValue::Alias(next) => {
@@ -439,6 +449,9 @@ impl VariableStore {
 
     /// Sets a literal value; ignored when its type does not match the variable.
     pub fn set_value(&mut self, var: &str, mode: &str, value: VariableValue) -> bool {
+        if let Some(ext) = self.extension_owning_mode(mode, var) {
+            return self.set_override(&ext, var, mode, value);
+        }
         if self.is_library_variable(var) {
             return false;
         }
@@ -454,6 +467,9 @@ impl VariableStore {
 
     /// Makes the value in `mode` an alias of `target`.
     pub fn set_alias(&mut self, var: &str, mode: &str, target: &str) -> bool {
+        if let Some(ext) = self.extension_owning_mode(mode, var) {
+            return self.can_alias(var, target) && self.set_override(&ext, var, mode, VariableValue::Alias(target.to_string()));
+        }
         if self.is_library_variable(var) || !self.can_alias(var, target) {
             return false;
         }
@@ -467,6 +483,9 @@ impl VariableStore {
 
     /// Replaces an alias by the literal it currently resolves to.
     pub fn detach_alias(&mut self, var: &str, mode: &str) -> bool {
+        if let Some(ext) = self.extension_owning_mode(mode, var) {
+            return self.resolve(var, mode).is_some_and(|lit| self.set_override(&ext, var, mode, lit));
+        }
         if self.is_library_variable(var) {
             return false;
         }

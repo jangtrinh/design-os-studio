@@ -2042,7 +2042,8 @@ fn encode_node_mode_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
         let Some(cg) = cx.resolve_coll_guid(cid) else { continue };
         let Some(&mg) = cx.mode_guids.get(mid) else { continue };
         // A mode of an extended collection is named next to the collection at the root of its chain.
-        let root = cx.doc.variable_collections.get(cid).filter(|c| c.is_extension()).and_then(|_| extension_root(cx.doc, cid)).and_then(|r| cx.resolve_coll_guid(&r));
+        let root =
+            cx.doc.variable_collections.get(cid).filter(|c| c.is_extension()).and_then(|_| extension_root(cx.doc, cid)).and_then(|r| cx.resolve_coll_guid(&r));
         let entry = match root {
             Some(rg) => vec![
                 ("variableSetID", msg(vec![("guid", guid(rg.0, rg.1))])),

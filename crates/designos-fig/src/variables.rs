@@ -191,8 +191,7 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
         );
     }
     // An extension of a library collection also remembers the library collection's key.
-    let library_keys: BTreeMap<String, String> =
-        collections.values().filter(|c| c.is_library()).filter_map(|c| Some((c.id.clone(), c.key.clone()?))).collect();
+    let library_keys: BTreeMap<String, String> = collections.values().filter(|c| c.is_library()).filter_map(|c| Some((c.id.clone(), c.key.clone()?))).collect();
     for coll in collections.values_mut() {
         if let Some(mut ext) = coll.extension().filter(|e| e.parent.set_key.is_none()) {
             if let Some(key) = library_keys.get(&ext.parent.collection) {

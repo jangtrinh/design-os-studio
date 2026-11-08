@@ -244,7 +244,11 @@ impl VariableStore {
             source_library_key: None,
             extensions: Default::default(),
         };
-        ext.set_extension(&CollectionExtension { parent: ParentCollection { collection: parent.to_string(), set_key: parent_key }, mode_map, overrides: BTreeMap::new() });
+        ext.set_extension(&CollectionExtension {
+            parent: ParentCollection { collection: parent.to_string(), set_key: parent_key },
+            mode_map,
+            overrides: BTreeMap::new(),
+        });
         if let Some(p) = self.collections.get_mut(parent).filter(|p| !p.is_library()) {
             p.set_extendable(true);
         }
@@ -310,6 +314,15 @@ impl VariableStore {
         inherited_ids(&self.collections, &self.variables, ext)
     }
 
+    /// The extended collection whose mode `mode` is, when it extends the collection that holds `variable`.
+    pub fn extension_owning_mode(&self, mode: &str, variable: &str) -> Option<String> {
+        let holder = &self.variables.get(variable)?.collection;
+        self.collections
+            .values()
+            .find(|c| c.is_extension() && c.modes.iter().any(|m| m.id == mode) && extends(&self.collections, &c.id, holder))
+            .map(|c| c.id.clone())
+    }
+
     fn can_override(&self, ext: &str, variable: &str, mode: &str) -> bool {
         let Some(c) = self.collections.get(ext).filter(|c| c.is_extension() && !c.is_library()) else { return false };
         c.modes.iter().any(|m| m.id == mode) && self.inherited_variable_ids(ext).iter().any(|v| v == variable)
@@ -342,8 +355,12 @@ impl VariableStore {
 
     /// Removes every collection that extends `parent` (a deleted parent leaves nothing to inherit from).
     pub(crate) fn remove_extensions_of(&mut self, parent: &str) -> Vec<String> {
-        let gone: Vec<String> =
-            self.collections.values().filter(|c| c.id != parent && c.is_extension() && extends(&self.collections, &c.id, parent)).map(|c| c.id.clone()).collect();
+        let gone: Vec<String> = self
+            .collections
+            .values()
+            .filter(|c| c.id != parent && c.is_extension() && extends(&self.collections, &c.id, parent))
+            .map(|c| c.id.clone())
+            .collect();
         for id in &gone {
             self.collections.remove(id);
         }
@@ -416,7 +433,11 @@ mod tests {
         assert!(s.set_override(&brand, &bg, &brand_dark, VariableValue::Color(Color::rgb(255, 0, 0))));
         assert_eq!(s.extended_value(&brand, &bg, &brand_dark), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
         // a parent change reaches every mode that is not overridden
-        assert!(s.set_value(&bg, &s.collections[&brand].extension().unwrap().mode_map[&s.collections[&brand].modes[0].id].clone(), VariableValue::Color(Color::rgb(1, 2, 3))));
+        assert!(s.set_value(
+            &bg,
+            &s.collections[&brand].extension().unwrap().mode_map[&s.collections[&brand].modes[0].id].clone(),
+            VariableValue::Color(Color::rgb(1, 2, 3))
+        ));
         let brand_light = s.collections[&brand].modes[0].id.clone();
         assert_eq!(s.extended_value(&brand, &bg, &brand_light), Some(VariableValue::Color(Color::rgb(1, 2, 3))));
         assert_eq!(s.resolve(&bg, &dark), Some(VariableValue::Color(Color::BLACK)), "the parent keeps its own value");
@@ -520,6 +541,38 @@ mod tests {
         assert!(s.collections[&brand].extension().unwrap().overrides.contains_key(&bg));
         s.delete_collection(&theme);
         assert!(!s.collections.contains_key(&brand));
+    }
+
+    #[test]
+    fn editing_a_value_in_an_extension_mode_writes_an_override_not_the_parent() {
+        let (mut s, theme, bg, _, [_, dark]) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_dark = s.collections[&brand].modes[1].id.clone();
+        assert!(s.set_value(&bg, &b_dark, VariableValue::Color(Color::rgb(255, 0, 0))));
+        assert!(s.is_overridden(&brand, &bg, &b_dark));
+        assert_eq!(s.variables[&bg].values.len(), 2, "the parent variable gains no value for an extension mode");
+        assert_eq!(s.resolve(&bg, &b_dark), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+        assert_eq!(s.resolve(&bg, &dark), Some(VariableValue::Color(Color::BLACK)));
+        assert!(!s.set_value(&bg, &b_dark, VariableValue::Number(1.0)), "wrong kind is refused");
+
+        let accent = s.add_variable(&theme, "accent", VariableKind::Color).unwrap();
+        assert!(s.set_value(&accent, &dark, VariableValue::Color(Color::rgb(0, 0, 255))));
+        assert!(s.set_alias(&bg, &b_dark, &accent), "the alias target is read in the parent mode this mode maps to");
+        assert_eq!(s.resolve(&bg, &b_dark), Some(VariableValue::Color(Color::rgb(0, 0, 255))));
+        assert!(s.detach_alias(&bg, &b_dark));
+        assert_eq!(s.collections[&brand].extension_override(&bg, &b_dark), Some(VariableValue::Color(Color::rgb(0, 0, 255))));
+    }
+
+    #[test]
+    fn a_library_variable_can_be_overridden_in_a_local_extension_but_not_edited() {
+        let (mut s, theme, bg, _, [light, _]) = base();
+        s.collections.get_mut(&theme).unwrap().source_library_key = Some("LIB".into());
+        s.collections.get_mut(&theme).unwrap().set_extendable(true);
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_light = s.collections[&brand].modes[0].id.clone();
+        assert!(!s.set_value(&bg, &light, VariableValue::Color(Color::BLACK)), "the library copy stays read-only");
+        assert!(s.set_value(&bg, &b_light, VariableValue::Color(Color::rgb(1, 1, 1))));
+        assert!(s.reset_override(&brand, &bg, &b_light));
     }
 
     #[test]
