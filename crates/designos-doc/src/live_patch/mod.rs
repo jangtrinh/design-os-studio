@@ -353,6 +353,8 @@ mod builder_redirect_tests;
 #[cfg(test)]
 mod log_line_tests;
 #[cfg(test)]
+mod table_replay_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod validate_tests;

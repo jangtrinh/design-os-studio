@@ -4,6 +4,11 @@
 use crate::{Document, Node, NodeId, NodeKind, MAX_TREE_DEPTH, MIN_ID_HEADROOM};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Whether a layer of this kind may list children in a patch: a container, or a table (its cells).
+pub(super) fn holds_children(kind: &NodeKind) -> bool {
+    kind.is_container() || matches!(kind, NodeKind::Table(_))
+}
+
 /// Why `nodes` (root first) cannot be inserted under `parent`, or `None` when it can.
 ///
 /// A node may list children outside the subtree: those are existing layers that later Reparent
@@ -26,7 +31,7 @@ pub(super) fn insert_problem(doc: &Document, parent: NodeId, nodes: &[Node]) -> 
         if matches!(n.kind, NodeKind::Page { .. }) {
             return Some(format!("node {} is a page, which an agent edit cannot insert", n.id.0));
         }
-        if !n.children.is_empty() && !n.kind.is_container() {
+        if !n.children.is_empty() && !holds_children(&n.kind) {
             return Some(format!("node {} lists children but cannot hold them", n.id.0));
         }
         for c in n.children.iter().filter_map(|c| by_id.get(c)) {

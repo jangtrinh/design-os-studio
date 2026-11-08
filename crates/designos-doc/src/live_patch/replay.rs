@@ -2,7 +2,7 @@
 
 use super::replay_comments::{resolve_comments, CommentRemap};
 use super::replay_tokens::{filter_missing_token_links_on_insert, filter_missing_token_links_on_update};
-use super::validate::insert_problem;
+use super::validate::{holds_children, insert_problem};
 use super::{log_version_refusal, LiveOp, LivePatch, SiblingHint, STRUCTURAL_FIELDS};
 use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Style, StyleMeta, Variable, VariableCollection};
 use serde::{Deserialize, Serialize};
@@ -205,7 +205,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("update of node {} would turn a layer into a page or a page into a layer", id.0));
                 return None;
             }
-            if !cur.children.is_empty() && !merged.kind.is_container() {
+            if !cur.children.is_empty() && !holds_children(&merged.kind) {
                 report.skipped.push(format!("update of node {} would turn a layer with children into one that cannot hold them", id.0));
                 return None;
             }
@@ -658,7 +658,7 @@ fn resolve_insert(
     report: &mut LivePatchReport,
 ) -> Option<Command> {
     let Some(root) = nodes.first() else { return None };
-    if !doc.get(parent).is_some_and(|p| p.kind.is_container()) {
+    if !doc.get(parent).is_some_and(|p| holds_children(&p.kind)) {
         report.skipped.push(format!("insert of node {} into missing parent {}", root.id.0, parent.0));
         return None;
     }
