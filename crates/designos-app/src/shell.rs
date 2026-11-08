@@ -2320,6 +2320,8 @@ impl Shell {
             self.app.tabs = tabs;
             after_title_rect
         };
+        // The tab bar may have switched documents: the panels below draw the new one's colours.
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
         if self.app.home.is_some() {
             regions.home = Some(full);
             self.app.ui.regions = regions;

@@ -98,7 +98,7 @@ pub use branch_merge::{
     merge, merge_branch, validate_merged_references, ConflictSide, DanglingReference, MergeError, MergePlan, MergeReport, Resolution, Side, UnresolvedItem,
 };
 pub use changelog_features::*;
-pub use color_profile::ColorProfile;
+pub use color_profile::{ColorProfile, SrgbPixelConverter};
 pub use color_space::*;
 pub use comments::*;
 pub use components::*;

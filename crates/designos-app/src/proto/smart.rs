@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 /// Returns `None` when the highest id in `doc` is `u64::MAX`, leaving no id for the snapshot page.
 pub fn subtree_doc(doc: &Document, root: NodeId) -> Option<Document> {
     let mut out = Document::new("snapshot");
+    out.color_profile = doc.color_profile;
     out.images = doc.images.clone();
     let max = doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0);
     let next = max.checked_add(1)?;
@@ -432,6 +433,24 @@ mod tests {
         let mut plan = SmartPlan::build(&before, a, &d, a).unwrap();
         let (doc, root) = plan.apply(0.5);
         assert_eq!(doc.get(doc.get(root).unwrap().children[0]).unwrap().size, Vec2::new(20.0, 20.0));
+    }
+
+    #[test]
+    fn a_snapshot_and_a_smart_animate_morph_of_a_p3_document_show_the_converted_colour() {
+        let (mut d, a, _b) = two_frames();
+        d.color_profile = designos_doc::ColorProfile::DisplayP3;
+        rect(&mut d, a, "R", Rect::new(0.0, 0.0, 100.0, 100.0), Color { r: 0.5, g: 0.4, b: 0.8, a: 1.0 });
+        let at = |doc: &Document, root: NodeId| {
+            let p = designos_render::render_node(doc, root, 1.0).unwrap().pixel(50, 50).unwrap().demultiply();
+            [p.red(), p.green(), p.blue()]
+        };
+        let near = |p: [u8; 3]| p.iter().zip([132u8, 101, 211]).all(|(x, y)| (i32::from(*x) - i32::from(y)).abs() <= 1);
+        let snapshot = subtree_doc(&d, a).unwrap();
+        assert_eq!(snapshot.color_profile, designos_doc::ColorProfile::DisplayP3);
+        assert!(near(at(&snapshot, a)), "snapshot {:?}", at(&snapshot, a));
+        let mut plan = SmartPlan::build(&snapshot, a, &d, a).unwrap();
+        let (morph, root) = plan.apply(0.5);
+        assert!(near(at(&morph, root)), "morph {:?}", at(&morph, root));
     }
 
     #[test]

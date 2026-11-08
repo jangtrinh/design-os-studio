@@ -108,6 +108,41 @@ impl ColorProfile {
     }
 }
 
+/// Converts many 8-bit sRGB pixels (image bytes) to a profile with lookup tables, so a whole photo
+/// takes tens of milliseconds instead of one `powf` pair per channel per pixel. Agrees with
+/// [`ColorProfile::from_srgb`] to within one level.
+pub struct SrgbPixelConverter {
+    decode: [f32; 256],
+    encode: Vec<u8>,
+    matrix: Option<[[f32; 3]; 3]>,
+}
+
+const ENCODE_STEPS: usize = 16384;
+
+impl SrgbPixelConverter {
+    pub fn new(profile: ColorProfile) -> Self {
+        let decode = std::array::from_fn(|i| srgb_channel_to_linear(i as f32 / 255.0));
+        let encode = (0..ENCODE_STEPS).map(|i| (linear_channel_to_srgb(i as f32 / (ENCODE_STEPS - 1) as f32) * 255.0).round() as u8).collect();
+        let matrix = match profile {
+            ColorProfile::Srgb => None,
+            ColorProfile::DisplayP3 => Some(SRGB_TO_P3),
+        };
+        Self { decode, encode, matrix }
+    }
+
+    /// `rgb` (sRGB bytes) as bytes written in the profile.
+    #[inline]
+    pub fn convert(&self, rgb: [u8; 3]) -> [u8; 3] {
+        let Some(m) = &self.matrix else { return rgb };
+        let lin = [self.decode[rgb[0] as usize], self.decode[rgb[1] as usize], self.decode[rgb[2] as usize]];
+        let ch = |row: &[f32; 3]| {
+            let v = (row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2]).clamp(0.0, 1.0);
+            self.encode[(v * (ENCODE_STEPS - 1) as f32).round() as usize]
+        };
+        [ch(&m[0]), ch(&m[1]), ch(&m[2])]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +186,23 @@ mod tests {
         }
         let c = Color { r: 0.3, g: 0.4, b: 0.5, a: 1.0 };
         assert_eq!(ColorProfile::Srgb.from_srgb(&c), c);
+    }
+
+    #[test]
+    fn the_pixel_converter_agrees_with_from_srgb_within_one_level() {
+        let conv = SrgbPixelConverter::new(ColorProfile::DisplayP3);
+        for r in (0..=255).step_by(15) {
+            for g in (0..=255).step_by(15) {
+                for b in (0..=255).step_by(15) {
+                    let want = ColorProfile::DisplayP3.from_srgb(&Color::rgb(r, g, b));
+                    let got = conv.convert([r, g, b]);
+                    for (w, g) in [want.r, want.g, want.b].into_iter().zip(got) {
+                        assert!(((w * 255.0).round() - f32::from(g)).abs() <= 1.0, "{r},{g},{b}");
+                    }
+                }
+            }
+        }
+        assert_eq!(SrgbPixelConverter::new(ColorProfile::Srgb).convert([1, 2, 3]), [1, 2, 3]);
     }
 
     #[test]

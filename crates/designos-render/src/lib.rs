@@ -22,6 +22,8 @@ pub mod lint_env;
 mod mask;
 mod outline;
 mod paint;
+#[doc(hidden)]
+pub use paint::image_conversions;
 mod shadow;
 #[cfg(test)]
 mod shadow_tests;

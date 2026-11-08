@@ -123,19 +123,34 @@ impl<'a> PaintEnv<'a> {
     /// `img` (decoded image bytes, which are sRGB) as it must be drawn. Colours are converted to sRGB
     /// when drawing for the screen; in a native render of a Display P3 document the pixels are
     /// converted from sRGB to Display P3 so the file's profile tag is true for photos too.
-    pub(crate) fn image(&self, img: Rc<sk::Pixmap>) -> Rc<sk::Pixmap> {
+    ///
+    /// The converted pixmap is cached per (image, size, profile): converting is a pass over every pixel,
+    /// and the eyedropper loupe and an export with many layers on one photo ask for it again and again.
+    pub(crate) fn image(&self, img: Rc<sk::Pixmap>, key: ImgKey) -> Rc<sk::Pixmap> {
         if self.to_srgb || self.doc.color_profile.is_srgb() {
             return img;
         }
         let profile = self.doc.color_profile;
+        if let Some(hit) = CONVERTED_IMAGES.with(|c| c.borrow().get(&(key, profile)).cloned()) {
+            return hit;
+        }
+        CONVERSIONS.with(|c| c.set(c.get() + 1));
+        let converter = d::SrgbPixelConverter::new(profile);
         let mut out = (*img).clone();
         for px in out.pixels_mut() {
             let c = px.demultiply();
-            let conv = profile.from_srgb(&d::Color { r: c.red() as f32 / 255.0, g: c.green() as f32 / 255.0, b: c.blue() as f32 / 255.0, a: 1.0 });
-            let q = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
-            *px = sk::ColorU8::from_rgba(q(conv.r), q(conv.g), q(conv.b), c.alpha()).premultiply();
+            let [r, g, b] = converter.convert([c.red(), c.green(), c.blue()]);
+            *px = sk::ColorU8::from_rgba(r, g, b, c.alpha()).premultiply();
         }
-        Rc::new(out)
+        let out = Rc::new(out);
+        CONVERTED_IMAGES.with(|c| {
+            let mut c = c.borrow_mut();
+            if c.len() >= 32 {
+                c.clear();
+            }
+            c.insert((key, profile), out.clone());
+        });
+        out
     }
 
     /// `n` with its grain colours converted the way [`Self::col`] converts, `None` when unchanged.
@@ -161,7 +176,17 @@ impl<'a> PaintEnv<'a> {
 type ImgKey = (u64, u32, u32);
 
 thread_local! {
+    /// Images already converted to a document profile, by (image, size) and profile.
+    static CONVERTED_IMAGES: RefCell<HashMap<(ImgKey, d::ColorProfile), Rc<sk::Pixmap>>> = RefCell::new(HashMap::new());
+    static CONVERSIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static IMAGES: RefCell<HashMap<ImgKey, Option<Rc<sk::Pixmap>>>> = RefCell::new(HashMap::new());
+}
+
+/// How many image pixmaps this thread has converted to a document profile (a counter for tests: a
+/// repeated native render of an unchanged image must not convert it again).
+#[doc(hidden)]
+pub fn image_conversions() -> usize {
+    CONVERSIONS.with(std::cell::Cell::get)
 }
 
 fn hash_bytes(key: &str, data: &[u8]) -> u64 {
@@ -373,7 +398,8 @@ pub fn with_paint<R>(
         }
         PaintKind::Image { image_ref, scale_mode, params } => {
             // first decode at full size to learn dimensions
-            let full = env.image(load_image(env.doc, image_ref, None)?);
+            let full = load_image(env.doc, image_ref, None)?;
+            let image_id = env.doc.images.get(image_ref).map(|data| hash_bytes(image_ref, data))?;
             let (iw, ih) = (full.width() as f32, full.height() as f32);
             let map = d::image_uv_map(size, iw, ih, *scale_mode, params)?;
             let (u, v, s) = (map.u, map.v, map.scale);
@@ -382,9 +408,9 @@ pub fn with_paint<R>(
             let img = if eff < 0.6 {
                 let w = (iw * eff).ceil().max(1.0) as u32;
                 let h = (ih * eff).ceil().max(1.0) as u32;
-                env.image(load_image(env.doc, image_ref, Some((w, h)))?)
+                env.image(load_image(env.doc, image_ref, Some((w, h)))?, (image_id, w, h))
             } else {
-                full
+                env.image(full, (image_id, 0, 0))
             };
             let (spread, quality) = match scale_mode {
                 d::ImageScaleMode::Tile => (sk::SpreadMode::Repeat, sk::FilterQuality::Bilinear),

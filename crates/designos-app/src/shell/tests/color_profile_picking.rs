@@ -90,3 +90,61 @@ fn the_scoped_agent_canvas_keeps_the_document_profile() {
     let scoped = crate::live_canvas_scope::scoped_canvas(&doc, page, &[], "scoped");
     assert_eq!(scoped.color_profile, ColorProfile::DisplayP3);
 }
+
+#[test]
+fn a_gradient_swatch_in_a_p3_document_shows_the_converted_stops() {
+    let stops = vec![designos_doc::GradientStop { pos: 0.0, color: MID }, designos_doc::GradientStop { pos: 1.0, color: MID }];
+    let paint = Paint::solid(DColor::WHITE);
+    let paint = Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+            stops,
+        },
+        ..paint
+    };
+    let vertex_colors = |profile: ColorProfile| {
+        crate::widgets::set_document_profile(profile);
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 100.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            crate::widgets::picker::paint_swatch(ui.painter(), egui::Rect::from_min_size(Pos2::new(10.0, 10.0), egui::vec2(24.0, 24.0)), &paint);
+        });
+        crate::widgets::set_document_profile(ColorProfile::Srgb);
+        out.shapes
+            .iter()
+            .filter_map(|cs| match &cs.shape {
+                egui::Shape::Mesh(m) => m.vertices.first().map(|v| v.color),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let p3 = vertex_colors(ColorProfile::DisplayP3);
+    assert!(p3.iter().any(|c| (c.r() as i32 - 133).abs() <= 1 && (c.g() as i32 - 101).abs() <= 1 && (c.b() as i32 - 211).abs() <= 1), "{p3:?}");
+    let srgb = vertex_colors(ColorProfile::Srgb);
+    assert!(srgb.iter().any(|c| c.r() == 128 && c.g() == 102 && c.b() == 204), "{srgb:?}");
+}
+
+#[test]
+fn swatches_are_right_in_the_frame_a_tab_switch_happens() {
+    let mut s = Sim::new();
+    s.shell.app.selection.clear();
+    let page = s.app().page;
+    s.shell.app.doc.get_mut(page).unwrap().kind = NodeKind::Page { background: MID };
+    s.frame(vec![]);
+    s.shell.app.open_new_design_tab();
+    let page = s.app().page;
+    s.shell.app.doc.get_mut(page).unwrap().kind = NodeKind::Page { background: MID };
+    s.shell.app.doc.color_profile = ColorProfile::DisplayP3;
+    s.shell.app.selection.clear();
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(filled_near(&s, [132, 101, 211]), "the Display P3 tab shows the converted swatch");
+    // click the first (sRGB) tab: the frame that switches must already draw its swatch with raw numbers
+    let tab = s.rect_of("project-tab-0").center();
+    s.mv(tab);
+    s.button(true);
+    s.button(false);
+    assert_eq!(s.app().doc.color_profile, ColorProfile::Srgb, "the click switched to the sRGB tab");
+    assert!(filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "the sRGB tab's swatch is raw in the switching frame");
+    assert!(!filled_near(&s, [132, 101, 211]), "no converted swatch in the switching frame");
+}
