@@ -546,6 +546,9 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
     let mut cx = ExportCtx::new(doc, schema);
     // 1. Root DOCUMENT record.
     let mut doc_fields = vec![("guid", guid(0, 0)), ("phase", en("CREATED")), ("type", en("DOCUMENT")), ("name", V::String(doc.name.clone()))];
+    if let Some(profile) = doc.color_profile.figma_name() {
+        doc_fields.push(("documentColorProfile", en(profile)));
+    }
     if !doc.check_designs.ignored.is_empty() {
         let ignores: Vec<serde_json::Value> = doc
             .check_designs

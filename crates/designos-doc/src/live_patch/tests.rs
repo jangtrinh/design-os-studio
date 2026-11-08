@@ -652,6 +652,7 @@ fn page_flow_library_commands_are_still_refused() {
         (Command::SetGuides { page, guides: Vec::new() }, "Editing guides"),
         (Command::SetPrototypeDevice { device: Default::default() }, "Editing the prototype device"),
         (Command::SetCheckDesignsSettings(Default::default()), "Editing check designs settings"),
+        (Command::SetColorProfile { profile: crate::ColorProfile::DisplayP3 }, "Editing the color profile"),
     ] {
         let err = live_ops_for_command(&doc, &cmd).unwrap_err();
         assert!(err.contains(expected), "expected '{expected}' in '{err}'");

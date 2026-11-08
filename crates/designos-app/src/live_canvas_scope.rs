@@ -26,6 +26,7 @@ pub fn is_scoped(doc: &Document) -> bool {
 /// The page `page` of `doc` as the agent sees it (see the module docs).
 pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &str) -> Document {
     let mut scoped = Document::new(name);
+    scoped.color_profile = doc.color_profile;
     scoped.pages.push(page);
     scoped.reserve_ids(NodeId(doc.nodes.keys().next_back().map_or(page.0, |id| id.0)));
     let Some(page_node) = doc.get(page) else { return scoped };

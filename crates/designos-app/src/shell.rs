@@ -2230,6 +2230,7 @@ impl Shell {
 
     /// One full UI pass over the window, then the screenshot request it may owe.
     pub fn draw(&mut self, ui: &mut egui::Ui) {
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
         let _shot_frame = self.shot.as_ref().is_some_and(|s| !s.open_failed).then(ShotFrameGuard::enter);
         if self.shot.as_ref().is_some_and(|s| s.open_failed) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -2319,6 +2320,8 @@ impl Shell {
             self.app.tabs = tabs;
             after_title_rect
         };
+        // The tab bar may have switched documents: the panels below draw the new one's colours.
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
         if self.app.home.is_some() {
             regions.home = Some(full);
             self.app.ui.regions = regions;

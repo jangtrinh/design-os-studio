@@ -34,7 +34,7 @@ fn close_rect(dialog: Rect) -> Rect {
 }
 
 fn render(doc: &Document, id: NodeId, scale: f32) -> Vec<u8> {
-    designos_export::export_png(doc, id, scale)
+    designos_export::export_png_srgb(doc, id, scale)
 }
 
 /// One scale for both previews, so differences in size show.
@@ -228,6 +228,20 @@ pub fn show(app: &mut App, ctx: &Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_before_and_after_previews_of_a_display_p3_document_show_the_canvas_colours() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 20.0, 20.0));
+        n.fills = vec![designos_doc::Paint::solid(designos_doc::Color { r: 0.5, g: 0.4, b: 0.8, a: 1.0 })];
+        let id = d.insert(page, n).unwrap();
+        d.color_profile = designos_doc::ColorProfile::DisplayP3;
+        let png = render(&d, id, 1.0);
+        let px = image::load_from_memory(&png).unwrap().to_rgba8().get_pixel(10, 10).0;
+        assert!((px[0] as i32 - 132).abs() <= 1 && (px[1] as i32 - 101).abs() <= 1 && (px[2] as i32 - 211).abs() <= 1, "{px:?}");
+    }
 
     /// Draws the dialog once on a `screen` and returns the recorded footer button, the title's centre y and the dialog rect.
     fn drawn(screen: Vec2) -> (Rect, f32, Rect) {

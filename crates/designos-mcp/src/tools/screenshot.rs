@@ -368,6 +368,7 @@ fn render_node_in_page_space(doc: &Document, root: NodeId, bounds: Rect, scale_u
         return Some(pm);
     }
     let mut scratch = Document::new(doc.name.clone());
+    scratch.color_profile = doc.color_profile;
     if let Some(max) = doc.nodes.keys().max() {
         scratch.reserve_ids(*max);
     }

@@ -621,6 +621,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 /// Page background row: swatch, hex and opacity in one 184x24 field group plus a visibility toggle.
 fn page_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     let settings = title(ui, pane, "Page", Some(Icon::Opacity), false);
+    super::color_profile::control(app, ui, pane);
     let bg = match app.doc.get(app.page).map(|n| &n.kind) {
         Some(NodeKind::Page { background }) => *background,
         _ => Color::WHITE,
@@ -2497,11 +2498,18 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
 
 /// Reads the page colour under `pos` (screen space) by rendering a 1x1 pixel of the page.
 pub fn sample_canvas(app: &App, pos: Pos2) -> Option<[u8; 3]> {
-    use designos_render::tiny_skia::Pixmap;
     let p = app.view.to_page(app.canvas_rect.min, pos);
+    sample_page(&app.doc, app.page, DVec2::new(p.x, p.y))
+}
+
+/// The colour under page point `p`, written in the document's own colour profile. A picked colour is
+/// stored back as a fill, which the renderer reads in that profile, so the pixel is sampled from the
+/// native render: sampling the converted render would shift a Display P3 colour on every pick.
+pub fn sample_page(doc: &Document, page: NodeId, p: DVec2) -> Option<[u8; 3]> {
+    use designos_render::tiny_skia::Pixmap;
     let vp = designos_render::Viewport { offset: DVec2::new(p.x - 0.5, p.y - 0.5), zoom: 1.0, dpr: 1.0 };
     let mut pm = Pixmap::new(1, 1)?;
-    designos_render::render_page(&app.doc, app.page, &vp, &mut pm);
+    designos_render::render_page_native(doc, page, &vp, &mut pm);
     let px = pm.pixel(0, 0)?.demultiply();
     Some([px.red(), px.green(), px.blue()])
 }

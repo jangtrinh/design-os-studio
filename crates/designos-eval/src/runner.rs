@@ -137,7 +137,7 @@ pub fn evaluate_document_and_render(
     let mut io_errors = Vec::new();
     let mut rendered: BTreeSet<NodeId> = BTreeSet::new();
     for (idx, &fid) in target_frames.iter().enumerate() {
-        let png = designos_export::export_png(&resolved_doc, fid, 1.0);
+        let png = designos_export::export_png_srgb(&resolved_doc, fid, 1.0);
         if png.is_empty() {
             continue;
         }

@@ -661,11 +661,13 @@ pub fn leave(app: &mut App, ctx: &Context) {
 fn page_bg(app: &App) -> Color32 {
     // A background stored with the prototype device wins.
     if let Some(c) = app.doc.prototype_device.background {
+        let c = app.doc.color_profile.to_srgb(&c);
         return Color32::from_rgb((c.r * 255.0).round() as u8, (c.g * 255.0).round() as u8, (c.b * 255.0).round() as u8);
     }
     // The prototype background is the page background unless it is still the editor default.
     match app.doc.get(app.page).map(|n| &n.kind) {
         Some(NodeKind::Page { background }) => {
+            let background = app.doc.color_profile.to_srgb(background);
             let c = Color32::from_rgb((background.r * 255.0).round() as u8, (background.g * 255.0).round() as u8, (background.b * 255.0).round() as u8);
             if c == theme::rgb(theme::DEFAULT_PAGE_BG) {
                 theme::PRESENT_BG
@@ -919,6 +921,50 @@ fn confirm_bar(ui: &mut Ui, full: ERect, url: &str) -> (bool, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 100x100 scrolling frame (content runs to y = 300) with a fixed overlay rectangle, both in the
+    /// Display P3 colour (0.5, 0.4, 0.8), which the canvas draws as (132, 101, 211).
+    fn p3_scrolling_frame() -> (Document, NodeId) {
+        let mid = designos_doc::Color { r: 0.5, g: 0.4, b: 0.8, a: 1.0 };
+        let mut doc = Document::new("p3");
+        let page = doc.add_page("p");
+        doc.get_mut(page).unwrap().kind = NodeKind::Page { background: designos_doc::Color::WHITE };
+        let fid = doc.alloc_id();
+        let frame = doc.insert(page, Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        for (y, h) in [(0.0, 100.0), (200.0, 100.0)] {
+            let id = doc.alloc_id();
+            let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, y, 100.0, h));
+            n.fills = vec![designos_doc::Paint::solid(mid)];
+            doc.insert(frame, n).unwrap();
+        }
+        let id = doc.alloc_id();
+        let mut fixed = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 20.0));
+        fixed.fills = vec![designos_doc::Paint::solid(mid)];
+        let fixed = doc.insert(frame, fixed).unwrap();
+        let f = doc.get_mut(frame).unwrap();
+        f.prototype.overflow = Overflow::Vertical;
+        f.prototype.fixed_children = vec![fixed];
+        doc.color_profile = designos_doc::ColorProfile::DisplayP3;
+        (doc, frame)
+    }
+
+    fn close(p: [u8; 3], want: [u8; 3]) -> bool {
+        p.iter().zip(want).all(|(a, b)| (i32::from(*a) - i32::from(b)).abs() <= 1)
+    }
+
+    fn at(pm: &designos_render::tiny_skia::Pixmap, x: u32, y: u32) -> [u8; 3] {
+        let p = pm.pixel(x, y).unwrap().demultiply();
+        [p.red(), p.green(), p.blue()]
+    }
+
+    #[test]
+    fn a_scrolling_frame_and_its_fixed_overlay_in_a_p3_document_show_the_converted_colour() {
+        let (doc, frame) = p3_scrolling_frame();
+        let (content, fixed, _) = render_layers(&doc, frame, 1.0, 4096.0).unwrap();
+        assert!(close(at(&content, 50, 250), [132, 101, 211]), "scrolling content {:?}", at(&content, 50, 250));
+        let fixed = fixed.expect("the fixed layer is rendered");
+        assert!(close(at(&fixed, 50, 10), [132, 101, 211]), "fixed overlay {:?}", at(&fixed, 50, 10));
+    }
 
     #[test]
     fn slides_follow_declared_order_without_wrapping() {

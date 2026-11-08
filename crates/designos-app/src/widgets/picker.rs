@@ -1004,7 +1004,8 @@ pub fn paint_swatch(p: &Painter, rect: Rect, paint: &Paint) {
             checker(p, rect, 4.0);
             let mut sorted = stops;
             sorted.sort_by(|a, b| a.pos.total_cmp(&b.pos));
-            let mut cols: Vec<(f32, Color32)> = sorted.iter().map(|s| (s.pos.clamp(0.0, 1.0), c32(to_u8(s.color, paint.opacity)))).collect();
+            let mut cols: Vec<(f32, Color32)> =
+                sorted.iter().map(|s| (s.pos.clamp(0.0, 1.0), crate::widgets::document_color32(c32(to_u8(s.color, paint.opacity))))).collect();
             if let Some(f) = cols.first().copied().filter(|f| f.0 > 0.0) {
                 cols.insert(0, (0.0, f.1));
             }

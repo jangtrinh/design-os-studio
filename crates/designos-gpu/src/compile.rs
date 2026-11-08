@@ -236,7 +236,10 @@ impl SceneCompiler {
         };
         let node = doc.get(root_node).map(|n| resolve_node(doc, n));
         let bg = match node.as_deref().map(|n| &n.kind) {
-            Some(NodeKind::Page { background }) => [background.r, background.g, background.b, background.a],
+            Some(NodeKind::Page { background }) => {
+                let c = doc.color_profile.to_srgb(background);
+                [c.r, c.g, c.b, c.a]
+            }
             _ if single => [0.0; 4],
             _ => [0x5A as f32 / 255.0, 0x5A as f32 / 255.0, 0x5A as f32 / 255.0, 1.0],
         };
@@ -1115,6 +1118,7 @@ impl Ctx<'_> {
             for e in &n.effects {
                 match e {
                     Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } => {
+                        let color = &self.doc.color_profile.to_srgb(color);
                         if !interactive || (*radius * scale >= 1.0 || offset.x.hypot(offset.y) * scale >= 1.0 || *spread * scale >= 1.0) {
                             self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha);
                         }
@@ -1145,6 +1149,7 @@ impl Ctx<'_> {
         if allow_fx {
             for e in &n.effects {
                 if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
+                    let color = &self.doc.color_profile.to_srgb(color);
                     self.inner_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *blend, alpha);
                 }
             }
@@ -1153,7 +1158,8 @@ impl Ctx<'_> {
             for e in &n.effects {
                 if let Effect::Noise(nz) = e {
                     if nz.visible {
-                        self.noise(n, &g, ts, clip, bb, scale, nz, alpha);
+                        let converted = self.doc.color_profile.noise_to_srgb(nz);
+                        self.noise(n, &g, ts, clip, bb, scale, converted.as_ref().unwrap_or(nz), alpha);
                     }
                 }
             }

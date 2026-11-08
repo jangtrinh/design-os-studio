@@ -21,6 +21,7 @@ pub mod branch_diff;
 mod branch_diff_tests;
 pub mod branch_merge;
 pub mod changelog_features;
+mod color_profile;
 mod color_space;
 mod comments;
 #[cfg(test)]
@@ -97,6 +98,7 @@ pub use branch_merge::{
     merge, merge_branch, validate_merged_references, ConflictSide, DanglingReference, MergeError, MergePlan, MergeReport, Resolution, Side, UnresolvedItem,
 };
 pub use changelog_features::*;
+pub use color_profile::{ColorProfile, SrgbPixelConverter};
 pub use color_space::*;
 pub use comments::*;
 pub use components::*;
@@ -231,6 +233,9 @@ pub struct Document {
     /// Design file or board (whiteboard) file; decides the toolbar and panels.
     #[serde(default)]
     pub kind: DocumentKind,
+    /// Colour space the stored colour values are written in. Renderers convert Display P3 to sRGB.
+    #[serde(default, skip_serializing_if = "ColorProfile::is_srgb")]
+    pub color_profile: ColorProfile,
     pub nodes: BTreeMap<NodeId, Node>,
     /// Page node ids in display order. Each page is a node with [`NodeKind::Page`].
     pub pages: Vec<NodeId>,
@@ -734,6 +739,7 @@ impl Document {
         Self {
             name: self.name.clone(),
             kind: self.kind,
+            color_profile: self.color_profile,
             nodes: self.nodes.clone(),
             pages: self.pages.clone(),
             styles: self.styles.clone(),
@@ -1577,6 +1583,8 @@ impl Document {
             struct DocumentSerializeView<'a> {
                 name: &'a String,
                 kind: &'a DocumentKind,
+                #[serde(skip_serializing_if = "ColorProfile::is_srgb")]
+                color_profile: &'a ColorProfile,
                 nodes: &'a BTreeMap<NodeId, Node>,
                 pages: &'a Vec<NodeId>,
                 styles: &'a BTreeMap<String, Style>,
@@ -1606,6 +1614,7 @@ impl Document {
             let view = DocumentSerializeView {
                 name: &self.name,
                 kind: &self.kind,
+                color_profile: &self.color_profile,
                 nodes: &self.nodes,
                 pages: &self.pages,
                 styles: &self.styles,
