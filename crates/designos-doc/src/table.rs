@@ -270,30 +270,65 @@ pub fn relayout(doc: &Document, table_id: NodeId) -> Vec<Command> {
     cmds
 }
 
-/// Measures the text of `count` cells of `table_id`, from the `from`-th live cell, exactly as
-/// [`relayout`] will, so the measurer can cache the results and the solve itself is quick. This lets a
-/// caller spread the cold cost of a big table over several frames. Returns the index to continue
-/// from, or `None` once every cell has been measured (or there is no measurer to warm).
-pub fn warm_text_measures(doc: &Document, table_id: NodeId, from: usize, count: usize) -> Option<usize> {
-    let table = doc.get(table_id)?;
-    let NodeKind::Table(props) = &table.kind else { return None };
-    let measurer = text_measure::layout_measurer()?;
-    let grid = Grid::new(props);
-    let col_w: Vec<f32> = props.cols.iter().map(|t| track_len(t.size)).collect();
-    let live: Vec<_> = table
-        .children
-        .iter()
-        .filter_map(|&id| {
-            let NodeKind::TableCell(c) = &doc.get(id)?.kind else { return None };
-            let pos = grid.position_of(c).filter(|p| !grid.covered.contains(p))?;
-            Some((pos, grid.span(pos), c))
-        })
-        .collect();
-    for (pos, span, c) in live.iter().skip(from).take(count).filter(|(_, _, c)| !c.text.content.is_empty()) {
-        let width = col_w[pos.1..pos.1 + span.1].iter().sum::<f32>() - 2.0 * TABLE_CELL_PADDING.0;
-        text_measure::intrinsic_text_size(&c.text, Some(width.max(1.0)), Some(measurer.as_ref()));
+/// A table's text being measured ahead of its layout, a slice of cells at a time, so a big table's cold
+/// cost (a table's worth of shaping) can be spread over frames and the layout itself then only reads
+/// the measurer's cache. The jobs are listed once, in [`TableWarm::new`]; each [`TableWarm::step`] then
+/// does its share, so the work for a table is O(cells) however many slices it takes.
+pub struct TableWarm {
+    table: NodeId,
+    /// A cell with text and the width its text wraps at, as [`relayout`] measures it.
+    jobs: Vec<(NodeId, f32)>,
+    next: usize,
+}
+
+impl TableWarm {
+    /// The jobs of `table_id`. `None` when there is no such table or no layout measurer to warm.
+    pub fn new(doc: &Document, table_id: NodeId) -> Option<Self> {
+        let table = doc.get(table_id)?;
+        let NodeKind::Table(props) = &table.kind else { return None };
+        text_measure::layout_measurer()?;
+        let grid = Grid::new(props);
+        let col_w: Vec<f32> = props.cols.iter().map(|t| track_len(t.size)).collect();
+        let jobs = table
+            .children
+            .iter()
+            .filter_map(|&id| {
+                let NodeKind::TableCell(c) = &doc.get(id)?.kind else { return None };
+                if c.text.content.is_empty() {
+                    return None;
+                }
+                let pos = grid.position_of(c).filter(|p| !grid.covered.contains(p))?;
+                let span = grid.span(pos);
+                let width = col_w[pos.1..pos.1 + span.1].iter().sum::<f32>() - 2.0 * TABLE_CELL_PADDING.0;
+                Some((id, width.max(1.0)))
+            })
+            .collect();
+        Some(Self { table: table_id, jobs, next: 0 })
     }
-    (from + count < live.len()).then_some(from + count)
+
+    pub fn table(&self) -> NodeId {
+        self.table
+    }
+
+    /// Measures the next `count` cells. Returns whether every cell has been measured.
+    pub fn step(&mut self, doc: &Document, count: usize) -> bool {
+        let Some(measurer) = text_measure::layout_measurer() else {
+            self.next = self.jobs.len();
+            return true;
+        };
+        let end = (self.next + count).min(self.jobs.len());
+        for &(id, width) in &self.jobs[self.next..end] {
+            if let Some(NodeKind::TableCell(c)) = doc.get(id).map(|n| &n.kind) {
+                text_measure::intrinsic_text_size(&c.text, Some(width), Some(measurer.as_ref()));
+            }
+        }
+        self.next = end;
+        self.done()
+    }
+
+    pub fn done(&self) -> bool {
+        self.next >= self.jobs.len()
+    }
 }
 
 /// Applies [`relayout`] for `table_id` straight to `doc` (load repair, tests).
@@ -484,17 +519,7 @@ pub(crate) fn touched_tables(doc: &Document, cmd: &Command, out: &mut BTreeSet<N
 /// text (find and replace, paste, lint fix, the editor) goes through such an update, so
 /// `History` re-solves these tables in the same step and no text is left hidden by a stored row height.
 pub(crate) fn text_edited_tables(doc: &Document, cmd: &Command, out: &mut BTreeSet<NodeId>) {
-    let mut solved = BTreeSet::new();
-    collect_text_edited(doc, cmd, out, &mut solved);
-    // a command that also updates the table node itself comes from `table_ops`, which solved the layout
-    out.retain(|t| !solved.contains(t));
-}
-
-fn collect_text_edited(doc: &Document, cmd: &Command, out: &mut BTreeSet<NodeId>, solved: &mut BTreeSet<NodeId>) {
     match cmd {
-        Command::Update { node } if matches!(node.kind, NodeKind::Table(_)) => {
-            solved.insert(node.id);
-        }
         Command::Update { node } => {
             if let (Some(old), NodeKind::TableCell(new)) = (doc.get(node.id), &node.kind) {
                 if matches!(&old.kind, NodeKind::TableCell(o) if o.text != new.text) {
@@ -502,7 +527,7 @@ fn collect_text_edited(doc: &Document, cmd: &Command, out: &mut BTreeSet<NodeId>
                 }
             }
         }
-        Command::Batch(cmds) => cmds.iter().for_each(|c| collect_text_edited(doc, c, out, solved)),
+        Command::Batch(cmds) => cmds.iter().for_each(|c| text_edited_tables(doc, c, out)),
         _ => {}
     }
 }

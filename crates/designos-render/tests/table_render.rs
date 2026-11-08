@@ -271,10 +271,118 @@ fn a_second_render_of_an_unchanged_100x100_table_shapes_no_text() {
     let before = shaping_runs();
     render_page(&t.doc, t.page, &vp, &mut pm);
     let first = shaping_runs() - before;
-    assert!(first >= 10_000, "the first render shapes every cell's text once: {first}");
+    assert_eq!(first, 10_000, "the first render shapes each cell's text exactly once, for the fit check and the painter together");
     let before = shaping_runs();
     render_page(&t.doc, t.page, &vp, &mut pm);
     assert_eq!(shaping_runs() - before, 0, "an unchanged table is not shaped again");
+}
+
+fn install_measurer() {
+    designos_doc::text_measure::set_layout_measurer(Some(std::sync::Arc::new(designos_render::RenderTextMeasure)));
+}
+
+/// Find and replace of a word that is in the table's layer name and in a cell makes one command that
+/// renames the table and rewrites the cell. The row must still grow to the new text.
+#[test]
+fn replace_all_that_also_renames_the_table_still_grows_the_row() {
+    use designos_doc::find::{find_text, replace, FindOptions, Scope};
+    install_measurer();
+    for name in ["Table", "Revenue by month"] {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let mut nodes = build_table(&mut d, 3, 3, Vec2::ZERO);
+        let (table, cell) = (nodes[0].id, nodes[1].id);
+        nodes[0].name = name.into();
+        if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+            c.text = default_cell_text("Revenue");
+        }
+        Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+        designos_doc::apply_table_relayout(&mut d, table);
+        let before = d.get(cell).unwrap().size.y;
+        let found = find_text(&d, &Scope::Page(page), "Revenue", FindOptions::default());
+        assert_eq!(found.len(), if name == "Table" { 1 } else { 2 }, "the query hits the cell {} the name", if name == "Table" { "only, not" } else { "and" });
+        let cmd = replace(&d, &found, "Revenue\nline 2\nline 3\nline 4\nline 5");
+        History::default().exec(&mut d, cmd).unwrap();
+        assert!(d.get(cell).unwrap().size.y > before + 40.0, "{name:?}: the row grew from {before} to {}", d.get(cell).unwrap().size.y);
+        assert!(designos_doc::table::relayout(&d, table).is_empty(), "{name:?}: the table is solved");
+    }
+}
+
+/// A table op that changes one cell's text, then the history step that applies it, shape the new text
+/// once and nothing else: the history step finds every other text already measured.
+#[test]
+fn a_table_op_text_edit_shapes_only_the_new_text() {
+    install_measurer();
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let mut nodes = build_table(&mut d, 20, 20, Vec2::ZERO);
+    let table = nodes[0].id;
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    designos_doc::apply_table_relayout(&mut d, table);
+    let mut h = History::default();
+    for text in ["Edited", "Edited\nin\nthree"] {
+        let before = designos_render::shaping_runs();
+        let cmd = designos_doc::table_ops::set_cell_text(&d, table, 3, 4, text).unwrap();
+        h.exec(&mut d, cmd).unwrap();
+        assert_eq!(designos_render::shaping_runs() - before, 1, "{text:?}: one new text, shaped once");
+    }
+}
+
+/// Accented single-line text at 70 % line height and 32 px overhangs its line box. The cell does not
+/// clip it: every glyph pixel a free text node would paint is painted in the cell.
+#[test]
+fn accented_text_at_a_small_line_height_is_not_clipped_by_its_cell() {
+    install_measurer();
+    for (percent, size) in [(70.0, 32.0), (50.0, 48.0)] {
+        accented_text_in_a_cell(percent, size);
+    }
+}
+
+fn accented_text_in_a_cell(percent: f32, size: f32) {
+    let text = "Ágjpqy Ťý";
+    let style = |t: &mut TextProps| {
+        t.style.font_size = size;
+        t.style.line_height = LineHeight::Percent(percent);
+    };
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 1, 1, Vec2::new(40.0, 40.0));
+    let (table, cell) = (nodes[0].id, nodes[1].id);
+    nodes[0].stroke.weight = 0.0;
+    nodes[0].stroke.paints.clear();
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols[0].size = 400.0;
+    }
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text = default_cell_text(text);
+        style(&mut c.text);
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    designos_doc::apply_table_relayout(&mut t.doc, table);
+    let cell_node = t.doc.get(cell).unwrap().clone();
+    assert!(matches!(board::lower(&t.doc, &cell_node).unwrap().kind, NodeKind::Rectangle), "{percent} % at {size} px: the line box fits, no clip");
+    let ink = |pm: &designos_render::tiny_skia::Pixmap| {
+        (0..pm.height()).flat_map(|y| (0..pm.width()).map(move |x| (x, y))).filter(|&(x, y)| px(pm, x, y)[0] < 160).count()
+    };
+    let in_cell = ink(&t.render(520, 260));
+    // the same text as a free layer where the cell puts it
+    let mut free = T::new();
+    let mut props = default_cell_text(text);
+    style(&mut props);
+    props.auto_resize = TextAutoResize::Height;
+    let (px_, py_) = TABLE_CELL_PADDING;
+    let id = free.doc.alloc_id();
+    let mut node = Node::new(id, NodeKind::Text(props));
+    node.transform = Affine::translate(40.0 + px_, 40.0 + py_);
+    node.size = Vec2::new(cell_node.size.x - 2.0 * px_, cell_node.size.y - 2.0 * py_);
+    free.doc.insert(free.page, node).unwrap();
+    let free_ink = ink(&free.render(520, 260));
+    assert!(free_ink > 100, "the text has ink: {free_ink}");
+    assert_eq!(in_cell, free_ink, "{percent} % at {size} px: the cell paints every glyph pixel the text paints on its own");
 }
 
 /// Times table layout of a 200 x 200 table with the renderer's measurer: the first solve (nothing
@@ -283,9 +391,14 @@ fn a_second_render_of_an_unchanged_100x100_table_shapes_no_text() {
 #[test]
 #[ignore = "prints timings"]
 fn relayout_cost_probe() {
-    designos_doc::text_measure::set_layout_measurer(Some(std::sync::Arc::new(designos_render::RenderTextMeasure)));
+    install_measurer();
+    for n in [200usize, 400] {
+        relayout_cost_of(n);
+    }
+}
+
+fn relayout_cost_of(n: usize) {
     let mut t = T::new();
-    let n = 200;
     let mut nodes = build_table(&mut t.doc, n, n, Vec2::new(0.0, 0.0));
     for (i, c) in nodes.iter_mut().skip(1).enumerate() {
         if let NodeKind::TableCell(p) = &mut c.kind {
@@ -296,11 +409,23 @@ fn relayout_cost_probe() {
     let cell = nodes[1 + 5 * n + 5].id;
     Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
     let t0 = std::time::Instant::now();
-    designos_doc::apply_table_relayout(&mut t.doc, table);
-    eprintln!("cold solve: {:?}", t0.elapsed());
+    let mut warm = designos_doc::table::TableWarm::new(&t.doc, table).unwrap();
+    eprintln!("{n}x{n} list the jobs: {:?}", t0.elapsed());
+    let (mut slices, mut slowest) = (0, std::time::Duration::ZERO);
+    let t0 = std::time::Instant::now();
+    while !warm.done() {
+        let s0 = std::time::Instant::now();
+        warm.step(&t.doc, 128);
+        slowest = slowest.max(s0.elapsed());
+        slices += 1;
+    }
+    eprintln!("{n}x{n} warm-up: {slices} slices of 128 cells, slowest {slowest:?}, total {:?}", t0.elapsed());
     let t0 = std::time::Instant::now();
     designos_doc::apply_table_relayout(&mut t.doc, table);
-    eprintln!("warm solve: {:?}", t0.elapsed());
+    eprintln!("{n}x{n} final solve after the warm-up: {:?}", t0.elapsed());
+    let t0 = std::time::Instant::now();
+    designos_doc::apply_table_relayout(&mut t.doc, table);
+    eprintln!("{n}x{n} warm solve again: {:?}", t0.elapsed());
     let mut h = History::default();
     for text in ["Edited", "Edited again"] {
         let mut node = t.doc.get(cell).unwrap().clone();
@@ -309,7 +434,7 @@ fn relayout_cost_probe() {
         }
         let t0 = std::time::Instant::now();
         h.exec(&mut t.doc, Command::Update { node: Box::new(node) }).unwrap();
-        eprintln!("history edit to {text:?}: {:?}", t0.elapsed());
+        eprintln!("{n}x{n} history edit to {text:?}: {:?}", t0.elapsed());
     }
 }
 

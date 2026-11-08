@@ -135,9 +135,32 @@ fn a_second_compile_of_an_unchanged_100x100_table_shapes_no_text() {
     let before = designos_render::shaping_runs();
     SceneCompiler::new().compile(&t.doc, t.page, 1, &vp, (1600, 440));
     let first = designos_render::shaping_runs() - before;
-    assert!(first >= 10_000, "the first compile shapes each cell's text once: {first}");
+    assert_eq!(first, 10_000, "the first compile shapes each cell's text exactly once, for the fit check and the painter together");
     let before = designos_render::shaping_runs();
     SceneCompiler::new().compile(&t.doc, t.page, 2, &vp, (1600, 440));
+    assert_eq!(designos_render::shaping_runs() - before, 0, "a new revision of the same table is not shaped again");
+}
+
+/// The same at 200 x 200 (40,000 texts, more than the layout cache holds) with one compiler across
+/// revisions, as the canvas has: the fit check keeps its own line boxes, so a new revision shapes nothing.
+#[test]
+fn a_second_compile_of_an_unchanged_200x200_table_shapes_no_text() {
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 200, 200, Vec2::ZERO);
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 0.05, dpr: 1.0 };
+    let mut compiler = SceneCompiler::new();
+    let before = designos_render::shaping_runs();
+    compiler.compile(&t.doc, t.page, 1, &vp, (1600, 440));
+    let first = designos_render::shaping_runs() - before;
+    assert_eq!(first, 40_000, "the first compile shapes each cell's text exactly once");
+    let before = designos_render::shaping_runs();
+    compiler.compile(&t.doc, t.page, 2, &vp, (1600, 440));
     assert_eq!(designos_render::shaping_runs() - before, 0, "a new revision of the same table is not shaped again");
 }
 

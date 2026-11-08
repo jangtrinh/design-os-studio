@@ -3,6 +3,8 @@
 
 pub mod filter;
 pub mod panel;
+#[cfg(test)]
+mod replace_tests;
 mod select;
 
 use crate::app::{App, View};

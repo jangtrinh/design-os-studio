@@ -7,7 +7,7 @@
 //! The synthetic children live in a per-thread registry under ids that cannot clash
 //! with document ids ([`is_synthetic`]); look nodes up through [`get`].
 
-use crate::text::{layout, text_geometry};
+use crate::text::{text_geometry, text_line_box};
 use designos_doc as d;
 use designos_doc::{
     Affine, ArcData, Color, ConnectorCap, Document, Effect, FrameProps, Node, NodeId, NodeKind, Paint, Path, PathCmd, Rect, ShapeKind, StampLayer, StickyProps,
@@ -381,8 +381,7 @@ fn lower_connector(doc: &Document, n: &Node, body: &mut Node, extras: &mut Vec<N
 /// The text wraps at the cell width and never shrinks to fit. Table layout grows a row to its text, so
 /// the text normally fits. A cell whose text still does not fit (a row held short, a word wider than
 /// the cell) becomes a clipping frame, so the text never paints over its neighbours; every other cell
-/// stays a rectangle and costs no clip mask. The fit test reads the outlines the glyph painter draws
-/// (the same `text::layout` call and cache entry), so a frame shapes the text once.
+/// stays a rectangle and costs no clip mask. The fit test goes by the text's line box ([`text_leaves_cell`]).
 /// The GPU clips to whole pixels where the CPU mask is anti-aliased, so at a fractional zoom or
 /// origin an overflowing line can differ by a pixel at the cell edge.
 fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
@@ -397,27 +396,23 @@ fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
     // wraps at the cell width, the width the table layout measures with
     let mut props = c.text.clone();
     props.auto_resize = TextAutoResize::Height;
-    if !props.content.is_empty() && ink_leaves_cell(n.size, &bx, &props) {
+    if !props.content.is_empty() && text_leaves_cell(n.size, &bx, &props) {
         body.kind = NodeKind::Frame(FrameProps { clips_content: true, ..FrameProps::default() });
     }
     extras.extend(fitted_text(n, 0, TextFrame { rect: bx, props }));
 }
 
-/// Pixels the ink may pass the cell edge before the cell clips it (rounding in the shaper).
+/// Pixels the lines may pass the cell edge before the cell clips them (rounding in the shaper).
 const TEXT_FIT_SLACK: f32 = 0.5;
 
-/// Whether the glyphs of `props`, laid out in `bx`, paint outside the cell of size `cell`. This reads
-/// the outlines the glyph painter draws from the same call and cache key (`text::layout`), so a text
-/// is shaped once however often the cell is lowered.
-fn ink_leaves_cell(cell: Vec2, bx: &Rect, props: &TextProps) -> bool {
-    let lay = layout(props, Vec2::new(bx.w, bx.h));
-    lay.paths.iter().flatten().any(|p| {
-        let b = p.bounds();
-        bx.x + b.left() < -TEXT_FIT_SLACK
-            || bx.y + b.top() < -TEXT_FIT_SLACK
-            || bx.x + b.right() > cell.x + TEXT_FIT_SLACK
-            || bx.y + b.bottom() > cell.y + TEXT_FIT_SLACK
-    })
+/// Whether the lines of `props`, laid out in `bx`, pass the edge of the cell of size `cell`. It goes by
+/// the text's line box, the size table layout gives a row, not by glyph ink: ink that overhangs the
+/// line box (accents, descenders at a small line height) still paints, as text does elsewhere. The
+/// line box comes from a small cache of its own and, on a miss, from the layout the painter draws
+/// with, so a text is shaped once however often the cell is lowered.
+fn text_leaves_cell(cell: Vec2, bx: &Rect, props: &TextProps) -> bool {
+    let line_box = text_line_box(props, Vec2::new(bx.w, bx.h));
+    bx.x + line_box.x > cell.x + TEXT_FIT_SLACK || bx.y + line_box.y > cell.y + TEXT_FIT_SLACK
 }
 
 /// A table: its fills as a frame that clips nothing, with the grid lines as one synthetic vector

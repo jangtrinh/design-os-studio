@@ -681,39 +681,6 @@ fn find_and_replace_in_a_cell_grows_its_row_and_no_text_is_hidden() {
     assert_eq!(text_of(&d, id), "Hi");
 }
 
-/// Counts how many texts the table layout measures.
-struct CountingMeasure(std::sync::atomic::AtomicUsize);
-
-impl text_measure::TextMeasure for CountingMeasure {
-    fn measure(&self, tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        LineMeasure.measure(tp, wrap_width)
-    }
-}
-
-#[test]
-fn a_table_op_text_edit_measures_the_table_once() {
-    let counter = std::sync::Arc::new(CountingMeasure(std::sync::atomic::AtomicUsize::new(0)));
-    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(counter.clone());
-    let (mut d, _, table) = sized_table();
-    for r in 0..3 {
-        for c in 0..3 {
-            set_text_at(&mut d, table, r, c, "x");
-        }
-    }
-    apply_relayout(&mut d, table);
-    let calls = || counter.0.load(std::sync::atomic::Ordering::SeqCst);
-    for text in ["changed", "x\nx\nx\nx"] {
-        let start = calls();
-        let cmd = crate::table_ops::set_cell_text(&d, table, 1, 1, text).unwrap();
-        let built = calls() - start;
-        assert_eq!(built, 9, "the op measures the nine texts once");
-        let mut h = History::default();
-        h.exec(&mut d, cmd).unwrap();
-        assert_eq!(calls() - start, built, "the history step does not measure what the op already solved ({text:?})");
-    }
-}
-
 #[test]
 fn an_edit_that_leaves_the_text_alone_does_not_touch_the_geometry() {
     let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));

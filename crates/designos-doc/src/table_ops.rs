@@ -304,26 +304,18 @@ impl<'a> Draft<'a> {
         let mut cmds: Vec<Command> = removed.into_iter().map(|id| Command::Remove { id }).collect();
         let mut table = scratch.nodes[&self.id].clone();
         table.children = self.table.children.clone();
-        let mut text_changed = false;
+        if table != *self.doc.get(self.id).expect("opened above") {
+            cmds.push(Command::Update { node: Box::new(table) });
+        }
         let mut inserts = Vec::new();
-        let mut updates = Vec::new();
         for (index, id) in order.iter().enumerate() {
             let Some(node) = scratch.nodes.get(id) else { continue };
             match self.doc.get(*id) {
                 None => inserts.push(Command::Insert { parent: self.id, index, nodes: vec![node.clone()] }),
-                Some(old) if old != node => {
-                    text_changed |= matches!((&old.kind, &node.kind), (NodeKind::TableCell(a), NodeKind::TableCell(b)) if a.text != b.text);
-                    updates.push(Command::Update { node: Box::new(node.clone()) });
-                }
+                Some(old) if old != node => cmds.push(Command::Update { node: Box::new(node.clone()) }),
                 Some(_) => {}
             }
         }
-        // The table's own update tells `History` this writer already solved the table's layout, so a
-        // text change is not measured a second time. It is pushed even when the table did not change.
-        if text_changed || table != *self.doc.get(self.id).expect("opened above") {
-            cmds.push(Command::Update { node: Box::new(table) });
-        }
-        cmds.extend(updates);
         cmds.extend(inserts);
         if cmds.is_empty() {
             return Err(E::NoChange("Nothing to change in the table.".into()));

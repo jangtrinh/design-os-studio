@@ -446,6 +446,54 @@ fn a_gesture_holds_the_table_layout_after_a_face_arrives() {
     assert!(size_of(&app, cell).y > row + 20.0, "the queue was kept, and the table follows the face once the gesture ended");
 }
 
+/// A library file opened and left alone is not written back because a late face changed its table's
+/// row heights: they are derived from the text, so the file still holds what the document holds.
+#[test]
+fn a_late_face_does_not_make_an_untouched_library_file_dirty_or_rewrite_it() {
+    let dir = std::env::temp_dir().join(format!("designos-refit-lib-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut d = Document::new("File");
+    let page = d.add_page("p");
+    let mut nodes = designos_doc::build_table(&mut d, 1, 1, Vec2::new(0.0, 0.0));
+    let (table, cell) = (nodes[0].id, nodes[1].id);
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols[0].size = 144.0;
+        p.rows[0].size = 40.0;
+    }
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text.content = WRAPPED.into();
+        c.text.style.font_family = "TestRefTbl5".into();
+    }
+    designos_doc::Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    let lib = designos_library::Library::open(dir.join("library")).unwrap();
+    let proj = lib.create_project("Project").unwrap();
+    let entry = lib.create_file(&proj.id, None, "File", &d).unwrap();
+    let mut app = App::new(Document::new("empty"));
+    app.fonts = testkit::serving(&["TestRefTbl5"]);
+    app.lib = Some(lib.clone());
+    app.open_library_file(&entry.id);
+    let _ = table;
+    let cell_height = |app: &App| size_of(app, cell).y;
+    let at_open = cell_height(&app);
+    let modified = lib.file(&entry.id).unwrap().modified;
+    let saves = app.autosave.saves;
+    arrive(&mut app);
+    assert!(cell_height(&app) > at_open + 20.0, "the late face did change the row: {at_open} then {}", cell_height(&app));
+    let ctx = egui::Context::default();
+    for step in 1..=40 {
+        app.now = 100.0 + step as f64 * 0.1;
+        // every frame takes the revision a change marked, as the canvas does
+        crate::canvas::tiles::take_rev(&mut app);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+    }
+    assert_eq!(app.autosave.saves, saves, "autosave wrote nothing");
+    assert_eq!(lib.file(&entry.id).unwrap().modified, modified, "the file was not rewritten");
+    assert!(!app.has_unsaved_edits(), "and the tab shows no dot");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 mod after_edits;
 mod guards;
 mod open_edit;
