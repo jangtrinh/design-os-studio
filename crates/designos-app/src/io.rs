@@ -854,6 +854,44 @@ mod tests {
     }
 
     #[test]
+    fn importing_into_the_library_names_the_animation_tracks_that_were_dropped() {
+        use designos_doc::{NodeMotion, Timeline, Track, TrackProperty};
+        let mut d = Document::new("Animated import");
+        let page = d.add_page("Page 1");
+        let id = d.alloc_id();
+        let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+        frame.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 1)],
+            tracks: vec![Track::new("a", "tl", TrackProperty::Opacity), Track::new("b", "tl", TrackProperty::Rotation)],
+            ..Default::default()
+        }));
+        d.insert(page, frame).unwrap();
+        let text = d.to_json().unwrap().replace("\"OPACITY\"", "\"\"").replace("\"MOTION_ROTATION\"", "\"\"");
+        let src = tmp("empty_track_property_import.designos");
+        std::fs::write(&src, text).unwrap();
+
+        let lib_dir = tmp("motion_drop_lib");
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.attach_library(lib_dir);
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("P").unwrap());
+
+        // the store hands the count back next to the document
+        let (_, doc, _, _, dropped) = lib.import_file_with_doc_repairs(&src, &proj.id, None).unwrap();
+        assert_eq!(dropped, 2);
+        assert!(doc.get(id).is_none() || doc.nodes.values().all(|n| n.motion.as_deref().is_none_or(|m| m.tracks.is_empty())));
+
+        // and the import toast names it, in warning styling
+        app.toast = None;
+        assert_eq!(app.import_into_library(std::slice::from_ref(&src), &proj.id, None), 1);
+        let toast = app.toast.as_ref().expect("import shows a toast");
+        assert!(toast.error, "a drop is shown with warning styling");
+        assert!(toast.text.contains("Dropped 2 animation tracks with no property"), "{}", toast.text);
+        std::fs::remove_file(&src).ok();
+    }
+
+    #[test]
     fn non_finite_numbers_notice_shown_once_per_file_on_open_import_and_save() {
         let mut poisoned = Document::new("Poisoned");
         let page = poisoned.add_page("Page 1");

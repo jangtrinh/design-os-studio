@@ -382,7 +382,11 @@ pub fn move_keyframe(doc: &Document, node: NodeId, track: &str, from_us: i64, to
     };
     edit_motion(doc, node, |m| {
         let t = with_track(m, track)?;
-        if snapped != from_us && t.keyframe(snapped).is_some() {
+        if snapped == from_us {
+            // the keyframe stays where it is: no move, and no remove-then-set that would lose one of several at that time
+            return Err(if t.keyframe(from_us).is_some() { MotionError::NoChange } else { MotionError::NoKeyframe(from_us) });
+        }
+        if t.keyframe(snapped).is_some() {
             return Err(MotionError::KeyframeTaken(snapped));
         }
         let mut key = t.remove_keyframe(from_us).ok_or(MotionError::NoKeyframe(from_us))?;

@@ -346,8 +346,9 @@ pub struct Track {
     pub operation: KeyframeOperation,
     #[serde(default, skip_serializing_if = "is_default")]
     pub loop_mode: TrackLoop,
-    /// Sorted by `time_us` (stable). The editing calls keep one keyframe per time, but a file may hold several at
-    /// one time (a step), and all of them are kept. A file written elsewhere may hold them in any order; they are
+    /// Sorted by `time_us` (stable). A file may hold several keyframes at one time (a step), and all of them are kept.
+    /// The editing calls never add a second keyframe at a time that has one: set replaces, and set, remove and
+    /// move act on the last keyframe at a time. A file written elsewhere may hold them in any order; they are
     /// sorted when the file is read.
     #[serde(default, deserialize_with = "sorted_keyframes")]
     pub keyframes: Vec<Keyframe>,

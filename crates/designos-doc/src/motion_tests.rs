@@ -287,6 +287,22 @@ fn set_and_remove_at_a_shared_time_act_on_the_last_keyframe_there() {
 }
 
 #[test]
+fn moving_a_keyframe_to_its_own_time_changes_nothing_even_where_keyframes_share_a_time() {
+    let (d, frame) = doc_with_shared_time_track();
+    let mut d = Document::from_json(&d.to_json().unwrap()).unwrap();
+    let before = key_pairs(&d, frame);
+    assert_eq!(move_keyframe(&d, frame, "tr", 100, 100).unwrap_err(), MotionError::NoChange, "100 -> 100 on a step is no move");
+    assert_eq!(key_pairs(&d, frame), before, "nothing was deleted");
+    assert_eq!(move_keyframe(&d, frame, "tr", 7, 7).unwrap_err(), MotionError::NoKeyframe(7), "a missing keyframe is still named");
+    // a real move of one keyframe of the step still works, and refuses the time the other one holds
+    let mut h = History::default();
+    let c = move_keyframe(&d, frame, "tr", 100, 50);
+    add(&mut d, &mut h, c);
+    assert_eq!(key_pairs(&d, frame), vec![(0, KeyValue::Float(0.0)), (50, KeyValue::Float(2.0)), (100, KeyValue::Float(1.0))]);
+    assert_eq!(move_keyframe(&d, frame, "tr", 0, 100).unwrap_err(), MotionError::KeyframeTaken(100));
+}
+
+#[test]
 fn interpolation_treats_a_shared_time_as_a_step() {
     let tr = shared_time_track();
     let mut keys = tr.keyframes.clone();
