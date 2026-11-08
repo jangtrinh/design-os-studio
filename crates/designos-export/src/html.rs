@@ -6,9 +6,9 @@
 //! codegen target.
 
 use crate::codegen::{first_paint, is_vector_kind, visible_children, web_sizes, Dim, Parent};
-use crate::css::{css_for, text_style_css};
+use crate::css::{css_for_with, text_style_css};
 use crate::svg::{export_svg, SvgOptions};
-use crate::util::{css_color, num};
+use crate::util::{css_color_in, num, ColorFormat};
 use base64::Engine;
 use designos_doc::*;
 use std::collections::{HashMap, HashSet};
@@ -28,13 +28,18 @@ pub fn html_for(doc: &Document, node: NodeId) -> String {
 
 /// HTML for `node` configured with [`HtmlOptions`].
 pub fn html_with(doc: &Document, node: NodeId, opts: &HtmlOptions) -> String {
+    html_with_format(doc, node, opts, ColorFormat::Hex)
+}
+
+/// Like [`html_with`] with an explicit [`ColorFormat`] for generated CSS declarations and variables.
+pub fn html_with_format(doc: &Document, node: NodeId, opts: &HtmlOptions, color_format: ColorFormat) -> String {
     let Some(root) = doc.get(node) else {
         return String::new();
     };
     if matches!(root.kind, NodeKind::Connector(_)) {
         return String::new();
     }
-    let mut builder = HtmlBuilder::new(doc, node);
+    let mut builder = HtmlBuilder::new(doc, node, color_format);
     let body_indent = if opts.fragment { 0 } else { 1 };
     let mut markup_lines = Vec::new();
     builder.emit_node(root, Parent::root(), true, body_indent, &mut markup_lines);
@@ -105,6 +110,7 @@ pub fn html_with(doc: &Document, node: NodeId, opts: &HtmlOptions) -> String {
 struct HtmlBuilder<'a> {
     doc: &'a Document,
     root_id: NodeId,
+    color_format: ColorFormat,
     used_classes: HashSet<String>,
     class_counts: HashMap<String, usize>,
     rules: Vec<(String, Vec<String>)>,
@@ -114,10 +120,11 @@ struct HtmlBuilder<'a> {
 }
 
 impl<'a> HtmlBuilder<'a> {
-    fn new(doc: &'a Document, root_id: NodeId) -> Self {
+    fn new(doc: &'a Document, root_id: NodeId, color_format: ColorFormat) -> Self {
         Self {
             doc,
             root_id,
+            color_format,
             used_classes: HashSet::new(),
             class_counts: HashMap::new(),
             rules: Vec::new(),
@@ -151,7 +158,7 @@ impl<'a> HtmlBuilder<'a> {
             let Some(v) = self.doc.variables.get(var_id) else { continue };
             let prop_name = custom_prop_name(v);
             if self.seen_vars.insert(prop_name.clone()) {
-                if let Some(val) = default_mode_css_value(self.doc, v, key) {
+                if let Some(val) = default_mode_css_value(self.doc, v, key, self.color_format) {
                     self.root_vars.push((prop_name, val));
                 }
             }
@@ -172,7 +179,7 @@ impl<'a> HtmlBuilder<'a> {
                 continue;
             }
             if let Some(resolved) = self.doc.resolve_variable(n.id, &v.id) {
-                if let Some(css_val) = format_var_value(&resolved, &key) {
+                if let Some(css_val) = format_var_value(&resolved, &key, self.doc.color_profile, self.color_format) {
                     let prop = custom_prop_name(v);
                     decls.push(format!("--{prop}: {css_val};"));
                 }
@@ -297,7 +304,7 @@ impl<'a> HtmlBuilder<'a> {
             let slice = &content[seg_s..seg_e];
             let active_run = runs.iter().rfind(|r| r.start <= seg_s && r.end >= seg_e);
             if let Some(run) = active_run {
-                let diff = diff_run_style(parent_style_decls, &run.style);
+                let diff = diff_run_style(parent_style_decls, &run.style, self.doc.color_profile, self.color_format);
                 if !diff.is_empty() {
                     self.run_counter += 1;
                     let mut run_cls = format!("run-{}", self.run_counter);
@@ -317,7 +324,7 @@ impl<'a> HtmlBuilder<'a> {
     }
 
     fn node_css_decls(&self, n: &Node, parent: Parent, is_root: bool, is_vec: bool, img_fill: Option<(&str, ImageScaleMode)>) -> Vec<String> {
-        let raw = css_for(self.doc, n.id);
+        let raw = css_for_with(self.doc, n.id, self.color_format);
         let mut lines: Vec<String> = raw.lines().map(String::from).collect();
 
         if is_root && self.root_id == n.id {
@@ -430,7 +437,7 @@ impl<'a> HtmlBuilder<'a> {
                         continue;
                     }
                     if let Some(resolved) = self.doc.resolve_variable(n.id, &v.id) {
-                        if let Some(fb) = format_var_value(&resolved, key) {
+                        if let Some(fb) = format_var_value(&resolved, key, self.doc.color_profile, self.color_format) {
                             let with_fb = format!("var(--{ident}, {fb})");
                             for line in &mut lines {
                                 *line = replace_whole_var_token(line, ident, &with_fb);
@@ -635,11 +642,11 @@ fn append_generic_font_fallback(decl: &mut String) {
     }
 }
 
-fn diff_run_style(parent_decls: &[String], run_style: &TextStyle) -> Vec<String> {
+fn diff_run_style(parent_decls: &[String], run_style: &TextStyle, profile: ColorProfile, fmt: ColorFormat) -> Vec<String> {
     let mut run_decls = Vec::new();
     if let Some(p) = run_style.fills.iter().find(|p| p.visible && p.opacity > 0.0) {
         if let PaintKind::Solid(c) = &p.kind {
-            run_decls.push(format!("color: {};", css_color(c, p.opacity)));
+            run_decls.push(format!("color: {};", css_color_in(profile, fmt, c, p.opacity)));
         }
     }
     for mut d in text_style_css(run_style) {
@@ -715,9 +722,9 @@ fn custom_prop_name(v: &Variable) -> String {
     var_ref.strip_prefix("var(--").and_then(|s| s.strip_suffix(')')).unwrap_or("unnamed").to_string()
 }
 
-fn format_var_value(value: &VariableValue, prop_key: &str) -> Option<String> {
+fn format_var_value(value: &VariableValue, prop_key: &str, profile: ColorProfile, fmt: ColorFormat) -> Option<String> {
     match value {
-        VariableValue::Color(c) => Some(css_color(c, 1.0)),
+        VariableValue::Color(c) => Some(css_color_in(profile, fmt, c, 1.0)),
         VariableValue::Number(x) => {
             if prop_key == "fontWeight" || prop_key == "opacity" {
                 Some(num(*x))
@@ -729,9 +736,9 @@ fn format_var_value(value: &VariableValue, prop_key: &str) -> Option<String> {
     }
 }
 
-fn default_mode_css_value(doc: &Document, v: &Variable, prop_key: &str) -> Option<String> {
+fn default_mode_css_value(doc: &Document, v: &Variable, prop_key: &str, fmt: ColorFormat) -> Option<String> {
     let resolved = resolve_in_default_mode(doc, v, 0)?;
-    format_var_value(&resolved, prop_key)
+    format_var_value(&resolved, prop_key, doc.color_profile, fmt)
 }
 
 fn resolve_in_default_mode(doc: &Document, v: &Variable, depth: usize) -> Option<VariableValue> {

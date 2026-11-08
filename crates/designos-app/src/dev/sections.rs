@@ -423,7 +423,7 @@ pub fn box_model_section(ui: &mut Ui, c: &mut Cur, doc: &Document, id: NodeId) {
     c.y += 158.0;
 }
 
-type DevCodeCacheKey = (u64, NodeId, u64, Language, bool, u64);
+type DevCodeCacheKey = (u64, NodeId, u64, Language, bool, super::color::ColorFormat, u64);
 type DevAssetsCacheKey = (u64, NodeId, u64, usize);
 type DevAssetsCacheEntry = (DevAssetsCacheKey, Vec<(String, NodeId, Asset)>);
 thread_local! {
@@ -445,7 +445,7 @@ pub fn code_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     }
     let lang = app.dev.lang;
     let pg_rev = if app.dev.playground.has_overrides_for(id) { app.dev.playground.rev } else { 0 };
-    let key: DevCodeCacheKey = (app.doc.runtime_id(), id, app.doc.mutation_epoch(), lang, app.dev.react_tailwind, pg_rev);
+    let key: DevCodeCacheKey = (app.doc.runtime_id(), id, app.doc.mutation_epoch(), lang, app.dev.react_tailwind, app.dev.color_format, pg_rev);
     let code = DEV_CODE_CACHE.with(|cache| {
         if let Some((k, v)) = cache.borrow().as_ref() {
             if *k == key {
@@ -553,7 +553,13 @@ pub fn variables_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             match &binding.value {
                 Some(value) => {
                     let text = match value {
-                        VariableValue::Color(col) => super::color::ColorFormat::Rgb.value(*col, col.a),
+                        VariableValue::Color(col) => {
+                            let fmt = match app.dev.color_format {
+                                super::color::ColorFormat::Hex => super::color::ColorFormat::Rgb,
+                                other => other,
+                            };
+                            fmt.value_in(app.doc.color_profile, *col, col.a)
+                        }
                         VariableValue::String(s) => serde_json::to_string(s).unwrap_or_default(),
                         _ => data::format_value(value),
                     };

@@ -43,7 +43,7 @@ pub use bounds::render_bounds;
 pub use codegen::css_var_display as css_variable_reference;
 pub use codegen::{css_var_name, is_vector_asset, vector_assets};
 pub use compose::compose_for;
-pub use css::{css_for, font_family_css, paint_css, text_style_css};
+pub use css::{css_for, css_for_with, font_family_css, paint_css, paint_css_with, text_style_css};
 pub use design_context::apply_bound_variables_subtree;
 pub use html::{html_for, html_with, HtmlOptions};
 pub use language::{CodeLanguage, CodeLanguageOptions};
@@ -52,10 +52,10 @@ pub use raster::{encode_jpg_pixmap, encode_png_pixmap, export_jpg, export_png, e
 pub use react::{react_for, react_with, ReactOptions};
 pub use svg::{export_svg, SvgOptions};
 pub use swiftui::swiftui_for;
-pub use tailwind::tailwind_for;
+pub use tailwind::{tailwind_for, tailwind_for_with};
 pub use text::register_font;
 pub use uikit::uikit_for;
-pub use util::{css_color, fmt_num};
+pub use util::{css_color, css_color_in, fmt_num, ColorFormat};
 pub use {base64, designos_render, image, tiny_skia};
 
 /// Output file format of an export setting.

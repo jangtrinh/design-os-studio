@@ -3,16 +3,22 @@
 use crate::codegen::{web_sizes, Dim, Parent};
 use crate::grid_stroke::{stroke_is_drawn, GridStroke, StrokeModel};
 use crate::svg::blend_css;
-use crate::util::{css_color, num, num2};
+use crate::util::{css_color_in, num, num2, ColorFormat};
 use designos_doc::*;
 
 /// CSS declarations (`prop: value;`, one per line) describing `node` the way
 /// Figma's Dev Mode inspect panel prints them.
 pub fn css_for(doc: &Document, node: NodeId) -> String {
+    css_for_with(doc, node, ColorFormat::Hex)
+}
+
+/// Like [`css_for`] with an explicit [`ColorFormat`].
+pub fn css_for_with(doc: &Document, node: NodeId, fmt: ColorFormat) -> String {
     let Some(n) = doc.get(node) else { return String::new() };
     if matches!(n.kind, NodeKind::Connector(_)) {
         return String::new();
     }
+    let profile = doc.color_profile;
     let mut out: Vec<String> = Vec::new();
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
 
@@ -190,7 +196,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
 
     // text block
     if let NodeKind::Text(t) = &n.kind {
-        text_block(t, &mut out);
+        text_block(t, &mut out, profile, fmt);
     }
 
     // background
@@ -201,12 +207,12 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
     if !fills.is_empty() && !matches!(n.kind, NodeKind::Line) {
         // CSS lists the top layer first; fills are stored bottom to top.
-        let layers: Vec<String> = fills.iter().rev().map(|p| paint_css(p, n.size)).collect();
+        let layers: Vec<String> = fills.iter().rev().map(|p| paint_css_with(p, n.size, profile, fmt)).collect();
         push("background", layers.join(", "));
     }
 
     // border / outline
-    border(n, &mut out, grid_stroke);
+    border(n, &mut out, grid_stroke, profile, fmt);
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
 
     // radius
@@ -229,18 +235,25 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     let mut shadows = Vec::new();
     let mut text_shadows = Vec::new();
     if let (Some(g), Some(p)) = (grid_stroke.filter(|g| g.model == StrokeModel::Shadow), crate::grid_stroke::drawn_paint(&n.stroke)) {
-        let color = crate::codegen::stroke_color_token(doc, n).unwrap_or_else(|| solid_or_first(p));
+        let color = crate::codegen::stroke_color_token(doc, n, fmt).unwrap_or_else(|| solid_or_first(p, profile, fmt));
         shadows.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset {}px {}px 0 0 {color}", num(*x), num(*y))));
     }
     for e in &n.effects {
         match e {
             Effect::DropShadow { color, offset, radius, spread, visible: true, .. } => {
-                let c = css_color(color, 1.0);
+                let c = css_color_in(profile, fmt, color, 1.0);
                 shadows.push(format!("{}px {}px {}px {}px {c}", num(offset.x), num(offset.y), num(*radius), num(*spread)));
                 text_shadows.push(format!("{}px {}px {}px {c}", num(offset.x), num(offset.y), num(*radius)));
             }
             Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } => {
-                shadows.push(format!("inset {}px {}px {}px {}px {}", num(offset.x), num(offset.y), num(*radius), num(*spread), css_color(color, 1.0)));
+                shadows.push(format!(
+                    "inset {}px {}px {}px {}px {}",
+                    num(offset.x),
+                    num(offset.y),
+                    num(*radius),
+                    num(*spread),
+                    css_color_in(profile, fmt, color, 1.0)
+                ));
             }
             _ => {}
         }
@@ -268,7 +281,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     if let Some(b) = blend_css(n.blend) {
         push("mix-blend-mode", b.into());
     }
-    crate::codegen::apply_css_vars(doc, n, &mut out);
+    crate::codegen::apply_css_vars(doc, n, &mut out, fmt);
     out.join("\n")
 }
 
@@ -289,17 +302,22 @@ fn corners_shorthand(r: [f32; 4]) -> String {
     box_shorthand(r[0], r[1], r[2], r[3])
 }
 
-fn stop_list(stops: &[GradientStop], opacity: f32, pos: impl Fn(f32) -> String) -> String {
+fn stop_list(stops: &[GradientStop], opacity: f32, profile: ColorProfile, fmt: ColorFormat, pos: impl Fn(f32) -> String) -> String {
     let mut s = stops.to_vec();
     s.sort_by(|a, b| a.pos.partial_cmp(&b.pos).unwrap_or(std::cmp::Ordering::Equal));
-    s.iter().map(|g| format!("{} {}", css_color(&g.color, opacity), pos(g.pos))).collect::<Vec<_>>().join(", ")
+    s.iter().map(|g| format!("{} {}", css_color_in(profile, fmt, &g.color, opacity), pos(g.pos))).collect::<Vec<_>>().join(", ")
 }
 
 /// A fill as a CSS `<background>` layer.
 pub fn paint_css(p: &Paint, size: Vec2) -> String {
+    paint_css_with(p, size, ColorProfile::Srgb, ColorFormat::Hex)
+}
+
+/// Like [`paint_css`] with an explicit [`ColorProfile`] and [`ColorFormat`].
+pub fn paint_css_with(p: &Paint, size: Vec2, profile: ColorProfile, fmt: ColorFormat) -> String {
     match &p.kind {
-        PaintKind::Solid(c) => css_color(c, p.opacity),
-        PaintKind::LinearGradient { handles, stops } => linear_css(handles, stops, size, p.opacity),
+        PaintKind::Solid(c) => css_color_in(profile, fmt, c, p.opacity),
+        PaintKind::LinearGradient { handles, stops } => linear_css(handles, stops, size, p.opacity, profile, fmt),
         PaintKind::RadialGradient { handles, stops } | PaintKind::DiamondGradient { handles, stops } => {
             let [h0, h1, h2] = *handles;
             let (w, h) = (size.x.max(1e-3), size.y.max(1e-3));
@@ -311,7 +329,7 @@ pub fn paint_css(p: &Paint, size: Vec2) -> String {
                 num2(ry),
                 num2(h0.x * 100.0),
                 num2(h0.y * 100.0),
-                stop_list(stops, p.opacity, |t| format!("{}%", num2(t * 100.0)))
+                stop_list(stops, p.opacity, profile, fmt, |t| format!("{}%", num2(t * 100.0)))
             )
         }
         PaintKind::AngularGradient { handles, stops } => {
@@ -323,7 +341,7 @@ pub fn paint_css(p: &Paint, size: Vec2) -> String {
                 num2(from),
                 num2(h0.x * 100.0),
                 num2(h0.y * 100.0),
-                stop_list(stops, p.opacity, |t| format!("{}deg", num2(t * 360.0)))
+                stop_list(stops, p.opacity, profile, fmt, |t| format!("{}deg", num2(t * 360.0)))
             )
         }
         PaintKind::Image { image_ref, scale_mode, .. } => {
@@ -338,14 +356,14 @@ pub fn paint_css(p: &Paint, size: Vec2) -> String {
     }
 }
 
-fn linear_css(handles: &[Vec2; 3], stops: &[GradientStop], size: Vec2, opacity: f32) -> String {
+fn linear_css(handles: &[Vec2; 3], stops: &[GradientStop], size: Vec2, opacity: f32, profile: ColorProfile, fmt: ColorFormat) -> String {
     let (w, h) = (size.x, size.y);
     let p0 = (handles[0].x * w, handles[0].y * h);
     let p1 = (handles[1].x * w, handles[1].y * h);
     let (dx, dy) = (p1.0 - p0.0, p1.1 - p0.1);
     let len = dx.hypot(dy);
     if len < 1e-4 {
-        return stops.first().map(|s| css_color(&s.color, opacity)).unwrap_or_else(|| "transparent".into());
+        return stops.first().map(|s| css_color_in(profile, fmt, &s.color, opacity)).unwrap_or_else(|| "transparent".into());
     }
     let ang = dx.atan2(-dy);
     let (sx, sy) = (ang.sin(), -ang.cos());
@@ -359,12 +377,12 @@ fn linear_css(handles: &[Vec2; 3], stops: &[GradientStop], size: Vec2, opacity: 
         let v = if line_len > 1e-4 { along / line_len + 0.5 } else { t };
         format!("{}%", num2(v * 100.0))
     };
-    format!("linear-gradient({}deg, {})", num2(deg), stop_list(stops, opacity, pos))
+    format!("linear-gradient({}deg, {})", num2(deg), stop_list(stops, opacity, profile, fmt, pos))
 }
 
 /// Stroke declarations. `grid` carries the model chosen for a grid frame (see [`GridStroke`]); every
 /// other node keeps one rule: an Inside stroke is a border, a Center or Outside one an outline.
-fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>) {
+fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>, profile: ColorProfile, fmt: ColorFormat) {
     let st = &n.stroke;
     let Some(p) = st.paints.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))) else { return };
     if !stroke_is_drawn(n) {
@@ -377,13 +395,13 @@ fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>) {
     let style = if st.dashes.iter().any(|d| *d > 0.0) { "dashed" } else { "solid" };
     if matches!(n.kind, NodeKind::Text(_)) {
         push("-webkit-text-stroke-width", format!("{}px", num(st.weight)));
-        push("-webkit-text-stroke-color", solid_or_first(p));
+        push("-webkit-text-stroke-color", solid_or_first(p, profile, fmt));
         return;
     }
     let gradient = !matches!(p.kind, PaintKind::Solid(_));
-    let color = if gradient { "transparent".to_string() } else { solid_or_first(p) };
+    let color = if gradient { "transparent".to_string() } else { solid_or_first(p, profile, fmt) };
     if matches!(n.kind, NodeKind::Line) {
-        push("border-top", format!("{}px {style} {}", num(st.weight), solid_or_first(p)));
+        push("border-top", format!("{}px {style} {}", num(st.weight), solid_or_first(p, profile, fmt)));
         return;
     }
     let side_bindings = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
@@ -410,18 +428,20 @@ fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>) {
         }
     }
     if gradient && as_border && st.align == StrokeAlign::Inside {
-        push("border-image-source", paint_css(p, n.size));
+        push("border-image-source", paint_css_with(p, n.size, profile, fmt));
         push("border-image-slice", "1".into());
     }
 }
 
-fn solid_or_first(p: &Paint) -> String {
+fn solid_or_first(p: &Paint, profile: ColorProfile, fmt: ColorFormat) -> String {
     match &p.kind {
-        PaintKind::Solid(c) => css_color(c, p.opacity),
+        PaintKind::Solid(c) => css_color_in(profile, fmt, c, p.opacity),
         PaintKind::LinearGradient { stops, .. }
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
-        | PaintKind::DiamondGradient { stops, .. } => stops.first().map(|s| css_color(&s.color, p.opacity)).unwrap_or_else(|| "transparent".into()),
+        | PaintKind::DiamondGradient { stops, .. } => {
+            stops.first().map(|s| css_color_in(profile, fmt, &s.color, p.opacity)).unwrap_or_else(|| "transparent".into())
+        }
         PaintKind::Image { .. } | PaintKind::Shader(_) => "transparent".into(),
     }
 }
@@ -488,13 +508,13 @@ fn distributes_space(a: LayoutAlign) -> bool {
     matches!(a, LayoutAlign::SpaceBetween | LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly)
 }
 
-fn text_block(t: &TextProps, out: &mut Vec<String>) {
+fn text_block(t: &TextProps, out: &mut Vec<String>, profile: ColorProfile, fmt: ColorFormat) {
     let st = &t.style;
     if let Some(p) = st.fills.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))) {
         match &p.kind {
-            PaintKind::Solid(c) => out.push(format!("color: {};", css_color(c, p.opacity))),
+            PaintKind::Solid(c) => out.push(format!("color: {};", css_color_in(profile, fmt, c, p.opacity))),
             _ => {
-                out.push(format!("background: {};", paint_css(p, Vec2::new(1.0, 1.0))));
+                out.push(format!("background: {};", paint_css_with(p, Vec2::new(1.0, 1.0), profile, fmt)));
                 out.push("background-clip: text;".into());
                 out.push("-webkit-background-clip: text;".into());
                 out.push("-webkit-text-fill-color: transparent;".into());
@@ -1399,5 +1419,92 @@ mod tests {
         let css = css_for(&d, rect);
         assert!(!css.contains("width:"), "horizontal Fill in grid omits width: {css}");
         assert!(css.contains("height: 20px;"), "{css}");
+    }
+
+    #[test]
+    fn color_format_setting_changes_css_and_tailwind_while_default_stays_unchanged() {
+        let (d, id) = doc_with(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 120.0, 60.0));
+            n.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+            n.stroke.paints = vec![Paint { opacity: 0.25, ..Paint::solid(Color::rgb(255, 0, 0)) }];
+            n.stroke.weight = 1.0;
+            d.insert(page, n).unwrap();
+        });
+
+        let css_default = css_for(&d, id);
+        let css_hex = css_for_with(&d, id, ColorFormat::Hex);
+        assert_eq!(css_default, css_hex, "default css_for must match ColorFormat::Hex");
+        assert!(css_hex.contains("background: #F00;"), "{css_hex}");
+        assert!(css_hex.contains("border: 1px solid rgba(255, 0, 0, 0.25);"), "{css_hex}");
+
+        let css_rgb = css_for_with(&d, id, ColorFormat::Rgb);
+        assert!(css_rgb.contains("background: rgb(255 0 0);"), "{css_rgb}");
+        assert!(css_rgb.contains("border: 1px solid rgb(255 0 0 / 0.25);"), "{css_rgb}");
+
+        let css_oklch = css_for_with(&d, id, ColorFormat::Oklch);
+        assert!(css_oklch.contains("background: oklch(62.8% 0.26 29.23);"), "{css_oklch}");
+        assert!(css_oklch.contains("border: 1px solid oklch(62.8% 0.26 29.23 / 0.25);"), "{css_oklch}");
+
+        let tw_default = crate::tailwind_for(&d, id);
+        let tw_hex = crate::tailwind_for_with(&d, id, ColorFormat::Hex);
+        assert_eq!(tw_default, tw_hex, "default tailwind_for must match ColorFormat::Hex");
+        assert!(tw_hex.contains("bg-[#FF0000]"), "{tw_hex}");
+
+        let tw_rgb = crate::tailwind_for_with(&d, id, ColorFormat::Rgb);
+        assert!(tw_rgb.contains("bg-[rgb(255_0_0)]"), "{tw_rgb}");
+        assert!(tw_rgb.contains("border-[rgb(255_0_0_/_0.25)]"), "{tw_rgb}");
+
+        let tw_oklch = crate::tailwind_for_with(&d, id, ColorFormat::Oklch);
+        assert!(tw_oklch.contains("bg-[oklch(62.8%_0.26_29.23)]"), "{tw_oklch}");
+        assert!(tw_oklch.contains("border-[oklch(62.8%_0.26_29.23_/_0.25)]"), "{tw_oklch}");
+
+        // CodeLanguage::generate respects CodeLanguageOptions::color_format
+        assert_eq!(crate::CodeLanguage::Css.generate(&d, id, ColorFormat::Oklch), css_oklch);
+        assert_eq!(crate::CodeLanguage::Tailwind.generate(&d, id, ColorFormat::Oklch), tw_oklch);
+    }
+
+    #[test]
+    fn display_p3_document_emits_color_display_p3_outside_srgb_and_srgb_never_does() {
+        let (mut d, id) = doc_with(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 120.0, 60.0));
+            // Pure primary red (1, 0, 0) in Display P3 is outside sRGB; white (1, 1, 1) is inside sRGB.
+            n.fills = vec![Paint::solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 })];
+            n.stroke.paints = vec![Paint::solid(Color::WHITE)];
+            n.stroke.weight = 1.0;
+            n.effects = vec![Effect::DropShadow {
+                color: Color { r: 0.0, g: 1.0, b: 0.0, a: 0.5 },
+                offset: Vec2::new(0.0, 2.0),
+                radius: 4.0,
+                spread: 0.0,
+                visible: true,
+                show_behind: false,
+                blend: Default::default(),
+            }];
+            d.insert(page, n).unwrap();
+        });
+
+        // In an sRGB document, color(display-p3 ...) is never emitted.
+        assert_eq!(d.color_profile, ColorProfile::Srgb);
+        for fmt in ColorFormat::ALL {
+            let srgb_css = css_for_with(&d, id, fmt);
+            assert!(!srgb_css.contains("display-p3"), "sRGB document must never emit display-p3 in {fmt:?}: {srgb_css}");
+        }
+
+        // In a Display P3 document, colours outside sRGB emit color(display-p3 r g b), while in-gamut white stays #FFF.
+        d.color_profile = ColorProfile::DisplayP3;
+        let p3_css = css_for(&d, id);
+        assert!(p3_css.contains("background: color(display-p3 1 0 0);"), "{p3_css}");
+        assert!(p3_css.contains("border: 1px solid #FFF;"), "in-sRGB white in P3 doc stays #FFF: {p3_css}");
+        assert!(p3_css.contains("box-shadow: 0px 2px 4px 0px color(display-p3 0 1 0 / 0.5);"), "{p3_css}");
+
+        let p3_tw = crate::tailwind_for(&d, id);
+        assert!(p3_tw.contains("bg-[color(display-p3_1_0_0)]"), "{p3_tw}");
+        assert!(p3_tw.contains("border-[#FFFFFF]"), "{p3_tw}");
+
+        // Choosing OKLCH in a Display P3 document emits wide-gamut oklch(...) values.
+        let p3_oklch = css_for_with(&d, id, ColorFormat::Oklch);
+        assert!(p3_oklch.contains("background: oklch(64.86% 0.3 28.96);"), "{p3_oklch}");
     }
 }

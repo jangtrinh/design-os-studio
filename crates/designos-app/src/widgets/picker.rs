@@ -3018,6 +3018,33 @@ mod tests {
     }
 
     #[test]
+    fn oklch_edit_round_trips_within_one_unit_of_last_shown_digit() {
+        let ctx = test_ctx();
+        for (input, exp_l, exp_c, exp_h) in [
+            ("62.8% 0.26 29.23", 62.8_f32, 0.26_f32, 29.23_f32),
+            ("56.93% 0.14 254.47", 56.93, 0.14, 254.47),
+            ("86.64% 0.29 142.5", 86.64, 0.29, 142.5),
+            ("45.2% 0.31 264.05", 45.2, 0.31, 264.05),
+            ("75% 0.12 80", 75.0, 0.12, 80.0),
+            ("100% 0 0", 100.0, 0.0, 0.0),
+            ("0% 0 0", 0.0, 0.0, 0.0),
+        ] {
+            let mut paint = solid(0, 0, 0, 1.0);
+            let mut st = State::new(&paint);
+            st.fmt = Fmt::Oklch;
+            let out = commit_picker_ok(&ctx, input, &mut paint, &mut st);
+            assert!(out.changed || input == "0% 0 0", "expected commit for {input}");
+            let live_cells = st.ok_cells(Fmt::Oklch);
+            let live_l: f32 = live_cells[0].parse().unwrap();
+            let live_c: f32 = live_cells[1].parse().unwrap();
+            let live_h: f32 = live_cells[2].parse().unwrap();
+            assert!((live_l - exp_l).abs() <= 0.01, "{input}: live L {live_l} vs {exp_l}");
+            assert!((live_c - exp_c).abs() <= 0.01, "{input}: live C {live_c} vs {exp_c}");
+            assert!((live_h - exp_h).abs() <= 0.01, "{input}: live H {live_h} vs {exp_h}");
+        }
+    }
+
+    #[test]
     fn dropdown_insets_keep_source_at_main_and_fmt_chevron_gap() {
         let ctx = test_ctx();
         let mut paint = solid(255, 0, 0, 1.0);

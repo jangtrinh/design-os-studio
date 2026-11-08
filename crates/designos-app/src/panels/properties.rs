@@ -3204,6 +3204,17 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             }
             let c = app.doc.get(id).and_then(|n| n.fills.first()).map(paint_preview).unwrap_or(Color32::GRAY);
             open_picker(app, PickTarget::Fill(0), c, sw, vec![id]);
+            if let Some(pk) = app.props.picker.as_mut() {
+                match sub {
+                    "oklch" => pk.state.fmt = widgets::picker::Fmt::Oklch,
+                    "oklab" => pk.state.fmt = widgets::picker::Fmt::Oklab,
+                    "rgb" => pk.state.fmt = widgets::picker::Fmt::Rgb,
+                    "hsl" => pk.state.fmt = widgets::picker::Fmt::Hsl,
+                    "hsb" => pk.state.fmt = widgets::picker::Fmt::Hsb,
+                    "css" => pk.state.fmt = widgets::picker::Fmt::Css,
+                    _ => {}
+                }
+            }
         }
         "fill-picker-libraries" => {
             if app.doc.get(id).is_some_and(|n| n.fills.is_empty()) {

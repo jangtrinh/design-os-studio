@@ -632,7 +632,11 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
             }
             let sw = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 8.0), Vec2::splat(16.0));
             widgets::swatch(ui.painter(), sw, c32(&e.color.with_alpha(1.0), e.opacity));
-            let value = if app.dev.color_format == ColorFormat::Hex { e.hex() } else { app.dev.color_format.value(e.color, e.opacity) };
+            let value = if app.dev.color_format == ColorFormat::Hex && app.doc.color_profile.is_srgb() {
+                e.hex()
+            } else {
+                app.dev.color_format.value_in(app.doc.color_profile, e.color, e.opacity)
+            };
             let pct_str = format!("{}%", (e.opacity * 100.0).round() as i32);
             let label = elide(ui.painter(), &value, &theme::font_body(), r.width() - 60.0);
             ui.painter().text(Pos2::new(sw.right() + 8.0, r.top() + 12.0), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);

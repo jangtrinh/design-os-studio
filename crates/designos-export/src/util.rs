@@ -1,7 +1,86 @@
 //! Number, color and XML helpers shared by the SVG and CSS writers, and the overlay split shared by
 //! the native stack writers.
 
-use designos_doc::{Affine, Color, Node};
+use designos_doc::{Affine, Color, ColorProfile, Node};
+
+/// Colour notation used by Dev Mode inspection and CSS / Tailwind code generation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ColorFormat {
+    #[default]
+    Hex,
+    Rgb,
+    Oklch,
+    Hsl,
+}
+
+impl ColorFormat {
+    pub const ALL: [Self; 3] = [Self::Hex, Self::Rgb, Self::Oklch];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Hex => "Hex",
+            Self::Rgb => "RGB",
+            Self::Oklch => "OKLCH",
+            Self::Hsl => "HSL",
+        }
+    }
+
+    /// `alpha` already includes paint opacity; do not multiply color alpha again.
+    pub fn value(self, color: Color, alpha: f32) -> String {
+        self.value_in(ColorProfile::Srgb, color, alpha)
+    }
+
+    /// Formats `color` (written in `profile`) for Dev Mode inspection with combined `alpha`.
+    pub fn value_in(self, profile: ColorProfile, color: Color, alpha: f32) -> String {
+        let alpha = alpha.clamp(0.0, 1.0);
+        let suffix = if alpha < 1.0 { format!(" / {}", decimal(alpha)) } else { String::new() };
+        if profile.is_outside_srgb(&color) && self != Self::Oklch {
+            let [r, g, b] = [color.r, color.g, color.b].map(|v| v.clamp(0.0, 1.0));
+            return format!("color(display-p3 {} {} {}{suffix})", num(r), num(g), num(b));
+        }
+        if self == Self::Oklch {
+            let [l, c, h] = profile.to_oklch(&color);
+            return format!("oklch({}% {} {}{suffix})", fmt_num(l * 100.0), fmt_num(c), fmt_num(h));
+        }
+        let srgb = profile.to_srgb(&color);
+        let [r, g, b] = [srgb.r, srgb.g, srgb.b].map(|v| v.clamp(0.0, 1.0));
+        match self {
+            Self::Hex => {
+                let rgb = format!("#{:02X}{:02X}{:02X}", byte(r), byte(g), byte(b));
+                if alpha < 1.0 {
+                    format!("{rgb}{:02X}", byte(alpha))
+                } else {
+                    rgb
+                }
+            }
+            Self::Rgb => format!("rgb({} {} {}{suffix})", byte(r), byte(g), byte(b)),
+            Self::Oklch => unreachable!(),
+            Self::Hsl => {
+                let hi = r.max(g).max(b);
+                let lo = r.min(g).min(b);
+                let delta = hi - lo;
+                let lightness = (hi + lo) / 2.0;
+                let (hue, saturation) = if delta == 0.0 {
+                    (0.0, 0.0)
+                } else {
+                    let hue = if hi == r {
+                        ((g - b) / delta).rem_euclid(6.0)
+                    } else if hi == g {
+                        (b - r) / delta + 2.0
+                    } else {
+                        (r - g) / delta + 4.0
+                    };
+                    (hue * 60.0, delta / (1.0 - (2.0 * lightness - 1.0).abs()))
+                };
+                format!("hsl({} {}% {}%{suffix})", decimal(hue), decimal(saturation * 100.0), decimal(lightness * 100.0))
+            }
+        }
+    }
+}
+
+fn decimal(v: f32) -> String {
+    format!("{v:.6}").trim_end_matches('0').trim_end_matches('.').to_string()
+}
 
 /// Shortest decimal form with at most 3 fractional digits (`12`, `0.5`, `-1.25`).
 pub fn num(v: f32) -> String {
@@ -79,6 +158,34 @@ pub fn css_color(c: &Color, opacity: f32) -> String {
         return format!("#{full}");
     }
     format!("rgba({r}, {g}, {b}, {})", num2(a))
+}
+
+/// Formats `c` (written in `profile`) for CSS declarations according to `fmt` and `profile`.
+///
+/// * In an sRGB document with [`ColorFormat::Hex`], delegates to [`css_color`] so existing snapshots
+///   stay byte-for-byte identical.
+/// * In a Display P3 document, colours outside the sRGB gamut emit `color(display-p3 r g b)` (or
+///   `color(display-p3 r g b / a)` when translucent) unless [`ColorFormat::Oklch`] is selected.
+pub fn css_color_in(profile: ColorProfile, fmt: ColorFormat, c: &Color, opacity: f32) -> String {
+    let a = (c.a * opacity).clamp(0.0, 1.0);
+    if profile.is_outside_srgb(c) && fmt != ColorFormat::Oklch {
+        let [r, g, b] = [c.r, c.g, c.b].map(|v| v.clamp(0.0, 1.0));
+        return if byte(a) == 255 {
+            format!("color(display-p3 {} {} {})", num(r), num(g), num(b))
+        } else {
+            format!("color(display-p3 {} {} {} / {})", num(r), num(g), num(b), num2(a))
+        };
+    }
+    match fmt {
+        ColorFormat::Hex => {
+            let srgb = profile.to_srgb(c);
+            css_color(&srgb, opacity)
+        }
+        ColorFormat::Rgb | ColorFormat::Oklch | ColorFormat::Hsl => {
+            let alpha = if byte(a) == 255 { 1.0 } else { num2(a).parse::<f32>().unwrap_or(a) };
+            fmt.value_in(profile, *c, alpha)
+        }
+    }
 }
 
 pub fn is_identity(a: &Affine) -> bool {
