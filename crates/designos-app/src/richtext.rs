@@ -119,14 +119,29 @@ pub fn weight_in_step(f: impl Fn(&mut TextStyle)) -> impl Fn(&mut TextStyle) {
     }
 }
 
+/// A run that repeats the base style is not its own value. Re-applying the same character
+/// styles leaves the text as it was, that run included, so the caller records no edit.
+fn keep_original_when_values_match(t: &mut TextProps, saved: &TextProps) {
+    let canonical = |src: &TextProps| {
+        let mut c = src.clone();
+        let segs = segments(&c);
+        set_segments(&mut c, segs);
+        c
+    };
+    if canonical(t) == canonical(saved) {
+        *t = saved.clone();
+    }
+}
+
 /// Applies `f` to the style of every byte in `range` (clamped to char
-/// boundaries). Returns false when the range is empty (nothing to style).
+/// boundaries). Returns false when the range is empty or the values do not change.
 pub fn apply_style(t: &mut TextProps, range: Range<usize>, f: impl Fn(&mut TextStyle)) -> bool {
     let f = weight_in_step(f);
     let range = clamp_range(t, range);
     if range.is_empty() {
         return false;
     }
+    let saved = t.clone();
     let mut segs = segments(t);
     split_at(&mut segs, range.start);
     split_at(&mut segs, range.end);
@@ -136,16 +151,19 @@ pub fn apply_style(t: &mut TextProps, range: Range<usize>, f: impl Fn(&mut TextS
         }
     }
     set_segments(t, segs);
-    true
+    keep_original_when_values_match(t, &saved);
+    *t != saved
 }
 
 /// Applies `f` to the whole text: the base style and every run.
 pub fn apply_all(t: &mut TextProps, f: impl Fn(&mut TextStyle)) {
+    let saved = t.clone();
     let f = weight_in_step(f);
     let len = t.content.len();
     if len == 0 {
         f(&mut t.style);
         t.runs.clear();
+        keep_original_when_values_match(t, &saved);
         return;
     }
     // Paragraph level fields live on the base, so it is edited directly too.
@@ -157,6 +175,7 @@ pub fn apply_all(t: &mut TextProps, f: impl Fn(&mut TextStyle)) {
     f(&mut base);
     t.style = base;
     set_segments(t, segs);
+    keep_original_when_values_match(t, &saved);
 }
 
 /// The effective style at byte `at` (the char starting there; the base style for empty text).

@@ -167,6 +167,10 @@ pub struct CopiedStyle {
     pub corner_radii: [f32; 4],
     pub corner_smoothing: f32,
     pub text_style: Option<designos_doc::TextStyle>,
+    /// Text-style link of a copied text layer. `None` when the source has no text, or no link.
+    pub text_style_link: Option<String>,
+    /// Overrides stored on that linked text layer. Empty when there is no link.
+    pub text_style_overrides: designos_doc::OwnedFieldSet,
 }
 
 /// The most toasts that wait behind the one on screen.

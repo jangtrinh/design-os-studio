@@ -1655,20 +1655,17 @@ fn scale_node_properties_proportionally(doc: &mut Document, ed: &mut crate::edit
     while let Some(cur) = stack.pop() {
         let children = doc.get(cur).map(|n| n.children.clone()).unwrap_or_default();
         if let Some(n) = ed.node(doc, cur) {
-            let text_ref = crate::styles::StyleKind::Text.ref_key();
-            let before_text = n.style_refs.contains_key(text_ref).then(|| n.kind.any_text().cloned()).flatten();
             for r in &mut n.corner_radii {
                 *r = (*r * factor).max(0.0);
             }
             n.stroke.weight = (n.stroke.weight * factor).max(0.0);
-            if let Some(tp) = n.kind.any_text_mut() {
-                crate::richtext::apply_all(tp, |st| {
-                    st.font_size = (st.font_size * factor).clamp(4.0, 512.0);
+            // Font size goes through the shared text-style rule, in this same edit.
+            if n.kind.any_text().is_some() {
+                crate::canvas::textsession::edit_node_text_detaching(n, |tp| {
+                    crate::richtext::apply_all(tp, |st| {
+                        st.font_size = (st.font_size * factor).clamp(4.0, 512.0);
+                    });
                 });
-            }
-            // The scaled size is not an override of a text style, so the shared rule detaches it.
-            if let Some(before) = before_text {
-                designos_doc::apply_text_link_rule(n, &before);
             }
             if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
                 for p in &mut al.padding {
