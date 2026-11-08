@@ -237,9 +237,12 @@ jobs:
   native-export-compile:
     name: Native Export Compile (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     env:
       KOTLIN_VERSION: "2.1.10"
+      KOTLIN_SHA256: "c6e9e2636889828e19c8811d5ab890862538c89dc2a3101956dfee3c2a8ba6b1"
       ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
+      ANDROID_PLATFORM_VERSION: "android-34"
     strategy:
       fail-fast: false
       matrix:
@@ -257,8 +260,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
-      - uses: Swatinem/rust-cache@v2
-
       - uses: actions/setup-java@v4
         if: runner.os == 'Linux'
         with:
@@ -275,23 +276,44 @@ jobs:
             unzip pkg-config libfontconfig1-dev
           curl -fsSL -o /tmp/kotlin-compiler.zip \
             "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
+          echo "${KOTLIN_SHA256}  /tmp/kotlin-compiler.zip" | sha256sum -c -
           sudo rm -rf /opt/kotlinc
           sudo unzip -q /tmp/kotlin-compiler.zip -d /opt
           rm -f /tmp/kotlin-compiler.zip
+          if [[ -f /opt/kotlinc/lib/compose-compiler-plugin.jar && ! -e /opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar ]]; then
+            sudo ln -s /opt/kotlinc/lib/compose-compiler-plugin.jar /opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar
+          fi
           echo "/opt/kotlinc/bin" >> "$GITHUB_PATH"
+          echo "COMPOSE_COMPILER_PLUGIN_JAR=/opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar" >> "$GITHUB_ENV"
 
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          sdkmanager_install() {
+            local pkg="$1"
+            echo "==> Running sdkmanager fallback for ${pkg}..."
+            set +o pipefail
+            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "$pkg" >/dev/null
+            local rc=$?
+            set -o pipefail
+            echo "==> sdkmanager fallback finished for ${pkg} (exit=${rc})"
+            return "$rc"
+          }
+
           AAPT2_DIR="${SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"
+          sudo rm -rf "$AAPT2_DIR"
           if [[ ! -x "${AAPT2_DIR}/aapt2" ]]; then
-            SDKMANAGER="${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
-            if [[ ! -x "$SDKMANAGER" ]]; then
-              SDKMANAGER="$(find "$SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -n 1)"
-            fi
-            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" >/dev/null
+            sdkmanager_install "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
+          fi
+          ANDROID_JAR="${SDK_ROOT}/platforms/${ANDROID_PLATFORM_VERSION}/android.jar"
+          if [[ ! -f "$ANDROID_JAR" ]]; then
+            sdkmanager_install "platforms;${ANDROID_PLATFORM_VERSION}"
           fi
           echo "$AAPT2_DIR" >> "$GITHUB_PATH"
+          echo "ANDROID_JAR=${ANDROID_JAR}" >> "$GITHUB_ENV"
           /opt/kotlinc/bin/kotlinc -version
+          ls -l /opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar
           "${AAPT2_DIR}/aapt2" version
+          ls -l "$ANDROID_JAR"
 
       - name: Validate compile-check script syntax
         shell: bash

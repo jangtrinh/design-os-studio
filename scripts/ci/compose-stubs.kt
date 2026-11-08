@@ -2,13 +2,14 @@
 
 package androidx.compose.stubs
 
-@Target(
-    AnnotationTarget.FUNCTION,
-    AnnotationTarget.TYPE,
-    AnnotationTarget.TYPE_PARAMETER,
-    AnnotationTarget.PROPERTY_GETTER,
-)
-annotation class Composable
+import androidx.compose.runtime.Composable
+
+// ============================================================================
+// Part 1: Faithful Jetpack Compose UI, Foundation, and Material 3 API surface
+// ============================================================================
+
+@DslMarker
+annotation class LayoutScopeMarker
 
 class Dp(val value: Float)
 
@@ -155,6 +156,8 @@ class PaddingValues(
     constructor(horizontal: Dp = 0.dp, vertical: Dp = 0.dp) : this(horizontal, vertical, horizontal, vertical)
 }
 
+// Note: `weight` and `align` are intentionally NOT members of `Modifier`.
+// They exist only as scope-bound extensions on `RowScope`, `ColumnScope`, and `BoxScope`.
 interface Modifier {
     fun width(width: Dp): Modifier = this
     fun height(height: Dp): Modifier = this
@@ -204,10 +207,6 @@ interface Modifier {
     fun alpha(alpha: Float): Modifier = this
     fun rotate(degrees: Float): Modifier = this
     fun zIndex(zIndex: Float): Modifier = this
-    fun weight(weight: Float, fill: Boolean = true): Modifier = this
-    fun align(alignment: Alignment): Modifier = this
-    fun align(alignment: Alignment.Horizontal): Modifier = this
-    fun align(alignment: Alignment.Vertical): Modifier = this
 
     companion object : Modifier
 }
@@ -261,51 +260,23 @@ class Painter
 @Composable
 fun painterResource(id: Int): Painter = Painter()
 
-object R {
-    object font {
-        const val inter: Int = 1
-        const val roboto: Int = 2
-        const val sf_pro_text: Int = 3
-        const val sf_pro_display: Int = 4
-    }
-
-    object drawable {
-        const val ic_placeholder: Int = 1
-    }
-}
+class ColorScheme(
+    val primary: Color = Color(0xFF0D99FF),
+    val secondary: Color = Color(0xFF625B71),
+    val background: Color = Color(0xFFFFFFFF),
+    val surface: Color = Color(0xFFFFFFFF),
+    val error: Color = Color(0xFFB3261E),
+    val onPrimary: Color = Color(0xFFFFFFFF),
+    val onSecondary: Color = Color(0xFFFFFFFF),
+    val onBackground: Color = Color(0xFF1C1B1F),
+    val onSurface: Color = Color(0xFF1C1B1F),
+)
 
 object MaterialTheme {
-    object colorScheme {
-        val primary = Color(0xFF0D99FF)
-        val secondary = Color(0xFF625B71)
-        val background = Color(0xFFFFFFFF)
-        val surface = Color(0xFFFFFFFF)
-        val error = Color(0xFFB3261E)
-        val onPrimary = Color(0xFFFFFFFF)
-        val onSecondary = Color(0xFFFFFFFF)
-        val onBackground = Color(0xFF1C1B1F)
-        val onSurface = Color(0xFF1C1B1F)
-        val text = Color(0xFF111827)
-        val textMuted = Color(0xFF6B7280)
-    }
+    val colorScheme: ColorScheme = ColorScheme()
 }
 
-object Tokens {
-    val md: Dp = 12.dp
-    val sm: Dp = 8.dp
-    val lg: Dp = 16.dp
-    val xl: Dp = 24.dp
-    val spacingXs: Dp = 4.dp
-    val spacingSm: Dp = 8.dp
-    val spacingMd: Dp = 12.dp
-    val spacingLg: Dp = 16.dp
-    val spacingXl: Dp = 24.dp
-    val primary: Color = Color(0xFF0D99FF)
-    val surface: Color = Color(0xFFFFFFFF)
-    val text: Color = Color(0xFF111827)
-    val textMuted: Color = Color(0xFF6B7280)
-}
-
+@LayoutScopeMarker
 interface RowScope {
     fun Modifier.weight(weight: Float, fill: Boolean = true): Modifier = this
     fun Modifier.align(alignment: Alignment.Vertical): Modifier = this
@@ -313,6 +284,7 @@ interface RowScope {
 
 object RowScopeInstance : RowScope
 
+@LayoutScopeMarker
 interface ColumnScope {
     fun Modifier.weight(weight: Float, fill: Boolean = true): Modifier = this
     fun Modifier.align(alignment: Alignment.Horizontal): Modifier = this
@@ -320,6 +292,7 @@ interface ColumnScope {
 
 object ColumnScopeInstance : ColumnScope
 
+@LayoutScopeMarker
 interface BoxScope {
     fun Modifier.align(alignment: Alignment): Modifier = this
     fun Modifier.matchParentSize(): Modifier = this
@@ -386,16 +359,9 @@ fun Icon(
     tint: Color = Color.Black,
 ) {}
 
-@Composable
-fun Button(
-    label: String = "",
-    disabled: Boolean = false,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit = {},
-) {}
-
 class GridItemSpan(val currentLineSpan: Int)
 
+@LayoutScopeMarker
 interface LazyGridItemSpanScope {
     val maxLineSpan: Int get() = 1
     val maxCurrentLineSpan: Int get() = 1
@@ -403,6 +369,7 @@ interface LazyGridItemSpanScope {
 
 object LazyGridItemSpanScopeInstance : LazyGridItemSpanScope
 
+@LayoutScopeMarker
 interface LazyGridItemScope
 object LazyGridItemScopeInstance : LazyGridItemScope
 
@@ -414,6 +381,7 @@ interface GridCells {
     fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = emptyList()
 }
 
+@LayoutScopeMarker
 interface LazyGridScope {
     fun item(
         key: Any? = null,
@@ -447,3 +415,48 @@ fun LazyVerticalGrid(
 ) {
     LazyGridScopeInstance.content()
 }
+
+// ============================================================================
+// Part 2: User-supplied project placeholders (design tokens, R resources,
+// and custom component stubs referenced by the test fixtures)
+// ============================================================================
+
+val ColorScheme.text: Color get() = Color(0xFF111827)
+val ColorScheme.textMuted: Color get() = Color(0xFF6B7280)
+
+object R {
+    object font {
+        const val inter: Int = 1
+        const val roboto: Int = 2
+        const val sf_pro_text: Int = 3
+        const val sf_pro_display: Int = 4
+    }
+
+    object drawable {
+        const val ic_placeholder: Int = 1
+    }
+}
+
+object Tokens {
+    val md: Dp = 12.dp
+    val sm: Dp = 8.dp
+    val lg: Dp = 16.dp
+    val xl: Dp = 24.dp
+    val spacingXs: Dp = 4.dp
+    val spacingSm: Dp = 8.dp
+    val spacingMd: Dp = 12.dp
+    val spacingLg: Dp = 16.dp
+    val spacingXl: Dp = 24.dp
+    val primary: Color = Color(0xFF0D99FF)
+    val surface: Color = Color(0xFFFFFFFF)
+    val text: Color = Color(0xFF111827)
+    val textMuted: Color = Color(0xFF6B7280)
+}
+
+@Composable
+fun ActionButton(
+    label: String = "",
+    disabled: Boolean = false,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
+) {}

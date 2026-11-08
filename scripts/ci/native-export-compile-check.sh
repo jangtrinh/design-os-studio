@@ -20,8 +20,14 @@ Usage: native-export-compile-check.sh [OPTIONS]
 Options:
   --target <all|swift|kotlin|android>  Target(s) to check (repeatable; default: all)
   --fixture-dir <dir>                  Directory of pre-generated fixtures to check
-  --self-test                          Verify planted-error fixtures fail, then verify real fixtures pass
+  --self-test                          Verify every planted-error fixture fails with its
+                                       expected diagnostic, then verify real fixtures pass
   -h, --help                           Show this help message
+
+Environment:
+  CARGO_TARGET_DIR                     Cargo build output directory (default: <repo>/target)
+  COMPOSE_COMPILER_PLUGIN_JAR          Path to kotlin-compose-compiler-plugin.jar / compose-compiler-plugin.jar
+  ANDROID_JAR                          Path to Android platform android.jar for `aapt2 link`
 EOF
 }
 
@@ -89,7 +95,8 @@ export RUSTUP_HOME="${RUSTUP_HOME:-$ORIG_HOME/.rustup}"
 export CARGO_HOME="${CARGO_HOME:-$ORIG_HOME/.cargo}"
 export PATH="$CARGO_HOME/bin:$PATH"
 
-SCRATCH_ROOT="$(cd "$REPO_ROOT/.." && pwd)/.test-scratch/native-compile-$$"
+SCRATCH_BASE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+SCRATCH_ROOT="$(mktemp -d "${SCRATCH_BASE%/}/designos-native-compile.XXXXXX")"
 mkdir -p "$SCRATCH_ROOT/home" "$SCRATCH_ROOT/tmp"
 cleanup() {
   rm -rf "$SCRATCH_ROOT"
@@ -98,13 +105,89 @@ trap cleanup EXIT
 
 dump_real_fixtures() {
   local out_dir="$1"
-  mkdir -p "$out_dir" "$REPO_ROOT/out/cargo"
+  local cargo_target="${CARGO_TARGET_DIR:-$REPO_ROOT/target}"
+  mkdir -p "$out_dir" "$cargo_target"
   echo "==> Dumping native export fixtures via designos-export test binary..."
   NATIVE_COMPILE_DUMP_DIR="$out_dir" \
     HOME="$SCRATCH_ROOT/home" \
     TMPDIR="$SCRATCH_ROOT/tmp/" \
-    CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/out/cargo}" \
+    CARGO_TARGET_DIR="$cargo_target" \
     cargo test -p designos-export --test native_compile_fixtures --locked dump_native_compile_fixtures -- --exact --nocapture
+}
+
+resolve_compose_plugin_jar() {
+  if [[ -n "${COMPOSE_COMPILER_PLUGIN_JAR:-}" && -f "${COMPOSE_COMPILER_PLUGIN_JAR}" ]]; then
+    echo "${COMPOSE_COMPILER_PLUGIN_JAR}"
+    return 0
+  fi
+  local kotlinc_bin
+  kotlinc_bin="$(command -v kotlinc || true)"
+  if [[ -z "$kotlinc_bin" ]]; then
+    return 1
+  fi
+  local resolved_bin="$kotlinc_bin"
+  if command -v realpath >/dev/null 2>&1; then
+    resolved_bin="$(realpath "$kotlinc_bin" 2>/dev/null || echo "$kotlinc_bin")"
+  fi
+  local lib_dir
+  lib_dir="$(cd "$(dirname "$resolved_bin")/.." && pwd)/lib"
+  for candidate in \
+    "$lib_dir/kotlin-compose-compiler-plugin.jar" \
+    "$lib_dir/compose-compiler-plugin.jar" \
+    "/opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar" \
+    "/opt/kotlinc/lib/compose-compiler-plugin.jar"; do
+    if [[ -f "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+resolve_android_jar() {
+  if [[ -n "${ANDROID_JAR:-}" && -f "${ANDROID_JAR}" ]]; then
+    echo "${ANDROID_JAR}"
+    return 0
+  fi
+  local sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+  if [[ -f "$sdk_root/platforms/android-34/android.jar" ]]; then
+    echo "$sdk_root/platforms/android-34/android.jar"
+    return 0
+  fi
+  local found
+  found="$(find "$sdk_root/platforms" -maxdepth 2 -name android.jar 2>/dev/null | sort -V | tail -n 1 || true)"
+  if [[ -n "$found" && -f "$found" ]]; then
+    echo "$found"
+    return 0
+  fi
+  return 1
+}
+
+run_kotlinc_compose() {
+  local plugin_jar="$1"
+  local out_jar="$2"
+  shift 2
+  kotlinc \
+    "-Xplugin=$plugin_jar" \
+    -P "plugin:androidx.compose.compiler.plugins.kotlin:skipIrLoweringIfRuntimeNotFound=true" \
+    "$REPO_ROOT/scripts/ci/compose-runtime-stubs.kt" \
+    "$REPO_ROOT/scripts/ci/compose-stubs.kt" \
+    "$@" \
+    -d "$out_jar"
+}
+
+compile_android_stubs() {
+  local stub_flat_dir="$SCRATCH_ROOT/tmp/aapt2-stubs-flat"
+  mkdir -p "$stub_flat_dir"
+  local stub_res_dir="$REPO_ROOT/scripts/ci/android-stubs/res"
+  local stub_files=()
+  while IFS= read -r -d '' sf; do
+    stub_files+=("$sf")
+  done < <(find "$stub_res_dir" -type f -name '*.xml' -print0 | sort -z)
+  for sf in "${stub_files[@]}"; do
+    aapt2 compile "$sf" -o "$stub_flat_dir"
+  done
+  echo "$stub_flat_dir"
 }
 
 check_swift_dir() {
@@ -172,9 +255,9 @@ check_kotlin_dir() {
     return 0
   fi
 
-  local stubs="$REPO_ROOT/scripts/ci/compose-stubs.kt"
-  if [[ ! -f "$stubs" ]]; then
-    echo "ERROR: missing Compose stubs file at $stubs" >&2
+  local plugin_jar
+  if ! plugin_jar="$(resolve_compose_plugin_jar)"; then
+    echo "ERROR: Compose compiler plugin jar (kotlin-compose-compiler-plugin.jar / compose-compiler-plugin.jar) not found" >&2
     return 1
   fi
 
@@ -189,17 +272,27 @@ check_kotlin_dir() {
 
   local out_jar="$SCRATCH_ROOT/tmp/compose-fixtures.jar"
   rm -f "$out_jar"
-  echo "==> Compiling ${#kt_files[@]} Compose fixture(s) with kotlinc..."
-  if kotlinc "$stubs" "${kt_files[@]}" -d "$out_jar"; then
+  echo "==> Compiling ${#kt_files[@]} Compose fixture(s) with kotlinc + $(basename "$plugin_jar")..."
+  if run_kotlinc_compose "$plugin_jar" "$out_jar" "${kt_files[@]}"; then
     for f in "${kt_files[@]}"; do
-      echo "[PASS] compose/$(basename "$f") (kotlinc)"
+      echo "[PASS] compose/$(basename "$f") (kotlinc -Xplugin=$(basename "$plugin_jar"))"
     done
     echo "==> Kotlin Compose check finished (${#kt_files[@]} files, exit=0)"
     return 0
-  else
-    echo "[FAIL] compose/*.kt (kotlinc compilation failed)" >&2
-    return 1
   fi
+
+  local status=1
+  for f in "${kt_files[@]}"; do
+    local single_jar="$SCRATCH_ROOT/tmp/compose-single.jar"
+    rm -f "$single_jar"
+    if run_kotlinc_compose "$plugin_jar" "$single_jar" "$f"; then
+      echo "[PASS] compose/$(basename "$f") (kotlinc -Xplugin=$(basename "$plugin_jar"))"
+    else
+      echo "[FAIL] compose/$(basename "$f") (kotlinc -Xplugin=$(basename "$plugin_jar"))" >&2
+    fi
+  done
+  echo "==> Kotlin Compose check finished (${#kt_files[@]} files, exit=$status)" >&2
+  return $status
 }
 
 check_android_dir() {
@@ -213,34 +306,216 @@ check_android_dir() {
     return 0
   fi
 
-  local xml_files=()
-  while IFS= read -r -d '' f; do
-    xml_files+=("$f")
-  done < <(find "$dir/android-xml" -type f -name '*.xml' -print0 2>/dev/null | sort -z)
-
-  if [[ ${#xml_files[@]} -eq 0 ]]; then
-    echo "ERROR: no Android XML fixtures found under $dir/android-xml" >&2
+  local android_jar
+  if ! android_jar="$(resolve_android_jar)"; then
+    echo "ERROR: android.jar not found for aapt2 link (set ANDROID_JAR or install platforms;android-34)" >&2
     return 1
   fi
 
-  local out_dir="$SCRATCH_ROOT/tmp/aapt2-out"
-  mkdir -p "$out_dir"
-  local status=0
-  local count=0
+  shopt -s nullglob
+  local scene_dirs=("$dir/android-xml"/*)
+  shopt -u nullglob
 
-  for f in "${xml_files[@]}"; do
-    count=$((count + 1))
-    local rel="${f#"$dir/"}"
-    if aapt2 compile "$f" -o "$out_dir"; then
-      echo "[PASS] $rel (aapt2 compile)"
-    else
-      echo "[FAIL] $rel (aapt2 compile)" >&2
+  if [[ ${#scene_dirs[@]} -eq 0 ]]; then
+    echo "ERROR: no Android XML scene directories found under $dir/android-xml" >&2
+    return 1
+  fi
+
+  local stub_flat_dir
+  stub_flat_dir="$(compile_android_stubs)"
+  shopt -s nullglob
+  local stub_flats=("$stub_flat_dir"/*.flat)
+  shopt -u nullglob
+
+  local manifest="$REPO_ROOT/scripts/ci/android-stubs/AndroidManifest.xml"
+  local status=0
+  local file_count=0
+  local scene_count=0
+
+  for scene_dir in "${scene_dirs[@]}"; do
+    [[ -d "$scene_dir" ]] || continue
+    scene_count=$((scene_count + 1))
+    local scene_name
+    scene_name="$(basename "$scene_dir")"
+    local scene_flat_dir="$SCRATCH_ROOT/tmp/aapt2-scene-$scene_name"
+    rm -rf "$scene_flat_dir"
+    mkdir -p "$scene_flat_dir"
+
+    local xml_files=()
+    while IFS= read -r -d '' xf; do
+      xml_files+=("$xf")
+    done < <(find "$scene_dir" -type f -name '*.xml' -print0 2>/dev/null | sort -z)
+
+    if [[ ${#xml_files[@]} -eq 0 ]]; then
+      echo "[FAIL] android-xml/$scene_name (no XML files found)" >&2
       status=1
+      continue
+    fi
+
+    local scene_compile_ok=1
+    for xf in "${xml_files[@]}"; do
+      file_count=$((file_count + 1))
+      local rel="${xf#"$dir/"}"
+      if aapt2 compile "$xf" -o "$scene_flat_dir"; then
+        echo "[PASS] $rel (aapt2 compile)"
+      else
+        echo "[FAIL] $rel (aapt2 compile)" >&2
+        scene_compile_ok=0
+        status=1
+      fi
+    done
+
+    if [[ $scene_compile_ok -eq 1 ]]; then
+      shopt -s nullglob
+      local scene_flats=("$scene_flat_dir"/*.flat)
+      shopt -u nullglob
+      local out_apk="$SCRATCH_ROOT/tmp/aapt2-link-$scene_name.apk"
+      rm -f "$out_apk"
+      if aapt2 link --auto-add-overlay -I "$android_jar" --manifest "$manifest" -o "$out_apk" "${stub_flats[@]}" "${scene_flats[@]}"; then
+        echo "[PASS] android-xml/$scene_name (aapt2 link against $(basename "$(dirname "$android_jar")")/android.jar)"
+      else
+        echo "[FAIL] android-xml/$scene_name (aapt2 link against $(basename "$(dirname "$android_jar")")/android.jar)" >&2
+        status=1
+      fi
     fi
   done
 
-  echo "==> Android XML check finished ($count files, exit=$status)"
+  echo "==> Android XML check finished ($scene_count scenes, $file_count XML files, exit=$status)"
   return $status
+}
+
+expect_cmd_failure_with_pattern() {
+  local label="$1"
+  local expected_pattern="$2"
+  shift 2
+
+  local out_file="$SCRATCH_ROOT/tmp/planted-check.out"
+  rm -f "$out_file"
+
+  set +e
+  "$@" >"$out_file" 2>&1
+  local rc=$?
+  set -e
+
+  cat "$out_file"
+  if [[ $rc -eq 0 ]]; then
+    echo "[FAIL] Planted-error fixture $label unexpectedly succeeded (exit 0)!" >&2
+    return 1
+  fi
+  if ! grep -Fq "$expected_pattern" "$out_file"; then
+    echo "[FAIL] Planted-error fixture $label failed (exit $rc) but did not emit expected diagnostic '$expected_pattern'!" >&2
+    return 1
+  fi
+  echo "[PASS] Planted-error fixture $label rejected as expected (matched '$expected_pattern')."
+  return 0
+}
+
+run_planted_self_test() {
+  local planted_dir="$REPO_ROOT/scripts/ci/fixtures/planted-error"
+  local ran_any=0
+
+  echo "================================================================"
+  echo "STEP 1/2: Planted-error self-test (each planted file must fail with expected diagnostic)"
+  echo "Fixture dir: $planted_dir"
+  echo "================================================================"
+
+  if [[ $RUN_SWIFT -eq 1 ]]; then
+    if command -v swiftc >/dev/null 2>&1 && command -v xcrun >/dev/null 2>&1; then
+      ran_any=1
+      local arch
+      arch="$(uname -m)"
+      expect_cmd_failure_with_pattern \
+        "swiftui/planted_broken_swiftui.swift" \
+        "nonExistentDesignOsModifier" \
+        xcrun --sdk macosx swiftc -typecheck -target "${arch}-apple-macosx14.0" \
+        "$planted_dir/swiftui/planted_broken_swiftui.swift"
+
+      expect_cmd_failure_with_pattern \
+        "uikit/planted_broken_uikit.swift" \
+        "nonExistentAxisDirection" \
+        xcrun --sdk iphonesimulator swiftc -typecheck -target "${arch}-apple-ios17.0-simulator" \
+        "$planted_dir/uikit/planted_broken_uikit.swift"
+    elif [[ $EXPLICIT_TARGET -eq 1 ]]; then
+      echo "ERROR: swiftc/xcrun not found for --target swift" >&2
+      return 1
+    fi
+  fi
+
+  if [[ $RUN_KOTLIN -eq 1 ]]; then
+    if command -v kotlinc >/dev/null 2>&1; then
+      ran_any=1
+      local plugin_jar
+      plugin_jar="$(resolve_compose_plugin_jar)"
+      local out_jar="$SCRATCH_ROOT/tmp/planted-compose.jar"
+
+      expect_cmd_failure_with_pattern \
+        "compose/planted_broken_compose.kt" \
+        "nonExistentModifierCall" \
+        run_kotlinc_compose "$plugin_jar" "$out_jar" \
+        "$planted_dir/compose/planted_broken_compose.kt"
+
+      expect_cmd_failure_with_pattern \
+        "compose/planted_composable_in_grid_lambda.kt" \
+        "@Composable invocations can only happen from the context of a @Composable function" \
+        run_kotlinc_compose "$plugin_jar" "$out_jar" \
+        "$planted_dir/compose/planted_composable_in_grid_lambda.kt"
+
+      expect_cmd_failure_with_pattern \
+        "compose/planted_weight_in_box_scope.kt" \
+        "weight" \
+        run_kotlinc_compose "$plugin_jar" "$out_jar" \
+        "$planted_dir/compose/planted_weight_in_box_scope.kt"
+    elif [[ $EXPLICIT_TARGET -eq 1 ]]; then
+      echo "ERROR: kotlinc not found for --target kotlin" >&2
+      return 1
+    fi
+  fi
+
+  if [[ $RUN_ANDROID -eq 1 ]]; then
+    if command -v aapt2 >/dev/null 2>&1; then
+      ran_any=1
+      local android_jar
+      android_jar="$(resolve_android_jar)"
+      local stub_flat_dir
+      stub_flat_dir="$(compile_android_stubs)"
+      shopt -s nullglob
+      local stub_flats=("$stub_flat_dir"/*.flat)
+      shopt -u nullglob
+      local manifest="$REPO_ROOT/scripts/ci/android-stubs/AndroidManifest.xml"
+
+      local planted_compile_dir="$SCRATCH_ROOT/tmp/planted-aapt2-01"
+      mkdir -p "$planted_compile_dir"
+      expect_cmd_failure_with_pattern \
+        "android-xml/01_planted/res/layout/planted_broken.xml" \
+        "not well-formed" \
+        aapt2 compile "$planted_dir/android-xml/01_planted/res/layout/planted_broken.xml" -o "$planted_compile_dir"
+
+      local planted_attr_dir="$SCRATCH_ROOT/tmp/planted-aapt2-02"
+      mkdir -p "$planted_attr_dir"
+      aapt2 compile "$planted_dir/android-xml/02_planted_bad_attr/res/layout/planted_bad_attr.xml" -o "$planted_attr_dir"
+      echo "[PASS] android-xml/02_planted_bad_attr/res/layout/planted_bad_attr.xml (aapt2 compile succeeded prior to link check)"
+      shopt -s nullglob
+      local attr_flats=("$planted_attr_dir"/*.flat)
+      shopt -u nullglob
+      expect_cmd_failure_with_pattern \
+        "android-xml/02_planted_bad_attr/res/layout/planted_bad_attr.xml (aapt2 link)" \
+        "layout_widht" \
+        aapt2 link --auto-add-overlay -I "$android_jar" --manifest "$manifest" \
+        -o "$SCRATCH_ROOT/tmp/planted-attr.apk" "${stub_flats[@]}" "${attr_flats[@]}"
+    elif [[ $EXPLICIT_TARGET -eq 1 ]]; then
+      echo "ERROR: aapt2 not found for --target android" >&2
+      return 1
+    fi
+  fi
+
+  if [[ $ran_any -eq 0 ]]; then
+    echo "ERROR: no compiler toolchain available to run planted-error self-test" >&2
+    return 1
+  fi
+
+  echo "================================================================"
+  echo "STEP 2/2: Real exporter fixtures compile check (expecting pass)"
+  echo "================================================================"
 }
 
 run_checks_on_dir() {
@@ -269,47 +544,7 @@ run_checks_on_dir() {
 }
 
 if [[ $SELF_TEST -eq 1 ]]; then
-  PLANTED_DIR="$REPO_ROOT/scripts/ci/fixtures/planted-error"
-  echo "================================================================"
-  echo "STEP 1/2: Planted-error self-test (expecting failure)"
-  echo "Fixture dir: $PLANTED_DIR"
-  echo "================================================================"
-  planted_failed=0
-  if [[ $RUN_SWIFT -eq 1 ]] && command -v swiftc >/dev/null 2>&1 && command -v xcrun >/dev/null 2>&1; then
-    if check_swift_dir "$PLANTED_DIR"; then
-      echo "ERROR: planted-error Swift fixture unexpectedly passed!" >&2
-      exit 1
-    else
-      echo "[PASS] Planted-error Swift fixture rejected as expected."
-      planted_failed=1
-    fi
-  fi
-  if [[ $RUN_KOTLIN -eq 1 ]] && command -v kotlinc >/dev/null 2>&1; then
-    if check_kotlin_dir "$PLANTED_DIR"; then
-      echo "ERROR: planted-error Kotlin fixture unexpectedly passed!" >&2
-      exit 1
-    else
-      echo "[PASS] Planted-error Kotlin fixture rejected as expected."
-      planted_failed=1
-    fi
-  fi
-  if [[ $RUN_ANDROID -eq 1 ]] && command -v aapt2 >/dev/null 2>&1; then
-    if check_android_dir "$PLANTED_DIR"; then
-      echo "ERROR: planted-error Android XML fixture unexpectedly passed!" >&2
-      exit 1
-    else
-      echo "[PASS] Planted-error Android XML fixture rejected as expected."
-      planted_failed=1
-    fi
-  fi
-  if [[ $planted_failed -eq 0 ]]; then
-    echo "ERROR: no compiler toolchain available to run planted-error self-test" >&2
-    exit 1
-  fi
-
-  echo "================================================================"
-  echo "STEP 2/2: Real exporter fixtures compile check (expecting pass)"
-  echo "================================================================"
+  run_planted_self_test
 fi
 
 if [[ -n "$FIXTURE_DIR" ]]; then

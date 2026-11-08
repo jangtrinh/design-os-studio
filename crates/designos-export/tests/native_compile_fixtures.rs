@@ -117,10 +117,10 @@ fn scene_01_golden_card() -> SceneFixture {
 
     let comp_id = d.alloc_id();
     let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
-    comp.name = "Button".into();
+    comp.name = "ActionButton".into();
     comp.size = Vec2::new(80.0, 32.0);
     comp.component.props = vec![
-        ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Button".into()) },
+        ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("ActionButton".into()) },
         ComponentPropDef { name: "Disabled".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) },
     ];
     let lib_page = d.add_page("Components");
@@ -215,7 +215,7 @@ fn scene_01_golden_card() -> SceneFixture {
 
     let btn_id = d.alloc_id();
     let mut btn = Node::new(btn_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
-    btn.name = "Button".into();
+    btn.name = "ActionButton".into();
     btn.size = Vec2::new(80.0, 32.0);
     btn.component.values.insert("Label".into(), PropValue::Text("Save".into()));
     btn.component.values.insert("Disabled".into(), PropValue::Bool(true));
@@ -601,8 +601,8 @@ enum Tokens {
     static let show: Bool = false
 }
 
-struct Button: View {
-    var label: String = "Button"
+struct ActionButton: View {
+    var label: String = "ActionButton"
     var disabled: Bool = false
     var body: some View { EmptyView() }
 }
@@ -626,8 +626,8 @@ enum Tokens {
     static let show: Bool = false
 }
 
-final class Button: UIView {
-    var label: String = "Button"
+final class ActionButton: UIView {
+    var label: String = "ActionButton"
     var disabled: Bool = false
 }
 
@@ -638,7 +638,7 @@ final class Dialog: UIView {}
 }
 
 fn wrap_compose(scene: &SceneFixture, idx: usize) -> String {
-    let preamble = format!("package designos.ci.compilecheck.f{idx:02}\n\nimport androidx.compose.stubs.*\n");
+    let preamble = format!("package designos.ci.compilecheck.f{idx:02}\n\nimport androidx.compose.runtime.Composable\nimport androidx.compose.stubs.*\n");
     let root_code = compose_for(&scene.doc, scene.root);
     if let Some(inst) = scene.instance {
         let inst_code = indent_lines(&compose_for(&scene.doc, inst), "    ");
@@ -680,6 +680,7 @@ fn dump_fixtures_to_dir(out_dir: &Path) {
     let compose_dir = out_dir.join("compose");
     let android_dir = out_dir.join("android-xml");
     for d in [&swiftui_dir, &uikit_dir, &compose_dir, &android_dir] {
+        let _ = std::fs::remove_dir_all(d);
         std::fs::create_dir_all(d).expect("create target fixture dir");
     }
 
@@ -711,6 +712,14 @@ fn dump_fixtures_to_dir(out_dir: &Path) {
     }
 }
 
+struct TempDirGuard(PathBuf);
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 #[test]
 fn dump_native_compile_fixtures() {
     if let Some(dir) = std::env::var_os("NATIVE_COMPILE_DUMP_DIR") {
@@ -720,13 +729,12 @@ fn dump_native_compile_fixtures() {
         return;
     }
 
-    let tmp = std::env::temp_dir().join(format!("designos-native-compile-dump-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&tmp);
-    dump_fixtures_to_dir(&tmp);
-    assert!(tmp.join("swiftui/01_golden_card.swift").is_file());
-    assert!(tmp.join("uikit/01_golden_card.swift").is_file());
-    assert!(tmp.join("compose/01_golden_card.kt").is_file());
-    assert!(tmp.join("android-xml/01_golden_card/res/layout/card.xml").is_file());
-    assert!(tmp.join("android-xml/01_golden_card/res/drawable/card_background.xml").is_file());
-    let _ = std::fs::remove_dir_all(&tmp);
+    let guard = TempDirGuard(std::env::temp_dir().join(format!("designos-native-compile-dump-{}", std::process::id())));
+    let _ = std::fs::remove_dir_all(&guard.0);
+    dump_fixtures_to_dir(&guard.0);
+    assert!(guard.0.join("swiftui/01_golden_card.swift").is_file());
+    assert!(guard.0.join("uikit/01_golden_card.swift").is_file());
+    assert!(guard.0.join("compose/01_golden_card.kt").is_file());
+    assert!(guard.0.join("android-xml/01_golden_card/res/layout/card.xml").is_file());
+    assert!(guard.0.join("android-xml/01_golden_card/res/drawable/card_background.xml").is_file());
 }

@@ -1,5 +1,6 @@
 package com.example.designos.fixtures
 
+import androidx.compose.runtime.Composable
 import androidx.compose.stubs.*
 
 @Composable
