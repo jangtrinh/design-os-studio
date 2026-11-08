@@ -2927,26 +2927,34 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                 // Figma repeats the instance's effect list in a root
                 // self-override even when the effect style itself was not
                 // overridden.  Drop that stale copy so the linked style
-                // remains authoritative instead of mixing both lists, unless
-                // the copy binds a variable the style lacks.
-                if restates_effects_without_style
-                    && lk.effect_link_resolves(instance)
-                    && lk.style_replaces_entry_effects(own_effects, lk.style_node_of(instance, "styleIdForEffect", "inheritEffectStyleID"))
-                    && set.remove("_clearEffectStyle").is_some()
-                {
-                    set.remove("effects");
+                // remains authoritative instead of mixing both lists.  A copy
+                // that binds a variable the style lacks keeps its own list, and
+                // the link stays, as it does on a node.
+                if restates_effects_without_style && lk.effect_link_resolves(instance) && set.remove("_clearEffectStyle").is_some() {
+                    if lk.style_replaces_entry_effects(own_effects, lk.style_node_of(instance, "styleIdForEffect", "inheritEffectStyleID")) {
+                        set.remove("effects");
+                    }
                     insert_style_override_link(&mut set, inst_obj, lk, "styleIdForEffect", "effect", "_clearEffectStyle");
                 }
             }
         }
-        // The same holds for the layer directly below the instance: when its main links an effect style, a stale
-        // copy of the entry keeps the link. Deeper paths cross another instance whose own overrides may have
+        // The same holds for the layer directly below the instance: when its main links an effect style, the entry
+        // keeps the link, and a stale copy of the list is dropped. Deeper paths cross another instance whose own overrides may have
         // changed the link, so they are left as written.
         if restates_effects_without_style && !is_self && path.len() == 1 {
             if let Some(style) = path.last().and_then(|last| lk.effect_linked.get(last)) {
                 let style_node = style.as_deref().and_then(|id| lk.style_by_id.get(id));
-                if lk.style_replaces_entry_effects(own_effects, style_node) && set.remove("_clearEffectStyle").is_some() {
-                    set.remove("effects");
+                if set.remove("_clearEffectStyle").is_some() {
+                    if lk.style_replaces_entry_effects(own_effects, style_node) {
+                        set.remove("effects");
+                    } else if let Some(id) = style {
+                        // Own list, same link: an override with effects would otherwise detach the style.
+                        set.entry("styles".to_string())
+                            .or_insert_with(|| Value::Object(Map::new()))
+                            .as_object_mut()
+                            .unwrap()
+                            .insert("effect".into(), Value::String(id.clone()));
+                    }
                 }
             }
         }

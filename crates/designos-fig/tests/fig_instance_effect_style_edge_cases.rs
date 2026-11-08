@@ -324,7 +324,10 @@ fn a_nested_entry_that_binds_a_foreign_variable_keeps_its_own_effects() {
     let doc = import(&changes);
     let dot = dot_of(&doc, "Foreign nested");
     assert_eq!(radii(dot), vec![2.0]);
-    assert_eq!(style_of(&doc, dot), None);
+    assert_eq!(style_of(&doc, dot).as_deref(), Some("Shadow/Card"), "the link survives, as it does on a node");
+    let again = reopened(&doc);
+    let dot = dot_of(&again, "Foreign nested");
+    assert_eq!((radii(dot), style_of(&again, dot).as_deref()), (vec![2.0], Some("Shadow/Card")), "and it survives a save");
 }
 
 #[test]
@@ -339,7 +342,7 @@ fn a_root_entry_that_binds_a_foreign_variable_keeps_its_own_effects() {
     let doc = import(&changes);
     let n = named(&doc, "Foreign root");
     assert_eq!(radii(n), vec![2.0]);
-    assert_eq!(style_of(&doc, n), None);
+    assert_eq!(style_of(&doc, n).as_deref(), Some("Shadow/Card"), "the link survives, as it does on a node");
 }
 
 #[test]
