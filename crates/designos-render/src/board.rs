@@ -10,8 +10,8 @@
 use crate::text::text_geometry;
 use designos_doc as d;
 use designos_doc::{
-    Affine, ArcData, Color, ConnectorCap, Document, Effect, Node, NodeId, NodeKind, Paint, Path, PathCmd, Rect, ShapeKind, StampLayer, StickyProps,
-    StrokeAlign, StrokeCap, StrokeJoin, TextAlignH, TextAlignV, TextAutoResize, TextProps, Vec2,
+    Affine, ArcData, Color, ConnectorCap, Document, Effect, FrameProps, Node, NodeId, NodeKind, Paint, Path, PathCmd, Rect, ShapeKind, StampLayer, StickyProps,
+    StrokeAlign, StrokeCap, StrokeJoin, TableProps, TextAlignH, TextAlignV, TextAutoResize, TextProps, Vec2, TABLE_CELL_PADDING,
 };
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -224,13 +224,24 @@ pub fn lower(doc: &Document, n: &Node) -> Option<Node> {
             }
         }
         NodeKind::Connector(_) => lower_connector(doc, n, &mut body, &mut extras)?,
+        NodeKind::TableCell(_) => lower_table_cell(n, &mut body, &mut extras),
+        NodeKind::Table(p) => {
+            lower_table(doc, n, p, &mut body, &mut extras);
+            // the table's own cells come first (real ids), the grid drawn over them last
+            body.children = n.children.iter().copied().chain(extras.iter().map(|e| e.id)).collect();
+        }
         _ => return None,
     }
-    body.children = extras.iter().map(|e| e.id).collect();
+    if !matches!(n.kind, NodeKind::Table(_)) {
+        body.children = extras.iter().map(|e| e.id).collect();
+    }
+    let is_cell = matches!(n.kind, NodeKind::TableCell(_));
     SYNTH.with(|s| {
         let mut s = s.borrow_mut();
-        // ids of deleted items are never reused: forget their children when the table gets big
-        if s.len() > 50_000 {
+        // ids of deleted items are never reused: forget their children when the table gets big.
+        // A cell is lowered while its table's grid child is still waiting to be drawn, so a cell
+        // never clears: the clear would drop the grid (the table's own lowering clears instead).
+        if s.len() > 50_000 && !is_cell {
             s.clear();
         }
         for e in extras {
@@ -252,7 +263,9 @@ pub fn lowered_document(doc: &Document) -> Option<Document> {
     for id in items {
         let Some(n) = doc.get(id) else { continue };
         let Some(body) = lower(doc, n) else { continue };
-        for c in &body.children {
+        // real children (a table's cells) lower themselves; only lowered children are copied in,
+        // or a cell met before its table would be overwritten by the raw document node
+        for c in body.children.iter().filter(|c| is_synthetic(**c)) {
             if let Some(k) = get(doc, *c) {
                 out.nodes.insert(*c, k.into_owned());
             }
@@ -362,6 +375,145 @@ fn lower_connector(doc: &Document, n: &Node, body: &mut Node, extras: &mut Vec<N
         extras.push(child(n, 5, NodeKind::Text(f.props), f.rect));
     }
     Some(())
+}
+
+/// A table cell: its fills as a plain rectangle, and its text inside the cell minus the padding.
+/// The text wraps at the cell width and never shrinks to fit.
+fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
+    let NodeKind::TableCell(c) = &n.kind else { return };
+    body.kind = NodeKind::Rectangle;
+    body.corner_radii = [0.0; 4];
+    body.stroke.paints.clear();
+    body.stroke.weight = 0.0;
+    body.stroke.side_weights = None;
+    let (px, py) = TABLE_CELL_PADDING;
+    let bx = Rect::new(px, py, (n.size.x - 2.0 * px).max(1.0), (n.size.y - 2.0 * py).max(1.0));
+    // wraps at the cell width, the width the table layout measures with
+    let mut props = c.text.clone();
+    props.auto_resize = TextAutoResize::Height;
+    extras.extend(fitted_text(n, 0, TextFrame { rect: bx, props }));
+}
+
+/// A table: its fills as a frame that clips nothing, with the grid lines as one synthetic vector
+/// child (slot 0). The cells are the table's real children, drawn before the grid.
+fn lower_table(doc: &Document, n: &Node, p: &TableProps, body: &mut Node, extras: &mut Vec<Node>) {
+    body.kind = NodeKind::Frame(FrameProps::default());
+    body.stroke.paints.clear();
+    body.stroke.weight = 0.0;
+    body.stroke.side_weights = None;
+    let visible = n.stroke.weight > 0.0 && n.stroke.paints.iter().any(|q| q.visible && q.opacity > 0.0);
+    if !visible {
+        return;
+    }
+    let path = grid_path(doc, n, p);
+    if path.cmds.is_empty() {
+        return;
+    }
+    let mut g = child(n, 0, vector(vec![path]), Rect::new(0.0, 0.0, n.size.x, n.size.y));
+    g.stroke = n.stroke.clone();
+    g.stroke.align = StrokeAlign::Center;
+    g.stroke.side_weights = None;
+    g.stroke.cap = StrokeCap::None;
+    g.stroke.join = StrokeJoin::Miter;
+    extras.push(g);
+}
+
+/// Merged blocks of `p` as `(row, col, row_span, col_span)` by track position, dropping the ones
+/// that name no track or overlap an earlier block (the table model repairs these on load).
+fn merge_blocks(p: &TableProps) -> Vec<(usize, usize, usize, usize)> {
+    let (rows, cols) = (p.rows.len(), p.cols.len());
+    let mut taken = vec![false; rows * cols];
+    let mut out = Vec::new();
+    for m in &p.merges {
+        let (Some(r0), Some(c0)) = (p.row_index(m.row), p.col_index(m.col)) else { continue };
+        let rs = (m.row_span.max(1) as usize).min(rows - r0);
+        let cs = (m.col_span.max(1) as usize).min(cols - c0);
+        let cells = || (r0..r0 + rs).flat_map(move |r| (c0..c0 + cs).map(move |c| r * cols + c));
+        if cells().any(|i| taken[i]) {
+            continue;
+        }
+        cells().for_each(|i| taken[i] = true);
+        out.push((r0, c0, rs, cs));
+    }
+    out
+}
+
+/// The grid of table `n`: the outer border plus every interior row and column boundary, except the
+/// stretches that lie inside a merged block. Positions come from the cells' stored geometry, so the
+/// lines meet the drawn cells even where a row grew to fit its text.
+fn grid_path(doc: &Document, n: &Node, p: &TableProps) -> Path {
+    let (rows, cols) = (p.rows.len(), p.cols.len());
+    let mut path = Path { cmds: Vec::new(), fill_rule: Default::default() };
+    if rows == 0 || cols == 0 {
+        return path;
+    }
+    // boundary offsets: track sizes first, then what the cells say
+    let cum = |tracks: &[d::TableTrack]| {
+        let mut acc = 0.0f32;
+        let mut v = vec![0.0f32];
+        for t in tracks {
+            acc += if t.size.is_finite() && t.size > 0.0 { t.size } else { d::TABLE_MIN_TRACK };
+            v.push(acc);
+        }
+        v
+    };
+    let (mut xs, mut ys) = (cum(&p.cols), cum(&p.rows));
+    let blocks = merge_blocks(p);
+    let mut spans: std::collections::HashMap<(usize, usize), (usize, usize)> = blocks.iter().map(|&(r, c, rs, cs)| ((r, c), (rs, cs))).collect();
+    for cell in n.children.iter().filter_map(|&id| doc.get(id)) {
+        let NodeKind::TableCell(c) = &cell.kind else { continue };
+        let (Some(r), Some(k)) = (p.row_index(c.row), p.col_index(c.col)) else { continue };
+        let (rs, cs) = spans.remove(&(r, k)).unwrap_or((1, 1));
+        let (x, y) = (cell.transform.tx, cell.transform.ty);
+        if [x, y, cell.size.x, cell.size.y].iter().all(|v| v.is_finite()) {
+            xs[k] = x;
+            xs[k + cs] = x + cell.size.x;
+            ys[r] = y;
+            ys[r + rs] = y + cell.size.y;
+        }
+    }
+    // owner[r][c]: the anchor index of the block a position belongs to
+    let mut owner: Vec<usize> = (0..rows * cols).collect();
+    for &(r0, c0, rs, cs) in &blocks {
+        for r in r0..r0 + rs {
+            for c in c0..c0 + cs {
+                owner[r * cols + c] = r0 * cols + c0;
+            }
+        }
+    }
+    let (x0, x1, y0, y1) = (xs[0], xs[cols], ys[0], ys[rows]);
+    let pt = |x: f32, y: f32| Vec2::new(x, y);
+    path.cmds.extend([PathCmd::MoveTo(pt(x0, y0)), PathCmd::LineTo(pt(x1, y0)), PathCmd::LineTo(pt(x1, y1)), PathCmd::LineTo(pt(x0, y1)), PathCmd::Close]);
+    // vertical boundaries: runs of rows where the two sides are different blocks
+    for c in 1..cols {
+        let mut start: Option<usize> = None;
+        for r in 0..=rows {
+            let line = r < rows && owner[r * cols + c - 1] != owner[r * cols + c];
+            match (line, start) {
+                (true, None) => start = Some(r),
+                (false, Some(s)) => {
+                    path.cmds.extend([PathCmd::MoveTo(pt(xs[c], ys[s])), PathCmd::LineTo(pt(xs[c], ys[r]))]);
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+    }
+    for r in 1..rows {
+        let mut start: Option<usize> = None;
+        for c in 0..=cols {
+            let line = c < cols && owner[(r - 1) * cols + c] != owner[r * cols + c];
+            match (line, start) {
+                (true, None) => start = Some(c),
+                (false, Some(s)) => {
+                    path.cmds.extend([PathCmd::MoveTo(pt(xs[s], ys[r])), PathCmd::LineTo(pt(xs[c], ys[r]))]);
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+    }
+    path
 }
 
 fn neg(v: Vec2) -> Vec2 {
