@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="color_primary">#FF0D99FF</color>
+    <color name="color_text_muted">#FF6B7280</color>
+    <dimen name="spacing_md">12dp</dimen>
+</resources>

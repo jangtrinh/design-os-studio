@@ -233,3 +233,93 @@ jobs:
 
       - name: Validate HTML codegen with html-validate
         run: cargo test -p designos-export --lib html::tests::card_passes_html_validate --locked -- --ignored --exact
+
+  native-export-compile:
+    name: Native Export Compile (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      KOTLIN_VERSION: "2.1.10"
+      KOTLIN_SHA256: "c6e9e2636889828e19c8811d5ab890862538c89dc2a3101956dfee3c2a8ba6b1"
+      ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
+      ANDROID_PLATFORM_VERSION: "android-34"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            label: swiftc · macos-15
+            targets: --target swift
+          - os: ubuntu-latest
+            label: kotlinc + aapt2 · ubuntu-latest
+            targets: --target kotlin --target android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: actions/setup-java@v4
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install pinned kotlinc and Android build-tools (aapt2)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            unzip pkg-config libfontconfig1-dev
+          KOTLIN_ZIP="${RUNNER_TEMP}/kotlin-compiler.zip"
+          curl -fsSL -o "$KOTLIN_ZIP" \
+            "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
+          echo "${KOTLIN_SHA256}  ${KOTLIN_ZIP}" | sha256sum -c -
+          sudo rm -rf /opt/kotlinc
+          sudo unzip -q "$KOTLIN_ZIP" -d /opt
+          rm -f "$KOTLIN_ZIP"
+          if [[ -f /opt/kotlinc/lib/compose-compiler-plugin.jar && ! -e /opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar ]]; then
+            sudo ln -s /opt/kotlinc/lib/compose-compiler-plugin.jar /opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar
+          fi
+          echo "/opt/kotlinc/bin" >> "$GITHUB_PATH"
+          echo "COMPOSE_COMPILER_PLUGIN_JAR=/opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar" >> "$GITHUB_ENV"
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          sdkmanager_install() {
+            local pkg="$1"
+            echo "==> Running sdkmanager fallback for ${pkg}..."
+            set +o pipefail
+            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "$pkg" >/dev/null
+            local rc=$?
+            set -o pipefail
+            echo "==> sdkmanager fallback finished for ${pkg} (exit=${rc})"
+            return "$rc"
+          }
+
+          AAPT2_DIR="${SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"
+          if [[ ! -x "${AAPT2_DIR}/aapt2" ]]; then
+            sdkmanager_install "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
+          fi
+          ANDROID_JAR="${SDK_ROOT}/platforms/${ANDROID_PLATFORM_VERSION}/android.jar"
+          if [[ ! -f "$ANDROID_JAR" ]]; then
+            sdkmanager_install "platforms;${ANDROID_PLATFORM_VERSION}"
+          fi
+          echo "$AAPT2_DIR" >> "$GITHUB_PATH"
+          echo "ANDROID_JAR=${ANDROID_JAR}" >> "$GITHUB_ENV"
+          /opt/kotlinc/bin/kotlinc -version
+          ls -l /opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar
+          "${AAPT2_DIR}/aapt2" version
+          ls -l "$ANDROID_JAR"
+
+      - name: Validate compile-check script syntax
+        shell: bash
+        run: bash -n scripts/ci/native-export-compile-check.sh
+
+      - name: Compile-check native exports (planted-error self-test + real fixtures)
+        shell: bash
+        run: ./scripts/ci/native-export-compile-check.sh ${{ matrix.targets }} --self-test
+
