@@ -359,8 +359,10 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
     }
     if key == "characters" {
         if let (VariableValue::String(s), NodeKind::Text(t)) = (value, &mut n.kind) {
-            t.content = s.clone();
-            t.runs.clear();
+            if t.content != *s {
+                t.content = s.clone();
+                t.runs.clear();
+            }
         }
         return;
     }
@@ -1066,5 +1068,25 @@ mod tests {
         let resolved = resolve_node(&d, d.get(text).unwrap());
         let NodeKind::Text(tp) = &resolved.kind else { panic!("expected text") };
         assert_eq!(tp.style.font_size, 24.0);
+    }
+
+    #[test]
+    fn characters_binding_preserves_runs_when_resolved_string_is_unchanged() {
+        let mut n = Node::text(NodeId(1), Rect::new(0.0, 0.0, 40.0, 20.0), "Delete", TextStyle { font_weight: 400, ..TextStyle::default() });
+        if let NodeKind::Text(t) = &mut n.kind {
+            let mut bold = t.style.clone();
+            bold.set_font_weight(700);
+            t.runs = vec![TextRun { start: 0, end: 6, style: bold }];
+        }
+
+        set_bound_property(&mut n, "characters", &VariableValue::String("Delete".into()));
+        let NodeKind::Text(t) = &n.kind else { panic!("expected text") };
+        assert_eq!(t.runs.len(), 1, "re-applying identical characters must not wipe text runs");
+        assert_eq!(t.runs[0].style.font_weight, 700);
+
+        set_bound_property(&mut n, "characters", &VariableValue::String("Confirm".into()));
+        let NodeKind::Text(t) = &n.kind else { panic!("expected text") };
+        assert_eq!(t.content, "Confirm");
+        assert!(t.runs.is_empty(), "changing characters content must clear stale byte runs");
     }
 }

@@ -326,6 +326,169 @@ fn set_variables_collection_default_mode_remeasures_hug_text() {
     assert_eq!([size(&e, button), size(&e, label)], after, "redo restores mode and layout");
 }
 
+/// Helper setting up collection `type` with `type/size` (`{m1: 14, m2: 28}`) and `type/label`
+/// (`{m1: "Delete", m2: m2_label}`), plus a hug button whose label binds `fontSize` and
+/// `characters` and carries a bold (`font_weight: 700`) run over the whole string (base 400).
+fn bound_label_with_bold_run(e: &mut Engine, parent: u64, name: &str, m2_label: &str) -> (NodeId, NodeId) {
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables",
+        "upsert_collections": [{"id": "type", "name": "Type", "modes": [
+            {"id": "m1", "name": "Small"}, {"id": "m2", "name": "Large"}
+        ], "default_mode": "m1"}],
+        "upsert_variables": [
+            {"id": "type/size", "name": "Size", "collection": "type", "kind": "number",
+                "values": {"m1": 14.0, "m2": 28.0}},
+            {"id": "type/label", "name": "Label", "collection": "type", "kind": "string",
+                "values": {"m1": "Delete", "m2": m2_label}}
+        ]}]}),
+    )
+    .unwrap();
+    let r = e
+        .call(
+            "designos_apply_spec",
+            json!({"parent_id": parent, "spec": {
+                "kind": "frame", "name": name, "width_sizing": "hug", "height_sizing": "hug",
+                "layout": {"direction": "row", "padding": [0, 12, 0, 12], "align": "center", "justify": "center"},
+                "children": [{"kind": "text", "name": "Label", "text": "var:Type/Label", "font_size": "var:Type/Size", "font_weight": 400}]
+            }}),
+        )
+        .unwrap();
+    let btn = NodeId(r["root_node_id"].as_u64().unwrap());
+    let lbl = NodeId(r["name_to_id"][format!("{name}/Label")].as_u64().unwrap());
+    if let NodeKind::Text(tp) = &mut e.doc.get_mut(lbl).unwrap().kind {
+        let mut bold = tp.style.clone();
+        bold.set_font_weight(700);
+        tp.runs = vec![TextRun { start: 0, end: tp.content.len(), style: bold }];
+    }
+    let measured = drawn_measure(e, lbl);
+    e.doc.get_mut(lbl).unwrap().size = measured;
+    e.doc.relayout_subtree(btn);
+    e.doc.flush_pending_relayout();
+    (btn, lbl)
+}
+
+/// Switching a collection's default mode widens a bound hug label for the new `fontSize` while
+/// preserving its bold run when the bound `characters` string resolves to the same value in both
+/// modes, and undo/redo restores the full layout and run styling.
+#[test]
+fn default_mode_switch_preserves_text_runs_on_unchanged_bound_characters() {
+    let mut e = Engine::new();
+    let page = default_page(&e);
+    let (button, label) = bound_label_with_bold_run(&mut e, page, "RunButton", "Delete");
+    let before = [size(&e, button), size(&e, label)];
+
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables", "upsert_collections": [
+            {"id": "type", "default_mode": "m2", "variables": []}
+        ]}]}),
+    )
+    .unwrap();
+
+    let NodeKind::Text(tp) = &e.doc.get(label).unwrap().kind else { panic!("expected text") };
+    assert_eq!(tp.style.font_weight, 400, "base weight stays 400");
+    assert_eq!(tp.runs.len(), 1, "bold run over unchanged bound characters must survive mode switch");
+    assert_eq!(tp.runs[0].style.font_weight, 700, "run weight stays 700");
+    assert_eq!(tp.runs[0].style.font_size, 28.0, "run font size follows the bound fontSize");
+
+    let after = [size(&e, button), size(&e, label)];
+    assert!(after[1].x > before[1].x, "default mode m1 -> m2 must widen bound label ({before:?} -> {after:?})");
+    assert_eq!(after[1], drawn_measure(&e, label), "stored box must match the rendered bold run");
+    assert_eq!(after[0].x, 24.0 + after[1].x, "hug parent must follow the remeasured label");
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!([size(&e, button), size(&e, label)], before, "undo restores full layout");
+    let NodeKind::Text(tp_undo) = &e.doc.get(label).unwrap().kind else { panic!("expected text") };
+    assert_eq!(tp_undo.runs.len(), 1);
+    assert_eq!(tp_undo.runs[0].style.font_weight, 700);
+    assert_eq!(tp_undo.runs[0].style.font_size, 14.0);
+
+    e.call("designos_redo", json!({})).unwrap();
+    assert_eq!([size(&e, button), size(&e, label)], after, "redo restores full layout");
+    let NodeKind::Text(tp_redo) = &e.doc.get(label).unwrap().kind else { panic!("expected text") };
+    assert_eq!(tp_redo.runs.len(), 1);
+    assert_eq!(tp_redo.runs[0].style.font_weight, 700);
+    assert_eq!(tp_redo.runs[0].style.font_size, 28.0);
+}
+
+/// A collection upsert that only renames the collection or its modes alters no resolved variable
+/// value, so bound text runs and sizes stay untouched and no node update or layout change is recorded.
+#[test]
+fn collection_rename_keeps_bound_text_runs_and_records_no_layout_change() {
+    let mut e = Engine::new();
+    let page = default_page(&e);
+    let (button, label) = bound_label_with_bold_run(&mut e, page, "RenameButton", "Confirm");
+    let btn_before = e.doc.get(button).unwrap().clone();
+    let lbl_before = e.doc.get(label).unwrap().clone();
+
+    for upsert in [
+        json!({"id": "type", "name": "Typography"}),
+        json!({"id": "type", "name": "Typography", "modes": [{"id": "m1", "name": "Compact"}, {"id": "m2", "name": "Spacious"}], "default_mode": "m1"}),
+    ] {
+        e.call("designos_apply_batch", json!({"ops": [{"op": "set_variables", "upsert_collections": [upsert]}]})).unwrap();
+
+        assert_eq!(e.doc.get(label).unwrap(), &lbl_before, "name-only upsert must not mutate bound text or its runs");
+        assert_eq!(e.doc.get(button).unwrap(), &btn_before, "name-only upsert must not mutate parent layout");
+        assert!(e.doc.pending_relayout().is_empty(), "no deferred layout queued");
+        match e.history.peek_undo() {
+            Some(designos_doc::Command::Batch(cmds)) => {
+                assert!(
+                    cmds.iter().all(|c| matches!(c, designos_doc::Command::SetVariables { .. })),
+                    "name-only collection upsert must record no node Update commands: {cmds:?}"
+                );
+            }
+            other => panic!("expected Batch undo step, got {other:?}"),
+        }
+    }
+}
+
+/// When an ancestor frame pins mode `m1`, switching the collection's default mode to `m2` leaves
+/// the resolved values inside that subtree unchanged, so its bound text (and runs) stay untouched.
+#[test]
+fn pinned_mode_parent_keeps_bound_text_untouched_on_default_mode_switch() {
+    let mut e = Engine::new();
+    let page = default_page(&e);
+    let (unpinned_btn, unpinned_lbl) = bound_label_with_bold_run(&mut e, page, "UnpinnedBtn", "Confirm");
+    let pinned_holder = e
+        .call(
+            "designos_apply_spec",
+            json!({"parent_id": page, "spec": {"kind": "frame", "name": "PinnedHolder", "width_sizing": "hug", "height_sizing": "hug", "layout": {"direction": "column"}}}),
+        )
+        .unwrap();
+    let holder_id = root_id(&pinned_holder);
+    e.doc.get_mut(holder_id).unwrap().variables.modes.insert("type".into(), "m1".into());
+    let (pinned_btn, pinned_lbl) = bound_label_with_bold_run(&mut e, holder_id.0, "PinnedBtn", "Confirm");
+
+    let unpinned_before = [size(&e, unpinned_btn), size(&e, unpinned_lbl)];
+    let pinned_lbl_before = e.doc.get(pinned_lbl).unwrap().clone();
+    let pinned_btn_before = e.doc.get(pinned_btn).unwrap().clone();
+
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables", "upsert_collections": [
+            {"id": "type", "default_mode": "m2"}
+        ]}]}),
+    )
+    .unwrap();
+
+    // The unpinned label switches to m2 ("Confirm" at 28 px) and widens.
+    let unpinned_after = [size(&e, unpinned_btn), size(&e, unpinned_lbl)];
+    assert!(unpinned_after[1].x > unpinned_before[1].x, "unpinned label must widen on default mode switch");
+    assert_eq!(e.doc.get(unpinned_lbl).unwrap().kind.any_text().unwrap().content, "Confirm");
+
+    // The pinned subtree still resolves m1, so its text node (content, runs, size) and button are untouched.
+    assert_eq!(e.doc.get(pinned_lbl).unwrap(), &pinned_lbl_before, "pinned-mode text must remain completely untouched");
+    assert_eq!(e.doc.get(pinned_btn).unwrap(), &pinned_btn_before, "pinned-mode parent button must remain untouched");
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!([size(&e, unpinned_btn), size(&e, unpinned_lbl)], unpinned_before, "undo restores unpinned layout");
+    assert_eq!(e.doc.get(pinned_lbl).unwrap(), &pinned_lbl_before);
+    e.call("designos_redo", json!({})).unwrap();
+    assert_eq!([size(&e, unpinned_btn), size(&e, unpinned_lbl)], unpinned_after, "redo restores unpinned layout");
+    assert_eq!(e.doc.get(pinned_lbl).unwrap(), &pinned_lbl_before);
+}
+
 /// The batch `apply_spec` op sizes hug text with the renderer, not the estimate.
 #[test]
 fn batch_apply_spec_op_measures_hug_text() {
