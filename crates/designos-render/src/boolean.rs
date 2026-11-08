@@ -3,7 +3,7 @@
 
 use crate::geom::{node_shape, Shape};
 use designos_doc as d;
-use designos_doc::{Document, Node, NodeKind};
+use designos_doc::{resolve_node, Document, Node, NodeKind};
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::simplify::SimplifyShape;
@@ -100,6 +100,8 @@ fn transform_shapes(shapes: &mut Shapes, a: &d::Affine) {
 
 /// Normalised geometry of `child` in its parent's coordinate space.
 fn child_shapes(doc: &Document, child: &Node, tol: f32) -> Option<Shapes> {
+    let resolved = resolve_node(doc, child);
+    let child = &*resolved;
     if !child.visible {
         return None;
     }

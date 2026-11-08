@@ -44,6 +44,63 @@ fn boolean_op_uses_precomputed_geometry() {
 }
 
 #[test]
+fn boolean_operands_use_resolved_variable_values() {
+    let mut t = T::new();
+    let frame = t.add(None, |id| Node::frame(id, Rect::new(0.0, 0.0, 100.0, 40.0)));
+    let boolean = t.add(Some(frame), |id| {
+        let mut n = Node::new(id, NodeKind::BooleanOp(BooleanOp::Union));
+        n.size = Vec2::new(100.0, 40.0);
+        n.fills = vec![Paint::solid(RED)];
+        n
+    });
+    let operand = t.add(Some(boolean), |id| {
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 20.0, 40.0));
+        n.fills = vec![Paint::solid(RED)];
+        n.variables.bindings.insert("width".into(), "operand-width".into());
+        n
+    });
+    t.node(boolean).children = vec![operand];
+    t.doc.variable_collections.insert(
+        "theme".into(),
+        VariableCollection {
+            id: "theme".into(),
+            name: "Theme".into(),
+            modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+            default_mode: "light".into(),
+            variables: vec!["operand-width".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    t.doc.variables.insert(
+        "operand-width".into(),
+        Variable {
+            id: "operand-width".into(),
+            name: "operand-width".into(),
+            collection: "theme".into(),
+            kind: VariableKind::Number,
+            values: [("light".into(), VariableValue::Number(20.0)), ("dark".into(), VariableValue::Number(60.0))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            extensions: Default::default(),
+            code_syntax: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    t.node(frame).variables.modes.insert("theme".into(), "dark".into());
+
+    let rendered = t.render(100, 40);
+    let resolved = designos_doc::apply_bound_variables(&t.doc);
+    let mut expected = designos_render::tiny_skia::Pixmap::new(100, 40).unwrap();
+    designos_render::render_page(&resolved, resolved.pages[0], &designos_render::Viewport::default(), &mut expected);
+    assert_eq!(px(&rendered, 50, 20), px(&expected, 50, 20), "boolean operands must use resolved width");
+    assert_eq!(px(&expected, 50, 20), [255, 0, 0, 255]);
+}
+
+#[test]
 fn stroke_geometry_is_filled_with_stroke_paints() {
     let mut t = T::new();
     let r = t.rect(None, Rect::new(10.0, 10.0, 40.0, 40.0), RED);
