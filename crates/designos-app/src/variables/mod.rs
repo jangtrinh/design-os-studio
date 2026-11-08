@@ -326,16 +326,22 @@ impl App {
         let mut pre = Vec::new();
         for id in nodes {
             for k in keys {
-                if let Some(v) = self.doc.bound_value(*id, k) {
-                    pre.push((*id, k.to_string(), v));
+                if self.doc.get(*id).is_some_and(|n| n.variables.bindings.contains_key(*k)) {
+                    if let Some(v) = self.doc.bound_value(*id, k) {
+                        pre.push((*id, k.to_string(), v));
+                    }
                 }
             }
         }
         let mut tx = Tx::new();
+        let mut touched_ids = Vec::new();
         for id in nodes {
-            if let Some(n) = tx.ed.node(&mut self.doc, *id) {
-                for k in keys {
-                    n.variables.bindings.remove(*k);
+            if self.doc.get(*id).is_some_and(|n| keys.iter().any(|k| n.variables.bindings.contains_key(*k))) {
+                if let Some(n) = tx.ed.node(&mut self.doc, *id) {
+                    for k in keys {
+                        n.variables.bindings.remove(*k);
+                    }
+                    touched_ids.push(*id);
                 }
             }
         }
@@ -344,8 +350,8 @@ impl App {
                 set_bound_property(n, key, val);
             }
         }
-        for id in nodes {
-            layout::relayout_around(&mut self.doc, &mut tx.ed, *id);
+        for id in touched_ids {
+            layout::relayout_around(&mut self.doc, &mut tx.ed, id);
         }
         self.run_tx(tx);
     }

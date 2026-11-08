@@ -1756,3 +1756,132 @@ fn picker_gradient_stop_binding_through_linked_style_locks_controls_and_preserve
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(hero).unwrap(), &before_stroke_node, "swatch click must not overwrite a style-bound stroke gradient stop");
 }
+
+#[test]
+fn picker_style_bound_stop_pill_is_read_only_while_direct_stop_pill_detaches_in_one_undo_step() {
+    fn painted_texts(s: &Sim) -> Vec<String> {
+        fn collect(shape: &egui::epaint::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::epaint::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+                egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in &s.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, dark) = theme_ids(s.app());
+    let style_stop_var = store.add_variable(&coll, "Grad/StyleStopStart", VariableKind::Color).unwrap();
+    let light_color = Color::rgb(0xFF, 0x11, 0x22);
+    let dark_color = Color::rgb(0x00, 0xFF, 0x00);
+    store.set_value(&style_stop_var, &light, VariableValue::Color(light_color));
+    store.set_value(&style_stop_var, &dark, VariableValue::Color(dark_color));
+    set_scopes(&mut store, &style_stop_var, &["ALL_FILLS"]);
+
+    let direct_stop_var = store.add_variable(&coll, "Grad/DirectStopEnd", VariableKind::Color).unwrap();
+    let direct_color = Color::rgb(0x22, 0xAA, 0xFF);
+    store.set_value(&direct_stop_var, &light, VariableValue::Color(direct_color));
+    store.set_value(&direct_stop_var, &dark, VariableValue::Color(direct_color));
+    set_scopes(&mut store, &direct_stop_var, &["ALL_FILLS"]);
+    s.shell.app.commit_store(store, &[], &[]);
+
+    let grad_paint = Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: light_color }, GradientStop { pos: 1.0, color: Color::WHITE }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+
+    s.shell.app.doc.styles.insert("Grad/BrandFill".into(), designos_doc::Style::Fill(vec![grad_paint]));
+    s.shell.app.doc.style_meta.insert(
+        "Grad/BrandFill".into(),
+        designos_doc::StyleMeta { name: "Grad/BrandFill".into(), property: designos_doc::StyleProperty::Fill, ..Default::default() },
+    );
+    assert!(s.shell.app.bind_style_variable("Grad/BrandFill", "fills/0/stops/0", &style_stop_var));
+    s.shell.app.apply_style(&[hero], "Grad/BrandFill");
+    // Put Hero in Dark mode so the resolved colour (`#00FF00`) differs from the stored stop colour (`#FF1122`).
+    s.shell.app.set_node_mode(&[hero], &coll, Some(&dark));
+    s.frame(vec![]);
+
+    // Open the fill paint picker on Hero (`sw:false:0`).
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let pill0 = s.rect_of("bound:fills/0/stops/0");
+
+    let before_node = s.app().doc.get(hero).unwrap().clone();
+    let undo_before = s.app().hist.undo_depth();
+
+    // 1. Hovering and clicking the right edge of the style-bound stop pill (where the detach X sits on a direct pill)
+    // has no detach action, pushes no history, and changes no node.
+    let detach_slot = Pos2::new(pill0.right() - 13.0, pill0.center().y);
+    s.mv(detach_slot);
+    s.frame(vec![]);
+    s.click(detach_slot);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "clicking a style-bound stop pill must push no history");
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "clicking a style-bound stop pill must not change the node");
+    assert!(s.app().vars.bind_picker.is_none(), "clicking a style-bound stop pill must not open the variable bind picker");
+
+    // 2. Clicking the pill body also opens no rebind popup, pushes no history, and changes no node.
+    s.click(pill0.center());
+    s.frame(vec![]);
+    assert!(s.app().vars.bind_picker.is_none(), "clicking the style-bound stop pill body must not open the rebind popup");
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "clicking the style-bound stop pill body must push no history");
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "clicking the style-bound stop pill body must not change the node");
+
+    // 3. Hovering the read-only pill shows the "Bound in style <style name>" tooltip without writing the node.
+    s.mv(pill0.center() + egui::Vec2::new(0.0, 1.0));
+    s.mv(pill0.center());
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(
+        painted_texts(&s).iter().any(|t| t == "Bound in style Grad/BrandFill"),
+        "hovering a style-bound stop pill must show 'Bound in style Grad/BrandFill', got {:?}",
+        painted_texts(&s)
+    );
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "hovering a style-bound stop pill must push no history");
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "hovering a style-bound stop pill must not change the node");
+
+    // 4. Swatch clicks stay locked on the style-bound stop.
+    let swatch0 = Pos2::new(picker.left() + 24.0, picker.top() + 504.0);
+    s.click(swatch0);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "swatch click on style-bound stop must push no history");
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "swatch click on style-bound stop must not change the node");
+
+    // 5. A direct node binding on a gradient stop keeps its detachable pill and detaches in one undo step.
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    let stop_color_row = Pos2::new(picker.left() + 100.0, picker.top() + 423.0);
+    s.mv(stop_color_row);
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:fills/0/stops/1").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Grad/DirectStopEnd").center());
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&direct_stop_var));
+
+    let pill1 = s.rect_of("bound:fills/0/stops/1");
+    let undo_before_detach = s.app().hist.undo_depth();
+    s.click(Pos2::new(pill1.right() - 13.0, pill1.center().y));
+    s.frame(vec![]);
+    assert!(!s.app().doc.get(hero).unwrap().variables.bindings.contains_key("fills/0/stops/1"), "direct-bound stop pill must detach on clicking X");
+    assert_eq!(s.app().hist.undo_depth(), undo_before_detach + 1, "detaching a direct-bound stop must record one undo step");
+
+    // One undo restores the direct stop binding.
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&direct_stop_var));
+}
