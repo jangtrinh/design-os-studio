@@ -257,6 +257,16 @@ impl App {
         self.doc.get(instance).and_then(instance_component).filter(|c| self.doc.get(*c).is_some())
     }
 
+    /// Object-menu and context-menu wording for [`Self::create_component`].
+    /// Several top-level layers use Figma's plural; one layer stays singular.
+    pub fn create_component_label(&self) -> &'static str {
+        if self.top_selection().len() > 1 {
+            "Create multiple components"
+        } else {
+            "Create component"
+        }
+    }
+
     /// Ctrl+Alt+K: turns the selection into main components.
     pub fn create_component(&mut self) {
         let tops = self.top_selection();

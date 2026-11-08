@@ -353,6 +353,95 @@ fn combine_selection_builds_a_component_set() {
     assert!(s.app().doc.get(set).is_none());
 }
 
+/// Three rectangles on the page, in insertion order.
+fn three_page_rectangles(s: &mut Sim) -> Vec<NodeId> {
+    let page = s.app().page;
+    let mut ids = Vec::with_capacity(3);
+    for i in 0..3 {
+        let id = s.shell.app.doc.alloc_id();
+        let mut n = designos_doc::Node::rectangle(id, designos_doc::Rect::new(40.0 + i as f32 * 80.0, 40.0, 48.0, 32.0));
+        n.name = format!("Multi {i}");
+        ids.push(s.shell.app.doc.insert(page, n).unwrap());
+    }
+    ids
+}
+
+fn component_count(app: &App) -> usize {
+    app.doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).count()
+}
+
+#[test]
+fn create_component_on_three_top_layers_wraps_each_and_undoes_in_one_step() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let ids = three_page_rectangles(&mut s);
+    let before: Vec<_> = ids
+        .iter()
+        .map(|id| {
+            let n = s.app().doc.get(*id).unwrap();
+            (n.parent, n.name.clone(), n.transform, n.size)
+        })
+        .collect();
+    let page_children = s.app().doc.get(page).unwrap().children.clone();
+    let comps_before = component_count(s.app());
+    let depth = s.app().hist.undo_depth();
+    s.shell.app.selection = ids.clone();
+    s.shell.app.create_component();
+
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "the three conversions are one undo step");
+    assert_eq!(component_count(s.app()), comps_before + 3);
+    let mut wrappers = Vec::new();
+    for id in &ids {
+        let layer = s.app().doc.get(*id).unwrap();
+        let wrap = layer.parent.expect("each layer is wrapped");
+        assert!(!ids.contains(&wrap), "the wrapper is a new node");
+        let comp = s.app().doc.get(wrap).unwrap();
+        assert!(matches!(comp.kind, NodeKind::Component(_)), "one component per layer");
+        assert_eq!(comp.parent, Some(page));
+        assert_eq!(comp.children, vec![*id]);
+        wrappers.push(wrap);
+    }
+    assert_eq!(wrappers.iter().collect::<std::collections::HashSet<_>>().len(), 3);
+    let mut selected = s.app().selection.clone();
+    let mut wrapped = wrappers.clone();
+    selected.sort();
+    wrapped.sort();
+    assert_eq!(selected, wrapped, "the new components are selected");
+
+    s.shell.app.undo();
+    assert_eq!(s.app().hist.undo_depth(), depth);
+    assert_eq!(component_count(s.app()), comps_before);
+    assert_eq!(s.app().doc.get(page).unwrap().children, page_children);
+    for (id, (parent, name, transform, size)) in ids.iter().zip(before) {
+        let n = s.app().doc.get(*id).unwrap();
+        assert_eq!(n.parent, parent);
+        assert_eq!(n.name, name);
+        assert_eq!(n.transform, transform);
+        assert_eq!(n.size, size);
+        assert!(matches!(n.kind, NodeKind::Rectangle));
+    }
+    for wrap in wrappers {
+        assert!(s.app().doc.get(wrap).is_none(), "one undo removes every new component");
+    }
+}
+
+#[test]
+fn create_component_menu_label_is_plural_only_for_several_top_layers() {
+    let mut s = Sim::new();
+    let ids = three_page_rectangles(&mut s);
+    s.shell.app.selection = ids.clone();
+    let plural = "Create multiple components";
+    let singular = "Create component";
+    assert_eq!(crate::panels::context::labels(s.app()).iter().find(|l| l.contains("component")).map(String::as_str), Some(plural));
+    assert_eq!(crate::panels::menus::shortcut_label(s.app(), "Ctrl+Alt+K").as_deref(), Some(plural));
+    assert_eq!(crate::panels::menus::file_shortcut_label(s.app(), "Ctrl+Alt+K").as_deref(), Some(plural));
+
+    s.shell.app.selection = vec![ids[0]];
+    assert_eq!(crate::panels::context::labels(s.app()).iter().find(|l| l.contains("component")).map(String::as_str), Some(singular));
+    assert_eq!(crate::panels::menus::shortcut_label(s.app(), "Ctrl+Alt+K").as_deref(), Some(singular));
+    assert_eq!(crate::panels::menus::file_shortcut_label(s.app(), "Ctrl+Alt+K").as_deref(), Some(singular));
+}
+
 #[test]
 fn convert_frame_to_slot_and_edit_slot_settings_persists_and_undoes() {
     let mut s = Sim::with(Options { select: Some("Primary button".into()), ..Default::default() });
