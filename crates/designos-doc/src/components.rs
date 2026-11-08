@@ -99,6 +99,8 @@ fn same_ignoring_tree(a: &Node, b: &Node) -> bool {
 fn copy_tree(d: &mut Document, src: NodeId, link: bool) -> Vec<Node> {
     let mut out = Vec::new();
     copy_rec(d, src, None, link, &mut out);
+    let mut copied: Vec<&mut Node> = out.iter_mut().collect();
+    crate::reid_copied_motion(d, &mut copied);
     out
 }
 

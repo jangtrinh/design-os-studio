@@ -2915,6 +2915,119 @@ mod tests {
         assert_eq!(app.doc.get(child).unwrap().component.slot_content_id.as_deref(), Some("9:10"));
     }
 
+    /// A frame that owns timeline "tl" and animates its own opacity on it, plus a child that plays "tl" too.
+    fn app_with_motion() -> (App, NodeId, NodeId) {
+        use designos_doc::{NodeMotion, Timeline, TimelineAssignment, Track, TrackProperty};
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        frame.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 1_000_000)],
+            assignments: vec![],
+            tracks: vec![Track::new("tr", "tl", TrackProperty::Opacity)],
+        }));
+        let fid = d.insert(page, frame).unwrap();
+        let cid = d.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(5.0, 5.0, 10.0, 10.0));
+        child.motion = Some(Box::new(NodeMotion {
+            timelines: vec![],
+            assignments: vec![TimelineAssignment { timeline: "tl".into(), containing: "tl".into(), offset_us: 0, disabled: false, autoplay: false }],
+            tracks: vec![Track::new("kid-tr", "tl", TrackProperty::Rotation)],
+        }));
+        let cid = d.insert(fid, child).unwrap();
+        (App::new(d), fid, cid)
+    }
+
+    fn assert_motion_ids_healthy(doc: &Document, what: &str) {
+        let ix = designos_doc::MotionIndex::build(doc);
+        assert!(ix.duplicate_ids().is_empty(), "{what}: duplicate motion ids {:?}", ix.duplicate_ids());
+        for (_, a) in ix.assignments() {
+            assert!(ix.timeline(&a.timeline).is_some() && ix.timeline(&a.containing).is_some(), "{what}: dangling assignment {a:?}");
+        }
+        for (_, t) in doc.nodes.values().filter_map(|n| n.motion.as_deref()).flat_map(|m| m.tracks.iter()).map(|t| ((), t)) {
+            assert!(ix.timeline(&t.timeline).is_some(), "{what}: track {} points at a missing timeline", t.id);
+        }
+    }
+
+    #[test]
+    fn duplicate_gives_the_copy_its_own_timeline_and_track_ids_and_rewires_references() {
+        let (mut app, frame, _) = app_with_motion();
+        app.selection = vec![frame];
+        app.duplicate_selection();
+        let copy = app.selection[0];
+        assert_ne!(copy, frame);
+        assert_motion_ids_healthy(&app.doc, "duplicate");
+        let m = app.doc.get(copy).unwrap().motion.as_deref().unwrap().clone();
+        assert_ne!(m.timelines[0].id, "tl");
+        assert_eq!(m.tracks[0].timeline, m.timelines[0].id, "the copy's track runs on the copy's timeline");
+        let kid = app.doc.get(app.doc.get(copy).unwrap().children[0]).unwrap().motion.as_deref().unwrap().clone();
+        assert_eq!(kid.assignments[0].timeline, m.timelines[0].id, "the copied child plays the copied timeline");
+        assert_eq!(kid.tracks[0].timeline, m.timelines[0].id);
+        let orig = app.doc.get(frame).unwrap().motion.as_deref().unwrap();
+        assert_eq!((orig.timelines[0].id.as_str(), orig.tracks[0].id.as_str()), ("tl", "tr"), "the original keeps its ids");
+    }
+
+    #[test]
+    fn copy_paste_within_a_file_never_repeats_motion_ids() {
+        let (mut app, frame, _) = app_with_motion();
+        app.selection = vec![frame];
+        let json = app.copy_selection().unwrap();
+        app.paste(Some(&json));
+        app.paste(Some(&json));
+        assert_motion_ids_healthy(&app.doc, "paste twice");
+        assert_eq!(designos_doc::MotionIndex::build(&app.doc).timelines().count(), 3);
+    }
+
+    #[test]
+    fn a_copied_child_keeps_playing_the_timeline_of_its_parent_in_the_same_file() {
+        let (mut app, _, child) = app_with_motion();
+        app.selection = vec![child];
+        let json = app.copy_selection().unwrap();
+        app.paste(Some(&json));
+        assert_motion_ids_healthy(&app.doc, "child paste");
+        let pasted = app.selection[0];
+        let m = app.doc.get(pasted).unwrap().motion.as_deref().unwrap();
+        assert_eq!(m.tracks[0].timeline, "tl", "the timeline outside the copied set still exists, so it is kept");
+        assert_ne!(m.tracks[0].id, "kid-tr");
+    }
+
+    #[test]
+    fn paste_into_another_document_renames_and_drops_references_the_target_lacks() {
+        let (mut src, frame, child) = app_with_motion();
+        src.selection = vec![frame];
+        let whole = src.copy_selection().unwrap();
+        src.selection = vec![child];
+        let only_child = src.copy_selection().unwrap();
+
+        let mut other = Document::new("other");
+        other.add_page("p");
+        let mut dst = App::new(other);
+        // The target already uses the same ids for something of its own.
+        let own = dst.doc.alloc_id();
+        let mut n = Node::frame(own, Rect::new(0.0, 0.0, 10.0, 10.0));
+        n.motion = Some(Box::new(designos_doc::NodeMotion {
+            timelines: vec![designos_doc::Timeline::new("tl", 5)],
+            tracks: vec![designos_doc::Track::new("tr", "tl", designos_doc::TrackProperty::Width)],
+            ..Default::default()
+        }));
+        let page = dst.page;
+        dst.doc.insert(page, n).unwrap();
+
+        dst.paste(Some(&whole));
+        assert_motion_ids_healthy(&dst.doc, "paste of the whole frame");
+        assert_eq!(designos_doc::MotionIndex::build(&dst.doc).timelines().count(), 2);
+
+        // The child alone, into a file that has no such timeline: its track and assignment lose their target.
+        let mut empty = Document::new("empty");
+        empty.add_page("p");
+        let mut bare = App::new(empty);
+        bare.paste(Some(&only_child));
+        assert_motion_ids_healthy(&bare.doc, "paste of the child alone into a bare file");
+        let pasted = bare.doc.get(bare.selection[0]).unwrap();
+        assert!(pasted.motion.is_none(), "{:?}", pasted.motion);
+    }
+
     #[test]
     fn pasting_twice_never_shares_a_slot_content_id() {
         let (mut app, inst, _) = app_with_slot_instance();

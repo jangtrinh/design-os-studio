@@ -71,6 +71,11 @@ impl<'a> MotionIndex<'a> {
         ix
     }
 
+    /// Every timeline and track id in the document.
+    pub(crate) fn all_ids(&self) -> BTreeSet<MotionId> {
+        self.timelines.keys().chain(self.track_ids.iter()).map(|s| s.to_string()).collect()
+    }
+
     /// Timeline and track ids that appear more than once in the document. Empty for a healthy document; a
     /// layer duplicate must give its timelines and tracks new ids to keep it so.
     pub fn duplicate_ids(&self) -> &[&'a str] {

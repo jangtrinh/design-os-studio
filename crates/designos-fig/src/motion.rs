@@ -55,9 +55,6 @@ const COLOR_SPACE: [(&str, ColorSpace); 5] = [
     ("SRGB_LINEAR", ColorSpace::SrgbLinear),
 ];
 
-/// The kiwi tag of `EasingType.EASE_IN`, which [`EasingType`] does not have yet.
-const EASE_IN_TAG: u32 = 15;
-
 /// Timeline definitions (field 552) as the model's timelines, in file order.
 pub fn timelines_from_kiwi(map: Option<&Value>) -> Vec<Timeline> {
     entries(map)
@@ -216,15 +213,7 @@ fn handles_json(h: [f32; 4]) -> Value {
 /// An `EasingData` as a model easing.
 pub fn easing_from_kiwi(data: &Value) -> KeyEasing {
     let name = data.get("easingType").and_then(Value::as_str).unwrap_or("");
-    let mut e = match EasingType::from_kiwi_name(name) {
-        Some(t) => KeyEasing::new(t),
-        None if name == "EASE_IN" => {
-            let mut e = KeyEasing::new(EasingType::InCubic);
-            e.unmapped_tag = Some(EASE_IN_TAG);
-            e
-        }
-        None => KeyEasing::default(),
-    };
+    let mut e = EasingType::from_kiwi_name(name).map(KeyEasing::new).unwrap_or_default();
     let value = data.get("easingValue").unwrap_or(&Value::Null);
     e.bezier = value.get("bezierEasing").map(handles);
     e.spring = value.get("springEasing").map(|s| SpringParams {
@@ -238,8 +227,7 @@ pub fn easing_from_kiwi(data: &Value) -> KeyEasing {
 
 /// The model easing as an `EasingData`.
 pub fn easing_to_kiwi(e: &KeyEasing) -> Value {
-    let name = if e.unmapped_tag == Some(EASE_IN_TAG) { "EASE_IN" } else { e.easing_type.kiwi_name() };
-    let mut out = json!({"easingType": name});
+    let mut out = json!({"easingType": e.easing_type.kiwi_name()});
     if let Some(b) = e.bezier {
         out["easingValue"] = json!({"bezierEasing": handles_json(b)});
     } else if let Some(s) = e.spring {
@@ -254,7 +242,9 @@ pub fn easing_to_kiwi(e: &KeyEasing) -> Value {
 pub fn keyframe_from_kiwi(node: &Value) -> Option<Keyframe> {
     let time_us = node.get("timelinePosition").and_then(Value::as_i64)?;
     let mut k = Keyframe::new(time_us, key_value_from_kiwi(node.get("keyframeValue")?));
-    k.interpolation = name_of(node.get("interpolationType"), &INTERPOLATION).unwrap_or_default();
+    // Kiwi tag 0 is HOLD: a record without the field (or with a name this model lacks) is a hold, not the
+    // Bezier a keyframe made in the editor starts with.
+    k.interpolation = name_of(node.get("interpolationType"), &INTERPOLATION).unwrap_or(InterpolationType::Hold);
     k.bezier_handles = node.get("bezierHandles").map(handles);
     k.easing = node.get("easingData").map(easing_from_kiwi);
     k.color_space = name_of(node.get("interpolationColorSpace"), &COLOR_SPACE).unwrap_or_default();

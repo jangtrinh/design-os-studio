@@ -177,15 +177,11 @@ pub struct KeyEasing {
     /// Parameters of a `CustomSpring`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spring: Option<SpringParams>,
-    /// A kiwi `EasingType` tag that [`EasingType`] does not have yet (the schema has `EASE_IN = 15`). Kept so a
-    /// round trip writes it back; it evaluates as `easing_type`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unmapped_tag: Option<u32>,
 }
 
 impl KeyEasing {
     pub fn new(easing_type: EasingType) -> Self {
-        Self { easing_type, bezier: None, spring: None, unmapped_tag: None }
+        Self { easing_type, bezier: None, spring: None }
     }
 
     /// The curve as the prototype player's [`Easing`].

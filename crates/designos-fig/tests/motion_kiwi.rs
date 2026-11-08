@@ -108,7 +108,6 @@ fn a_keyframe_node_converts_both_ways() {
         easing_type: EasingType::CustomSpring,
         bezier: None,
         spring: Some(SpringParams { stiffness: 200.0, damping: 12.0, mass: 1.0, normalized: false }),
-        unmapped_tag: None,
     });
     want.color_space = ColorSpace::Oklch;
     assert_eq!(key, want);
@@ -141,10 +140,26 @@ fn every_value_kind_and_the_unmapped_easing_survive_a_conversion() {
         assert_eq!(key_value_from_kiwi(&key_value_to_kiwi(&v)), v);
     }
     let ease_in = easing_from_kiwi(&json!({"easingType": "EASE_IN"}));
-    assert_eq!(ease_in.unmapped_tag, Some(15));
-    assert_eq!(easing_to_kiwi(&ease_in)["easingType"], "EASE_IN", "the tag the model does not know is written back as read");
+    assert_eq!(ease_in.easing_type, EasingType::EaseIn);
+    assert_eq!(easing_to_kiwi(&ease_in)["easingType"], "EASE_IN");
     let cubic = easing_from_kiwi(&json!({"easingType": "CUSTOM_CUBIC", "easingValue": {"bezierEasing": {"p1x": 0.5, "p1y": 0.0, "p2x": 0.25, "p2y": 1.0}}}));
     assert_eq!((cubic.easing_type, cubic.bezier), (EasingType::CustomCubic, Some([0.5, 0.0, 0.25, 1.0])));
+}
+
+#[test]
+fn a_kiwi_keyframe_without_an_interpolation_type_is_hold_and_stays_hold_going_back() {
+    let node = json!({"timelinePosition": 10, "keyframeValue": {"value": {"floatValue": 1.0}, "valueType": "FLOAT"}});
+    let key = keyframe_from_kiwi(&node).expect("keyframe");
+    assert_eq!(key.interpolation, InterpolationType::Hold, "kiwi tag 0 is HOLD, the absent-field value");
+    let mut out = Map::new();
+    keyframe_to_kiwi(&key, &mut out);
+    assert_eq!(out["interpolationType"], "HOLD");
+    assert_eq!(keyframe_from_kiwi(&Value::Object(out)).unwrap().interpolation, InterpolationType::Hold);
+    // A keyframe made by a user keeps the Bezier default.
+    assert_eq!(Keyframe::new(0, KeyValue::Float(0.0)).interpolation, InterpolationType::Bezier);
+    // An unknown name is not silently turned into a curve either.
+    let odd = json!({"timelinePosition": 1, "keyframeValue": {"value": {"floatValue": 1.0}, "valueType": "FLOAT"}, "interpolationType": "WOBBLE"});
+    assert_eq!(keyframe_from_kiwi(&odd).unwrap().interpolation, InterpolationType::Hold);
 }
 
 #[test]

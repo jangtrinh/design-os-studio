@@ -61,7 +61,7 @@ pub enum Direction {
     Bottom,
 }
 
-/// Figma's 15 `EasingType` kiwi enum values (`0..=14`, REA R5).
+/// Figma's 16 `EasingType` kiwi enum values (`0..=15`): the 15 of REA R5 plus `EASE_IN` (15), the CSS ease-in curve.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum EasingType {
@@ -81,11 +81,14 @@ pub enum EasingType {
     SpringPresetTwo = 12,
     SpringPresetThree = 13,
     Hold = 14,
+    /// Figma's plain "ease in": "an animation curve similar to CSS ease-in" (Figma `EasingType.EASE_IN`), which is
+    /// the CSS Easing spec's `cubic-bezier(0.42, 0, 1, 1)`. Not the stronger `InCubic` curve.
+    EaseIn = 15,
 }
 
 impl EasingType {
-    /// All 15 `EasingType` variants in kiwi tag order (`0..=14`).
-    pub const ALL: [EasingType; 15] = [
+    /// All 16 `EasingType` variants in kiwi tag order (`0..=15`).
+    pub const ALL: [EasingType; 16] = [
         EasingType::InCubic,
         EasingType::OutCubic,
         EasingType::InOutCubic,
@@ -101,6 +104,7 @@ impl EasingType {
         EasingType::SpringPresetTwo,
         EasingType::SpringPresetThree,
         EasingType::Hold,
+        EasingType::EaseIn,
     ];
 
     pub const fn kiwi_tag(self) -> u32 {
@@ -124,6 +128,7 @@ impl EasingType {
             12 => Some(Self::SpringPresetTwo),
             13 => Some(Self::SpringPresetThree),
             14 => Some(Self::Hold),
+            15 => Some(Self::EaseIn),
             _ => None,
         }
     }
@@ -145,6 +150,7 @@ impl EasingType {
             Self::SpringPresetTwo => "SPRING_PRESET_TWO",
             Self::SpringPresetThree => "SPRING_PRESET_THREE",
             Self::Hold => "HOLD",
+            Self::EaseIn => "EASE_IN",
         }
     }
 
@@ -165,6 +171,7 @@ impl EasingType {
             "SPRING_PRESET_TWO" => Some(Self::SpringPresetTwo),
             "SPRING_PRESET_THREE" => Some(Self::SpringPresetThree),
             "HOLD" => Some(Self::Hold),
+            "EASE_IN" => Some(Self::EaseIn),
             _ => None,
         }
     }
@@ -176,6 +183,7 @@ impl EasingType {
             Self::OutCubic => Easing::EaseOut,
             Self::InOutCubic => Easing::EaseInOut,
             Self::Linear | Self::Hold => Easing::Linear,
+            Self::EaseIn => Easing::Bezier(CSS_EASE_IN),
             Self::InBackCubic => Easing::EaseInBack,
             Self::OutBackCubic => Easing::EaseOutBack,
             Self::InOutBackCubic => Easing::EaseInOutBack,
@@ -204,6 +212,9 @@ impl EasingType {
         ease(&self.to_easing(custom_bezier, custom_spring), t)
     }
 }
+
+/// CSS `ease-in` control points (`cubic-bezier(0.42, 0, 1, 1)`, CSS Easing Functions Level 1), the curve of Figma's `EASE_IN`.
+pub const CSS_EASE_IN: [f32; 4] = [0.42, 0.0, 1.0, 1.0];
 
 /// Default cubic-bezier control points (`[0, 0, 0.58, 1]`, REA R5).
 pub const DEFAULT_BEZIER: [f32; 4] = [0.0, 0.0, 0.58, 1.0];
@@ -237,6 +248,7 @@ impl Easing {
             Easing::EaseInBack => EasingType::InBackCubic,
             Easing::EaseOutBack => EasingType::OutBackCubic,
             Easing::EaseInOutBack => EasingType::InOutBackCubic,
+            Easing::Bezier(c) if c == CSS_EASE_IN => EasingType::EaseIn,
             Easing::Bezier(_) => EasingType::CustomCubic,
             Easing::Spring { mass, stiffness, damping } => {
                 if (mass, stiffness, damping) == (1.0, 100.0, 15.0) {
@@ -589,8 +601,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_15_easing_types_roundtrip_tags_and_names() {
-        assert_eq!(EasingType::ALL.len(), 15);
+    fn ease_in_is_the_css_ease_in_curve_not_the_cubic_preset() {
+        // Figma documents EASE_IN as "an animation curve similar to CSS ease-in" (figma-api EasingType docs);
+        // CSS ease-in is cubic-bezier(0.42, 0, 1, 1) (CSS Easing Functions Level 1).
+        let want = |t: f32| cubic_bezier([0.42, 0.0, 1.0, 1.0], t);
+        for t in [0.1, 0.25, 0.5, 0.75, 0.9] {
+            assert_eq!(EasingType::EaseIn.ease_at(None, None, t), want(t));
+            assert!((EasingType::EaseIn.ease_at(None, None, t) - EasingType::InCubic.ease_at(None, None, t)).abs() > 1e-3, "differs from InCubic at {t}");
+        }
+        assert!((EasingType::EaseIn.ease_at(None, None, 0.5) - 0.3155).abs() < 1e-3);
+        assert_eq!(EasingType::EaseIn.to_easing(None, None), Easing::Bezier(CSS_EASE_IN));
+        assert_eq!(Easing::Bezier(CSS_EASE_IN).easing_type(), EasingType::EaseIn);
+        assert_eq!(Easing::Bezier([0.4, 0.0, 1.0, 1.0]).easing_type(), EasingType::CustomCubic);
+        assert_eq!((EasingType::EaseIn.kiwi_tag(), EasingType::from_kiwi_name("EASE_IN")), (15, Some(EasingType::EaseIn)));
+    }
+
+    #[test]
+    fn all_16_easing_types_roundtrip_tags_and_names() {
+        assert_eq!(EasingType::ALL.len(), 16);
         for (idx, kind) in EasingType::ALL.iter().copied().enumerate() {
             assert_eq!(kind.kiwi_tag() as usize, idx);
             assert_eq!(EasingType::from_kiwi_tag(idx as u32), Some(kind));
@@ -598,7 +626,7 @@ mod tests {
             assert!((kind.ease_at(None, None, 0.0) - 0.0).abs() < 1e-3, "{kind:?} at t=0.0 should start at 0");
             assert!((kind.ease_at(None, None, 1.0) - 1.0).abs() < 1e-3, "{kind:?} at t=1.0 should end at 1");
         }
-        assert_eq!(EasingType::from_kiwi_tag(15), None);
+        assert_eq!(EasingType::from_kiwi_tag(16), None);
         assert_eq!(EasingType::from_kiwi_name("UNKNOWN"), None);
     }
 

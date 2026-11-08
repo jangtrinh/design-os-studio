@@ -495,6 +495,9 @@ fn instantiate_mapped(doc: &mut Document, clip: &Clip) -> (Vec<Vec<Node>>, HashM
         }
         out.push(list);
     }
+    // copies of layers with Motion get their own timeline and track ids (and the references to them)
+    let mut copied: Vec<&mut Node> = out.iter_mut().flatten().collect();
+    designos_doc::reid_copied_motion(doc, &mut copied);
     (out, map)
 }
 

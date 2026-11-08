@@ -36,14 +36,13 @@ fn rich_motion() -> NodeMotion {
         easing_type: EasingType::CustomSpring,
         bezier: None,
         spring: Some(SpringParams { stiffness: 200.0, damping: 12.0, mass: 1.0, normalized: false }),
-        unmapped_tag: None,
     });
     opacity.set_keyframe(mid);
     opacity.set_keyframe(Keyframe::new(0, KeyValue::Float(0.0)));
     let mut color = Track::new("4:2", "3:2", TrackProperty::Other("FILL_COLOR".into()));
     let mut c1 = Keyframe::new(250_000, KeyValue::Color(Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }));
     c1.color_space = ColorSpace::Oklch;
-    c1.easing = Some(KeyEasing { easing_type: EasingType::CustomCubic, bezier: Some([0.5, 0.0, 0.25, 1.0]), spring: None, unmapped_tag: Some(15) });
+    c1.easing = Some(KeyEasing { easing_type: EasingType::CustomCubic, bezier: Some([0.5, 0.0, 0.25, 1.0]), spring: None });
     color.set_keyframe(c1);
     color.set_keyframe(Keyframe::new(0, KeyValue::Raw { kind: "PAINT".into(), json: serde_json::json!({"type": "SOLID"}) }));
     NodeMotion {
@@ -128,11 +127,10 @@ fn easing_reuses_the_prototype_curves() {
         easing_type: EasingType::CustomSpring,
         bezier: None,
         spring: Some(SpringParams { stiffness: 200.0, damping: 12.0, mass: 1.0, normalized: false }),
-        unmapped_tag: None,
     };
     let want = ease(&Easing::Spring { mass: 1.0, stiffness: 200.0, damping: 12.0 }, 0.4);
     assert_eq!(spring.progress(0.4), want);
-    let cubic = KeyEasing { easing_type: EasingType::CustomCubic, bezier: Some([0.5, 0.0, 0.25, 1.0]), spring: None, unmapped_tag: None };
+    let cubic = KeyEasing { easing_type: EasingType::CustomCubic, bezier: Some([0.5, 0.0, 0.25, 1.0]), spring: None };
     assert_eq!(cubic.progress(0.3), cubic_bezier([0.5, 0.0, 0.25, 1.0], 0.3));
     let mut hold = Keyframe::new(1, KeyValue::Float(1.0));
     hold.interpolation = InterpolationType::Hold;
@@ -438,6 +436,25 @@ fn a_copied_layer_with_the_same_ids_is_reported_not_silently_merged() {
     assert_eq!(ix.timeline("tl").map(|(n, _)| n), Some(frame), "the first layer keeps the id");
     assert_eq!(ix.duplicate_ids(), ["tl", "tr"]);
     assert!(MotionIndex::build(&doc_with_frame().0).duplicate_ids().is_empty());
+}
+
+#[test]
+fn duplicating_a_subtree_gives_the_copy_its_own_motion_ids() {
+    let (mut d, frame) = doc_with_frame();
+    let mut m = NodeMotion::default();
+    m.timelines.push(Timeline::new("tl", 1));
+    m.tracks.push(Track::new("tr", "tl", TrackProperty::Opacity));
+    d.get_mut(frame).unwrap().motion = Some(Box::new(m));
+    let page = d.pages[0];
+    let copy = duplicate_subtree(&mut d, frame);
+    let copy_id = copy[0].id;
+    let mut it = copy.into_iter();
+    d.insert(page, it.next().unwrap()).unwrap();
+    assert!(MotionIndex::build(&d).duplicate_ids().is_empty());
+    let cm = motion_of(&d, copy_id);
+    assert_eq!(cm.tracks[0].timeline, cm.timelines[0].id);
+    assert_ne!(cm.timelines[0].id, "tl");
+    assert_eq!(motion_of(&d, frame).timelines[0].id, "tl");
 }
 
 #[test]

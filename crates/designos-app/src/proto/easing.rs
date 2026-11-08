@@ -112,7 +112,7 @@ mod tests {
         assert_eq!(control_points(&Easing::EaseOutBack), Some([0.45, 1.45, 0.8, 1.0]));
         assert_eq!(control_points(&Easing::EaseInOutBack), Some([0.7, -0.4, 0.4, 1.4]));
         assert_eq!(DEFAULT_BEZIER, [0.0, 0.0, 0.58, 1.0]);
-        assert_eq!(EasingType::ALL.len(), 15);
+        assert_eq!(EasingType::ALL.len(), 16);
         for (i, et) in EasingType::ALL.iter().enumerate() {
             assert_eq!(et.kiwi_tag() as usize, i);
             assert_eq!(EasingType::from_kiwi_tag(i as u32), Some(*et));
