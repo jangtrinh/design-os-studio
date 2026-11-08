@@ -1173,7 +1173,7 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             }
             // The arrow caps are mapped to NONE for the stroke model; the baked outline keeps the arrowhead,
             // so the name stays in the metadata for the resize to see (on the node, or on any vertex).
-            "strokeCap" if matches!(orig_ty, "VECTOR" | "BRUSH") => {
+            "strokeCap" if matches!(orig_ty, "VECTOR" | "BRUSH" | "LINE") => {
                 if let Some(c) = val.as_str().filter(|c| !is_modelled_stroke_cap(c)) {
                     meta.insert("strokeCap".into(), Value::String(c.to_string()));
                 }

@@ -176,6 +176,40 @@ fn scale_paths(paths: &mut [Path], kx: f32, ky: f32) {
     }
 }
 
+/// Maps every x of `paths` for a line of length `old_w` that grew by `grow`: inside the line it scales
+/// by `kx`, before the start it stays, past the end it shifts by `grow`. y is untouched.
+fn stretch_along_line(paths: &mut [Path], old_w: f32, kx: f32, grow: f32) {
+    let map = |p: Vec2| {
+        Vec2::new(
+            if p.x <= 0.0 {
+                p.x
+            } else if p.x >= old_w {
+                p.x + grow
+            } else {
+                p.x * kx
+            },
+            p.y,
+        )
+    };
+    for path in paths {
+        for cmd in &mut path.cmds {
+            match cmd {
+                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => *p = map(*p),
+                PathCmd::QuadTo(c, p) => {
+                    *c = map(*c);
+                    *p = map(*p);
+                }
+                PathCmd::CubicTo(c1, c2, p) => {
+                    *c1 = map(*c1);
+                    *c2 = map(*c2);
+                    *p = map(*p);
+                }
+                PathCmd::Close => {}
+            }
+        }
+    }
+}
+
 /// Whether stroking the centerline `net` live, at the node's own stroke, draws what the baked
 /// `stroke_geometry` draws. Only then may a plain resize drop the bake and let the renderers stroke
 /// the scaled centerline at the unscaled weight; otherwise the bake is scaled with the shape.
@@ -204,7 +238,7 @@ fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>,
 }
 
 /// Applies `(new_transform, new_size)` from [`constrain_child`] / [`plan_constraint_pass`]
-/// to `node`, scaling local vector/boolean path geometry or clearing stale analytical outlines
+/// to `node`, scaling local vector/boolean path geometry (a plain Line's stroke band is stretched along the line) or clearing stale analytical outlines
 /// whenever `node.size` changes.
 pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_size: Vec2) {
     let old_size = node.size;
@@ -249,6 +283,31 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
             }
             if let Some(sg) = &mut node.stroke_geometry {
                 scale_paths(sg, kx, ky);
+            }
+        }
+        NodeKind::Line => {
+            // A Line's outline is Figma's stroke band, which sits beside the line's own y = 0 (it is not
+            // centred on it). Clearing it would redraw the line as a centred primitive, half a stroke off,
+            // so a plain band is stretched along the line (anything past either end moves with that end).
+            // Where stretching would draw something other than Figma's stroke, the outline is cleared and
+            // the line is drawn live, as before: dashes would stretch with the band, a marker cap would
+            // distort (an arrowhead lies inside the line and would stretch too; a cap the stroke model has
+            // no name for, such as a REST arrow spelling or a decorative cap, is recorded by the importers
+            // in `fig_metadata["strokeCap"]` for lines), and a line with no length has no extent to scale.
+            // A line has one cap for both ends (`Stroke::cap`).
+            let stretchable = node.stroke.dashes.is_empty() && old_size.x > 1e-3 && !node.stroke.cap.is_arrow() && !node.fig_metadata.contains_key("strokeCap");
+            if stretchable {
+                let old_w = old_size.x;
+                let stretch = |paths: &mut [Path]| stretch_along_line(paths, old_w, kx, new_size.x - old_w);
+                if let Some(fg) = &mut node.fill_geometry {
+                    stretch(fg);
+                }
+                if let Some(sg) = &mut node.stroke_geometry {
+                    stretch(sg);
+                }
+            } else {
+                node.fill_geometry = None;
+                node.stroke_geometry = None;
             }
         }
         _ => {

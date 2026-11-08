@@ -205,8 +205,10 @@ pub fn relayout_around(doc: &mut Document, ed: &mut Edit, id: NodeId) {
 
 /// Gives `id` the box `(transform, size)` and brings along what is drawn from it:
 /// - a vector scales its stored paths, and a boolean group scales its operands;
-/// - a basic shape (rectangle, ellipse, star, polygon, line) drops the outlines a `.fig` import stored for its old
+/// - a basic shape (rectangle, ellipse, star, polygon) drops the outlines a `.fig` import stored for its old
 ///   size, so the renderers draw the primitive at the new one;
+/// - a line stretches its stored stroke band along the line so the band keeps its place; a line with dashes, an
+///   arrow or other marker cap, or no length drops the outlines like a basic shape;
 /// - every other kind is drawn from its box alone.
 ///
 /// A stroke keeps its weight, except that the outlined stroke (`stroke_geometry`) of an imported vector is scaled
