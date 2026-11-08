@@ -9,6 +9,10 @@ use designos_doc::{
 };
 use designos_export::{css_for, tailwind_for};
 
+#[path = "grid_chrome_fixtures/stroke_and_track_scenes.rs"]
+mod stroke_and_track_scenes;
+use stroke_and_track_scenes as extra;
+
 pub struct GridFixture {
     pub name: &'static str,
     pub doc: Document,
@@ -71,6 +75,20 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_n6_stroke_v0_unpadded_hug(),
         scene_n6c_stroke_v0_unpadded_fixed(),
         scene_c7_single_hug_col_min_w_fill(),
+        extra::scene_c1_stroke_v0_center_unpadded_hug(),
+        extra::scene_c2_stroke_v0_inside_sides_unpadded_hug(),
+        extra::scene_n6d_stroke_v1_padded_fixed(),
+        extra::scene_c3_rows0_fixed_row_tracks_flex_auto(),
+        extra::scene_n2d_fixed_fill_only_hug_col(),
+        extra::scene_s6_explicit_rows_flex(),
+        extra::scene_s8_auto_tracks_fixed(),
+        extra::scene_s10_fixed_width_hug_tracks(),
+        extra::scene_s6b_hug_height_explicit_rows_unequal(),
+        extra::scene_c8_component_grid_center_stroke(),
+        extra::scene_c9_stroke_v1_inside_sides_padded_fixed(),
+        extra::scene_c10_stroke_v1_inside_sides_unpadded_fixed(),
+        extra::scene_c10b_stroke_v1_inside_sides_unpadded_hug(),
+        extra::scene_c12_row_span_over_content_sized_rows(),
     ]
 }
 
@@ -256,8 +274,8 @@ fn scene_row_and_column_spans() -> GridFixture {
         doc,
         grid,
         items: vec![hero, top_wide, mid_a, mid_b, footer],
-        expected_css: "display: grid;\nwidth: 428px;\nheight: 220px;\npadding: 12px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(4, minmax(0, 1fr));\ngap: 12px;\nalign-content: start;",
-        expected_tailwind: "<div class=\"grid grid-cols-4 content-start gap-3 box-border p-3 w-[428px] h-[220px]\">\n  <div class=\"col-span-2 row-span-2 h-[92px]\"></div>\n  <div class=\"col-span-2 h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"col-start-1 col-span-4 row-start-3 h-9\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 428px;\nheight: 220px;\npadding: 12px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(4, minmax(0, 1fr));\ngrid-template-rows: 40px 40px 36px;\ngap: 12px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-4 grid-rows-[40px_40px_36px] content-start gap-3 box-border p-3 w-[428px] h-[220px]\">\n  <div class=\"col-span-2 row-span-2 h-[92px]\"></div>\n  <div class=\"col-span-2 h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"col-start-1 col-span-4 row-start-3 h-9\"></div>\n</div>",
     }
 }
 
@@ -699,6 +717,32 @@ fn json_str(s: &str) -> String {
     out
 }
 
+/// What the Chrome harness expects of a scene beyond box positions: the drift it accepts (a visible
+/// stroke wins over exact geometry) and whether a child that fills its cell must leave the stroke
+/// visible on all four sides.
+fn harness_expectation(name: &str) -> (f32, bool) {
+    match name {
+        "c9_stroke_v1_inside_sides_padded_fixed" | "c10_stroke_v1_inside_sides_unpadded_fixed" | "c10b_stroke_v1_inside_sides_unpadded_hug" => (0.0, true),
+        _ => (0.0, false),
+    }
+}
+
+/// The colour Studio's renderer shows at the middle of each edge (top, bottom, left, right) of the grid when
+/// every child is filled blue: the child's colour where a child covers the stroke (Studio paints a frame's
+/// stroke under its children), the stroke colour where none does.
+fn studio_edge_colours(f: &GridFixture) -> [[u8; 3]; 4] {
+    let mut doc = f.doc.clone();
+    for &id in &f.items {
+        doc.get_mut(id).unwrap().fills = vec![Paint::solid(Color::rgb(0, 0, 255))];
+    }
+    let pm = designos_render::render_node(&doc, f.grid, 1.0).expect("the scene renders");
+    let (w, h) = (pm.width(), pm.height());
+    [(w / 2, 0), (w / 2, h - 1), (0, h / 2), (w - 1, h / 2)].map(|(x, y)| {
+        let c = pm.pixel(x, y).unwrap().demultiply();
+        [c.red(), c.green(), c.blue()]
+    })
+}
+
 fn dump_fixtures_json() -> String {
     let fixtures = build_fixtures();
     let mut out = String::from("[\n");
@@ -708,6 +752,12 @@ fn dump_fixtures_json() -> String {
         out.push_str(&format!("    \"name\": {},\n", json_str(f.name)));
         out.push_str(&format!("    \"grid_width\": {},\n", gnode.size.x));
         out.push_str(&format!("    \"grid_height\": {},\n", gnode.size.y));
+        let (accepted_drift, stroke_probe) = harness_expectation(f.name);
+        out.push_str(&format!("    \"accepted_drift\": {accepted_drift},\n    \"stroke_probe\": {stroke_probe},\n"));
+        if stroke_probe {
+            let [top, bottom, left, right] = studio_edge_colours(f);
+            out.push_str(&format!("    \"studio_edges\": {{\"top\": {top:?}, \"bottom\": {bottom:?}, \"left\": {left:?}, \"right\": {right:?}}},\n"));
+        }
         out.push_str(&format!("    \"grid_css\": {},\n", json_str(&css_for(&f.doc, f.grid))));
         out.push_str(&format!("    \"tailwind_html\": {},\n", json_str(&tailwind_for(&f.doc, f.grid))));
         out.push_str("    \"items\": [\n");
@@ -852,6 +902,165 @@ fn n6c_stroke_v0_unpadded_fixed_css_and_tailwind() {
 #[test]
 fn c7_single_hug_col_min_w_fill_css_and_tailwind() {
     assert_fixture_css_and_tailwind("c7_single_hug_col_min_w_fill");
+}
+
+#[test]
+fn c1_stroke_v0_center_unpadded_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c1_stroke_v0_center_unpadded_hug");
+}
+
+#[test]
+fn c2_stroke_v0_inside_sides_unpadded_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c2_stroke_v0_inside_sides_unpadded_hug");
+}
+
+#[test]
+fn n6d_stroke_v1_padded_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n6d_stroke_v1_padded_fixed");
+}
+
+#[test]
+fn c3_rows0_fixed_row_tracks_flex_auto_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c3_rows0_fixed_row_tracks_flex_auto");
+}
+
+#[test]
+fn n2d_fixed_fill_only_hug_col_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n2d_fixed_fill_only_hug_col");
+}
+
+#[test]
+fn s6_explicit_rows_flex_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s6_explicit_rows_flex");
+}
+
+#[test]
+fn s8_auto_tracks_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s8_auto_tracks_fixed");
+}
+
+#[test]
+fn s10_fixed_width_hug_tracks_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s10_fixed_width_hug_tracks");
+}
+
+#[test]
+fn s6b_hug_height_explicit_rows_unequal_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s6b_hug_height_explicit_rows_unequal");
+}
+
+#[test]
+fn c8_component_grid_center_stroke_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c8_component_grid_center_stroke");
+}
+
+#[test]
+fn c9_stroke_v1_inside_sides_padded_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c9_stroke_v1_inside_sides_padded_fixed");
+}
+
+#[test]
+fn c10_stroke_v1_inside_sides_unpadded_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c10_stroke_v1_inside_sides_unpadded_fixed");
+}
+
+/// The pixel list of a CSS declaration such as `grid-template-rows: 40px 40px`, `None` when absent or
+/// when any entry is not a pixel value.
+fn px_list(css: &str, prop: &str) -> Option<Vec<f32>> {
+    let value = css.lines().find_map(|l| l.strip_prefix(&format!("{prop}: ")))?.trim_end_matches(';');
+    value.split(' ').map(|t| t.strip_suffix("px").and_then(|n| n.parse::<f32>().ok())).collect()
+}
+
+fn solver_inputs(f: &GridFixture) -> (AutoLayout, designos_doc::layout_solver::SizeLimits, Vec2, Vec<designos_doc::layout_solver::ChildIn>) {
+    let n = f.doc.get(f.grid).unwrap();
+    let al = n.kind.frame_props().and_then(|p| p.auto_layout.clone()).unwrap();
+    let kids = n.children.iter().filter_map(|id| f.doc.flow_child_input(*id, true)).collect();
+    (al.with_stroke(&n.stroke), designos_doc::layout_solver::SizeLimits::from(&n.layout_child), n.size, kids)
+}
+
+#[test]
+fn exported_pixel_rows_equal_the_rows_the_solver_lays_out() {
+    for name in ["c3_rows0_fixed_row_tracks_flex_auto", "s8_auto_tracks_fixed"] {
+        let f = fixture_named(name);
+        let (al, own, size, kids) = solver_inputs(&f);
+        let solved = designos_doc::layout_solver::grid_row_heights(&al, size, own, &kids);
+        let css = css_for(&f.doc, f.grid);
+        assert_eq!(px_list(&css, "grid-template-rows"), Some(solved.clone()), "{name}: {css}");
+        let tw = tailwind_for(&f.doc, f.grid);
+        let want = format!("grid-rows-[{}]", solved.iter().map(|h| format!("{h}px")).collect::<Vec<_>>().join("_"));
+        assert!(tw.contains(&want), "{name}: {want} missing in {tw}");
+    }
+}
+
+#[test]
+fn exported_hug_columns_equal_the_widths_the_solver_lays_out() {
+    for (name, hug_columns) in [("n2d_fixed_fill_only_hug_col", vec![2usize]), ("s10_fixed_width_hug_tracks", vec![0, 1])] {
+        let f = fixture_named(name);
+        let (al, own, size, kids) = solver_inputs(&f);
+        let solved = designos_doc::layout_solver::grid_column_widths(&al, size, own, &kids);
+        let css = css_for(&f.doc, f.grid);
+        let tracks = css.lines().find_map(|l| l.strip_prefix("grid-template-columns: ")).unwrap().trim_end_matches(';');
+        let mut written = tracks.replace("repeat(2, minmax(0, 1fr))", "fr fr").split(' ').map(String::from).collect::<Vec<_>>();
+        written.retain(|t| !t.is_empty());
+        for c in hug_columns {
+            assert_eq!(written[c], format!("{}px", solved[c]), "{name}: column {c} in {css}");
+        }
+    }
+}
+
+#[test]
+fn exported_stroke_padding_plus_border_equals_the_inset_the_solver_reserves() {
+    // c1: a Center stroke is an outline, so the whole half-weight inset is padding.
+    let f = fixture_named("c1_stroke_v0_center_unpadded_hug");
+    let n = f.doc.get(f.grid).unwrap();
+    let reserved = n.kind.frame_props().and_then(|p| p.auto_layout.as_ref()).unwrap().effective_padding(&n.stroke);
+    let css = css_for(&f.doc, f.grid);
+    assert_eq!(px_list(&css, "padding"), Some(vec![reserved[0]]), "{css}");
+    assert!(css.contains("outline: 2px solid") && !css.contains("border:"), "{css}");
+    // c2: sided Inside strokes the solver reserves are the border, with no padding of their own.
+    let f = fixture_named("c2_stroke_v0_inside_sides_unpadded_hug");
+    let css = css_for(&f.doc, f.grid);
+    assert!(css.contains("border-width: 4px 1px 2px 3px;") && !css.contains("padding:"), "{css}");
+    // n6d: version 1 reserves nothing, so the padding is the stored one and the stroke is an outline.
+    let f = fixture_named("n6d_stroke_v1_padded_fixed");
+    let css = css_for(&f.doc, f.grid);
+    assert_eq!(px_list(&css, "padding"), Some(vec![8.0]), "{css}");
+    assert!(css.contains("outline-offset: -2px;"), "{css}");
+}
+
+#[test]
+fn c10b_stroke_v1_inside_sides_unpadded_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c10b_stroke_v1_inside_sides_unpadded_hug");
+}
+
+/// What Studio shows at the edges of the per-side stroke scenes: it paints the frame's stroke under the
+/// children, so a child that touches an edge hides the stroke there. The harness compares Chrome with these.
+#[test]
+fn studio_hides_a_per_side_stroke_under_a_child_that_reaches_the_edge() {
+    const STROKE: [u8; 3] = [0x33, 0x33, 0x33];
+    const CHILD: [u8; 3] = [0, 0, 255];
+    // c9: padding 8 keeps the 60px-tall cells off every edge band: all four show the stroke.
+    assert_eq!(studio_edge_colours(&fixture_named("c9_stroke_v1_inside_sides_padded_fixed")), [STROKE; 4]);
+    // c10: padding 0, 30px children in a 60px grid: they cover the top band only. The side probes sit at
+    // mid height (y = 30), just below them, and the bottom band is free.
+    assert_eq!(studio_edge_colours(&fixture_named("c10_stroke_v1_inside_sides_unpadded_fixed")), [CHILD, STROKE, STROKE, STROKE]);
+    // c10b: the Hug twin is 30px tall, so a child reaches the bottom band too: Studio hides it there.
+    assert_eq!(studio_edge_colours(&fixture_named("c10b_stroke_v1_inside_sides_unpadded_hug")), [CHILD; 4]);
+}
+
+#[test]
+fn c12_row_span_over_content_sized_rows_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c12_row_span_over_content_sized_rows");
+}
+
+#[test]
+fn row_span_over_content_sized_rows_exports_the_solver_rows() {
+    let f = fixture_named("c12_row_span_over_content_sized_rows");
+    let (al, own, size, kids) = solver_inputs(&f);
+    let solved = designos_doc::layout_solver::grid_row_heights(&al, size, own, &kids);
+    assert_eq!(solved, vec![15.0, 15.0]);
+    let css = css_for(&f.doc, f.grid);
+    assert_eq!(px_list(&css, "grid-template-rows"), Some(solved), "{css}");
 }
 
 #[test]

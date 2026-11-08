@@ -1,6 +1,7 @@
 //! Figma Dev Mode style CSS for a node.
 
 use crate::codegen::{web_sizes, Dim, Parent};
+use crate::grid_stroke::{stroke_is_drawn, GridStroke, StrokeModel};
 use crate::svg::blend_css;
 use crate::util::{css_color, num, num2};
 use designos_doc::*;
@@ -116,13 +117,17 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     }
 
     // auto layout container
+    let grid_stroke = crate::grid_stroke::grid_stroke_of(doc, n);
     if let Some(al) = own_al {
-        let [t, r, b, l] = al.padding;
+        let extra = grid_stroke.map_or([0.0; 4], |g| g.pad_extra);
+        let [t, r, b, l] =
+            std::array::from_fn(|i| if grid_stroke.is_some_and(|g| g.adjusts_padding(i)) { (al.padding[i] + extra[i]).max(0.0) } else { al.padding[i] });
         if t + r + b + l > 0.0 {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
-            if al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) || crate::codegen::padding_is_bound(doc, n) {
+            let border_takes_space = grid_stroke.is_some_and(|g| g.border());
+            if al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) || crate::codegen::padding_is_bound(doc, n) || border_takes_space {
                 push("box-sizing", "border-box".into());
             }
             let cols = crate::codegen::grid_column_count(al);
@@ -201,7 +206,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     }
 
     // border / outline
-    border(n, &mut out);
+    border(n, &mut out, grid_stroke);
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
 
     // radius
@@ -223,6 +228,10 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     // effects
     let mut shadows = Vec::new();
     let mut text_shadows = Vec::new();
+    if let (Some(g), Some(p)) = (grid_stroke.filter(|g| g.model == StrokeModel::Shadow), crate::grid_stroke::drawn_paint(&n.stroke)) {
+        let color = crate::codegen::stroke_color_token(doc, n).unwrap_or_else(|| solid_or_first(p));
+        shadows.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset {}px {}px 0 0 {color}", num(*x), num(*y))));
+    }
     for e in &n.effects {
         match e {
             Effect::DropShadow { color, offset, radius, spread, visible: true, .. } => {
@@ -353,12 +362,16 @@ fn linear_css(handles: &[Vec2; 3], stops: &[GradientStop], size: Vec2, opacity: 
     format!("linear-gradient({}deg, {})", num2(deg), stop_list(stops, opacity, pos))
 }
 
-fn border(n: &Node, out: &mut Vec<String>) {
+/// Stroke declarations. `grid` carries the model chosen for a grid frame (see [`GridStroke`]); every
+/// other node keeps one rule: an Inside stroke is a border, a Center or Outside one an outline.
+fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>) {
     let st = &n.stroke;
     let Some(p) = st.paints.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))) else { return };
-    let width_bindings = ["strokeWeight", "strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
-    if st.weight <= 0.0 && st.side_weights.is_none() && !width_bindings.iter().any(|key| n.variables.bindings.contains_key(*key)) {
+    if !stroke_is_drawn(n) {
         return;
+    }
+    if grid.is_some_and(|g| g.model == StrokeModel::Shadow) {
+        return; // drawn as inset shadows with the other effects
     }
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
     let style = if st.dashes.iter().any(|d| *d > 0.0) { "dashed" } else { "solid" };
@@ -374,25 +387,29 @@ fn border(n: &Node, out: &mut Vec<String>) {
         return;
     }
     let side_bindings = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
-    if st.align == StrokeAlign::Inside && (st.side_weights.is_some() || side_bindings.iter().any(|key| n.variables.bindings.contains_key(*key))) {
+    let as_border = grid.map_or(st.align == StrokeAlign::Inside, |g| g.border());
+    if as_border && st.align == StrokeAlign::Inside && (st.side_weights.is_some() || side_bindings.iter().any(|key| n.variables.bindings.contains_key(*key))) {
         let [t, r, b, l] = st.side_weights.unwrap_or([st.weight; 4]);
         push("border-width", box_shorthand(t, r, b, l));
         push("border-style", style.into());
         push("border-color", color);
+    } else if as_border {
+        push("border", format!("{}px {style} {color}", num(st.weight)));
     } else {
-        match (st.align, st.side_weights) {
-            (StrokeAlign::Inside, _) => push("border", format!("{}px {style} {color}", num(st.weight))),
-            (align, _) => {
-                // The box keeps its size; outline draws outside it, shifted in for centered strokes.
-                push("outline", format!("{}px {style} {color}", num(st.weight)));
-                let off = if align == StrokeAlign::Center { -st.weight / 2.0 } else { 0.0 };
-                if off != 0.0 || (align == StrokeAlign::Center && n.variables.bindings.contains_key("strokeWeight")) {
-                    push("outline-offset", format!("{}px", num(off)));
-                }
-            }
+        // The box keeps its size; outline draws outside it, shifted in for centered strokes. A grid
+        // frame the solver does not inset also draws an Inside stroke this way, shifted in by its width.
+        push("outline", format!("{}px {style} {color}", num(st.weight)));
+        let off = match st.align {
+            StrokeAlign::Center => -st.weight / 2.0,
+            StrokeAlign::Inside => -st.weight,
+            StrokeAlign::Outside => 0.0,
+        };
+        let bound_inward = st.align != StrokeAlign::Outside && n.variables.bindings.contains_key("strokeWeight");
+        if off != 0.0 || bound_inward {
+            push("outline-offset", format!("{}px", num(off)));
         }
     }
-    if gradient && st.align == StrokeAlign::Inside {
+    if gradient && as_border && st.align == StrokeAlign::Inside {
         push("border-image-source", paint_css(p, n.size));
         push("border-image-slice", "1".into());
     }
@@ -1084,7 +1101,7 @@ mod tests {
     }
 
     #[test]
-    fn hugging_grid_exports_the_solved_height_with_template_rows() {
+    fn hugging_grid_exports_the_solved_height_with_content_sized_rows() {
         use crate::codegen::fixture;
         let al = AutoLayout { grid_columns: 2, grid_rows: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Hug, ..Default::default() };
         let (mut d, grid) = fixture::grid_frame(al, Vec2::new(300.0, 500.0));
@@ -1093,7 +1110,10 @@ mod tests {
         }
         d.relayout_subtree(grid);
         assert_eq!(d.get(grid).unwrap().size, Vec2::new(300.0, 70.0), "rows take their tallest child");
-        solved_grid_css(&d, grid, 2, 2);
+        // The solver sizes a Flex row by its content (20 and 50), which `1fr` rows of the 70px box would
+        // not: they would both be 35px. So the rows are the content-sized implicit ones, with no template.
+        let css = solved_grid_template(&d, grid, "repeat(2, minmax(0, 1fr))", None);
+        assert!(!css.contains("grid-template-rows") && css.contains("align-content: start;"), "{css}");
     }
 
     #[test]

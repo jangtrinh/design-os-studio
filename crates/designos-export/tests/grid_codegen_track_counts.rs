@@ -105,23 +105,39 @@ fn a_huge_column_count_exports_in_constant_time() {
 
 #[test]
 fn a_huge_row_count_exports_in_constant_time() {
+    // No children: the template is the stored one.
     let al = AutoLayout { grid_columns: 3, grid_rows: 5_000_000, ..Default::default() };
-    let (d, g) = grid(al, 1);
+    let (d, g) = grid(al, 0);
     let css = quickly(Duration::from_secs(2), || css_for(&d, g));
     assert_eq!(decl(&css, "grid-template-rows"), uniform(5_000_000));
 
     // a stored row track in front of the default ones is still written out
     let mut al = AutoLayout { grid_columns: 3, grid_rows: 5_000_000, ..Default::default() };
     al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
-    let (d, g) = grid(al, 1);
+    let (d, g) = grid(al, 0);
     let css = quickly(Duration::from_secs(2), || css_for(&d, g));
     assert_eq!(decl(&css, "grid-template-rows"), format!("80px {}", uniform(4_999_999)));
     let tw = quickly(Duration::from_secs(2), || tailwind_for(&d, g));
     assert!(tw.len() < 400, "{} chars", tw.len());
 
-    let (d, g) = grid(AutoLayout { grid_columns: 3, grid_rows: u32::MAX, ..Default::default() }, 1);
+    let (d, g) = grid(AutoLayout { grid_columns: 3, grid_rows: u32::MAX, ..Default::default() }, 0);
     let css = quickly(Duration::from_secs(2), || css_for(&d, g));
     assert_eq!(decl(&css, "grid-template-rows"), uniform(u32::MAX as usize));
+
+    // With children only the rows they fill are solved, however many rows are stored: Flex rows are
+    // the content-sized rows the solver makes of them, so only the Fixed one is written.
+    for rows in [5_000_000, u32::MAX] {
+        let mut al = AutoLayout { grid_columns: 3, grid_rows: rows, ..Default::default() };
+        al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
+        let (d, g) = grid(al, 1);
+        let css = quickly(Duration::from_secs(2), || css_for(&d, g));
+        assert_eq!(decl(&css, "grid-template-rows"), "80px", "rows={rows}");
+        let tw = quickly(Duration::from_secs(2), || tailwind_for(&d, g));
+        assert!(tw.len() < 400, "rows={rows}: {} chars", tw.len());
+        let (d, g) = grid(AutoLayout { grid_columns: 3, grid_rows: rows, ..Default::default() }, 1);
+        let css = quickly(Duration::from_secs(2), || css_for(&d, g));
+        assert!(!css.contains("grid-template-rows"), "rows={rows}: {css}");
+    }
 }
 
 #[test]
@@ -145,7 +161,7 @@ fn flex_tracks_in_a_mixed_template_can_shrink_under_their_content() {
     al.grid_col_tracks[0] = GridTrack::Flex(2.0);
     al.grid_col_tracks[1] = GridTrack::Fixed(120.0);
     al.grid_col_tracks[2] = GridTrack::Hug;
-    let (d, g) = grid(al, 1);
+    let (d, g) = grid(al, 0);
     assert_eq!(decl(&css_for(&d, g), "grid-template-columns"), "minmax(0, 2fr) 120px auto");
     assert!(react_for(&d, g).contains("gridTemplateColumns: 'minmax(0, 2fr) 120px auto',"));
     assert!(grid_classes(&tailwind_for(&d, g)).contains(&"grid-cols-[minmax(0,2fr)_120px_auto]".to_string()));
@@ -161,10 +177,34 @@ fn flex_tracks_in_a_mixed_template_can_shrink_under_their_content() {
 fn row_tracks_follow_the_same_rules() {
     let mut al = AutoLayout { grid_columns: 2, grid_rows: 3, ..Default::default() };
     al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
-    let (d, g) = grid(al, 1);
+    let (d, g) = grid(al, 0);
     assert_eq!(decl(&css_for(&d, g), "grid-template-rows"), "80px repeat(2, minmax(0, 1fr))");
 
-    let (d, g) = grid(AutoLayout { grid_columns: 2, grid_rows: 3, ..Default::default() }, 1);
+    let (d, g) = grid(AutoLayout { grid_columns: 2, grid_rows: 3, ..Default::default() }, 0);
     assert_eq!(decl(&css_for(&d, g), "grid-template-rows"), uniform(3));
     assert!(grid_classes(&tailwind_for(&d, g)).contains(&"grid-rows-3".to_string()));
+}
+
+#[test]
+fn flex_and_hug_tracks_with_a_child_are_the_solvers_widths() {
+    let mut al = with_columns(3);
+    al.grid_col_tracks[0] = GridTrack::Flex(2.0);
+    al.grid_col_tracks[1] = GridTrack::Fixed(120.0);
+    al.grid_col_tracks[2] = GridTrack::Hug;
+    let (d, g) = grid(al, 1);
+    // the Hug column holds no child, so the solver gives it its 1px floor; the Flex track stays shrinkable
+    assert_eq!(decl(&css_for(&d, g), "grid-template-columns"), "minmax(0, 2fr) 120px 1px");
+    assert!(grid_classes(&tailwind_for(&d, g)).contains(&"grid-cols-[minmax(0,2fr)_120px_1px]".to_string()));
+}
+
+#[test]
+fn row_tracks_with_a_child_are_content_sized_unless_fixed() {
+    let mut al = AutoLayout { grid_columns: 2, grid_rows: 3, ..Default::default() };
+    al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
+    let (d, g) = grid(al, 1);
+    assert_eq!(decl(&css_for(&d, g), "grid-template-rows"), "80px");
+
+    let (d, g) = grid(AutoLayout { grid_columns: 2, grid_rows: 3, ..Default::default() }, 1);
+    assert!(!css_for(&d, g).contains("grid-template-rows"));
+    assert!(!grid_classes(&tailwind_for(&d, g)).iter().any(|c| c.starts_with("grid-rows")));
 }

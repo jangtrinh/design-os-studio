@@ -19,6 +19,7 @@ mod compose;
 mod css;
 pub mod design_context;
 mod geo;
+mod grid_stroke;
 pub mod html;
 pub mod language;
 mod pdf;

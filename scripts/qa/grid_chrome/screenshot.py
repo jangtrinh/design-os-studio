@@ -6,7 +6,13 @@ import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 from .fixtures import inline_css, load_fixtures_from_rust
-from .probe_page import MAX_DRIFT_PX, build_batch_probe_html, compare_boxes, measure_batch_in_chrome
+from .probe_page import (
+    MAX_DRIFT_PX,
+    build_batch_probe_html,
+    compare_boxes,
+    measure_batch_in_chrome,
+    scene_tailwind_errors,
+)
 from .tailwind_css_map import parse_tailwind_html
 
 
@@ -42,7 +48,10 @@ def build_screenshot_html(scene: Dict[str, Any], max_abs_drift: Optional[float] 
             f'<div style="position:absolute; left:{it["x"]}px; top:{it["y"]}px; '
             f'width:{it["w"]}px; height:{it["h"]}px; {box_fx}">{span}</div>'
         )
-    tw_grid_decls, tw_item_decls = parse_tailwind_html(scene["tailwind_html"])
+    if scene_tailwind_errors([scene]):
+        tw_grid_decls, tw_item_decls = "", []
+    else:
+        tw_grid_decls, tw_item_decls = parse_tailwind_html(scene["tailwind_html"])
     for idx, decl in enumerate(tw_item_decls):
         color = palette[idx % len(palette)]
         it = scene["items"][idx] if idx < len(scene["items"]) else {"w": 0, "h": 0, "x": 0, "y": 0}
@@ -145,6 +154,7 @@ def run_comparison(
     probe_html = build_batch_probe_html(fixtures)
     measured = measure_batch_in_chrome(chrome_bin, probe_html)
 
+    tailwind_errors = scene_tailwind_errors(fixtures)
     failed = False
     lines: List[str] = []
     report_scenes: Dict[str, Any] = {}
@@ -153,6 +163,18 @@ def run_comparison(
         report_scenes[name] = {}
         for mode in ("css", "tailwind"):
             key = f"{name}:{mode}"
+            if mode == "tailwind" and name in tailwind_errors:
+                failed = True
+                lines.append(f"[FAIL] {name:30s} ({mode:8s}) {tailwind_errors[name]}")
+                report_scenes[name][mode] = {
+                    "status": "FAIL",
+                    "error": tailwind_errors[name],
+                    "max_item_err_px": float("inf"),
+                    "grid_w_err_px": float("inf"),
+                    "grid_h_err_px": float("inf"),
+                    "items": [],
+                }
+                continue
             if key not in measured:
                 failed = True
                 lines.append(f"[FAIL] {key}: missing measurement in Chrome output")
@@ -162,13 +184,16 @@ def run_comparison(
             gw_err = abs(float(chrome_box["grid_w"]) - float(scene["grid_width"]))
             gh_err = abs(float(chrome_box["grid_h"]) - float(scene["grid_height"]))
             overall_err = max(max_err, gw_err, gh_err)
-            ok = overall_err <= MAX_DRIFT_PX
+            accepted = float(scene.get("accepted_drift", 0.0))
+            # An accepted drift is a measured expectation: the scene fails when it drifts less as well as more.
+            ok = abs(overall_err - accepted) <= MAX_DRIFT_PX if accepted > 0.0 else overall_err <= MAX_DRIFT_PX
             if not ok:
                 failed = True
             status = "PASS" if ok else "FAIL"
+            note = f" accepted_drift={accepted:g}px (a visible stroke wins over exact geometry)" if accepted > 0.0 else ""
             lines.append(
                 f"[{status}] {name:30s} ({mode:8s}) max_item_err={max_err:.2f}px "
-                f"grid_err=({gw_err:.2f}px, {gh_err:.2f}px)"
+                f"grid_err=({gw_err:.2f}px, {gh_err:.2f}px){note}"
             )
             if not ok:
                 for r in rows:
@@ -187,4 +212,64 @@ def run_comparison(
                 "grid_h_err_px": gh_err,
                 "items": rows,
             }
+    for scene in fixtures:
+        if scene.get("stroke_probe"):
+            for mode, ok, detail in stroke_pixel_probe(chrome_bin, scene, tailwind_errors):
+                failed = failed or not ok
+                lines.append(f"[{'PASS' if ok else 'FAIL'}] {scene['name']:30s} ({mode:8s}) stroke pixels {detail}")
     return (1 if failed else 0), lines, report_scenes, fixtures
+
+
+PIXEL_TOLERANCE = 3
+
+
+def _load_pillow() -> Any:
+    """Pillow's Image module, or None when it is not installed."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    return Image
+
+
+def stroke_pixel_probe(
+    chrome_bin: str, scene: Dict[str, Any], tailwind_errors: Dict[str, str]
+) -> List[Tuple[str, bool, str]]:
+    """Renders the exported grid in Chrome with every child filled blue and compares the colour at the middle
+    of each edge with what Studio's renderer shows for the same scene (`studio_edges`: a child colour where a
+    child covers the stroke, the stroke colour where not). Fails closed: no Pillow, or no Studio colours for the
+    scene, is a FAIL."""
+    Image = _load_pillow()
+    if Image is None:
+        return [("css", False, "FAILED (Pillow is required for the stroke pixel check: pip install pillow)")]
+    studio = scene.get("studio_edges")
+    if not studio:
+        return [("css", False, "FAILED (the scene has no Studio edge colours to compare with)")]
+    gw, gh = int(float(scene["grid_width"])), int(float(scene["grid_height"]))
+    edges = {"top": (gw // 2, 0), "bottom": (gw // 2, gh - 1), "left": (0, gh // 2), "right": (gw - 1, gh // 2)}
+    results: List[Tuple[str, bool, str]] = []
+    modes = [("css", inline_css(scene["grid_css"]), [inline_css(it["css"]) for it in scene["items"]])]
+    if scene["name"] not in tailwind_errors:
+        tw_grid, tw_items = parse_tailwind_html(scene["tailwind_html"])
+        modes.append(("tailwind", tw_grid, tw_items))
+    for mode, grid_style, item_styles in modes:
+        kids = "".join(f'<div style="{st} background:#0000ff;"></div>' for st in item_styles)
+        page = f'<!DOCTYPE html><html><body style="margin:0;background:#fff"><div style="{grid_style}">{kids}</div></body></html>'
+        with tempfile.TemporaryDirectory(prefix="grid-pixels-") as tmp:
+            html_path, png = Path(tmp) / "p.html", Path(tmp) / "p.png"
+            html_path.write_text(page, encoding="utf-8")
+            (Path(tmp) / "profile").mkdir()
+            subprocess.run(
+                [chrome_bin, "--headless", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
+                 f"--user-data-dir={Path(tmp) / 'profile'}", f"--window-size={gw + 40},{gh + 40}",
+                 f"--screenshot={png}", html_path.as_uri()],
+                capture_output=True, text=True, check=False, timeout=30,
+            )
+            img = Image.open(png).convert("RGB")
+            bad = []
+            for edge, xy in edges.items():
+                got, want = img.getpixel(xy), tuple(studio[edge])
+                if max(abs(a - b) for a, b in zip(got, want)) > PIXEL_TOLERANCE:
+                    bad.append(f"{edge} chrome={got} studio={want}")
+        results.append((mode, not bad, "match Studio on all four edges" if not bad else "differ from Studio: " + "; ".join(bad)))
+    return results

@@ -745,7 +745,7 @@ pub(crate) fn grid_cell_align(doc: &Document, child_id: NodeId, al: &AutoLayout)
 /// `compute_grid`.
 pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a AutoLayout) -> std::borrow::Cow<'a, [GridTrack]> {
     if al.primary_sizing != Sizing::Hug {
-        return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
+        return hug_columns_as_pixels(doc, n, al);
     }
     let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| doc.flow_child_input(*id, true)).collect();
     if kids.is_empty() {
@@ -787,27 +787,90 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
     std::borrow::Cow::Owned(col_widths.into_iter().map(GridTrack::Fixed).collect())
 }
 
+/// Column tracks of a grid that does not hug its width. A `GridTrack::Hug` column is an `auto` track in
+/// CSS, which takes the free width of a fixed container or nothing when its only items fill, while the
+/// solver sizes it from the widest item that sits in it alone. Each such column is written as the
+/// solver's width in pixels; every other track keeps its stored form.
+fn hug_columns_as_pixels<'a>(doc: &Document, n: &Node, al: &'a AutoLayout) -> std::borrow::Cow<'a, [GridTrack]> {
+    let cols = grid_column_count(al);
+    if !al.grid_col_tracks.iter().take(cols).any(|t| *t == GridTrack::Hug) {
+        return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
+    }
+    let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| doc.flow_child_input(*id, true)).collect();
+    if kids.is_empty() {
+        return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
+    }
+    let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
+    let widths = designos_doc::layout_solver::grid_column_widths(&solver_layout(doc, n, al), n.size, own, &kids);
+    std::borrow::Cow::Owned(
+        widths
+            .iter()
+            .enumerate()
+            .map(|(c, &w)| {
+                if al.grid_col_tracks.get(c).copied().unwrap_or_default() == GridTrack::Hug {
+                    GridTrack::Fixed(w)
+                } else {
+                    al.grid_col_tracks.get(c).copied().unwrap_or_default()
+                }
+            })
+            .collect(),
+    )
+}
+
+/// The rows of a packed grid as the solver lays them out, and as it would if every row were sized by its
+/// content alone (no Fixed row or auto track). Only the rows the children fill are solved: a stored row
+/// count is never walked, and the rows past the children hold nothing.
+fn packed_rows(doc: &Document, n: &Node, al: &AutoLayout, kids: &[designos_doc::layout_solver::ChildIn]) -> (Vec<f32>, Vec<f32>) {
+    let mut actual = solver_layout(doc, n, al);
+    actual.grid_rows = actual.grid_rows.min(designos_doc::layout_solver::placed_grid_rows(&actual, kids) as u32);
+    let mut content = actual.clone();
+    content.grid_row_tracks = Default::default();
+    content.grid_auto_tracks = GridAutoTracks::None;
+    content.counter_sizing = Sizing::Hug;
+    let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
+    (designos_doc::layout_solver::grid_row_heights(&actual, n.size, own, kids), designos_doc::layout_solver::grid_row_heights(&content, n.size, own, kids))
+}
+
 /// Row tracks for web exports, and how many rows they cover. The solver levels implicit flex auto rows
 /// across a fixed-height container, so those rows can differ in height, and CSS `grid-auto-rows` has
 /// one value for every implicit row. While the solver levels the rows, emit its resolved row list as
-/// pixel tracks. Every other grid keeps its stored row tracks, because a packed or hugging grid
-/// already sizes its rows the way the browser sizes `auto` ones.
+/// pixel tracks. A packed grid keeps `auto` rows, which the browser sizes by content as the solver does,
+/// unless a Fixed row or a Fixed auto track sets a height: then the solver's rows are pixel tracks too.
+/// A stored Flex row is such a content-sized row (the solver ignores its weight), never `1fr`, which
+/// would stretch it across the container.
 pub(crate) fn resolved_grid_row_tracks<'a>(doc: &Document, n: &Node, al: &'a AutoLayout) -> (std::borrow::Cow<'a, [GridTrack]>, usize) {
     let explicit = al.grid_rows as usize;
-    // Resolve only the implicit auto rows that the solver levels across a fixed-height
-    // container. Hugging/packed rows already match the browser's auto sizing and must keep
-    // the existing omitted/`auto` export form.
-    let needs_resolved = !grid_packs_auto_rows(doc, n, al);
-    if needs_resolved {
-        if let Some(solved) = solved_grid(doc, n, al) {
-            if explicit == 0 || solved.rows.len() > explicit {
-                let tracks: Vec<GridTrack> = solved.rows.into_iter().map(GridTrack::Fixed).collect();
-                let count = tracks.len();
-                return (std::borrow::Cow::Owned(tracks), count);
-            }
-        }
+    let stored = || (std::borrow::Cow::Borrowed(&al.grid_row_tracks[..]), explicit);
+    let pixel_rows = |rows: Vec<f32>| {
+        let tracks: Vec<GridTrack> = rows.into_iter().map(GridTrack::Fixed).collect();
+        let count = tracks.len();
+        (std::borrow::Cow::Owned(tracks), count)
+    };
+    let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| doc.flow_child_input(*id, true)).collect();
+    if kids.is_empty() {
+        return stored();
     }
-    (std::borrow::Cow::Borrowed(&al.grid_row_tracks), explicit)
+    if !grid_packs_auto_rows(doc, n, al) {
+        // Resolve only the implicit auto rows that the solver levels across a fixed-height container.
+        return match solved_grid(doc, n, al) {
+            Some(solved) if explicit == 0 || solved.rows.len() > explicit => pixel_rows(solved.rows),
+            _ => stored(),
+        };
+    }
+    let (rows, content) = packed_rows(doc, n, al, &kids);
+    // CSS shares a spanning child's extra height out evenly over its `auto` rows, the solver levels them,
+    // so the solver's rows are written whenever a child spans more than one.
+    let spans = kids.iter().any(|k| k.cell.row_span > 1);
+    if spans || rows.len() != content.len() || rows.iter().zip(&content).any(|(a, b)| (a - b).abs() > 0.01) {
+        return pixel_rows(rows);
+    }
+    // The solver's rows are content-sized: a stored Flex row becomes `auto`, and the Flex rows after the
+    // last other stored track are the implicit rows a browser already sizes that way.
+    let row_track = |r: usize| al.grid_row_tracks.get(r).copied().unwrap_or_default();
+    let listed = explicit.min(al.grid_row_tracks.len());
+    let keep = (0..listed).rev().find(|&r| !matches!(row_track(r), GridTrack::Flex(_))).map_or(0, |r| r + 1);
+    let tracks: Vec<GridTrack> = (0..keep).map(|r| if matches!(row_track(r), GridTrack::Flex(_)) { GridTrack::Hug } else { row_track(r) }).collect();
+    (std::borrow::Cow::Owned(tracks), keep)
 }
 
 /// One track. A flex track is `minmax(0, {n}fr)`: the solver hands it a weighted share of the inner
@@ -960,8 +1023,12 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
                 }
             }
         }
-        if n.stroke.align == StrokeAlign::Center && has_decl(lines, "outline-offset") {
-            set_decl(lines, "outline-offset", format!("calc(-0.5 * {v})"));
+        if has_decl(lines, "outline-offset") {
+            match n.stroke.align {
+                StrokeAlign::Center => set_decl(lines, "outline-offset", format!("calc(-0.5 * {v})")),
+                StrokeAlign::Inside => set_decl(lines, "outline-offset", format!("calc(-1 * {v})")),
+                StrokeAlign::Outside => {}
+            }
         }
     }
     let side_widths = [("strokeTopWeight", 0usize), ("strokeRightWeight", 1), ("strokeBottomWeight", 2), ("strokeLeftWeight", 3)];
@@ -1015,7 +1082,17 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     let sides = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     if padding_is_bound(doc, n) {
         if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
-            let vals: Vec<String> = sides.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(al.padding[i])))).collect();
+            let stroke = crate::grid_stroke::grid_stroke_of(doc, n);
+            let extra = stroke.map_or([0.0; 4], |g| g.pad_extra);
+            let vals: Vec<String> = sides
+                .iter()
+                .enumerate()
+                .map(|(i, k)| match b(k, Fallback::Px) {
+                    Some(v) => padding_with_extra(&v, extra[i]),
+                    None if stroke.is_some_and(|g| g.adjusts_padding(i)) => format!("{}px", num((al.padding[i] + extra[i]).max(0.0))),
+                    None => format!("{}px", num(al.padding[i])),
+                })
+                .collect();
             lines.retain(|l| !l.starts_with("padding: "));
             let value = css_box(&vals);
             // keep declaration order: padding follows the size declarations
@@ -1036,6 +1113,22 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
         let vals: Vec<String> =
             corners.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(n.corner_radii[i])))).collect();
         set_decl(lines, "border-radius", css_box(&vals));
+    }
+}
+
+/// The stroke colour of `n` as CSS when a variable is bound to it: `var(--Color-Stroke, #333)`.
+pub(crate) fn stroke_color_token(doc: &Document, n: &Node) -> Option<String> {
+    bound(doc, n, "strokes/0").map(|v| css_var_with_fallback(doc, n, v, Fallback::Color))
+}
+
+/// A bound padding side plus the pixels the stroke model of a grid frame asks of it.
+fn padding_with_extra(var: &str, extra: f32) -> String {
+    if extra > 0.0 {
+        format!("calc({var} + {}px)", num(extra))
+    } else if extra < 0.0 {
+        format!("max(0px, calc({var} - {}px))", num(-extra))
+    } else {
+        var.to_string()
     }
 }
 
