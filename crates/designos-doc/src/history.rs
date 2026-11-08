@@ -401,7 +401,7 @@ impl History {
     }
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, false, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
@@ -410,14 +410,14 @@ impl History {
     /// [`Self::fold_since`] can fold the contiguous agent tail on stop without folding
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, false, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
-        let inv = guarded(doc, cmd, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
+        let inv = guarded(doc, cmd, false, |d, c| c.apply_atomic(d)).map_err(|refused| refused.0)?;
         self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, ..Default::default() });
         Ok(())
     }
@@ -592,7 +592,7 @@ impl History {
         self.sync_meta_lengths();
         let Some(c) = self.undo.pop() else { return Ok(false) };
         let meta = self.undo_meta.pop().unwrap_or_default();
-        match guarded(doc, c, |d, c| apply_step(d, c, meta.layout_recorded)) {
+        match guarded(doc, c, solves_layout(doc, meta.layout_recorded), |d, c| apply_step(d, c, meta.layout_recorded)) {
             Ok(inv) => {
                 self.redo.push(inv);
                 self.redo_meta.push(meta);
@@ -613,7 +613,7 @@ impl History {
         self.sync_meta_lengths();
         let Some(c) = self.redo.pop() else { return Ok(false) };
         let meta = self.redo_meta.pop().unwrap_or_default();
-        match guarded(doc, c, |d, c| apply_step(d, c, meta.layout_recorded)) {
+        match guarded(doc, c, solves_layout(doc, meta.layout_recorded), |d, c| apply_step(d, c, meta.layout_recorded)) {
             Ok(inv) => {
                 self.undo.push(inv);
                 self.undo_meta.push(meta);
@@ -821,27 +821,44 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
 /// that fails changes nothing: `Command::apply_atomic` undoes what a batch already applied). The command is
 /// kept only when it involves a table, so an ordinary step costs no clone. The table ids are
 /// collected before `apply` runs, because a removed cell's parent is gone afterwards.
+///
+/// `solves_layout` is true when `apply` re-solves auto layout after the command (see [`apply_step`]).
+/// That pass writes outside the command's inverse, so a refused step solves the same containers
+/// again from the restored tree, which puts frames and siblings back where they were.
 fn guarded(
     doc: &mut Document,
     c: Command,
+    solves_layout: bool,
     apply: impl FnOnce(&mut Document, Command) -> Result<Command, DocError>,
 ) -> Result<Command, Box<(DocError, Option<Command>)>> {
     let mut touched = std::collections::BTreeSet::new();
     table::touched_tables(doc, &c, &mut touched);
     let backup = table::involves_tables(doc, &c).then(|| c.clone());
+    let mut seeds = Vec::new();
+    if solves_layout && !touched.is_empty() {
+        collect_relayout_seeds(doc, &c, &mut seeds);
+    }
     let inv = apply(doc, c).map_err(|e| Box::new((e, backup)))?;
     match table::check_touched(doc, &touched) {
         Ok(()) => Ok(inv),
         Err(e) => match inv.apply(doc) {
-            Ok(restored) => Err(Box::new((e, Some(restored)))),
+            Ok(restored) => {
+                doc.relayout_seeds_upward(&seeds);
+                Err(Box::new((e, Some(restored))))
+            }
             Err(re) => Err(Box::new((DocError::Table(format!("{e} Rolling the step back also failed: {re}")), None))),
         },
     }
 }
 
+/// Whether [`apply_step`] re-solves auto layout: a recorded step replays as stored while no deferred layout is queued.
+fn solves_layout(doc: &Document, layout_recorded: bool) -> bool {
+    !(layout_recorded && doc.pending_relayout().is_empty())
+}
+
 /// Applies `c`; a step whose layout was recorded replays as stored, any other re-solves auto layout.
 fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<Command, DocError> {
-    if layout_recorded && doc.pending_relayout().is_empty() {
+    if !solves_layout(doc, layout_recorded) {
         c.apply_atomic(doc)
     } else {
         apply_and_relayout(doc, c)
