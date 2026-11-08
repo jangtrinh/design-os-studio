@@ -561,7 +561,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Add auto layout", "Shift+A", Action::AutoLayout).off(!has_sel),
         leaf("Update auto layout", "", Action::UpdateAutoLayout).off(!app.has_upgradable_auto_layout()).sep(),
         leaf("Use as mask", mask_shortcut, Action::ToggleMask).off(!has_sel).on(all_mask).sep(),
-        leaf("Create component", "Ctrl+Alt+K", Action::CreateComponent).off(!has_sel),
+        leaf(app.create_component_label(), "Ctrl+Alt+K", Action::CreateComponent).off(!has_sel),
         leaf("Detach instance", "Ctrl+Alt+B", Action::Detach).off(!has_inst).sep(),
         leaf("Bring to front", "Ctrl+Shift+]", Action::BringToFront).off(!has_sel),
         leaf("Bring forward", "Ctrl+]", Action::BringForward).off(!has_sel),
@@ -727,7 +727,7 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
         (MenuItem::new("Group selection").shortcut("Ctrl+G").disabled(!has_sel), Some(Action::Group)),
         (MenuItem::new("Frame selection").shortcut("Ctrl+Alt+G").disabled(!has_sel), Some(Action::FrameSelection)),
         (MenuItem::new("Add auto layout").shortcut("Shift+A").disabled(!has_sel).sep(), Some(Action::AutoLayout)),
-        (MenuItem::new("Create component").shortcut("Ctrl+Alt+K").disabled(!has_sel), Some(Action::CreateComponent)),
+        (MenuItem::new(app.create_component_label()).shortcut("Ctrl+Alt+K").disabled(!has_sel), Some(Action::CreateComponent)),
         (MenuItem::new("Detach instance").shortcut("Ctrl+Alt+B").disabled(!has_sel).sep(), Some(Action::Detach)),
         (MenuItem::new("Export selection as PNG…").disabled(project || !has_sel), Some(Action::Export)),
     ];
@@ -981,6 +981,18 @@ fn commands(app: &App) -> Vec<Command> {
 #[cfg(test)]
 pub(crate) fn palette_command_info(app: &App, label: &str) -> Option<(String, bool)> {
     commands(app).into_iter().find(|c| c.label == label).map(|c| (c.shortcut, c.disabled))
+}
+
+/// Label of the main-menu command with `shortcut` (Object menu included).
+#[cfg(test)]
+pub fn shortcut_label(app: &App, shortcut: &str) -> Option<String> {
+    commands(app).into_iter().find(|c| c.shortcut == shortcut).map(|c| c.label)
+}
+
+/// Label of the flat file menu row with `shortcut`.
+#[cfg(test)]
+pub fn file_shortcut_label(app: &App, shortcut: &str) -> Option<String> {
+    file_items(app).into_iter().find(|(item, _)| item.shortcut == shortcut).map(|(item, _)| item.label)
 }
 
 const PALETTE_ROWS: usize = 8;

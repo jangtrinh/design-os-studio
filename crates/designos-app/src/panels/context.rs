@@ -140,7 +140,7 @@ fn entries(app: &App) -> Vec<Entry> {
         leaf(MenuItem::new("Frame selection").shortcut("Ctrl+Alt+G").disabled(!has), Action::FrameSelection),
         leaf(MenuItem::new("Ungroup").shortcut("Ctrl+Shift+G").disabled(!any_container), Action::Ungroup),
         leaf(MenuItem::new("Add auto layout").shortcut("Shift+A").disabled(!has).sep(), Action::AutoLayout),
-        leaf(MenuItem::new("Create component").shortcut("Ctrl+Alt+K").disabled(!can_create), Action::CreateComponent),
+        leaf(MenuItem::new(app.create_component_label()).shortcut("Ctrl+Alt+K").disabled(!can_create), Action::CreateComponent),
         leaf(MenuItem::new("Combine as variants").shortcut("Ctrl+Shift+K").disabled(!has), Action::CombineVariants),
         leaf(MenuItem::new("Detach instance").shortcut("Ctrl+Alt+B").disabled(!has_inst), Action::Detach),
         leaf(MenuItem::new("Go to main component").disabled(!has_inst), Action::GoToMain),
