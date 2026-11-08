@@ -1389,6 +1389,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         [("fill", "styleIdForFill"), ("stroke", "styleIdForStrokeFill"), ("text", "styleIdForText"), ("effect", "styleIdForEffect"), ("grid", "styleIdForGrid")]
     {
         if let Some(sid) = node.style_refs.get(k) {
+            if k == "effect" && inherits_effect_link_with_own_cache(cx, &node, sid) {
+                continue;
+            }
             if let Some(&sg) = cx.style_guids.get(sid) {
                 fields.push((field_name, msg(vec![("guid", guid(sg.0, sg.1))])));
             } else if let Some(key) = sid.strip_prefix("key:") {
@@ -3211,6 +3214,18 @@ fn append_ot_and_variation_fields(fields: &mut Vec<(&'static str, V)>, ts: &Text
             .collect();
         fields.push(("fontVariations", V::Array(vars)));
     }
+}
+
+/// An instance that only inherits its main's effect style and shows effects of its own (the cache Figma wrote for a
+/// resized instance) keeps no link of its own in the file. A pin on the record would read as the instance's own link on
+/// reopen, and an own link makes the style's list win over that cache, so the render would change with the save.
+fn inherits_effect_link_with_own_cache(cx: &ExportCtx<'_>, node: &Node, sid: &str) -> bool {
+    let NodeKind::Instance { component: Some(main), .. } = node.kind else { return false };
+    if node.component.overrides.contains(&OverrideField::Effects) || cx.doc.get(main).and_then(|m| m.style_refs.get("effect")).map(String::as_str) != Some(sid)
+    {
+        return false;
+    }
+    matches!(cx.doc.styles.get(sid), Some(Style::Effect(fx)) if *fx != node.effects)
 }
 
 /// The style reference an override entry writes for `slot` ("text", "effect"): the relinked style, or the detach

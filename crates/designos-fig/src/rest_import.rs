@@ -463,6 +463,13 @@ fn apply_effect_style_link(n: &mut Node, set: &Value) {
     let clear = fbool(set, "_clearEffectStyle") == Some(true);
     let linked = set.get("styles").and_then(|s| s.get("effect")).and_then(Value::as_str).filter(|s| !s.is_empty());
     let has_effects = set.get("effects").is_some();
+    if fbool(set, "_inheritedEffectLink") == Some(true) {
+        // The link the instance inherits from its main: restated, not overridden.
+        if let Some(sid) = linked {
+            n.style_refs.insert("effect".into(), sid.to_string());
+        }
+        return;
+    }
     if !clear && linked.is_none() && !has_effects {
         return;
     }

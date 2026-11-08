@@ -502,19 +502,56 @@ fn two_self_entries_keep_the_shadow_and_the_library_style_the_first_one_names() 
 
 /// An instance with no link keys of its own; its record caches the main's effects, as Figma writes it.
 fn inherited(master: Value, entry_effects: Vec<Value>, name: &str) -> Document {
-    let entry = root_entry(json!({"effects": entry_effects}));
     let cache = json!({"effects": master["effects"].clone()});
+    inherited_cached(master, cache, entry_effects, name)
+}
+
+/// Like [`inherited`], with the record's own fields (`cache`) given: Figma may cache a scaled copy, or none.
+fn inherited_cached(master: Value, cache: Value, entry_effects: Vec<Value>, name: &str) -> Document {
+    let entry = root_entry(json!({"effects": entry_effects}));
     import(&doc_json(card_binding_7_1(), master.clone(), master, vec![inst(1, name, cache, vec![entry])]))
 }
 
 #[test]
 fn a_stale_copy_under_an_inherited_link_keeps_the_mains_link() {
     let master = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
-    let doc = inherited(master, vec![shadow(8.0)], "Inherited stale");
+    let doc = inherited(master.clone(), vec![shadow(8.0)], "Inherited stale");
     for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
         let n = named(&doc, "Inherited stale");
         assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![8.0], Some("Shadow/Card")), "{stage}");
     }
+    // The record's own cache differs from the main's (a resized instance): the cache is what Figma shows, and it stays.
+    let scaled = inherited_cached(master, json!({"effects": [bound(shadow(4.0), (7, 1))]}), vec![shadow(8.0)], "Inherited scaled");
+    let n = named(&scaled, "Inherited scaled");
+    assert_eq!((radii(n), style_of(&scaled, n).as_deref()), (vec![4.0], Some("Shadow/Card")), "scaled cache, import");
+    let reopened = reopened(&scaled);
+    assert_eq!(radii(named(&reopened, "Inherited scaled")), vec![4.0], "scaled cache, reopen");
+}
+
+/// Figma caches a scaled copy of the linked style on an instance that was resized. A save keeps that cache.
+#[test]
+fn a_scaled_record_cache_under_an_inherited_link_survives_saves() {
+    let master = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
+    for (tag, entry) in [("stale entry", vec![shadow(8.0)]), ("entry copy of the style's variable", vec![bound(shadow(8.0), (7, 1))])] {
+        let cache = json!({"effects": [bound(shadow(4.0), (7, 1))]});
+        let mut doc = inherited_cached(master.clone(), cache, entry, "Scaled");
+        let n = named(&doc, "Scaled");
+        assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![4.0], Some("Shadow/Card")), "{tag}, import");
+        for round in 1..=3 {
+            doc = reopened(&doc);
+            assert_eq!(radii(named(&doc, "Scaled")), vec![4.0], "{tag}, save {round}");
+        }
+    }
+}
+
+/// A record with no `effects` key of its own, under an inherited link, shows the same list before and after a save.
+#[test]
+fn a_record_without_cached_effects_under_an_inherited_link_survives_a_save() {
+    let master = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
+    let doc = inherited_cached(master, json!({}), vec![shadow(2.0)], "Uncached");
+    let before = radii(named(&doc, "Uncached"));
+    let after = reopened(&doc);
+    assert_eq!(radii(named(&after, "Uncached")), before, "a save keeps the render");
 }
 
 #[test]

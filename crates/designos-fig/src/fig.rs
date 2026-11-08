@@ -2981,7 +2981,14 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                                 set.remove("effects");
                                 drop_effect_bindings(&mut set);
                             }
+                            // A stale copy under a link the instance only inherits leaves nothing to override: the
+                            // record keeps the effects Figma cached for it, and the link is not an Effects override.
+                            // Marking it as one would pin the record on save and restate a list that the reopen reads
+                            // as a stale copy again.
                             insert_effect_link(&mut set, Some(style.clone()));
+                            if replaces && own_link.is_none() {
+                                set.insert("_inheritedEffectLink".into(), Value::Bool(true));
+                            }
                         }
                     }
                 }
