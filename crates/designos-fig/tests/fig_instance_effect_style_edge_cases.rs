@@ -532,7 +532,7 @@ fn a_main_linked_to_a_library_style_keeps_that_link_under_a_foreign_binding() {
     let master = json!({"styleIdForEffect": {"assetRef": {"key": "absent-lib"}}, "effects": [shadow(8.0)]});
     let doc = inherited(master, vec![bound(shadow(2.0), (7, 99))], "Inherited library");
     for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
-        let n = named(&doc, &"Inherited library");
+        let n = named(&doc, "Inherited library");
         assert_eq!(n.style_refs.get("effect").map(String::as_str), Some("key:absent-lib"), "{stage}");
     }
 }
