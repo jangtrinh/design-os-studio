@@ -1651,7 +1651,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     // Snapshot overridden descendants by base-name path, including overrides inherited from an enclosing component slot.
     type CarriedOverride = (Vec<String>, Node, Option<NodeId>, BTreeSet<OverrideField>);
     let mut carried: Vec<CarriedOverride> = Vec::new();
-    let mut dropped_inner_swaps = 0usize;
+    let mut inner = InnerSwaps::default();
     fn collect(
         d: &Document,
         id: NodeId,
@@ -1659,18 +1659,22 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         top_swap: bool,
         path: &mut Vec<String>,
         out: &mut Vec<CarriedOverride>,
-        dropped: &mut usize,
+        inner: &mut InnerSwaps,
     ) {
         let Some(n) = d.get(id) else { return };
         for k in &n.children {
             let Some(kn) = d.get(*k) else { continue };
             let orig = orig_in_main(d, old_comp, kn);
+            path.push(orig.map(|o| o.name.clone()).unwrap_or_else(|| kn.name.clone()));
             if matches!(kn.kind, NodeKind::Instance { .. })
                 && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn))
             {
-                *dropped += 1;
+                // Only a nested instance the old main itself holds has a counterpart in the new main; anything else cannot move.
+                match (orig, instance_component(kn)) {
+                    (Some(_), Some(shown)) => inner.movable.push(InnerSwap { path: path.clone(), shown }),
+                    _ => inner.dropped += 1,
+                }
             }
-            path.push(orig.map(|o| o.name.clone()).unwrap_or_else(|| kn.name.clone()));
             let fields = if top_swap {
                 let mut f = kn.component.overrides.clone();
                 f.remove(&OverrideField::MainComponent);
@@ -1681,15 +1685,13 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             if !fields.is_empty() {
                 out.push((path.clone(), kn.clone(), orig.map(|o| o.id), fields));
             }
-            collect(d, *k, old_comp, top_swap, path, out, dropped);
+            collect(d, *k, old_comp, top_swap, path, out, inner);
             path.pop();
         }
     }
-    collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried, &mut dropped_inner_swaps);
-    if dropped_inner_swaps > 0 {
-        eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s) (#1433)");
-    }
-    c.dropped_inner_swaps += dropped_inner_swaps;
+    collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried, &mut inner);
+    let mut dropped_inner_swaps = inner.dropped;
+    let old_text_count = count_text_nodes(&c.s, i);
 
     for k in inode.children.clone() {
         c.push(Command::Remove { id: k });
@@ -1763,17 +1765,63 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
     index(&c.s, i, &mut Vec::new(), &mut by_path);
+
+    // A nested instance the user swapped moves with the swap when the new main holds an instance at the same name path; the
+    // overrides below it then land on the swapped content. An inner swap with no counterpart stays behind, and is counted.
+    let mut transferred_any = false;
+    for sw in &inner.movable {
+        let target = by_path.get(&sw.path).copied().and_then(|nid| c.s.get(nid).cloned());
+        let moves = target.as_ref().is_some_and(|t| {
+            matches!(t.kind, NodeKind::Instance { .. })
+                && matches!(c.s.get(sw.shown).map(|n| &n.kind), Some(NodeKind::Component(_)))
+                && !would_hold_itself(c.s, sw.shown, t.id)
+        });
+        match target {
+            Some(t) if moves => {
+                if instance_component(&t) != Some(sw.shown) {
+                    swap_main(c, t.id, sw.shown);
+                    transferred_any = true;
+                }
+                if let Some(mut tn) = c.s.get(t.id).cloned() {
+                    tn.component.overrides.insert(OverrideField::MainComponent);
+                    c.update(tn);
+                }
+            }
+            _ => dropped_inner_swaps += 1,
+        }
+    }
+    if transferred_any {
+        by_path.clear();
+        index(&c.s, i, &mut Vec::new(), &mut by_path);
+    }
+    if dropped_inner_swaps > 0 {
+        eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s)");
+    }
+    c.dropped_inner_swaps += dropped_inner_swaps;
+
+    let new_texts = text_nodes(&c.s, i);
+    let single_text_pair = old_text_count == 1 && new_texts.len() == 1;
     for (path, old, orig_id, mut fields) in carried {
-        let Some(&nid) = by_path.get(&path) else { continue };
+        let matched = by_path.get(&path).copied();
+        let Some(nid) = matched.or_else(|| {
+            let lone = new_texts.first().copied().filter(|_| single_text_pair)?;
+            (matches!(old.kind, NodeKind::Text(_)) && fields.iter().any(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle))).then_some(lone)
+        }) else {
+            continue;
+        };
         let Some(mut nn) = c.s.get(nid).cloned() else { continue };
-        if !matches!((&old.kind, &nn.kind), (NodeKind::Text(_), NodeKind::Text(_))) {
+        if !text_override_transfers(&old, &nn, matched.is_some(), single_text_pair) {
             fields.remove(&OverrideField::Characters);
             fields.remove(&OverrideField::TextStyle);
+        }
+        if matched.is_none() {
+            // The single text rule moves the text only.
+            fields.retain(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle));
         }
         if old.kind.frame_props().is_none() || nn.kind.frame_props().is_none() {
             fields.remove(&OverrideField::Layout);
         }
-        if !(top_swap && same_family) {
+        if matched.is_some() {
             if let (Some(orig), Some(new_orig)) = (orig_id.and_then(|id| c.s.get(id)), nn.component.source.and_then(|s| c.s.get(s))) {
                 let diff = record_override(orig, new_orig);
                 fields.retain(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle | OverrideField::Name) || !diff.contains(f));
@@ -1790,6 +1838,47 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
         c.update(nn);
     }
+}
+
+/// A nested instance the user swapped inside the instance being swapped: where it sits (by base-name path) and the main it
+/// shows.
+/// The inner swaps of one swapped instance: those a counterpart may take, and the count of those that cannot move at all.
+#[derive(Default)]
+struct InnerSwaps {
+    movable: Vec<InnerSwap>,
+    dropped: usize,
+}
+
+struct InnerSwap {
+    path: Vec<String>,
+    shown: NodeId,
+}
+
+fn text_nodes(d: &Document, root: NodeId) -> Vec<NodeId> {
+    fn walk(d: &Document, id: NodeId, out: &mut Vec<NodeId>) {
+        let Some(n) = d.get(id) else { return };
+        for k in &n.children {
+            if matches!(d.get(*k).map(|x| &x.kind), Some(NodeKind::Text(_))) {
+                out.push(*k);
+            }
+            walk(d, *k, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(d, root, &mut out);
+    out
+}
+
+fn count_text_nodes(d: &Document, root: NodeId) -> usize {
+    text_nodes(d, root).len()
+}
+
+/// The one rule that decides whether a text override crosses a swap, a variant switch or a property swap: both layers are
+/// text, and either the layers match by name path (the way Figma matches layers) or each side holds exactly one text
+/// layer and the text is not driven by a component property (a hoisted override stays with its property).
+fn text_override_transfers(old: &Node, new: &Node, matched_by_path: bool, single_text_pair: bool) -> bool {
+    matches!((&old.kind, &new.kind), (NodeKind::Text(_), NodeKind::Text(_)))
+        && (matched_by_path || (single_text_pair && !old.component.bindings.contains_key(&OverrideField::Characters)))
 }
 
 /// Brings instance node `i` in line with its reference `r`. `seen` holds the mains whose content `r` sits in or
@@ -8574,7 +8663,11 @@ mod tests {
         let nb1 = child_named(&d, ci, "B1");
         assert_eq!(instance_component(d.get(nb1).unwrap()), Some(blue), "the inner swap follows the outer swap");
         assert!(d.get(nb1).unwrap().component.overrides.contains(&OverrideField::MainComponent), "the carried swap stays a recorded override");
-        assert_eq!(paint_of(&d, child_named(&d, nb1, "Dot")), crate::PaintKind::Solid(Color::rgb(0, 255, 0)), "the override below the inner swap lands on the swapped content");
+        assert_eq!(
+            paint_of(&d, child_named(&d, nb1, "Dot")),
+            crate::PaintKind::Solid(Color::rgb(0, 255, 0)),
+            "the override below the inner swap lands on the swapped content"
+        );
         assert_eq!(dropped, 0, "nothing was left behind");
     }
 
@@ -8679,7 +8772,7 @@ mod tests {
         apply(&mut d, c);
         let inst = *d.get(page).unwrap().children.last().unwrap();
         let lbl = child_named(&d, inst, "Label");
-            override_text(&mut d, lbl, "Hello");
+        override_text(&mut d, lbl, "Hello");
         let c = set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant("B".into())));
         apply(&mut d, c);
         assert_eq!(instance_component(d.get(inst).unwrap()), Some(b));
