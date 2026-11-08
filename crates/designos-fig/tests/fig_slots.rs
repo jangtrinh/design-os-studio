@@ -1439,3 +1439,176 @@ fn fig_instance_slot_with_instance_child_and_cleared_slot_survive_main_edit() {
     sync_instances(&mut rt_c, rt_comp_c).apply(&mut rt_c).unwrap();
     assert!(rt_c.get(rt_inst_slot_c).unwrap().children.is_empty(), "cleared instance slot must stay empty after sync_instances");
 }
+
+// ---------------------------------------------------------------- slot export fidelity
+
+/// Every SLOT definition in an exported `.fig`, as `(property name, has slotPropConfig)`.
+fn exported_slot_defs(bytes: &[u8]) -> Vec<(String, bool)> {
+    use designos_fig::kiwi::KiwiValue;
+    let (_, msg) = decode_fig_for_scan(bytes);
+    let mut out = Vec::new();
+    for nc in msg.get("nodeChanges").and_then(KiwiValue::as_array).unwrap_or(&[]) {
+        for d in nc.get("componentPropDefs").and_then(KiwiValue::as_array).unwrap_or(&[]) {
+            if d.get("type") == Some(&KiwiValue::Enum("SLOT".into())) {
+                let name = match d.get("name") {
+                    Some(KiwiValue::String(s)) => s.clone(),
+                    _ => String::new(),
+                };
+                out.push((name, d.get("slotPropConfig").is_some()));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn a_preferred_only_slot_re_exports_without_a_slot_prop_config() {
+    let doc = import_fig_node_changes(&preferred_without_config_fixture(), "t").unwrap();
+    let bytes = export_fig(&doc).unwrap();
+    assert_eq!(exported_slot_defs(&bytes), vec![("Body".to_string(), false)], "the source wrote no slotPropConfig");
+    // and it stays absent through a second hop
+    let rt = import_fig(&bytes).unwrap();
+    assert_eq!(exported_slot_defs(&export_fig(&rt).unwrap()), vec![("Body".to_string(), false)]);
+}
+
+#[test]
+fn an_empty_slot_prop_config_the_file_wrote_is_written_back() {
+    let fixture = panel_with_one_slot(json!({"componentPropDefs": [{"id": g(7, 1), "name": "Body", "type": "SLOT", "slotPropConfig": {}}]}), json!({}));
+    let doc = import_fig_node_changes(&fixture, "t").unwrap();
+    assert_eq!(exported_slot_defs(&export_fig(&doc).unwrap()), vec![("Body".to_string(), true)]);
+}
+
+#[test]
+fn an_old_native_config_loads_unchanged_and_keeps_an_absent_flag_absent() {
+    // A config saved before the flag existed has no `empty_config_written` key.
+    let cfg: SlotPropConfig = serde_json::from_str(r#"{"preferred":[7]}"#).unwrap();
+    assert_eq!(cfg, SlotPropConfig { preferred: vec![NodeId(7)], ..Default::default() });
+    assert_eq!(serde_json::to_string(&cfg).unwrap(), r#"{"preferred":[7]}"#, "an absent flag stays absent");
+}
+
+#[test]
+fn a_preferred_component_detached_from_every_page_survives_a_fig_round_trip() {
+    let mut doc = Document::new("detached");
+    let page = doc.add_page("Page");
+    let panel_id = doc.alloc_id();
+    let mut panel = Node::new(panel_id, NodeKind::Component(FrameProps::default()));
+    panel.name = "Panel".into();
+    let detached_id = doc.alloc_id();
+    let mut detached = Node::new(detached_id, NodeKind::Component(FrameProps::default()));
+    detached.name = "Detached Card".into();
+    // Kept alive only by the slot's preferred list: no parent, on no page.
+    doc.nodes.insert(detached_id, detached);
+    panel.component.props.push(ComponentPropDef { name: "Body".into(), kind: PropKind::Slot, default: PropValue::Slot(Vec::new()) });
+    panel.component.slot_configs.insert("Body".into(), SlotPropConfig { preferred: vec![detached_id], ..Default::default() });
+    doc.insert(page, panel).unwrap();
+    assert_eq!(doc.get(detached_id).unwrap().parent, None);
+
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    let kept = find(&rt, "Detached Card");
+    assert!(matches!(kept.kind, NodeKind::Component(_)));
+    assert_eq!(find(&rt, "Panel").component.slot_configs.get("Body").map(|c| c.preferred.clone()), Some(vec![kept.id]), "the preferred list is not emptied");
+}
+
+#[test]
+fn a_nested_component_copy_in_an_instance_drops_the_definitions_slot_settings() {
+    let fixture = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        nc((5, 1), (0, 1), "a", "SYMBOL", "Outer", json!({})),
+        nc(
+            (5, 2),
+            (5, 1),
+            "a",
+            "SYMBOL",
+            "Inner",
+            json!({"componentPropDefs": [{"id": g(7, 1), "name": "Body", "type": "SLOT", "slotPropConfig": {"minChildren": 1}}]})
+        ),
+        nc((1, 2), (0, 1), "b", "INSTANCE", "Outer copy", json!({"symbolData": {"symbolID": g(5, 1), "symbolOverrides": [], "uniformScaleFactor": 1.0}}))
+    ]);
+    let doc = import_fig_node_changes(&fixture, "t").unwrap();
+    let copies: Vec<&Node> = doc.nodes.values().filter(|n| n.name == "Inner").collect();
+    assert_eq!(copies.len(), 2, "the definition and its copy in the instance");
+    let (defs, instanced): (Vec<_>, Vec<_>) = copies.into_iter().partition(|n| !n.component.props.is_empty());
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].component.slot_configs.len(), 1);
+    assert_eq!(instanced.len(), 1);
+    assert!(instanced[0].component.slot_configs.is_empty(), "settings belong to the definition, not to the copy");
+}
+
+// ---------------------------------------------------------------- detached preferred: sets, chains, cycles
+
+/// A detached component named `name` with a slot `Body` that prefers `preferred`.
+fn detached_component(doc: &mut Document, name: &str, preferred: Vec<NodeId>) -> NodeId {
+    let id = doc.alloc_id();
+    let mut n = Node::new(id, NodeKind::Component(FrameProps::default()));
+    n.name = name.into();
+    if !preferred.is_empty() {
+        n.component.props.push(ComponentPropDef { name: "Body".into(), kind: PropKind::Slot, default: PropValue::Slot(Vec::new()) });
+        n.component.slot_configs.insert("Body".into(), SlotPropConfig { preferred, ..Default::default() });
+    }
+    doc.nodes.insert(id, n);
+    id
+}
+
+/// A page holding `Panel`, whose slot prefers `preferred`.
+fn panel_preferring(doc: &mut Document, preferred: Vec<NodeId>) {
+    let page = doc.add_page("Page");
+    let id = doc.alloc_id();
+    let mut panel = Node::new(id, NodeKind::Component(FrameProps::default()));
+    panel.name = "Panel".into();
+    panel.component.props.push(ComponentPropDef { name: "Body".into(), kind: PropKind::Slot, default: PropValue::Slot(Vec::new()) });
+    panel.component.slot_configs.insert("Body".into(), SlotPropConfig { preferred, ..Default::default() });
+    doc.insert(page, panel).unwrap();
+}
+
+fn count_named(doc: &Document, name: &str) -> usize {
+    doc.nodes.values().filter(|n| n.name == name).count()
+}
+
+#[test]
+fn a_detached_set_and_its_variant_both_preferred_are_written_once() {
+    let mut doc = Document::new("set");
+    let set_id = doc.alloc_id();
+    let mut set = Node::new(set_id, NodeKind::ComponentSet(FrameProps::default()));
+    set.name = "Badge Set".into();
+    let variant_id = doc.alloc_id();
+    let mut variant = Node::new(variant_id, NodeKind::Component(FrameProps::default()));
+    variant.name = "Badge Variant".into();
+    variant.parent = Some(set_id);
+    set.children.push(variant_id);
+    doc.nodes.insert(set_id, set);
+    doc.nodes.insert(variant_id, variant);
+    panel_preferring(&mut doc, vec![set_id, variant_id]);
+
+    let once = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!((count_named(&once, "Badge Set"), count_named(&once, "Badge Variant")), (1, 1));
+    let twice = import_fig(&export_fig(&once).unwrap()).unwrap();
+    assert_eq!((count_named(&twice, "Badge Set"), count_named(&twice, "Badge Variant")), (1, 1), "a second save adds no copy");
+}
+
+#[test]
+fn a_detached_component_preferred_only_by_another_detached_component_survives() {
+    let mut doc = Document::new("chain");
+    let b = detached_component(&mut doc, "B", Vec::new());
+    let a = detached_component(&mut doc, "A", vec![b]);
+    panel_preferring(&mut doc, vec![a]);
+
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!((count_named(&rt, "A"), count_named(&rt, "B")), (1, 1));
+    let (a_rt, b_rt) = (find(&rt, "A").id, find(&rt, "B").id);
+    assert_eq!(find(&rt, "A").component.slot_configs.get("Body").map(|c| c.preferred.clone()), Some(vec![b_rt]));
+    assert_eq!(find(&rt, "Panel").component.slot_configs.get("Body").map(|c| c.preferred.clone()), Some(vec![a_rt]));
+}
+
+#[test]
+fn two_detached_components_that_prefer_each_other_are_each_written_once() {
+    let mut doc = Document::new("cycle");
+    let a = detached_component(&mut doc, "A", Vec::new());
+    let b = detached_component(&mut doc, "B", vec![a]);
+    doc.get_mut(a).unwrap().component.props.push(ComponentPropDef { name: "Body".into(), kind: PropKind::Slot, default: PropValue::Slot(Vec::new()) });
+    doc.get_mut(a).unwrap().component.slot_configs.insert("Body".into(), SlotPropConfig { preferred: vec![b], ..Default::default() });
+    panel_preferring(&mut doc, vec![a]);
+
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!((count_named(&rt, "A"), count_named(&rt, "B")), (1, 1));
+}

@@ -612,7 +612,12 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
     }
 
     // 3. Internal-only canvas for variables, styles, and library components.
-    let has_internal = !doc.variable_collections.is_empty() || !doc.variables.is_empty() || !doc.styles.is_empty() || doc.library_page.is_some();
+    let detached_preferred = detached_slot_preferred(doc);
+    let has_internal = !doc.variable_collections.is_empty()
+        || !doc.variables.is_empty()
+        || !doc.styles.is_empty()
+        || doc.library_page.is_some()
+        || !detached_preferred.is_empty();
     if has_internal {
         let iguid = (0, 999_999);
         cx.changes.push(msg(vec![
@@ -638,10 +643,77 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
                 }
             }
         }
+        for cid in detached_preferred {
+            export_node_rec(&mut cx, cid, iguid, internal_idx, None, false);
+            internal_idx += 1;
+        }
     }
 
     let blobs: Vec<V> = cx.blobs.into_iter().map(|b| st(vec![("bytes", V::Bytes(b))])).collect();
     msg(vec![("type", en("NODE_CHANGES")), ("sessionID", V::Uint(0)), ("ackID", V::Uint(0)), ("nodeChanges", V::Array(cx.changes)), ("blobs", V::Array(blobs))])
+}
+
+/// Whether `id` hangs under a page or the library page.
+fn is_attached(doc: &Document, id: NodeId) -> bool {
+    let mut cur = id;
+    // A parent chain longer than the node count is a cycle: such a node is not attached.
+    for _ in 0..=doc.nodes.len() {
+        if doc.pages.contains(&cur) || doc.library_page == Some(cur) {
+            return true;
+        }
+        match doc.get(cur).and_then(|n| n.parent) {
+            Some(p) => cur = p,
+            None => return false,
+        }
+    }
+    false
+}
+
+/// Whether `id` or one of its ancestors is in `set`.
+fn self_or_ancestor_in(doc: &Document, id: NodeId, set: &std::collections::BTreeSet<NodeId>) -> bool {
+    let mut cur = Some(id);
+    for _ in 0..=doc.nodes.len() {
+        let Some(c) = cur else { return false };
+        if set.contains(&c) {
+            return true;
+        }
+        cur = doc.get(c).and_then(|n| n.parent);
+    }
+    false
+}
+
+/// Components that only a slot's preferred list keeps alive: they sit on no page, yet the slot definition
+/// writes their guid. They are exported on the internal canvas so the guid resolves on import.
+///
+/// A detached component that is itself written can in turn prefer another detached one, so the search runs
+/// to a fixed point. A node under another collected node (a variant of a preferred set) is written with
+/// that node, not again on its own.
+fn detached_slot_preferred(doc: &Document) -> Vec<NodeId> {
+    let mut found = std::collections::BTreeSet::new();
+    loop {
+        let before = found.len();
+        for (&holder, n) in &doc.nodes {
+            if n.component.slot_configs.is_empty() || !(is_attached(doc, holder) || self_or_ancestor_in(doc, holder, &found)) {
+                continue;
+            }
+            for pid in n.component.slot_configs.values().flat_map(|c| c.preferred.iter().copied()) {
+                if doc.get(pid).is_some() && !is_attached(doc, pid) {
+                    found.insert(pid);
+                }
+            }
+        }
+        if found.len() == before {
+            break;
+        }
+    }
+    found
+        .iter()
+        .copied()
+        .filter(|&id| {
+            let parent = doc.get(id).and_then(|n| n.parent);
+            !parent.is_some_and(|p| self_or_ancestor_in(doc, p, &found))
+        })
+        .collect()
 }
 
 fn collect_page_handoff(cx: &ExportCtx, page: NodeId) -> Vec<V> {
@@ -1384,7 +1456,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     df.push(("type", en("SLOT")));
                     df.push(("initialValue", msg(vec![("textValue", msg(vec![("characters", V::String(String::new()))]))])));
                     if let Some(cfg) = node.component.slot_configs.get(&p.name) {
-                        df.push(("slotPropConfig", encode_slot_prop_config(cfg)));
+                        if cfg.has_settings() {
+                            df.push(("slotPropConfig", encode_slot_prop_config(cfg)));
+                        }
                         if let Some(pv) = encode_preferred_values(cx, &cfg.preferred) {
                             df.push(("preferredValues", pv));
                         }

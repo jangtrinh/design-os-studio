@@ -280,9 +280,28 @@ pub struct SlotPropConfig {
     /// Components offered for this slot (`preferredValues`), as local node ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preferred: Vec<NodeId>,
+    /// The file wrote a `slotPropConfig` with no setting in it. Without this flag an entry that
+    /// holds only [`SlotPropConfig::preferred`] means "the file wrote no config", and re-export
+    /// leaves the config out; see [`SlotPropConfig::has_settings`].
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub empty_config_written: bool,
     /// Unmapped keys from `slotPropConfig` preserved across REST import and native JSON save/load.
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+impl SlotPropConfig {
+    /// Whether a `slotPropConfig` belongs in the file: any setting is set, an unmapped key was
+    /// kept, or the source wrote the config empty. Preferred components alone do not count.
+    pub fn has_settings(&self) -> bool {
+        self.stretch_child_on_insert.is_some()
+            || self.display_by_default.is_some()
+            || self.min_children.is_some()
+            || self.max_children.is_some()
+            || self.allow_preferred_values_only.is_some()
+            || !self.extra.is_empty()
+            || self.empty_config_written
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
