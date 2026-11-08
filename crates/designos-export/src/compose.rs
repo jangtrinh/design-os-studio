@@ -332,7 +332,7 @@ fn compose_columns_arg(grid: &SolvedGrid) -> String {
     let weights = (0..grid.cols.len()).map(|c| format!("{}f", num(grid.weight(c).unwrap_or(0.0)))).collect::<Vec<_>>().join(", ");
     let gaps = grid.cols.len().saturating_sub(1);
     format!(
-        "{head} {{ val fixed = listOf({fixed}).map {{ it.roundToPx() }}; val weights = listOf({weights}); val unit = (availableSize - spacing * {gaps} - fixed.sum()) / weights.sum(); return fixed.indices.map {{ fixed[it] + (weights[it] * unit).toInt() }} }} }}"
+        "{head} {{ val fixed = listOf({fixed}).map {{ it.roundToPx() }}; val weights = listOf({weights}); val unit = (availableSize - spacing * {gaps} - fixed.sum()).coerceAtLeast(0) / weights.sum(); return fixed.indices.map {{ fixed[it] + (weights[it] * unit + 0.5f).toInt() }} }} }}"
     )
 }
 

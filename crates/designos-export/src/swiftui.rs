@@ -592,23 +592,27 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         };
         // `Grid` shares the width left by fixed columns equally among columns that can stretch, so only
         // equal weights export as stretching cells; unequal weights keep the solver's widths.
-        let stretch = grid.has_weights() && (0..grid.cols.len()).filter_map(|c| grid.weight(c)).all(|w| (w - grid.weight_of_first()).abs() < 1e-3);
+        let stretch = grid.equal_weights();
         if grid.has_weights() && !stretch {
             o.line(g_depth, "// unequal column weights: Grid shares free width equally, so columns keep their solved widths");
         }
-        if stretch {
+        if grid.has_weights() {
             for (c, k) in grid.cols.iter().enumerate() {
                 if let ColKind::Hug(px) = k {
-                    o.line(g_depth, format!("// Hug column {} is exported as its solved width {}", c + 1, num(*px)));
+                    let standalone = (0..grid.rows.len())
+                        .any(|r| !grid.row_cells(r).iter().any(|g| g.placed.col_span > 1 && g.placed.col <= c && c < g.placed.col + g.placed.col_span));
+                    if standalone {
+                        o.line(g_depth, format!("// Hug column {} is exported as its solved width {}", c + 1, num(*px)));
+                    } else {
+                        o.line(g_depth, format!("// Hug column {} keeps its solved width {} in its span", c + 1, num(*px)));
+                    }
                 }
             }
         }
         let cell_frame = |p: &designos_doc::layout_solver::Placed, h: f32, align: &str| -> String {
-            if stretch {
-                let (weight, px) = grid.span_weight_and_px(p);
-                if weight > 0.0 {
-                    return format!(".frame(minWidth: {}, maxWidth: .infinity, minHeight: {}, maxHeight: {}, alignment: {align})", num(px), num(h), num(h));
-                }
+            if stretch && grid.span_is_all_flex(p) {
+                let (_, px) = grid.span_weight_and_px(p);
+                return format!(".frame(minWidth: {}, maxWidth: .infinity, minHeight: {}, maxHeight: {}, alignment: {align})", num(px), num(h), num(h));
             }
             format!(".frame(width: {}, height: {}, alignment: {align})", num(grid.cell_width(p)), num(h))
         };

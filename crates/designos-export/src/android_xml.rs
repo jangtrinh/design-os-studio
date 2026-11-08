@@ -439,11 +439,12 @@ impl Cx<'_> {
                 let (span_weight, _) = sg.span_weight_and_px(p);
                 let mut c_attrs: Attrs = Vec::new();
                 // A weighted cell takes its columns' share of the free width; a fixed one its solved width.
+                // Multi-column spans rely on the per-column Space or span-1 cells for column weights.
                 attr(&mut c_attrs, "layout_width", if span_weight > 0.0 { "0dp".to_string() } else { format!("{}dp", num(sg.cell_width(p))) });
                 attr(&mut c_attrs, "layout_height", format!("{}dp", num(cell_h)));
                 attr(&mut c_attrs, "layout_row", p.row.to_string());
                 attr(&mut c_attrs, "layout_column", p.col.to_string());
-                if span_weight > 0.0 {
+                if span_weight > 0.0 && p.col_span == 1 {
                     attr(&mut c_attrs, "layout_columnWeight", num(span_weight));
                 }
                 if p.row_span > 1 {
@@ -451,6 +452,9 @@ impl Cx<'_> {
                 }
                 if p.col_span > 1 {
                     attr(&mut c_attrs, "layout_columnSpan", p.col_span.to_string());
+                }
+                if span_weight > 0.0 {
+                    attr(&mut c_attrs, "layout_gravity", "fill_horizontal");
                 }
                 if p.col > 0 {
                     if let Some(ref cg) = col_gap_val {

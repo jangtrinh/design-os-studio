@@ -655,6 +655,16 @@ impl SolvedGrid {
         (0..self.cols.len()).filter_map(|c| self.weight(c)).sum()
     }
 
+    /// Whether every weighted column in the grid has the same weight.
+    pub fn equal_weights(&self) -> bool {
+        self.has_weights() && (0..self.cols.len()).filter_map(|c| self.weight(c)).all(|w| (w - self.weight_of_first()).abs() < 1e-3)
+    }
+
+    /// Whether every column covered by `p` is a flexible weighted column (none is `Fixed` or `Hug`).
+    pub fn span_is_all_flex(&self, p: &designos_doc::layout_solver::Placed) -> bool {
+        p.col_span > 0 && (p.col..p.col + p.col_span).all(|c| self.weight(c).is_some())
+    }
+
     /// Width the grid's columns take in pixels that no weight shares: fixed and hug columns plus
     /// every column gap.
     pub fn fixed_and_gap_width(&self) -> f32 {
@@ -754,7 +764,7 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     let row_gap = designos_doc::layout_solver::grid_row_gap(&al_s);
     let placed = designos_doc::layout_solver::place_children(&kids, widths.len());
     let children = ids.into_iter().zip(placed).collect();
-    let cols = native_col_kinds(&al_s, &widths);
+    let cols = native_col_kinds(&al_s, n.size.x, &widths);
     Some(SolvedGrid { widths, cols, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), pad_x: al_s.padding[1] + al_s.padding[3], children })
 }
 
@@ -828,11 +838,28 @@ fn flex_units_agree(al: &AutoLayout, col_widths: &[f32]) -> bool {
 
 /// Column kinds for the native generators. Flexible tracks become weights (Compose, Android, SwiftUI,
 /// UIKit proportional constraints) when the grid's width is fixed and the solver's flexible columns
-/// are proportional to their weights. A grid that hugs its width, or whose flexible columns the solver
-/// holds off-proportion, keeps every column at its solved pixels, as before.
-fn native_col_kinds(al: &AutoLayout, widths: &[f32]) -> Vec<ColKind> {
+/// match `weight * free / total_weight` without hitting the 1px floor. A grid that hugs its width, or
+/// whose flexible columns the solver holds off-proportion or at the 1px floor, keeps every column at
+/// its solved pixels, as before.
+fn native_col_kinds(al: &AutoLayout, frame_w: f32, widths: &[f32]) -> Vec<ColKind> {
     let track = |c: usize| al.grid_col_tracks.get(c).copied().unwrap_or_default();
-    let weighted = al.primary_sizing != Sizing::Hug && flex_units_agree(al, widths) && (0..widths.len()).any(|c| matches!(track(c), GridTrack::Flex(_)));
+    let [_, pr, _, pl] = al.padding;
+    let col_gap = al.item_spacing.max(0.0);
+    let inner_w = (frame_w - pl - pr - col_gap * (widths.len().saturating_sub(1) as f32)).max(0.0);
+    let fixed_used: f32 = (0..widths.len()).filter(|&c| !matches!(track(c), GridTrack::Flex(_))).map(|c| widths[c]).sum();
+    let free = (inner_w - fixed_used).max(0.0);
+    let total_weight: f32 = (0..widths.len())
+        .filter_map(|c| match track(c) {
+            GridTrack::Flex(fr) => Some(flex_weight(fr)),
+            _ => None,
+        })
+        .sum();
+    let matches_free_share = total_weight > 0.0
+        && (0..widths.len()).all(|c| match track(c) {
+            GridTrack::Flex(fr) => (widths[c] - flex_weight(fr) * free / total_weight).abs() <= 0.5,
+            _ => true,
+        });
+    let weighted = al.primary_sizing != Sizing::Hug && flex_units_agree(al, widths) && matches_free_share;
     widths
         .iter()
         .enumerate()
