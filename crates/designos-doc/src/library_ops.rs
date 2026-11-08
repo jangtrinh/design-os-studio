@@ -992,10 +992,13 @@ impl<'a> Trial<'a> {
         for id in &ids {
             idmap.insert(*id, self.doc.alloc_id());
         }
-        let nodes: Vec<Node> = ids
+        let mut nodes: Vec<Node> = ids
             .iter()
             .map(|id| self.convert(*id, if *id == sroot { Some(page) } else { self.snap.nodes[id].parent.and_then(|p| idmap.get(&p).copied()) }, &idmap))
             .collect();
+        // a library file is another document: its Motion ids are renamed and a timeline that is not copied is not matched by id
+        let mut copied: Vec<&mut Node> = nodes.iter_mut().collect();
+        crate::reid_copied_motion(self.doc, &mut copied, false);
         let index = self.doc.get(page).map(|p| p.children.len()).unwrap_or(0);
         let root = idmap[&sroot];
         self.push(Command::Insert { parent: page, index, nodes });
@@ -1023,11 +1026,14 @@ impl<'a> Trial<'a> {
         }
         let Some(parent) = self.doc.get(local_root).and_then(|n| n.parent) else { return };
         let index = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == local_root)).unwrap_or(0);
-        let nodes: Vec<Node> = ids
+        let mut nodes: Vec<Node> = ids
             .iter()
             .map(|id| self.convert(*id, if *id == sroot { Some(parent) } else { self.snap.nodes[id].parent.and_then(|p| idmap.get(&p).copied()) }, &idmap))
             .collect();
+        // Remove the old local copy first, so its Motion ids are free again and an update keeps naming the new ones alike.
         self.push(Command::Remove { id: local_root });
+        let mut copied: Vec<&mut Node> = nodes.iter_mut().collect();
+        crate::reid_copied_motion(self.doc, &mut copied, false);
         self.push(Command::Insert { parent, index, nodes });
     }
 
@@ -1624,6 +1630,83 @@ mod tests {
         h.undo(&mut d).unwrap();
         assert_eq!(d.get(comp_local).unwrap().size.x, 100.0);
         assert_eq!(d.library.enabled[0].version, 1);
+    }
+
+    /// A library whose Button animates itself on its own timeline "tl", and whose label has a track on "ext", a
+    /// timeline the component does not own. The consumer owns timelines called "tl" and "ext" too.
+    fn lib_and_consumer_with_motion() -> (Document, Document, String) {
+        let mut lib = lib_doc();
+        let comp = lib.pages.iter().flat_map(|p| lib.get(*p).unwrap().children.clone()).next().unwrap();
+        let label = lib.get(comp).unwrap().children[0];
+        let mut cn = lib.get(comp).unwrap().clone();
+        cn.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 1_000)],
+            tracks: vec![Track::new("tr", "tl", TrackProperty::Opacity)],
+            ..Default::default()
+        }));
+        run(&mut lib, Command::Update { node: Box::new(cn) });
+        let mut ln = lib.get(label).unwrap().clone();
+        ln.motion = Some(Box::new(NodeMotion { tracks: vec![Track::new("ltr", "ext", TrackProperty::Rotation)], ..Default::default() }));
+        run(&mut lib, Command::Update { node: Box::new(ln) });
+
+        let mut d = consumer();
+        let page = d.pages[0];
+        let id = d.alloc_id();
+        let mut own = Node::new(id, NodeKind::Frame(FrameProps::default()));
+        own.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 5), Timeline::new("ext", 5)],
+            tracks: vec![Track::new("tr", "tl", TrackProperty::Width)],
+            ..Default::default()
+        }));
+        d.insert(page, own).unwrap();
+        let key = button_key(&lib);
+        (lib, d, key)
+    }
+
+    #[test]
+    fn importing_a_component_gives_it_its_own_motion_ids_and_drops_foreign_timeline_references() {
+        let (lib, mut d, key) = lib_and_consumer_with_motion();
+        let snap = snapshot(&lib, "L1", "Lib", 1);
+        let page = d.pages[0];
+        let cmd = import_asset(&mut d, &snap, &key, Some(Placement { parent: page, at: Vec2::ZERO }));
+        run(&mut d, cmd);
+        let ix = MotionIndex::build(&d);
+        assert!(ix.duplicate_ids().is_empty(), "{:?}", ix.duplicate_ids());
+        let local_comp = d.nodes.values().find(|n| is_library_node(&d, n.id) && matches!(n.kind, NodeKind::Component(_))).unwrap();
+        let m = local_comp.motion.as_deref().unwrap();
+        assert_ne!(m.timelines[0].id, "tl", "the library's id is not reused");
+        assert_eq!(m.tracks[0].timeline, m.timelines[0].id);
+        let label = d.get(local_comp.children[0]).unwrap();
+        assert!(label.motion.is_none(), "the label's track on the library's \"ext\" never plays the consumer's \"ext\": {:?}", label.motion);
+        assert_eq!(ix.tracks_on("ext").len(), 0);
+    }
+
+    #[test]
+    fn updating_a_component_keeps_naming_its_motion_ids_alike() {
+        let (mut lib, mut d, key) = lib_and_consumer_with_motion();
+        let snap1 = snapshot(&lib, "L1", "Lib", 1);
+        let page = d.pages[0];
+        let cmd = import_asset(&mut d, &snap1, &key, Some(Placement { parent: page, at: Vec2::ZERO }));
+        run(&mut d, cmd);
+        let first =
+            d.nodes.values().find(|n| is_library_node(&d, n.id) && matches!(n.kind, NodeKind::Component(_))).unwrap().motion.as_deref().unwrap().timelines[0]
+                .id
+                .clone();
+
+        let comp = lib.pages.iter().flat_map(|p| lib.get(*p).unwrap().children.clone()).next().unwrap();
+        let mut cn = lib.get(comp).unwrap().clone();
+        cn.size = Vec2::new(200.0, 40.0);
+        run(&mut lib, Command::Update { node: Box::new(cn) });
+        let snap2 = snapshot(&lib, "L1", "Lib", 2);
+        let ups = pending_updates(&d, &snap2);
+        let cmd = apply_updates(&mut d, &snap2, &[ups[0].key.clone()]);
+        run(&mut d, cmd);
+        assert!(MotionIndex::build(&d).duplicate_ids().is_empty());
+        let second =
+            d.nodes.values().find(|n| is_library_node(&d, n.id) && matches!(n.kind, NodeKind::Component(_))).unwrap().motion.as_deref().unwrap().timelines[0]
+                .id
+                .clone();
+        assert_eq!(first, second, "an update does not rename the ids again");
     }
 
     #[test]

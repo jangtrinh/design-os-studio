@@ -118,7 +118,7 @@ fn track_property_names_follow_the_kiwi_variable_field() {
         assert_eq!(TrackProperty::from_kiwi_name(name).kiwi_name(), name);
     }
     assert_eq!(TrackProperty::from_kiwi_name("BLUR_RADIUS"), TrackProperty::Other("BLUR_RADIUS".into()));
-    assert!(serde_json::from_str::<TrackProperty>("\"\"").is_err());
+    assert_eq!(serde_json::from_str::<TrackProperty>("\"\"").unwrap(), TrackProperty::Other(String::new()), "the reader never fails over a name");
 }
 
 #[test]
@@ -520,4 +520,185 @@ fn a_live_patch_replays_adding_motion_and_its_undo_on_the_editor_document() {
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
     assert!(editor.get(frame).unwrap().motion.is_none(), "the undo removes the motion key on the editor");
     assert_eq!(editor.get(frame).unwrap(), &original);
+}
+
+#[test]
+fn a_layer_with_one_timeline_one_track_and_one_keyframe_saves_this_compact_motion_object() {
+    let mut m = NodeMotion::default();
+    let mut tl = Timeline::new("3:1", 1_500_000);
+    tl.playback = PlaybackStyle::Loop;
+    m.timelines.push(tl);
+    let mut tr = Track::new("4:1", "3:1", TrackProperty::Opacity);
+    tr.set_keyframe(Keyframe::new(500_000, KeyValue::Float(0.75)));
+    m.tracks.push(tr);
+    let json = serde_json::to_string(&m).unwrap();
+    assert_eq!(
+        json,
+        r#"{"timelines":[{"id":"3:1","duration_us":1500000,"playback":"Loop"}],"tracks":[{"id":"4:1","timeline":"3:1","property":"OPACITY","keyframes":[{"time_us":500000,"value":{"Float":0.75}}]}]}"#
+    );
+    assert_eq!(serde_json::from_str::<NodeMotion>(&json).unwrap(), m);
+    println!("{}", serde_json::to_string_pretty(&m).unwrap());
+}
+
+// ---- fix round 2 -------------------------------------------------------------------------------------------
+
+/// A document with timeline "tl", track "tr" (keyframes at 0 and 500_000) and one undone edit, so redo is not empty.
+fn setup_with_redo() -> (Document, History, NodeId) {
+    let (mut d, frame) = doc_with_frame();
+    let mut h = History::default();
+    let c = add_timeline(&d, frame, Timeline::new("tl", 1_000_000));
+    add(&mut d, &mut h, c);
+    let c = add_track(&d, frame, Track::new("tr", "tl", TrackProperty::Opacity));
+    add(&mut d, &mut h, c);
+    for t in [0, 500_000] {
+        let c = set_keyframe(&d, frame, "tr", Keyframe::new(t, KeyValue::Float(1.0)));
+        add(&mut d, &mut h, c);
+    }
+    let c = update_timeline(&d, "tl", |t| t.duration_us = 2_000_000);
+    add(&mut d, &mut h, c);
+    h.undo(&mut d).unwrap();
+    assert!(h.can_redo());
+    (d, h, frame)
+}
+
+fn assert_refused_without_a_step(label: &str, edit: impl FnOnce(&Document, NodeId) -> Result<Command, MotionError>) {
+    let (d, h, frame) = setup_with_redo();
+    assert_eq!(edit(&d, frame).map(|_| ()), Err(MotionError::NoChange), "{label}");
+    assert!(h.can_redo(), "{label}: refusing leaves redo alone");
+}
+
+#[test]
+fn an_update_that_changes_nothing_is_refused_so_no_undo_step_is_made() {
+    assert_refused_without_a_step("update_timeline", |d, _| update_timeline(d, "tl", |_| {}));
+    assert_refused_without_a_step("update_track", |d, f| update_track(d, f, "tr", |_| {}));
+    assert_refused_without_a_step("update_assignment of the same value", |d, f| {
+        let a = TimelineAssignment { timeline: "tl".into(), containing: "tl".into(), offset_us: 0, disabled: false, autoplay: false };
+        let mut probe = d.clone();
+        probe.get_mut(f).unwrap().motion.as_mut().unwrap().assignments.push(a);
+        update_assignment(&probe, f, "tl", "tl", |_| {})
+    });
+}
+
+#[test]
+fn a_keyframe_dropped_where_it_started_or_set_to_the_same_value_is_refused() {
+    assert_refused_without_a_step("move_keyframe t->t", |d, f| move_keyframe(d, f, "tr", 500_000, 500_000));
+    assert_refused_without_a_step("set_keyframe identical", |d, f| set_keyframe(d, f, "tr", Keyframe::new(0, KeyValue::Float(1.0))));
+}
+
+#[test]
+fn a_real_edit_after_an_undo_still_clears_redo() {
+    let (mut d, mut h, frame) = setup_with_redo();
+    let c = set_keyframe(&d, frame, "tr", Keyframe::new(0, KeyValue::Float(0.25)));
+    add(&mut d, &mut h, c);
+    assert!(!h.can_redo());
+}
+
+fn doc_with_unsorted_track() -> (Document, NodeId) {
+    let (mut d, frame) = doc_with_frame();
+    let mut tr = Track::new("tr", "tl", TrackProperty::Opacity);
+    tr.keyframes = vec![Keyframe::new(0, KeyValue::Float(0.0)), Keyframe::new(200, KeyValue::Float(2.0)), Keyframe::new(100, KeyValue::Float(1.0))];
+    d.get_mut(frame).unwrap().motion = Some(Box::new(NodeMotion { timelines: vec![Timeline::new("tl", 1_000)], tracks: vec![tr], ..Default::default() }));
+    (d, frame)
+}
+
+#[test]
+fn keyframes_in_a_file_are_sorted_when_it_is_read() {
+    let (d, frame) = doc_with_unsorted_track();
+    let back = Document::from_json(&d.to_json().unwrap()).unwrap();
+    let times: Vec<i64> = motion_of(&back, frame).tracks[0].keyframes.iter().map(|k| k.time_us).collect();
+    assert_eq!(times, vec![0, 100, 200]);
+}
+
+#[test]
+fn set_and_remove_see_the_sorted_order_of_an_unsorted_track() {
+    let (mut d, frame) = doc_with_unsorted_track();
+    let mut h = History::default();
+    let c = set_keyframe(&d, frame, "tr", Keyframe::new(100, KeyValue::Float(9.0)));
+    add(&mut d, &mut h, c);
+    let tr = motion_of(&d, frame).tracks[0].clone();
+    assert_eq!(tr.keyframe(100).map(|k| k.value.clone()), Some(KeyValue::Float(9.0)));
+    assert_eq!(tr.keyframes.len(), 3);
+    let (d, frame) = doc_with_unsorted_track();
+    assert!(remove_keyframe(&d, frame, "tr", 100).is_ok());
+}
+
+#[test]
+fn a_track_with_an_empty_property_is_never_written_and_never_blocks_a_load() {
+    let (mut d, frame) = doc_with_frame();
+    d.get_mut(frame).unwrap().motion = Some(Box::new(NodeMotion {
+        timelines: vec![Timeline::new("tl", 1)],
+        tracks: vec![Track::new("keep", "tl", TrackProperty::Opacity), Track::new("bad", "tl", TrackProperty::Other(String::new()))],
+        ..Default::default()
+    }));
+    let json = d.to_json().unwrap();
+    assert!(json.contains("\"keep\"") && !json.contains("\"bad\""), "the writer leaves the empty property out: {json}");
+    // a file made elsewhere that does carry one
+    let hand_made = json.replace("\"OPACITY\"", "\"\"");
+    let (back, report) = Document::from_json_with_report(&hand_made).expect("the document opens");
+    assert_eq!(report.motion_tracks_dropped, 1, "the drop is counted: {report:?}");
+    assert!(!report.is_clean());
+    assert!(back.get(frame).unwrap().motion.as_deref().unwrap().tracks.is_empty());
+    assert_eq!(report.structural_summary(), None, "not a node-graph defect");
+    // and the edit API refuses to make one
+    assert_eq!(add_track(&d, frame, Track::new("t2", "tl", TrackProperty::Other(String::new()))).unwrap_err(), MotionError::EmptyProperty);
+    assert_eq!(update_track(&d, frame, "keep", |t| t.property = TrackProperty::Other(String::new())).unwrap_err(), MotionError::EmptyProperty);
+}
+
+#[test]
+fn a_rate_whose_frame_rounds_to_zero_does_not_snap_everything_to_zero() {
+    let mut t = Timeline::new("tl", 1);
+    t.snap_fps = Some(FrameRate::new(3_000_000, 1));
+    assert_eq!(t.snap(123_456), 123_456);
+}
+
+fn component_with_motion() -> (Document, NodeId, NodeId) {
+    let (mut d, frame) = doc_with_frame();
+    d.get_mut(frame).unwrap().motion = Some(Box::new(NodeMotion {
+        timelines: vec![Timeline::new("tl", 1_000)],
+        tracks: vec![Track::new("tr", "tl", TrackProperty::Opacity)],
+        ..Default::default()
+    }));
+    create_component(&mut d, frame).apply(&mut d).unwrap();
+    let page = d.pages[0];
+    (d, frame, page)
+}
+
+#[test]
+fn instances_of_one_batch_made_before_any_is_inserted_never_share_ids() {
+    let (mut d, comp, page) = component_with_motion();
+    let dup = duplicate_subtree(&mut d, comp);
+    Command::Insert { parent: page, index: 1, nodes: dup.clone() }.apply(&mut d).unwrap();
+    let comp2 = dup[0].id;
+    let mut reserved = std::collections::BTreeSet::new();
+    let a = create_instance_reserving(&mut d, comp, page, Vec2::ZERO, &mut reserved);
+    let b = create_instance_reserving(&mut d, comp2, page, Vec2::ZERO, &mut reserved);
+    a.apply(&mut d).unwrap();
+    b.apply(&mut d).unwrap();
+    assert!(MotionIndex::build(&d).duplicate_ids().is_empty(), "{:?}", MotionIndex::build(&d).duplicate_ids());
+}
+
+#[test]
+fn copies_made_in_one_batch_share_one_set_of_taken_ids_in_either_order() {
+    for flip in [false, true] {
+        let (mut d, comp, page) = component_with_motion();
+        let inst = create_instance(&mut d, comp, page, Vec2::ZERO);
+        let Command::Insert { nodes, .. } = &inst else { panic!() };
+        let inst_root = nodes[0].id;
+        inst.apply(&mut d).unwrap();
+        let mut copy_i = d.get(inst_root).unwrap().clone();
+        let mut copy_c = d.get(comp).unwrap().clone();
+        copy_i.id = d.alloc_id();
+        copy_c.id = d.alloc_id();
+        let mut reserved = std::collections::BTreeSet::new();
+        // the first copy is re-id'd, the next one is made later by create_instance with the same reserved set
+        let (first, second) = if flip { (&mut copy_c, &mut copy_i) } else { (&mut copy_i, &mut copy_c) };
+        reid_copied_motion_with(&d, &mut [first], true, &mut reserved);
+        let new_inst = create_instance_reserving(&mut d, comp, page, Vec2::ZERO, &mut reserved);
+        reid_copied_motion_with(&d, &mut [second], true, &mut reserved);
+        let (first, second) = if flip { (copy_c, copy_i) } else { (copy_i, copy_c) };
+        Command::Insert { parent: page, index: 0, nodes: vec![first] }.apply(&mut d).unwrap();
+        Command::Insert { parent: page, index: 0, nodes: vec![second] }.apply(&mut d).unwrap();
+        new_inst.apply(&mut d).unwrap();
+        assert!(MotionIndex::build(&d).duplicate_ids().is_empty(), "flip={flip}: {:?}", MotionIndex::build(&d).duplicate_ids());
+    }
 }

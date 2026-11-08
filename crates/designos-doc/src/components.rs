@@ -97,10 +97,15 @@ fn same_ignoring_tree(a: &Node, b: &Node) -> bool {
 /// Deep copy of `src` (root first, children lists remapped to the new ids).
 /// With `link`, every copy records its original as `component.source`.
 fn copy_tree(d: &mut Document, src: NodeId, link: bool) -> Vec<Node> {
+    copy_tree_reserving(d, src, link, &mut std::collections::BTreeSet::new())
+}
+
+/// [`copy_tree`] whose Motion ids also avoid `reserved`, the ids of copies made earlier in the same batch.
+fn copy_tree_reserving(d: &mut Document, src: NodeId, link: bool, reserved: &mut std::collections::BTreeSet<crate::MotionId>) -> Vec<Node> {
     let mut out = Vec::new();
     copy_rec(d, src, None, link, &mut out);
     let mut copied: Vec<&mut Node> = out.iter_mut().collect();
-    crate::reid_copied_motion(d, &mut copied, true);
+    crate::reid_copied_motion_with(d, &mut copied, true, reserved);
     out
 }
 
@@ -899,6 +904,18 @@ pub fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool 
 /// where the instance would make a main hold itself: in the component, or in a
 /// main that the component holds an instance of, however deep.
 pub fn create_instance(doc: &mut Document, component: NodeId, parent: NodeId, at: Vec2) -> Command {
+    create_instance_reserving(doc, component, parent, at, &mut std::collections::BTreeSet::new())
+}
+
+/// [`create_instance`] for one of several instances made before any is inserted: the Motion ids it hands out avoid
+/// `reserved` (what the earlier ones of the batch use) and are added to it.
+pub fn create_instance_reserving(
+    doc: &mut Document,
+    component: NodeId,
+    parent: NodeId,
+    at: Vec2,
+    reserved: &mut std::collections::BTreeSet<crate::MotionId>,
+) -> Command {
     let Some(comp) = doc.get(component).cloned() else { return nothing() };
     if !matches!(comp.kind, NodeKind::Component(_)) || would_hold_itself(doc, component, parent) {
         return nothing();
@@ -906,7 +923,7 @@ pub fn create_instance(doc: &mut Document, component: NodeId, parent: NodeId, at
     if !doc.get(parent).map(|p| p.kind.is_container()).unwrap_or(false) {
         return nothing();
     }
-    let mut nodes = copy_tree(doc, component, true);
+    let mut nodes = copy_tree_reserving(doc, component, true, reserved);
     let name = comp
         .parent
         .and_then(|p| doc.get(p))

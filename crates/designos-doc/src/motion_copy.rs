@@ -28,11 +28,19 @@ fn fresh(old: &str, taken: &mut BTreeSet<MotionId>) -> MotionId {
 /// the track or assignment and clears a parent link. A layer left with no Motion
 /// loses the field.
 pub fn reid_copied_motion(doc: &Document, nodes: &mut [&mut Node], same_document: bool) {
+    reid_copied_motion_with(doc, nodes, same_document, &mut BTreeSet::new());
+}
+
+/// [`reid_copied_motion`] for one of several copies made before any of them is inserted. `reserved` holds the ids
+/// the earlier copies of the batch already use, which the document cannot show yet; the new ids chosen here are
+/// added to it, so no two copies of one paste or duplicate share a timeline or track id.
+pub fn reid_copied_motion_with(doc: &Document, nodes: &mut [&mut Node], same_document: bool, reserved: &mut BTreeSet<MotionId>) {
     if nodes.iter().all(|n| n.motion.is_none()) {
         return;
     }
     let ix = MotionIndex::build(doc);
     let mut taken: BTreeSet<MotionId> = ix.all_ids();
+    taken.extend(reserved.iter().cloned());
     let defined: Vec<MotionId> = nodes
         .iter()
         .filter_map(|n| n.motion.as_deref())
@@ -75,4 +83,5 @@ pub fn reid_copied_motion(doc: &Document, nodes: &mut [&mut Node], same_document
         }
         n.motion = (!out.is_empty()).then(|| Box::new(out));
     }
+    reserved.extend(taken);
 }

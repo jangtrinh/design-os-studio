@@ -18,7 +18,7 @@
 //! step. A document without Motion serializes exactly as before: the field is skipped when `None`.
 
 use crate::{Easing, EasingType};
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub use crate::motion_value::{interpolate, ColorSpace, KeyValue};
 
@@ -91,7 +91,8 @@ impl FrameRate {
             return None;
         }
         let (n, d) = (i128::from(self.numerator), i128::from(self.denominator));
-        Some(((1_000_000 * d + n / 2) / n) as i64)
+        // a rate above 2,000,000 fps rounds to a zero-length frame, which cannot snap anything
+        Some(((1_000_000 * d + n / 2) / n) as i64).filter(|us| *us > 0)
     }
 }
 
@@ -210,7 +211,7 @@ pub struct Keyframe {
     /// The curve family of the segment that ends at this keyframe.
     #[serde(default, skip_serializing_if = "is_default")]
     pub interpolation: InterpolationType,
-    /// The easing of that segment. `None` means the default easing of the interpolation type.
+    /// The easing of that segment. `None` plays the default easing (`OutCubic`), whatever the interpolation type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub easing: Option<KeyEasing>,
     /// Colour space used to blend colour values into this keyframe.
@@ -316,12 +317,22 @@ impl Serialize for TrackProperty {
 
 impl<'de> Deserialize<'de> for TrackProperty {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let name = String::deserialize(d)?;
-        if name.is_empty() {
-            return Err(de::Error::custom("empty track property"));
-        }
-        Ok(Self::from_kiwi_name(&name))
+        // An empty name is read as `Other("")` so a file never fails to open over it; the load repair drops the
+        // track and counts it, and the writer never writes one.
+        Ok(Self::from_kiwi_name(&String::deserialize(d)?))
     }
+}
+
+fn sorted_keyframes<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Keyframe>, D::Error> {
+    let mut track = Track::new("", "", TrackProperty::Opacity);
+    track.keyframes = Vec::<Keyframe>::deserialize(d)?;
+    track.normalize();
+    Ok(track.keyframes)
+}
+
+/// Writes the tracks that have a property; a track with an empty property name is never written.
+fn serialize_tracks<S: Serializer>(tracks: &[Track], s: S) -> Result<S::Ok, S::Error> {
+    s.collect_seq(tracks.iter().filter(|t| !t.property.kiwi_name().is_empty()))
 }
 
 /// A sequence of keyframes for one property of the layer that owns it (`KEYFRAME_TRACK` node).
@@ -335,8 +346,9 @@ pub struct Track {
     pub operation: KeyframeOperation,
     #[serde(default, skip_serializing_if = "is_default")]
     pub loop_mode: TrackLoop,
-    /// Sorted by `time_us`, at most one keyframe per time.
-    #[serde(default)]
+    /// Sorted by `time_us`, at most one keyframe per time. A file written elsewhere may hold them in any order;
+    /// they are sorted when the file is read.
+    #[serde(default, deserialize_with = "sorted_keyframes")]
     pub keyframes: Vec<Keyframe>,
 }
 
@@ -389,7 +401,7 @@ pub struct NodeMotion {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assignments: Vec<TimelineAssignment>,
     /// Animated properties of this layer.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty", serialize_with = "serialize_tracks")]
     pub tracks: Vec<Track>,
 }
 

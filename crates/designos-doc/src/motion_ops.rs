@@ -31,6 +31,10 @@ pub enum MotionError {
     IdChanged(MotionId),
     #[error("timeline \"{timeline}\" is already assigned inside \"{containing}\" on this layer")]
     AlreadyAssigned { timeline: MotionId, containing: MotionId },
+    #[error("nothing changes; the edit leaves the Motion data as it is")]
+    NoChange,
+    #[error("a track needs a property name; pick the property to animate")]
+    EmptyProperty,
     #[error("no assignment of \"{timeline}\" inside \"{containing}\" on this layer")]
     NoAssignment { timeline: MotionId, containing: MotionId },
 }
@@ -139,16 +143,26 @@ impl<'a> MotionIndex<'a> {
     }
 }
 
-/// Applies `f` to a copy of the Motion data of `node` and returns the `Update` that stores the result. An empty
+/// Applies `f` to a copy of the Motion data of `node` and returns the `Update` that stores the result. A result
+/// equal to the current data is refused with [`MotionError::NoChange`], so no undo step is made and redo stays. An empty
 /// result clears the field, so a layer whose last timeline, track and assignment went away serializes as before.
 pub fn edit_motion(doc: &Document, node: NodeId, f: impl FnOnce(&mut NodeMotion) -> Result<(), MotionError>) -> Result<Command, MotionError> {
     let mut n = doc.get(node).ok_or(MotionError::NodeNotFound(node))?.clone();
-    let mut motion = n.motion.take().map(|b| *b).unwrap_or_default();
+    let before = n.motion.take();
+    let mut motion = before.as_deref().cloned().unwrap_or_default();
+    // keyframe lookups assume time order; programmatic data may not have it
+    for t in &mut motion.tracks {
+        t.normalize();
+    }
     f(&mut motion)?;
     for t in &mut motion.tracks {
         t.normalize();
     }
-    n.motion = (!motion.is_empty()).then(|| Box::new(motion));
+    let after = (!motion.is_empty()).then(|| Box::new(motion));
+    if after == before {
+        return Err(MotionError::NoChange);
+    }
+    n.motion = after;
     Ok(Command::Update { node: Box::new(n) })
 }
 
@@ -289,6 +303,9 @@ pub fn unassign_timeline(doc: &Document, node: NodeId, timeline: &str, containin
 pub fn add_track(doc: &Document, node: NodeId, track: Track) -> Result<Command, MotionError> {
     let ix = MotionIndex::build(doc);
     check_new_id("track", &track.id, ix.track_ids.contains(track.id.as_str()))?;
+    if track.property.kiwi_name().is_empty() {
+        return Err(MotionError::EmptyProperty);
+    }
     ix.timeline(&track.timeline).ok_or_else(|| MotionError::NoTimeline(track.timeline.clone()))?;
     edit_motion(doc, node, |m| {
         m.tracks.push(track);
@@ -306,6 +323,9 @@ pub fn update_track(doc: &Document, node: NodeId, id: &str, f: impl FnOnce(&mut 
         }) {
             if next.id != id {
                 return Err(MotionError::IdChanged(id.to_string()));
+            }
+            if next.property.kiwi_name().is_empty() {
+                return Err(MotionError::EmptyProperty);
             }
             if next.timeline != m.track(id).map(|t| t.timeline.clone()).unwrap_or_default() {
                 MotionIndex::build(doc).timeline(&next.timeline).ok_or_else(|| MotionError::NoTimeline(next.timeline.clone()))?;

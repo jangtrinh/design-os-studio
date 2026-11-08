@@ -3055,6 +3055,61 @@ mod tests {
         assert_eq!(ix.tracks_on("tl").len(), 1, "only the target's own track plays its timeline");
     }
 
+    /// A main component "C" (timeline "tl", track "tr") on the page, plus one instance of it.
+    fn app_with_main_and_instance() -> (App, NodeId, NodeId) {
+        use designos_doc::{create_component, create_instance, NodeMotion, Timeline, Track, TrackProperty};
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        frame.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 1_000)],
+            tracks: vec![Track::new("tr", "tl", TrackProperty::Opacity)],
+            ..Default::default()
+        }));
+        let main = d.insert(page, frame).unwrap();
+        create_component(&mut d, main).apply(&mut d).unwrap();
+        let designos_doc::Command::Insert { nodes, .. } = create_instance(&mut d, main, page, Vec2::new(200.0, 0.0)) else { panic!("instance") };
+        let inst = nodes[0].id;
+        designos_doc::Command::Insert { parent: page, index: 1, nodes }.apply(&mut d).unwrap();
+        (App::new(d), main, inst)
+    }
+
+    #[test]
+    fn duplicating_a_main_and_its_instance_together_never_repeats_a_motion_id_in_either_order() {
+        for flip in [false, true] {
+            let (mut app, main, inst) = app_with_main_and_instance();
+            app.selection = if flip { vec![main, inst] } else { vec![inst, main] };
+            app.duplicate_selection();
+            assert_motion_ids_healthy(&app.doc, &format!("flip={flip}"));
+        }
+    }
+
+    #[test]
+    fn pasting_two_mains_whose_ids_share_a_base_never_repeats_a_motion_id() {
+        use designos_doc::{create_component, NodeMotion, Timeline, Track, TrackProperty};
+        let (mut app, main, _) = app_with_main_and_instance();
+        // a second main whose motion ids share the base of the first one's ("tl" and "tl~2")
+        let page = app.page;
+        let sid = app.doc.alloc_id();
+        let mut frame = Node::frame(sid, Rect::new(300.0, 0.0, 100.0, 100.0));
+        frame.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl~2", 1_000)],
+            tracks: vec![Track::new("tr~2", "tl~2", TrackProperty::Opacity)],
+            ..Default::default()
+        }));
+        let second = app.doc.insert(page, frame).unwrap();
+        create_component(&mut app.doc, second).apply(&mut app.doc).unwrap();
+        assert!(matches!(app.doc.get(second).unwrap().kind, NodeKind::Component(_)));
+        assert_motion_ids_healthy(&app.doc, "setup");
+        app.selection = vec![main, second];
+        let json = app.copy_selection().unwrap();
+        app.paste(Some(&json));
+        assert_motion_ids_healthy(&app.doc, "paste of two mains");
+        app.paste(Some(&json));
+        assert_motion_ids_healthy(&app.doc, "second paste of two mains");
+    }
+
     #[test]
     fn pasting_twice_never_shares_a_slot_content_id() {
         let (mut app, inst, _) = app_with_slot_instance();
