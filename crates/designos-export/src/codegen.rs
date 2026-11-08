@@ -600,17 +600,87 @@ pub(crate) struct GridCellGroup {
     pub stacked: Vec<StackedGridChild>,
 }
 
+/// One grid column as a native generator writes it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ColKind {
+    /// A fixed track, or a flexible one the generators keep at its solved pixels.
+    Fixed(f32),
+    /// A hug track: the platform has no intrinsic column size here, so it exports the solver's pixels.
+    Hug(f32),
+    /// A flexible track that shares the free width by `weight`; `px` is its solved width.
+    Flex { weight: f32, px: f32 },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SolvedGrid {
     pub widths: Vec<f32>,
+    /// How each column exports on the native platforms. `Flex` appears only when a weight reproduces
+    /// the solver's width (see [`native_col_kinds`]); otherwise the column is its solved pixels.
+    pub cols: Vec<ColKind>,
     pub rows: Vec<f32>,
     pub col_gap: f32,
     pub row_gap: f32,
     pub pad_tl: (f32, f32),
+    /// Left plus right padding the solver used.
+    pub pad_x: f32,
     pub children: Vec<(NodeId, designos_doc::layout_solver::Placed)>,
 }
 
 impl SolvedGrid {
+    /// Whether any column shares the free width by weight.
+    pub fn has_weights(&self) -> bool {
+        self.cols.iter().any(|c| matches!(c, ColKind::Flex { .. }))
+    }
+
+    /// Whether the grid has a hug column that the generators write as pixels next to weighted ones.
+    pub fn has_hug_px(&self) -> bool {
+        self.has_weights() && self.cols.iter().any(|c| matches!(c, ColKind::Hug(_)))
+    }
+
+    /// The weight of column `c`, when it shares the free width.
+    pub fn weight(&self, c: usize) -> Option<f32> {
+        match self.cols.get(c) {
+            Some(ColKind::Flex { weight, .. }) => Some(*weight),
+            _ => None,
+        }
+    }
+
+    /// The weight of the first weighted column (0 when none is).
+    pub fn weight_of_first(&self) -> f32 {
+        (0..self.cols.len()).find_map(|c| self.weight(c)).unwrap_or(0.0)
+    }
+
+    /// Sum of all column weights.
+    pub fn total_weight(&self) -> f32 {
+        (0..self.cols.len()).filter_map(|c| self.weight(c)).sum()
+    }
+
+    /// Whether every weighted column in the grid has the same weight.
+    pub fn equal_weights(&self) -> bool {
+        self.has_weights() && (0..self.cols.len()).filter_map(|c| self.weight(c)).all(|w| (w - self.weight_of_first()).abs() < 1e-3)
+    }
+
+    /// Whether every column covered by `p` is a flexible weighted column (none is `Fixed` or `Hug`).
+    pub fn span_is_all_flex(&self, p: &designos_doc::layout_solver::Placed) -> bool {
+        p.col_span > 0 && (p.col..p.col + p.col_span).all(|c| self.weight(c).is_some())
+    }
+
+    /// Width the grid's columns take in pixels that no weight shares: fixed and hug columns plus
+    /// every column gap.
+    pub fn fixed_and_gap_width(&self) -> f32 {
+        let fixed: f32 = (0..self.cols.len()).filter(|c| self.weight(*c).is_none()).map(|c| self.widths[c]).sum();
+        fixed + self.col_gap * (self.cols.len().saturating_sub(1) as f32)
+    }
+
+    /// For the cell `p`: the weight its columns share, and the pixels it adds on top (its fixed
+    /// columns and the gaps inside the span).
+    pub fn span_weight_and_px(&self, p: &designos_doc::layout_solver::Placed) -> (f32, f32) {
+        let cols = p.col..p.col + p.col_span;
+        let weight = cols.clone().filter_map(|c| self.weight(c)).sum();
+        let px = cols.filter(|c| self.weight(*c).is_none()).map(|c| self.widths[c]).sum::<f32>() + self.col_gap * (p.col_span.saturating_sub(1) as f32);
+        (weight, px)
+    }
+
     pub fn cell_width(&self, p: &designos_doc::layout_solver::Placed) -> f32 {
         (0..p.col_span).map(|dc| self.widths[p.col + dc]).sum::<f32>() + self.col_gap * (p.col_span.saturating_sub(1) as f32)
     }
@@ -694,7 +764,8 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     let row_gap = designos_doc::layout_solver::grid_row_gap(&al_s);
     let placed = designos_doc::layout_solver::place_children(&kids, widths.len());
     let children = ids.into_iter().zip(placed).collect();
-    Some(SolvedGrid { widths, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), children })
+    let cols = native_col_kinds(&al_s, n.size.x, &widths);
+    Some(SolvedGrid { widths, cols, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), pad_x: al_s.padding[1] + al_s.padding[3], children })
 }
 
 /// Whether any gap of the grid `n` (`itemSpacing` for columns, `counterAxisSpacing` for rows) is bound
@@ -739,6 +810,67 @@ pub(crate) fn grid_cell_align(doc: &Document, child_id: NodeId, al: &AutoLayout)
     (resolve(raw_h, al.primary_align), resolve(raw_v, al.counter_align))
 }
 
+fn flex_weight(fr: f32) -> f32 {
+    if fr.is_finite() && fr > 0.0 {
+        fr
+    } else {
+        1.0
+    }
+}
+
+/// Whether every flexible column of `al` is as wide as its weight times one shared unit, within half a
+/// pixel. A flexible column the solver holds wider than that (content that does not fit its share)
+/// breaks the proportion, and no weight reproduces the solved layout then.
+fn flex_units_agree(al: &AutoLayout, col_widths: &[f32]) -> bool {
+    let mut ref_unit: Option<f32> = None;
+    for (c, &w) in col_widths.iter().enumerate() {
+        if let GridTrack::Flex(fr) = al.grid_col_tracks.get(c).copied().unwrap_or_default() {
+            let unit = w / flex_weight(fr);
+            match ref_unit {
+                None => ref_unit = Some(unit),
+                Some(r) if (unit - r).abs() > 0.5 => return false,
+                _ => {}
+            }
+        }
+    }
+    true
+}
+
+/// Column kinds for the native generators. Flexible tracks become weights (Compose, Android, SwiftUI,
+/// UIKit proportional constraints) when the grid's width is fixed and the solver's flexible columns
+/// match `weight * free / total_weight` without hitting the 1px floor. A grid that hugs its width, or
+/// whose flexible columns the solver holds off-proportion or at the 1px floor, keeps every column at
+/// its solved pixels, as before.
+fn native_col_kinds(al: &AutoLayout, frame_w: f32, widths: &[f32]) -> Vec<ColKind> {
+    let track = |c: usize| al.grid_col_tracks.get(c).copied().unwrap_or_default();
+    let [_, pr, _, pl] = al.padding;
+    let col_gap = al.item_spacing.max(0.0);
+    let inner_w = (frame_w - pl - pr - col_gap * (widths.len().saturating_sub(1) as f32)).max(0.0);
+    let fixed_used: f32 = (0..widths.len()).filter(|&c| !matches!(track(c), GridTrack::Flex(_))).map(|c| widths[c]).sum();
+    let free = (inner_w - fixed_used).max(0.0);
+    let total_weight: f32 = (0..widths.len())
+        .filter_map(|c| match track(c) {
+            GridTrack::Flex(fr) => Some(flex_weight(fr)),
+            _ => None,
+        })
+        .sum();
+    let matches_free_share = total_weight > 0.0
+        && (0..widths.len()).all(|c| match track(c) {
+            GridTrack::Flex(fr) => (widths[c] - flex_weight(fr) * free / total_weight).abs() <= 0.5,
+            _ => true,
+        });
+    let weighted = al.primary_sizing != Sizing::Hug && flex_units_agree(al, widths) && matches_free_share;
+    widths
+        .iter()
+        .enumerate()
+        .map(|(c, &px)| match track(c) {
+            GridTrack::Flex(fr) if weighted => ColKind::Flex { weight: flex_weight(fr), px },
+            GridTrack::Hug => ColKind::Hug(px),
+            _ => ColKind::Fixed(px),
+        })
+        .collect()
+}
+
 /// Column tracks for `n`: when a hugging grid has any `GridTrack::Hug` column or its solved `Flex`
 /// columns have unequal unit widths (such as `100 / 40 / 60` or `100 / 40 / 40`), returns their
 /// solved pixel widths as fixed tracks so the browser places items at the same x coordinates as
@@ -758,29 +890,7 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
     let col_widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
-    let mut ref_unit: Option<f32> = None;
-    let mut needs_px_tracks = false;
-    for (c, &w) in col_widths.iter().enumerate() {
-        match al.grid_col_tracks.get(c).copied().unwrap_or_default() {
-            GridTrack::Hug => {
-                needs_px_tracks = true;
-                break;
-            }
-            GridTrack::Flex(fr) => {
-                let weight = if fr.is_finite() && fr > 0.0 { fr } else { 1.0 };
-                let unit = w / weight;
-                match ref_unit {
-                    None => ref_unit = Some(unit),
-                    Some(r) if (unit - r).abs() > 0.5 => {
-                        needs_px_tracks = true;
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-            GridTrack::Fixed(_) => {}
-        }
-    }
+    let needs_px_tracks = al.grid_col_tracks.iter().take(col_widths.len()).any(|t| *t == GridTrack::Hug) || !flex_units_agree(al, &col_widths);
     if !needs_px_tracks {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }

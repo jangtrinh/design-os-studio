@@ -176,9 +176,13 @@ fn native_grid_cells_follow_a_bound_item_spacing() {
     let (doc, grid, _) = levelled_grid(al, &[("itemSpacing", GAP)]);
     // Item spacing resolves to 10, so the two columns and the two levelled rows are 95 each.
     let expected = [
-        ("android", android_xml_for(&doc, grid), "android:layout_width=\"95dp\"\n        android:layout_height=\"95dp\""),
+        (
+            "android",
+            android_xml_for(&doc, grid),
+            "android:layout_width=\"0dp\"\n        android:layout_height=\"95dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"0\"\n        android:layout_columnWeight=\"1\"\n        android:layout_gravity=\"fill_horizontal\"",
+        ),
         ("compose", compose_for(&doc, grid), "Box(Modifier.height(95.dp)"),
-        ("swiftui", swiftui_for(&doc, grid), ".frame(width: 95, height: 95"),
+        ("swiftui", swiftui_for(&doc, grid), "minHeight: 95, maxHeight: 95"),
         ("uikit", uikit_for(&doc, grid), "cell.heightAnchor.constraint(equalToConstant: 95)"),
     ];
     for (target, out, needle) in expected {

@@ -316,6 +316,26 @@ fn text_args(doc: &Document, n: &Node, t: &TextProps, args: &mut Vec<Arg>) {
     }
 }
 
+/// The `columns` argument of `LazyVerticalGrid`. Weighted columns share what the fixed columns and the
+/// gaps leave of `availableSize`, so the grid resizes like the canvas grid; with none, every column is
+/// its solved width.
+fn compose_columns_arg(grid: &SolvedGrid) -> String {
+    let head = "columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int>";
+    if !grid.has_weights() {
+        let widths_dp = grid.widths.iter().map(|w| format!("{}.dp", num(*w))).collect::<Vec<_>>().join(", ");
+        return format!("{head} = listOf({widths_dp}).map {{ it.roundToPx() }} }}");
+    }
+    let fixed = (0..grid.cols.len())
+        .map(|c| format!("{}.dp", if grid.weight(c).is_some() { "0".to_string() } else { num(grid.widths[c]) }))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let weights = (0..grid.cols.len()).map(|c| format!("{}f", num(grid.weight(c).unwrap_or(0.0)))).collect::<Vec<_>>().join(", ");
+    let gaps = grid.cols.len().saturating_sub(1);
+    format!(
+        "{head} {{ val fixed = listOf({fixed}).map {{ it.roundToPx() }}; val weights = listOf({weights}); val unit = (availableSize - spacing * {gaps} - fixed.sum()).coerceAtLeast(0) / weights.sum(); return fixed.indices.map {{ fixed[it] + (weights[it] * unit + 0.5f).toInt() }} }} }}"
+    )
+}
+
 fn compose_cell_align(ah: GridChildAlign, av: GridChildAlign) -> &'static str {
     match (av, ah) {
         (GridChildAlign::Center, GridChildAlign::Center) => "Alignment.Center",
@@ -437,10 +457,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             kids.iter().copied().filter(|k| !grid.children.iter().any(|(cid, _)| *cid == k.id) && !behind.iter().any(|b| b.id == k.id)).collect();
         let has_oof = !behind.is_empty() || !after.is_empty();
         let g_depth = if has_oof { depth + 1 } else { depth };
-        let widths_dp = grid.widths.iter().map(|w| format!("{}.dp", num(*w))).collect::<Vec<_>>().join(", ");
-        args.push(arg(format!(
-            "columns = object : GridCells {{ override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf({widths_dp}).map {{ it.roundToPx() }} }}"
-        )));
+        args.push(arg(compose_columns_arg(&grid)));
         if has_oof {
             finish_mods(doc, n, rot, &mut mods);
             let box_args: Vec<Arg> = modifier_arg(o, parent, &mods).into_iter().collect();
@@ -462,6 +479,13 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         args.push(arg(format!("horizontalArrangement = Arrangement.spacedBy({col_gap_s})")));
         args.push(arg(format!("verticalArrangement = Arrangement.spacedBy({row_gap_s})")));
         args.push(arg("userScrollEnabled = false"));
+        if grid.has_hug_px() {
+            for (c, k) in grid.cols.iter().enumerate() {
+                if let ColKind::Hug(px) = k {
+                    o.line(g_depth, format!("// Hug column {} is exported as its solved {}.dp: LazyVerticalGrid has no content-sized column", c + 1, num(*px)));
+                }
+            }
+        }
         open_call(o, g_depth, "LazyVerticalGrid", args, true);
         let me = Parent::of(n);
         let cols = grid.widths.len();
@@ -724,7 +748,7 @@ mod tests {
             let (d, grid, _) = fixture::grid_stretch_child(track, false);
             let out = compose_for(&d, grid);
             assert!(out.contains(&format!("width = 30.dp, height = {height}.dp")), "{track:?}: {out}");
-            for banned in ["fillMax", "weight"] {
+            for banned in ["fillMax", "Modifier.weight"] {
                 assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
             }
         }
@@ -736,7 +760,7 @@ mod tests {
             for (d, grid, _) in [fixture::grid_fill_child(track), fixture::grid_stretch_child(track, true), fixture::grid_text_fill_child(track)] {
                 let out = compose_for(&d, grid);
                 assert!(out.contains(&format!("width = 30.dp, height = {height}.dp")), "{track:?}: {out}");
-                for banned in ["fillMax", "weight"] {
+                for banned in ["fillMax", "Modifier.weight"] {
                     assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
                 }
             }
