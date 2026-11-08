@@ -87,6 +87,7 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         extra::scene_c8_component_grid_center_stroke(),
         extra::scene_c9_stroke_v1_inside_sides_padded_fixed(),
         extra::scene_c10_stroke_v1_inside_sides_unpadded_fixed(),
+        extra::scene_c10b_stroke_v1_inside_sides_unpadded_hug(),
         extra::scene_c12_row_span_over_content_sized_rows(),
     ]
 }
@@ -721,10 +722,25 @@ fn json_str(s: &str) -> String {
 /// visible on all four sides.
 fn harness_expectation(name: &str) -> (f32, bool) {
     match name {
-        "c9_stroke_v1_inside_sides_padded_fixed" => (0.0, true),
-        "c10_stroke_v1_inside_sides_unpadded_fixed" => (4.0, true),
+        "c9_stroke_v1_inside_sides_padded_fixed" | "c10_stroke_v1_inside_sides_unpadded_fixed" | "c10b_stroke_v1_inside_sides_unpadded_hug" => (0.0, true),
         _ => (0.0, false),
     }
+}
+
+/// The colour Studio's renderer shows at the middle of each edge (top, bottom, left, right) of the grid when
+/// every child is filled blue: the child's colour where a child covers the stroke (Studio paints a frame's
+/// stroke under its children), the stroke colour where none does.
+fn studio_edge_colours(f: &GridFixture) -> [[u8; 3]; 4] {
+    let mut doc = f.doc.clone();
+    for &id in &f.items {
+        doc.get_mut(id).unwrap().fills = vec![Paint::solid(Color::rgb(0, 0, 255))];
+    }
+    let pm = designos_render::render_node(&doc, f.grid, 1.0).expect("the scene renders");
+    let (w, h) = (pm.width(), pm.height());
+    [(w / 2, 0), (w / 2, h - 1), (0, h / 2), (w - 1, h / 2)].map(|(x, y)| {
+        let c = pm.pixel(x, y).unwrap().demultiply();
+        [c.red(), c.green(), c.blue()]
+    })
 }
 
 fn dump_fixtures_json() -> String {
@@ -738,6 +754,10 @@ fn dump_fixtures_json() -> String {
         out.push_str(&format!("    \"grid_height\": {},\n", gnode.size.y));
         let (accepted_drift, stroke_probe) = harness_expectation(f.name);
         out.push_str(&format!("    \"accepted_drift\": {accepted_drift},\n    \"stroke_probe\": {stroke_probe},\n"));
+        if stroke_probe {
+            let [top, bottom, left, right] = studio_edge_colours(f);
+            out.push_str(&format!("    \"studio_edges\": {{\"top\": {top:?}, \"bottom\": {bottom:?}, \"left\": {left:?}, \"right\": {right:?}}},\n"));
+        }
         out.push_str(&format!("    \"grid_css\": {},\n", json_str(&css_for(&f.doc, f.grid))));
         out.push_str(&format!("    \"tailwind_html\": {},\n", json_str(&tailwind_for(&f.doc, f.grid))));
         out.push_str("    \"items\": [\n");
@@ -1006,6 +1026,26 @@ fn exported_stroke_padding_plus_border_equals_the_inset_the_solver_reserves() {
     let css = css_for(&f.doc, f.grid);
     assert_eq!(px_list(&css, "padding"), Some(vec![8.0]), "{css}");
     assert!(css.contains("outline-offset: -2px;"), "{css}");
+}
+
+#[test]
+fn c10b_stroke_v1_inside_sides_unpadded_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c10b_stroke_v1_inside_sides_unpadded_hug");
+}
+
+/// What Studio shows at the edges of the per-side stroke scenes: it paints the frame's stroke under the
+/// children, so a child that touches an edge hides the stroke there. The harness compares Chrome with these.
+#[test]
+fn studio_hides_a_per_side_stroke_under_a_child_that_reaches_the_edge() {
+    const STROKE: [u8; 3] = [0x33, 0x33, 0x33];
+    const CHILD: [u8; 3] = [0, 0, 255];
+    // c9: padding 8 keeps the 60px-tall cells off every edge band: all four show the stroke.
+    assert_eq!(studio_edge_colours(&fixture_named("c9_stroke_v1_inside_sides_padded_fixed")), [STROKE; 4]);
+    // c10: padding 0, 30px children in a 60px grid: they cover the top band only. The side probes sit at
+    // mid height (y = 30), just below them, and the bottom band is free.
+    assert_eq!(studio_edge_colours(&fixture_named("c10_stroke_v1_inside_sides_unpadded_fixed")), [CHILD, STROKE, STROKE, STROKE]);
+    // c10b: the Hug twin is 30px tall, so a child reaches the bottom band too: Studio hides it there.
+    assert_eq!(studio_edge_colours(&fixture_named("c10b_stroke_v1_inside_sides_unpadded_hug")), [CHILD; 4]);
 }
 
 #[test]

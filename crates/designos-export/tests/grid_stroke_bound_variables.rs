@@ -170,22 +170,39 @@ fn an_inset_shadow_stroke_keeps_the_bound_colour_variable() {
 }
 
 #[test]
-fn a_per_side_stroke_wider_than_the_padding_is_a_visible_border_with_its_colour_variable() {
+fn a_per_side_stroke_wider_than_the_padding_is_still_an_inset_shadow_with_its_colour_variable() {
     let (doc, g) = sided_grid(2.0);
     let css = css_for(&doc, g);
-    assert_eq!(decl(&css, "border-width"), "4px 1px 2px 3px", "{css}");
-    assert!(decl(&css, "border-color").contains("var(--Color-Stroke"), "{css}");
-    assert!(!css.contains("box-shadow"), "{css}");
+    assert!(decl(&css, "box-shadow").contains("var(--Color-Stroke"), "{css}");
+    assert_eq!(decl(&css, "padding"), "2px", "the solver reserves nothing: the stored padding stays: {css}");
+    assert!(!css.lines().any(|l| l.starts_with("border")), "{css}");
     let tw = tailwind_for(&doc, g);
-    assert!(tw.contains("border-t-4") && tw.contains("border-[var(--Color-Stroke)]") && !tw.contains("shadow-["), "{tw}");
+    assert!(tw.contains("shadow-[inset_0px_4px_0px_0px_var(--Color-Stroke)") && !tw.contains("border-t-"), "{tw}");
 }
 
 #[test]
-fn the_inset_shadow_needs_padding_at_least_the_widest_stroked_side() {
-    let (doc, g) = sided_grid(3.0);
+fn the_inset_shadow_does_not_depend_on_the_padding() {
+    for padding in [0.0, 3.0, 4.0, 8.0] {
+        let (doc, g) = sided_grid(padding);
+        let css = css_for(&doc, g);
+        assert!(css.contains("box-shadow: inset") && !css.contains("border-width"), "padding {padding}: {css}");
+    }
+}
+
+/// Padding `[4, -5, 4, 4]` under sides `4/0/4/4`: a negative side makes the whole CSS `padding` shorthand
+/// invalid, so the shadow model clamps every side, in CSS and in Tailwind alike.
+#[test]
+fn negative_padding_on_an_unstroked_side_of_a_shadow_stroke_stays_valid_in_css_and_tailwind() {
+    let (mut doc, g) = sided_grid(4.0);
+    let n = doc.get_mut(g).unwrap();
+    n.stroke.side_weights = Some([4.0, 0.0, 4.0, 4.0]);
+    if let NodeKind::Frame(f) = &mut n.kind {
+        f.auto_layout.as_mut().unwrap().padding = [4.0, -5.0, 4.0, 4.0];
+    }
     let css = css_for(&doc, g);
-    assert!(css.contains("border-width") && !css.contains("box-shadow"), "padding 3 < 4 on top must be a border: {css}");
-    let (doc, g) = sided_grid(4.0);
-    let css = css_for(&doc, g);
-    assert!(css.contains("box-shadow: inset"), "{css}");
+    assert_eq!(decl(&css, "padding"), "4px 0px 4px 4px", "{css}");
+    let tw = classes(&tailwind_for(&doc, g));
+    assert!(!tw.iter().any(|c| c.contains("[-")), "{tw:?}");
+    assert!(tw.iter().any(|c| c == "pl-1") && tw.iter().any(|c| c == "py-1"), "{tw:?}");
+    assert!(!tw.iter().any(|c| c.starts_with("pr-")), "the clamped right side is 0 and dropped: {tw:?}");
 }

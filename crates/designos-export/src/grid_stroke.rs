@@ -51,6 +51,13 @@ pub(crate) struct GridStroke {
 }
 
 impl GridStroke {
+    /// Whether padding side `i` is written from the stored padding plus [`Self::pad_extra`] and kept at 0 or
+    /// more. A shadow stroke clamps every side: a negative side would make the whole `padding` shorthand
+    /// invalid in CSS and drop the other sides with it.
+    pub fn adjusts_padding(&self, i: usize) -> bool {
+        self.pad_extra[i] != 0.0 || self.model == StrokeModel::Shadow
+    }
+
     /// The stroke is a CSS `border` and takes layout space.
     pub fn border(&self) -> bool {
         self.model == StrokeModel::Border
@@ -60,10 +67,10 @@ impl GridStroke {
 /// Stroke model of the grid frame `n` whose auto layout is `al`.
 ///
 /// An Inside stroke is a border when the solver reserves its width (version 0 with `stroke_included`).
-/// A per-side Inside stroke the solver does not reserve is inset shadows, which take no space on any
-/// side, when the padding is at least as wide as the stroke on every stroked side (a child then never
-/// covers it) and the stroke is not dashed, a gradient, or width-bound. Otherwise it is a border, whose
-/// padding shrinks by its width and stops at 0: the visible stroke wins over exact geometry. A gradient Inside stroke is a border (`border-image` needs
+/// A per-side Inside stroke the solver does not reserve is inset shadows when it is not dashed, a
+/// gradient, or width-bound: they take no space, so content sits where the solver puts it, and they paint
+/// under the children exactly as Studio paints a frame's stroke (a full-bleed child covers it there too).
+/// Otherwise it is a border, whose padding shrinks by its width and stops at 0. A gradient Inside stroke is a border (`border-image` needs
 /// one). Every other stroke is an outline, offset inward for Inside and Center strokes so it still sits
 /// on the frame's edge.
 pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStroke {
@@ -88,10 +95,7 @@ pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStro
     let widths = st.side_weights.unwrap_or([st.weight; 4]);
     let bound = WIDTH_KEYS.iter().any(|key| n.variables.bindings.contains_key(*key));
     let dashed = st.dashes.iter().any(|d| *d > 0.0);
-    // Inset shadows paint under the children, so they only stay visible where the padding keeps every child
-    // off the stroke; otherwise a real border, which the visible stroke needs, pushes the content in.
-    let covered = (0..4).all(|i| widths[i] <= 0.0 || resolved_al.padding[i] >= widths[i]);
-    if sided && !reserves && !gradient && !dashed && !bound && covered {
+    if sided && !reserves && !gradient && !dashed && !bound {
         let [t, r, b, l] = widths.map(|w| w.max(0.0));
         let layer = |w: f32, at: (f32, f32)| (w > 0.0).then_some(at);
         return GridStroke {
@@ -165,8 +169,8 @@ mod tests {
     }
 
     #[test]
-    fn per_side_stroke_wider_than_the_padding_is_a_border_that_shrinks_the_padding() {
-        is(model(1, false, StrokeAlign::Inside, Some([4.0, 1.0, 2.0, 3.0])), StrokeModel::Border, [-4.0, -1.0, -2.0, -3.0]);
+    fn per_side_stroke_wider_than_the_padding_is_still_an_inset_shadow() {
+        is(model(1, false, StrokeAlign::Inside, Some([4.0, 1.0, 2.0, 3.0])), StrokeModel::Shadow, [0.0; 4]);
     }
 
     #[test]

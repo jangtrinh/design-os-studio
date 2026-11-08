@@ -120,7 +120,8 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     let grid_stroke = crate::grid_stroke::grid_stroke_of(doc, n);
     if let Some(al) = own_al {
         let extra = grid_stroke.map_or([0.0; 4], |g| g.pad_extra);
-        let [t, r, b, l] = std::array::from_fn(|i| if extra[i] != 0.0 { (al.padding[i] + extra[i]).max(0.0) } else { al.padding[i] });
+        let [t, r, b, l] =
+            std::array::from_fn(|i| if grid_stroke.is_some_and(|g| g.adjusts_padding(i)) { (al.padding[i] + extra[i]).max(0.0) } else { al.padding[i] });
         if t + r + b + l > 0.0 {
             push("padding", box_shorthand(t, r, b, l));
         }

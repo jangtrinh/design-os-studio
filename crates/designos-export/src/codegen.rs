@@ -1082,13 +1082,14 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     let sides = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     if padding_is_bound(doc, n) {
         if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
-            let extra = crate::grid_stroke::grid_stroke_of(doc, n).map_or([0.0; 4], |g| g.pad_extra);
+            let stroke = crate::grid_stroke::grid_stroke_of(doc, n);
+            let extra = stroke.map_or([0.0; 4], |g| g.pad_extra);
             let vals: Vec<String> = sides
                 .iter()
                 .enumerate()
                 .map(|(i, k)| match b(k, Fallback::Px) {
                     Some(v) => padding_with_extra(&v, extra[i]),
-                    None if extra[i] != 0.0 => format!("{}px", num((al.padding[i] + extra[i]).max(0.0))),
+                    None if stroke.is_some_and(|g| g.adjusts_padding(i)) => format!("{}px", num((al.padding[i] + extra[i]).max(0.0))),
                     None => format!("{}px", num(al.padding[i])),
                 })
                 .collect();

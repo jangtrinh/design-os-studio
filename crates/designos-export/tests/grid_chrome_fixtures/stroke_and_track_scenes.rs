@@ -131,6 +131,21 @@ pub fn scene_s6b_hug_height_explicit_rows_unequal() -> GridFixture {
         expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[300px] h-[70px]\">\n  <div class=\"w-[30px] h-5\"></div>\n  <div class=\"w-[30px] h-5\"></div>\n  <div class=\"w-[30px] h-[50px]\"></div>\n  <div class=\"w-[30px] h-[50px]\"></div>\n</div>", }
 }
 
+/// The Hug twin of C10: the grid is exactly as tall as its children, so they reach the far-side stroke.
+pub fn scene_c10b_stroke_v1_inside_sides_unpadded_hug() -> GridFixture {
+    let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Hug);
+    al.layout_version = 1;
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 60.0));
+    let n = doc.get_mut(grid).unwrap();
+    stroke_2px(n, StrokeAlign::Inside);
+    n.stroke.side_weights = Some([4.0, 1.0, 2.0, 3.0]);
+    let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture { name: "c10b_stroke_v1_inside_sides_unpadded_hug", doc, grid, items: vec![a, b], expected_css: "display: grid;\nwidth: 200px;\nheight: 30px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nbox-shadow: inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[200px] h-[30px] shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>" }
+}
+
 pub fn scene_c10_stroke_v1_inside_sides_unpadded_fixed() -> GridFixture {
     let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Fixed);
     al.layout_version = 1;
@@ -141,8 +156,8 @@ pub fn scene_c10_stroke_v1_inside_sides_unpadded_fixed() -> GridFixture {
     let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
     let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
     doc.relayout_subtree(grid);
-    GridFixture { name: "c10_stroke_v1_inside_sides_unpadded_fixed", doc, grid, items: vec![a, b], expected_css: "display: grid;\nwidth: 200px;\nheight: 60px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nborder-width: 4px 1px 2px 3px;\nborder-style: solid;\nborder-color: #333;",
-        expected_tailwind: "<div class=\"grid grid-cols-2 content-start box-border w-[200px] h-15 border-t-4 border-r border-b-2 border-l-[3px] border-[#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>", }
+    GridFixture { name: "c10_stroke_v1_inside_sides_unpadded_fixed", doc, grid, items: vec![a, b], expected_css: "display: grid;\nwidth: 200px;\nheight: 60px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nbox-shadow: inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[200px] h-15 shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>", }
 }
 
 /// A grid component (not a plain frame) with a Center stroke: the container kinds share one stroke model.

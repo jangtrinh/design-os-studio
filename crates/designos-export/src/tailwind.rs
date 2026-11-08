@@ -66,13 +66,13 @@ fn space_token(px: f32) -> Option<&'static str> {
 
 /// `prefix-token` or `prefix-[Npx]` / `prefix-[var(--x)]`.
 fn spaced(prefix: &str, px: f32, var: Option<&Variable>) -> String {
-    spaced_plus(prefix, px, var, 0.0)
+    spaced_plus(prefix, px, var, 0.0, false)
 }
 
 /// [`spaced`] for a side that also carries `extra` pixels (the stroke of a grid frame, see
 /// `grid_stroke`). A variable side becomes `prefix-[calc(var(--x)+Npx)]`; a negative `extra` that would
 /// leave less than 0 is `max(0px,...)`. A literal side adds the pixels and stops at 0.
-fn spaced_plus(prefix: &str, px: f32, var: Option<&Variable>, extra: f32) -> String {
+fn spaced_plus(prefix: &str, px: f32, var: Option<&Variable>, extra: f32, clamp: bool) -> String {
     if let Some(v) = var {
         let name = css_var(v);
         return if extra > 0.0 {
@@ -83,7 +83,7 @@ fn spaced_plus(prefix: &str, px: f32, var: Option<&Variable>, extra: f32) -> Str
             format!("{prefix}-[{name}]")
         };
     }
-    let px = if extra != 0.0 { (px + extra).max(0.0) } else { px };
+    let px = if clamp { (px + extra).max(0.0) } else { px };
     match space_token(px) {
         Some(t) => format!("{prefix}-{t}"),
         None => format!("{prefix}-[{}px]", num(px)),
@@ -292,8 +292,9 @@ fn pad_classes(doc: &Document, n: &Node, al: &AutoLayout, stroke: Option<GridStr
     let var = |i: usize| bound(doc, n, keys[i]);
     let p = al.padding;
     let extra = stroke.map_or([0.0; 4], |g| g.pad_extra);
-    let side = |prefix: &str, i: usize| spaced_plus(prefix, p[i], var(i), extra[i]);
-    if p.iter().zip(&extra).all(|(v, e)| if *e != 0.0 { *v + *e <= 0.0 } else { *v == 0.0 }) && keys.iter().all(|k| bound(doc, n, k).is_none()) {
+    let adjusts = |i: usize| stroke.is_some_and(|g| g.adjusts_padding(i));
+    let side = |prefix: &str, i: usize| spaced_plus(prefix, p[i], var(i), extra[i], adjusts(i));
+    if (0..4).all(|i| if adjusts(i) { p[i] + extra[i] <= 0.0 } else { p[i] == 0.0 }) && keys.iter().all(|k| bound(doc, n, k).is_none()) {
         return vec![];
     }
     let same = |a: usize, b: usize| p[a] == p[b] && extra[a] == extra[b] && var(a).map(|v| &v.id) == var(b).map(|v| &v.id);

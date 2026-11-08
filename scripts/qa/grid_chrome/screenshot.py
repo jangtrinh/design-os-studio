@@ -185,7 +185,8 @@ def run_comparison(
             gh_err = abs(float(chrome_box["grid_h"]) - float(scene["grid_height"]))
             overall_err = max(max_err, gw_err, gh_err)
             accepted = float(scene.get("accepted_drift", 0.0))
-            ok = overall_err <= MAX_DRIFT_PX or (accepted > 0.0 and abs(overall_err - accepted) <= MAX_DRIFT_PX)
+            # An accepted drift is a measured expectation: the scene fails when it drifts less as well as more.
+            ok = abs(overall_err - accepted) <= MAX_DRIFT_PX if accepted > 0.0 else overall_err <= MAX_DRIFT_PX
             if not ok:
                 failed = True
             status = "PASS" if ok else "FAIL"
@@ -219,18 +220,31 @@ def run_comparison(
     return (1 if failed else 0), lines, report_scenes, fixtures
 
 
-STROKE_RGB = (0x33, 0x33, 0x33)
+PIXEL_TOLERANCE = 3
+
+
+def _load_pillow() -> Any:
+    """Pillow's Image module, or None when it is not installed."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    return Image
 
 
 def stroke_pixel_probe(
     chrome_bin: str, scene: Dict[str, Any], tailwind_errors: Dict[str, str]
 ) -> List[Tuple[str, bool, str]]:
-    """Renders the exported grid with every child filled blue and checks the stroke colour at the middle of
-    each edge, so a stroke hidden under a full-bleed child (an inset shadow) fails, not only a moved box."""
-    try:
-        from PIL import Image
-    except ImportError:
-        return [("css", True, "SKIPPED (Pillow not installed)")]
+    """Renders the exported grid in Chrome with every child filled blue and compares the colour at the middle
+    of each edge with what Studio's renderer shows for the same scene (`studio_edges`: a child colour where a
+    child covers the stroke, the stroke colour where not). Fails closed: no Pillow, or no Studio colours for the
+    scene, is a FAIL."""
+    Image = _load_pillow()
+    if Image is None:
+        return [("css", False, "FAILED (Pillow is required for the stroke pixel check: pip install pillow)")]
+    studio = scene.get("studio_edges")
+    if not studio:
+        return [("css", False, "FAILED (the scene has no Studio edge colours to compare with)")]
     gw, gh = int(float(scene["grid_width"])), int(float(scene["grid_height"]))
     edges = {"top": (gw // 2, 0), "bottom": (gw // 2, gh - 1), "left": (0, gh // 2), "right": (gw - 1, gh // 2)}
     results: List[Tuple[str, bool, str]] = []
@@ -252,6 +266,10 @@ def stroke_pixel_probe(
                 capture_output=True, text=True, check=False, timeout=30,
             )
             img = Image.open(png).convert("RGB")
-            bad = [e for e, xy in edges.items() if max(abs(a - b) for a, b in zip(img.getpixel(xy), STROKE_RGB)) > 3]
-        results.append((mode, not bad, "visible on all four edges" if not bad else f"hidden or wrong on {', '.join(bad)}"))
+            bad = []
+            for edge, xy in edges.items():
+                got, want = img.getpixel(xy), tuple(studio[edge])
+                if max(abs(a - b) for a, b in zip(got, want)) > PIXEL_TOLERANCE:
+                    bad.append(f"{edge} chrome={got} studio={want}")
+        results.append((mode, not bad, "match Studio on all four edges" if not bad else "differ from Studio: " + "; ".join(bad)))
     return results
