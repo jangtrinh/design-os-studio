@@ -306,3 +306,67 @@ fn a_variable_that_aliases_the_styles_variable_in_only_one_mode_is_foreign() {
         assert_eq!(radii(named(&doc, "Aliased")), vec![2.0], "modes {modes:?} differ, so the binding is the node's own");
     }
 }
+
+fn card_binding_7_1() -> Vec<Value> {
+    vec![bound(shadow(8.0), (7, 1))]
+}
+
+#[test]
+fn a_nested_entry_that_binds_a_foreign_variable_keeps_its_own_effects() {
+    let linked = json!({"styleIdForEffect": link(1), "effects": [shadow(8.0)]});
+    let own = json!({"styleIdForEffect": link(1)});
+    let changes = doc_json(
+        card_binding_7_1(),
+        linked.clone(),
+        linked,
+        vec![inst(1, "Foreign nested", own, vec![dot_entry(json!({"effects": [bound(shadow(2.0), (7, 99))]}))])],
+    );
+    let doc = import(&changes);
+    let dot = dot_of(&doc, "Foreign nested");
+    assert_eq!(radii(dot), vec![2.0]);
+    assert_eq!(style_of(&doc, dot), None);
+}
+
+#[test]
+fn a_root_entry_that_binds_a_foreign_variable_keeps_its_own_effects() {
+    let own = json!({"styleIdForEffect": link(1)});
+    let changes = doc_json(
+        card_binding_7_1(),
+        json!({}),
+        json!({}),
+        vec![inst(1, "Foreign root", own, vec![root_entry(json!({"effects": [bound(shadow(2.0), (7, 99))]}))])],
+    );
+    let doc = import(&changes);
+    let n = named(&doc, "Foreign root");
+    assert_eq!(radii(n), vec![2.0]);
+    assert_eq!(style_of(&doc, n), None);
+}
+
+#[test]
+fn an_outer_edit_of_a_child_the_inner_instance_detached_keeps_the_edit() {
+    let detach_and_set = json!({"guidPath": {"guids": [g(1, 11)]}, "styleIdForEffect": {"guid": g(DETACHED, DETACHED)}, "effects": [shadow(3.0)]});
+    let card = node((1, 20), (0, 1), "b", "SYMBOL", "Card", json!({"size": {"x": 44.0, "y": 22.0}}));
+    let badge_in = node(
+        (1, 21),
+        (1, 20),
+        "a",
+        "INSTANCE",
+        "BadgeIn",
+        json!({"size": {"x": 44.0, "y": 22.0}, "symbolData": {"symbolID": g(1, 10), "symbolOverrides": [detach_and_set]}}),
+    );
+    let outer = node(
+        (3, 1),
+        (0, 1),
+        "c",
+        "INSTANCE",
+        "Outer",
+        json!({"size": {"x": 44.0, "y": 22.0}, "symbolData": {"symbolID": g(1, 20), "symbolOverrides": [
+            {"guidPath": {"guids": [g(1, 21), g(1, 11)]}, "effects": [shadow(5.0)]}
+        ]}}),
+    );
+    let doc = import(&standard(vec![card, badge_in, outer]));
+    let badge = doc.get(named(&doc, "Outer").children[0]).expect("the nested instance");
+    let dot = doc.get(badge.children[0]).expect("its Dot");
+    assert_eq!(radii(dot), vec![5.0]);
+    assert_eq!(style_of(&doc, dot), None);
+}

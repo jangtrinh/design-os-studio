@@ -486,8 +486,9 @@ struct Lk<'a> {
     grid_column_index: HashMap<String, Option<usize>>,
     /// Same for `gridRows`.
     grid_row_index: HashMap<String, Option<usize>>,
-    /// Guids of the nodes whose effect-style link resolves (see [`Lk::effect_link_resolves`]).
-    effect_linked: HashSet<String>,
+    /// Nodes whose effect-style link resolves (see [`Lk::effect_link_resolves`]), with the guid of the style node
+    /// they link (`None` for a library style the file does not carry).
+    effect_linked: HashMap<String, Option<String>>,
     /// Variable id (`VariableID:s:l`) -> per mode, the variable that mode's value aliases (`None` for a literal).
     var_aliases: HashMap<String, Vec<Option<String>>>,
 }
@@ -508,7 +509,7 @@ impl<'a> Lk<'a> {
             handoff_status: HashMap::new(),
             grid_column_index: HashMap::new(),
             grid_row_index: HashMap::new(),
-            effect_linked: HashSet::new(),
+            effect_linked: HashMap::new(),
             var_aliases: HashMap::new(),
         };
         let mut aliases: Vec<(String, String)> = Vec::new();
@@ -617,7 +618,14 @@ impl<'a> Lk<'a> {
             })
             .collect();
         lk.var_aliases = var_aliases;
-        let linked: HashSet<String> = entries.iter().filter(|e| lk.effect_link_resolves(&e.json)).map(|e| e.id.clone()).collect();
+        let linked: HashMap<String, Option<String>> = entries
+            .iter()
+            .filter(|e| lk.effect_link_resolves(&e.json))
+            .map(|e| {
+                let style = lk.style_node_of(&e.json, "styleIdForEffect", "inheritEffectStyleID").and_then(|s| s.get("guid").and_then(guid_str));
+                (e.id.clone(), style)
+            })
+            .collect();
         lk.effect_linked = linked;
         lk
     }
@@ -644,6 +652,12 @@ impl<'a> Lk<'a> {
     fn effect_link_resolves(&self, nc: &Value) -> bool {
         self.style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID").is_some()
             || nc.get("styleIdForEffect").and_then(|r| self.style_id(r)).is_some_and(|id| id.starts_with("key:"))
+    }
+
+    /// Whether the effects an override entry restates are a stale copy that the linked `style` replaces: they bind
+    /// no variable the style lacks. A library style the file does not carry (`None`) has no values to compare.
+    fn style_replaces_entry_effects(&self, own: &[Value], style: Option<&Value>) -> bool {
+        style.is_none_or(|s| !effects_bind_foreign_variable(self, own, rest_import::farr(s, "effects")))
     }
 
     /// Resolves a preferred-value component key: literal `comp_by_key` match wins first; otherwise
@@ -2890,40 +2904,46 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
             return None;
         }
         let path = guid_path(o);
-        if !derived && path.len() == 1 {
-            let own = [instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str), instance.get("guid").and_then(guid_str)];
-            if own.iter().flatten().any(|g| *g == path[0]) {
-                // A self entry that restates paints without a style key keeps the style the instance itself names.
-                if let Some(inst_obj) = instance.as_object() {
-                    for (style, slot, clear_key) in [("styleIdForFill", "fill", "_clearFillStyle"), ("styleIdForStrokeFill", "stroke", "_clearStrokeStyle")] {
-                        if o.get(style).is_none() && inst_obj.contains_key(style) && set.remove(clear_key).is_some() {
-                            insert_style_override_link(&mut set, inst_obj, lk, style, slot, clear_key);
-                        }
-                    }
-                    // Figma repeats the instance's effect list in a root
-                    // self-override even when the effect style itself was not
-                    // overridden.  Drop that stale copy so the linked style
-                    // remains authoritative instead of mixing both lists.
-                    if o.get("styleIdForEffect").is_none() && lk.effect_link_resolves(instance) && set.remove("_clearEffectStyle").is_some() {
-                        set.remove("effects");
-                        insert_style_override_link(&mut set, inst_obj, lk, "styleIdForEffect", "effect", "_clearEffectStyle");
-                    }
-                }
-            }
-        }
         let is_self = path.len() == 1
             && [instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str), instance.get("guid").and_then(guid_str)]
                 .iter()
                 .flatten()
                 .any(|g| *g == path[0]);
-        if !derived
-            && !is_self
-            && o.get("styleIdForEffect").is_none()
-            && path.last().is_some_and(|last| lk.effect_linked.contains(last))
-            && set.remove("_clearEffectStyle").is_some()
-        {
-            // The same holds below the instance: a layer whose main links an effect style keeps it.
-            set.remove("effects");
+        let restates_effects_without_style = !derived && o.get("styleIdForEffect").is_none();
+        let own_effects = rest_import::farr(o, "effects");
+        if !derived && is_self {
+            // A self entry that restates paints without a style key keeps the style the instance itself names.
+            if let Some(inst_obj) = instance.as_object() {
+                for (style, slot, clear_key) in [("styleIdForFill", "fill", "_clearFillStyle"), ("styleIdForStrokeFill", "stroke", "_clearStrokeStyle")] {
+                    if o.get(style).is_none() && inst_obj.contains_key(style) && set.remove(clear_key).is_some() {
+                        insert_style_override_link(&mut set, inst_obj, lk, style, slot, clear_key);
+                    }
+                }
+                // Figma repeats the instance's effect list in a root
+                // self-override even when the effect style itself was not
+                // overridden.  Drop that stale copy so the linked style
+                // remains authoritative instead of mixing both lists, unless
+                // the copy binds a variable the style lacks.
+                if restates_effects_without_style
+                    && lk.effect_link_resolves(instance)
+                    && lk.style_replaces_entry_effects(own_effects, lk.style_node_of(instance, "styleIdForEffect", "inheritEffectStyleID"))
+                    && set.remove("_clearEffectStyle").is_some()
+                {
+                    set.remove("effects");
+                    insert_style_override_link(&mut set, inst_obj, lk, "styleIdForEffect", "effect", "_clearEffectStyle");
+                }
+            }
+        }
+        // The same holds for the layer directly below the instance: when its main links an effect style, a stale
+        // copy of the entry keeps the link. Deeper paths cross another instance whose own overrides may have
+        // changed the link, so they are left as written.
+        if restates_effects_without_style && !is_self && path.len() == 1 {
+            if let Some(style) = path.last().and_then(|last| lk.effect_linked.get(last)) {
+                let style_node = style.as_deref().and_then(|id| lk.style_by_id.get(id));
+                if lk.style_replaces_entry_effects(own_effects, style_node) && set.remove("_clearEffectStyle").is_some() {
+                    set.remove("effects");
+                }
+            }
         }
         if !derived {
             let parent = path.split_last().and_then(|(_, up)| restated.get(up));
