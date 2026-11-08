@@ -387,14 +387,28 @@ impl Cx<'_> {
             let col_gap_val = (sg.col_gap > 0.0 || bound(doc, n, "itemSpacing").is_some()).then(|| dp(doc, n, "itemSpacing", sg.col_gap));
             let row_gap_key = grid_row_gap_key(doc, n, al);
             let row_gap_val = (sg.row_gap > 0.0 || bound(doc, n, row_gap_key).is_some()).then(|| dp(doc, n, row_gap_key, sg.row_gap));
+            for (c, k) in sg.cols.iter().enumerate() {
+                if let (ColKind::Hug(px), true) = (k, sg.has_weights()) {
+                    self.out.line(
+                        g_depth + 1,
+                        format!("<!-- Hug column {} keeps its solved {}dp: a wrap_content cell would collapse a Fill item -->", c + 1, num(*px)),
+                    );
+                }
+            }
             for (c, &col_w) in sg.widths.iter().enumerate() {
                 let covered = sg.children.iter().any(|(_, p)| p.col == c && p.col_span == 1);
                 if !covered {
                     let mut s: Attrs = Vec::new();
-                    attr(&mut s, "layout_width", format!("{}dp", num(col_w)));
+                    match sg.weight(c) {
+                        Some(_) => attr(&mut s, "layout_width", "0dp"),
+                        None => attr(&mut s, "layout_width", format!("{}dp", num(col_w))),
+                    }
                     attr(&mut s, "layout_height", "0dp");
                     attr(&mut s, "layout_row", "0");
                     attr(&mut s, "layout_column", c.to_string());
+                    if let Some(w) = sg.weight(c) {
+                        attr(&mut s, "layout_columnWeight", num(w));
+                    }
                     if c > 0 {
                         if let Some(ref cg) = col_gap_val {
                             attr(&mut s, "layout_marginStart", cg.clone());
@@ -421,13 +435,17 @@ impl Cx<'_> {
             }
             let me = Parent::of(n);
             for &(child_id, ref p) in &sg.children {
-                let cell_w = sg.cell_width(p);
                 let cell_h = sg.cell_height(p, true);
+                let (span_weight, _) = sg.span_weight_and_px(p);
                 let mut c_attrs: Attrs = Vec::new();
-                attr(&mut c_attrs, "layout_width", format!("{}dp", num(cell_w)));
+                // A weighted cell takes its columns' share of the free width; a fixed one its solved width.
+                attr(&mut c_attrs, "layout_width", if span_weight > 0.0 { "0dp".to_string() } else { format!("{}dp", num(sg.cell_width(p))) });
                 attr(&mut c_attrs, "layout_height", format!("{}dp", num(cell_h)));
                 attr(&mut c_attrs, "layout_row", p.row.to_string());
                 attr(&mut c_attrs, "layout_column", p.col.to_string());
+                if span_weight > 0.0 {
+                    attr(&mut c_attrs, "layout_columnWeight", num(span_weight));
+                }
                 if p.row_span > 1 {
                     attr(&mut c_attrs, "layout_rowSpan", p.row_span.to_string());
                 }

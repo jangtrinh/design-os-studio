@@ -590,6 +590,28 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         } else {
             depth
         };
+        // `Grid` shares the width left by fixed columns equally among columns that can stretch, so only
+        // equal weights export as stretching cells; unequal weights keep the solver's widths.
+        let stretch = grid.has_weights() && (0..grid.cols.len()).filter_map(|c| grid.weight(c)).all(|w| (w - grid.weight_of_first()).abs() < 1e-3);
+        if grid.has_weights() && !stretch {
+            o.line(g_depth, "// unequal column weights: Grid shares free width equally, so columns keep their solved widths");
+        }
+        if stretch {
+            for (c, k) in grid.cols.iter().enumerate() {
+                if let ColKind::Hug(px) = k {
+                    o.line(g_depth, format!("// Hug column {} is exported as its solved width {}", c + 1, num(*px)));
+                }
+            }
+        }
+        let cell_frame = |p: &designos_doc::layout_solver::Placed, h: f32, align: &str| -> String {
+            if stretch {
+                let (weight, px) = grid.span_weight_and_px(p);
+                if weight > 0.0 {
+                    return format!(".frame(minWidth: {}, maxWidth: .infinity, minHeight: {}, maxHeight: {}, alignment: {align})", num(px), num(h), num(h));
+                }
+            }
+            format!(".frame(width: {}, height: {}, alignment: {align})", num(grid.cell_width(p)), num(h))
+        };
         o.line(g_depth, format!("Grid(alignment: .topLeading, horizontalSpacing: {col_gap_s}, verticalSpacing: {row_gap_s}) {{"));
         let cols = grid.widths.len();
         for r in 0..grid.rows.len() {
@@ -621,17 +643,16 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                     if let Some(comment) = SolvedGrid::overlap_comment(doc, group) {
                         o.line(g_depth + 2, comment);
                     }
-                    let cell_w = grid.cell_width(p);
                     let cell_h = grid.cell_height(p, false);
                     let (ah, av) = grid_cell_align(doc, cid, al);
                     let cell_align = cell_alignment(ah, av);
                     if group.stacked.is_empty() {
                         view(doc, cid, me, g_depth + 2, o);
-                        o.line(g_depth + 3, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                        o.line(g_depth + 3, cell_frame(p, cell_h, &cell_align));
                     } else {
                         o.line(g_depth + 2, "ZStack(alignment: .topLeading) {");
                         view(doc, cid, me, g_depth + 3, o);
-                        o.line(g_depth + 4, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                        o.line(g_depth + 4, cell_frame(p, cell_h, &cell_align));
                         for s in &group.stacked {
                             view(doc, s.id, me, g_depth + 3, o);
                             let sw = grid.cell_width(&s.placed);
@@ -644,14 +665,18 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                             }
                         }
                         o.line(g_depth + 2, "}");
-                        o.line(g_depth + 3, format!(".frame(width: {}, height: {}, alignment: .topLeading)", num(cell_w), num(cell_h)));
+                        o.line(g_depth + 3, cell_frame(p, cell_h, ".topLeading"));
                     }
                     if p.col_span > 1 {
                         o.line(g_depth + 3, format!(".gridCellColumns({})", p.col_span));
                     }
                     c += p.col_span;
                 } else {
-                    o.line(g_depth + 2, format!("Color.clear.frame(width: {}, height: {})", num(grid.widths[c]), num(grid.rows[r])));
+                    if stretch && grid.weight(c).is_some() {
+                        o.line(g_depth + 2, format!("Color.clear.frame(minWidth: 0, maxWidth: .infinity, minHeight: {0}, maxHeight: {0})", num(grid.rows[r])));
+                    } else {
+                        o.line(g_depth + 2, format!("Color.clear.frame(width: {}, height: {})", num(grid.widths[c]), num(grid.rows[r])));
+                    }
                     c += 1;
                 }
             }
@@ -822,7 +847,7 @@ mod tests {
             let (d, grid, _) = fixture::grid_stretch_child(track, false);
             let out = swiftui_for(&d, grid);
             assert!(out.contains(&format!("width: 30, height: {height}")), "{track:?}: {out}");
-            for banned in ["maxWidth", "maxHeight"] {
+            for banned in ["maxHeight: .infinity", ".frame(maxWidth"] {
                 assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
             }
         }
@@ -834,7 +859,7 @@ mod tests {
             for (d, grid, _) in [fixture::grid_fill_child(track), fixture::grid_stretch_child(track, true), fixture::grid_text_fill_child(track)] {
                 let out = swiftui_for(&d, grid);
                 assert!(out.contains(&format!("width: 30, height: {height}")), "{track:?}: {out}");
-                for banned in ["maxWidth", "maxHeight"] {
+                for banned in ["maxHeight: .infinity", ".frame(maxWidth"] {
                     assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
                 }
             }

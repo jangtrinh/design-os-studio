@@ -235,6 +235,40 @@ impl Cx<'_> {
         if let Some((al, grid)) = grid_body {
             let cols = grid.widths.len();
             let col_gap_s = dimension(doc, n, "itemSpacing", grid.col_gap);
+            // One layout guide is one weight unit wide: the grid's width less its padding, gaps and
+            // fixed columns, shared by the total weight. A weighted cell is that unit times its
+            // weight plus the fixed columns and gaps it spans.
+            let unit_v = grid.has_weights().then(|| {
+                let unit = self.ident("colUnit");
+                let total = num(grid.total_weight());
+                self.line(format!("let {unit} = UILayoutGuide()"));
+                self.line(format!("{v}.addLayoutGuide({unit})"));
+                self.line("NSLayoutConstraint.activate([");
+                self.out.line(1, format!("{unit}.leadingAnchor.constraint(equalTo: {v}.leadingAnchor),"));
+                self.out.line(
+                    1,
+                    format!(
+                        "{unit}.widthAnchor.constraint(equalTo: {v}.widthAnchor, multiplier: 1.0 / {total}, constant: -{} / {total}),",
+                        num(grid.fixed_and_gap_width() + grid.pad_x)
+                    ),
+                );
+                self.line("])");
+                for (c, k) in grid.cols.iter().enumerate() {
+                    if let ColKind::Hug(px) = k {
+                        self.line(format!("// Hug column {} is exported as its solved width {}", c + 1, num(*px)));
+                    }
+                }
+                unit
+            });
+            let width_constraint = |anchor: &str, p: &designos_doc::layout_solver::Placed| -> String {
+                if let Some(unit) = &unit_v {
+                    let (weight, px) = grid.span_weight_and_px(p);
+                    if weight > 0.0 {
+                        return format!("{anchor}.widthAnchor.constraint(equalTo: {unit}.widthAnchor, multiplier: {}, constant: {}),", num(weight), num(px));
+                    }
+                }
+                format!("{anchor}.widthAnchor.constraint(equalToConstant: {}),", num(grid.cell_width(p)))
+            };
             for r in 0..grid.rows.len() {
                 let row_v = self.ident("row");
                 self.line(format!("let {row_v} = UIStackView()"));
@@ -267,12 +301,11 @@ impl Cx<'_> {
                             self.line(comment);
                         }
                         let cell_v = self.ident("cell");
-                        let cell_w = grid.cell_width(p);
                         let cell_h = grid.cell_height(p, false);
                         self.line(format!("let {cell_v} = UIView()"));
                         self.line(format!("{cell_v}.translatesAutoresizingMaskIntoConstraints = false"));
                         self.line("NSLayoutConstraint.activate([");
-                        self.out.line(1, format!("{cell_v}.widthAnchor.constraint(equalToConstant: {}),", num(cell_w)));
+                        self.out.line(1, width_constraint(&cell_v, p));
                         self.out.line(1, format!("{cell_v}.heightAnchor.constraint(equalToConstant: {}),", num(cell_h)));
                         self.line("])");
                         self.line(format!("{row_v}.addArrangedSubview({cell_v})"));
@@ -300,7 +333,8 @@ impl Cx<'_> {
                         self.line(format!("let {hole_v} = UIView()"));
                         self.line(format!("{hole_v}.translatesAutoresizingMaskIntoConstraints = false"));
                         self.line("NSLayoutConstraint.activate([");
-                        self.out.line(1, format!("{hole_v}.widthAnchor.constraint(equalToConstant: {}),", num(grid.widths[c])));
+                        let hole_cell = designos_doc::layout_solver::Placed { row: r, col: c, row_span: 1, col_span: 1 };
+                        self.out.line(1, width_constraint(&hole_v, &hole_cell));
                         self.out.line(1, format!("{hole_v}.heightAnchor.constraint(equalToConstant: {}),", num(grid.rows[r])));
                         self.line("])");
                         self.line(format!("{row_v}.addArrangedSubview({hole_v})"));
