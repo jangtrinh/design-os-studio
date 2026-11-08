@@ -414,3 +414,73 @@ fn a_very_long_alias_chain_imports_on_a_small_stack() {
     // Past the depth bound the chain counts as a different variable, so the node keeps its own list.
     assert_eq!(handle.join().expect("the import must not overflow the stack"), vec![2.0]);
 }
+
+/// `CardM` holds the instance `BadgeIn` of Badge. BadgeIn's own self entry is `self_entry`; the outer instance of
+/// `CardM` restates `BadgeIn` with `outer_fields` and no style key.
+fn nested_instance_doc(self_entry: Value, outer_fields: Value) -> Document {
+    let card_m = node((1, 20), (0, 1), "b", "SYMBOL", "CardM", json!({"size": {"x": 44.0, "y": 22.0}}));
+    let badge_in = node(
+        (1, 21),
+        (1, 20),
+        "a",
+        "INSTANCE",
+        "BadgeIn",
+        json!({"size": {"x": 44.0, "y": 22.0}, "styleIdForEffect": link(1), "symbolData": {"symbolID": g(1, 10), "symbolOverrides": [self_entry]}}),
+    );
+    let mut entry = json!({"guidPath": {"guids": [g(1, 21)]}});
+    for (k, v) in outer_fields.as_object().expect("entry fields") {
+        entry[k] = v.clone();
+    }
+    let outer = node(
+        (3, 1),
+        (0, 1),
+        "c",
+        "INSTANCE",
+        "Outer",
+        json!({"size": {"x": 44.0, "y": 22.0}, "symbolData": {"symbolID": g(1, 20), "symbolOverrides": [entry]}}),
+    );
+    import(&standard(vec![card_m, badge_in, outer]))
+}
+
+#[test]
+fn an_outer_foreign_binding_on_an_instance_its_own_entry_relinked_keeps_the_relinked_style() {
+    let relink = root_entry(json!({"styleIdForEffect": link(2), "effects": [shadow(12.0)]}));
+    let doc = nested_instance_doc(relink, json!({"effects": [bound(shadow(2.0), (7, 99))]}));
+    let badge = doc.get(named(&doc, "Outer").children[0]).expect("BadgeIn");
+    assert_eq!((radii(badge), style_of(&doc, badge).as_deref()), (vec![2.0], Some("Shadow/Raised")));
+    let again = reopened(&doc);
+    let badge = again.get(named(&again, "Outer").children[0]).expect("BadgeIn after save");
+    assert_eq!((radii(badge), style_of(&again, badge).as_deref()), (vec![2.0], Some("Shadow/Raised")), "and after a save");
+}
+
+#[test]
+fn an_outer_edit_of_an_instance_its_own_entry_detached_keeps_the_edit() {
+    let detach = root_entry(json!({"styleIdForEffect": {"guid": g(DETACHED, DETACHED)}, "effects": [shadow(3.0)]}));
+    let doc = nested_instance_doc(detach, json!({"effects": [shadow(5.0)]}));
+    let badge = doc.get(named(&doc, "Outer").children[0]).expect("BadgeIn");
+    assert_eq!((radii(badge), style_of(&doc, badge)), (vec![5.0], None));
+}
+
+#[test]
+fn a_root_instance_linked_only_through_the_legacy_key_keeps_its_link_with_a_foreign_binding() {
+    let own = json!({"inheritEffectStyleID": g(9, 1)});
+    let entry = root_entry(json!({"effects": [bound(shadow(2.0), (7, 99))]}));
+    let doc = import(&doc_json(card_binding_7_1(), json!({}), json!({}), vec![inst(1, "Legacy foreign", own, vec![entry])]));
+    let n = named(&doc, "Legacy foreign");
+    assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![2.0], Some("Shadow/Card")));
+    let again = reopened(&doc);
+    let n = named(&again, "Legacy foreign");
+    assert_eq!((radii(n), style_of(&again, n).as_deref()), (vec![2.0], Some("Shadow/Card")), "and after a save");
+}
+
+#[test]
+fn a_root_instance_that_inherits_its_link_keeps_it_with_a_foreign_binding() {
+    let linked = json!({"styleIdForEffect": link(1), "effects": [shadow(8.0)]});
+    let entry = root_entry(json!({"effects": [bound(shadow(2.0), (7, 99))]}));
+    let doc = import(&doc_json(card_binding_7_1(), linked.clone(), linked, vec![inst(1, "Inherits", json!({}), vec![entry])]));
+    let n = named(&doc, "Inherits");
+    assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![2.0], Some("Shadow/Card")));
+    let again = reopened(&doc);
+    let n = named(&again, "Inherits");
+    assert_eq!((radii(n), style_of(&again, n).as_deref()), (vec![2.0], Some("Shadow/Card")), "the save writes no detach marker");
+}
