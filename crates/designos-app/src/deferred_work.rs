@@ -33,8 +33,11 @@ impl App {
     /// A quit does not drop a job the user started and whose status is on screen (an import, a Save to library): it
     /// finishes before the window closes. Returns how many jobs ran.
     pub(crate) fn finish_queued_work_before_quit(&mut self) -> usize {
-        let queued = self.queued_work.len();
-        self.run_queued_work();
+        let mut queued = 0;
+        while self.has_queued_work() {
+            queued += self.queued_work.len();
+            self.run_queued_work();
+        }
         queued
     }
 }
@@ -56,6 +59,22 @@ mod tests {
         assert_eq!(app.finish_queued_work_before_quit(), 1);
 
         assert!(ran.get() && !app.has_queued_work(), "the job finished before the window closed");
+    }
+
+    #[test]
+    fn a_quit_drains_work_queued_by_another_job_in_the_same_shutdown() {
+        let mut app = App::new(Document::new("Doc"));
+        let ran = Rc::new(Cell::new(0));
+        let first = Rc::clone(&ran);
+        app.run_after_status_paint("first", move |app| {
+            first.set(first.get() + 1);
+            let second = Rc::clone(&first);
+            app.run_after_status_paint("second", move |_| second.set(second.get() + 1));
+        });
+
+        assert_eq!(app.finish_queued_work_before_quit(), 2);
+        assert_eq!(ran.get(), 2, "shutdown must finish work queued during the drain");
+        assert!(!app.has_queued_work());
     }
 
     #[test]
