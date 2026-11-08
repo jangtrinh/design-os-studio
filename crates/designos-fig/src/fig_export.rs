@@ -260,6 +260,9 @@ struct ExportCtx<'a> {
     grid_tracks: BTreeMap<NodeId, grid::GridTrackIds>,
     timeline_guids: BTreeMap<String, (u32, u32)>,
     track_guids: BTreeMap<(NodeId, usize), (u32, u32)>,
+    track_guids_by_id: BTreeMap<String, (u32, u32)>,
+    reserved_kf_guids: HashSet<(u32, u32)>,
+    emitted_track_guids: HashSet<(u32, u32)>,
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
 }
@@ -276,6 +279,29 @@ fn parse_guid_pair(s: &str) -> Option<(u32, u32)> {
         return None;
     }
     Some((session, local))
+}
+
+fn collect_json_guids(v: &serde_json::Value, out: &mut Vec<(u32, u32)>) {
+    match v {
+        serde_json::Value::Object(m) => {
+            if let (Some(s), Some(l)) = (m.get("sessionID").and_then(serde_json::Value::as_u64), m.get("localID").and_then(serde_json::Value::as_u64)) {
+                if let (Ok(s), Ok(l)) = (u32::try_from(s), u32::try_from(l)) {
+                    if !((s == 0 && (l == 0 || l == 999_999)) || (s == u32::MAX && l == u32::MAX)) {
+                        out.push((s, l));
+                    }
+                }
+            }
+            for child in m.values() {
+                collect_json_guids(child, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                collect_json_guids(item, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Fallback component key for `id` when no explicit `componentKey` or library key is present.
@@ -331,6 +357,9 @@ impl<'a> ExportCtx<'a> {
             grid_tracks: BTreeMap::new(),
             timeline_guids: BTreeMap::new(),
             track_guids: BTreeMap::new(),
+            track_guids_by_id: BTreeMap::new(),
+            reserved_kf_guids: HashSet::new(),
+            emitted_track_guids: HashSet::new(),
             blobs: Vec::new(),
             changes: Vec::new(),
         };
@@ -385,7 +414,6 @@ impl<'a> ExportCtx<'a> {
                 }
             }
         }
-        let mut used_tl_guids: HashSet<(u32, u32)> = HashSet::from([(0, 0), (0, 999_999), (u32::MAX, u32::MAX)]);
         let mut sorted_motion_nodes: Vec<NodeId> = doc.nodes.iter().filter_map(|(&id, n)| n.motion.is_some().then_some(id)).collect();
         sorted_motion_nodes.sort_by_key(|id| id.0);
         for &id in &sorted_motion_nodes {
@@ -401,18 +429,70 @@ impl<'a> ExportCtx<'a> {
                     continue;
                 }
                 if let Some(g) = parse_guid_pair(tid) {
-                    if used_tl_guids.insert(g) {
-                        cx.used_guids.insert(g);
+                    if cx.used_guids.insert(g) {
                         bump_next_local(&mut cx.next_local, g.1);
                         cx.timeline_guids.insert(tid.to_string(), g);
                     }
                 }
             }
             for (t_idx, tr) in motion.tracks.iter().enumerate() {
+                if !tr.id.is_empty() {
+                    if let Some(&existing) = cx.track_guids_by_id.get(&tr.id) {
+                        cx.track_guids.insert((id, t_idx), existing);
+                        continue;
+                    }
+                }
                 if let Some(g) = parse_guid_pair(&tr.id) {
                     if cx.used_guids.insert(g) {
                         bump_next_local(&mut cx.next_local, g.1);
                         cx.track_guids.insert((id, t_idx), g);
+                        if !tr.id.is_empty() {
+                            cx.track_guids_by_id.insert(tr.id.clone(), g);
+                        }
+                    }
+                }
+            }
+        }
+        for n in doc.nodes.values() {
+            if let Some(raw_tm) = n.fig_metadata.get("_motionTrackMeta") {
+                if let Ok(serde_json::Value::Object(tm_map)) = serde_json::from_str::<serde_json::Value>(raw_tm) {
+                    for tmeta in tm_map.values() {
+                        if let Some(kf_str) = tmeta.get("_keyframes").and_then(serde_json::Value::as_str) {
+                            if let Ok(serde_json::Value::Array(kf_arr)) = serde_json::from_str::<serde_json::Value>(kf_str) {
+                                for kf_meta in kf_arr {
+                                    if let Some(g) = kf_meta.get("_guid").and_then(serde_json::Value::as_str).and_then(parse_guid_pair) {
+                                        if cx.used_guids.insert(g) {
+                                            bump_next_local(&mut cx.next_local, g.1);
+                                            cx.reserved_kf_guids.insert(g);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(pc_str) = tmeta.get("_passthroughChildren").and_then(serde_json::Value::as_str) {
+                            if let Ok(pc_val) = serde_json::from_str::<serde_json::Value>(pc_str) {
+                                let mut guids = Vec::new();
+                                collect_json_guids(&pc_val, &mut guids);
+                                for g in guids {
+                                    if cx.used_guids.insert(g) {
+                                        bump_next_local(&mut cx.next_local, g.1);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for key in ["timelineDefinitions", "timelineAssignments", "parameterConsumptionMap"] {
+                if let Some(raw) = n.fig_metadata.get(key) {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(raw) {
+                        let mut guids = Vec::new();
+                        collect_json_guids(&val, &mut guids);
+                        for g in guids {
+                            if cx.used_guids.insert(g) {
+                                bump_next_local(&mut cx.next_local, g.1);
+                            }
+                        }
                     }
                 }
             }
@@ -514,17 +594,41 @@ impl<'a> ExportCtx<'a> {
             }
             for (t_idx, tr) in motion.tracks.iter().enumerate() {
                 if !cx.track_guids.contains_key(&(id, t_idx)) {
+                    if !tr.id.is_empty() {
+                        if let Some(&existing) = cx.track_guids_by_id.get(&tr.id) {
+                            cx.track_guids.insert((id, t_idx), existing);
+                            continue;
+                        }
+                    }
                     let s = crate::motion::guid_session_hint(&tr.id, 1);
                     let g = cx.alloc_guid(s);
                     cx.track_guids.insert((id, t_idx), g);
+                    if !tr.id.is_empty() {
+                        cx.track_guids_by_id.insert(tr.id.clone(), g);
+                    }
                 }
             }
         }
         cx
     }
 
-    fn timeline_guid(&self, id: &str) -> (u32, u32) {
-        self.timeline_guids.get(id).copied().or_else(|| parse_guid_pair(id)).unwrap_or((3, 1))
+    fn timeline_guid(&self, id: &str) -> Option<(u32, u32)> {
+        if id.is_empty() {
+            return None;
+        }
+        self.timeline_guids.get(id).copied()
+    }
+
+    fn timeline_guid_or_alloc(&mut self, id: &str) -> (u32, u32) {
+        if let Some(g) = self.timeline_guid(id) {
+            return g;
+        }
+        let s = crate::motion::guid_session_hint(id, 3);
+        let g = self.alloc_guid(s);
+        if !id.is_empty() {
+            self.timeline_guids.insert(id.to_string(), g);
+        }
+        g
     }
 
     fn track_guid(&self, nid: NodeId, idx: usize) -> (u32, u32) {
@@ -1507,7 +1611,40 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
 
     // Node variable bindings & explicit modes.
-    let var_entries = encode_node_var_entries(cx, &node.variables);
+    let mut pcm_var_fields: HashSet<String> = HashSet::new();
+    if let Some(raw_pcm) = node.fig_metadata.get("parameterConsumptionMap") {
+        if let Ok(pcm_val) = serde_json::from_str::<serde_json::Value>(raw_pcm) {
+            if let Some(entries) = pcm_val.get("entries").and_then(serde_json::Value::as_array) {
+                for e in entries {
+                    let dt = e.get("variableData").and_then(|d| d.get("dataType")).and_then(serde_json::Value::as_str);
+                    if matches!(dt, Some("KEYFRAME_TRACK_PARAMETER_DATA" | "KEYFRAME_TRACK_ID")) {
+                        continue;
+                    }
+                    if let Some(vf) = e.get("variableField").and_then(serde_json::Value::as_str) {
+                        pcm_var_fields.insert(vf.to_string());
+                        match vf {
+                            "STACK_HORIZONTAL_PADDING" => {
+                                pcm_var_fields.insert("STACK_PADDING_LEFT".into());
+                                pcm_var_fields.insert("STACK_PADDING_RIGHT".into());
+                            }
+                            "STACK_VERTICAL_PADDING" => {
+                                pcm_var_fields.insert("STACK_PADDING_TOP".into());
+                                pcm_var_fields.insert("STACK_PADDING_BOTTOM".into());
+                            }
+                            "RECTANGLE_CORNER_RADII" => {
+                                pcm_var_fields.insert("RECTANGLE_TOP_LEFT_CORNER_RADIUS".into());
+                                pcm_var_fields.insert("RECTANGLE_TOP_RIGHT_CORNER_RADIUS".into());
+                                pcm_var_fields.insert("RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS".into());
+                                pcm_var_fields.insert("RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS".into());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let var_entries = encode_node_var_entries_skipping(cx, &node.variables, &pcm_var_fields);
     if !var_entries.is_empty() {
         fields.push(("variableConsumptionMap", msg(vec![("entries", V::Array(var_entries))])));
     }
@@ -1881,19 +2018,39 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         .unwrap_or_default();
     if let Some(motion) = node.motion.as_deref() {
         if !motion.timelines.is_empty() {
-            let tl_json = crate::motion::timelines_to_kiwi_with(&motion.timelines, |tid| cx.timeline_guid(tid));
+            let mut tl_json = crate::motion::timelines_to_kiwi_with(&motion.timelines, |tid| cx.timeline_guid_or_alloc(tid));
+            if let Some(existing_tl) = node.fig_metadata.get("timelineDefinitions") {
+                if let Ok(existing_val) = serde_json::from_str::<serde_json::Value>(existing_tl) {
+                    if let (Some(dst), Some(src)) = (
+                        tl_json.get_mut("entries").and_then(serde_json::Value::as_array_mut),
+                        existing_val.get("entries").and_then(serde_json::Value::as_array),
+                    ) {
+                        dst.extend(src.iter().cloned());
+                    }
+                }
+            }
             if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "timelineDefinitions", &tl_json) {
                 msg_fields.push(pair);
             }
         }
         if !motion.assignments.is_empty() {
-            let as_json = crate::motion::assignments_to_kiwi_with(&motion.assignments, |tid| cx.timeline_guid(tid));
+            let mut as_json = crate::motion::assignments_to_kiwi_with(&motion.assignments, |tid| cx.timeline_guid_or_alloc(tid));
+            if let Some(existing_as) = node.fig_metadata.get("timelineAssignments") {
+                if let Ok(existing_val) = serde_json::from_str::<serde_json::Value>(existing_as) {
+                    if let (Some(dst), Some(src)) = (
+                        as_json.get_mut("entries").and_then(serde_json::Value::as_array_mut),
+                        existing_val.get("entries").and_then(serde_json::Value::as_array),
+                    ) {
+                        dst.extend(src.iter().cloned());
+                    }
+                }
+            }
             if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "timelineAssignments", &as_json) {
                 msg_fields.push(pair);
             }
         }
         if !motion.tracks.is_empty() {
-            let mut pcm_entries = crate::motion::tracks_to_parameter_consumption_entries(
+            let mut pcm_entries = crate::motion::tracks_to_parameter_consumption_entries_with_shape(
                 &motion.tracks,
                 |t_idx, _tr| cx.track_guid(id, t_idx),
                 |tid| cx.timeline_guid(tid),
@@ -1904,6 +2061,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                         .and_then(serde_json::Value::as_str)
                         .and_then(|s| s.parse::<u64>().ok())
                 },
+                |t_idx| track_meta_map.get(&t_idx.to_string()).and_then(|m| m.get("_trackIdShape")).and_then(serde_json::Value::as_str) == Some("true"),
             );
             if let Some(existing_pcm) = node.fig_metadata.get("parameterConsumptionMap") {
                 if let Ok(existing_val) = serde_json::from_str::<serde_json::Value>(existing_pcm) {
@@ -2028,6 +2186,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 continue;
             }
             let t_guid = cx.track_guid(id, t_idx);
+            if !cx.emitted_track_guids.insert(t_guid) {
+                continue;
+            }
+            let meta_obj = track_meta_map.get(&t_idx.to_string()).and_then(serde_json::Value::as_object);
+            let track_name = meta_obj.and_then(|m| m.get("_name")).and_then(serde_json::Value::as_str).unwrap_or("Track");
             let mut t_json = serde_json::Map::new();
             crate::motion::track_modes_to_kiwi(track.operation, track.loop_mode, &mut t_json);
             let mut t_msg_fields: Vec<(std::sync::Arc<str>, V)> = vec![
@@ -2035,7 +2198,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 ("phase".into(), en("CREATED")),
                 ("parentIndex".into(), st(vec![("guid", guid(nguid.0, nguid.1)), ("position", V::String(pos_str(child_count + t_idx)))])),
                 ("type".into(), en("KEYFRAME_TRACK")),
-                ("name".into(), V::String("Track".into())),
+                ("name".into(), V::String(track_name.to_string())),
                 ("visible".into(), V::Bool(true)),
                 ("opacity".into(), fl_one(1.0)),
                 ("size".into(), vec2(0.0, 0.0)),
@@ -2046,14 +2209,28 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     t_msg_fields.push(pair);
                 }
             }
-            if let Some(meta_obj) = track_meta_map.get(&t_idx.to_string()).and_then(serde_json::Value::as_object) {
+            if let Some(meta_obj) = meta_obj {
                 let meta_btree: BTreeMap<String, String> = meta_obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect();
                 append_fig_metadata(cx.schema, cx.nc_def, &mut t_msg_fields, &meta_btree);
             }
             cx.changes.push(V::Message(t_msg_fields));
 
+            let kf_metas: Vec<serde_json::Value> = meta_obj
+                .and_then(|m| m.get("_keyframes"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default();
+
             for (k_idx, kf) in track.keyframes.iter().enumerate() {
-                let k_guid = cx.alloc_guid(t_guid.0.max(1));
+                let kf_meta_obj = kf_metas.get(k_idx).and_then(serde_json::Value::as_object);
+                let k_guid = kf_meta_obj
+                    .and_then(|m| m.get("_guid"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(parse_guid_pair)
+                    .filter(|g| cx.reserved_kf_guids.remove(g))
+                    .unwrap_or_else(|| cx.alloc_guid(t_guid.0.max(1)));
+                let kf_name = kf_meta_obj.and_then(|m| m.get("_name")).and_then(serde_json::Value::as_str).unwrap_or("Keyframe");
                 let mut k_json = serde_json::Map::new();
                 crate::motion::keyframe_to_kiwi(kf, &mut k_json);
                 let mut k_msg_fields: Vec<(std::sync::Arc<str>, V)> = vec![
@@ -2061,7 +2238,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     ("phase".into(), en("CREATED")),
                     ("parentIndex".into(), st(vec![("guid", guid(t_guid.0, t_guid.1)), ("position", V::String(pos_str(k_idx)))])),
                     ("type".into(), en("KEYFRAME")),
-                    ("name".into(), V::String("Keyframe".into())),
+                    ("name".into(), V::String(kf_name.to_string())),
                     ("visible".into(), V::Bool(true)),
                     ("opacity".into(), fl_one(1.0)),
                     ("size".into(), vec2(0.0, 0.0)),
@@ -2072,7 +2249,35 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                         k_msg_fields.push(pair);
                     }
                 }
+                if let Some(kf_meta_obj) = kf_meta_obj {
+                    let k_meta_btree: BTreeMap<String, String> =
+                        kf_meta_obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect();
+                    append_fig_metadata(cx.schema, cx.nc_def, &mut k_msg_fields, &k_meta_btree);
+                }
                 cx.changes.push(V::Message(k_msg_fields));
+            }
+
+            if let Some(pc_str) = meta_obj.and_then(|m| m.get("_passthroughChildren")).and_then(serde_json::Value::as_str) {
+                if let Ok(serde_json::Value::Array(pc_arr)) = serde_json::from_str::<serde_json::Value>(pc_str) {
+                    for mut child_val in pc_arr {
+                        if let Some(child_obj) = child_val.as_object_mut() {
+                            if let Some(pi) = child_obj.get_mut("parentIndex").and_then(serde_json::Value::as_object_mut) {
+                                if pi.get("guid").and_then(crate::motion::guid_text).as_deref() == Some(track.id.as_str()) {
+                                    pi.insert("guid".into(), crate::motion::guid_pair_json(t_guid));
+                                }
+                            }
+                            let mut p_msg_fields: Vec<(std::sync::Arc<str>, V)> = Vec::new();
+                            for (k, v) in child_obj.iter() {
+                                if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, k, v) {
+                                    p_msg_fields.push(pair);
+                                }
+                            }
+                            if !p_msg_fields.is_empty() {
+                                cx.changes.push(V::Message(p_msg_fields));
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -2150,11 +2355,15 @@ fn clears_inherited_auto_layout(n: &Node) -> bool {
     n.component.layout_cleared && n.kind.frame_props().is_some_and(|fp| fp.auto_layout.is_none())
 }
 
-fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
-    encode_var_entries_from_bindings(cx, &vars.bindings)
+fn encode_node_var_entries_skipping(cx: &ExportCtx, vars: &NodeVariables, skip_fields: &HashSet<String>) -> Vec<V> {
+    encode_var_entries_from_bindings_skipping(cx, &vars.bindings, skip_fields)
 }
 
 fn encode_var_entries_from_bindings(cx: &ExportCtx, bindings: &BTreeMap<String, String>) -> Vec<V> {
+    encode_var_entries_from_bindings_skipping(cx, bindings, &HashSet::new())
+}
+
+fn encode_var_entries_from_bindings_skipping(cx: &ExportCtx, bindings: &BTreeMap<String, String>, skip_fields: &HashSet<String>) -> Vec<V> {
     let mut var_entries = Vec::new();
     let mut font_style_done = false;
     for (k, vid) in bindings {
@@ -2162,7 +2371,7 @@ fn encode_var_entries_from_bindings(cx: &ExportCtx, bindings: &BTreeMap<String, 
             continue;
         }
         if k == "fontWeight" || k == "fontStyle" {
-            if font_style_done {
+            if font_style_done || skip_fields.contains("FONT_STYLE") {
                 continue;
             }
             font_style_done = true;
@@ -2216,6 +2425,9 @@ fn encode_var_entries_from_bindings(cx: &ExportCtx, bindings: &BTreeMap<String, 
             "paragraphIndent" => "PARAGRAPH_INDENT",
             _ => continue,
         };
+        if skip_fields.contains(vfield) {
+            continue;
+        }
         var_entries.push(msg(vec![("variableField", en(vfield)), ("variableData", alias_var_data(vg))]));
     }
     var_entries

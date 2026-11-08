@@ -141,24 +141,33 @@ const COLOR_SPACE: [(&str, ColorSpace); 5] = [
 
 /// Timeline definitions (field 552) as the model's timelines, in file order.
 pub fn timelines_from_kiwi(map: Option<&Value>) -> Vec<Timeline> {
-    entries(map)
-        .iter()
-        .filter_map(|e| {
-            let id = e.get("id").and_then(guid_text)?;
-            let d = e.get("data").unwrap_or(&Value::Null);
-            let mut t = Timeline::new(id, d.get("durationUs").and_then(Value::as_u64).unwrap_or(0));
-            t.is_default = d.get("defaultTimeline").and_then(Value::as_bool).unwrap_or(false);
-            t.parent = d.get("parentTimelineDefId").and_then(guid_text);
-            t.playback = name_of(d.get("playbackStyle"), &PLAYBACK).unwrap_or_default();
-            t.autoplay = d.get("autoplay").and_then(Value::as_bool).unwrap_or(false);
-            t.snap_fps = d.get("keyframeSnappingFps").and_then(|r| {
-                let (n, den) = (r.get("numerator")?.as_u64()?, r.get("denominator")?.as_u64()?);
-                Some(FrameRate::new(u32::try_from(n).ok()?, u32::try_from(den).ok()?))
-            });
-            t.quantize_playback = d.get("quantizePlayback").and_then(Value::as_bool).unwrap_or(false);
-            Some(t)
-        })
-        .collect()
+    split_timelines_from_kiwi(map).0
+}
+
+/// Splits timeline definitions (field 552) into modelled timelines and any entries that lacked a valid GUID.
+pub fn split_timelines_from_kiwi(map: Option<&Value>) -> (Vec<Timeline>, Option<Value>) {
+    let mut timelines = Vec::new();
+    let mut skipped = Vec::new();
+    for e in entries(map) {
+        let Some(id) = e.get("id").and_then(guid_text) else {
+            skipped.push(e.clone());
+            continue;
+        };
+        let d = e.get("data").unwrap_or(&Value::Null);
+        let mut t = Timeline::new(id, d.get("durationUs").and_then(Value::as_u64).unwrap_or(0));
+        t.is_default = d.get("defaultTimeline").and_then(Value::as_bool).unwrap_or(false);
+        t.parent = d.get("parentTimelineDefId").and_then(guid_text);
+        t.playback = name_of(d.get("playbackStyle"), &PLAYBACK).unwrap_or_default();
+        t.autoplay = d.get("autoplay").and_then(Value::as_bool).unwrap_or(false);
+        t.snap_fps = d.get("keyframeSnappingFps").and_then(|r| {
+            let (n, den) = (r.get("numerator")?.as_u64()?, r.get("denominator")?.as_u64()?);
+            Some(FrameRate::new(u32::try_from(n).ok()?, u32::try_from(den).ok()?))
+        });
+        t.quantize_playback = d.get("quantizePlayback").and_then(Value::as_bool).unwrap_or(false);
+        timelines.push(t);
+    }
+    let rem = if skipped.is_empty() { None } else { Some(json!({"entries": skipped})) };
+    (timelines, rem)
 }
 
 /// The model's timelines as a `TimelineDefinitionsMap`. Fields at their default are left out, as the file does.
@@ -201,20 +210,34 @@ pub fn timelines_to_kiwi_with(timelines: &[Timeline], mut guid_of: impl FnMut(&s
 
 /// Timeline assignments (field 553) as the model's assignments, in file order.
 pub fn assignments_from_kiwi(map: Option<&Value>) -> Vec<TimelineAssignment> {
-    entries(map)
-        .iter()
-        .filter_map(|e| {
-            let key = e.get("key")?;
-            let v = e.get("value").unwrap_or(&Value::Null);
-            Some(TimelineAssignment {
-                timeline: key.get("assignedTimelineId").and_then(guid_text)?,
-                containing: key.get("containingTimelineId").and_then(guid_text)?,
-                offset_us: v.get("offsetUs").and_then(Value::as_i64).unwrap_or(0),
-                disabled: v.get("disabled").and_then(Value::as_bool).unwrap_or(false),
-                autoplay: v.get("autoplay").and_then(Value::as_bool).unwrap_or(false),
-            })
-        })
-        .collect()
+    split_assignments_from_kiwi(map).0
+}
+
+/// Splits timeline assignments (field 553) into modelled assignments and any entries that lacked valid GUIDs.
+pub fn split_assignments_from_kiwi(map: Option<&Value>) -> (Vec<TimelineAssignment>, Option<Value>) {
+    let mut assignments = Vec::new();
+    let mut skipped = Vec::new();
+    for e in entries(map) {
+        let Some(key) = e.get("key") else {
+            skipped.push(e.clone());
+            continue;
+        };
+        let (Some(timeline), Some(containing)) = (key.get("assignedTimelineId").and_then(guid_text), key.get("containingTimelineId").and_then(guid_text))
+        else {
+            skipped.push(e.clone());
+            continue;
+        };
+        let v = e.get("value").unwrap_or(&Value::Null);
+        assignments.push(TimelineAssignment {
+            timeline,
+            containing,
+            offset_us: v.get("offsetUs").and_then(Value::as_i64).unwrap_or(0),
+            disabled: v.get("disabled").and_then(Value::as_bool).unwrap_or(false),
+            autoplay: v.get("autoplay").and_then(Value::as_bool).unwrap_or(false),
+        });
+    }
+    let rem = if skipped.is_empty() { None } else { Some(json!({"entries": skipped})) };
+    (assignments, rem)
 }
 
 /// The model's assignments as a `TimelineAssignmentsMap`.
@@ -254,12 +277,13 @@ pub struct TrackBinding {
     pub track_guid: String,
     pub timeline_id: Option<String>,
     pub node_field: Option<u64>,
+    pub is_track_id_shape: bool,
 }
 
 /// Splits a layer's `parameterConsumptionMap` (field 445) into:
 /// 1. Manual keyframe-track bindings whose `keyframeTrackId.guid` resolves to a known `KEYFRAME_TRACK` node in `valid_track_guids`.
 /// 2. Remaining `parameterConsumptionMap` JSON for `bound_variables` (`ALIAS` / `FONT_STYLE` entries), or `None` when none remain.
-/// 3. Unmodelled Motion `parameterConsumptionMap` JSON (such as `ANIMATION_PRESET` entries) to keep in `fig_metadata`, or `None`.
+/// 3. All non-manual-track `parameterConsumptionMap` JSON (preset entries, variable entries, and any other unmodelled entries) to keep in `fig_metadata`, or `None`.
 pub fn extract_track_bindings(param_map: Option<&Value>, valid_track_guids: &BTreeSet<String>) -> (Vec<TrackBinding>, Option<Value>, Option<Value>) {
     let Some(map) = param_map else { return (Vec::new(), None, None) };
     let list = entries(Some(map));
@@ -301,6 +325,7 @@ pub fn extract_track_bindings(param_map: Option<&Value>, valid_track_guids: &BTr
                                     track_guid: tg,
                                     timeline_id: tl_id,
                                     node_field,
+                                    is_track_id_shape: false,
                                 });
                                 continue;
                             }
@@ -319,17 +344,22 @@ pub fn extract_track_bindings(param_map: Option<&Value>, valid_track_guids: &BTr
                 let has_asset_ref = ktid.get("assetRef").is_some();
                 if !has_asset_ref {
                     if let Some(tg) = track_guid.filter(|tg| valid_track_guids.contains(tg)) {
-                        bindings.push(TrackBinding { property: TrackProperty::from_kiwi_name(&field_name), track_guid: tg, timeline_id: None, node_field });
+                        bindings.push(TrackBinding {
+                            property: TrackProperty::from_kiwi_name(&field_name),
+                            track_guid: tg,
+                            timeline_id: None,
+                            node_field,
+                            is_track_id_shape: true,
+                        });
                         continue;
                     }
                 }
             }
         }
-        if is_motion_entry {
-            kept_for_meta.push(entry.clone());
-        } else {
+        if !is_motion_entry {
             kept_for_vars.push(entry.clone());
         }
+        kept_for_meta.push(entry.clone());
     }
 
     let rem_vars = if kept_for_vars.is_empty() { None } else { Some(json!({"entries": kept_for_vars})) };
@@ -363,11 +393,28 @@ pub fn default_node_field_for_property(prop: &TrackProperty) -> u64 {
 /// Builds the `VariableDataMapEntry` JSON items for `tracks` to be written into `parameterConsumptionMap.entries`.
 pub fn tracks_to_parameter_consumption_entries(
     tracks: &[Track],
-    mut track_guid_of: impl FnMut(usize, &Track) -> (u32, u32),
+    track_guid_of: impl FnMut(usize, &Track) -> (u32, u32),
     mut timeline_guid_of: impl FnMut(&str) -> (u32, u32),
-    mut node_field_of: impl FnMut(usize, &TrackProperty) -> Option<u64>,
+    node_field_of: impl FnMut(usize, &TrackProperty) -> Option<u64>,
 ) -> Vec<Value> {
-    let mut group_order: Vec<(TrackProperty, u64, Vec<Value>)> = Vec::new();
+    tracks_to_parameter_consumption_entries_with_shape(tracks, track_guid_of, |tid| (!tid.is_empty()).then(|| timeline_guid_of(tid)), node_field_of, |_| false)
+}
+
+/// Like [`tracks_to_parameter_consumption_entries`], omitting `timelineDefId` when `timeline_guid_of` returns `None`
+/// and keeping the `KEYFRAME_TRACK_ID` shape when `is_track_id_shape` returns `true` for a timeless track.
+pub fn tracks_to_parameter_consumption_entries_with_shape(
+    tracks: &[Track],
+    mut track_guid_of: impl FnMut(usize, &Track) -> (u32, u32),
+    mut timeline_guid_of: impl FnMut(&str) -> Option<(u32, u32)>,
+    mut node_field_of: impl FnMut(usize, &TrackProperty) -> Option<u64>,
+    mut is_track_id_shape: impl FnMut(usize) -> bool,
+) -> Vec<Value> {
+    enum GroupItem {
+        ParamGroup(TrackProperty, u64, Vec<Value>),
+        TrackIdEntry(Value),
+    }
+
+    let mut items: Vec<GroupItem> = Vec::new();
     for (idx, track) in tracks.iter().enumerate() {
         if track.property.kiwi_name().is_empty() {
             continue;
@@ -375,40 +422,65 @@ pub fn tracks_to_parameter_consumption_entries(
         let nf = node_field_of(idx, &track.property).unwrap_or_else(|| default_node_field_for_property(&track.property));
         let tg = track_guid_of(idx, track);
         let tlg = timeline_guid_of(&track.timeline);
-        let param = json!({
-            "type": "MANUAL",
-            "value": {
-                "manual": {
-                    "keyframeTrackId": {"guid": guid_pair_json(tg)},
-                    "timelineDefId": guid_pair_json(tlg)
-                }
-            }
-        });
-        if let Some((_, _, params)) = group_order.iter_mut().find(|(p, existing_nf, _)| *p == track.property && *existing_nf == nf) {
-            params.push(param);
-        } else {
-            group_order.push((track.property.clone(), nf, vec![param]));
-        }
-    }
-
-    group_order
-        .into_iter()
-        .map(|(prop, nf, params)| {
-            let vf_name = prop.kiwi_name();
+        if tlg.is_none() && is_track_id_shape(idx) {
+            let vf_name = track.property.kiwi_name();
             let vf_val = vf_name.parse::<u64>().map(Value::from).unwrap_or_else(|_| Value::String(vf_name.to_string()));
-            json!({
+            items.push(GroupItem::TrackIdEntry(json!({
                 "nodeField": nf,
                 "variableField": vf_val,
                 "variableData": {
+                    "dataType": "KEYFRAME_TRACK_ID",
+                    "resolvedDataType": "KEYFRAME_TRACK_ID",
                     "value": {
-                        "keyframeTrackParameterValue": {
-                            "parameters": params
+                        "keyframeTrackIdValue": {
+                            "guid": guid_pair_json(tg)
                         }
-                    },
-                    "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
-                    "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA"
+                    }
                 }
-            })
+            })));
+            continue;
+        }
+        let mut manual = Map::new();
+        manual.insert("keyframeTrackId".into(), json!({"guid": guid_pair_json(tg)}));
+        if let Some(tlg) = tlg {
+            manual.insert("timelineDefId".into(), guid_pair_json(tlg));
+        }
+        let param = json!({
+            "type": "MANUAL",
+            "value": {
+                "manual": Value::Object(manual)
+            }
+        });
+        if let Some(GroupItem::ParamGroup(_, _, params)) =
+            items.iter_mut().find(|it| matches!(it, GroupItem::ParamGroup(p, existing_nf, _) if *p == track.property && *existing_nf == nf))
+        {
+            params.push(param);
+        } else {
+            items.push(GroupItem::ParamGroup(track.property.clone(), nf, vec![param]));
+        }
+    }
+
+    items
+        .into_iter()
+        .map(|item| match item {
+            GroupItem::TrackIdEntry(v) => v,
+            GroupItem::ParamGroup(prop, nf, params) => {
+                let vf_name = prop.kiwi_name();
+                let vf_val = vf_name.parse::<u64>().map(Value::from).unwrap_or_else(|_| Value::String(vf_name.to_string()));
+                json!({
+                    "nodeField": nf,
+                    "variableField": vf_val,
+                    "variableData": {
+                        "value": {
+                            "keyframeTrackParameterValue": {
+                                "parameters": params
+                            }
+                        },
+                        "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+                        "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA"
+                    }
+                })
+            }
         })
         .collect()
 }

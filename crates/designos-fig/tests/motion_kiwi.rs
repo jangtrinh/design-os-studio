@@ -260,7 +260,7 @@ fn synthetic_motion_message() -> Value {
             "timelinePosition": 0,
             "keyframeValue": {"value": {"floatValue": 0.2}, "valueType": "FLOAT"},
             "interpolationType": "HOLD",
-            "interpolationColorSpace": "SRGB"
+            "interpolationColorSpace": "SRGB_LINEAR"
         })),
         node((1, 23), (1, 21), "KEYFRAME", "OpacityEnd", json!({
             "timelinePosition": 1000000,
@@ -271,7 +271,7 @@ fn synthetic_motion_message() -> Value {
                 "easingType": "CUSTOM_CUBIC",
                 "easingValue": {"bezierEasing": {"p1x": 0.42, "p1y": 0.0, "p2x": 0.58, "p2y": 1.0}}
             },
-            "interpolationColorSpace": "SRGB"
+            "interpolationColorSpace": "SRGB_LINEAR"
         })),
         node((1, 31), (1, 20), "KEYFRAME_TRACK", "TranslationTrack", json!({
             "keyframeOperation": "OFFSET",
@@ -337,9 +337,11 @@ fn synthetic_motion_message_round_trips_field_for_field() {
     assert_eq!(opacity_track.keyframes[0].time_us, 0);
     assert_eq!(opacity_track.keyframes[0].value, KeyValue::Float(0.2));
     assert_eq!(opacity_track.keyframes[0].interpolation, InterpolationType::Hold);
+    assert_eq!(opacity_track.keyframes[0].color_space, ColorSpace::SrgbLinear);
     assert_eq!(opacity_track.keyframes[1].time_us, 1_000_000);
     assert_eq!(opacity_track.keyframes[1].value, KeyValue::Float(0.8));
     assert_eq!(opacity_track.keyframes[1].interpolation, InterpolationType::Bezier);
+    assert_eq!(opacity_track.keyframes[1].color_space, ColorSpace::SrgbLinear);
     assert_eq!(opacity_track.keyframes[1].bezier_handles, Some([0.42, 0.0, 0.58, 1.0]));
     assert_eq!(opacity_track.keyframes[1].easing, Some(KeyEasing { easing_type: EasingType::CustomCubic, bezier: Some([0.42, 0.0, 0.58, 1.0]), spring: None }));
 
@@ -466,7 +468,7 @@ fn unknown_track_fields_and_unknown_track_properties_survive_the_round_trip() {
             "timelinePosition": 250000,
             "keyframeValue": {"value": {"floatValue": 2.5}, "valueType": "FLOAT"},
             "interpolationType": "HOLD",
-            "interpolationColorSpace": "SRGB"
+            "interpolationColorSpace": "SRGB_LINEAR"
         }),
     ));
 
@@ -571,4 +573,421 @@ fn fig_without_motion_is_byte_identical_across_export() {
         assert_ne!(nc["type"], "KEYFRAME_TRACK");
         assert_ne!(nc["type"], "KEYFRAME");
     }
+}
+
+#[test]
+fn unmodelled_children_of_bound_keyframe_track_survive_round_trip() {
+    let msg = json!({"nodeChanges": [
+        node((0, 0), (0, 0), "DOCUMENT", "Doc", json!({})),
+        node((0, 1), (0, 0), "CANVAS", "Page", json!({})),
+        node((1, 20), (0, 1), "FRAME", "Hero", json!({
+            "timelineDefinitions": {"entries": [
+                {"id": g(3, 1), "data": {"durationUs": 1000000, "defaultTimeline": true}}
+            ]},
+            "parameterConsumptionMap": {"entries": [
+                {
+                    "nodeField": 18,
+                    "variableField": "OPACITY",
+                    "variableData": {
+                        "value": {
+                            "keyframeTrackParameterValue": {
+                                "parameters": [{
+                                    "type": "MANUAL",
+                                    "value": {
+                                        "manual": {
+                                            "keyframeTrackId": {"guid": g(1, 21)},
+                                            "timelineDefId": g(3, 1)
+                                        }
+                                    }
+                                }]
+                            }
+                        },
+                        "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+                        "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA"
+                    }
+                }
+            ]}
+        })),
+        node((1, 21), (1, 20), "KEYFRAME_TRACK", "OpacityTrack", json!({
+            "keyframeOperation": "SET",
+            "trackLoopMode": "NONE"
+        })),
+        node((1, 22), (1, 21), "KEYFRAME", "ValuelessKey", json!({
+            "timelinePosition": 0,
+            "pluginData": [{"pluginID": "p1", "key": "k1", "value": "v1"}]
+        })),
+        node((1, 23), (1, 21), "ANIMATION_PRESET_INSTANCE", "TrackPresetChild", json!({
+            "timelineDuration": 400000,
+            "pluginData": [{"pluginID": "p2", "key": "k2", "value": "v2"}]
+        })),
+        node((1, 24), (1, 21), "KEYFRAME", "ValidKey", json!({
+            "timelinePosition": 500000,
+            "keyframeValue": {"value": {"floatValue": 0.5}, "valueType": "FLOAT"},
+            "interpolationType": "HOLD"
+        }))
+    ]});
+
+    let doc1 = import_fig_node_changes(&msg, "Motion").expect("import 1");
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let decoded1 = decode_fig_to_json(&bytes1).expect("decode 1");
+    let changes1 = decoded1["message"]["nodeChanges"].as_array().expect("nodeChanges 1");
+
+    let kf_valueless1 = changes1.iter().find(|n| n["guid"] == g(1, 22)).expect("valueless KEYFRAME 1:22 must survive export");
+    assert_eq!(kf_valueless1["type"], "KEYFRAME");
+    assert_eq!(kf_valueless1["name"], "ValuelessKey");
+    assert_eq!(kf_valueless1["parentIndex"]["guid"], g(1, 21));
+    assert_eq!(kf_valueless1["timelinePosition"], json!(0));
+    assert!(kf_valueless1.get("keyframeValue").is_none());
+    assert_eq!(kf_valueless1["pluginData"], json!([{"pluginID": "p1", "key": "k1", "value": "v1"}]));
+
+    let preset_child1 = changes1.iter().find(|n| n["guid"] == g(1, 23)).expect("ANIMATION_PRESET_INSTANCE 1:23 must survive export");
+    assert_eq!(preset_child1["type"], "ANIMATION_PRESET_INSTANCE");
+    assert_eq!(preset_child1["name"], "TrackPresetChild");
+    assert_eq!(preset_child1["parentIndex"]["guid"], g(1, 21));
+    assert_eq!(preset_child1["timelineDuration"], json!(400000));
+    assert_eq!(preset_child1["pluginData"], json!([{"pluginID": "p2", "key": "k2", "value": "v2"}]));
+
+    let doc2 = import_fig(&bytes1).expect("re-import 1");
+    let hero1 = doc1.nodes.values().find(|n| n.name == "Hero").unwrap();
+    let hero2 = doc2.nodes.values().find(|n| n.name == "Hero").unwrap();
+    assert_eq!(hero2.motion, hero1.motion);
+    assert_eq!(hero2.fig_metadata, hero1.fig_metadata);
+
+    let bytes2 = export_fig(&doc2).expect("export 2");
+    let decoded2 = decode_fig_to_json(&bytes2).expect("decode 2");
+    let changes2 = decoded2["message"]["nodeChanges"].as_array().expect("nodeChanges 2");
+    assert_eq!(changes2.iter().find(|n| n["guid"] == g(1, 22)), Some(kf_valueless1));
+    assert_eq!(changes2.iter().find(|n| n["guid"] == g(1, 23)), Some(preset_child1));
+}
+
+#[test]
+fn track_binding_without_timeline_def_id_keeps_empty_timeline_and_shape() {
+    let binding_entry = json!({
+        "nodeField": 18,
+        "variableField": "OPACITY",
+        "variableData": {
+            "dataType": "KEYFRAME_TRACK_ID",
+            "resolvedDataType": "KEYFRAME_TRACK_ID",
+            "value": {
+                "keyframeTrackIdValue": {
+                    "guid": {"sessionID": 1, "localID": 21}
+                }
+            }
+        }
+    });
+    let msg = json!({"nodeChanges": [
+        node((0, 0), (0, 0), "DOCUMENT", "Doc", json!({})),
+        node((0, 1), (0, 0), "CANVAS", "Page", json!({})),
+        node((1, 10), (0, 1), "FRAME", "Earlier", json!({
+            "timelineDefinitions": {"entries": [
+                {"id": g(5, 9), "data": {"durationUs": 900000, "defaultTimeline": true}}
+            ]}
+        })),
+        node((3, 1), (0, 1), "ROUNDED_RECTANGLE", "ExistingThreeOne", json!({})),
+        node((1, 20), (0, 1), "FRAME", "Hero", json!({
+            "parameterConsumptionMap": {"entries": [binding_entry.clone()]}
+        })),
+        node((1, 21), (1, 20), "KEYFRAME_TRACK", "OpacityTrack", json!({
+            "keyframeOperation": "SET",
+            "trackLoopMode": "NONE"
+        })),
+        node((1, 22), (1, 21), "KEYFRAME", "OpacityKey", json!({
+            "timelinePosition": 0,
+            "keyframeValue": {"value": {"floatValue": 0.4}, "valueType": "FLOAT"},
+            "interpolationType": "HOLD"
+        }))
+    ]});
+
+    let doc1 = import_fig_node_changes(&msg, "Motion").expect("import 1");
+    let hero1 = doc1.nodes.values().find(|n| n.name == "Hero").expect("hero 1");
+    let motion1 = hero1.motion.as_deref().expect("hero motion 1");
+    assert_eq!(motion1.tracks.len(), 1);
+    assert_eq!(motion1.tracks[0].timeline, "", "binding without timelineDefId must keep an empty timeline id");
+
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let decoded1 = decode_fig_to_json(&bytes1).expect("decode 1");
+    let changes1 = decoded1["message"]["nodeChanges"].as_array().expect("nodeChanges 1");
+    let hero_nc1 = changes1.iter().find(|n| n["guid"] == g(1, 20)).expect("Hero NodeChange");
+    assert_eq!(hero_nc1["parameterConsumptionMap"]["entries"], json!([binding_entry]), "export must keep KEYFRAME_TRACK_ID shape and omit timelineDefId");
+
+    let doc2 = import_fig(&bytes1).expect("re-import 1");
+    let hero2 = doc2.nodes.values().find(|n| n.name == "Hero").expect("hero 2");
+    assert_eq!(hero2.motion, hero1.motion);
+    assert_eq!(hero2.fig_metadata, hero1.fig_metadata);
+
+    // Also verify a non-empty non-canonical timeline id when guid 3:1 is already in used_guids never collides with 3:1.
+    let mut doc_collide = doc2.clone();
+    let hero_id = hero2.id;
+    doc_collide.nodes.get_mut(&hero_id).unwrap().motion.as_mut().unwrap().tracks[0].timeline = "3:1~dup".into();
+    doc_collide.nodes.get_mut(&hero_id).unwrap().fig_metadata.remove("_motionTrackMeta");
+    let bytes_collide = export_fig(&doc_collide).expect("export collide");
+    let decoded_collide = decode_fig_to_json(&bytes_collide).expect("decode collide");
+    let hero_collide = decoded_collide["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["guid"] == g(1, 20)).unwrap();
+    let written_tl_guid = &hero_collide["parameterConsumptionMap"]["entries"][0]["variableData"]["value"]["keyframeTrackParameterValue"]["parameters"][0]
+        ["value"]["manual"]["timelineDefId"];
+    assert_ne!(written_tl_guid, &g(3, 1), "timeline_guid must never collide with an existing 3:1 guid in used_guids");
+}
+
+#[test]
+fn mixed_variable_and_preset_parameter_consumption_map_entries_survive_round_trip() {
+    let alias_entry = json!({
+        "nodeField": 18,
+        "variableField": "OPACITY",
+        "variableData": {
+            "dataType": "ALIAS",
+            "resolvedDataType": "FLOAT",
+            "value": {
+                "alias": {"guid": g(1, 10)}
+            }
+        }
+    });
+    let preset_entry = json!({
+        "nodeField": 21,
+        "variableField": "MOTION_TRANSLATION_XY",
+        "variableData": {
+            "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "value": {
+                "keyframeTrackParameterValue": {
+                    "parameters": [{
+                        "type": "ANIMATION_PRESET",
+                        "value": {
+                            "animationPreset": {
+                                "animationPresetId": {"guid": g(3, 99)},
+                                "timelineDefId": g(3, 1)
+                            }
+                        }
+                    }]
+                }
+            }
+        }
+    });
+    let manual_entry = json!({
+        "nodeField": 25,
+        "variableField": "CORNER_RADIUS",
+        "variableData": {
+            "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "value": {
+                "keyframeTrackParameterValue": {
+                    "parameters": [{
+                        "type": "MANUAL",
+                        "value": {
+                            "manual": {
+                                "keyframeTrackId": {"guid": g(1, 21)},
+                                "timelineDefId": g(3, 1)
+                            }
+                        }
+                    }]
+                }
+            }
+        }
+    });
+
+    let msg = json!({"nodeChanges": [
+        node((0, 0), (0, 0), "DOCUMENT", "Doc", json!({})),
+        node((0, 1), (0, 0), "CANVAS", "Page", json!({})),
+        node((0, 999_999), (0, 0), "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        node((1, 8), (0, 999_999), "VARIABLE_SET", "Tokens", json!({
+            "variableSetModes": [{"id": g(1, 9), "name": "Mode 1", "sortPosition": "!"}]
+        })),
+        node((1, 10), (0, 999_999), "VARIABLE", "opacity-token", json!({
+            "variableSetID": {"guid": g(1, 8)},
+            "variableResolvedType": "FLOAT",
+            "variableDataValues": {"entries": [
+                {"modeID": g(1, 9), "variableData": {"dataType": "FLOAT", "value": {"floatValue": 0.75}}}
+            ]}
+        })),
+        node((1, 20), (0, 1), "FRAME", "Hero", json!({
+            "parameterConsumptionMap": {"entries": [
+                alias_entry.clone(),
+                preset_entry.clone(),
+                manual_entry.clone()
+            ]}
+        })),
+        node((1, 21), (1, 20), "KEYFRAME_TRACK", "RadiusTrack", json!({
+            "keyframeOperation": "SET",
+            "trackLoopMode": "NONE"
+        })),
+        node((1, 22), (1, 21), "KEYFRAME", "RadiusKey", json!({
+            "timelinePosition": 0,
+            "keyframeValue": {"value": {"floatValue": 8.0}, "valueType": "FLOAT"},
+            "interpolationType": "HOLD"
+        }))
+    ]});
+
+    let doc1 = import_fig_node_changes(&msg, "Motion").expect("import 1");
+    let hero1 = doc1.nodes.values().find(|n| n.name == "Hero").unwrap();
+    assert_eq!(hero1.variables.bindings.get("opacity").map(String::as_str), Some("VariableID:1:10"));
+
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let decoded1 = decode_fig_to_json(&bytes1).expect("decode 1");
+    let changes1 = decoded1["message"]["nodeChanges"].as_array().expect("nodeChanges 1");
+    let hero_nc1 = changes1.iter().find(|n| n["guid"] == g(1, 20)).expect("Hero NodeChange");
+    assert!(hero_nc1.get("variableConsumptionMap").is_none(), "OPACITY from parameterConsumptionMap must not duplicate into variableConsumptionMap");
+    let entries1 = hero_nc1["parameterConsumptionMap"]["entries"].as_array().expect("parameterConsumptionMap entries");
+    assert!(entries1.contains(&alias_entry), "ALIAS entry must survive in parameterConsumptionMap: {entries1:?}");
+    assert!(entries1.contains(&preset_entry), "ANIMATION_PRESET entry must survive in parameterConsumptionMap: {entries1:?}");
+    assert!(entries1.contains(&manual_entry), "MANUAL track entry must survive in parameterConsumptionMap: {entries1:?}");
+
+    let doc2 = import_fig(&bytes1).expect("re-import 1");
+    let hero2 = doc2.nodes.values().find(|n| n.name == "Hero").unwrap();
+    assert_eq!(hero2.variables, hero1.variables);
+    assert_eq!(hero2.motion, hero1.motion);
+    assert_eq!(hero2.fig_metadata, hero1.fig_metadata);
+    assert_eq!(hero2, hero1);
+    assert_eq!(doc2.variables, doc1.variables);
+    assert_eq!(doc2.variable_collections, doc1.variable_collections);
+}
+
+#[test]
+fn bound_track_and_keyframe_preserve_names_guids_and_plugin_data() {
+    let mut msg = synthetic_motion_message();
+    let changes = msg["nodeChanges"].as_array_mut().unwrap();
+    let track = changes.iter_mut().find(|n| n["name"] == "OpacityTrack").unwrap();
+    track["pluginData"] = json!([{"pluginID": "plug_tr", "key": "tk", "value": "tv"}]);
+    let kf = changes.iter_mut().find(|n| n["name"] == "OpacityStart").unwrap();
+    kf["pluginData"] = json!([{"pluginID": "plug_kf", "key": "kk", "value": "kv"}]);
+
+    let doc1 = import_fig_node_changes(&msg, "Motion").expect("import 1");
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let decoded1 = decode_fig_to_json(&bytes1).expect("decode 1");
+    let changes1 = decoded1["message"]["nodeChanges"].as_array().expect("nodeChanges 1");
+
+    let track_nc = changes1.iter().find(|n| n["guid"] == g(1, 21)).expect("track 1:21");
+    assert_eq!(track_nc["name"], "OpacityTrack");
+    assert_eq!(track_nc["pluginData"], json!([{"pluginID": "plug_tr", "key": "tk", "value": "tv"}]));
+
+    let kf_start_nc = changes1.iter().find(|n| n["guid"] == g(1, 22)).expect("keyframe 1:22");
+    assert_eq!(kf_start_nc["name"], "OpacityStart");
+    assert_eq!(kf_start_nc["pluginData"], json!([{"pluginID": "plug_kf", "key": "kk", "value": "kv"}]));
+
+    let kf_end_nc = changes1.iter().find(|n| n["guid"] == g(1, 23)).expect("keyframe 1:23");
+    assert_eq!(kf_end_nc["name"], "OpacityEnd");
+
+    let doc2 = import_fig(&bytes1).expect("re-import 1");
+    let hero1 = doc1.nodes.values().find(|n| n.name == "Hero").unwrap();
+    let hero2 = doc2.nodes.values().find(|n| n.name == "Hero").unwrap();
+    assert_eq!(hero2.motion, hero1.motion);
+    assert_eq!(hero2.fig_metadata, hero1.fig_metadata);
+}
+
+#[test]
+fn unmodelled_timeline_and_assignment_entries_without_guids_survive_round_trip() {
+    let valid_tl = json!({"id": g(3, 1), "data": {"durationUs": 1000000, "defaultTimeline": true}});
+    let nameless_tl = json!({"data": {"durationUs": 500000}});
+    let valid_assign = json!({
+        "key": {"assignedTimelineId": g(3, 1), "containingTimelineId": g(3, 1)},
+        "value": {"offsetUs": 0, "disabled": false}
+    });
+    let incomplete_assign = json!({
+        "key": {"assignedTimelineId": g(3, 1)},
+        "value": {"offsetUs": 250000, "disabled": true}
+    });
+
+    let msg = json!({"nodeChanges": [
+        node((0, 0), (0, 0), "DOCUMENT", "Doc", json!({})),
+        node((0, 1), (0, 0), "CANVAS", "Page", json!({})),
+        node((1, 20), (0, 1), "FRAME", "Hero", json!({
+            "timelineDefinitions": {"entries": [valid_tl.clone(), nameless_tl.clone()]},
+            "timelineAssignments": {"entries": [valid_assign.clone(), incomplete_assign.clone()]}
+        }))
+    ]});
+
+    let doc1 = import_fig_node_changes(&msg, "Motion").expect("import 1");
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let decoded1 = decode_fig_to_json(&bytes1).expect("decode 1");
+    let changes1 = decoded1["message"]["nodeChanges"].as_array().expect("nodeChanges 1");
+    let hero_nc1 = changes1.iter().find(|n| n["guid"] == g(1, 20)).expect("Hero NodeChange");
+
+    assert_eq!(hero_nc1["timelineDefinitions"]["entries"], json!([valid_tl, nameless_tl]));
+    assert_eq!(hero_nc1["timelineAssignments"]["entries"], json!([valid_assign, incomplete_assign]));
+
+    let doc2 = import_fig(&bytes1).expect("re-import 1");
+    let hero1 = doc1.nodes.values().find(|n| n.name == "Hero").unwrap();
+    let hero2 = doc2.nodes.values().find(|n| n.name == "Hero").unwrap();
+    assert_eq!(hero2.motion, hero1.motion);
+    assert_eq!(hero2.fig_metadata, hero1.fig_metadata);
+}
+
+#[test]
+fn two_bindings_to_one_track_share_single_exported_track_node() {
+    let msg = json!({"nodeChanges": [
+        node((0, 0), (0, 0), "DOCUMENT", "Doc", json!({})),
+        node((0, 1), (0, 0), "CANVAS", "Page", json!({})),
+        node((1, 20), (0, 1), "FRAME", "Hero", json!({
+            "timelineDefinitions": {"entries": [
+                {"id": g(3, 1), "data": {"durationUs": 1000000, "defaultTimeline": true}}
+            ]},
+            "parameterConsumptionMap": {"entries": [
+                {
+                    "nodeField": 16,
+                    "variableField": "WIDTH",
+                    "variableData": {
+                        "value": {
+                            "keyframeTrackParameterValue": {
+                                "parameters": [{
+                                    "type": "MANUAL",
+                                    "value": {
+                                        "manual": {
+                                            "keyframeTrackId": {"guid": g(1, 21)},
+                                            "timelineDefId": g(3, 1)
+                                        }
+                                    }
+                                }]
+                            }
+                        },
+                        "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+                        "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA"
+                    }
+                },
+                {
+                    "nodeField": 16,
+                    "variableField": "HEIGHT",
+                    "variableData": {
+                        "value": {
+                            "keyframeTrackParameterValue": {
+                                "parameters": [{
+                                    "type": "MANUAL",
+                                    "value": {
+                                        "manual": {
+                                            "keyframeTrackId": {"guid": g(1, 21)},
+                                            "timelineDefId": g(3, 1)
+                                        }
+                                    }
+                                }]
+                            }
+                        },
+                        "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+                        "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA"
+                    }
+                }
+            ]}
+        })),
+        node((1, 21), (1, 20), "KEYFRAME_TRACK", "SharedTrack", json!({
+            "keyframeOperation": "SET",
+            "trackLoopMode": "NONE"
+        })),
+        node((1, 22), (1, 21), "KEYFRAME", "SharedKey", json!({
+            "timelinePosition": 0,
+            "keyframeValue": {"value": {"floatValue": 120.0}, "valueType": "FLOAT"},
+            "interpolationType": "HOLD"
+        }))
+    ]});
+
+    let doc1 = import_fig_node_changes(&msg, "Motion").expect("import 1");
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let decoded1 = decode_fig_to_json(&bytes1).expect("decode 1");
+    let changes1 = decoded1["message"]["nodeChanges"].as_array().expect("nodeChanges 1");
+
+    let tracks: Vec<&Value> = changes1.iter().filter(|n| n["type"] == "KEYFRAME_TRACK").collect();
+    assert_eq!(tracks.len(), 1, "shared track 1:21 must be emitted only once");
+    assert_eq!(tracks[0]["guid"], g(1, 21));
+    let kfs: Vec<&Value> = changes1.iter().filter(|n| n["type"] == "KEYFRAME").collect();
+    assert_eq!(kfs.len(), 1, "shared track keyframes must be emitted only once");
+
+    let doc2 = import_fig(&bytes1).expect("re-import 1");
+    let hero1 = doc1.nodes.values().find(|n| n.name == "Hero").unwrap();
+    let hero2 = doc2.nodes.values().find(|n| n.name == "Hero").unwrap();
+    assert_eq!(hero2.motion, hero1.motion);
 }

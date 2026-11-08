@@ -1531,20 +1531,48 @@ fn collect_node_referenced_variables(node: &Value, out: &mut HashSet<String>) {
     }
 }
 
+fn collect_passthrough_subtree(entries: &[Entry], children: &HashMap<usize, Vec<usize>>, idx: usize, visited: &mut HashSet<usize>, out: &mut Vec<Value>) {
+    if visited.contains(&idx) {
+        return;
+    }
+    out.push(clean_json_floats(&entries[idx].json));
+    visited.insert(idx);
+    if let Some(kids) = children.get(&idx) {
+        for &k in kids {
+            collect_passthrough_subtree(entries, children, k, visited, out);
+        }
+    }
+}
+
+fn extract_keyframe_meta(kf_json: &Value, kf_id: &str, large_file: bool) -> Map<String, Value> {
+    let mut kmeta = match extract_fig_metadata(kf_json, "KEYFRAME", large_file) {
+        Some(Value::Object(m)) => m,
+        _ => Map::new(),
+    };
+    for modelled in ["timelinePosition", "keyframeValue", "interpolationType", "bezierHandles", "easingData", "interpolationColorSpace"] {
+        kmeta.remove(modelled);
+    }
+    if !kf_id.is_empty() {
+        kmeta.insert("_guid".into(), Value::String(kf_id.to_string()));
+    }
+    if let Some(name) = fstr(kf_json, "name").filter(|s| !s.is_empty() && *s != "Keyframe") {
+        kmeta.insert("_name".into(), Value::String(name.to_string()));
+    }
+    if let Some(pd) = kf_json.get("pluginData").filter(|v| v.as_array().is_some_and(|a| !a.is_empty())) {
+        if let Ok(s) = serde_json::to_string(&clean_json_floats(pd)) {
+            kmeta.insert("pluginData".into(), Value::String(s));
+        }
+    }
+    kmeta
+}
+
 fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usize>>, large_file: bool, visited: &mut HashSet<usize>) {
     let mut track_entry_by_id: HashMap<String, usize> = HashMap::new();
     let mut valid_track_guids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let mut file_default_tl: Option<String> = None;
     for (idx, e) in entries.iter().enumerate() {
         if fstr(&e.json, "type") == Some("KEYFRAME_TRACK") {
             track_entry_by_id.insert(e.id.clone(), idx);
             valid_track_guids.insert(e.id.clone());
-        }
-        if file_default_tl.is_none() {
-            let tls = crate::motion::timelines_from_kiwi(e.json.get("timelineDefinitions"));
-            if let Some(tl) = tls.iter().find(|t| t.is_default).or_else(|| tls.first()) {
-                file_default_tl = Some(tl.id.clone());
-            }
         }
     }
 
@@ -1556,13 +1584,27 @@ fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usi
             continue;
         }
 
-        let timelines = crate::motion::timelines_from_kiwi(entries[i].json.get("timelineDefinitions"));
-        let assignments = crate::motion::assignments_from_kiwi(entries[i].json.get("timelineAssignments"));
+        let (timelines, rem_tl_defs) = crate::motion::split_timelines_from_kiwi(entries[i].json.get("timelineDefinitions"));
+        let (assignments, rem_tl_assigns) = crate::motion::split_assignments_from_kiwi(entries[i].json.get("timelineAssignments"));
         let (bindings, rem_vars, rem_meta) = crate::motion::extract_track_bindings(entries[i].json.get("parameterConsumptionMap"), &valid_track_guids);
 
         if let Some(obj) = entries[i].json.as_object_mut() {
             obj.remove("timelineDefinitions");
             obj.remove("timelineAssignments");
+            if let Some(td) = rem_tl_defs {
+                if let Ok(s) = serde_json::to_string(&clean_json_floats(&td)) {
+                    if let Some(fm) = obj.entry("figMetadata").or_insert_with(|| Value::Object(Map::new())).as_object_mut() {
+                        fm.insert("timelineDefinitions".into(), Value::String(s));
+                    }
+                }
+            }
+            if let Some(ta) = rem_tl_assigns {
+                if let Ok(s) = serde_json::to_string(&clean_json_floats(&ta)) {
+                    if let Some(fm) = obj.entry("figMetadata").or_insert_with(|| Value::Object(Map::new())).as_object_mut() {
+                        fm.insert("timelineAssignments".into(), Value::String(s));
+                    }
+                }
+            }
             if has_param_map {
                 match rem_vars {
                     Some(rv) => {
@@ -1582,24 +1624,15 @@ fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usi
             }
         }
 
-        let fallback_tl = timelines
-            .iter()
-            .find(|t| t.is_default)
-            .or_else(|| timelines.first())
-            .map(|t| t.id.clone())
-            .or_else(|| assignments.first().map(|a| a.timeline.clone()))
-            .or_else(|| file_default_tl.clone())
-            .unwrap_or_default();
-
         let mut tracks = Vec::with_capacity(bindings.len());
         let mut track_meta_by_index = Map::new();
 
         for (t_idx, binding) in bindings.into_iter().enumerate() {
             let Some(&track_idx) = track_entry_by_id.get(&binding.track_guid) else { continue };
-            visited.insert(track_idx);
+            let track_already_visited = visited.contains(&track_idx);
             let track_json = &entries[track_idx].json;
             let (op, loop_mode) = crate::motion::track_modes_from_kiwi(track_json);
-            let tl_id = binding.timeline_id.unwrap_or_else(|| fallback_tl.clone());
+            let tl_id = binding.timeline_id.unwrap_or_default();
             let mut track = designos_doc::Track::new(binding.track_guid, tl_id, binding.property);
             track.operation = op;
             track.loop_mode = loop_mode;
@@ -1610,28 +1643,69 @@ fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usi
             };
             tmeta.remove("keyframeOperation");
             tmeta.remove("trackLoopMode");
+            if let Some(name) = fstr(track_json, "name").filter(|s| !s.is_empty() && *s != "Track") {
+                tmeta.insert("_name".into(), Value::String(name.to_string()));
+            }
+            if let Some(pd) = track_json.get("pluginData").filter(|v| v.as_array().is_some_and(|a| !a.is_empty())) {
+                if let Ok(s) = serde_json::to_string(&clean_json_floats(pd)) {
+                    tmeta.insert("pluginData".into(), Value::String(s));
+                }
+            }
+            if binding.is_track_id_shape {
+                tmeta.insert("_trackIdShape".into(), Value::String("true".into()));
+            }
             if let Some(nf) = binding.node_field {
                 if nf != crate::motion::default_node_field_for_property(&track.property) {
                     tmeta.insert("_nodeField".into(), Value::String(nf.to_string()));
                 }
             }
-            if !tmeta.is_empty() {
-                track_meta_by_index.insert(t_idx.to_string(), Value::Object(tmeta));
-            }
 
+            let mut kf_pairs: Vec<(designos_doc::Keyframe, Map<String, Value>)> = Vec::new();
+            let mut passthrough_children: Vec<Value> = Vec::new();
             if let Some(kid_indices) = children.get(&track_idx) {
                 for &kf_idx in kid_indices {
                     let kf_json = &entries[kf_idx].json;
                     if fstr(kf_json, "type") == Some("KEYFRAME") {
                         if let Some(kf) = crate::motion::keyframe_from_kiwi(kf_json) {
+                            let kmeta = extract_keyframe_meta(kf_json, &entries[kf_idx].id, large_file);
+                            kf_pairs.push((kf, kmeta));
                             visited.insert(kf_idx);
-                            track.keyframes.push(kf);
+                            if !track_already_visited {
+                                if let Some(grandkids) = children.get(&kf_idx) {
+                                    for &gk_idx in grandkids {
+                                        collect_passthrough_subtree(entries, children, gk_idx, visited, &mut passthrough_children);
+                                    }
+                                }
+                            }
+                            continue;
                         }
+                    }
+                    if !track_already_visited {
+                        collect_passthrough_subtree(entries, children, kf_idx, visited, &mut passthrough_children);
                     }
                 }
             }
-            track.normalize();
+            kf_pairs.sort_by_key(|(k, _)| k.time_us);
+            let mut kf_metas = Vec::with_capacity(kf_pairs.len());
+            for (kf, kmeta) in kf_pairs {
+                track.keyframes.push(kf);
+                kf_metas.push(Value::Object(kmeta));
+            }
+            if kf_metas.iter().any(|m| m.as_object().is_some_and(|o| !o.is_empty())) {
+                if let Ok(s) = serde_json::to_string(&Value::Array(kf_metas)) {
+                    tmeta.insert("_keyframes".into(), Value::String(s));
+                }
+            }
+            if !passthrough_children.is_empty() {
+                if let Ok(s) = serde_json::to_string(&Value::Array(passthrough_children)) {
+                    tmeta.insert("_passthroughChildren".into(), Value::String(s));
+                }
+            }
+            if !tmeta.is_empty() {
+                track_meta_by_index.insert(t_idx.to_string(), Value::Object(tmeta));
+            }
             tracks.push(track);
+            visited.insert(track_idx);
         }
 
         let motion = designos_doc::NodeMotion { timelines, assignments, tracks };
