@@ -42,7 +42,7 @@ pub fn tool_descriptor() -> Value {
     let size = json!({ "type": "number", "minimum": 0, "maximum": 1000000 });
     let connect_end = json!({
         "anyOf": [
-            { "type": "integer", "minimum": 1 },
+            { "type": "integer", "minimum": 0 },
             { "type": "string", "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$" },
             {
                 "type": "object",
@@ -58,7 +58,7 @@ pub fn tool_descriptor() -> Value {
                 }
             }
         ],
-        "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
+        "description": "Connector endpoint (node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]}) or 0-based track index for table move_row/move_col."
     });
     let magnet_schema = json!({
         "type": "string",
@@ -73,7 +73,7 @@ pub fn tool_descriptor() -> Value {
         "op".into(),
         json!({
             "type": "string",
-            "enum": ["apply_spec", "insert", "create", "update", "move", "delete", "set_slot", "set_variables", "set_style", "set_in_progress", "connect"]
+            "enum": ["apply_spec", "insert", "create", "update", "move", "delete", "set_slot", "set_variables", "set_style", "set_in_progress", "connect", "table"]
         }),
     );
     op_properties.insert("as".into(), json!({ "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }));
@@ -107,12 +107,25 @@ pub fn tool_descriptor() -> Value {
     op_properties.insert("name".into(), json!({ "type": "string", "maxLength": 1024 }));
     op_properties.insert("text".into(), json!({ "type": "string", "maxLength": 100000 }));
     op_properties.insert("x".into(), coordinate.clone());
-    op_properties.insert("y".into(), coordinate);
+    op_properties.insert("y".into(), coordinate.clone());
     op_properties.insert("width".into(), size.clone());
     op_properties.insert("height".into(), size);
+    op_properties.insert("rotation".into(), coordinate);
     op_properties.insert("visible".into(), json!({ "type": "boolean" }));
     op_properties.insert("opacity".into(), json!({ "type": "number", "minimum": 0, "maximum": 1 }));
     op_properties.insert("fills".into(), json!({ "type": "array", "items": { "type": "object" } }));
+    op_properties.insert("action".into(), json!({ "type": "string", "enum": crate::tools::batch_table::TABLE_ACTIONS }));
+    op_properties.insert("rows".into(), json!({ "type": "integer", "minimum": 1, "maximum": 100 }));
+    op_properties.insert("cols".into(), json!({ "type": "integer", "minimum": 1, "maximum": 100 }));
+    op_properties.insert("col_width".into(), json!({ "type": "number", "minimum": 16, "maximum": 1000000 }));
+    op_properties.insert("row_height".into(), json!({ "type": "number", "minimum": 16, "maximum": 1000000 }));
+    op_properties.insert("row".into(), json!({ "type": "integer", "minimum": 0 }));
+    op_properties.insert("col".into(), json!({ "type": "integer", "minimum": 0 }));
+    op_properties.insert("at".into(), json!({ "type": "integer", "minimum": 0 }));
+    op_properties.insert("count".into(), json!({ "type": "integer", "minimum": 1, "maximum": 100 }));
+    op_properties.insert("size".into(), json!({ "type": "number", "minimum": 16, "maximum": 1000000 }));
+    op_properties.insert("row_span".into(), json!({ "type": "integer", "minimum": 1 }));
+    op_properties.insert("col_span".into(), json!({ "type": "integer", "minimum": 1 }));
     op_properties.insert("upsert_collections".into(), json!({ "type": "array", "items": { "type": "object" } }));
     op_properties.insert("upsert_variables".into(), json!({ "type": "array", "items": { "type": "object" } }));
     op_properties.insert("delete_variables".into(), json!({ "type": "array", "items": { "type": "string" } }));
@@ -155,6 +168,13 @@ pub fn tool_descriptor() -> Value {
             ]
         },
         {
+            "ops": [
+                { "op": "table", "as": "t", "action": "create", "parent": 1, "x": 40, "y": 40, "rows": 3, "cols": 3 },
+                { "op": "table", "node": "@t", "action": "set_cell_text", "row": 0, "col": 0, "text": "Header" },
+                { "op": "table", "node": "@t", "action": "merge", "row": 0, "col": 0, "row_span": 1, "col_span": 2 }
+            ]
+        },
+        {
             "dry_run": true,
             "ops": [
                 { "op": "insert", "as": "preview", "parent": 1, "kind": "rectangle", "name": "PreviewBox", "width": 160, "height": 80 }
@@ -189,7 +209,7 @@ pub fn tool_descriptor() -> Value {
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 200,
-                    "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update).",
+                    "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update). Use op='table' with action (create|insert_rows|delete_rows|insert_cols|delete_cols|move_row|move_col|resize_row|resize_col|resize_table|merge|unmerge|set_cell_text); reference cells via '@<table_as>/r<row>c<col>' (0-based, e.g. '@t/r0c0').",
                     "items": op_item_schema
                 },
                 "dry_run": { "type": "boolean", "default": false },
@@ -297,6 +317,8 @@ struct UpdateOp {
     y: Option<f32>,
     width: Option<f32>,
     height: Option<f32>,
+    #[serde(default)]
+    rotation: Option<f32>,
     visible: Option<bool>,
     opacity: Option<f32>,
     #[serde(default)]
@@ -618,6 +640,7 @@ enum ParsedOp {
     SetSlot(SetSlotOp),
     SetInProgress(SetInProgressOp),
     Connect(ConnectOp),
+    Table(crate::tools::batch_table::TableOp),
 }
 
 impl ParsedOp {
@@ -633,6 +656,7 @@ impl ParsedOp {
             Self::SetSlot(_) => "set_slot",
             Self::SetInProgress(_) => "set_in_progress",
             Self::Connect(_) => "connect",
+            Self::Table(_) => "table",
         }
     }
 
@@ -648,6 +672,7 @@ impl ParsedOp {
             Self::SetSlot(o) => o.alias.as_deref(),
             Self::SetInProgress(o) => o.alias.as_deref(),
             Self::Connect(o) => o.alias.as_deref(),
+            Self::Table(o) => o.alias.as_deref(),
         }
     }
 }
@@ -770,12 +795,12 @@ fn batch_error(code: ErrorCode, failed_op: Option<usize>, op: Option<&str>, path
     err
 }
 
-fn op_failed_error(failed_op: usize, op: &str, inner_code: ErrorCode, path: &str, message: impl Into<String>) -> ToolError {
+pub(crate) fn op_failed_error(failed_op: usize, op: &str, inner_code: ErrorCode, path: &str, message: impl Into<String>) -> ToolError {
     let cause = ToolError::new(inner_code, path, message);
     ToolError::batch_op_failed(failed_op, op, cause)
 }
 
-fn wrap_op_err(failed_op: usize, op: &str, op_path: &str, mut cause: ToolError) -> ToolError {
+pub(crate) fn wrap_op_err(failed_op: usize, op: &str, op_path: &str, mut cause: ToolError) -> ToolError {
     if cause.path.is_empty() {
         cause.path = op_path.to_string();
     } else if !cause.path.starts_with("/ops/") {
@@ -792,7 +817,14 @@ fn is_valid_as(s: &str) -> bool {
     !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-fn validate_ref_pre_run(r: &NodeRef, declared_as: &BTreeSet<String>, has_prev: bool, op_idx: usize, op_name: &str, field: &str) -> Result<(), ToolError> {
+pub(crate) fn validate_ref_pre_run(
+    r: &NodeRef,
+    declared_as: &BTreeSet<String>,
+    has_prev: bool,
+    op_idx: usize,
+    op_name: &str,
+    field: &str,
+) -> Result<(), ToolError> {
     let path = format!("/ops/{op_idx}/{field}");
     match r {
         NodeRef::Id(0) => Err(op_failed_error(op_idx, op_name, ErrorCode::ValueOutOfRange, &path, "node IDs must be positive integers")),
@@ -933,6 +965,7 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                     y: a.y,
                     width: a.width,
                     height: a.height,
+                    rotation: a.rotation,
                     visible: a.visible,
                     opacity: a.opacity,
                     fill: a.fill.clone(),
@@ -1099,6 +1132,11 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                 has_prev = true;
                 ParsedOp::Connect(a)
             }
+            "table" => {
+                let a = crate::tools::batch_table::parse_and_validate(val, &raw_op, idx, &declared_as, has_prev)?;
+                has_prev = true;
+                ParsedOp::Table(a)
+            }
             other => {
                 return Err(batch_error(
                     ErrorCode::InvalidArguments,
@@ -1117,6 +1155,7 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                     "set_style",
                     "set_slot",
                     "connect",
+                    "table",
                 ]));
             }
         };
@@ -1215,6 +1254,20 @@ fn resolve_node_ref(
             };
             let mut cur = root_id;
             for seg in sub.split('/') {
+                if matches!(doc.get(cur).map(|n| &n.kind), Some(NodeKind::Table(_))) {
+                    if let Some((r_idx, c_idx)) = crate::tools::batch_table::parse_table_cell_segment(seg) {
+                        cur = crate::tools::batch_table::resolve_table_cell(doc, cur, r_idx, c_idx).ok_or_else(|| {
+                            op_failed_error(
+                                op_idx,
+                                op_name,
+                                ErrorCode::ValueOutOfRange,
+                                &path,
+                                format!("cell reference '{seg}' in '{s}' is out of bounds for table {}", cur.0),
+                            )
+                        })?;
+                        continue;
+                    }
+                }
                 let children = &doc
                     .get(cur)
                     .ok_or_else(|| {
@@ -1893,6 +1946,16 @@ fn walk_named_descendants(
     out: &mut Map<String, Value>,
 ) {
     let Some(parent) = doc.get(parent_id) else { return };
+    if let NodeKind::Table(tp) = &parent.kind {
+        for &cid in &parent.children {
+            let Some(cn) = doc.get(cid) else { continue };
+            let NodeKind::TableCell(cp) = &cn.kind else { continue };
+            if let (Some(r_idx), Some(c_idx)) = (tp.rows.iter().position(|t| t.id == cp.row), tp.cols.iter().position(|t| t.id == cp.col)) {
+                out.insert(format!("{prefix}/r{r_idx}c{c_idx}"), json!(cid.0));
+            }
+        }
+        return;
+    }
     let mut name_totals: BTreeMap<String, usize> = BTreeMap::new();
     for &cid in &parent.children {
         if (root_created_ids.contains(&cid) || all_created_ids.contains(&cid)) && doc.get(cid).is_some() {
@@ -2138,6 +2201,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         y: a.y,
                         width: a.width,
                         height: a.height,
+                        rotation: a.rotation,
                         visible: a.visible,
                         opacity: a.opacity,
                         fill: a.fill.clone(),
@@ -2176,12 +2240,39 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
 
                 let cur_node =
                     trial.get(id).ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", id.0)))?;
+                if matches!(cur_node.kind, NodeKind::TableCell(_)) {
+                    return Err(op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::InvalidArguments,
+                        &format!("{op_path}/node"),
+                        "Move rows or columns with the batch `table` op (`move_row` / `move_col`).",
+                    ));
+                }
                 let Some(old_parent) = cur_node.parent else {
                     return Err(op_failed_error(op_idx, op_name, ErrorCode::PageRootProtected, &op_path, "page roots cannot be moved by this tool"));
                 };
                 let pnode = trial
                     .get(new_parent)
                     .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", new_parent.0)))?;
+                if matches!(pnode.kind, NodeKind::Table(_)) {
+                    return Err(op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::NotAContainer,
+                        &format!("{op_path}/parent"),
+                        "A table holds only cells. Use the batch `table` op to add or delete rows, columns or merges.",
+                    ));
+                }
+                if matches!(pnode.kind, NodeKind::TableCell(_)) {
+                    return Err(op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::NotAContainer,
+                        &format!("{op_path}/parent"),
+                        "A table cell holds only its text. Use the batch `table` op (`set_cell_text`) to edit cell text.",
+                    ));
+                }
                 if !pnode.kind.is_container() {
                     return Err(op_failed_error(op_idx, op_name, ErrorCode::NotAContainer, &op_path, "parent must identify a container"));
                 }
@@ -2234,6 +2325,15 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 check_lease_guard(&trial, engine.owned_frames.as_deref(), id, op_idx, op_name)?;
                 let cur_node =
                     trial.get(id).ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", id.0)))?;
+                if matches!(cur_node.kind, NodeKind::TableCell(_)) {
+                    return Err(op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::InvalidArguments,
+                        &format!("{op_path}/node"),
+                        "Delete rows or columns with the batch `table` op (`delete_rows` / `delete_cols`).",
+                    ));
+                }
                 let Some(former_parent) = cur_node.parent else {
                     return Err(op_failed_error(op_idx, op_name, ErrorCode::PageRootProtected, &op_path, "page roots cannot be deleted by this tool"));
                 };
@@ -3041,6 +3141,122 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     collected_cmds.push(cmd);
                     let before_bounds = node_page_bounds(&trial, id);
                     touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
+                }
+            }
+            ParsedOp::Table(a) => {
+                if a.action == "create" {
+                    let parent = match &a.parent {
+                        Some(p) => resolve_node_ref(&trial, &alias_roots, prev_node, p, op_idx, op_name, "parent")?,
+                        None => default_page.ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::PageNotFound, &op_path, "Document has no pages"))?,
+                    };
+                    check_lease_guard(&trial, engine.owned_frames.as_deref(), parent, op_idx, op_name)?;
+                    let needed = 1 + (a.rows.unwrap_or(3) as usize) * (a.cols.unwrap_or(3) as usize);
+                    if created_count + needed > MAX_BATCH_CREATED_NODES {
+                        return Err(batch_error(
+                            ErrorCode::BatchTooManyOps,
+                            Some(op_idx),
+                            Some(op_name),
+                            &op_path,
+                            format!("batch creates over {MAX_BATCH_CREATED_NODES} nodes"),
+                        ));
+                    }
+                    let (table_id, cmd) = crate::tools::batch_table::execute_create(&trial, parent, a, op_idx)?;
+                    let mut set = BTreeSet::new();
+                    if let Command::Insert { nodes, .. } = &cmd {
+                        for n in nodes {
+                            set.insert(n.id);
+                        }
+                    }
+                    if recording_live {
+                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                        recorded_live_ops.extend(ops);
+                    }
+                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                    designos_doc::check_table_positions(&trial, table_id)
+                        .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                    relayout_for_node(&mut trial, table_id);
+
+                    let count = set.len();
+                    created_root_ids.push(table_id.0);
+                    created_count += count;
+                    changed.inserted += count;
+                    all_created_ids.extend(set.iter().copied());
+                    if let Some(alias) = &a.alias {
+                        alias_roots.insert(alias.clone(), table_id);
+                    }
+                    prev_node = Some(table_id);
+                    created_roots.push(CreatedRootRecord { alias: a.alias.clone(), root_id: table_id, created_ids: set });
+                    collected_cmds.push(cmd);
+                    relayout_targets.push(table_id);
+                    let before_bounds = node_page_bounds(&trial, table_id);
+                    touched_records.push(TouchedRootRecord { op: op_idx, node_id: table_id, before_bounds });
+                } else {
+                    let node_ref = a
+                        .node
+                        .as_ref()
+                        .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::MissingField, &format!("{op_path}/node"), "table action requires 'node'"))?;
+                    let table_id = resolve_node_ref(&trial, &alias_roots, prev_node, node_ref, op_idx, op_name, "node")?;
+                    check_lease_guard(&trial, engine.owned_frames.as_deref(), table_id, op_idx, op_name)?;
+                    let before_bounds = node_page_bounds(&trial, table_id);
+                    if let Some(cmd) = crate::tools::batch_table::execute_mutation(&trial, table_id, a, op_idx)? {
+                        let mut sub_cmds = Vec::new();
+                        flatten_batch_command(cmd, &mut sub_cmds);
+                        let added_nodes: usize = sub_cmds
+                            .iter()
+                            .map(|sc| match sc {
+                                Command::Insert { nodes, .. } => nodes.len(),
+                                _ => 0,
+                            })
+                            .sum();
+                        if created_count + added_nodes > MAX_BATCH_CREATED_NODES {
+                            return Err(batch_error(
+                                ErrorCode::BatchTooManyOps,
+                                Some(op_idx),
+                                Some(op_name),
+                                &op_path,
+                                format!("batch creates over {MAX_BATCH_CREATED_NODES} nodes"),
+                            ));
+                        }
+                        for sc in sub_cmds {
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &sc).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            match &sc {
+                                Command::Insert { nodes, .. } => {
+                                    let count = nodes.len();
+                                    created_count += count;
+                                    changed.inserted += count;
+                                    for n in nodes {
+                                        all_created_ids.insert(n.id);
+                                        if let Some(cr) = created_roots.iter_mut().find(|cr| cr.root_id == table_id) {
+                                            cr.created_ids.insert(n.id);
+                                        }
+                                    }
+                                }
+                                Command::Remove { id } => {
+                                    deleted_ids.push(*id);
+                                    changed.deleted += 1;
+                                }
+                                Command::Update { .. } => {
+                                    changed.updated += 1;
+                                }
+                                _ => {}
+                            }
+                            sc.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(sc);
+                        }
+                        designos_doc::check_table_positions(&trial, table_id)
+                            .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                        relayout_for_node(&mut trial, table_id);
+                        relayout_targets.push(table_id);
+                    }
+                    if let Some(alias) = &a.alias {
+                        alias_roots.insert(alias.clone(), table_id);
+                    }
+                    prev_node = Some(table_id);
+                    touched_records.push(TouchedRootRecord { op: op_idx, node_id: table_id, before_bounds });
                 }
             }
         }

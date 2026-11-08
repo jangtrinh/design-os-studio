@@ -1014,7 +1014,17 @@ pub fn from_spec_error(err: designos_doc::SpecError, pointer_prefix: &str) -> To
     let raw_path = if !err.path.is_empty() { err.path.as_str() } else { err.field_path.as_deref().unwrap_or("") };
     let pointer = spec_path_to_json_pointer(raw_path, pointer_prefix);
 
-    let mut tool_err = ToolError::new(code, pointer, err.message).with_valid_options(err.valid_options).with_safe_to_retry(err.safe_to_retry);
+    let mut msg = err.message;
+    let is_table_kind = code == ErrorCode::UnsupportedNodeKind
+        && err.received.as_deref().is_some_and(|r| r.eq_ignore_ascii_case("table") || r.eq_ignore_ascii_case("table_cell"));
+    if is_table_kind && !msg.contains("table") {
+        msg.push_str(". Use the batch `table` op in designos_apply_batch to create and edit tables.");
+    }
+
+    let mut tool_err = ToolError::new(code, pointer, msg).with_valid_options(err.valid_options).with_safe_to_retry(err.safe_to_retry);
+    if is_table_kind {
+        tool_err = tool_err.with_next_step("Use the batch `table` op in designos_apply_batch to create and edit tables.");
+    }
 
     if let Some(rec) = err.received {
         tool_err = tool_err.with_received(Value::String(rec));

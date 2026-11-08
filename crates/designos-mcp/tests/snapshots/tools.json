@@ -1395,6 +1395,37 @@
           ]
         },
         {
+          "ops": [
+            {
+              "action": "create",
+              "as": "t",
+              "cols": 3,
+              "op": "table",
+              "parent": 1,
+              "rows": 3,
+              "x": 40,
+              "y": 40
+            },
+            {
+              "action": "set_cell_text",
+              "col": 0,
+              "node": "@t",
+              "op": "table",
+              "row": 0,
+              "text": "Header"
+            },
+            {
+              "action": "merge",
+              "col": 0,
+              "col_span": 2,
+              "node": "@t",
+              "op": "table",
+              "row": 0,
+              "row_span": 1
+            }
+          ]
+        },
+        {
           "dry_run": true,
           "ops": [
             {
@@ -1442,10 +1473,28 @@
           "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
         },
         "ops": {
-          "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update).",
+          "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update). Use op='table' with action (create|insert_rows|delete_rows|insert_cols|delete_cols|move_row|move_col|resize_row|resize_col|resize_table|merge|unmerge|set_cell_text); reference cells via '@<table_as>/r<row>c<col>' (0-based, e.g. '@t/r0c0').",
           "items": {
             "additionalProperties": false,
             "properties": {
+              "action": {
+                "enum": [
+                  "create",
+                  "set_cell_text",
+                  "insert_rows",
+                  "insert_cols",
+                  "delete_rows",
+                  "delete_cols",
+                  "move_row",
+                  "move_col",
+                  "resize_row",
+                  "resize_col",
+                  "merge",
+                  "unmerge",
+                  "resize"
+                ],
+                "type": "string"
+              },
               "agent": {
                 "maxLength": 256,
                 "type": "string"
@@ -1459,6 +1508,33 @@
               "as": {
                 "pattern": "^[A-Za-z0-9_-]{1,64}$",
                 "type": "string"
+              },
+              "at": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "col": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "col_span": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "col_width": {
+                "maximum": 1000000,
+                "minimum": 16,
+                "type": "number"
+              },
+              "cols": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "count": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
               },
               "delete": {
                 "items": {
@@ -1498,7 +1574,7 @@
               "from": {
                 "anyOf": [
                   {
-                    "minimum": 1,
+                    "minimum": 0,
                     "type": "integer"
                   },
                   {
@@ -1525,7 +1601,7 @@
                     "type": "object"
                   }
                 ],
-                "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
+                "description": "Connector endpoint (node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]}) or 0-based track index for table move_row/move_col."
               },
               "from_magnet": {
                 "enum": [
@@ -1649,7 +1725,8 @@
                   "set_variables",
                   "set_style",
                   "set_in_progress",
-                  "connect"
+                  "connect",
+                  "table"
                 ],
                 "type": "string"
               },
@@ -1684,9 +1761,37 @@
                 ],
                 "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
               },
+              "rotation": {
+                "maximum": 1000000,
+                "minimum": -1000000,
+                "type": "number"
+              },
+              "row": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "row_height": {
+                "maximum": 1000000,
+                "minimum": 16,
+                "type": "number"
+              },
+              "row_span": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "rows": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
               "run_id": {
                 "maxLength": 256,
                 "type": "string"
+              },
+              "size": {
+                "maximum": 1000000,
+                "minimum": 16,
+                "type": "number"
               },
               "slot": {
                 "type": "string"
@@ -1723,7 +1828,7 @@
               "to": {
                 "anyOf": [
                   {
-                    "minimum": 1,
+                    "minimum": 0,
                     "type": "integer"
                   },
                   {
@@ -1750,7 +1855,7 @@
                     "type": "object"
                   }
                 ],
-                "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
+                "description": "Connector endpoint (node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]}) or 0-based track index for table move_row/move_col."
               },
               "to_magnet": {
                 "enum": [

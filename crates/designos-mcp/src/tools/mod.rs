@@ -2,6 +2,7 @@
 //! per-call lint issues block (`tools::issues`), and session options (`tools::session_options`).
 
 pub mod batch;
+pub mod batch_table;
 pub mod bootstrap;
 pub mod design_context;
 pub mod docs;
@@ -118,10 +119,17 @@ pub(crate) fn validate_create_fields(
         "rectangle" => Ok(Node::rectangle),
         "ellipse" => Ok(Node::ellipse),
         "text" => Ok(|id, r| Node::text(id, r, "", TextStyle::default())),
-        other => Err(ToolError::new(ErrorCode::UnsupportedNodeKind, "/kind", "kind must be frame, rectangle, ellipse, or text")
-            .with_received(json!(other))
-            .with_valid_options(vec!["frame", "rectangle", "ellipse", "text"])
-            .with_corrected_example(json!({"kind": "frame"}))),
+        other => {
+            let msg = if other.eq_ignore_ascii_case("table") || other.eq_ignore_ascii_case("table_cell") {
+                "kind must be frame, rectangle, ellipse, or text. Use the batch `table` op in designos_apply_batch to create tables."
+            } else {
+                "kind must be frame, rectangle, ellipse, or text"
+            };
+            Err(ToolError::new(ErrorCode::UnsupportedNodeKind, "/kind", msg)
+                .with_received(json!(other))
+                .with_valid_options(vec!["frame", "rectangle", "ellipse", "text"])
+                .with_corrected_example(json!({"kind": "frame"})))
+        }
     }
 }
 
@@ -146,6 +154,22 @@ pub(crate) fn build_created_node(
     let parent = doc
         .get(parent_id)
         .ok_or_else(|| ToolError::new(ErrorCode::NodeNotFound, "/parent_id", format!("node {} not found", parent_id.0)).with_received(json!(parent_id.0)))?;
+    if matches!(parent.kind, NodeKind::Table(_)) {
+        return Err(ToolError::new(
+            ErrorCode::NotAContainer,
+            "/parent_id",
+            "A table holds only cells. Use the batch `table` op to add or delete rows, columns or merges.",
+        )
+        .with_received(json!(parent_id.0)));
+    }
+    if matches!(parent.kind, NodeKind::TableCell(_)) {
+        return Err(ToolError::new(
+            ErrorCode::NotAContainer,
+            "/parent_id",
+            "A table cell holds only its text. Use the batch `table` op (`set_cell_text`) to edit cell text.",
+        )
+        .with_received(json!(parent_id.0)));
+    }
     if !parent.kind.is_container() {
         return Err(ToolError::new(ErrorCode::NotAContainer, "/parent_id", "parent_id must identify a container")
             .with_received(json!(parent_id.0))
@@ -198,6 +222,7 @@ pub(crate) struct UpdateFields {
     pub y: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub rotation: Option<f32>,
     pub visible: Option<bool>,
     pub opacity: Option<f32>,
     pub fill: Option<String>,
@@ -242,6 +267,13 @@ pub(crate) fn validate_update_fields(u: &UpdateFields) -> Result<(), ToolError> 
                 .with_expected(">= 0"));
         }
     }
+    if let Some(rot) = u.rotation {
+        if !rot.is_finite() || rot.abs() > 1_000_000.0 {
+            return Err(
+                ToolError::new(ErrorCode::InvalidGeometry, "/rotation", "rotation must be finite").with_expected("finite number within -1000000..=1000000")
+            );
+        }
+    }
     if let Some(opacity) = u.opacity {
         if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
             return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/opacity", "opacity must be between 0 and 1")
@@ -264,6 +296,27 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     if node.parent.is_none() {
         return Err(ToolError::new(ErrorCode::PageRootProtected, "/node_id", "page roots cannot be updated by this tool").with_received(json!(id.0)));
     }
+    if matches!(node.kind, NodeKind::TableCell(_)) {
+        if let Some(field_path) = if u.x.is_some() {
+            Some("/x")
+        } else if u.y.is_some() {
+            Some("/y")
+        } else if u.width.is_some() {
+            Some("/width")
+        } else if u.height.is_some() {
+            Some("/height")
+        } else if u.rotation.is_some() {
+            Some("/rotation")
+        } else {
+            None
+        } {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, field_path, "Use the batch `table` op to resize rows, columns or the table."));
+        }
+    }
+    if matches!(node.kind, NodeKind::Table(_)) && (u.width.is_some() || u.height.is_some()) {
+        let field_path = if u.width.is_some() { "/width" } else { "/height" };
+        return Err(ToolError::new(ErrorCode::InvalidArguments, field_path, "Use the batch `table` op to resize rows, columns or the table."));
+    }
     validate_update_fields(&u)?;
     if let Some(name) = u.name {
         node.name = name;
@@ -274,6 +327,13 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     }
     if let Some(y) = u.y {
         new_transform.ty = y;
+    }
+    if let Some(rot_deg) = u.rotation {
+        let rot = designos_doc::Affine::rotate(rot_deg.to_radians());
+        new_transform.a = rot.a;
+        new_transform.b = rot.b;
+        new_transform.c = rot.c;
+        new_transform.d = rot.d;
     }
     let mut new_size = node.size;
     if let Some(width) = u.width {

@@ -630,6 +630,13 @@ impl Engine {
                 let a: DeleteArgs = parse(args)?;
                 crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
                 let n = self.node(a.node_id)?;
+                if matches!(n.kind, NodeKind::TableCell(_)) {
+                    return Err(ToolError::new(
+                        ErrorCode::InvalidArguments,
+                        "/node_id",
+                        "Delete rows or columns with the batch `table` op (`delete_rows` / `delete_cols`).",
+                    ));
+                }
                 let Some(former_parent) = n.parent else {
                     let non_page_id = self.doc.nodes.values().find(|c| c.parent.is_some()).map(|c| c.id.0).unwrap_or(2);
                     return Err(ToolError::new(ErrorCode::PageRootProtected, "/node_id", "page roots cannot be deleted by this tool")
@@ -1589,6 +1596,7 @@ impl Engine {
                 y: a.y,
                 width: a.width,
                 height: a.height,
+                rotation: a.rotation,
                 visible: a.visible,
                 opacity: a.opacity,
                 fill: a.fill,
@@ -1794,6 +1802,8 @@ struct UpdateArgs {
     y: Option<f32>,
     width: Option<f32>,
     height: Option<f32>,
+    #[serde(default)]
+    rotation: Option<f32>,
     visible: Option<bool>,
     opacity: Option<f32>,
     #[serde(default)]
