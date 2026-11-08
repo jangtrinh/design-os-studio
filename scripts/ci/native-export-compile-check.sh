@@ -441,13 +441,13 @@ run_planted_self_test() {
       arch="$(uname -m)"
       expect_cmd_failure_with_pattern \
         "swiftui/planted_broken_swiftui.swift" \
-        "nonExistentDesignOsModifier" \
+        "error: value of type 'some View' has no member 'nonExistentDesignOsModifier'" \
         xcrun --sdk macosx swiftc -typecheck -target "${arch}-apple-macosx14.0" \
         "$planted_dir/swiftui/planted_broken_swiftui.swift"
 
       expect_cmd_failure_with_pattern \
         "uikit/planted_broken_uikit.swift" \
-        "nonExistentAxisDirection" \
+        "error: type 'NSLayoutConstraint.Axis' has no member 'nonExistentAxisDirection'" \
         xcrun --sdk iphonesimulator swiftc -typecheck -target "${arch}-apple-ios17.0-simulator" \
         "$planted_dir/uikit/planted_broken_uikit.swift"
     elif [[ $EXPLICIT_TARGET -eq 1 ]]; then
@@ -466,21 +466,27 @@ run_planted_self_test() {
 
       expect_cmd_failure_with_pattern \
         "compose/planted_broken_compose.kt" \
-        "nonExistentModifierCall" \
+        "error: unresolved reference 'nonExistentModifierCall'." \
         run_kotlinc_compose "$plugin_jar" "$out_jar" \
         "$planted_dir/compose/planted_broken_compose.kt"
 
       expect_cmd_failure_with_pattern \
         "compose/planted_composable_in_grid_lambda.kt" \
-        "@Composable invocations can only happen from the context of a @Composable function" \
+        "error: @Composable invocations can only happen from the context of a @Composable function" \
         run_kotlinc_compose "$plugin_jar" "$out_jar" \
         "$planted_dir/compose/planted_composable_in_grid_lambda.kt"
 
       expect_cmd_failure_with_pattern \
         "compose/planted_weight_in_box_scope.kt" \
-        "weight" \
+        "error: unresolved reference 'weight'." \
         run_kotlinc_compose "$plugin_jar" "$out_jar" \
         "$planted_dir/compose/planted_weight_in_box_scope.kt"
+
+      expect_cmd_failure_with_pattern \
+        "compose/planted_color_scheme_in_non_composable_lambda.kt" \
+        "error: @Composable invocations can only happen from the context of a @Composable function" \
+        run_kotlinc_compose "$plugin_jar" "$out_jar" \
+        "$planted_dir/compose/planted_color_scheme_in_non_composable_lambda.kt"
     elif [[ $EXPLICIT_TARGET -eq 1 ]]; then
       echo "ERROR: kotlinc not found for --target kotlin" >&2
       return 1
@@ -503,7 +509,7 @@ run_planted_self_test() {
       mkdir -p "$planted_compile_dir"
       expect_cmd_failure_with_pattern \
         "android-xml/01_planted/res/layout/planted_broken.xml" \
-        "not well-formed" \
+        "error: not well-formed (invalid token)." \
         aapt2 compile "$planted_dir/android-xml/01_planted/res/layout/planted_broken.xml" -o "$planted_compile_dir"
 
       local planted_attr_dir="$SCRATCH_ROOT/tmp/planted-aapt2-02"
@@ -515,7 +521,7 @@ run_planted_self_test() {
       shopt -u nullglob
       expect_cmd_failure_with_pattern \
         "android-xml/02_planted_bad_attr/res/layout/planted_bad_attr.xml (aapt2 link)" \
-        "layout_widht" \
+        "error: attribute android:layout_widht not found." \
         aapt2 link --auto-add-overlay -I "$android_jar" --manifest "$manifest" \
         -o "$SCRATCH_ROOT/tmp/planted-attr.apk" "${stub_flats[@]}" "${attr_flats[@]}"
     elif [[ $EXPLICIT_TARGET -eq 1 ]]; then

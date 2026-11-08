@@ -274,12 +274,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             unzip pkg-config libfontconfig1-dev
-          curl -fsSL -o /tmp/kotlin-compiler.zip \
+          KOTLIN_ZIP="${RUNNER_TEMP}/kotlin-compiler.zip"
+          curl -fsSL -o "$KOTLIN_ZIP" \
             "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
-          echo "${KOTLIN_SHA256}  /tmp/kotlin-compiler.zip" | sha256sum -c -
+          echo "${KOTLIN_SHA256}  ${KOTLIN_ZIP}" | sha256sum -c -
           sudo rm -rf /opt/kotlinc
-          sudo unzip -q /tmp/kotlin-compiler.zip -d /opt
-          rm -f /tmp/kotlin-compiler.zip
+          sudo unzip -q "$KOTLIN_ZIP" -d /opt
+          rm -f "$KOTLIN_ZIP"
           if [[ -f /opt/kotlinc/lib/compose-compiler-plugin.jar && ! -e /opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar ]]; then
             sudo ln -s /opt/kotlinc/lib/compose-compiler-plugin.jar /opt/kotlinc/lib/kotlin-compose-compiler-plugin.jar
           fi
@@ -300,7 +301,6 @@ jobs:
           }
 
           AAPT2_DIR="${SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"
-          sudo rm -rf "$AAPT2_DIR"
           if [[ ! -x "${AAPT2_DIR}/aapt2" ]]; then
             sdkmanager_install "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
           fi

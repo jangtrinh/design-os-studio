@@ -3,6 +3,7 @@
 package androidx.compose.stubs
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 
 // ============================================================================
 // Part 1: Faithful Jetpack Compose UI, Foundation, and Material 3 API surface
@@ -273,7 +274,10 @@ class ColorScheme(
 )
 
 object MaterialTheme {
-    val colorScheme: ColorScheme = ColorScheme()
+    val colorScheme: ColorScheme
+        @Composable
+        @ReadOnlyComposable
+        get() = ColorScheme()
 }
 
 @LayoutScopeMarker
