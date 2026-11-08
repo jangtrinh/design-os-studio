@@ -2976,7 +2976,7 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                             if replaces {
                                 set.remove("effects");
                             }
-                            let id = style.clone().or_else(|| lk.style_id_of(instance, "styleIdForEffect", None));
+                            let id = style.clone().or_else(|| lk.style_id_of(lk.own_effect_link_entry(instance).unwrap_or(instance), "styleIdForEffect", None));
                             insert_effect_link(&mut set, id);
                         }
                     }

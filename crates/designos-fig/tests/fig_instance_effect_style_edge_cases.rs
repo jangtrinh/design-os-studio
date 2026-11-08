@@ -484,3 +484,18 @@ fn a_root_instance_that_inherits_its_link_keeps_it_with_a_foreign_binding() {
     let n = named(&again, "Inherits");
     assert_eq!((radii(n), style_of(&again, n).as_deref()), (vec![2.0], Some("Shadow/Card")), "the save writes no detach marker");
 }
+
+#[test]
+fn two_self_entries_keep_the_shadow_and_the_library_style_the_first_one_names() {
+    // The record links a style that is gone; the first self entry names a library style the file lacks; the
+    // second restates the effects without a key.
+    let own = json!({"styleIdForEffect": link(77), "effects": [shadow(8.0)]});
+    let library = root_entry(json!({"styleIdForEffect": {"assetRef": {"key": "absent-lib"}}}));
+    let stale = root_entry(json!({"effects": [shadow(8.0)]}));
+    let doc = import(&standard(vec![inst(1, "Two entries", own, vec![library, stale])]));
+    for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
+        let n = named(&doc, "Two entries");
+        assert_eq!(radii(n), vec![8.0], "{stage}: the shadow is kept");
+        assert_eq!(n.style_refs.get("effect").map(String::as_str), Some("key:absent-lib"), "{stage}: the library style the entry names");
+    }
+}
