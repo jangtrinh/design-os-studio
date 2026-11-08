@@ -2322,6 +2322,10 @@ impl Shell {
         {
             self.quit_cleanup_runs += 1;
         }
+        // A queued operation may be added later in the same frame as the close request, or
+        // the close may come directly from AppKit (Dock Quit/on_exit). Drain here as the
+        // final shutdown boundary so those operations are not silently lost.
+        self.app.finish_queued_work_before_quit();
         if self.shot.is_none() {
             crate::decks::ui::flush_notes(&mut self.app);
             self.app.save_close_version();
