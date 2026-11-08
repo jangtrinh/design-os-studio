@@ -6696,6 +6696,11 @@ mod tests {
         let (c, dropped) = set_instance_prop_inner(&mut d, bi, "Icon", Some(PropValue::Instance(b)));
         apply(&mut d, c);
         assert_eq!(instance_component(d.get(badge_of(&d, si)).unwrap()), Some(blue), "the inner swap below the swapped slot follows it");
+        assert_eq!(
+            paint_of(&d, d.get(badge_of(&d, si)).unwrap().children[0]),
+            crate::PaintKind::Solid(Color::rgb(255, 200, 0)),
+            "the gold fill on the descendant below the swapped slot follows it"
+        );
         assert_eq!(dropped, 0, "nothing was left behind below the swapped slot");
     }
 
@@ -6745,7 +6750,115 @@ mod tests {
 
     #[test]
     fn swap_reports_dropped_inner_swaps_per_call() {
-        let mut d = Document::new("TwoDropped");
+        let mut d = Document::new("TwoTransferred");
+        let page = d.add_page("P");
+        let red = main_with_filled_dot(&mut d, page, "Badge/Red", 0.0, Color::rgb(255, 0, 0));
+        let blue = main_with_filled_dot(&mut d, page, "Badge/Blue", 60.0, Color::rgb(0, 0, 255));
+        let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, red, card, "B1");
+        put_named_instance(&mut d, red, card, "B2");
+        let card2 = frame_main_with_dot(&mut d, page, "Card2", 200.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, red, card2, "B1");
+        put_named_instance(&mut d, red, card2, "B2");
+        let c = create_instance(&mut d, card, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let ci = *d.get(page).unwrap().children.last().unwrap();
+        for k in d.get(ci).unwrap().children.clone() {
+            if matches!(d.get(k).unwrap().kind, NodeKind::Instance { .. }) {
+                let c = swap_instance(&mut d, k, blue);
+                apply(&mut d, c);
+                let dot = child_named(&d, k, "Dot");
+                override_fill(&mut d, dot, Color::rgb(0, 255, 0));
+            }
+        }
+        let (c, after_outer) = swap_instance_inner(&mut d, ci, card2);
+        apply(&mut d, c);
+        for name in ["B1", "B2"] {
+            let b = child_named(&d, ci, name);
+            assert_eq!(instance_component(d.get(b).unwrap()), Some(blue), "{name} transfers to the counterpart");
+            assert_eq!(paint_of(&d, child_named(&d, b, "Dot")), crate::PaintKind::Solid(Color::rgb(0, 255, 0)), "{name} keeps its descendant fill override");
+        }
+        let c = create_instance(&mut d, red, page, Vec2::new(900.0, 0.0));
+        apply(&mut d, c);
+        let lone = *d.get(page).unwrap().children.last().unwrap();
+        let (c, after_unrelated) = swap_instance_inner(&mut d, lone, blue);
+        apply(&mut d, c);
+        assert_eq!(after_outer, 0, "counterparts in Card2 receive both inner swaps");
+        assert_eq!(after_unrelated, 0, "subsequent unrelated swap drops 0");
+    }
+
+    #[test]
+    fn property_swap_accumulates_dropped_inner_swaps_across_bound_slots() {
+        let build = |slots: usize| -> (Document, NodeId, NodeId, NodeId, NodeId) {
+            let mut d = Document::new("cnt");
+            let page = d.add_page("P");
+            let red = main_with_filled_dot(&mut d, page, "Badge/Red", 0.0, Color::rgb(255, 0, 0));
+            let blue = main_with_filled_dot(&mut d, page, "Badge/Blue", 60.0, Color::rgb(0, 0, 255));
+            let ba = frame_main_with_dot(&mut d, page, "Btn/A", 0.0, 400.0, 40.0, 20.0);
+            put_named_instance(&mut d, red, ba, "Badge");
+            let bb = frame_main_with_dot(&mut d, page, "Btn/B", 60.0, 400.0, 40.0, 20.0);
+            put_named_instance(&mut d, red, bb, "Badge");
+            let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 40.0, 20.0);
+            let mut ss = Vec::new();
+            for k in 0..slots {
+                ss.push(put_named_instance(&mut d, ba, card, &format!("S{k}")));
+            }
+            let c = add_prop(
+                &mut d,
+                card,
+                ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) },
+            );
+            apply(&mut d, c);
+            for s in &ss {
+                let c = bind_prop(&mut d, *s, OverrideField::MainComponent, Some("Btn"));
+                apply(&mut d, c);
+            }
+            let c = create_instance(&mut d, card, page, Vec2::new(400.0, 0.0));
+            apply(&mut d, c);
+            let ci = *d.get(page).unwrap().children.last().unwrap();
+            for s in d.get(ci).unwrap().children.clone() {
+                if !d.get(s).unwrap().name.starts_with('S') {
+                    continue;
+                }
+                let badge = child_named(&d, s, "Badge");
+                let c = swap_instance(&mut d, badge, blue);
+                apply(&mut d, c);
+                let dot = child_named(&d, badge, "Dot");
+                override_fill(&mut d, dot, Color::rgb(0, 255, 0));
+            }
+            (d, ci, ba, bb, blue)
+        };
+        let (mut d, ci, ba, bb, blue) = build(1);
+        let (c, one) = set_instance_prop_inner(&mut d, ci, "Btn", Some(PropValue::Instance(bb)));
+        apply(&mut d, c);
+        let s0 = child_named(&d, ci, "S0");
+        let b0 = child_named(&d, s0, "Badge");
+        assert_eq!(instance_component(d.get(b0).unwrap()), Some(blue));
+        assert_eq!(paint_of(&d, child_named(&d, b0, "Dot")), crate::PaintKind::Solid(Color::rgb(0, 255, 0)));
+        let (c, back) = set_instance_prop_inner(&mut d, ci, "Btn", Some(PropValue::Instance(ba)));
+        apply(&mut d, c);
+        let s0_back = child_named(&d, ci, "S0");
+        let b0_back = child_named(&d, s0_back, "Badge");
+        assert_eq!(instance_component(d.get(b0_back).unwrap()), Some(blue));
+        assert_eq!(paint_of(&d, child_named(&d, b0_back, "Dot")), crate::PaintKind::Solid(Color::rgb(0, 255, 0)));
+
+        let (mut d2, ci2, _, bb2, blue2) = build(2);
+        let (c, two_slots) = set_instance_prop_inner(&mut d2, ci2, "Btn", Some(PropValue::Instance(bb2)));
+        apply(&mut d2, c);
+        for slot_name in ["S0", "S1"] {
+            let slot = child_named(&d2, ci2, slot_name);
+            let badge = child_named(&d2, slot, "Badge");
+            assert_eq!(instance_component(d2.get(badge).unwrap()), Some(blue2), "{slot_name} transfers inner swap");
+            assert_eq!(paint_of(&d2, child_named(&d2, badge, "Dot")), crate::PaintKind::Solid(Color::rgb(0, 255, 0)), "{slot_name} keeps descendant fill");
+        }
+        let (c, again) = set_instance_prop_inner(&mut d2, ci2, "Btn", Some(PropValue::Instance(bb2)));
+        apply(&mut d2, c);
+        assert_eq!((one, back, two_slots, again), (0, 0, 0, 0));
+    }
+
+    #[test]
+    fn inner_swaps_with_no_layer_at_path_count_drops_per_call_and_across_bound_slots() {
+        let mut d = Document::new("TwoDroppedNoMatch");
         let page = d.add_page("P");
         let red = frame_main_with_dot(&mut d, page, "Badge/Red", 0.0, 500.0, 8.0, 8.0);
         let blue = frame_main_with_dot(&mut d, page, "Badge/Blue", 20.0, 500.0, 8.0, 8.0);
@@ -6769,12 +6882,9 @@ mod tests {
         let lone = *d.get(page).unwrap().children.last().unwrap();
         let (c, after_unrelated) = swap_instance_inner(&mut d, lone, blue);
         apply(&mut d, c);
-        assert_eq!(after_outer, 2, "two inner swaps dropped and returned per call");
+        assert_eq!(after_outer, 2, "two inner swaps dropped when no layer exists at that path");
         assert_eq!(after_unrelated, 0, "subsequent unrelated swap drops 0");
-    }
 
-    #[test]
-    fn property_swap_accumulates_dropped_inner_swaps_across_bound_slots() {
         let build = |slots: usize| -> (Document, NodeId, NodeId, NodeId) {
             let mut d = Document::new("cnt");
             let page = d.add_page("P");
@@ -8799,5 +8909,348 @@ mod tests {
             apply(&mut d, c);
             assert_eq!(paint_of(&d, child_named(&d, inst, "Dot")), crate::PaintKind::Solid(expect), "switch to {value}");
         }
+    }
+
+    #[test]
+    fn duplicate_sibling_instances_transfer_swap_and_overrides_to_matching_occurrence_only() {
+        let mut d = Document::new("DuplicateSiblingIcons");
+        let page = d.add_page("P");
+        let icon_a = main_with_filled_dot(&mut d, page, "Icon/A", 0.0, Color::rgb(255, 0, 0));
+        let icon_b = main_with_filled_dot(&mut d, page, "Icon/B", 60.0, Color::rgb(0, 0, 255));
+        let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, icon_a, card, "Icon");
+        put_named_instance(&mut d, icon_a, card, "Icon");
+        let card2 = frame_main_with_dot(&mut d, page, "Card2", 200.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, icon_a, card2, "Icon");
+        put_named_instance(&mut d, icon_a, card2, "Icon");
+
+        let c = create_instance(&mut d, card, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let ci = *d.get(page).unwrap().children.last().unwrap();
+        let icons: Vec<NodeId> = d.get(ci).unwrap().children.iter().copied().filter(|&k| d.get(k).unwrap().name == "Icon").collect();
+        assert_eq!(icons.len(), 2);
+
+        let c = swap_instance(&mut d, icons[1], icon_b);
+        apply(&mut d, c);
+        let dot2 = child_named(&d, icons[1], "Dot");
+        override_fill(&mut d, dot2, Color::rgb(0, 255, 0));
+
+        let (c, dropped) = swap_instance_inner(&mut d, ci, card2);
+        let undo = apply(&mut d, c);
+        assert_eq!(dropped, 0);
+
+        let new_icons: Vec<NodeId> = d.get(ci).unwrap().children.iter().copied().filter(|&k| d.get(k).unwrap().name == "Icon").collect();
+        assert_eq!(new_icons.len(), 2);
+        assert_eq!(instance_component(d.get(new_icons[0]).unwrap()), Some(icon_a), "first Icon keeps the default component");
+        assert_eq!(instance_component(d.get(new_icons[1]).unwrap()), Some(icon_b), "only the second Icon shows Icon/B");
+        assert_eq!(paint_of(&d, child_named(&d, new_icons[0], "Dot")), crate::PaintKind::Solid(Color::rgb(255, 0, 0)));
+        assert_eq!(paint_of(&d, child_named(&d, new_icons[1], "Dot")), crate::PaintKind::Solid(Color::rgb(0, 255, 0)));
+
+        apply(&mut d, undo);
+        let restored_icons: Vec<NodeId> = d.get(ci).unwrap().children.iter().copied().filter(|&k| d.get(k).unwrap().name == "Icon").collect();
+        assert_eq!(instance_component(d.get(restored_icons[0]).unwrap()), Some(icon_a));
+        assert_eq!(instance_component(d.get(restored_icons[1]).unwrap()), Some(icon_b));
+    }
+
+    #[test]
+    fn renamed_descendant_under_inner_swap_keeps_fill_after_outer_swap() {
+        let mut d = Document::new("RenamedDescendantInnerSwap");
+        let page = d.add_page("P");
+        let red = main_with_filled_dot(&mut d, page, "Badge/Red", 0.0, Color::rgb(255, 0, 0));
+        let blue = main_with_filled_dot(&mut d, page, "Badge/Blue", 60.0, Color::rgb(0, 0, 255));
+        let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, red, card, "B1");
+        let card2 = frame_main_with_dot(&mut d, page, "Card2", 200.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, red, card2, "B1");
+
+        let c = create_instance(&mut d, card, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let ci = *d.get(page).unwrap().children.last().unwrap();
+        let b1 = child_named(&d, ci, "B1");
+        let c = swap_instance(&mut d, b1, blue);
+        apply(&mut d, c);
+
+        let dot = child_named(&d, b1, "Dot");
+        let mut dn = d.get(dot).unwrap().clone();
+        dn.name = "Mark".into();
+        dn.fills = vec![Paint::solid(Color::rgb(0, 255, 0))];
+        dn.component.overrides.insert(OverrideField::Name);
+        dn.component.overrides.insert(OverrideField::Fills);
+        apply(&mut d, Command::Update { node: Box::new(dn) });
+
+        let (c, dropped) = swap_instance_inner(&mut d, ci, card2);
+        apply(&mut d, c);
+        assert_eq!(dropped, 0);
+
+        let nb1 = child_named(&d, ci, "B1");
+        assert_eq!(instance_component(d.get(nb1).unwrap()), Some(blue));
+        let mark = child_named(&d, nb1, "Mark");
+        assert_eq!(
+            paint_of(&d, mark),
+            crate::PaintKind::Solid(Color::rgb(0, 255, 0)),
+            "renamed descendant Dot -> Mark under inner swap keeps its fill after outer swap"
+        );
+    }
+
+    #[test]
+    fn auto_named_nested_instance_keeps_descendant_fill_after_outer_swap() {
+        let mut d = Document::new("AutoNamedInnerSwap");
+        let page = d.add_page("P");
+        let red = main_with_filled_dot(&mut d, page, "Badge/Red", 0.0, Color::rgb(255, 0, 0));
+        let blue = main_with_filled_dot(&mut d, page, "Badge/Blue", 60.0, Color::rgb(0, 0, 255));
+        let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 100.0, 100.0);
+        let c = create_instance(&mut d, red, card, Vec2::new(0.0, 0.0));
+        apply(&mut d, c);
+        let card2 = frame_main_with_dot(&mut d, page, "Card2", 200.0, 0.0, 100.0, 100.0);
+        let c = create_instance(&mut d, red, card2, Vec2::new(0.0, 0.0));
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, card, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let ci = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, ci, "Badge/Red");
+        let c = swap_instance(&mut d, nested, blue);
+        apply(&mut d, c);
+        assert_eq!(d.get(nested).unwrap().name, "Badge/Blue", "inner swap auto-renames the un-overridden nested instance");
+        let dot = child_named(&d, nested, "Dot");
+        override_fill(&mut d, dot, Color::rgb(0, 255, 0));
+
+        let (c, dropped) = swap_instance_inner(&mut d, ci, card2);
+        apply(&mut d, c);
+        assert_eq!(dropped, 0);
+
+        let new_nested = d.get(ci).unwrap().children.iter().copied().find(|&k| matches!(d.get(k).unwrap().kind, NodeKind::Instance { .. })).unwrap();
+        assert_eq!(instance_component(d.get(new_nested).unwrap()), Some(blue));
+        assert_eq!(
+            paint_of(&d, child_named(&d, new_nested, "Dot")),
+            crate::PaintKind::Solid(Color::rgb(0, 255, 0)),
+            "auto-named nested instance keeps its child fill after outer swap"
+        );
+    }
+
+    #[test]
+    fn single_text_rule_ignores_text_inside_nested_instances_when_neither_main_has_own_text() {
+        let mut d = Document::new("SingleTextNestedOnly");
+        let page = d.add_page("P");
+        let btn_a = main_with_texts(&mut d, page, "Btn/A", 0.0, &["Label"]);
+        let btn_b = main_with_texts(&mut d, page, "Btn/B", 120.0, &["Title"]);
+
+        let mk_card = |d: &mut Document, name: &str, x: f32, btn: NodeId, slot_name: &str| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 100.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            put_named_instance(d, btn, comp, slot_name);
+            comp
+        };
+        let card_a = mk_card(&mut d, "Card/A", 0.0, btn_a, "BtnA");
+        let card_b = mk_card(&mut d, "Card/B", 200.0, btn_b, "BtnB");
+
+        let c = create_instance(&mut d, card_a, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let nested_a = child_named(&d, inst, "BtnA");
+        let lbl = child_named(&d, nested_a, "Label");
+        override_text(&mut d, lbl, "Custom");
+
+        let c = swap_instance(&mut d, inst, card_b);
+        apply(&mut d, c);
+        let nested_b = child_named(&d, inst, "BtnB");
+        let title = child_named(&d, nested_b, "Title");
+        assert_eq!(text_of(&d, title), "Default", "text inside a nested instance must not transfer via the outer single-text rule");
+    }
+
+    #[test]
+    fn single_text_rule_transfers_own_text_even_when_nested_instance_has_text_and_skips_non_text_path_match() {
+        let mut d = Document::new("SingleTextWithNestedAndNonTextMatch");
+        let page = d.add_page("P");
+        let badge = main_with_texts(&mut d, page, "Badge", 0.0, &["Tag"]);
+        let card_a = main_with_texts(&mut d, page, "Card/A", 120.0, &["Label"]);
+        put_named_instance(&mut d, badge, card_a, "Badge");
+        let card_b = main_with_texts(&mut d, page, "Card/B", 260.0, &["Title"]);
+        put_named_instance(&mut d, badge, card_b, "Badge");
+
+        let c = create_instance(&mut d, card_a, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let lbl = child_named(&d, inst, "Label");
+        override_text(&mut d, lbl, "Hello");
+
+        let c = swap_instance(&mut d, inst, card_b);
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, inst, "Title")), "Hello", "nested instance text must not block the component's own single text transfer");
+
+        // When the old text's name path matches a non-text node in the target main, do not fall back to the target's lone text.
+        let card_c = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(400.0, 700.0, 100.0, 40.0));
+            f.name = "Card/C".into();
+            let comp = d.insert(page, f).unwrap();
+            let fid = d.alloc_id();
+            let mut non_text = Node::frame(fid, Rect::new(0.0, 0.0, 20.0, 20.0));
+            non_text.name = "Label".into();
+            d.insert(comp, non_text).unwrap();
+            let tid = d.alloc_id();
+            let mut lone_text = Node::text(tid, Rect::new(24.0, 0.0, 60.0, 20.0), "Default", TextStyle::default());
+            lone_text.name = "Other".into();
+            d.insert(comp, lone_text).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+        let c = create_instance(&mut d, card_a, page, Vec2::new(600.0, 0.0));
+        apply(&mut d, c);
+        let inst2 = *d.get(page).unwrap().children.last().unwrap();
+        let lbl2 = child_named(&d, inst2, "Label");
+        override_text(&mut d, lbl2, "Hello");
+        let c = swap_instance(&mut d, inst2, card_c);
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, inst2, "Other")), "Default", "name-path match to a non-text must not fall back to the lone text");
+    }
+
+    #[test]
+    fn variant_switch_resets_text_and_text_style_when_variants_originally_differed_and_skips_bound_text() {
+        let mut d = Document::new("VariantTextGate");
+        let page = d.add_page("P");
+        let mk_variant = |d: &mut Document, name: &str, x: f32, label_text: &str, font_size: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 100.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let style = TextStyle { font_size, ..TextStyle::default() };
+            let mut tn = Node::text(tid, Rect::new(0.0, 0.0, 60.0, 20.0), label_text, style);
+            tn.name = "Label".into();
+            d.insert(comp, tn).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let v_default = mk_variant(&mut d, "State=Default", 0.0, "Save", 14.0);
+        let v_done = mk_variant(&mut d, "State=Done", 120.0, "Saved", 14.0);
+        let v_loading = mk_variant(&mut d, "State=Loading", 240.0, "Save", 16.0);
+        let c = combine_as_variants(&mut d, &[v_default, v_done, v_loading]);
+        apply(&mut d, c);
+
+        // Switching Default ("Save", 14px) -> Done ("Saved", 14px): user text "Submit" resets to "Saved", while 20px style override stays.
+        let c = create_instance(&mut d, v_default, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        {
+            let lbl = child_named(&d, inst, "Label");
+            let mut ln = d.get(lbl).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut ln.kind {
+                tp.content = "Submit".into();
+                tp.style.font_size = 20.0;
+            }
+            ln.component.overrides.insert(OverrideField::Characters);
+            ln.component.overrides.insert(OverrideField::TextStyle);
+            apply(&mut d, Command::Update { node: Box::new(ln) });
+        }
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("Done".into())));
+        apply(&mut d, c);
+        let done_lbl = child_named(&d, inst, "Label");
+        assert_eq!(text_of(&d, done_lbl), "Saved", "switching to Done resets user text Submit to Saved because Save != Saved");
+        if let NodeKind::Text(tp) = &d.get(done_lbl).unwrap().kind {
+            assert_eq!(tp.style.font_size, 20.0, "matching 14px original font_size keeps user 20px override");
+        }
+
+        // Switching Default ("Save", 14px) -> Loading ("Save", 16px): user text "Submit" stays, while 14px/20px style resets to 16px.
+        let c = create_instance(&mut d, v_default, page, Vec2::new(200.0, 200.0));
+        apply(&mut d, c);
+        let inst2 = *d.get(page).unwrap().children.last().unwrap();
+        {
+            let lbl = child_named(&d, inst2, "Label");
+            let mut ln = d.get(lbl).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut ln.kind {
+                tp.content = "Submit".into();
+                tp.style.font_size = 20.0;
+            }
+            ln.component.overrides.insert(OverrideField::Characters);
+            ln.component.overrides.insert(OverrideField::TextStyle);
+            apply(&mut d, Command::Update { node: Box::new(ln) });
+        }
+        let c = set_instance_prop(&mut d, inst2, "State", Some(PropValue::Variant("Loading".into())));
+        apply(&mut d, c);
+        let loading_lbl = child_named(&d, inst2, "Label");
+        assert_eq!(text_of(&d, loading_lbl), "Submit", "matching Save original text keeps user text Submit");
+        if let NodeKind::Text(tp) = &d.get(loading_lbl).unwrap().kind {
+            assert_eq!(tp.style.font_size, 16.0, "differing 14px vs 16px original font_size resets to Loading's 16px");
+        }
+
+        // Property-bound text exclusion applies on same-name path matches too.
+        let card_a = main_with_texts(&mut d, page, "Card/A", 0.0, &["Label"]);
+        let card_b = main_with_texts(&mut d, page, "Card/B", 200.0, &["Label"]);
+        let c = create_instance(&mut d, card_a, page, Vec2::new(400.0, 200.0));
+        apply(&mut d, c);
+        let bound_inst = *d.get(page).unwrap().children.last().unwrap();
+        let bound_lbl = child_named(&d, bound_inst, "Label");
+        override_text(&mut d, bound_lbl, "Hoisted");
+        let mut bln = d.get(bound_lbl).unwrap().clone();
+        bln.component.bindings.insert(OverrideField::Characters, "Label".into());
+        apply(&mut d, Command::Update { node: Box::new(bln) });
+        let c = swap_instance(&mut d, bound_inst, card_b);
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, bound_inst, "Label")), "Default", "bound text does not transfer on same-named path match");
+    }
+
+    #[test]
+    fn variant_switch_compares_resolved_fills_ignoring_style_refs_and_layout_subvalues() {
+        let mut d = Document::new("VariantSubvalues");
+        let page = d.add_page("P");
+        let white = Color::rgb(255, 255, 255);
+        let mk = |d: &mut Document, name: &str, x: f32, style_ref: Option<&str>, clips: bool| -> NodeId {
+            let comp = main_with_filled_dot(d, page, name, x, white);
+            let dot = child_named(d, comp, "Dot");
+            if let Some(sr) = style_ref {
+                let mut dn = d.get(dot).unwrap().clone();
+                dn.style_refs.insert("fill".into(), sr.into());
+                apply(d, Command::Update { node: Box::new(dn) });
+            }
+            let bid = d.alloc_id();
+            let mut box_node = Node::frame(bid, Rect::new(0.0, 0.0, 40.0, 20.0));
+            box_node.name = "Box".into();
+            if let NodeKind::Frame(fp) = &mut box_node.kind {
+                fp.clips_content = clips;
+                fp.auto_layout = Some(AutoLayout { padding: [8.0, 8.0, 8.0, 8.0], item_spacing: 4.0, ..AutoLayout::default() });
+            }
+            d.insert(comp, box_node).unwrap();
+            comp
+        };
+        let v_a = mk(&mut d, "State=Default", 0.0, Some("S:fill_a"), false);
+        let v_b = mk(&mut d, "State=Hover", 120.0, Some("S:fill_b"), true);
+        let c = combine_as_variants(&mut d, &[v_a, v_b]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, v_a, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let dot = child_named(&d, inst, "Dot");
+        override_fill(&mut d, dot, Color::rgb(255, 0, 0));
+
+        let box_id = child_named(&d, inst, "Box");
+        let mut bn = d.get(box_id).unwrap().clone();
+        if let NodeKind::Frame(fp) = &mut bn.kind {
+            if let Some(al) = &mut fp.auto_layout {
+                al.padding = [16.0, 16.0, 16.0, 16.0];
+            }
+        }
+        bn.component.overrides.insert(OverrideField::Layout);
+        apply(&mut d, Command::Update { node: Box::new(bn) });
+
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("Hover".into())));
+        apply(&mut d, c);
+
+        assert_eq!(
+            paint_of(&d, child_named(&d, inst, "Dot")),
+            crate::PaintKind::Solid(Color::rgb(255, 0, 0)),
+            "equal resolved fill with different style_refs keeps the user's red fill"
+        );
+        let box_after = d.get(child_named(&d, inst, "Box")).unwrap();
+        let fp_after = box_after.kind.frame_props().unwrap();
+        assert_eq!(fp_after.auto_layout.as_ref().unwrap().padding, [16.0, 16.0, 16.0, 16.0], "equal original padding keeps user 16px padding override");
+        assert!(fp_after.clips_content, "differing clips_content takes Hover's clips_content = true");
     }
 }
