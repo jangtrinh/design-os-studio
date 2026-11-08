@@ -377,11 +377,12 @@ fn lower_connector(doc: &Document, n: &Node, body: &mut Node, extras: &mut Vec<N
     Some(())
 }
 
-/// A table cell: its fills as a plain rectangle, and its text inside the cell minus the padding.
+/// A table cell: its fills as a frame that clips to the cell box, and its text inside the cell minus the padding.
 /// The text wraps at the cell width and never shrinks to fit.
 fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
     let NodeKind::TableCell(c) = &n.kind else { return };
-    body.kind = NodeKind::Rectangle;
+    // a clipping frame: text that still does not fit never paints over the neighbouring cells
+    body.kind = NodeKind::Frame(FrameProps { clips_content: true, ..FrameProps::default() });
     body.corner_radii = [0.0; 4];
     body.stroke.paints.clear();
     body.stroke.weight = 0.0;

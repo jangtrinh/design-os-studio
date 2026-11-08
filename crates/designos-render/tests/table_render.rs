@@ -194,6 +194,34 @@ fn lowered_document_keeps_lowered_cells_whatever_the_order() {
     }
 }
 
+/// A 2x2 table with no fill and no grid whose cell (0, 0) holds far more text than its stored
+/// 160 x 44 box. Returns the ink counted inside and outside that box.
+fn overflowing_cell_render() -> (usize, usize) {
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 2, 2, Vec2::new(ORIGIN, ORIGIN));
+    nodes[0].stroke.weight = 0.0;
+    nodes[0].stroke.paints.clear();
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text = default_cell_text("W\nW\nW\nW\nW\nW\nW\nW\nW\nW");
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let pm = t.render(400, 240);
+    let ink = |inside: bool| {
+        (0..240u32)
+            .flat_map(|y| (0..400u32).map(move |x| (x, y)))
+            .filter(|&(x, y)| ((20..180).contains(&x) && (20..64).contains(&y)) == inside && px(&pm, x, y)[0] < 160)
+            .count()
+    };
+    (ink(true), ink(false))
+}
+
+#[test]
+fn cell_text_taller_than_its_cell_never_paints_outside_it() {
+    let (inside, outside) = overflowing_cell_render();
+    assert!(inside > 20, "the text is drawn in its cell: {inside}");
+    assert_eq!(outside, 0, "no ink outside the cell box");
+}
+
 /// Writes the documents the visual evidence is captured from. Set `DESIGNOS_TABLE_EVIDENCE_DIR` and run
 /// `cargo test -p designos-render --test table_render -- --ignored write_evidence_documents`.
 #[test]

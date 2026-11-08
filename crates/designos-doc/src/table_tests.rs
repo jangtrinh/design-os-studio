@@ -539,6 +539,38 @@ fn a_row_grows_to_its_tallest_cell_but_the_stored_height_stays() {
     assert_eq!(frame_of(&d, cell(&d, table, 0, 1).unwrap()).3, 40.0, "the row shrinks back to the stored height");
 }
 
+#[test]
+fn a_merged_block_with_tall_text_grows_its_last_row_by_the_shortfall() {
+    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));
+    let (mut d, _, table) = sized_table();
+    merge_top_left_2x2(&mut d, table);
+    set_text_at(&mut d, table, 0, 0, "1\n2\n3\n4\n5");
+    apply_relayout(&mut d, table);
+    let shortfall = 5.0 * 20.0 + 2.0 * TABLE_CELL_PADDING.1 - 80.0;
+    assert!(shortfall > 0.0);
+    let (_, _, _, h) = frame_of(&d, cell(&d, table, 0, 0).unwrap());
+    assert_eq!(h, 80.0 + shortfall, "the block is exactly as tall as its text");
+    let (_, y1, _, h1) = frame_of(&d, cell(&d, table, 1, 2).unwrap());
+    assert_eq!((y1, h1), (40.0, 40.0 + shortfall), "only the last spanned row grows");
+    assert_eq!(frame_of(&d, cell(&d, table, 2, 2).unwrap()).1, 80.0 + shortfall, "the next row moves down");
+    assert_eq!(props(&d, table).rows[1].size, 40.0, "the user's height is kept");
+    set_text_at(&mut d, table, 0, 0, "short");
+    apply_relayout(&mut d, table);
+    assert_eq!(frame_of(&d, cell(&d, table, 0, 0).unwrap()).3, 80.0, "the rows shrink back to the stored heights");
+    assert_eq!(frame_of(&d, cell(&d, table, 1, 2).unwrap()).3, 40.0);
+}
+
+#[test]
+fn a_merged_block_whose_text_fits_leaves_its_rows_alone() {
+    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));
+    let (mut d, _, table) = sized_table();
+    merge_top_left_2x2(&mut d, table);
+    set_text_at(&mut d, table, 0, 0, "1\n2\n3");
+    apply_relayout(&mut d, table);
+    assert_eq!(frame_of(&d, cell(&d, table, 0, 0).unwrap()).3, 80.0);
+    assert_eq!(frame_of(&d, cell(&d, table, 1, 2).unwrap()).3, 40.0);
+}
+
 // ---------------------------------------------------------------- review round 2
 
 /// `node` as a child of `parent` inside an `Insert` payload.

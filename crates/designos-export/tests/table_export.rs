@@ -102,6 +102,82 @@ fn pdf_page_has_the_cell_text() {
     }
 }
 
+const BORDER: f32 = 8.0;
+
+/// A 3x3 table (480 x 132) alone on its page with an 8 px black border and white cells.
+fn bordered_table() -> (Document, NodeId) {
+    let mut doc = Document::new("bordered");
+    let page = doc.add_page("p");
+    let mut nodes = build_table(&mut doc, 3, 3, Vec2::new(40.0, 40.0));
+    nodes[0].fills = vec![Paint::solid(Color::WHITE)];
+    nodes[0].stroke.paints = vec![Paint::solid(Color::BLACK)];
+    nodes[0].stroke.weight = BORDER;
+    let table = nodes[0].id;
+    Command::Insert { parent: page, index: 0, nodes }.apply(&mut doc).unwrap();
+    (doc, table)
+}
+
+/// The border weight is 8 px, so a tight export is 8 px wider and taller than the 480 x 132 table.
+const EXPORT_W: u32 = 488;
+const EXPORT_H: u32 = 140;
+
+#[test]
+fn png_of_a_table_keeps_the_full_border_weight_on_every_side() {
+    let (doc, table) = bordered_table();
+    let pm = render_export(&doc, table, 1.0).expect("a table exports on its own");
+    assert_eq!((pm.width(), pm.height()), (EXPORT_W, EXPORT_H));
+    let dark = |x: u32, y: u32| {
+        let p = pm.pixel(x, y).unwrap();
+        p.red() < 60 && p.green() < 60 && p.blue() < 60 && p.alpha() > 200
+    };
+    let (row, col) = (EXPORT_H / 2, EXPORT_W / 2);
+    for i in 0..8 {
+        assert!(dark(i, row), "left border pixel {i}");
+        assert!(dark(EXPORT_W - 1 - i, row), "right border pixel {i}");
+        assert!(dark(col, i), "top border pixel {i}");
+        assert!(dark(col, EXPORT_H - 1 - i), "bottom border pixel {i}");
+    }
+}
+
+#[test]
+fn svg_of_a_table_keeps_the_full_border_weight() {
+    let (doc, table) = bordered_table();
+    let svg = export_svg(&doc, table, &SvgOptions { outline_text: false });
+    assert!(svg.contains("viewBox=\"-4 -4 488 140\""), "the view box holds the whole border:\n{svg}");
+}
+
+#[test]
+fn pdf_of_a_table_keeps_the_full_border_weight_on_every_side() {
+    let (doc, table) = bordered_table();
+    let bytes = export_pdf(&doc, &[table]).expect("a table exports as a page");
+    let pdf = Pdf::parse(&bytes);
+    let page = &pdf.pages()[0];
+    assert_eq!((page.width, page.height), (EXPORT_W as f32 * 0.75, EXPORT_H as f32 * 0.75), "the page holds the whole border");
+    let (_, px) = pdf_probe::page_pixels(&bytes, 0, 2.0);
+    let (w, h) = (EXPORT_W as f32, EXPORT_H as f32);
+    for i in 0..8 {
+        let d = i as f32 + 0.5;
+        for (name, [x, y]) in [("left", [d, h / 2.0]), ("right", [w - d, h / 2.0]), ("top", [w / 2.0, d]), ("bottom", [w / 2.0, h - d])] {
+            assert!(px.at(x, y).iter().all(|c| *c < 60), "{name} border pixel {i}: {:?}", px.at(x, y));
+        }
+    }
+}
+
+#[test]
+fn a_frame_with_an_inside_border_exports_at_its_own_size() {
+    let mut doc = Document::new("frame");
+    let page = doc.add_page("p");
+    let id = doc.alloc_id();
+    let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 120.0, 60.0));
+    frame.fills = vec![Paint::solid(Color::WHITE)];
+    frame.stroke.paints = vec![Paint::solid(Color::BLACK)];
+    frame.stroke.weight = BORDER;
+    doc.insert(page, frame).unwrap();
+    let pm = render_export(&doc, id, 1.0).unwrap();
+    assert_eq!((pm.width(), pm.height()), (120, 60), "a non-table node keeps its bounds");
+    assert!(export_svg(&doc, id, &SvgOptions { outline_text: false }).contains("viewBox=\"0 0 120 60\""));
+}
+
 /// Writes the exports the visual evidence is captured from. Set `DESIGNOS_TABLE_EVIDENCE_DIR` and run
 /// `cargo test -p designos-export --test table_export -- --ignored write_evidence_exports`.
 #[test]

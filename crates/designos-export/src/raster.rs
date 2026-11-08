@@ -108,6 +108,13 @@ fn render_export_in(doc: &Document, node: NodeId, scale: f32, native: bool) -> O
     if !is_page && !is_group && b == nominal {
         return draw_node(doc, node, scale);
     }
+    render_bounded(doc, node, scale, b)
+}
+
+/// Renders `node` at `scale` into the local-space rectangle `b`, which may reach outside its box.
+pub(crate) fn render_bounded(doc: &Document, node: NodeId, scale: f32, b: Rect) -> Option<Pixmap> {
+    let n = designos_doc::resolve_node(doc, doc.get(node)?);
+    let is_page = matches!(n.kind, NodeKind::Page { .. });
     let (w, h) = checked_pixmap_size(b.w * scale, b.h * scale)?;
     let mut pm = Pixmap::new(w, h)?;
     let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: scale, dpr: 1.0 };

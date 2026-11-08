@@ -85,6 +85,41 @@ fn tables_match_the_cpu_reference() {
     }
 }
 
+/// Cell (0, 0) of a table with no fill or grid holds ten lines in a 160 x 44 box: on both renderers
+/// the text has ink in its cell and none outside it.
+#[test]
+fn overflowing_cell_text_stays_inside_its_cell_on_both_renderers() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 2, 2, Vec2::new(20.0, 20.0));
+    nodes[0].stroke.weight = 0.0;
+    nodes[0].stroke.paints.clear();
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text = default_cell_text("W\nW\nW\nW\nW\nW\nW\nW\nW\nW");
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let c = compare(&mut g, "table_overflow", &t.doc, t.page, Viewport::default(), (320, 200), 8);
+    for (name, pm) in [("cpu", &c.cpu), ("gpu", &c.gpu)] {
+        let (mut inside, mut outside) = (0, 0);
+        for y in 0..200u32 {
+            for x in 0..320u32 {
+                let p = pm.pixel(x, y).unwrap();
+                if p.red() >= 160 {
+                    continue;
+                }
+                if (20..180).contains(&x) && (20..64).contains(&y) {
+                    inside += 1;
+                } else {
+                    outside += 1;
+                }
+            }
+        }
+        assert!(inside > 20, "{name}: the text is drawn in its cell ({inside})");
+        assert_eq!(outside, 0, "{name}: no ink outside the cell box");
+    }
+    assert!(c.report.ratio < 0.02, "{:?}", c.report);
+}
+
 /// The GPU compile on its own meets a registry one below its limit: the grid must still be compiled.
 /// (In the pixel test above the CPU render runs first and its table lowering clears the registry.)
 #[test]
