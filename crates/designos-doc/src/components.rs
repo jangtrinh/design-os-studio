@@ -1600,6 +1600,9 @@ fn effective_child_overrides(d: &Document, old_comp: Option<NodeId>, kn: &Node) 
     if let Some(orig) = orig_in_old_comp {
         fields.extend(chain_fields);
         for f in record_override(orig, kn) {
+            if orig.component.bindings.contains_key(&f) || kn.component.bindings.contains_key(&f) {
+                continue;
+            }
             if matches!(
                 f,
                 OverrideField::Fills
@@ -1649,26 +1652,31 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         .and_then(|(a, b)| Some((c.s.get(a)?.parent?, c.s.get(b)?.parent?)))
         .is_some_and(|(pa, pb)| pa == pb && matches!(c.s.get(pa).map(|n| &n.kind), Some(NodeKind::ComponentSet(_))));
     // Snapshot overridden descendants by base-name path, including overrides inherited from an enclosing component slot.
-    type CarriedOverride = (Vec<String>, Node, Option<NodeId>, BTreeSet<OverrideField>);
     let mut carried: Vec<CarriedOverride> = Vec::new();
     let mut inner = InnerSwaps::default();
     fn collect(
         d: &Document,
         id: NodeId,
-        old_comp: Option<NodeId>,
-        top_swap: bool,
-        path: &mut Vec<String>,
+        (old_comp, active_comp, top_swap, in_nested): (Option<NodeId>, Option<NodeId>, bool, bool),
+        path: &mut Vec<NestedStep>,
         out: &mut Vec<CarriedOverride>,
         inner: &mut InnerSwaps,
     ) {
         let Some(n) = d.get(id) else { return };
+        let mut seen_names: BTreeMap<String, usize> = BTreeMap::new();
         for k in &n.children {
             let Some(kn) = d.get(*k) else { continue };
             let orig = orig_in_main(d, old_comp, kn);
-            path.push(orig.map(|o| o.name.clone()).unwrap_or_else(|| kn.name.clone()));
-            if matches!(kn.kind, NodeKind::Instance { .. })
-                && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn))
-            {
+            let base = base_layer(d, active_comp, kn);
+            let base_name = base.name.clone();
+            let seen = seen_names.entry(base_name.clone()).or_insert(0);
+            let occurrence = *seen;
+            *seen += 1;
+            path.push((base_name, occurrence));
+            let is_inst = matches!(kn.kind, NodeKind::Instance { .. });
+            let is_swapped_inst =
+                is_inst && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
+            if is_swapped_inst {
                 // Only a nested instance the old main itself holds has a counterpart in the new main; anything else cannot move.
                 match (orig, instance_component(kn)) {
                     (Some(_), Some(shown)) => inner.movable.push(InnerSwap { path: path.clone(), shown }),
@@ -1680,16 +1688,23 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 f.remove(&OverrideField::MainComponent);
                 f
             } else {
-                effective_child_overrides(d, old_comp, kn)
+                effective_child_overrides(d, active_comp, kn)
             };
             if !fields.is_empty() {
-                out.push((path.clone(), kn.clone(), orig.map(|o| o.id), fields));
+                out.push(CarriedOverride {
+                    path: path.clone(),
+                    old: kn.clone(),
+                    orig_id: orig.or(Some(base)).map(|o| o.id),
+                    fields,
+                    own_layer: !in_nested && !is_inst,
+                });
             }
-            collect(d, *k, old_comp, top_swap, path, out, inner);
+            let child_active_comp = if is_swapped_inst { instance_component(kn).or(active_comp) } else { active_comp };
+            collect(d, *k, (old_comp, child_active_comp, top_swap, in_nested || is_inst), path, out, inner);
             path.pop();
         }
     }
-    collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried, &mut inner);
+    collect(&c.s, i, (old_comp, old_comp, top_swap, false), &mut Vec::new(), &mut carried, &mut inner);
     let mut dropped_inner_swaps = inner.dropped;
     let old_text_count = count_text_nodes(&c.s, i);
 
@@ -1752,32 +1767,52 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
 
-    // Re-apply carried overrides by path.
-    let mut by_path: BTreeMap<Vec<String>, NodeId> = BTreeMap::new();
-    fn index(d: &Document, id: NodeId, path: &mut Vec<String>, out: &mut BTreeMap<Vec<String>, NodeId>) {
+    // Re-apply carried overrides by base-name and sibling-occurrence path.
+    let mut by_path: BTreeMap<Vec<NestedStep>, NodeId> = BTreeMap::new();
+    fn index(
+        d: &Document,
+        id: NodeId,
+        new_comp: Option<NodeId>,
+        active_comp: Option<NodeId>,
+        path: &mut Vec<NestedStep>,
+        out: &mut BTreeMap<Vec<NestedStep>, NodeId>,
+    ) {
         let Some(n) = d.get(id) else { return };
+        let mut seen_names: BTreeMap<String, usize> = BTreeMap::new();
         for k in &n.children {
             let Some(kn) = d.get(*k) else { continue };
-            path.push(kn.name.clone());
+            let orig = orig_in_main(d, new_comp, kn);
+            let base = base_layer(d, active_comp, kn);
+            let base_name = base.name.clone();
+            let seen = seen_names.entry(base_name.clone()).or_insert(0);
+            let occurrence = *seen;
+            *seen += 1;
+            path.push((base_name, occurrence));
             out.entry(path.clone()).or_insert(*k);
-            index(d, *k, path, out);
+            let is_swapped_inst = matches!(kn.kind, NodeKind::Instance { .. })
+                && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
+            let child_active_comp = if is_swapped_inst { instance_component(kn).or(active_comp) } else { active_comp };
+            index(d, *k, new_comp, child_active_comp, path, out);
             path.pop();
         }
     }
-    index(&c.s, i, &mut Vec::new(), &mut by_path);
+    index(&c.s, i, Some(new_comp), Some(new_comp), &mut Vec::new(), &mut by_path);
 
     // A nested instance the user swapped moves with the swap when the new main holds an instance at the same name path; the
     // overrides below it then land on the swapped content. An inner swap with no counterpart stays behind, and is counted.
     let mut transferred_any = false;
+    let mut used_swap_targets: BTreeSet<NodeId> = BTreeSet::new();
     for sw in &inner.movable {
         let target = by_path.get(&sw.path).copied().and_then(|nid| c.s.get(nid).cloned());
         let moves = target.as_ref().is_some_and(|t| {
-            matches!(t.kind, NodeKind::Instance { .. })
+            !used_swap_targets.contains(&t.id)
+                && matches!(t.kind, NodeKind::Instance { .. })
                 && matches!(c.s.get(sw.shown).map(|n| &n.kind), Some(NodeKind::Component(_)))
                 && !would_hold_itself(c.s, sw.shown, t.id)
         });
         match target {
             Some(t) if moves => {
+                used_swap_targets.insert(t.id);
                 if instance_component(&t) != Some(sw.shown) {
                     swap_main(c, t.id, sw.shown);
                     transferred_any = true;
@@ -1792,7 +1827,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     }
     if transferred_any {
         by_path.clear();
-        index(&c.s, i, &mut Vec::new(), &mut by_path);
+        index(&c.s, i, Some(new_comp), Some(new_comp), &mut Vec::new(), &mut by_path);
     }
     if dropped_inner_swaps > 0 {
         eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s)");
@@ -1801,14 +1836,19 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
 
     let new_texts = text_nodes(&c.s, i);
     let single_text_pair = old_text_count == 1 && new_texts.len() == 1;
-    for (path, old, orig_id, mut fields) in carried {
+    let mut used_override_targets: BTreeSet<NodeId> = BTreeSet::new();
+    for item in carried {
+        let CarriedOverride { path, old, orig_id, mut fields, own_layer } = item;
         let matched = by_path.get(&path).copied();
         let Some(nid) = matched.or_else(|| {
-            let lone = new_texts.first().copied().filter(|_| single_text_pair)?;
+            let lone = new_texts.first().copied().filter(|_| single_text_pair && own_layer)?;
             (matches!(old.kind, NodeKind::Text(_)) && fields.iter().any(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle))).then_some(lone)
         }) else {
             continue;
         };
+        if !used_override_targets.insert(nid) {
+            continue;
+        }
         let Some(mut nn) = c.s.get(nid).cloned() else { continue };
         if !text_override_transfers(&old, &nn, matched.is_some(), single_text_pair) {
             fields.remove(&OverrideField::Characters);
@@ -1821,23 +1861,222 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         if old.kind.frame_props().is_none() || nn.kind.frame_props().is_none() {
             fields.remove(&OverrideField::Layout);
         }
+        let mut custom_layout_applied = false;
         if matched.is_some() {
-            if let (Some(orig), Some(new_orig)) = (orig_id.and_then(|id| c.s.get(id)), nn.component.source.and_then(|s| c.s.get(s))) {
-                let diff = record_override(orig, new_orig);
-                fields.retain(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle | OverrideField::Name) || !diff.contains(f));
+            if let (Some(orig), Some(new_orig)) = (orig_id.and_then(|id| c.s.get(id)).cloned(), nn.component.source.and_then(|s| c.s.get(s)).cloned()) {
+                if fields.contains(&OverrideField::Layout) {
+                    fields.remove(&OverrideField::Layout);
+                    custom_layout_applied = apply_transferred_layout(&orig, &new_orig, &old, &mut nn);
+                }
+                let diff = transfer_gate_diff(&orig, &new_orig);
+                fields.retain(|f| {
+                    *f == OverrideField::Name || (!same_family && matches!(f, OverrideField::Characters | OverrideField::TextStyle)) || !diff.contains(f)
+                });
             }
         }
-        if fields.is_empty() {
+        if fields.is_empty() && !custom_layout_applied {
             continue;
         }
         let kinds_differ = std::mem::discriminant(&old.kind) != std::mem::discriminant(&nn.kind);
         copy_overridden(&old, &mut nn, &fields);
+        if custom_layout_applied {
+            nn.component.overrides.insert(OverrideField::Layout);
+        }
         if kinds_differ && fields.contains(&OverrideField::Size) && !matches!(nn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
             nn.fill_geometry = None;
             nn.stroke_geometry = None;
         }
         c.update(nn);
     }
+}
+
+struct CarriedOverride {
+    path: Vec<NestedStep>,
+    old: Node,
+    orig_id: Option<NodeId>,
+    fields: BTreeSet<OverrideField>,
+    own_layer: bool,
+}
+
+/// Base layer for a node inside an instance: the counterpart in `active_comp` (or the immediate linked source when
+/// inside a swapped nested instance), falling back to `kn` itself.
+fn base_layer<'a>(d: &'a Document, active_comp: Option<NodeId>, kn: &'a Node) -> &'a Node {
+    orig_in_main(d, active_comp, kn).or_else(|| kn.component.source.and_then(|s| d.get(s))).unwrap_or(kn)
+}
+
+fn same_field_bindings(a: &Node, b: &Node, field: OverrideField) -> bool {
+    let is_text = matches!(b.kind, NodeKind::Text(_));
+    a.variables
+        .bindings
+        .keys()
+        .chain(b.variables.bindings.keys())
+        .filter(|k| binding_override_field(k, is_text) == Some(field))
+        .all(|k| a.variables.bindings.get(k) == b.variables.bindings.get(k))
+}
+
+/// Diffs two main-side counterpart nodes for override transfer gating, comparing resolved paint and text-style values
+/// while ignoring `style_refs`-only differences.
+fn transfer_gate_diff(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
+    let mut diff = record_override(before, after);
+    if before.fills == after.fills && same_field_bindings(before, after, OverrideField::Fills) {
+        diff.remove(&OverrideField::Fills);
+    }
+    if before.stroke == after.stroke && same_field_bindings(before, after, OverrideField::Stroke) {
+        diff.remove(&OverrideField::Stroke);
+    }
+    if before.effects == after.effects {
+        diff.remove(&OverrideField::Effects);
+    }
+    if let (NodeKind::Text(a), NodeKind::Text(b)) = (&before.kind, &after.kind) {
+        let same_text_style = a.style == b.style
+            && a.runs == b.runs
+            && a.auto_resize == b.auto_resize
+            && a.max_lines == b.max_lines
+            && a.paragraph == b.paragraph
+            && a.lists == b.lists
+            && a.direction == b.direction
+            && same_field_bindings(before, after, OverrideField::TextStyle);
+        if same_text_style {
+            diff.remove(&OverrideField::TextStyle);
+        }
+    }
+    diff
+}
+
+fn same_binding_keys(a: &Node, b: &Node, keys: &[&str]) -> bool {
+    keys.iter().all(|k| a.variables.bindings.get(*k) == b.variables.bindings.get(*k))
+}
+
+fn copy_binding_keys(from: &Node, to: &mut Node, keys: &[&str]) {
+    for &k in keys {
+        match from.variables.bindings.get(k) {
+            Some(v) => {
+                to.variables.bindings.insert(k.to_string(), v.clone());
+            }
+            None => {
+                to.variables.bindings.remove(k);
+            }
+        }
+    }
+}
+
+/// Applies the sub-values of [`OverrideField::Layout`] (`padding`, `gap`, the rest of `auto_layout`, `clips_content`,
+/// `grids`, and `layout_child`) that were equal between `orig` and `new_orig`. Returns `true` when at least one
+/// overridden sub-value transferred.
+fn apply_transferred_layout(orig: &Node, new_orig: &Node, old: &Node, nn: &mut Node) -> bool {
+    const PAD_KEYS: [&str; 4] = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+    const GAP_KEYS: [&str; 2] = ["itemSpacing", "counterAxisSpacing"];
+    let (Some(orig_fp), Some(new_orig_fp), Some(old_fp)) =
+        (orig.kind.frame_props().cloned(), new_orig.kind.frame_props().cloned(), old.kind.frame_props().cloned())
+    else {
+        return false;
+    };
+    let mut kept_any = false;
+    let mut any_user_diff = false;
+
+    if old_fp.clips_content != orig_fp.clips_content {
+        any_user_diff = true;
+        if orig_fp.clips_content == new_orig_fp.clips_content {
+            if let Some(nn_fp) = nn.kind.frame_props_mut() {
+                nn_fp.clips_content = old_fp.clips_content;
+            }
+            kept_any = true;
+        }
+    }
+
+    if old_fp.grids != orig_fp.grids || old.style_refs.get("grid") != orig.style_refs.get("grid") {
+        any_user_diff = true;
+        if orig_fp.grids == new_orig_fp.grids {
+            if let Some(nn_fp) = nn.kind.frame_props_mut() {
+                nn_fp.grids = old_fp.grids.clone();
+            }
+            copy_style_ref_key("grid", old, nn);
+            kept_any = true;
+        }
+    }
+
+    match (&orig_fp.auto_layout, &new_orig_fp.auto_layout, &old_fp.auto_layout) {
+        (Some(oa), Some(na), Some(fa)) => {
+            let pad_changed = fa.padding != oa.padding || !same_binding_keys(old, orig, &PAD_KEYS);
+            if pad_changed {
+                any_user_diff = true;
+                if oa.padding == na.padding && same_binding_keys(orig, new_orig, &PAD_KEYS) {
+                    if let Some(Some(nna)) = nn.kind.frame_props_mut().map(|fp| &mut fp.auto_layout) {
+                        nna.padding = fa.padding;
+                    }
+                    copy_binding_keys(old, nn, &PAD_KEYS);
+                    kept_any = true;
+                }
+            }
+            let gap_changed = fa.item_spacing != oa.item_spacing || fa.counter_spacing != oa.counter_spacing || !same_binding_keys(old, orig, &GAP_KEYS);
+            if gap_changed {
+                any_user_diff = true;
+                if oa.item_spacing == na.item_spacing && oa.counter_spacing == na.counter_spacing && same_binding_keys(orig, new_orig, &GAP_KEYS) {
+                    if let Some(Some(nna)) = nn.kind.frame_props_mut().map(|fp| &mut fp.auto_layout) {
+                        nna.item_spacing = fa.item_spacing;
+                        nna.counter_spacing = fa.counter_spacing;
+                    }
+                    copy_binding_keys(old, nn, &GAP_KEYS);
+                    kept_any = true;
+                }
+            }
+            let strip = |al: &AutoLayout| AutoLayout { padding: [0.0; 4], item_spacing: 0.0, counter_spacing: 0.0, ..al.clone() };
+            if strip(fa) != strip(oa) {
+                any_user_diff = true;
+                if strip(oa) == strip(na) {
+                    if let Some(Some(nna)) = nn.kind.frame_props_mut().map(|fp| &mut fp.auto_layout) {
+                        let keep_pad = nna.padding;
+                        let keep_item = nna.item_spacing;
+                        let keep_counter = nna.counter_spacing;
+                        *nna = fa.clone();
+                        nna.padding = keep_pad;
+                        nna.item_spacing = keep_item;
+                        nna.counter_spacing = keep_counter;
+                    }
+                    kept_any = true;
+                }
+            }
+        }
+        _ => {
+            let al_changed = old_fp.auto_layout != orig_fp.auto_layout || !same_binding_keys(old, orig, &PAD_KEYS) || !same_binding_keys(old, orig, &GAP_KEYS);
+            if al_changed {
+                any_user_diff = true;
+                if orig_fp.auto_layout == new_orig_fp.auto_layout
+                    && same_binding_keys(orig, new_orig, &PAD_KEYS)
+                    && same_binding_keys(orig, new_orig, &GAP_KEYS)
+                {
+                    if let Some(nn_fp) = nn.kind.frame_props_mut() {
+                        nn_fp.auto_layout = old_fp.auto_layout.clone();
+                    }
+                    copy_binding_keys(old, nn, &PAD_KEYS);
+                    copy_binding_keys(old, nn, &GAP_KEYS);
+                    kept_any = true;
+                }
+            }
+        }
+    }
+
+    if old.layout_child != orig.layout_child || old.component.grid_align_overrides != [false, false] {
+        any_user_diff = true;
+        if orig.layout_child == new_orig.layout_child {
+            let target_align = (nn.layout_child.grid_align_h, nn.layout_child.grid_align_v);
+            nn.layout_child = old.layout_child;
+            if !old.component.grid_align_overrides[0] {
+                nn.layout_child.grid_align_h = target_align.0;
+            }
+            if !old.component.grid_align_overrides[1] {
+                nn.layout_child.grid_align_v = target_align.1;
+            }
+            nn.component.grid_align_overrides = old.component.grid_align_overrides;
+            kept_any = true;
+        }
+    }
+
+    if !any_user_diff && orig_fp == new_orig_fp && orig.layout_child == new_orig.layout_child {
+        kept_any = true;
+    }
+
+    kept_any
 }
 
 /// A nested instance the user swapped inside the instance being swapped: where it sits (by base-name path) and the main it
@@ -1850,7 +2089,7 @@ struct InnerSwaps {
 }
 
 struct InnerSwap {
-    path: Vec<String>,
+    path: Vec<NestedStep>,
     shown: NodeId,
 }
 
@@ -1858,7 +2097,11 @@ fn text_nodes(d: &Document, root: NodeId) -> Vec<NodeId> {
     fn walk(d: &Document, id: NodeId, out: &mut Vec<NodeId>) {
         let Some(n) = d.get(id) else { return };
         for k in &n.children {
-            if matches!(d.get(*k).map(|x| &x.kind), Some(NodeKind::Text(_))) {
+            let Some(kn) = d.get(*k) else { continue };
+            if matches!(kn.kind, NodeKind::Instance { .. }) {
+                continue;
+            }
+            if matches!(kn.kind, NodeKind::Text(_)) {
                 out.push(*k);
             }
             walk(d, *k, out);
@@ -1870,7 +2113,22 @@ fn text_nodes(d: &Document, root: NodeId) -> Vec<NodeId> {
 }
 
 fn count_text_nodes(d: &Document, root: NodeId) -> usize {
-    text_nodes(d, root).len()
+    fn walk(d: &Document, id: NodeId) -> usize {
+        let Some(n) = d.get(id) else { return 0 };
+        let mut count = 0;
+        for k in &n.children {
+            let Some(kn) = d.get(*k) else { continue };
+            if matches!(kn.kind, NodeKind::Instance { .. }) {
+                continue;
+            }
+            if matches!(kn.kind, NodeKind::Text(_)) {
+                count += 1;
+            }
+            count += walk(d, *k);
+        }
+        count
+    }
+    walk(d, root)
 }
 
 /// The one rule that decides whether a text override crosses a swap, a variant switch or a property swap: both layers are
@@ -1878,7 +2136,8 @@ fn count_text_nodes(d: &Document, root: NodeId) -> usize {
 /// layer and the text is not driven by a component property (a hoisted override stays with its property).
 fn text_override_transfers(old: &Node, new: &Node, matched_by_path: bool, single_text_pair: bool) -> bool {
     matches!((&old.kind, &new.kind), (NodeKind::Text(_), NodeKind::Text(_)))
-        && (matched_by_path || (single_text_pair && !old.component.bindings.contains_key(&OverrideField::Characters)))
+        && !old.component.bindings.contains_key(&OverrideField::Characters)
+        && (matched_by_path || single_text_pair)
 }
 
 /// Brings instance node `i` in line with its reference `r`. `seen` holds the mains whose content `r` sits in or
@@ -2051,6 +2310,9 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
     }
     let seen_before = seen.len();
     seen.extend(own);
+    if swapped_here && !matches!(rn.kind, NodeKind::Component(_)) {
+        relink_swapped_slot_children(c, ref_id, i);
+    }
     let in_slot = rn.component.bindings.contains_key(&OverrideField::SlotContent) || is_slot_container(&c.s, i) || is_slot_container(&c.s, ref_id);
     let rkids = c.s.get(ref_id).map(|x| x.children.clone()).unwrap_or_default();
     let ikids = c.s.get(i).map(|x| x.children.clone()).unwrap_or_default();
@@ -2124,6 +2386,27 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
         }
     }
     seen.truncate(seen_before);
+}
+
+fn relink_swapped_slot_children(c: &mut Ctx, slot_node: NodeId, inst_node: NodeId) {
+    let rkids = c.s.get(slot_node).map(|x| x.children.clone()).unwrap_or_default();
+    let ikids = c.s.get(inst_node).map(|x| x.children.clone()).unwrap_or_default();
+    let mut slot_by_src: BTreeMap<NodeId, NodeId> = BTreeMap::new();
+    for rc in rkids {
+        if let Some(src) = c.s.get(rc).and_then(|n| n.component.source) {
+            slot_by_src.entry(src).or_insert(rc);
+        }
+    }
+    for ic in ikids {
+        let Some(mut ic_node) = c.s.get(ic).cloned() else { continue };
+        let Some(rc) = ic_node.component.source.and_then(|src| slot_by_src.get(&src).copied()) else { continue };
+        let same_sub_comp = instance_component(&ic_node) == c.s.get(rc).and_then(instance_component);
+        ic_node.component.source = Some(rc);
+        c.update(ic_node);
+        if same_sub_comp {
+            relink_swapped_slot_children(c, rc, ic);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3743,7 +4026,7 @@ mod tests {
         big.name = "Size=Large".into();
         let big = f.d.insert(f.page, big).unwrap();
         let id = f.d.alloc_id();
-        let mut t = Node::text(id, Rect::new(10.0, 10.0, 100.0, 30.0), "Big", TextStyle::default());
+        let mut t = Node::text(id, Rect::new(10.0, 10.0, 100.0, 30.0), "Label", TextStyle::default());
         t.name = "label".into();
         f.d.insert(big, t).unwrap();
         let c = create_component(&mut f.d, big);
