@@ -346,8 +346,9 @@ pub struct Track {
     pub operation: KeyframeOperation,
     #[serde(default, skip_serializing_if = "is_default")]
     pub loop_mode: TrackLoop,
-    /// Sorted by `time_us`, at most one keyframe per time. A file written elsewhere may hold them in any order;
-    /// they are sorted when the file is read.
+    /// Sorted by `time_us` (stable). The editing calls keep one keyframe per time, but a file may hold several at
+    /// one time (a step), and all of them are kept. A file written elsewhere may hold them in any order; they are
+    /// sorted when the file is read.
     #[serde(default, deserialize_with = "sorted_keyframes")]
     pub keyframes: Vec<Keyframe>,
 }
@@ -357,38 +358,55 @@ impl Track {
         Self { id: id.into(), timeline: timeline.into(), property, operation: KeyframeOperation::Set, loop_mode: TrackLoop::None, keyframes: Vec::new() }
     }
 
-    /// Puts `key` in time order, replacing the keyframe at the same time. Returns the replaced keyframe.
+    /// Index just past the last keyframe at or before `time_us`.
+    fn after(&self, time_us: i64) -> usize {
+        self.keyframes.partition_point(|k| k.time_us <= time_us)
+    }
+
+    /// Index of the last keyframe at `time_us`, if any. A file may hold several keyframes at one time (a step);
+    /// the editing calls act on the last of them.
+    fn last_at(&self, time_us: i64) -> Option<usize> {
+        self.after(time_us).checked_sub(1).filter(|i| self.keyframes[*i].time_us == time_us)
+    }
+
+    /// Puts `key` in time order. A keyframe already at that time is replaced (the last one, when a file holds
+    /// several) and returned.
     pub fn set_keyframe(&mut self, key: Keyframe) -> Option<Keyframe> {
-        match self.keyframes.binary_search_by_key(&key.time_us, |k| k.time_us) {
-            Ok(i) => Some(std::mem::replace(&mut self.keyframes[i], key)),
-            Err(i) => {
-                self.keyframes.insert(i, key);
+        match self.last_at(key.time_us) {
+            Some(i) => Some(std::mem::replace(&mut self.keyframes[i], key)),
+            None => {
+                let at = self.after(key.time_us);
+                self.keyframes.insert(at, key);
                 None
             }
         }
     }
 
+    /// Removes the keyframe at `time_us` (the last one, when a file holds several).
     pub fn remove_keyframe(&mut self, time_us: i64) -> Option<Keyframe> {
-        let i = self.keyframes.binary_search_by_key(&time_us, |k| k.time_us).ok()?;
+        let i = self.last_at(time_us)?;
         Some(self.keyframes.remove(i))
     }
 
+    /// The keyframe at `time_us` (the last one, when a file holds several).
     pub fn keyframe(&self, time_us: i64) -> Option<&Keyframe> {
-        self.keyframes.binary_search_by_key(&time_us, |k| k.time_us).ok().map(|i| &self.keyframes[i])
+        self.last_at(time_us).map(|i| &self.keyframes[i])
     }
 
-    /// Sorts by time and keeps the last keyframe of any time that repeats. Files made elsewhere may be unsorted.
+    /// Sorts by time. The sort is stable and drops nothing: keyframes that share a time are all kept, in the order the
+    /// file has them. Files made elsewhere may be unsorted.
     pub fn normalize(&mut self) {
         self.keyframes.sort_by_key(|k| k.time_us);
-        let mut out: Vec<Keyframe> = Vec::with_capacity(self.keyframes.len());
-        for k in self.keyframes.drain(..) {
-            match out.last_mut() {
-                Some(last) if last.time_us == k.time_us => *last = k,
-                _ => out.push(k),
-            }
-        }
-        self.keyframes = out;
     }
+}
+
+/// Linear progress `0..=1` of `t_us` in the segment from `from` to `to`. A segment that has no length (the two share
+/// a time) is a step: progress is 1 at and after that time, so the value jumps to `to`.
+pub fn segment_progress(from: &Keyframe, to: &Keyframe, t_us: i64) -> f32 {
+    if to.time_us <= from.time_us {
+        return if t_us >= to.time_us { 1.0 } else { 0.0 };
+    }
+    (((t_us - from.time_us) as f64) / ((to.time_us - from.time_us) as f64)).clamp(0.0, 1.0) as f32
 }
 
 /// The Motion data of one layer. Empty means the layer has no Motion and the field is not written.

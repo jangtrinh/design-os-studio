@@ -35,35 +35,54 @@ pub fn reid_copied_motion(doc: &Document, nodes: &mut [&mut Node], same_document
 /// the earlier copies of the batch already use, which the document cannot show yet; the new ids chosen here are
 /// added to it, so no two copies of one paste or duplicate share a timeline or track id.
 pub fn reid_copied_motion_with(doc: &Document, nodes: &mut [&mut Node], same_document: bool, reserved: &mut BTreeSet<MotionId>) {
+    reid_copied_motion_mapped(doc, nodes, same_document, reserved, &BTreeMap::new());
+}
+
+/// [`reid_copied_motion_with`] that reuses ids and reports what it did. `preset` maps an id in the copied set to
+/// the id it got last time (a library update: the old local copy's ids); a preset id is used while the document and
+/// the batch do not already use it, and only the ids without one get a fresh name. Returns the old-to-new id map of
+/// every timeline and track of the set, which a caller can keep as the next `preset`.
+pub fn reid_copied_motion_mapped(
+    doc: &Document,
+    nodes: &mut [&mut Node],
+    same_document: bool,
+    reserved: &mut BTreeSet<MotionId>,
+    preset: &BTreeMap<MotionId, MotionId>,
+) -> BTreeMap<MotionId, MotionId> {
+    let mut renamed: BTreeMap<MotionId, MotionId> = BTreeMap::new();
     if nodes.iter().all(|n| n.motion.is_none()) {
-        return;
+        return renamed;
     }
     let ix = MotionIndex::build(doc);
     let mut taken: BTreeSet<MotionId> = ix.all_ids();
     taken.extend(reserved.iter().cloned());
-    let defined: Vec<MotionId> = nodes
-        .iter()
-        .filter_map(|n| n.motion.as_deref())
-        .flat_map(|m| m.timelines.iter().map(|t| t.id.clone()).chain(m.tracks.iter().map(|t| t.id.clone())))
-        .collect();
-    taken.extend(defined);
-
-    let mut timelines: BTreeMap<MotionId, MotionId> = BTreeMap::new();
-    for n in nodes.iter() {
-        for t in n.motion.as_deref().map(|m| m.timelines.as_slice()).unwrap_or(&[]) {
-            timelines.entry(t.id.clone()).or_insert_with(|| fresh(&t.id, &mut taken));
-        }
+    let timeline_ids: Vec<MotionId> = nodes.iter().filter_map(|n| n.motion.as_deref()).flat_map(|m| m.timelines.iter().map(|t| t.id.clone())).collect();
+    let track_ids: Vec<MotionId> = nodes.iter().filter_map(|n| n.motion.as_deref()).flat_map(|m| m.tracks.iter().map(|t| t.id.clone())).collect();
+    // ids a previous copy used are claimed first, so no new id of this copy can take one of them
+    let usable_preset: BTreeMap<&MotionId, &MotionId> =
+        timeline_ids.iter().chain(&track_ids).filter_map(|old| preset.get(old).filter(|p| !taken.contains(*p)).map(|p| (old, p))).collect();
+    taken.extend(usable_preset.values().map(|p| (*p).clone()));
+    taken.extend(timeline_ids.iter().chain(&track_ids).cloned());
+    let mut assign = |old: &MotionId, taken: &mut BTreeSet<MotionId>| -> MotionId {
+        renamed.entry(old.clone()).or_insert_with(|| usable_preset.get(old).map(|p| (*p).clone()).unwrap_or_else(|| fresh(old, taken))).clone()
+    };
+    for old in &timeline_ids {
+        assign(old, &mut taken);
+    }
+    for old in &track_ids {
+        assign(old, &mut taken);
     }
     // `Some(new)` for a renamed timeline, the id itself for one the document has, `None` for a dangling one.
-    let resolve =
-        |id: &str| -> Option<MotionId> { timelines.get(id).cloned().or_else(|| (same_document && ix.timeline(id).is_some()).then(|| id.to_string())) };
+    let resolve = |id: &str| -> Option<MotionId> {
+        timeline_ids.iter().any(|t| t == id).then(|| renamed[id].clone()).or_else(|| (same_document && ix.timeline(id).is_some()).then(|| id.to_string()))
+    };
 
     for n in nodes.iter_mut() {
         let Some(m) = n.motion.take() else { continue };
         let NodeMotion { timelines: tl, assignments, tracks } = *m;
         let mut out = NodeMotion::default();
         for mut t in tl {
-            t.id = timelines[&t.id].clone();
+            t.id = renamed[&t.id].clone();
             t.parent = t.parent.as_deref().and_then(resolve);
             out.timelines.push(t);
         }
@@ -77,11 +96,12 @@ pub fn reid_copied_motion_with(doc: &Document, nodes: &mut [&mut Node], same_doc
         for mut t in tracks {
             if let Some(timeline) = resolve(&t.timeline) {
                 t.timeline = timeline;
-                t.id = fresh(&t.id, &mut taken);
+                t.id = renamed[&t.id].clone();
                 out.tracks.push(t);
             }
         }
         n.motion = (!out.is_empty()).then(|| Box::new(out));
     }
     reserved.extend(taken);
+    renamed
 }

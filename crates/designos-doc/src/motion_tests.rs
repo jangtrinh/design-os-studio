@@ -234,7 +234,74 @@ fn keyframes_keep_time_order_and_one_per_time() {
     let mut loose = Track::new("t", "tl", TrackProperty::Opacity);
     loose.keyframes = vec![Keyframe::new(5, KeyValue::Float(1.0)), Keyframe::new(1, KeyValue::Float(2.0)), Keyframe::new(5, KeyValue::Float(3.0))];
     loose.normalize();
-    assert_eq!(loose.keyframes.iter().map(|k| (k.time_us, k.value.clone())).collect::<Vec<_>>(), vec![(1, KeyValue::Float(2.0)), (5, KeyValue::Float(3.0))]);
+    assert_eq!(
+        loose.keyframes.iter().map(|k| (k.time_us, k.value.clone())).collect::<Vec<_>>(),
+        vec![(1, KeyValue::Float(2.0)), (5, KeyValue::Float(1.0)), (5, KeyValue::Float(3.0))],
+        "a stable sort that drops nothing"
+    );
+}
+
+fn shared_time_track() -> Track {
+    let mut tr = Track::new("tr", "tl", TrackProperty::Opacity);
+    tr.keyframes = vec![Keyframe::new(100, KeyValue::Float(1.0)), Keyframe::new(100, KeyValue::Float(2.0)), Keyframe::new(0, KeyValue::Float(0.0))];
+    tr
+}
+
+fn doc_with_shared_time_track() -> (Document, NodeId) {
+    let (mut d, frame) = doc_with_frame();
+    d.get_mut(frame).unwrap().motion =
+        Some(Box::new(NodeMotion { timelines: vec![Timeline::new("tl", 1_000)], tracks: vec![shared_time_track()], ..Default::default() }));
+    (d, frame)
+}
+
+fn key_pairs(d: &Document, frame: NodeId) -> Vec<(i64, KeyValue)> {
+    motion_of(d, frame).tracks[0].keyframes.iter().map(|k| (k.time_us, k.value.clone())).collect()
+}
+
+#[test]
+fn keyframes_that_share_a_time_are_all_kept_on_load_and_survive_open_save_open() {
+    let (d, frame) = doc_with_shared_time_track();
+    let want = vec![(0, KeyValue::Float(0.0)), (100, KeyValue::Float(1.0)), (100, KeyValue::Float(2.0))];
+    let json = d.to_json().unwrap();
+    let (opened, report) = Document::from_json_with_report(&json).unwrap();
+    assert_eq!(key_pairs(&opened, frame), want, "sorted, stable, nothing dropped");
+    assert!(report.is_clean(), "nothing was repaired: {report:?}");
+    let saved = opened.to_json().unwrap();
+    let reopened = Document::from_json(&saved).unwrap();
+    assert_eq!(key_pairs(&reopened, frame), want);
+    assert_eq!(reopened.to_json().unwrap(), saved, "open, save, open is byte-stable");
+}
+
+#[test]
+fn set_and_remove_at_a_shared_time_act_on_the_last_keyframe_there() {
+    let (d, frame) = doc_with_shared_time_track();
+    let (mut d, _) = (Document::from_json(&d.to_json().unwrap()).unwrap(), ());
+    let mut h = History::default();
+    let c = set_keyframe(&d, frame, "tr", Keyframe::new(100, KeyValue::Float(9.0)));
+    add(&mut d, &mut h, c);
+    assert_eq!(key_pairs(&d, frame), vec![(0, KeyValue::Float(0.0)), (100, KeyValue::Float(1.0)), (100, KeyValue::Float(9.0))]);
+    let c = remove_keyframe(&d, frame, "tr", 100);
+    add(&mut d, &mut h, c);
+    assert_eq!(key_pairs(&d, frame), vec![(0, KeyValue::Float(0.0)), (100, KeyValue::Float(1.0))], "the last one went, the first stays");
+    assert_eq!(motion_of(&d, frame).tracks[0].keyframe(100).map(|k| k.value.clone()), Some(KeyValue::Float(1.0)));
+}
+
+#[test]
+fn interpolation_treats_a_shared_time_as_a_step() {
+    let tr = shared_time_track();
+    let mut keys = tr.keyframes.clone();
+    keys.sort_by_key(|k| k.time_us);
+    // the segment from the first keyframe at 100 to the second one has no length: the value jumps
+    let (a, b) = (&keys[1], &keys[2]);
+    for t in [99, 100, 150] {
+        let u = segment_progress(a, b, t);
+        let v = interpolate(&a.value, &b.value, b.progress(u), b.color_space);
+        let want = if t >= 100 { KeyValue::Float(2.0) } else { KeyValue::Float(1.0) };
+        assert_eq!(v, want, "t={t}");
+    }
+    // an ordinary segment still blends
+    let (z, a) = (&keys[0], &keys[1]);
+    assert_eq!(segment_progress(z, a, 50), 0.5);
 }
 
 fn setup_with_timeline() -> (Document, History, NodeId) {

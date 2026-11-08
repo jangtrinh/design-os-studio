@@ -161,6 +161,33 @@ fn a_native_file_with_null_numbers_opens_and_the_result_reports_the_repair() {
     assert!(opened.get("repaired_non_finite_numbers").is_none(), "{opened}");
 }
 
+#[test]
+fn opening_a_file_with_animation_tracks_that_have_no_property_reports_the_drop() {
+    use designos_doc::{Node, NodeKind, NodeMotion, Rect, Timeline, Track, TrackProperty};
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let mut doc = s.engine.doc.clone();
+    let page = doc.pages[0];
+    let id = doc.alloc_id();
+    let mut frame = Node::new(id, NodeKind::Frame(designos_doc::FrameProps::default()));
+    frame.size = designos_doc::Vec2::new(10.0, 10.0);
+    frame.motion = Some(Box::new(NodeMotion {
+        timelines: vec![Timeline::new("tl", 1)],
+        tracks: vec![Track::new("a", "tl", TrackProperty::Opacity)],
+        ..Default::default()
+    }));
+    let _ = Rect::new(0.0, 0.0, 1.0, 1.0);
+    doc.insert(page, frame).unwrap();
+    let text = doc.to_json().unwrap().replace("\"OPACITY\"", "\"\"");
+    fs::write(dir.0.join("empty-property.designos"), text).unwrap();
+    let opened = s.call("designos_open_file", json!({"path":"empty-property.designos"})).unwrap();
+    assert_eq!(opened["repaired_motion_tracks_dropped"], 1, "{opened}");
+
+    fs::write(dir.0.join("clean.designos"), s.engine.doc.to_json().unwrap()).unwrap();
+    let opened = s.call("designos_open_file", json!({"path":"clean.designos"})).unwrap();
+    assert!(opened.get("repaired_motion_tracks_dropped").is_none(), "{opened}");
+}
+
 /// 40 nested Fill frames, 200 wide, with a 10 px leaf hugging the right edge of the innermost
 /// one. Widening the outermost frame to 600 moves the leaf to x = 590, but one relayout stops 32
 /// hops down and queues the rest for the lazy pass.

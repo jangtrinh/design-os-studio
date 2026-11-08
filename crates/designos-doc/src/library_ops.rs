@@ -998,12 +998,18 @@ impl<'a> Trial<'a> {
             .collect();
         // a library file is another document: its Motion ids are renamed and a timeline that is not copied is not matched by id
         let mut copied: Vec<&mut Node> = nodes.iter_mut().collect();
-        crate::reid_copied_motion(self.doc, &mut copied, false);
+        let motion_ids = crate::reid_copied_motion_mapped(self.doc, &mut copied, false, &mut BTreeSet::new(), &BTreeMap::new());
         let index = self.doc.get(page).map(|p| p.children.len()).unwrap_or(0);
         let root = idmap[&sroot];
         self.push(Command::Insert { parent: page, index, nodes });
         let (version, library_id) = (self.snap.version, self.snap.library_id.clone());
         self.register(&asset.key, ExternalAsset { library_id, version, kind: asset.kind, node: Some(root), local_key: None });
+        if !motion_ids.is_empty() {
+            let ekey = self.ns(&asset.key);
+            self.set_state(|st| {
+                st.motion_ids.insert(ekey, motion_ids);
+            });
+        }
     }
 
     fn update_component(&mut self, asset: &SnapshotAsset) {
@@ -1032,9 +1038,22 @@ impl<'a> Trial<'a> {
             .collect();
         // Remove the old local copy first, so its Motion ids are free again and an update keeps naming the new ones alike.
         self.push(Command::Remove { id: local_root });
+        // reuse the ids the last import or update gave, so a reference to a local timeline survives the update
+        let ekey = self.ns(&asset.key);
+        // a file that has no map (one made before it existed) just gets fresh ids
+        let preset = self.doc.library.motion_ids.get(&ekey).cloned().unwrap_or_default();
         let mut copied: Vec<&mut Node> = nodes.iter_mut().collect();
-        crate::reid_copied_motion(self.doc, &mut copied, false);
+        let motion_ids = crate::reid_copied_motion_mapped(self.doc, &mut copied, false, &mut BTreeSet::new(), &preset);
         self.push(Command::Insert { parent, index, nodes });
+        if motion_ids != preset {
+            self.set_state(|st| {
+                if motion_ids.is_empty() {
+                    st.motion_ids.remove(&ekey);
+                } else {
+                    st.motion_ids.insert(ekey, motion_ids);
+                }
+            });
+        }
     }
 
     fn update_style(&mut self, raw: &str) {
@@ -1707,6 +1726,123 @@ mod tests {
                 .id
                 .clone();
         assert_eq!(first, second, "an update does not rename the ids again");
+    }
+
+    fn local_button(d: &Document) -> Node {
+        d.nodes.values().find(|n| is_library_node(d, n.id) && matches!(n.kind, NodeKind::Component(_))).unwrap().clone()
+    }
+
+    fn bump_button(lib: &mut Document, f: impl FnOnce(&mut Node)) {
+        let comp = lib.pages.iter().flat_map(|p| lib.get(*p).unwrap().children.clone()).next().unwrap();
+        let mut cn = lib.get(comp).unwrap().clone();
+        cn.size = Vec2::new(200.0, 40.0);
+        f(&mut cn);
+        run(lib, Command::Update { node: Box::new(cn) });
+    }
+
+    #[test]
+    fn an_update_keeps_the_local_timeline_id_when_a_lower_suffix_was_freed_meanwhile() {
+        let (mut lib, mut d, key) = lib_and_consumer_with_motion();
+        let page = d.pages[0];
+        // a copy of the consumer's own animated frame takes `tl~1`, so the import gets `tl~2`
+        let own = d.get(page).unwrap().children[0];
+        let copy = duplicate_subtree(&mut d, own);
+        let copy_id = copy[0].id;
+        run(&mut d, Command::Insert { parent: page, index: 1, nodes: copy });
+        let snap1 = snapshot(&lib, "L1", "Lib", 1);
+        let cmd = import_asset(&mut d, &snap1, &key, Some(Placement { parent: page, at: Vec2::ZERO }));
+        run(&mut d, cmd);
+        let imported = local_button(&d).motion.as_deref().unwrap().timelines[0].id.clone();
+        assert_eq!(imported, "tl~2");
+        // a consumer layer is bound to the local copy's timeline
+        let gid = d.alloc_id();
+        d.insert(page, Node::new(gid, NodeKind::Frame(FrameProps::default()))).unwrap();
+        let cmd = add_track(&d, gid, Track::new("gtr", imported.clone(), TrackProperty::Opacity)).unwrap();
+        run(&mut d, cmd);
+        // the copy that held `tl~1` goes away, so a lowest-free-suffix rule would now rename `tl~2` to `tl~1`
+        run(&mut d, Command::Remove { id: copy_id });
+
+        bump_button(&mut lib, |_| {});
+        let snap2 = snapshot(&lib, "L1", "Lib", 2);
+        let ups = pending_updates(&d, &snap2);
+        let cmd = apply_updates(&mut d, &snap2, &[ups[0].key.clone()]);
+        run(&mut d, cmd);
+        assert_eq!(local_button(&d).motion.as_deref().unwrap().timelines[0].id, imported, "the id is kept");
+        let ix = MotionIndex::build(&d);
+        assert!(ix.timeline(&imported).is_some() && ix.duplicate_ids().is_empty());
+        assert_eq!(d.get(gid).unwrap().motion.as_deref().unwrap().tracks[0].timeline, imported);
+    }
+
+    #[test]
+    fn library_state_without_motion_saves_the_bytes_an_earlier_build_wrote() {
+        // text an earlier build wrote for one enabled library with one component copy
+        let base_written = r#"{"published":null,"enabled":[{"id":"L1","name":"Lib","version":1}],"external":{"L1/c1":{"library_id":"L1","version":1,"kind":"Component","node":3,"local_key":null}}}"#;
+        let state: LibraryState = serde_json::from_str(base_written).unwrap();
+        assert!(state.motion_ids.is_empty(), "an older file has no map");
+        assert_eq!(serde_json::to_string(&state).unwrap(), base_written, "no new key is written when there is no library Motion");
+        // an import of a component without Motion writes no map either
+        let (lib, mut d) = (lib_doc(), consumer());
+        let snap = snapshot(&lib, "L1", "Lib", 1);
+        let page = d.pages[0];
+        let cmd = import_asset(&mut d, &snap, &button_key(&lib), Some(Placement { parent: page, at: Vec2::ZERO }));
+        run(&mut d, cmd);
+        assert!(d.library.motion_ids.is_empty());
+        assert!(!d.to_json().unwrap().contains("motion_ids"));
+    }
+
+    #[test]
+    fn a_file_without_a_motion_id_map_still_updates_and_falls_back_to_fresh_ids() {
+        let (mut lib, mut d, key) = lib_and_consumer_with_motion();
+        let page = d.pages[0];
+        let snap1 = snapshot(&lib, "L1", "Lib", 1);
+        let cmd = import_asset(&mut d, &snap1, &key, Some(Placement { parent: page, at: Vec2::ZERO }));
+        run(&mut d, cmd);
+        assert!(!d.library.motion_ids.is_empty(), "the import recorded the ids it gave");
+        // the same file as an earlier build saved it: no map
+        let mut text = serde_json::to_value(&d).unwrap();
+        text["library"].as_object_mut().unwrap().remove("motion_ids");
+        let mut d: Document = serde_json::from_value(text).unwrap();
+        assert!(d.library.motion_ids.is_empty());
+
+        bump_button(&mut lib, |_| {});
+        let snap2 = snapshot(&lib, "L1", "Lib", 2);
+        let ups = pending_updates(&d, &snap2);
+        let cmd = apply_updates(&mut d, &snap2, &[ups[0].key.clone()]);
+        run(&mut d, cmd);
+        let m = local_button(&d).motion.as_deref().unwrap().clone();
+        assert_eq!(m.tracks[0].timeline, m.timelines[0].id);
+        assert!(MotionIndex::build(&d).duplicate_ids().is_empty());
+        assert!(!d.library.motion_ids.is_empty(), "the update records its ids, so the next one is stable");
+    }
+
+    #[test]
+    fn a_timeline_added_in_a_new_version_never_takes_the_old_local_id() {
+        let (mut lib, mut d, key) = lib_and_consumer_with_motion();
+        let page = d.pages[0];
+        let snap1 = snapshot(&lib, "L1", "Lib", 1);
+        let cmd = import_asset(&mut d, &snap1, &key, Some(Placement { parent: page, at: Vec2::ZERO }));
+        run(&mut d, cmd);
+        let first = local_button(&d).motion.as_deref().unwrap().timelines[0].id.clone();
+        let first_track = local_button(&d).motion.as_deref().unwrap().tracks[0].id.clone();
+
+        // version 2 adds a timeline with the same base, listed before the old one
+        bump_button(&mut lib, |cn| {
+            let m = cn.motion.as_deref_mut().unwrap();
+            m.timelines.insert(0, Timeline::new("tl~7", 500));
+            m.tracks.insert(0, Track::new("tr~7", "tl~7", TrackProperty::Width));
+        });
+        let snap2 = snapshot(&lib, "L1", "Lib", 2);
+        let ups = pending_updates(&d, &snap2);
+        let cmd = apply_updates(&mut d, &snap2, &[ups[0].key.clone()]);
+        run(&mut d, cmd);
+        let m = local_button(&d).motion.as_deref().unwrap().clone();
+        assert_eq!(m.timelines.len(), 2);
+        assert_eq!(m.timelines[1].id, first, "the old timeline keeps its local id");
+        assert_ne!(m.timelines[0].id, first, "the new one gets a different id");
+        assert_eq!(m.tracks[1].id, first_track, "the old track keeps its id");
+        assert_eq!(m.tracks[1].timeline, first);
+        assert_eq!(m.tracks[0].timeline, m.timelines[0].id);
+        assert!(MotionIndex::build(&d).duplicate_ids().is_empty());
     }
 
     #[test]

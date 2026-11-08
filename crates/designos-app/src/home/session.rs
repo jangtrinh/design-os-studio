@@ -1384,10 +1384,14 @@ impl App {
         let mut notices: Vec<String> = Vec::new();
         for p in paths {
             let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-            match lib.import_file_with_doc_counted(p, project, folder) {
-                Ok((e, doc, replaced, left_empty)) => {
+            match lib.import_file_with_doc_repairs(p, project, folder) {
+                Ok((e, doc, replaced, left_empty, motion_dropped)) => {
                     ok += 1;
-                    notices.extend(import_notice(file_name, crate::io::non_finite_notice_once(p, replaced), left_empty));
+                    let numbers = [crate::io::non_finite_notice_once(p, replaced), crate::io::motion_tracks_dropped_notice(motion_dropped)]
+                        .into_iter()
+                        .flatten()
+                        .reduce(|a, b| format!("{a}; {b}"));
+                    notices.extend(import_notice(file_name, numbers, left_empty));
                     thumb::refresh_in_background(lib.clone(), e.id, doc);
                 }
                 Err(e) => last_err = Some(format!("{file_name}: {e}")),

@@ -57,10 +57,15 @@ pub struct LibraryState {
     pub enabled: Vec<LibraryRef>,
     /// Asset key (component key, style key or variable key) -> local copy.
     pub external: BTreeMap<String, ExternalAsset>,
+    /// For a component copy that carries Motion, by the key it has in `external`: the id each timeline and track has in
+    /// the library file, to the id the local copy gave it. An update reuses them, so a reference to a local timeline
+    /// survives it. Absent (and not written) for files with no library Motion; a file without it updates as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub motion_ids: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl LibraryState {
     pub fn is_empty(&self) -> bool {
-        self.published.is_none() && self.enabled.is_empty() && self.external.is_empty()
+        self.published.is_none() && self.enabled.is_empty() && self.external.is_empty() && self.motion_ids.is_empty()
     }
 }
