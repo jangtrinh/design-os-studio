@@ -65,9 +65,24 @@ fn space_token(px: f32) -> Option<&'static str> {
 
 /// `prefix-token` or `prefix-[Npx]` / `prefix-[var(--x)]`.
 fn spaced(prefix: &str, px: f32, var: Option<&Variable>) -> String {
+    spaced_plus(prefix, px, var, 0.0)
+}
+
+/// [`spaced`] for a side that also carries `extra` pixels (the stroke of a grid frame, see
+/// `grid_stroke`). A variable side becomes `prefix-[calc(var(--x)+Npx)]`; a negative `extra` that would
+/// leave less than 0 is `max(0px,...)`. A literal side adds the pixels and stops at 0.
+fn spaced_plus(prefix: &str, px: f32, var: Option<&Variable>, extra: f32) -> String {
     if let Some(v) = var {
-        return format!("{prefix}-[{}]", css_var(v));
+        let name = css_var(v);
+        return if extra > 0.0 {
+            format!("{prefix}-[calc({name}+{}px)]", num(extra))
+        } else if extra < 0.0 {
+            format!("{prefix}-[max(0px,calc({name}-{}px))]", num(-extra))
+        } else {
+            format!("{prefix}-[{name}]")
+        };
     }
+    let px = (px + extra).max(0.0);
     match space_token(px) {
         Some(t) => format!("{prefix}-{t}"),
         None => format!("{prefix}-[{}px]", num(px)),
@@ -232,35 +247,67 @@ fn stroke_width_class(prefix: &str, px: f32, var: Option<&Variable>) -> String {
     }
 }
 
+/// A grid frame's stroke drawn as an outline, which takes no layout space: `outline outline-2
+/// outline-[#333333] outline-offset-[-1px]`. Inside and Center strokes are offset inward by their
+/// width and half of it; an Outside stroke is not offset.
+fn outline_classes(doc: &Document, n: &Node, p: &Paint) -> Vec<String> {
+    let width = match bound(doc, n, "strokeWeight") {
+        Some(v) => format!("outline-[length:{}]", css_var(v)),
+        None => match n.stroke.weight {
+            w if w.fract() == 0.0 && matches!(w as i32, 0 | 1 | 2 | 4 | 8) => format!("outline-{}", w as i32),
+            w => format!("outline-[{}px]", num(w)),
+        },
+    };
+    let mut c = vec!["outline".to_string(), width];
+    if n.stroke.dashes.iter().any(|d| *d > 0.0) {
+        c.push("outline-dashed".into());
+    }
+    c.push(color_class(doc, n, "strokes/0", "outline", p, false));
+    let inward = match n.stroke.align {
+        StrokeAlign::Inside => Some(("-1", 1.0)),
+        StrokeAlign::Center => Some(("-0.5", 0.5)),
+        StrokeAlign::Outside => None,
+    };
+    if let Some((factor, scale)) = inward {
+        let offset = match bound(doc, n, "strokeWeight") {
+            Some(v) => format!("calc({factor}*{})", css_var(v)),
+            None => format!("{}px", num(-n.stroke.weight * scale)),
+        };
+        c.push(format!("outline-offset-[{offset}]"));
+    }
+    c
+}
+
 fn pad_classes(doc: &Document, n: &Node, al: &AutoLayout) -> Vec<String> {
     let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     let var = |i: usize| bound(doc, n, keys[i]);
     let p = al.padding;
-    if p.iter().all(|v| *v == 0.0) && keys.iter().all(|k| bound(doc, n, k).is_none()) {
+    let extra = crate::grid_stroke::grid_stroke_of(doc, n).map_or([0.0; 4], |g| g.pad_extra);
+    let side = |prefix: &str, i: usize| spaced_plus(prefix, p[i], var(i), extra[i]);
+    if p.iter().zip(&extra).all(|(v, e)| *v + *e <= 0.0) && keys.iter().all(|k| bound(doc, n, k).is_none()) {
         return vec![];
     }
-    let same = |a: usize, b: usize| p[a] == p[b] && var(a).map(|v| &v.id) == var(b).map(|v| &v.id);
+    let same = |a: usize, b: usize| p[a] == p[b] && extra[a] == extra[b] && var(a).map(|v| &v.id) == var(b).map(|v| &v.id);
     if same(0, 1) && same(1, 2) && same(2, 3) {
-        return vec![spaced("p", p[0], var(0))];
+        return vec![side("p", 0)];
     }
     let mut out = Vec::new();
     if same(1, 3) {
-        out.push(spaced("px", p[1], var(1)));
+        out.push(side("px", 1));
     } else {
-        out.push(spaced("pr", p[1], var(1)));
-        out.push(spaced("pl", p[3], var(3)));
+        out.push(side("pr", 1));
+        out.push(side("pl", 3));
     }
     if same(0, 2) {
-        out.push(spaced("py", p[0], var(0)));
+        out.push(side("py", 0));
     } else {
-        out.push(spaced("pt", p[0], var(0)));
-        out.push(spaced("pb", p[2], var(2)));
+        out.push(side("pt", 0));
+        out.push(side("pb", 2));
     }
     // order: horizontal then vertical, zero sides dropped
     out.retain(|c| !c.ends_with("-0"));
     out
 }
-
 fn text_classes(doc: &Document, n: &Node, t: &TextProps, c: &mut Vec<String>) {
     let s = &t.style;
     c.push(format!("font-['{}']", s.font_family.replace(' ', "_")));
@@ -390,7 +437,8 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
                 }
             }
             let pads = pad_classes(doc, n, al);
-            if !pads.is_empty() || al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) {
+            let border_takes_space = crate::grid_stroke::grid_stroke_of(doc, n).is_some_and(|g| g.border);
+            if !pads.is_empty() || al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) || border_takes_space {
                 c.push("box-border".into());
             }
             c.extend(pads);
@@ -494,35 +542,39 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         .filter(|_| text_of(n).is_none() && has_stroke_width)
     {
         let w = n.stroke.weight;
-        let side_prefixes = ["border-t", "border-r", "border-b", "border-l"];
-        let stored = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
-        let has_side_width = n.stroke.side_weights.is_some() || side_keys.iter().any(|key| bound(doc, n, key).is_some());
-        if has_side_width && n.stroke.align == StrokeAlign::Inside && !matches!(n.kind, NodeKind::Line) {
-            for ((key, prefix), px) in side_keys.iter().zip(side_prefixes).zip(stored) {
-                if px > 0.0 || bound(doc, n, key).is_some() {
-                    c.push(stroke_width_class(prefix, px, bound(doc, n, key)));
-                }
-            }
+        if crate::grid_stroke::grid_stroke_of(doc, n).is_some_and(|g| !g.border) {
+            c.extend(outline_classes(doc, n, p));
         } else {
-            let w = n.stroke.weight;
-            let side = if matches!(n.kind, NodeKind::Line) { "border-t" } else { "border" };
-            if w > 0.0 || bound(doc, n, "strokeWeight").is_some() {
-                c.push(stroke_width_class(side, w, bound(doc, n, "strokeWeight")));
-            }
-        }
-        if n.stroke.dashes.iter().any(|d| *d > 0.0) {
-            c.push("border-dashed".into());
-        }
-        c.push(color_class(doc, n, "strokes/0", "border", p, false));
-        if n.stroke.align != StrokeAlign::Inside {
-            let offset = match n.stroke.align {
-                StrokeAlign::Center => {
-                    bound(doc, n, "strokeWeight").map(|v| format!("calc(-0.5*{})", css_var(v))).unwrap_or_else(|| format!("{}px", num(-w / 2.0)))
+            let side_prefixes = ["border-t", "border-r", "border-b", "border-l"];
+            let stored = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
+            let has_side_width = n.stroke.side_weights.is_some() || side_keys.iter().any(|key| bound(doc, n, key).is_some());
+            if has_side_width && n.stroke.align == StrokeAlign::Inside && !matches!(n.kind, NodeKind::Line) {
+                for ((key, prefix), px) in side_keys.iter().zip(side_prefixes).zip(stored) {
+                    if px > 0.0 || bound(doc, n, key).is_some() {
+                        c.push(stroke_width_class(prefix, px, bound(doc, n, key)));
+                    }
                 }
-                StrokeAlign::Outside => "0px".into(),
-                StrokeAlign::Inside => unreachable!(),
-            };
-            c.push(format!("outline-offset-[{offset}]"));
+            } else {
+                let w = n.stroke.weight;
+                let side = if matches!(n.kind, NodeKind::Line) { "border-t" } else { "border" };
+                if w > 0.0 || bound(doc, n, "strokeWeight").is_some() {
+                    c.push(stroke_width_class(side, w, bound(doc, n, "strokeWeight")));
+                }
+            }
+            if n.stroke.dashes.iter().any(|d| *d > 0.0) {
+                c.push("border-dashed".into());
+            }
+            c.push(color_class(doc, n, "strokes/0", "border", p, false));
+            if n.stroke.align != StrokeAlign::Inside {
+                let offset = match n.stroke.align {
+                    StrokeAlign::Center => {
+                        bound(doc, n, "strokeWeight").map(|v| format!("calc(-0.5*{})", css_var(v))).unwrap_or_else(|| format!("{}px", num(-w / 2.0)))
+                    }
+                    StrokeAlign::Outside => "0px".into(),
+                    StrokeAlign::Inside => unreachable!(),
+                };
+                c.push(format!("outline-offset-[{offset}]"));
+            }
         }
     }
     // shape
@@ -1000,10 +1052,11 @@ mod tests {
         assert_eq!(size, Vec2::new(180.0, 10.0), "the solver sizes the columns 100, 40 and 40 and the rows at their tallest child");
         let html = tailwind_for(&d, grid);
         let t = tokens(&html, 0);
-        for want in ["grid", "grid-cols-[100px_40px_40px]", "grid-rows-2", "w-[180px]", "h-2.5"] {
+        // The rows are the content-sized rows the solver made (10 and an empty 0), not `1fr` halves.
+        for want in ["grid", "grid-cols-[100px_40px_40px]", "content-start", "w-[180px]", "h-2.5"] {
             assert!(t.iter().any(|c| c == want), "{want} missing in {html}");
         }
-        assert!(!t.iter().any(|c| c.contains("max") || c.contains("auto")), "{html}");
+        assert!(!t.iter().any(|c| c.contains("max") || c.starts_with("grid-rows")), "{html}");
 
         let al = AutoLayout { grid_columns: 3, grid_rows: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
         let (d, grid) = fixture::grid_frame(al, Vec2::new(300.0, 200.0));

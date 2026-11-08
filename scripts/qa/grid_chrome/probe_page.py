@@ -13,7 +13,20 @@ from .tailwind_css_map import parse_tailwind_html
 MAX_DRIFT_PX = 0.5
 
 
+def scene_tailwind_errors(fixtures: List[Dict[str, Any]]) -> Dict[str, str]:
+    """Scene name -> reason for every scene whose Tailwind HTML the harness cannot translate."""
+    errors: Dict[str, str] = {}
+    for scene in fixtures:
+        try:
+            parse_tailwind_html(scene["tailwind_html"], expected_children=len(scene["items"]))
+        except ValueError as exc:
+            errors[scene["name"]] = str(exc)
+    return errors
+
+
 def build_batch_probe_html(fixtures: List[Dict[str, Any]]) -> str:
+    """Probe page for every scene; a scene whose Tailwind cannot be translated gets a CSS block only."""
+    tailwind_errors = scene_tailwind_errors(fixtures)
     blocks: List[str] = []
     for scene in fixtures:
         name = scene["name"]
@@ -27,6 +40,8 @@ def build_batch_probe_html(fixtures: List[Dict[str, Any]]) -> str:
             f'  <div class="probe-grid" data-scene="{name}" data-mode="css" style="{css_grid_style}">\n'
             f"{css_children}\n  </div>"
         )
+        if name in tailwind_errors:
+            continue
         tw_grid_decls, tw_item_decls = parse_tailwind_html(scene["tailwind_html"])
         tw_children = "\n".join(
             f'      <div class="probe-item" data-idx="{idx}" style="{decl}"></div>'

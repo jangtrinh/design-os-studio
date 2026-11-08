@@ -49,6 +49,14 @@ fn grid_and_child(columns: u32, rows: u32, child: impl FnOnce(&mut LayoutChild))
     (classes(&html, 0), classes(&html, 1))
 }
 
+/// The classes of a childless grid frame (line 0); the second list is empty.
+fn grid_and_child_less(columns: u32, rows: u32) -> (Vec<String>, Vec<String>) {
+    let (mut d, g) = grid(columns, rows, |_| {});
+    let child = d.get(g).unwrap().children[0];
+    d.remove(child).unwrap();
+    (classes(&tailwind_for(&d, g), 0), vec![])
+}
+
 #[test]
 fn uniform_columns_use_the_scale_up_to_twelve_and_an_arbitrary_value_past_it() {
     let (c12, _) = grid_and_child(12, 0, |_| {});
@@ -62,9 +70,10 @@ fn uniform_columns_use_the_scale_up_to_twelve_and_an_arbitrary_value_past_it() {
 
 #[test]
 fn uniform_rows_use_the_scale_up_to_six_and_an_arbitrary_value_past_it() {
-    let (c6, _) = grid_and_child(3, 6, |_| {});
+    // A grid without children writes the stored template; with children the rows are the solver's.
+    let (c6, _) = grid_and_child_less(3, 6);
     assert!(has(&c6, "grid-rows-6"), "{c6:?}");
-    let (c7, _) = grid_and_child(3, 7, |_| {});
+    let (c7, _) = grid_and_child_less(3, 7);
     assert!(has(&c7, "grid-rows-[repeat(7,minmax(0,1fr))]"), "{c7:?}");
 }
 

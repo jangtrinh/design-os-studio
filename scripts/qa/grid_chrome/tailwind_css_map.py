@@ -9,6 +9,10 @@ VOID_TAGS = frozenset(
 )
 
 
+class UnsupportedTailwindToken(ValueError):
+    """A Tailwind utility the harness cannot translate to CSS; reported as a FAIL for that scene."""
+
+
 class TailwindChildExtractor(HTMLParser):
     """Extracts the root container's class attribute and direct child elements' class attributes."""
 
@@ -59,6 +63,8 @@ def _arbitrary_track_expr(raw: str) -> str:
 
 
 def _scale_px(token_val: str) -> Optional[str]:
+    if token_val == "px":
+        return "1px"
     if token_val.startswith("[") and token_val.endswith("]"):
         return token_val[1:-1]
     try:
@@ -76,6 +82,7 @@ _SIMPLE_TOKENS: Dict[str, List[str]] = {
     "box-border": ["box-sizing: border-box;"],
     "border": ["border-width: 1px;", "border-style: solid;"],
     "border-dashed": ["border-style: dashed;"],
+    "outline": ["outline-style: solid;"],
     "content-start": ["align-content: start;"],
     "items-start": ["align-items: flex-start;"],
     "items-center": ["align-items: center;"],
@@ -119,6 +126,30 @@ def tailwind_token_to_decls(tok: str) -> List[str]:
     if m:
         return [f"border-color: {m.group(1)};"]
 
+    # Per-side border widths: border-t, border-r-2, border-b-[3px] (preflight gives every other side 0).
+    m = re.fullmatch(r"border-([trbl])(?:-(\d+|\[[0-9.]+px\]))?", tok)
+    if m:
+        side = {"t": "top", "r": "right", "b": "bottom", "l": "left"}[m.group(1)]
+        raw = m.group(2)
+        width = "1px" if raw is None else raw[1:-1] if raw.startswith("[") else f"{raw}px"
+        return [f"border-{side}-width: {width};", "border-style: solid;"]
+
+    # Outline strokes: `outline` is the solid style, `outline-N` / `outline-[Npx]` the width.
+    if tok == "outline-dashed":
+        return ["outline-style: dashed;"]
+    m = re.fullmatch(r"outline-offset-\[(-?[0-9.]+px)\]", tok)
+    if m:
+        return [f"outline-offset: {m.group(1)};"]
+    m = re.fullmatch(r"outline-(\d+)", tok)
+    if m:
+        return [f"outline-width: {m.group(1)}px;"]
+    m = re.fullmatch(r"outline-\[([0-9.]+px)\]", tok)
+    if m:
+        return [f"outline-width: {m.group(1)};"]
+    m = re.fullmatch(r"outline-\[(#[0-9A-Fa-f]+|rgba?\([^)]+\))\]", tok)
+    if m:
+        return [f"outline-color: {m.group(1)};"]
+
     m = re.fullmatch(r"grid-cols-(\d+)", tok)
     if m:
         return [f"grid-template-columns: repeat({m.group(1)}, minmax(0, 1fr));"]
@@ -153,12 +184,16 @@ def tailwind_token_to_decls(tok: str) -> List[str]:
             if px is not None:
                 return [f"{prop}: {px};" for prop in props]
 
-    raise ValueError(f"Unsupported Tailwind token in grid harness: {tok!r}")
+    raise UnsupportedTailwindToken(f"Unsupported Tailwind token in grid harness: {tok!r}")
 
 
 def tailwind_classes_to_css(class_str: str) -> str:
     decls: List[str] = []
-    for tok in class_str.split():
+    tokens = class_str.split()
+    if any(re.fullmatch(r"border-[trbl](?:-.+)?", tok) for tok in tokens):
+        # Tailwind's preflight leaves a side without a width class at 0 instead of the browser's `medium`.
+        decls.append("border-width: 0;")
+    for tok in tokens:
         decls.extend(tailwind_token_to_decls(tok))
     return " ".join(decls)
 

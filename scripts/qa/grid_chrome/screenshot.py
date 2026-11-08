@@ -6,7 +6,13 @@ import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 from .fixtures import inline_css, load_fixtures_from_rust
-from .probe_page import MAX_DRIFT_PX, build_batch_probe_html, compare_boxes, measure_batch_in_chrome
+from .probe_page import (
+    MAX_DRIFT_PX,
+    build_batch_probe_html,
+    compare_boxes,
+    measure_batch_in_chrome,
+    scene_tailwind_errors,
+)
 from .tailwind_css_map import parse_tailwind_html
 
 
@@ -42,7 +48,10 @@ def build_screenshot_html(scene: Dict[str, Any], max_abs_drift: Optional[float] 
             f'<div style="position:absolute; left:{it["x"]}px; top:{it["y"]}px; '
             f'width:{it["w"]}px; height:{it["h"]}px; {box_fx}">{span}</div>'
         )
-    tw_grid_decls, tw_item_decls = parse_tailwind_html(scene["tailwind_html"])
+    if scene_tailwind_errors([scene]):
+        tw_grid_decls, tw_item_decls = "", []
+    else:
+        tw_grid_decls, tw_item_decls = parse_tailwind_html(scene["tailwind_html"])
     for idx, decl in enumerate(tw_item_decls):
         color = palette[idx % len(palette)]
         it = scene["items"][idx] if idx < len(scene["items"]) else {"w": 0, "h": 0, "x": 0, "y": 0}
@@ -145,6 +154,7 @@ def run_comparison(
     probe_html = build_batch_probe_html(fixtures)
     measured = measure_batch_in_chrome(chrome_bin, probe_html)
 
+    tailwind_errors = scene_tailwind_errors(fixtures)
     failed = False
     lines: List[str] = []
     report_scenes: Dict[str, Any] = {}
@@ -153,6 +163,18 @@ def run_comparison(
         report_scenes[name] = {}
         for mode in ("css", "tailwind"):
             key = f"{name}:{mode}"
+            if mode == "tailwind" and name in tailwind_errors:
+                failed = True
+                lines.append(f"[FAIL] {name:30s} ({mode:8s}) {tailwind_errors[name]}")
+                report_scenes[name][mode] = {
+                    "status": "FAIL",
+                    "error": tailwind_errors[name],
+                    "max_item_err_px": float("inf"),
+                    "grid_w_err_px": float("inf"),
+                    "grid_h_err_px": float("inf"),
+                    "items": [],
+                }
+                continue
             if key not in measured:
                 failed = True
                 lines.append(f"[FAIL] {key}: missing measurement in Chrome output")

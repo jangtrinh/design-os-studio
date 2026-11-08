@@ -9,6 +9,10 @@ use designos_doc::{
 };
 use designos_export::{css_for, tailwind_for};
 
+#[path = "grid_chrome_fixtures/stroke_and_track_scenes.rs"]
+mod stroke_and_track_scenes;
+use stroke_and_track_scenes as extra;
+
 pub struct GridFixture {
     pub name: &'static str,
     pub doc: Document,
@@ -71,6 +75,15 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_n6_stroke_v0_unpadded_hug(),
         scene_n6c_stroke_v0_unpadded_fixed(),
         scene_c7_single_hug_col_min_w_fill(),
+        extra::scene_c1_stroke_v0_center_unpadded_hug(),
+        extra::scene_c2_stroke_v0_inside_sides_unpadded_hug(),
+        extra::scene_n6d_stroke_v1_padded_fixed(),
+        extra::scene_c3_rows0_fixed_row_tracks_flex_auto(),
+        extra::scene_n2d_fixed_fill_only_hug_col(),
+        extra::scene_s6_explicit_rows_flex(),
+        extra::scene_s8_auto_tracks_fixed(),
+        extra::scene_s10_fixed_width_hug_tracks(),
+        extra::scene_s6b_hug_height_explicit_rows_unequal(),
     ]
 }
 
@@ -852,6 +865,51 @@ fn n6c_stroke_v0_unpadded_fixed_css_and_tailwind() {
 #[test]
 fn c7_single_hug_col_min_w_fill_css_and_tailwind() {
     assert_fixture_css_and_tailwind("c7_single_hug_col_min_w_fill");
+}
+
+#[test]
+fn c1_stroke_v0_center_unpadded_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c1_stroke_v0_center_unpadded_hug");
+}
+
+#[test]
+fn c2_stroke_v0_inside_sides_unpadded_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c2_stroke_v0_inside_sides_unpadded_hug");
+}
+
+#[test]
+fn n6d_stroke_v1_padded_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n6d_stroke_v1_padded_fixed");
+}
+
+#[test]
+fn c3_rows0_fixed_row_tracks_flex_auto_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c3_rows0_fixed_row_tracks_flex_auto");
+}
+
+#[test]
+fn n2d_fixed_fill_only_hug_col_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n2d_fixed_fill_only_hug_col");
+}
+
+#[test]
+fn s6_explicit_rows_flex_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s6_explicit_rows_flex");
+}
+
+#[test]
+fn s8_auto_tracks_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s8_auto_tracks_fixed");
+}
+
+#[test]
+fn s10_fixed_width_hug_tracks_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s10_fixed_width_hug_tracks");
+}
+
+#[test]
+fn s6b_hug_height_explicit_rows_unequal_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s6b_hug_height_explicit_rows_unequal");
 }
 
 #[test]
