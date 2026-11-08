@@ -163,15 +163,29 @@ resolve_android_jar() {
   return 1
 }
 
+ensure_compose_stubs_jar() {
+  local plugin_jar="$1"
+  local stubs_jar="$SCRATCH_ROOT/tmp/compose-stubs.jar"
+  if [[ -f "$stubs_jar" ]]; then
+    return 0
+  fi
+  echo "==> Pre-compiling Compose runtime + UI stubs into $(basename "$stubs_jar")..."
+  kotlinc \
+    "-Xplugin=$plugin_jar" \
+    "$REPO_ROOT/scripts/ci/compose-runtime-stubs.kt" \
+    "$REPO_ROOT/scripts/ci/compose-runtime-internal-stubs.kt" \
+    "$REPO_ROOT/scripts/ci/compose-stubs.kt" \
+    -d "$stubs_jar"
+}
+
 run_kotlinc_compose() {
   local plugin_jar="$1"
   local out_jar="$2"
   shift 2
+  local stubs_jar="$SCRATCH_ROOT/tmp/compose-stubs.jar"
   kotlinc \
     "-Xplugin=$plugin_jar" \
-    -P "plugin:androidx.compose.compiler.plugins.kotlin:skipIrLoweringIfRuntimeNotFound=true" \
-    "$REPO_ROOT/scripts/ci/compose-runtime-stubs.kt" \
-    "$REPO_ROOT/scripts/ci/compose-stubs.kt" \
+    -cp "$stubs_jar" \
     "$@" \
     -d "$out_jar"
 }
@@ -260,6 +274,7 @@ check_kotlin_dir() {
     echo "ERROR: Compose compiler plugin jar (kotlin-compose-compiler-plugin.jar / compose-compiler-plugin.jar) not found" >&2
     return 1
   fi
+  ensure_compose_stubs_jar "$plugin_jar"
 
   shopt -s nullglob
   local kt_files=("$dir/compose"/*.kt)
@@ -446,6 +461,7 @@ run_planted_self_test() {
       ran_any=1
       local plugin_jar
       plugin_jar="$(resolve_compose_plugin_jar)"
+      ensure_compose_stubs_jar "$plugin_jar"
       local out_jar="$SCRATCH_ROOT/tmp/planted-compose.jar"
 
       expect_cmd_failure_with_pattern \
