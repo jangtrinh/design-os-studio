@@ -1862,9 +1862,9 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             fields.remove(&OverrideField::Layout);
         }
         let mut custom_layout_applied = false;
-        if matched.is_some() {
+        if matched.is_some() || same_family {
             if let (Some(orig), Some(new_orig)) = (orig_id.and_then(|id| c.s.get(id)).cloned(), nn.component.source.and_then(|s| c.s.get(s)).cloned()) {
-                if fields.contains(&OverrideField::Layout) {
+                if matched.is_some() && fields.contains(&OverrideField::Layout) {
                     fields.remove(&OverrideField::Layout);
                     custom_layout_applied = apply_transferred_layout(&orig, &new_orig, &old, &mut nn);
                 }
