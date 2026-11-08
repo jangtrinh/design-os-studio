@@ -84,6 +84,9 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         extra::scene_s8_auto_tracks_fixed(),
         extra::scene_s10_fixed_width_hug_tracks(),
         extra::scene_s6b_hug_height_explicit_rows_unequal(),
+        extra::scene_c8_component_grid_center_stroke(),
+        extra::scene_c9_stroke_v1_inside_sides_padded_fixed(),
+        extra::scene_c10_stroke_v1_inside_sides_unpadded_fixed(),
     ]
 }
 
@@ -910,6 +913,85 @@ fn s10_fixed_width_hug_tracks_css_and_tailwind() {
 #[test]
 fn s6b_hug_height_explicit_rows_unequal_css_and_tailwind() {
     assert_fixture_css_and_tailwind("s6b_hug_height_explicit_rows_unequal");
+}
+
+#[test]
+fn c8_component_grid_center_stroke_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c8_component_grid_center_stroke");
+}
+
+#[test]
+fn c9_stroke_v1_inside_sides_padded_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c9_stroke_v1_inside_sides_padded_fixed");
+}
+
+#[test]
+fn c10_stroke_v1_inside_sides_unpadded_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c10_stroke_v1_inside_sides_unpadded_fixed");
+}
+
+/// The pixel list of a CSS declaration such as `grid-template-rows: 40px 40px`, `None` when absent or
+/// when any entry is not a pixel value.
+fn px_list(css: &str, prop: &str) -> Option<Vec<f32>> {
+    let value = css.lines().find_map(|l| l.strip_prefix(&format!("{prop}: ")))?.trim_end_matches(';');
+    value.split(' ').map(|t| t.strip_suffix("px").and_then(|n| n.parse::<f32>().ok())).collect()
+}
+
+fn solver_inputs(f: &GridFixture) -> (AutoLayout, designos_doc::layout_solver::SizeLimits, Vec2, Vec<designos_doc::layout_solver::ChildIn>) {
+    let n = f.doc.get(f.grid).unwrap();
+    let al = n.kind.frame_props().and_then(|p| p.auto_layout.clone()).unwrap();
+    let kids = n.children.iter().filter_map(|id| f.doc.flow_child_input(*id, true)).collect();
+    (al.with_stroke(&n.stroke), designos_doc::layout_solver::SizeLimits::from(&n.layout_child), n.size, kids)
+}
+
+#[test]
+fn exported_pixel_rows_equal_the_rows_the_solver_lays_out() {
+    for name in ["c3_rows0_fixed_row_tracks_flex_auto", "s8_auto_tracks_fixed"] {
+        let f = fixture_named(name);
+        let (al, own, size, kids) = solver_inputs(&f);
+        let solved = designos_doc::layout_solver::grid_row_heights(&al, size, own, &kids);
+        let css = css_for(&f.doc, f.grid);
+        assert_eq!(px_list(&css, "grid-template-rows"), Some(solved.clone()), "{name}: {css}");
+        let tw = tailwind_for(&f.doc, f.grid);
+        let want = format!("grid-rows-[{}]", solved.iter().map(|h| format!("{h}px")).collect::<Vec<_>>().join("_"));
+        assert!(tw.contains(&want), "{name}: {want} missing in {tw}");
+    }
+}
+
+#[test]
+fn exported_hug_columns_equal_the_widths_the_solver_lays_out() {
+    for (name, hug_columns) in [("n2d_fixed_fill_only_hug_col", vec![2usize]), ("s10_fixed_width_hug_tracks", vec![0, 1])] {
+        let f = fixture_named(name);
+        let (al, own, size, kids) = solver_inputs(&f);
+        let solved = designos_doc::layout_solver::grid_column_widths(&al, size, own, &kids);
+        let css = css_for(&f.doc, f.grid);
+        let tracks = css.lines().find_map(|l| l.strip_prefix("grid-template-columns: ")).unwrap().trim_end_matches(';');
+        let mut written = tracks.replace("repeat(2, minmax(0, 1fr))", "fr fr").split(' ').map(String::from).collect::<Vec<_>>();
+        written.retain(|t| !t.is_empty());
+        for c in hug_columns {
+            assert_eq!(written[c], format!("{}px", solved[c]), "{name}: column {c} in {css}");
+        }
+    }
+}
+
+#[test]
+fn exported_stroke_padding_plus_border_equals_the_inset_the_solver_reserves() {
+    // c1: a Center stroke is an outline, so the whole half-weight inset is padding.
+    let f = fixture_named("c1_stroke_v0_center_unpadded_hug");
+    let n = f.doc.get(f.grid).unwrap();
+    let reserved = n.kind.frame_props().and_then(|p| p.auto_layout.as_ref()).unwrap().effective_padding(&n.stroke);
+    let css = css_for(&f.doc, f.grid);
+    assert_eq!(px_list(&css, "padding"), Some(vec![reserved[0]]), "{css}");
+    assert!(css.contains("outline: 2px solid") && !css.contains("border:"), "{css}");
+    // c2: sided Inside strokes the solver reserves are the border, with no padding of their own.
+    let f = fixture_named("c2_stroke_v0_inside_sides_unpadded_hug");
+    let css = css_for(&f.doc, f.grid);
+    assert!(css.contains("border-width: 4px 1px 2px 3px;") && !css.contains("padding:"), "{css}");
+    // n6d: version 1 reserves nothing, so the padding is the stored one and the stroke is an outline.
+    let f = fixture_named("n6d_stroke_v1_padded_fixed");
+    let css = css_for(&f.doc, f.grid);
+    assert_eq!(px_list(&css, "padding"), Some(vec![8.0]), "{css}");
+    assert!(css.contains("outline-offset: -2px;"), "{css}");
 }
 
 #[test]

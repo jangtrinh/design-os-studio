@@ -1,7 +1,7 @@
 //! Figma Dev Mode style CSS for a node.
 
 use crate::codegen::{web_sizes, Dim, Parent};
-use crate::grid_stroke::{stroke_is_drawn, GridStroke};
+use crate::grid_stroke::{stroke_is_drawn, GridStroke, StrokeModel};
 use crate::svg::blend_css;
 use crate::util::{css_color, num, num2};
 use designos_doc::*;
@@ -125,7 +125,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
-            let border_takes_space = grid_stroke.is_some_and(|g| g.border);
+            let border_takes_space = grid_stroke.is_some_and(|g| g.border());
             if al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) || crate::codegen::padding_is_bound(doc, n) || border_takes_space {
                 push("box-sizing", "border-box".into());
             }
@@ -227,6 +227,10 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     // effects
     let mut shadows = Vec::new();
     let mut text_shadows = Vec::new();
+    if let (Some(g), Some(p)) = (grid_stroke.filter(|g| g.model == StrokeModel::Shadow), n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0)) {
+        let color = solid_or_first(p);
+        shadows.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset {}px {}px 0 0 {color}", num(*x), num(*y))));
+    }
     for e in &n.effects {
         match e {
             Effect::DropShadow { color, offset, radius, spread, visible: true, .. } => {
@@ -365,6 +369,9 @@ fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>) {
     if !stroke_is_drawn(n) {
         return;
     }
+    if grid.is_some_and(|g| g.model == StrokeModel::Shadow) {
+        return; // drawn as inset shadows with the other effects
+    }
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
     let style = if st.dashes.iter().any(|d| *d > 0.0) { "dashed" } else { "solid" };
     if matches!(n.kind, NodeKind::Text(_)) {
@@ -379,7 +386,7 @@ fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>) {
         return;
     }
     let side_bindings = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
-    let as_border = grid.map_or(st.align == StrokeAlign::Inside, |g| g.border);
+    let as_border = grid.map_or(st.align == StrokeAlign::Inside, |g| g.border());
     if as_border && st.align == StrokeAlign::Inside && (st.side_weights.is_some() || side_bindings.iter().any(|key| n.variables.bindings.contains_key(*key))) {
         let [t, r, b, l] = st.side_weights.unwrap_or([st.weight; 4]);
         push("border-width", box_shorthand(t, r, b, l));

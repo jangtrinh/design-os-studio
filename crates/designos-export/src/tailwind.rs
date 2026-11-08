@@ -2,6 +2,7 @@
 
 use crate::codegen::*;
 use crate::css::paint_css;
+use crate::grid_stroke::{GridStroke, StrokeModel};
 use crate::slots::*;
 use crate::util::{css_color, num, num2};
 use designos_doc::*;
@@ -199,8 +200,15 @@ fn opacity_class(o: f32) -> Option<String> {
     }
 }
 
-fn shadow_value(n: &Node) -> Option<String> {
+fn shadow_value(n: &Node, stroke: Option<GridStroke>) -> Option<String> {
     let mut parts = Vec::new();
+    if let (Some(g), Some(p)) = (stroke, n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0)) {
+        let color = match &p.kind {
+            PaintKind::Solid(c) => hex8(c, p.opacity),
+            _ => "transparent".to_string(),
+        };
+        parts.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset_{}px_{}px_0px_0px_{color}", num(*x), num(*y))));
+    }
     for e in &n.effects {
         match e {
             Effect::DropShadow { color, offset, radius, spread, visible: true, .. } => {
@@ -437,7 +445,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
                 }
             }
             let pads = pad_classes(doc, n, al);
-            let border_takes_space = crate::grid_stroke::grid_stroke_of(doc, n).is_some_and(|g| g.border);
+            let border_takes_space = crate::grid_stroke::grid_stroke_of(doc, n).is_some_and(|g| g.border());
             if !pads.is_empty() || al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) || border_takes_space {
                 c.push("box-border".into());
             }
@@ -542,7 +550,10 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         .filter(|_| text_of(n).is_none() && has_stroke_width)
     {
         let w = n.stroke.weight;
-        if crate::grid_stroke::grid_stroke_of(doc, n).is_some_and(|g| !g.border) {
+        let grid_model = crate::grid_stroke::grid_stroke_of(doc, n).map(|g| g.model);
+        if grid_model == Some(StrokeModel::Shadow) {
+            // drawn as inset shadows with the other effects
+        } else if grid_model == Some(StrokeModel::Outline) {
             c.extend(outline_classes(doc, n, p));
         } else {
             let side_prefixes = ["border-t", "border-r", "border-b", "border-l"];
@@ -589,7 +600,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         c.push("overflow-hidden".into());
     }
     // effects
-    if let Some(s) = shadow_value(n) {
+    if let Some(s) = shadow_value(n, crate::grid_stroke::grid_stroke_of(doc, n).filter(|g| g.model == StrokeModel::Shadow)) {
         c.push(s);
     }
     for e in &n.effects {

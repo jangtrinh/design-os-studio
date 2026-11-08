@@ -3,7 +3,7 @@
 //! explicit rows, Fill in an `auto` column, `grid-auto-rows`, Hug columns in a fixed-width grid).
 
 use super::{add_item, new_grid, GridFixture};
-use designos_doc::{AutoLayout, Color, GridAutoTracks, GridTrack, Node, Paint, Sizing, StrokeAlign, Vec2};
+use designos_doc::{AutoLayout, Color, GridAutoTracks, GridTrack, Node, NodeKind, Paint, Sizing, StrokeAlign, Vec2};
 
 fn stroke_2px(n: &mut Node, align: StrokeAlign) {
     n.stroke.paints = vec![Paint::solid(Color::rgb(0x33, 0x33, 0x33))];
@@ -129,4 +129,54 @@ pub fn scene_s6b_hug_height_explicit_rows_unequal() -> GridFixture {
     doc.relayout_subtree(grid);
     GridFixture { name: "s6b_hug_height_explicit_rows_unequal", doc, grid, items: vec![a, b, c, d], expected_css: "display: grid;\nwidth: 300px;\nheight: 70px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;",
         expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[300px] h-[70px]\">\n  <div class=\"w-[30px] h-5\"></div>\n  <div class=\"w-[30px] h-5\"></div>\n  <div class=\"w-[30px] h-[50px]\"></div>\n  <div class=\"w-[30px] h-[50px]\"></div>\n</div>", }
+}
+
+pub fn scene_c10_stroke_v1_inside_sides_unpadded_fixed() -> GridFixture {
+    let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Hug);
+    al.layout_version = 1;
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 60.0));
+    let n = doc.get_mut(grid).unwrap();
+    stroke_2px(n, StrokeAlign::Inside);
+    n.stroke.side_weights = Some([4.0, 1.0, 2.0, 3.0]);
+    let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture { name: "c10_stroke_v1_inside_sides_unpadded_fixed", doc, grid, items: vec![a, b], expected_css: "display: grid;\nwidth: 200px;\nheight: 30px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nbox-shadow: inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[200px] h-[30px] shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>", }
+}
+
+/// A grid component (not a plain frame) with a Center stroke: the container kinds share one stroke model.
+pub fn scene_c8_component_grid_center_stroke() -> GridFixture {
+    let mut al = base(3, 0.0, Sizing::Hug, Sizing::Hug);
+    al.layout_version = 0;
+    al.stroke_included = true;
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    let n = doc.get_mut(grid).unwrap();
+    stroke_2px(n, StrokeAlign::Center);
+    if let NodeKind::Frame(props) = std::mem::replace(&mut n.kind, NodeKind::Rectangle) {
+        n.kind = NodeKind::Component(props);
+    }
+    let a = add_item(&mut doc, grid, 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let c = add_item(&mut doc, grid, 60.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture { name: "c8_component_grid_center_stroke", doc, grid, items: vec![a, b, c], expected_css: "display: grid;\nwidth: 202px;\nheight: 32px;\npadding: 1px;\nbox-sizing: border-box;\ngrid-template-columns: 100px 40px 60px;\nalign-content: start;\noutline: 2px solid #333;\noutline-offset: -1px;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_60px] content-start box-border p-px w-[202px] h-8 outline outline-2 outline-[#333333] outline-offset-[-1px]\">\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n  <div class=\"w-15 h-[30px]\"></div>\n</div>", }
+}
+
+/// Version 1 (the solver never insets for a stroke), Inside stroke with sides 4/1/2/3 and padding 8: the
+/// stroke is inset shadows, which take no space, so the padding stays 8.
+pub fn scene_c9_stroke_v1_inside_sides_padded_fixed() -> GridFixture {
+    let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Hug);
+    al.layout_version = 1;
+    al.padding = [8.0; 4];
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 60.0));
+    let n = doc.get_mut(grid).unwrap();
+    stroke_2px(n, StrokeAlign::Inside);
+    n.stroke.side_weights = Some([4.0, 1.0, 2.0, 3.0]);
+    let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture { name: "c9_stroke_v1_inside_sides_padded_fixed", doc, grid, items: vec![a, b], expected_css: "display: grid;\nwidth: 200px;\nheight: 46px;\npadding: 8px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nbox-shadow: inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start box-border p-2 w-[200px] h-[46px] shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>", }
 }

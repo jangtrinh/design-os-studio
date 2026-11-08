@@ -134,6 +134,10 @@ def tailwind_token_to_decls(tok: str) -> List[str]:
         width = "1px" if raw is None else raw[1:-1] if raw.startswith("[") else f"{raw}px"
         return [f"border-{side}-width: {width};", "border-style: solid;"]
 
+    m = re.fullmatch(r"shadow-\[(.+)\]", tok)
+    if m:
+        return [f"box-shadow: {m.group(1).replace('_', ' ')};"]
+
     # Outline strokes: `outline` is the solid style, `outline-N` / `outline-[Npx]` the width.
     if tok == "outline-dashed":
         return ["outline-style: dashed;"]
