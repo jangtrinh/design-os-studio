@@ -639,11 +639,11 @@ Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {
         Rectangle()
             .fill(Color(red: 0.2, green: 0.4, blue: 0.8))
             .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
-            .frame(width: 95, height: 40, alignment: .topLeading)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .topLeading)
         Rectangle()
             .fill(Color(red: 0.302, green: 0.502, blue: 0.902))
             .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
-            .frame(width: 95, height: 40, alignment: .topLeading)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .topLeading)
     }
     Rectangle()
         .fill(Color(red: 0.502, green: 0.502, blue: 0.502))
@@ -663,7 +663,7 @@ Box(
         .background(Color(0xFFF5F5FA), RoundedCornerShape(8.dp))
 ) {
     LazyVerticalGrid(
-        columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(95.dp, 95.dp).map { it.roundToPx() } },
+        columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> { val fixed = listOf(0.dp, 0.dp).map { it.roundToPx() }; val weights = listOf(1f, 1f); val unit = (availableSize - spacing * 1 - fixed.sum()) / weights.sum(); return fixed.indices.map { fixed[it] + (weights[it] * unit).toInt() } } },
         modifier = Modifier
             .fillMaxSize()
             .padding(10.dp),

@@ -4,7 +4,7 @@
 //! text, at the design's base width, and compares them with the layout solver's.
 
 use designos_doc::layout_solver::{grid_column_widths, ChildIn, SizeLimits};
-use designos_doc::{AutoLayout, Color, Document, FrameProps, GridTrack, LayoutDirection, Node, NodeId, NodeKind, Paint, Rect, Sizing, Vec2};
+use designos_doc::{AutoLayout, Color, Document, FrameProps, GridTrack, LayoutDirection, Node, NodeId, NodeKind, Paint, Rect, Sizing};
 use designos_export::{android_xml_for, compose_for, swiftui_for, uikit_for};
 
 const PAD: f32 = 10.0;
@@ -151,7 +151,7 @@ fn android_flex_tracks_are_column_weights_and_fixed_tracks_are_dp() {
 #[test]
 fn android_hugging_grid_keeps_solved_pixels() {
     let s = scene(&[GridTrack::Flex(1.0), GridTrack::Flex(1.0)], Sizing::Hug, &[100.0, 100.0, 100.0, 100.0]);
-    let xml =android_xml_for(&s.doc, s.grid);
+    let xml = android_xml_for(&s.doc, s.grid);
     assert!(!xml.contains("columnWeight"), "{xml}");
 }
 
@@ -172,9 +172,9 @@ fn swiftui_unequal_weights_fall_back_to_solved_pixels_with_a_comment() {
     // `Grid` has no per-column weight, so unequal flex weights keep the solver's widths.
     let s = mixed(2.0, 1.0);
     let out = swiftui_for(&s.doc, s.grid);
-    assert!(!out.contains("maxWidth: .infinity"), "{out}");
+    assert!(!out.contains("minWidth:"), "{out}");
     for w in solver_widths(&s) {
-        let ws = format!("{}", (w * 100.0).round() / 100.0);
+        let ws = format!("{}", (w * 1000.0).round() / 1000.0);
         assert!(out.contains(&format!("width: {ws}, height:")), "missing width {ws}:\n{out}");
     }
     assert!(out.contains("unequal column weights"), "{out}");
@@ -184,7 +184,8 @@ fn swiftui_unequal_weights_fall_back_to_solved_pixels_with_a_comment() {
 fn uikit_flex_tracks_are_proportional_constraints_and_fixed_tracks_are_constants() {
     let s = mixed(2.0, 1.0);
     let out = uikit_for(&s.doc, s.grid);
-    let unit_line = out.lines().find(|l| l.contains("colUnit.widthAnchor.constraint(equalTo: ") && l.contains("multiplier: 1.0 / ")).unwrap_or_else(|| panic!("{out}"));
+    let unit_line =
+        out.lines().find(|l| l.contains("colUnit.widthAnchor.constraint(equalTo: ") && l.contains("multiplier: 1.0 / ")).unwrap_or_else(|| panic!("{out}"));
     let total: f32 = between(unit_line, "multiplier: 1.0 / ", ",").trim().parse().unwrap();
     let minus: f32 = between(unit_line, "constant: -", " / ").trim().parse().unwrap();
     let unit = WIDTH / total - minus / total;
@@ -212,4 +213,31 @@ fn uikit_hugging_grid_keeps_solved_pixels() {
     let s = scene(&[GridTrack::Flex(1.0), GridTrack::Flex(1.0)], Sizing::Hug, &[100.0, 100.0, 100.0, 100.0]);
     let out = uikit_for(&s.doc, s.grid);
     assert!(!out.contains("colUnit"), "{out}");
+}
+
+/// The weighted UIKit export compiles against the iOS SDK. Skipped where `xcrun` or the SDK is missing.
+#[test]
+fn uikit_weighted_grid_typechecks_with_swiftc() {
+    let Ok(sdk) = std::process::Command::new("xcrun").args(["--sdk", "iphonesimulator", "--show-sdk-path"]).output() else {
+        eprintln!("uikit typecheck skipped: xcrun is not installed");
+        return;
+    };
+    if !sdk.status.success() {
+        eprintln!("uikit typecheck skipped: no iphonesimulator SDK");
+        return;
+    }
+    let sdk = String::from_utf8_lossy(&sdk.stdout).trim().to_string();
+    let dir = std::env::temp_dir().join(format!("designos-uikit-weights-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let s = mixed(2.0, 1.0);
+    let source = format!("import UIKit\nfunc build() -> UIView {{\n{}\nreturn gridFrame\n}}\n", uikit_for(&s.doc, s.grid));
+    let path = dir.join("weighted_grid.swift");
+    std::fs::write(&path, &source).unwrap();
+    let out = std::process::Command::new("swiftc")
+        .args(["-typecheck", "-sdk", &sdk, "-target", "arm64-apple-ios17.0-simulator"])
+        .arg(&path)
+        .output()
+        .expect("run swiftc");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(out.status.success(), "swiftc rejected the UIKit export:\n{}\n{source}", String::from_utf8_lossy(&out.stderr));
 }

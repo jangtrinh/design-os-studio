@@ -224,6 +224,34 @@ fn solver_expectations(scene: &NativeGridScene) -> (Vec<f32>, Vec<f32>, Vec<Plac
     (widths, rows, placed, col_gap, row_gap, al.padding)
 }
 
+/// Weight of each column the generators share the free width by, or `None` for a column kept at
+/// pixels: the grid's width is fixed, the track is Flex, and the solved flexible widths are in
+/// proportion to their weights.
+fn weighted_cols(scene: &NativeGridScene) -> Vec<Option<f32>> {
+    let (widths, ..) = solver_expectations(scene);
+    let n = scene.doc.get(scene.grid).unwrap();
+    let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    let weight = |c: usize| match al.grid_col_tracks.get(c).copied().unwrap_or_default() {
+        GridTrack::Flex(fr) if fr.is_finite() && fr > 0.0 => Some(fr),
+        GridTrack::Flex(_) => Some(1.0),
+        _ => None,
+    };
+    let units: Vec<f32> = (0..widths.len()).filter_map(|c| weight(c).map(|w| widths[c] / w)).collect();
+    let proportional = units.windows(2).all(|u| (u[0] - u[1]).abs() <= 0.5);
+    if al.primary_sizing == Sizing::Hug || !proportional {
+        return vec![None; widths.len()];
+    }
+    (0..widths.len()).map(weight).collect()
+}
+
+/// For a cell over columns `col..col + span`: the weight its columns share and the fixed pixels
+/// (fixed columns and the gaps inside the span) it adds.
+fn span_weight_and_px(weights: &[Option<f32>], widths: &[f32], col_gap: f32, col: usize, span: usize) -> (f32, f32) {
+    let weight = (col..col + span).filter_map(|c| weights[c]).sum();
+    let px = (col..col + span).filter(|c| weights[*c].is_none()).map(|c| widths[c]).sum::<f32>() + col_gap * (span.saturating_sub(1) as f32);
+    (weight, px)
+}
+
 fn solver_kids(scene: &NativeGridScene) -> Vec<ChildIn> {
     let n = scene.doc.get(scene.grid).unwrap();
     n.children.iter().filter_map(|id| scene.doc.flow_child_input(*id, true)).collect()
@@ -496,13 +524,14 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
     let swift = swiftui_for(&scene.doc, scene.grid);
     assert!(swift.contains("Grid("), "{name} SwiftUI missing Grid(: {swift}");
     assert_eq!(swift.matches("GridRow {").count(), rows.len(), "{name} SwiftUI GridRow count != {}: {swift}", rows.len());
-    for &w in &widths {
+    let weights = weighted_cols(scene);
+    for (c, &w) in widths.iter().enumerate().filter(|(c, _)| weights[*c].is_none()) {
         let ws = fmt_num(w);
-        assert!(swift.contains(&format!("width: {ws}, height:")), "{name} SwiftUI missing column width {ws}: {swift}");
+        assert!(swift.contains(&format!("width: {ws}, height:")), "{name} SwiftUI missing column {c} width {ws}: {swift}");
     }
     for &h in &rows {
         let hs = fmt_num(h);
-        assert!(swift.contains(&format!("height: {hs}")), "{name} SwiftUI missing row height {hs}: {swift}");
+        assert!(swift.contains(&format!("eight: {hs}")), "{name} SwiftUI missing row height {hs}: {swift}");
     }
     for (cid, (p, k)) in flow_ids.into_iter().zip(placed.iter().zip(&kids)) {
         let child_name = &scene.doc.get(cid).unwrap().name;
@@ -521,12 +550,25 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
             (GridChildAlign::End, GridChildAlign::End) => ".bottomTrailing",
             _ => ".topLeading",
         };
-        let needle = format!(".frame(width: {}, height: {}, alignment: {swift_align})", fmt_num(cell_w), fmt_num(cell_h_first));
+        let (span_weight, span_px) = span_weight_and_px(&weights, &widths, col_gap, p.col, p.col_span);
+        let swift_frame = |h: f32| {
+            if span_weight > 0.0 {
+                format!(
+                    ".frame(minWidth: {}, maxWidth: .infinity, minHeight: {}, maxHeight: {}, alignment: {swift_align})",
+                    fmt_num(span_px),
+                    fmt_num(h),
+                    fmt_num(h)
+                )
+            } else {
+                format!(".frame(width: {}, height: {}, alignment: {swift_align})", fmt_num(cell_w), fmt_num(h))
+            }
+        };
+        let needle = swift_frame(cell_h_first);
         assert!(cell_code.contains(&needle), "{name} SwiftUI cell for {child_name:?} missing cell frame {needle}:\n{cell_code}");
         if p.row_span > 1 {
             let cell_h_span: f32 = (0..p.row_span).map(|dr| rows[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
             if (cell_h_span - cell_h_first).abs() > 1e-4 {
-                let bad_needle = format!(".frame(width: {}, height: {}, alignment: {swift_align})", fmt_num(cell_w), fmt_num(cell_h_span));
+                let bad_needle = swift_frame(cell_h_span);
                 assert!(
                     !cell_code.contains(&bad_needle),
                     "{name} SwiftUI row-span cell for {child_name:?} must use first-row height {}, not span height {bad_needle}:\n{cell_code}",
@@ -551,8 +593,17 @@ fn assert_compose_scene(scene: &NativeGridScene) {
     let flow_ids = solver_flow_ids(&scene.doc, scene.grid);
     let compose = compose_for(&scene.doc, scene.grid);
     assert!(compose.contains("LazyVerticalGrid("), "{name} Compose missing LazyVerticalGrid(: {compose}");
-    let widths_dp = widths.iter().map(|w| format!("{}.dp", fmt_num(*w))).collect::<Vec<_>>().join(", ");
-    assert!(compose.contains(&format!("listOf({widths_dp})")), "{name} Compose missing listOf({widths_dp}): {compose}");
+    let weights = weighted_cols(scene);
+    if weights.iter().any(Option::is_some) {
+        let fixed =
+            widths.iter().zip(&weights).map(|(w, k)| format!("{}.dp", if k.is_some() { "0".to_string() } else { fmt_num(*w) })).collect::<Vec<_>>().join(", ");
+        let shares = weights.iter().map(|k| format!("{}f", fmt_num(k.unwrap_or(0.0)))).collect::<Vec<_>>().join(", ");
+        assert!(compose.contains(&format!("val fixed = listOf({fixed})")), "{name} Compose missing fixed listOf({fixed}): {compose}");
+        assert!(compose.contains(&format!("val weights = listOf({shares})")), "{name} Compose missing weights listOf({shares}): {compose}");
+    } else {
+        let widths_dp = widths.iter().map(|w| format!("{}.dp", fmt_num(*w))).collect::<Vec<_>>().join(", ");
+        assert!(compose.contains(&format!("listOf({widths_dp})")), "{name} Compose missing listOf({widths_dp}): {compose}");
+    }
     for &h in &rows {
         let hs = fmt_num(h);
         assert!(compose.contains(&format!("Modifier.height({hs}.dp)")), "{name} Compose missing row height {hs}.dp: {compose}");
@@ -613,6 +664,16 @@ fn assert_uikit_scene(scene: &NativeGridScene) {
     let (widths, rows, placed, col_gap, _, _) = solver_expectations(scene);
     let kids = solver_kids(scene);
     let uikit = uikit_for(&scene.doc, scene.grid);
+    let weights = weighted_cols(scene);
+    let uikit_width = |name: &str, col: usize, span: usize| {
+        let (weight, px) = span_weight_and_px(&weights, &widths, col_gap, col, span);
+        if weight > 0.0 {
+            format!("{name}.widthAnchor.constraint(equalTo: colUnit.widthAnchor, multiplier: {}, constant: {})", fmt_num(weight), fmt_num(px))
+        } else {
+            let w: f32 = (col..col + span).map(|c| widths[c]).sum::<f32>() + col_gap * (span.saturating_sub(1) as f32);
+            format!("{name}.widthAnchor.constraint(equalToConstant: {})", fmt_num(w))
+        }
+    };
     assert_eq!(uikit.matches(".axis = .horizontal").count(), rows.len(), "{name} UIKit horizontal row stack count != {}: {uikit}", rows.len());
     let mut cell_counter = 0usize;
     let mut hole_counter = 0usize;
@@ -622,8 +683,7 @@ fn assert_uikit_scene(scene: &NativeGridScene) {
             if let Some((p, k)) = placed.iter().zip(&kids).find(|(p, _)| p.row == r && p.col == c) {
                 cell_counter += 1;
                 let cell_name = if cell_counter == 1 { "cell".to_string() } else { format!("cell{cell_counter}") };
-                let cell_w: f32 = (0..p.col_span).map(|dc| widths[p.col + dc]).sum::<f32>() + col_gap * (p.col_span.saturating_sub(1) as f32);
-                let w_con = format!("{cell_name}.widthAnchor.constraint(equalToConstant: {})", fmt_num(cell_w));
+                let w_con = uikit_width(&cell_name, p.col, p.col_span);
                 let h_con = format!("{cell_name}.heightAnchor.constraint(equalToConstant: {})", fmt_num(row_h));
                 assert!(uikit.contains(&w_con), "{name} UIKit missing {w_con}: {uikit}");
                 assert!(uikit.contains(&h_con), "{name} UIKit missing {h_con}: {uikit}");
@@ -644,7 +704,7 @@ fn assert_uikit_scene(scene: &NativeGridScene) {
             } else {
                 hole_counter += 1;
                 let hole_name = if hole_counter == 1 { "hole".to_string() } else { format!("hole{hole_counter}") };
-                let w_con = format!("{hole_name}.widthAnchor.constraint(equalToConstant: {})", fmt_num(widths[c]));
+                let w_con = uikit_width(&hole_name, c, 1);
                 let h_con = format!("{hole_name}.heightAnchor.constraint(equalToConstant: {})", fmt_num(row_h));
                 assert!(uikit.contains(&w_con), "{name} UIKit missing hole {w_con}: {uikit}");
                 assert!(uikit.contains(&h_con), "{name} UIKit missing hole {h_con}: {uikit}");
@@ -662,12 +722,16 @@ fn assert_android_scene(scene: &NativeGridScene) {
     assert!(xml.contains("<GridLayout"), "{name} Android missing <GridLayout: {xml}");
     assert!(xml.contains(&format!("android:columnCount=\"{}\"", widths.len())), "{name} Android missing columnCount={}: {xml}", widths.len());
     assert!(xml.contains(&format!("android:rowCount=\"{}\"", rows.len())), "{name} Android missing rowCount={}: {xml}", rows.len());
+    let weights = weighted_cols(scene);
     for (c, &w) in widths.iter().enumerate() {
         let covered = placed.iter().any(|p| p.col == c && p.col_span == 1);
         if !covered {
+            let (width, weight_attr) = match weights[c] {
+                Some(k) => ("0dp".to_string(), format!("\n        android:layout_columnWeight=\"{}\"", fmt_num(k))),
+                None => (format!("{}dp", fmt_num(w)), String::new()),
+            };
             let space_col = format!(
-                "android:layout_width=\"{}dp\"\n        android:layout_height=\"0dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"{c}\"",
-                fmt_num(w)
+                "android:layout_width=\"{width}\"\n        android:layout_height=\"0dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"{c}\"{weight_attr}"
             );
             assert!(xml.contains(&space_col), "{name} Android missing column <Space> for col {c}: {xml}");
         }
@@ -685,12 +749,17 @@ fn assert_android_scene(scene: &NativeGridScene) {
     for (p, k) in placed.iter().zip(&kids) {
         let cell_w: f32 = (0..p.col_span).map(|dc| widths[p.col + dc]).sum::<f32>() + col_gap * (p.col_span.saturating_sub(1) as f32);
         let cell_h_span: f32 = (0..p.row_span).map(|dr| rows[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
+        let (span_weight, _) = span_weight_and_px(&weights, &widths, col_gap, p.col, p.col_span);
+        let width_attr = if span_weight > 0.0 { "0dp".to_string() } else { format!("{}dp", fmt_num(cell_w)) };
         let mut cell_attrs = vec![
-            format!("android:layout_width=\"{}dp\"", fmt_num(cell_w)),
+            format!("android:layout_width=\"{width_attr}\""),
             format!("android:layout_height=\"{}dp\"", fmt_num(cell_h_span)),
             format!("android:layout_row=\"{}\"", p.row),
             format!("android:layout_column=\"{}\"", p.col),
         ];
+        if span_weight > 0.0 {
+            cell_attrs.push(format!("android:layout_columnWeight=\"{}\"", fmt_num(span_weight)));
+        }
         if p.row_span > 1 {
             cell_attrs.push(format!("android:layout_rowSpan=\"{}\"", p.row_span));
         }
@@ -1049,8 +1118,9 @@ fn overlap_in_same_cell_keeps_all_children_and_solver_offsets() {
     assert!(swift.contains("ZStack(alignment: .topLeading)"), "SwiftUI missing ZStack for overlapping cell:\n{swift}");
     let primary_swift = swiftui_cell_for(&doc, grid, &swift, "PrimaryTile");
     assert!(
-        primary_swift.contains(".frame(width: 100, height: 60)\n                .frame(width: 100, height: 60, alignment: .topLeading)")
-            && primary_swift.contains("}\n            .frame(width: 100, height: 60, alignment: .topLeading)"),
+        primary_swift.contains(
+            ".frame(width: 100, height: 60)\n                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 60, maxHeight: 60, alignment: .topLeading)"
+        ) && primary_swift.contains("}\n            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 60, maxHeight: 60, alignment: .topLeading)"),
         "SwiftUI PrimaryTile cell should frame primary and outer ZStack at 100x60 .topLeading:\n{primary_swift}"
     );
     let badge_swift = swiftui_cell_for(&doc, grid, &swift, "OverlapBadge");
@@ -1144,8 +1214,11 @@ fn overlap_inside_col_span_keeps_all_children_and_solver_offsets() {
     );
     let banner_swift = swiftui_cell_for(&doc, grid, &swift, "SpanBanner");
     assert!(
-        banner_swift.contains(".frame(width: 210, height: 60)\n                .frame(width: 210, height: 60, alignment: .topLeading)")
-            && banner_swift.contains("}\n            .frame(width: 210, height: 60, alignment: .topLeading)\n            .gridCellColumns(2)"),
+        banner_swift.contains(
+            ".frame(width: 210, height: 60)\n                .frame(minWidth: 10, maxWidth: .infinity, minHeight: 60, maxHeight: 60, alignment: .topLeading)"
+        ) && banner_swift.contains(
+            "}\n            .frame(minWidth: 10, maxWidth: .infinity, minHeight: 60, maxHeight: 60, alignment: .topLeading)\n            .gridCellColumns(2)"
+        ),
         "SwiftUI SpanBanner cell:\n{banner_swift}"
     );
     let chip_swift = swiftui_cell_for(&doc, grid, &swift, "Col1Chip");
@@ -1929,7 +2002,7 @@ fn android_span_only_column_and_row_emit_space() {
     doc1.relayout_subtree(grid1);
     let xml1 = android_xml_for(&doc1, grid1);
     assert!(
-        xml1.contains("<Space\n        android:layout_width=\"100dp\"\n        android:layout_height=\"0dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"1\"\n        android:layout_marginStart=\"10dp\" />"),
+        xml1.contains("<Space\n        android:layout_width=\"0dp\"\n        android:layout_height=\"0dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"1\"\n        android:layout_columnWeight=\"1\"\n        android:layout_marginStart=\"10dp\" />"),
         "Android XML missing <Space> for span-only column 1:\n{xml1}"
     );
 
@@ -2149,12 +2222,15 @@ fn bound_counter_axis_spacing_and_non_start_cell_alignments() {
     assert!(swift.contains("verticalSpacing: Tokens.spacingRowGap"), "SwiftUI missing bound counterAxisSpacing token:\n{swift}");
     let cb_swift = swiftui_cell_for(&scene.doc, scene.grid, &swift, "CenterBottomItem");
     assert!(
-        cb_swift.contains(".frame(width: 60, height: 24)\n            .frame(width: 100, height: 24, alignment: .bottom)"),
+        cb_swift
+            .contains(".frame(width: 60, height: 24)\n            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 24, maxHeight: 24, alignment: .bottom)"),
         "SwiftUI CenterBottomItem cell must have 60x24 view in 100x24 .bottom cell:\n{cb_swift}"
     );
     let ec_swift = swiftui_cell_for(&scene.doc, scene.grid, &swift, "EndCenterItem");
     assert!(
-        ec_swift.contains(".frame(width: 64, height: 24)\n            .frame(width: 100, height: 24, alignment: .trailing)"),
+        ec_swift.contains(
+            ".frame(width: 64, height: 24)\n            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 24, maxHeight: 24, alignment: .trailing)"
+        ),
         "SwiftUI EndCenterItem cell must have 64x24 view in 100x24 .trailing cell:\n{ec_swift}"
     );
 
@@ -2236,7 +2312,7 @@ fn auto_cell_under_end_container_exports_bottom_center() {
     let swift = swiftui_for(&doc, grid);
     let cell = swiftui_cell_for(&doc, grid, &swift, "AutoUnderEnd");
     assert!(
-        cell.contains(".frame(width: 60, height: 24)\n            .frame(width: 100, height: 24, alignment: .bottom)"),
+        cell.contains(".frame(width: 60, height: 24)\n            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 24, maxHeight: 24, alignment: .bottom)"),
         "SwiftUI Auto cell under a Center primary and End counter container must align .bottom:\n{cell}"
     );
     let compose = compose_for(&doc, grid);
