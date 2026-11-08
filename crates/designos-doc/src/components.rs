@@ -9159,17 +9159,99 @@ mod tests {
         let page = d.add_page("P");
         let a = main_with_texts(&mut d, page, "Size=A", 0.0, &["Label"]);
         let b = main_with_texts(&mut d, page, "Size=B", 200.0, &["Title"]);
-        let c = combine_as_variants(&mut d, &[a, b]);
+        let c_var = main_with_texts(&mut d, page, "Size=C", 400.0, &["Title"]);
+        {
+            let title_c = child_named(&d, c_var, "Title");
+            let mut tn = d.get(title_c).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut tn.kind {
+                tp.content = "Saved".into();
+            }
+            apply(&mut d, Command::Update { node: Box::new(tn) });
+        }
+        let c = combine_as_variants(&mut d, &[a, b, c_var]);
         apply(&mut d, c);
-        let c = create_instance(&mut d, a, page, Vec2::new(0.0, 900.0));
+        for (value, target, expect) in [("B", b, "Hello"), ("C", c_var, "Saved")] {
+            let c = create_instance(&mut d, a, page, Vec2::new(0.0, 900.0));
+            apply(&mut d, c);
+            let inst = *d.get(page).unwrap().children.last().unwrap();
+            let lbl = child_named(&d, inst, "Label");
+            override_text(&mut d, lbl, "Hello");
+            let c = set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant(value.into())));
+            apply(&mut d, c);
+            assert_eq!(instance_component(d.get(inst).unwrap()), Some(target));
+            assert_eq!(text_of(&d, d.get(inst).unwrap().children[0]), expect, "switch to {value}");
+        }
+    }
+
+    #[test]
+    fn variant_switch_resets_single_text_override_when_variants_originally_differed() {
+        let mut d = Document::new("VariantSingleTextGate");
+        let page = d.add_page("P");
+        let mk_variant = |d: &mut Document, name: &str, x: f32, layer_name: &str, text: &str, font_size: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 100.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let style = TextStyle { font_size, ..TextStyle::default() };
+            let mut tn = Node::text(tid, Rect::new(0.0, 0.0, 60.0, 20.0), text, style);
+            tn.name = layer_name.into();
+            d.insert(comp, tn).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let v_default = mk_variant(&mut d, "State=Default", 0.0, "Label", "Save", 14.0);
+        let v_done = mk_variant(&mut d, "State=Done", 120.0, "Title", "Saved", 14.0);
+        let v_loading = mk_variant(&mut d, "State=Loading", 240.0, "Heading", "Save", 16.0);
+        let c = combine_as_variants(&mut d, &[v_default, v_done, v_loading]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, v_default, page, Vec2::new(0.0, 200.0));
         apply(&mut d, c);
         let inst = *d.get(page).unwrap().children.last().unwrap();
-        let lbl = child_named(&d, inst, "Label");
-        override_text(&mut d, lbl, "Hello");
-        let c = set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant("B".into())));
+        {
+            let lbl = child_named(&d, inst, "Label");
+            let mut ln = d.get(lbl).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut ln.kind {
+                tp.content = "Submit".into();
+                tp.style.font_size = 20.0;
+            }
+            ln.component.overrides.insert(OverrideField::Characters);
+            ln.component.overrides.insert(OverrideField::TextStyle);
+            apply(&mut d, Command::Update { node: Box::new(ln) });
+        }
+
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("Done".into())));
         apply(&mut d, c);
-        assert_eq!(instance_component(d.get(inst).unwrap()), Some(b));
-        assert_eq!(text_of(&d, d.get(inst).unwrap().children[0]), "Hello");
+        let done_title = child_named(&d, inst, "Title");
+        assert_eq!(text_of(&d, done_title), "Saved", "switching to Done resets single-text override Submit to Saved because Save != Saved");
+        if let NodeKind::Text(tp) = &d.get(done_title).unwrap().kind {
+            assert_eq!(tp.style.font_size, 20.0, "matching 14px original font_size keeps user 20px override across single-text fallback");
+        }
+
+        let c = create_instance(&mut d, v_default, page, Vec2::new(200.0, 200.0));
+        apply(&mut d, c);
+        let inst2 = *d.get(page).unwrap().children.last().unwrap();
+        {
+            let lbl = child_named(&d, inst2, "Label");
+            let mut ln = d.get(lbl).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut ln.kind {
+                tp.content = "Submit".into();
+                tp.style.font_size = 20.0;
+            }
+            ln.component.overrides.insert(OverrideField::Characters);
+            ln.component.overrides.insert(OverrideField::TextStyle);
+            apply(&mut d, Command::Update { node: Box::new(ln) });
+        }
+
+        let c = set_instance_prop(&mut d, inst2, "State", Some(PropValue::Variant("Loading".into())));
+        apply(&mut d, c);
+        let loading_heading = child_named(&d, inst2, "Heading");
+        assert_eq!(text_of(&d, loading_heading), "Submit", "matching Save original text keeps user text Submit across single-text fallback");
+        if let NodeKind::Text(tp) = &d.get(loading_heading).unwrap().kind {
+            assert_eq!(tp.style.font_size, 16.0, "differing 14px vs 16px original font_size resets to Loading's 16px across single-text fallback");
+        }
     }
 
     #[test]
