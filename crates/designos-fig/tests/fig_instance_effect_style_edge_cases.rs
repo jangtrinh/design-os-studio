@@ -228,3 +228,60 @@ fn a_variable_the_style_does_not_carry_keeps_the_nodes_own_effects() {
     let doc = import(&doc_json(card, json!({}), json!({}), vec![inst(1, "Bound", own, vec![])]));
     assert_eq!(radii(named(&doc, "Bound")), vec![2.0]);
 }
+
+/// A variable node whose modes hold an alias to another variable (`Some`) or a literal colour (`None`).
+fn variable(local: u32, modes: Vec<Option<(u32, u32)>>) -> Value {
+    let entries: Vec<Value> = modes
+        .into_iter()
+        .enumerate()
+        .map(|(i, target)| {
+            let value = match target {
+                Some((s, l)) => json!({"alias": {"guid": g(s, l)}}),
+                None => json!({"colorValue": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0}}),
+            };
+            json!({"modeID": g(1, i as u32), "variableData": {"dataType": if target.is_some() { "ALIAS" } else { "COLOR" }, "value": value}})
+        })
+        .collect();
+    node(
+        (7, local),
+        (0, 2),
+        &format!("v{local}"),
+        "VARIABLE",
+        &format!("var{local}"),
+        json!({"variableResolvedType": "COLOR", "variableDataValues": {"entries": entries}}),
+    )
+}
+
+/// The style binds variable 7:1 on two shadows; one instance holds a one-shadow copy bound to `copy`.
+fn copy_bound_to(copy: (u32, u32), variables: Vec<Value>) -> Document {
+    let card = vec![bound(shadow(8.0), (7, 1)), bound(shadow(4.0), (7, 1))];
+    let own = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(2.0), copy)]});
+    let mut extra = variables;
+    extra.push(inst(1, "Aliased", own, vec![]));
+    import(&doc_json(card, json!({}), json!({}), extra))
+}
+
+#[test]
+fn a_variable_that_aliases_one_the_style_carries_is_a_copy_and_the_style_wins() {
+    // 7:2 aliases 7:1 directly; 7:4 reaches it through 7:3; 7:6 only in its second mode.
+    for (copy, variables) in [
+        ((7, 2), vec![variable(1, vec![None]), variable(2, vec![Some((7, 1))])]),
+        ((7, 4), vec![variable(1, vec![None]), variable(3, vec![Some((7, 1))]), variable(4, vec![Some((7, 3))])]),
+        ((7, 6), vec![variable(1, vec![None]), variable(6, vec![None, Some((7, 1))])]),
+    ] {
+        let doc = copy_bound_to(copy, variables);
+        assert_eq!(radii(named(&doc, "Aliased")), vec![8.0, 4.0], "variable {copy:?} resolves to the style's variable");
+    }
+}
+
+#[test]
+fn a_variable_that_resolves_to_something_the_style_does_not_carry_keeps_the_nodes_own_effects() {
+    let doc = copy_bound_to((7, 2), vec![variable(1, vec![None]), variable(2, vec![Some((7, 3))]), variable(3, vec![None])]);
+    assert_eq!(radii(named(&doc, "Aliased")), vec![2.0]);
+}
+
+#[test]
+fn an_alias_cycle_does_not_hang_and_counts_as_foreign() {
+    let doc = copy_bound_to((7, 2), vec![variable(1, vec![None]), variable(2, vec![Some((7, 3))]), variable(3, vec![Some((7, 2))])]);
+    assert_eq!(radii(named(&doc, "Aliased")), vec![2.0]);
+}

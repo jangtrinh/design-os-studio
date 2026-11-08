@@ -488,6 +488,8 @@ struct Lk<'a> {
     grid_row_index: HashMap<String, Option<usize>>,
     /// Guids of the nodes whose effect-style link resolves (see [`Lk::effect_link_resolves`]).
     effect_linked: HashSet<String>,
+    /// Variable id (`VariableID:s:l`) -> the variables its values alias, over every mode.
+    var_aliases: HashMap<String, Vec<String>>,
 }
 
 impl<'a> Lk<'a> {
@@ -507,6 +509,7 @@ impl<'a> Lk<'a> {
             grid_column_index: HashMap::new(),
             grid_row_index: HashMap::new(),
             effect_linked: HashSet::new(),
+            var_aliases: HashMap::new(),
         };
         let mut aliases: Vec<(String, String)> = Vec::new();
         let mut instance_keys: Vec<(String, String)> = Vec::new();
@@ -604,9 +607,33 @@ impl<'a> Lk<'a> {
                 lk.prop_defs.entry(id).or_insert(def);
             }
         }
+        let var_aliases: HashMap<String, Vec<String>> = entries
+            .iter()
+            .filter(|e| fstr(&e.json, "type") == Some("VARIABLE"))
+            .map(|e| {
+                let targets = e.json.get("variableDataValues").map(|d| rest_import::farr(d, "entries")).unwrap_or(&[]);
+                let targets = targets.iter().filter_map(|t| t.get("variableData")?.get("value")?.get("alias")).filter_map(|a| lk.variable_id(a)).collect();
+                (format!("VariableID:{}", e.id), targets)
+            })
+            .collect();
+        lk.var_aliases = var_aliases;
         let linked: HashSet<String> = entries.iter().filter(|e| lk.effect_link_resolves(&e.json)).map(|e| e.id.clone()).collect();
         lk.effect_linked = linked;
         lk
+    }
+
+    /// `id` and every variable reachable from it through alias values in any mode. A cycle ends the walk.
+    fn variable_chain(&self, id: &str) -> HashSet<String> {
+        let mut seen = HashSet::from([id.to_string()]);
+        let mut queue = vec![id.to_string()];
+        while let Some(next) = queue.pop() {
+            for target in self.var_aliases.get(&next).into_iter().flatten() {
+                if seen.insert(target.clone()) {
+                    queue.push(target.clone());
+                }
+            }
+        }
+        seen
     }
 
     /// `nc` links an effect style that resolves: a style node of this file (modern or legacy reference) or a
@@ -1702,7 +1729,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     let own_effects = rest_import::farr(nc, "effects");
     let fx_style = lk
         .style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID")
-        .filter(|s| !effects_bind_foreign_variable(own_effects, rest_import::farr(s, "effects")));
+        .filter(|s| !effects_bind_foreign_variable(lk, own_effects, rest_import::farr(s, "effects")));
     let effects: Vec<Value> = fx_style.map(|s| rest_import::farr(s, "effects")).unwrap_or(own_effects).iter().filter_map(convert_effect).collect();
     if !effects.is_empty() {
         m.insert("effects".into(), Value::Array(effects));
@@ -2521,7 +2548,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     // detaches the inherited link.
     let own_effects = rest_import::farr(o, "effects");
     let from_style =
-        obj.get("styleIdForEffect").and_then(|r| lk.style_node(r)).filter(|s| !effects_bind_foreign_variable(own_effects, rest_import::farr(s, "effects")));
+        obj.get("styleIdForEffect").and_then(|r| lk.style_node(r)).filter(|s| !effects_bind_foreign_variable(lk, own_effects, rest_import::farr(s, "effects")));
     if let Some(sn) = from_style {
         m.insert("effects".into(), Value::Array(rest_import::farr(sn, "effects").iter().filter_map(convert_effect).collect()));
     } else if obj.contains_key("effects") {
@@ -3096,23 +3123,24 @@ fn convert_effect(e: &Value) -> Option<Value> {
 /// Variable keys an effect can bind.
 const EFFECT_VARIABLE_KEYS: [&str; 6] = ["colorVar", "effectOpacityVar", "radiusVar", "spreadVar", "xVar", "yVar"];
 
-/// Identity of every variable the `effects` bind.
-fn effect_variables(effects: &[Value]) -> HashSet<String> {
+/// Id of every variable the `effects` bind (the alias text when it names no variable of the file).
+fn effect_variables(lk: &Lk, effects: &[Value]) -> HashSet<String> {
     effects
         .iter()
         .flat_map(|e| EFFECT_VARIABLE_KEYS.iter().filter_map(move |key| e.get(*key)))
         .map(|bound| {
             let alias = bound.get("value").and_then(|v| v.get("alias")).unwrap_or(bound);
-            alias.get("guid").and_then(guid_str).or_else(|| asset_key(alias).map(str::to_string)).unwrap_or_else(|| alias.to_string())
+            lk.variable_id(alias).unwrap_or_else(|| alias.to_string())
         })
         .collect()
 }
 
 /// A node linked to an effect style shows the style's list. The exception is a node that binds a variable the
-/// style does not carry: that binding is the node's own. A copy of the style's own variables is not.
-fn effects_bind_foreign_variable(own: &[Value], style: &[Value]) -> bool {
-    let carried = effect_variables(style);
-    effect_variables(own).iter().any(|v| !carried.contains(v))
+/// style does not carry: that binding is the node's own. A variable that aliases one the style carries, directly or
+/// through other variables and modes, is a copy of it and does not count.
+fn effects_bind_foreign_variable(lk: &Lk, own: &[Value], style: &[Value]) -> bool {
+    let carried = effect_variables(lk, style);
+    effect_variables(lk, own).iter().any(|v| lk.variable_chain(v).is_disjoint(&carried))
 }
 
 // ------------------------------------------------------------------ text
