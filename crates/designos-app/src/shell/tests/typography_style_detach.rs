@@ -936,3 +936,188 @@ fn cmd_alt_shift_comma_in_a_text_session_steps_the_size_down_by_ten_once() {
 
     assert_eq!(text_of(&s, id).style.font_size, 6.0, "one Cmd+Alt+Shift+, chord steps the size down by ten, once");
 }
+
+/// A page-level text linked to Body/Regular, selected, with the Scale tool armed.
+fn linked_page_text(s: &mut Sim) -> NodeId {
+    s.frame(vec![]);
+    let center = {
+        let app = s.app();
+        app.view.to_page(app.canvas_rect.min, app.canvas_rect.center())
+    };
+    let page = s.app().page;
+    let nid = s.shell.app.doc.alloc_id();
+    let mut n = designos_doc::Node::text(
+        nid,
+        designos_doc::Rect::new(center.x - 80.0, center.y - 16.0, 160.0, 32.0),
+        "Hello",
+        designos_doc::TextStyle { font_family: "Inter".into(), font_size: 16.0, ..Default::default() },
+    );
+    n.style_refs.insert("text".into(), "Body/Regular".into());
+    if let designos_doc::NodeKind::Text(t) = &mut n.kind {
+        t.auto_resize = designos_doc::TextAutoResize::None;
+    }
+    let id = s.shell.app.doc.insert(page, n).unwrap();
+    s.shell.app.selection = vec![id];
+    s.shell.app.tool = Tool::Scale;
+    s.shell.app.changed();
+    s.frame(vec![]);
+    id
+}
+
+fn corner_on_screen(s: &Sim, corner: usize) -> Pos2 {
+    let (corners, _) = crate::canvas::interact::selection_box(s.app()).unwrap();
+    s.app().view.to_screen(s.app().canvas_rect.min, corners[corner])
+}
+
+#[test]
+fn k_scale_on_linked_text_detaches_in_one_undo_step() {
+    let (mut s, _) = linked_sim();
+    let id = linked_page_text(&mut s);
+    let before = text_of(&s, id).style.font_size;
+    let depth = s.app().hist.undo_depth();
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+
+    let br = corner_on_screen(&s, 2);
+    s.drag(br, br + Vec2::new(160.0, 32.0));
+
+    let scaled = text_of(&s, id).style.font_size;
+    assert!(scaled > before + 1.0, "K scale changes the font size: {before} -> {scaled}");
+    assert_eq!(link_of(&s, id), None, "a scaled font size detaches the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "the size change and the detach are one undo step");
+
+    s.cmd_key(Key::Z);
+    assert!((text_of(&s, id).style.font_size - before).abs() < 0.01, "undo restores the font size");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores the text style link");
+}
+
+#[test]
+fn paste_properties_carries_the_source_text_style_link() {
+    let (mut s, target) = linked_sim();
+    let before_size = text_of(&s, target).style.font_size;
+    s.shell.app.doc.styles.insert(
+        "Heading".into(),
+        designos_doc::Style::Text(designos_doc::TextStyle { font_family: "Inter".into(), font_size: 32.0, font_weight: 400, ..Default::default() }),
+    );
+    let page = s.app().page;
+    let sid = s.shell.app.doc.alloc_id();
+    let mut src = designos_doc::Node::text(
+        sid,
+        designos_doc::Rect::new(20.0, 20.0, 160.0, 40.0),
+        "Source",
+        designos_doc::TextStyle { font_family: "Inter".into(), font_size: 32.0, font_weight: 700, ..Default::default() },
+    );
+    src.style_refs.insert("text".into(), "Heading".into());
+    src.text_style_overrides.insert(designos_doc::OwnedField::Weight);
+    let sid = s.shell.app.doc.insert(page, src).unwrap();
+
+    s.shell.app.selection = vec![sid];
+    s.shell.app.copy_properties();
+    s.shell.app.selection = vec![target];
+    let depth = s.app().hist.undo_depth();
+    s.shell.app.paste_properties();
+
+    assert_eq!(link_of(&s, target).as_deref(), Some("Heading"), "paste gives the target the source's text style link");
+    assert!((text_of(&s, target).style.font_size - 32.0).abs() < 0.01);
+    assert_eq!(text_of(&s, target).style.font_weight, 700);
+    let labels = designos_doc::text_style_overrides(&s.app().doc, s.app().doc.get(target).unwrap()).labels();
+    assert!(labels.contains(&"Weight"), "the source weight override travels with the link: {labels:?}");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "the pasted link and values are one undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(link_of(&s, target).as_deref(), Some("Body/Regular"), "undo restores the target's link");
+    assert!((text_of(&s, target).style.font_size - before_size).abs() < 0.01, "undo restores the target's size");
+}
+
+fn unlinked_source(s: &mut Sim, style: designos_doc::TextStyle) -> NodeId {
+    let page = s.app().page;
+    let sid = s.shell.app.doc.alloc_id();
+    let src = designos_doc::Node::text(sid, designos_doc::Rect::new(20.0, 400.0, 120.0, 24.0), "Src", style);
+    s.shell.app.doc.insert(page, src).unwrap()
+}
+
+#[test]
+fn paste_properties_from_unlinked_source_detaches_only_when_a_style_value_changes() {
+    let (mut s, target) = linked_sim();
+    let base = text_of(&s, target).style.clone();
+
+    let mut fill = base.clone();
+    fill.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+    let sid = unlinked_source(&mut s, fill);
+    s.shell.app.selection = vec![sid];
+    s.shell.app.copy_properties();
+    s.shell.app.selection = vec![target];
+    s.shell.app.paste_properties();
+    assert_eq!(text_of(&s, target).style.fills, vec![Paint::solid(Color::rgb(255, 0, 0))]);
+    assert_eq!(link_of(&s, target).as_deref(), Some("Body/Regular"), "a fill is not a text-style value, so the link stays");
+    s.cmd_key(Key::Z);
+
+    let mut weight = text_of(&s, target).style.clone();
+    weight.font_weight = 700;
+    let sid = unlinked_source(&mut s, weight);
+    s.shell.app.selection = vec![sid];
+    s.shell.app.copy_properties();
+    s.shell.app.selection = vec![target];
+    s.shell.app.paste_properties();
+    assert_eq!(text_of(&s, target).style.font_weight, 700);
+    assert_eq!(link_of(&s, target).as_deref(), Some("Body/Regular"), "weight stays linked as an override");
+    assert!(
+        designos_doc::text_style_overrides(&s.app().doc, s.app().doc.get(target).unwrap()).labels().contains(&"Weight"),
+        "the pasted weight is recorded as an override"
+    );
+    s.cmd_key(Key::Z);
+
+    let mut sized = text_of(&s, target).style.clone();
+    sized.font_size = 40.0;
+    let sid = unlinked_source(&mut s, sized);
+    s.shell.app.selection = vec![sid];
+    s.shell.app.copy_properties();
+    s.shell.app.selection = vec![target];
+    if let Some(tp) = s.shell.app.doc.get_mut(target).and_then(|n| n.kind.any_text_mut()) {
+        tp.auto_resize = designos_doc::TextAutoResize::WidthAndHeight;
+    }
+    let before = s.app().doc.get(target).unwrap().size;
+    let depth = s.app().hist.undo_depth();
+    s.shell.app.paste_properties();
+    assert!((text_of(&s, target).style.font_size - 40.0).abs() < 0.01);
+    let pasted = s.app().doc.get(target).unwrap().size;
+    assert!(pasted.x > before.x, "an auto-size text widens with the pasted 40px size ({before:?} -> {pasted:?})");
+    assert_eq!(pasted, crate::layout::fit_text(&text_of(&s, target), pasted), "the text box is refit to the pasted size");
+    assert_eq!(link_of(&s, target), None, "a pasted size is a style value, so the link goes");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1);
+
+    s.cmd_key(Key::Z);
+    assert_eq!(link_of(&s, target).as_deref(), Some("Body/Regular"), "undo restores the link");
+    assert!((text_of(&s, target).style.font_size - base.font_size).abs() < 0.01, "undo restores the size");
+}
+
+#[test]
+fn repicking_the_same_family_keeps_the_text_style_link() {
+    let (mut s, id) = linked_sim();
+    let family = text_of(&s, id).style.font_family.clone();
+    s.shell.app.edit_nodes(&[id], |n| {
+        if let designos_doc::NodeKind::Text(t) = &mut n.kind {
+            let end = t.content.len().min(4);
+            t.runs = vec![designos_doc::TextRun { start: 0, end, style: t.style.clone() }];
+            n.size = crate::layout::fit_text(t, n.size);
+        }
+    });
+    let depth = s.app().hist.undo_depth();
+    let runs = text_of(&s, id).runs.clone();
+    assert!(!runs.is_empty(), "the layer keeps a run that repeats the base style");
+
+    crate::panels::typography::pick_family(&mut s.shell.app, &[id], &family);
+
+    assert_eq!(text_of(&s, id).style.font_family, family);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "the same family changes no style value");
+    assert_eq!(s.app().hist.undo_depth(), depth, "a re-pick that changes nothing records no history step");
+    assert_eq!(text_of(&s, id).runs, runs, "the redundant run stays");
+
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    crate::panels::typography::pick_family(&mut s.shell.app, &[id], &family);
+
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "the same re-pick inside a session records no session step");
+    assert_eq!(text_of(&s, id).runs, runs);
+}

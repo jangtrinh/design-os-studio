@@ -1075,6 +1075,9 @@ impl App {
     pub fn copy_properties(&mut self) {
         let Some(&id) = self.selection.first() else { return };
         let Some(n) = self.doc.get(id) else { return };
+        let text_style = n.kind.any_text().map(|t| t.style.clone());
+        let text_style_link = text_style.as_ref().and_then(|_| n.style_refs.get("text").cloned());
+        let text_style_overrides = text_style.as_ref().map(|_| n.text_style_overrides).unwrap_or_default();
         self.copied_style = Some(CopiedStyle {
             fills: n.fills.clone(),
             stroke: n.stroke.clone(),
@@ -1083,7 +1086,9 @@ impl App {
             blend_mode: n.blend,
             corner_radii: n.corner_radii,
             corner_smoothing: n.corner_smoothing,
-            text_style: n.kind.any_text().map(|t| t.style.clone()),
+            text_style,
+            text_style_link,
+            text_style_overrides,
         });
         self.show_toast("Copied properties", false);
     }
@@ -1115,19 +1120,21 @@ impl App {
                 n.blend = snap.blend_mode;
                 n.corner_radii = snap.corner_radii;
                 n.corner_smoothing = snap.corner_smoothing;
-                let is_text = matches!(n.kind, NodeKind::Text(_));
-                if let (Some(style), Some(tp)) = (&snap.text_style, n.kind.any_text_mut()) {
-                    let before = n.style_refs.contains_key("text").then(|| tp.clone());
-                    crate::richtext::apply_all(tp, |st| *st = style.clone());
-                    // Pasted weight, italic and decoration are overrides of the target's style, which
-                    // stays linked; any other pasted style value detaches it.
-                    if let Some(before) = before {
-                        designos_doc::apply_text_link_rule(n, &before);
-                    }
-                    let Some(tp) = n.kind.any_text_mut() else { continue };
-                    if is_text {
-                        n.size = layout::fit_text(tp, n.size);
-                        relayout_text = true;
+                if let Some(style) = snap.text_style.clone() {
+                    if n.kind.any_text().is_some() {
+                        let is_text = matches!(n.kind, NodeKind::Text(_));
+                        // Unlinked source: the shared rule drops the target's link only when a style-owned
+                        // value changes. A linked source then installs its own link and overrides.
+                        crate::canvas::textsession::edit_node_text_detaching(n, |tp| {
+                            crate::richtext::apply_all(tp, |st| *st = style.clone());
+                        });
+                        if let Some(key) = snap.text_style_link.clone() {
+                            n.style_refs.insert("text".into(), key);
+                            n.text_style_overrides = snap.text_style_overrides;
+                        }
+                        if is_text {
+                            relayout_text = true;
+                        }
                     }
                 }
             }
