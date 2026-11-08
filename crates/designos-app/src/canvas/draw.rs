@@ -1356,7 +1356,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
             .unwrap_or_else(|| rect.center());
         if let Some(pos) = ui.ctx().input(|i| i.pointer.hover_pos()).filter(|p| rect.contains(*p)).or(Some(fallback_pos)) {
             if let Some([r, g, b]) = crate::panels::properties::sample_canvas(app, pos) {
-                let sampled = Color32::from_rgb(r, g, b);
+                let sampled = crate::widgets::document_color32(Color32::from_rgb(r, g, b));
                 let loupe_c = pos + EV::new(28.0, -28.0);
                 let radius = 22.0;
                 p.circle_filled(loupe_c, radius + 2.5, Color32::from_black_alpha(0x66));

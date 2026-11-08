@@ -120,6 +120,24 @@ impl<'a> PaintEnv<'a> {
         Self { doc, to_srgb: false }
     }
 
+    /// `img` (decoded image bytes, which are sRGB) as it must be drawn. Colours are converted to sRGB
+    /// when drawing for the screen; in a native render of a Display P3 document the pixels are
+    /// converted from sRGB to Display P3 so the file's profile tag is true for photos too.
+    pub(crate) fn image(&self, img: Rc<sk::Pixmap>) -> Rc<sk::Pixmap> {
+        if self.to_srgb || self.doc.color_profile.is_srgb() {
+            return img;
+        }
+        let profile = self.doc.color_profile;
+        let mut out = (*img).clone();
+        for px in out.pixels_mut() {
+            let c = px.demultiply();
+            let conv = profile.from_srgb(&d::Color { r: c.red() as f32 / 255.0, g: c.green() as f32 / 255.0, b: c.blue() as f32 / 255.0, a: 1.0 });
+            let q = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+            *px = sk::ColorU8::from_rgba(q(conv.r), q(conv.g), q(conv.b), c.alpha()).premultiply();
+        }
+        Rc::new(out)
+    }
+
     /// `n` with its grain colours converted the way [`Self::col`] converts, `None` when unchanged.
     pub fn noise(&self, n: &d::NoiseEffect) -> Option<d::NoiseEffect> {
         if self.to_srgb {
@@ -355,7 +373,7 @@ pub fn with_paint<R>(
         }
         PaintKind::Image { image_ref, scale_mode, params } => {
             // first decode at full size to learn dimensions
-            let full = load_image(env.doc, image_ref, None)?;
+            let full = env.image(load_image(env.doc, image_ref, None)?);
             let (iw, ih) = (full.width() as f32, full.height() as f32);
             let map = d::image_uv_map(size, iw, ih, *scale_mode, params)?;
             let (u, v, s) = (map.u, map.v, map.scale);
@@ -364,7 +382,7 @@ pub fn with_paint<R>(
             let img = if eff < 0.6 {
                 let w = (iw * eff).ceil().max(1.0) as u32;
                 let h = (ih * eff).ceil().max(1.0) as u32;
-                load_image(env.doc, image_ref, Some((w, h)))?
+                env.image(load_image(env.doc, image_ref, Some((w, h)))?)
             } else {
                 full
             };

@@ -223,6 +223,16 @@ pub fn export_png(doc: &Document, node: NodeId, scale: f32) -> Vec<u8> {
     crate::png_profile::tag_png(encode_png_pixmap(&pm), doc.color_profile)
 }
 
+/// PNG bytes of `node` at `scale` with the colours as the canvas shows them: a Display P3 document is
+/// converted to sRGB and the file carries no profile tag. For previews inside the app and for images
+/// handed to readers that ignore tags (decoders such as `image`, vision models).
+pub fn export_png_srgb(doc: &Document, node: NodeId, scale: f32) -> Vec<u8> {
+    match render_export(doc, node, scale) {
+        Some(pm) => encode_png_pixmap(&pm),
+        None => Vec::new(),
+    }
+}
+
 /// JPEG bytes of `node` at `scale`; transparency is flattened onto white.
 /// `quality` is 1..=100.
 pub fn export_jpg(doc: &Document, node: NodeId, scale: f32, quality: u8) -> Vec<u8> {

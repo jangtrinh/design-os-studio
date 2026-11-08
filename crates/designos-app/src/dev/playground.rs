@@ -214,6 +214,7 @@ pub fn build_scratch_doc(base: &Document, id: NodeId, pg: &PlaygroundState) -> O
     let keep = component_closure(base, seeds);
 
     let mut scratch = Document::new("component playground");
+    scratch.color_profile = base.color_profile;
     scratch.styles = base.styles.clone();
     scratch.style_meta = base.style_meta.clone();
     for nid in &keep {
@@ -302,7 +303,7 @@ fn preview_texture(ctx: &Context, base_doc: &Document, id: NodeId, pg: &mut Play
     }
     let (scratch, _, preview_id) = build_scratch_doc(base_doc, id, pg)?;
     let dim = scratch.get(preview_id).map(|n| n.size.x.max(n.size.y)).unwrap_or(1.0).max(1.0);
-    let png = designos_export::export_png(&scratch, preview_id, 168.0 / dim);
+    let png = designos_export::export_png_srgb(&scratch, preview_id, 168.0 / dim);
     let tex = image::load_from_memory(&png).ok().map(|img| {
         let rgba = img.to_rgba8();
         let ci = egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw());
@@ -702,6 +703,25 @@ mod tests {
         // The component selected directly is bounded the same way.
         let (s_main, _, _) = build_scratch_doc(&big.d, big.card, &pg_with(big.card, &[("Icon", PropValue::Instance(big.star))])).unwrap();
         assert!(s_main.nodes.len() < 40, "scratch holds {} nodes", s_main.nodes.len());
+    }
+
+    #[test]
+    fn the_playground_preview_of_a_display_p3_document_shows_the_canvas_colours() {
+        let mut f = fixture(0);
+        f.d.color_profile = designos_doc::ColorProfile::DisplayP3;
+        let pg = pg_with(f.card_inst, &[("Icon", PropValue::Instance(f.star))]);
+        let (scratch, _, _) = build_scratch_doc(&f.d, f.card_inst, &pg).unwrap();
+        assert_eq!(scratch.color_profile, designos_doc::ColorProfile::DisplayP3, "the scratch document keeps the profile");
+        let mut shown = Document::new("p3");
+        let page = shown.add_page("p");
+        let id = shown.alloc_id();
+        let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 20.0, 20.0));
+        n.fills = vec![designos_doc::Paint::solid(designos_doc::Color { r: 0.5, g: 0.4, b: 0.8, a: 1.0 })];
+        let id = shown.insert(page, n).unwrap();
+        shown.color_profile = designos_doc::ColorProfile::DisplayP3;
+        let png = designos_export::export_png_srgb(&shown, id, 1.0);
+        let px = image::load_from_memory(&png).unwrap().to_rgba8().get_pixel(10, 10).0;
+        assert!((px[0] as i32 - 132).abs() <= 1 && (px[1] as i32 - 101).abs() <= 1 && (px[2] as i32 - 211).abs() <= 1, "{px:?}");
     }
 
     #[test]

@@ -661,11 +661,13 @@ pub fn leave(app: &mut App, ctx: &Context) {
 fn page_bg(app: &App) -> Color32 {
     // A background stored with the prototype device wins.
     if let Some(c) = app.doc.prototype_device.background {
+        let c = app.doc.color_profile.to_srgb(&c);
         return Color32::from_rgb((c.r * 255.0).round() as u8, (c.g * 255.0).round() as u8, (c.b * 255.0).round() as u8);
     }
     // The prototype background is the page background unless it is still the editor default.
     match app.doc.get(app.page).map(|n| &n.kind) {
         Some(NodeKind::Page { background }) => {
+            let background = app.doc.color_profile.to_srgb(background);
             let c = Color32::from_rgb((background.r * 255.0).round() as u8, (background.g * 255.0).round() as u8, (background.b * 255.0).round() as u8);
             if c == theme::rgb(theme::DEFAULT_PAGE_BG) {
                 theme::PRESENT_BG

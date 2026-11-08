@@ -48,7 +48,7 @@ pub use design_context::apply_bound_variables_subtree;
 pub use html::{html_for, html_with, HtmlOptions};
 pub use language::{CodeLanguage, CodeLanguageOptions};
 pub use pdf::export_pdf;
-pub use raster::{encode_jpg_pixmap, encode_png_pixmap, export_jpg, export_png, export_webp, render_export, rgba_bytes, ExportScale};
+pub use raster::{encode_jpg_pixmap, encode_png_pixmap, export_jpg, export_png, export_png_srgb, export_webp, render_export, rgba_bytes, ExportScale};
 pub use react::{react_for, react_with, ReactOptions};
 pub use svg::{export_svg, SvgOptions};
 pub use swiftui::swiftui_for;

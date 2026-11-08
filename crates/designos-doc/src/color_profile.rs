@@ -4,6 +4,14 @@
 //! of the document: `Srgb` (the default, what every file used before profiles existed) or
 //! `DisplayP3`. Renderers draw to an sRGB surface, so a Display P3 document converts each colour
 //! with [`ColorProfile::to_srgb`]; an sRGB document is never touched (bit-exact).
+//!
+//! Scope: on screen a Display P3 document is converted to sRGB and colours outside the sRGB gamut
+//! clip. The canvas is not a wide-gamut surface (nothing sets a Display P3 colour space on the
+//! window layer), so this does not claim to match Figma on a P3 display. Exports are different:
+//! a PNG keeps the document's own numbers and carries the Display P3 tag.
+//!
+//! Each paint is converted before it is blended (translucent layers, gradients and blend modes
+//! combine converted colours). Whether Figma blends in the document's space is not documented.
 
 use crate::color_space::{linear_channel_to_srgb, srgb_channel_to_linear};
 use crate::{Color, NoiseEffect, NoiseMode};
@@ -22,6 +30,9 @@ pub enum ColorProfile {
 
 /// Linear Display P3 -> linear sRGB (D65 both).
 const P3_TO_SRGB: [[f32; 3]; 3] = [[1.224_940_2, -0.224_940_4, 0.0], [-0.042_056_9, 1.042_057_1, 0.0], [-0.019_637_6, -0.078_636_1, 1.098_273_5]];
+
+/// Linear sRGB -> linear Display P3 (inverse of [`P3_TO_SRGB`]).
+const SRGB_TO_P3: [[f32; 3]; 3] = [[0.822_462, 0.177_538, 0.0], [0.033_194_2, 0.966_805_8, 0.0], [0.017_082_6, 0.072_397_4, 0.910_519_9]];
 
 impl ColorProfile {
     pub const ALL: [ColorProfile; 2] = [ColorProfile::Srgb, ColorProfile::DisplayP3];
@@ -51,6 +62,19 @@ impl ColorProfile {
         match self {
             ColorProfile::Srgb => None,
             ColorProfile::DisplayP3 => Some("DISPLAY_P3"),
+        }
+    }
+
+    /// `c`, an sRGB-encoded colour (an untagged image pixel, say), as numbers written in this profile.
+    /// Every sRGB colour lies inside Display P3, so nothing clips. An sRGB profile returns `c`.
+    pub fn from_srgb(&self, c: &Color) -> Color {
+        match self {
+            ColorProfile::Srgb => *c,
+            ColorProfile::DisplayP3 => {
+                let lin = [srgb_channel_to_linear(c.r), srgb_channel_to_linear(c.g), srgb_channel_to_linear(c.b)];
+                let out = |row: &[f32; 3]| linear_channel_to_srgb((row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2]).clamp(0.0, 1.0));
+                Color { r: out(&SRGB_TO_P3[0]), g: out(&SRGB_TO_P3[1]), b: out(&SRGB_TO_P3[2]), a: c.a }
+            }
         }
     }
 
@@ -116,6 +140,17 @@ mod tests {
         // rgb(0.51926, 0.39509, 0.82582) in sRGB.
         let o = ColorProfile::DisplayP3.to_srgb(&Color { r: 0.5, g: 0.4, b: 0.8, a: 1.0 });
         assert!((o.r - 0.51926).abs() < 1e-3 && (o.g - 0.39509).abs() < 1e-3 && (o.b - 0.82582).abs() < 1e-3, "{o:?}");
+    }
+
+    #[test]
+    fn from_srgb_inverts_to_srgb_for_colours_inside_the_srgb_gamut() {
+        for c in [Color { r: 0.2, g: 0.6, b: 0.9, a: 0.5 }, Color { r: 0.78, g: 0.23, b: 0.23, a: 1.0 }, Color::WHITE, Color::BLACK] {
+            let back = ColorProfile::DisplayP3.to_srgb(&ColorProfile::DisplayP3.from_srgb(&c));
+            assert!((back.r - c.r).abs() < 2e-3 && (back.g - c.g).abs() < 2e-3 && (back.b - c.b).abs() < 2e-3, "{c:?} -> {back:?}");
+            assert_eq!(back.a, c.a);
+        }
+        let c = Color { r: 0.3, g: 0.4, b: 0.5, a: 1.0 };
+        assert_eq!(ColorProfile::Srgb.from_srgb(&c), c);
     }
 
     #[test]

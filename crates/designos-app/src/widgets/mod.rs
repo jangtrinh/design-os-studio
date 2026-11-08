@@ -150,7 +150,29 @@ pub fn icon_button(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, icon: 
     r
 }
 
-/// Checkerboard-backed color swatch.
+thread_local! {
+    static DOCUMENT_PROFILE: std::cell::Cell<designos_doc::ColorProfile> = const { std::cell::Cell::new(designos_doc::ColorProfile::Srgb) };
+}
+
+/// Sets the colour profile of the document the panels are drawing for (once per frame, from the shell).
+pub fn set_document_profile(profile: designos_doc::ColorProfile) {
+    DOCUMENT_PROFILE.with(|c| c.set(profile));
+}
+
+/// A document colour (numbers in the document's profile) as the canvas shows it on screen: converted to
+/// sRGB for a Display P3 document, untouched otherwise.
+pub fn document_color32(c: Color32) -> Color32 {
+    let profile = DOCUMENT_PROFILE.with(std::cell::Cell::get);
+    if profile.is_srgb() {
+        return c;
+    }
+    let [r, g, b, a] = c.to_srgba_unmultiplied();
+    let s = profile.to_srgb(&designos_doc::Color { r: f32::from(r) / 255.0, g: f32::from(g) / 255.0, b: f32::from(b) / 255.0, a: 1.0 });
+    let q = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+    Color32::from_rgba_unmultiplied(q(s.r), q(s.g), q(s.b), a)
+}
+
+/// Checkerboard-backed color swatch. A document colour is drawn as the canvas shows it.
 pub fn swatch(p: &Painter, rect: Rect, color: Color32) {
     swatch_focused(p, rect, color, false);
 }
@@ -158,6 +180,7 @@ pub fn swatch(p: &Painter, rect: Rect, color: Color32) {
 /// A swatch inside a control that holds keyboard focus: the control passes its own focus, so the swatch never takes a click.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn swatch_focused(p: &Painter, rect: Rect, color: Color32, focused: bool) {
+    let color = document_color32(color);
     let r = theme::cr(theme::SWATCH_RADIUS);
     p.rect_filled(rect, r, theme::CHECKER_A);
     if color.a() < 255 {
@@ -171,6 +194,8 @@ pub fn swatch_focused(p: &Painter, rect: Rect, color: Color32, focused: bool) {
 
 /// Filled circle swatch with a thin translucent ring; several colours blend along the diagonal.
 pub fn swatch_circle(p: &Painter, c: Pos2, r: f32, colors: &[Color32]) {
+    let shown: Vec<Color32> = colors.iter().map(|c| document_color32(*c)).collect();
+    let colors = shown.as_slice();
     match colors {
         [] => {}
         [one] => {

@@ -2230,6 +2230,7 @@ impl Shell {
 
     /// One full UI pass over the window, then the screenshot request it may owe.
     pub fn draw(&mut self, ui: &mut egui::Ui) {
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
         let _shot_frame = self.shot.as_ref().is_some_and(|s| !s.open_failed).then(ShotFrameGuard::enter);
         if self.shot.as_ref().is_some_and(|s| s.open_failed) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
