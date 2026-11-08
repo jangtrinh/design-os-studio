@@ -859,6 +859,7 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
     let styles = style_table(&entries, &lk);
 
     let mut visited: HashSet<usize> = HashSet::with_capacity(entries.len());
+    extract_motion_nodes(&mut entries, &children, lk.large_file, &mut visited);
     let pages: Vec<Value> = canvas_internal
         .iter()
         .copied()
@@ -1530,6 +1531,127 @@ fn collect_node_referenced_variables(node: &Value, out: &mut HashSet<String>) {
     }
 }
 
+fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usize>>, large_file: bool, visited: &mut HashSet<usize>) {
+    let mut track_entry_by_id: HashMap<String, usize> = HashMap::new();
+    let mut valid_track_guids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut file_default_tl: Option<String> = None;
+    for (idx, e) in entries.iter().enumerate() {
+        if fstr(&e.json, "type") == Some("KEYFRAME_TRACK") {
+            track_entry_by_id.insert(e.id.clone(), idx);
+            valid_track_guids.insert(e.id.clone());
+        }
+        if file_default_tl.is_none() {
+            let tls = crate::motion::timelines_from_kiwi(e.json.get("timelineDefinitions"));
+            if let Some(tl) = tls.iter().find(|t| t.is_default).or_else(|| tls.first()) {
+                file_default_tl = Some(tl.id.clone());
+            }
+        }
+    }
+
+    for i in 0..entries.len() {
+        let has_tl_defs = entries[i].json.get("timelineDefinitions").is_some();
+        let has_tl_assigns = entries[i].json.get("timelineAssignments").is_some();
+        let has_param_map = entries[i].json.get("parameterConsumptionMap").is_some();
+        if !has_tl_defs && !has_tl_assigns && !has_param_map {
+            continue;
+        }
+
+        let timelines = crate::motion::timelines_from_kiwi(entries[i].json.get("timelineDefinitions"));
+        let assignments = crate::motion::assignments_from_kiwi(entries[i].json.get("timelineAssignments"));
+        let (bindings, rem_vars, rem_meta) = crate::motion::extract_track_bindings(entries[i].json.get("parameterConsumptionMap"), &valid_track_guids);
+
+        if let Some(obj) = entries[i].json.as_object_mut() {
+            obj.remove("timelineDefinitions");
+            obj.remove("timelineAssignments");
+            if has_param_map {
+                match rem_vars {
+                    Some(rv) => {
+                        obj.insert("parameterConsumptionMap".into(), rv);
+                    }
+                    None => {
+                        obj.remove("parameterConsumptionMap");
+                    }
+                }
+                if let Some(rm) = rem_meta {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(&rm)) {
+                        if let Some(fm) = obj.entry("figMetadata").or_insert_with(|| Value::Object(Map::new())).as_object_mut() {
+                            fm.insert("parameterConsumptionMap".into(), Value::String(s));
+                        }
+                    }
+                }
+            }
+        }
+
+        let fallback_tl = timelines
+            .iter()
+            .find(|t| t.is_default)
+            .or_else(|| timelines.first())
+            .map(|t| t.id.clone())
+            .or_else(|| assignments.first().map(|a| a.timeline.clone()))
+            .or_else(|| file_default_tl.clone())
+            .unwrap_or_default();
+
+        let mut tracks = Vec::with_capacity(bindings.len());
+        let mut track_meta_by_index = Map::new();
+
+        for (t_idx, binding) in bindings.into_iter().enumerate() {
+            let Some(&track_idx) = track_entry_by_id.get(&binding.track_guid) else { continue };
+            visited.insert(track_idx);
+            let track_json = &entries[track_idx].json;
+            let (op, loop_mode) = crate::motion::track_modes_from_kiwi(track_json);
+            let tl_id = binding.timeline_id.unwrap_or_else(|| fallback_tl.clone());
+            let mut track = designos_doc::Track::new(binding.track_guid, tl_id, binding.property);
+            track.operation = op;
+            track.loop_mode = loop_mode;
+
+            let mut tmeta = match extract_fig_metadata(track_json, "KEYFRAME_TRACK", large_file) {
+                Some(Value::Object(m)) => m,
+                _ => Map::new(),
+            };
+            tmeta.remove("keyframeOperation");
+            tmeta.remove("trackLoopMode");
+            if let Some(nf) = binding.node_field {
+                if nf != crate::motion::default_node_field_for_property(&track.property) {
+                    tmeta.insert("_nodeField".into(), Value::String(nf.to_string()));
+                }
+            }
+            if !tmeta.is_empty() {
+                track_meta_by_index.insert(t_idx.to_string(), Value::Object(tmeta));
+            }
+
+            if let Some(kid_indices) = children.get(&track_idx) {
+                for &kf_idx in kid_indices {
+                    let kf_json = &entries[kf_idx].json;
+                    if fstr(kf_json, "type") == Some("KEYFRAME") {
+                        if let Some(kf) = crate::motion::keyframe_from_kiwi(kf_json) {
+                            visited.insert(kf_idx);
+                            track.keyframes.push(kf);
+                        }
+                    }
+                }
+            }
+            track.normalize();
+            tracks.push(track);
+        }
+
+        let motion = designos_doc::NodeMotion { timelines, assignments, tracks };
+        if !motion.is_empty() {
+            if let Ok(mv) = serde_json::to_value(&motion) {
+                if let Some(obj) = entries[i].json.as_object_mut() {
+                    obj.insert("_motion".into(), mv);
+                    if !track_meta_by_index.is_empty() {
+                        if let Ok(s) = serde_json::to_string(&Value::Object(track_meta_by_index)) {
+                            if let Some(fm) = obj.entry("figMetadata").or_insert_with(|| Value::Object(Map::new())).as_object_mut() {
+                                fm.insert("_motionTrackMeta".into(), Value::String(s));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn build(entries: &mut [Entry], children: &HashMap<usize, Vec<usize>>, lk: &Lk, i: usize, visited: &mut HashSet<usize>, depth: usize) -> Option<Value> {
     if depth > 250 || !visited.insert(i) {
         return None;
@@ -1680,6 +1802,9 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     if let Some(fm) = extract_fig_metadata(nc, orig_ty, lk.large_file) {
         m.insert("figMetadata".into(), fm);
+    }
+    if let Some(mv) = nc.get("_motion") {
+        m.insert("motion".into(), mv.clone());
     }
     copy(&mut m, nc, "visible", "visible");
     copy(&mut m, nc, "locked", "locked");

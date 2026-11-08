@@ -4,25 +4,109 @@
 //! enums are their schema names, a GUID is `{"sessionID", "localID"}`, `Int64` is a number. Reading never
 //! fails: a field that is missing or of the wrong type takes the model default, so a damaged record still opens.
 //!
-//! What is here: the timeline definitions (field 552), the timeline assignments (553), the operation and loop
-//! mode of a track node (509, 591), and a keyframe node (506, 507, 505, 508, 535, 599). What is not: the join
-//! that says which layer and property a track animates (the `parameterConsumptionMap`, 445, and the node tree of
-//! `KEYFRAME_TRACK` / `KEYFRAME`). Until that join is wired into the importer, those records travel through the
-//! typed passthrough unchanged (`fig_metadata`), which is lossless.
+//! Covers timeline definitions (field 552), timeline assignments (553), track bindings in
+//! `parameterConsumptionMap` (445), the operation and loop mode of a `KEYFRAME_TRACK` node (509, 591),
+//! and a `KEYFRAME` node (506, 507, 505, 508, 535, 599).
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use designos_doc::{
     Color, ColorSpace, EasingType, FrameRate, InterpolationType, KeyEasing, KeyValue, Keyframe, KeyframeOperation, PlaybackStyle, SpringParams, Timeline,
-    TimelineAssignment, TrackLoop, Vec2,
+    TimelineAssignment, Track, TrackLoop, TrackProperty, Vec2,
 };
 use serde_json::{json, Map, Value};
 
-fn guid_text(g: &Value) -> Option<String> {
+/// Formats a kiwi GUID JSON object (`{"sessionID", "localID"}`) as `"session:local"`.
+pub fn guid_text(g: &Value) -> Option<String> {
     Some(format!("{}:{}", g.get("sessionID")?.as_u64()?, g.get("localID")?.as_u64()?))
 }
 
-fn guid_json(text: &str) -> Value {
-    let (s, l) = text.split_once(':').unwrap_or((text, "0"));
-    json!({"sessionID": s.parse::<u64>().unwrap_or(0), "localID": l.parse::<u64>().unwrap_or(0)})
+/// Parses a canonical `"session:local"` string into a non-zero `(session, local)` pair.
+pub fn parse_guid_text(text: &str) -> Option<(u32, u32)> {
+    let (s, l) = text.split_once(':')?;
+    let (s, l) = (s.parse::<u32>().ok()?, l.parse::<u32>().ok()?);
+    if s == 0 && l == 0 {
+        return None;
+    }
+    Some((s, l))
+}
+
+/// Extracts the leading session number from `text` if positive, or returns `default_session`.
+pub fn guid_session_hint(text: &str, default_session: u32) -> u32 {
+    text.split_once(':').and_then(|(s, _)| s.parse::<u32>().ok()).filter(|&s| s > 0).unwrap_or(default_session)
+}
+
+/// Formats a `(session, local)` GUID pair as the kiwi JSON object `{"sessionID", "localID"}`.
+pub fn guid_pair_json((s, l): (u32, u32)) -> Value {
+    json!({"sessionID": u64::from(s), "localID": u64::from(l)})
+}
+
+/// Deterministic allocator that maps Motion IDs (including renamed paste/duplicate IDs like `"3:1~1"`)
+/// to unique non-zero kiwi GUID pairs `(u32, u32)`.
+#[derive(Default)]
+pub struct MotionGuids {
+    used: BTreeSet<(u32, u32)>,
+    next_local: BTreeMap<u32, u32>,
+    mapped: BTreeMap<String, (u32, u32)>,
+}
+
+impl MotionGuids {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn bump(&mut self, (s, l): (u32, u32)) {
+        let e = self.next_local.entry(s).or_insert(1);
+        if l >= *e {
+            *e = l.saturating_add(1);
+        }
+    }
+
+    /// Marks an existing `(session, local)` GUID as in use so fresh allocations never collide with it.
+    pub fn mark_used(&mut self, g: (u32, u32)) {
+        self.used.insert(g);
+        self.bump(g);
+    }
+
+    /// First pass: reserves every ID that is already a canonical `<u32>:<u32>` pair.
+    pub fn reserve_canonical<'a>(&mut self, ids: impl IntoIterator<Item = &'a str>) {
+        for id in ids {
+            if id.is_empty() || self.mapped.contains_key(id) {
+                continue;
+            }
+            if let Some(g) = parse_guid_text(id) {
+                if self.used.insert(g) {
+                    self.bump(g);
+                    self.mapped.insert(id.to_string(), g);
+                }
+            }
+        }
+    }
+
+    /// Resolves `id` to its unique `(session, local)` GUID, allocating a fresh one in `default_session`
+    /// (or the session prefix of `id`) if `id` is not a free `<u32>:<u32>` pair.
+    pub fn resolve(&mut self, id: &str, default_session: u32) -> (u32, u32) {
+        if let Some(&g) = self.mapped.get(id) {
+            return g;
+        }
+        if let Some(g) = parse_guid_text(id) {
+            if self.used.insert(g) {
+                self.bump(g);
+                self.mapped.insert(id.to_string(), g);
+                return g;
+            }
+        }
+        let s = guid_session_hint(id, default_session).max(1);
+        let entry = self.next_local.entry(s).or_insert(1);
+        loop {
+            let l = *entry;
+            *entry = entry.saturating_add(1);
+            if l > 0 && self.used.insert((s, l)) {
+                self.mapped.insert(id.to_string(), (s, l));
+                return (s, l);
+            }
+        }
+    }
 }
 
 fn f(v: &Value, k: &str) -> f32 {
@@ -79,6 +163,13 @@ pub fn timelines_from_kiwi(map: Option<&Value>) -> Vec<Timeline> {
 
 /// The model's timelines as a `TimelineDefinitionsMap`. Fields at their default are left out, as the file does.
 pub fn timelines_to_kiwi(timelines: &[Timeline]) -> Value {
+    let mut guids = MotionGuids::new();
+    guids.reserve_canonical(timelines.iter().flat_map(|t| std::iter::once(t.id.as_str()).chain(t.parent.as_deref())));
+    timelines_to_kiwi_with(timelines, |id| guids.resolve(id, 3))
+}
+
+/// Like [`timelines_to_kiwi`], resolving each timeline ID via `guid_of` so document-wide GUID allocations stay consistent.
+pub fn timelines_to_kiwi_with(timelines: &[Timeline], mut guid_of: impl FnMut(&str) -> (u32, u32)) -> Value {
     let list: Vec<Value> = timelines
         .iter()
         .map(|t| {
@@ -88,7 +179,7 @@ pub fn timelines_to_kiwi(timelines: &[Timeline]) -> Value {
                 d.insert("defaultTimeline".into(), json!(true));
             }
             if let Some(p) = &t.parent {
-                d.insert("parentTimelineDefId".into(), guid_json(p));
+                d.insert("parentTimelineDefId".into(), guid_pair_json(guid_of(p)));
             }
             if t.playback != PlaybackStyle::Once {
                 d.insert("playbackStyle".into(), json!(name_for(t.playback, &PLAYBACK)));
@@ -102,7 +193,7 @@ pub fn timelines_to_kiwi(timelines: &[Timeline]) -> Value {
             if t.quantize_playback {
                 d.insert("quantizePlayback".into(), json!(true));
             }
-            json!({"id": guid_json(&t.id), "data": Value::Object(d)})
+            json!({"id": guid_pair_json(guid_of(&t.id)), "data": Value::Object(d)})
         })
         .collect();
     json!({"entries": list})
@@ -128,6 +219,13 @@ pub fn assignments_from_kiwi(map: Option<&Value>) -> Vec<TimelineAssignment> {
 
 /// The model's assignments as a `TimelineAssignmentsMap`.
 pub fn assignments_to_kiwi(assignments: &[TimelineAssignment]) -> Value {
+    let mut guids = MotionGuids::new();
+    guids.reserve_canonical(assignments.iter().flat_map(|a| [a.timeline.as_str(), a.containing.as_str()]));
+    assignments_to_kiwi_with(assignments, |id| guids.resolve(id, 3))
+}
+
+/// Like [`assignments_to_kiwi`], resolving each timeline ID via `guid_of` so document-wide GUID allocations stay consistent.
+pub fn assignments_to_kiwi_with(assignments: &[TimelineAssignment], mut guid_of: impl FnMut(&str) -> (u32, u32)) -> Value {
     let list: Vec<Value> = assignments
         .iter()
         .map(|a| {
@@ -137,10 +235,182 @@ pub fn assignments_to_kiwi(assignments: &[TimelineAssignment]) -> Value {
             if a.autoplay {
                 v.insert("autoplay".into(), json!(true));
             }
-            json!({"key": {"assignedTimelineId": guid_json(&a.timeline), "containingTimelineId": guid_json(&a.containing)}, "value": Value::Object(v)})
+            json!({
+                "key": {
+                    "assignedTimelineId": guid_pair_json(guid_of(&a.timeline)),
+                    "containingTimelineId": guid_pair_json(guid_of(&a.containing))
+                },
+                "value": Value::Object(v)
+            })
         })
         .collect();
     json!({"entries": list})
+}
+
+/// One manual keyframe-track binding extracted from a layer's `parameterConsumptionMap` (field 445).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrackBinding {
+    pub property: TrackProperty,
+    pub track_guid: String,
+    pub timeline_id: Option<String>,
+    pub node_field: Option<u64>,
+}
+
+/// Splits a layer's `parameterConsumptionMap` (field 445) into:
+/// 1. Manual keyframe-track bindings whose `keyframeTrackId.guid` resolves to a known `KEYFRAME_TRACK` node in `valid_track_guids`.
+/// 2. Remaining `parameterConsumptionMap` JSON for `bound_variables` (`ALIAS` / `FONT_STYLE` entries), or `None` when none remain.
+/// 3. Unmodelled Motion `parameterConsumptionMap` JSON (such as `ANIMATION_PRESET` entries) to keep in `fig_metadata`, or `None`.
+pub fn extract_track_bindings(param_map: Option<&Value>, valid_track_guids: &BTreeSet<String>) -> (Vec<TrackBinding>, Option<Value>, Option<Value>) {
+    let Some(map) = param_map else { return (Vec::new(), None, None) };
+    let list = entries(Some(map));
+    if list.is_empty() {
+        return (Vec::new(), Some(map.clone()), None);
+    }
+    let mut bindings = Vec::new();
+    let mut kept_for_vars = Vec::new();
+    let mut kept_for_meta = Vec::new();
+
+    for entry in list {
+        let var_field =
+            entry.get("variableField").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_u64().map(|u| u.to_string()))).filter(|s| !s.is_empty());
+        let node_field = entry.get("nodeField").and_then(Value::as_u64);
+        let vdata = entry.get("variableData");
+        let val = vdata.and_then(|d| d.get("value"));
+        let is_motion_entry =
+            vdata.and_then(|d| d.get("dataType")).and_then(Value::as_str).is_some_and(|dt| matches!(dt, "KEYFRAME_TRACK_PARAMETER_DATA" | "KEYFRAME_TRACK_ID"))
+                || val.is_some_and(|v| v.get("keyframeTrackParameterValue").is_some() || v.get("keyframeTrackIdValue").is_some());
+
+        if let (Some(field_name), Some(val_obj)) = (var_field, val) {
+            if let Some(params) = val_obj.get("keyframeTrackParameterValue").and_then(|k| k.get("parameters")).and_then(Value::as_array) {
+                if !params.is_empty() {
+                    let mut kept_params = Vec::new();
+                    for param in params {
+                        let ptype = param.get("type").and_then(Value::as_str).unwrap_or("MANUAL");
+                        let pval = param.get("value");
+                        let manual = pval.and_then(|v| v.get("manual"));
+                        let has_other = pval.is_some_and(|v| v.get("animationPreset").is_some() || v.get("animationStyleBindingId").is_some());
+                        let ktid = manual.and_then(|m| m.get("keyframeTrackId"));
+                        let track_guid = ktid.and_then(|k| k.get("guid")).and_then(guid_text);
+                        let has_asset_ref = ktid.is_some_and(|k| k.get("assetRef").is_some());
+
+                        if ptype == "MANUAL" && !has_other && !has_asset_ref {
+                            if let Some(tg) = track_guid.filter(|tg| valid_track_guids.contains(tg)) {
+                                let tl_id = manual.and_then(|m| m.get("timelineDefId")).and_then(guid_text);
+                                bindings.push(TrackBinding {
+                                    property: TrackProperty::from_kiwi_name(&field_name),
+                                    track_guid: tg,
+                                    timeline_id: tl_id,
+                                    node_field,
+                                });
+                                continue;
+                            }
+                        }
+                        kept_params.push(param.clone());
+                    }
+                    if !kept_params.is_empty() {
+                        let mut partial = entry.clone();
+                        partial["variableData"]["value"]["keyframeTrackParameterValue"]["parameters"] = Value::Array(kept_params);
+                        kept_for_meta.push(partial);
+                    }
+                    continue;
+                }
+            } else if let Some(ktid) = val_obj.get("keyframeTrackIdValue") {
+                let track_guid = ktid.get("guid").and_then(guid_text);
+                let has_asset_ref = ktid.get("assetRef").is_some();
+                if !has_asset_ref {
+                    if let Some(tg) = track_guid.filter(|tg| valid_track_guids.contains(tg)) {
+                        bindings.push(TrackBinding { property: TrackProperty::from_kiwi_name(&field_name), track_guid: tg, timeline_id: None, node_field });
+                        continue;
+                    }
+                }
+            }
+        }
+        if is_motion_entry {
+            kept_for_meta.push(entry.clone());
+        } else {
+            kept_for_vars.push(entry.clone());
+        }
+    }
+
+    let rem_vars = if kept_for_vars.is_empty() { None } else { Some(json!({"entries": kept_for_vars})) };
+    let rem_meta = if kept_for_meta.is_empty() { None } else { Some(json!({"entries": kept_for_meta})) };
+    (bindings, rem_vars, rem_meta)
+}
+
+/// Default `NodeChange` field number (`nodeField`) for a [`TrackProperty`] when none was recorded on import.
+pub fn default_node_field_for_property(prop: &TrackProperty) -> u64 {
+    match prop {
+        TrackProperty::Opacity => 18,
+        TrackProperty::Width | TrackProperty::Height => 16,
+        TrackProperty::CornerRadius => 25,
+        TrackProperty::StrokeWeight => 29,
+        TrackProperty::TextData => 42,
+        TrackProperty::TranslationX
+        | TrackProperty::TranslationY
+        | TrackProperty::TranslationXy
+        | TrackProperty::Rotation
+        | TrackProperty::ScaleX
+        | TrackProperty::ScaleY
+        | TrackProperty::ScaleXy
+        | TrackProperty::Shear
+        | TrackProperty::TransformOriginX
+        | TrackProperty::TransformOriginY
+        | TrackProperty::TransformOriginXy => 21,
+        TrackProperty::PathTrimStart | TrackProperty::PathTrimEnd | TrackProperty::Other(_) => 0,
+    }
+}
+
+/// Builds the `VariableDataMapEntry` JSON items for `tracks` to be written into `parameterConsumptionMap.entries`.
+pub fn tracks_to_parameter_consumption_entries(
+    tracks: &[Track],
+    mut track_guid_of: impl FnMut(usize, &Track) -> (u32, u32),
+    mut timeline_guid_of: impl FnMut(&str) -> (u32, u32),
+    mut node_field_of: impl FnMut(usize, &TrackProperty) -> Option<u64>,
+) -> Vec<Value> {
+    let mut group_order: Vec<(TrackProperty, u64, Vec<Value>)> = Vec::new();
+    for (idx, track) in tracks.iter().enumerate() {
+        if track.property.kiwi_name().is_empty() {
+            continue;
+        }
+        let nf = node_field_of(idx, &track.property).unwrap_or_else(|| default_node_field_for_property(&track.property));
+        let tg = track_guid_of(idx, track);
+        let tlg = timeline_guid_of(&track.timeline);
+        let param = json!({
+            "type": "MANUAL",
+            "value": {
+                "manual": {
+                    "keyframeTrackId": {"guid": guid_pair_json(tg)},
+                    "timelineDefId": guid_pair_json(tlg)
+                }
+            }
+        });
+        if let Some((_, _, params)) = group_order.iter_mut().find(|(p, existing_nf, _)| *p == track.property && *existing_nf == nf) {
+            params.push(param);
+        } else {
+            group_order.push((track.property.clone(), nf, vec![param]));
+        }
+    }
+
+    group_order
+        .into_iter()
+        .map(|(prop, nf, params)| {
+            let vf_name = prop.kiwi_name();
+            let vf_val = vf_name.parse::<u64>().map(Value::from).unwrap_or_else(|_| Value::String(vf_name.to_string()));
+            json!({
+                "nodeField": nf,
+                "variableField": vf_val,
+                "variableData": {
+                    "value": {
+                        "keyframeTrackParameterValue": {
+                            "parameters": params
+                        }
+                    },
+                    "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+                    "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA"
+                }
+            })
+        })
+        .collect()
 }
 
 /// The operation (509) and loop mode (591) of a `KEYFRAME_TRACK` node.

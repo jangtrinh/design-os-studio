@@ -258,6 +258,8 @@ struct ExportCtx<'a> {
     prop_guids: BTreeMap<(NodeId, String), (u32, u32)>,
     comp_keys: BTreeMap<NodeId, String>,
     grid_tracks: BTreeMap<NodeId, grid::GridTrackIds>,
+    timeline_guids: BTreeMap<String, (u32, u32)>,
+    track_guids: BTreeMap<(NodeId, usize), (u32, u32)>,
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
 }
@@ -327,6 +329,8 @@ impl<'a> ExportCtx<'a> {
             prop_guids: BTreeMap::new(),
             comp_keys: BTreeMap::new(),
             grid_tracks: BTreeMap::new(),
+            timeline_guids: BTreeMap::new(),
+            track_guids: BTreeMap::new(),
             blobs: Vec::new(),
             changes: Vec::new(),
         };
@@ -378,6 +382,38 @@ impl<'a> ExportCtx<'a> {
                 if cx.used_guids.insert(g) {
                     bump_next_local(&mut cx.next_local, g.1);
                     cx.style_guids.insert(id.clone(), g);
+                }
+            }
+        }
+        let mut used_tl_guids: HashSet<(u32, u32)> = HashSet::from([(0, 0), (0, 999_999), (u32::MAX, u32::MAX)]);
+        let mut sorted_motion_nodes: Vec<NodeId> = doc.nodes.iter().filter_map(|(&id, n)| n.motion.is_some().then_some(id)).collect();
+        sorted_motion_nodes.sort_by_key(|id| id.0);
+        for &id in &sorted_motion_nodes {
+            let Some(motion) = doc.nodes[&id].motion.as_deref() else { continue };
+            let tl_ids = motion
+                .timelines
+                .iter()
+                .flat_map(|t| std::iter::once(t.id.as_str()).chain(t.parent.as_deref()))
+                .chain(motion.assignments.iter().flat_map(|a| [a.timeline.as_str(), a.containing.as_str()]))
+                .chain(motion.tracks.iter().map(|tr| tr.timeline.as_str()));
+            for tid in tl_ids {
+                if tid.is_empty() || cx.timeline_guids.contains_key(tid) {
+                    continue;
+                }
+                if let Some(g) = parse_guid_pair(tid) {
+                    if used_tl_guids.insert(g) {
+                        cx.used_guids.insert(g);
+                        bump_next_local(&mut cx.next_local, g.1);
+                        cx.timeline_guids.insert(tid.to_string(), g);
+                    }
+                }
+            }
+            for (t_idx, tr) in motion.tracks.iter().enumerate() {
+                if let Some(g) = parse_guid_pair(&tr.id) {
+                    if cx.used_guids.insert(g) {
+                        bump_next_local(&mut cx.next_local, g.1);
+                        cx.track_guids.insert((id, t_idx), g);
+                    }
                 }
             }
         }
@@ -460,7 +496,39 @@ impl<'a> ExportCtx<'a> {
             }
         }
         grid::allocate(&mut cx);
+        for &id in &sorted_motion_nodes {
+            let Some(motion) = doc.nodes[&id].motion.as_deref() else { continue };
+            let tl_ids: Vec<&str> = motion
+                .timelines
+                .iter()
+                .flat_map(|t| std::iter::once(t.id.as_str()).chain(t.parent.as_deref()))
+                .chain(motion.assignments.iter().flat_map(|a| [a.timeline.as_str(), a.containing.as_str()]))
+                .chain(motion.tracks.iter().map(|tr| tr.timeline.as_str()))
+                .collect();
+            for tid in tl_ids {
+                if !tid.is_empty() && !cx.timeline_guids.contains_key(tid) {
+                    let s = crate::motion::guid_session_hint(tid, 3);
+                    let g = cx.alloc_guid(s);
+                    cx.timeline_guids.insert(tid.to_string(), g);
+                }
+            }
+            for (t_idx, tr) in motion.tracks.iter().enumerate() {
+                if !cx.track_guids.contains_key(&(id, t_idx)) {
+                    let s = crate::motion::guid_session_hint(&tr.id, 1);
+                    let g = cx.alloc_guid(s);
+                    cx.track_guids.insert((id, t_idx), g);
+                }
+            }
+        }
         cx
+    }
+
+    fn timeline_guid(&self, id: &str) -> (u32, u32) {
+        self.timeline_guids.get(id).copied().or_else(|| parse_guid_pair(id)).unwrap_or((3, 1))
+    }
+
+    fn track_guid(&self, nid: NodeId, idx: usize) -> (u32, u32) {
+        self.track_guids.get(&(nid, idx)).copied().unwrap_or((1, 1))
     }
 
     fn alloc_guid(&mut self, session: u32) -> (u32, u32) {
@@ -1805,6 +1873,53 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         fields.push(("pluginData", V::Array(pd_entries)));
     }
     let mut msg_fields: Vec<(std::sync::Arc<str>, V)> = fields.into_iter().map(|(k, v)| (k.into(), v)).collect();
+    let track_meta_map: serde_json::Map<String, serde_json::Value> = node
+        .fig_metadata
+        .get("_motionTrackMeta")
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    if let Some(motion) = node.motion.as_deref() {
+        if !motion.timelines.is_empty() {
+            let tl_json = crate::motion::timelines_to_kiwi_with(&motion.timelines, |tid| cx.timeline_guid(tid));
+            if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "timelineDefinitions", &tl_json) {
+                msg_fields.push(pair);
+            }
+        }
+        if !motion.assignments.is_empty() {
+            let as_json = crate::motion::assignments_to_kiwi_with(&motion.assignments, |tid| cx.timeline_guid(tid));
+            if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "timelineAssignments", &as_json) {
+                msg_fields.push(pair);
+            }
+        }
+        if !motion.tracks.is_empty() {
+            let mut pcm_entries = crate::motion::tracks_to_parameter_consumption_entries(
+                &motion.tracks,
+                |t_idx, _tr| cx.track_guid(id, t_idx),
+                |tid| cx.timeline_guid(tid),
+                |t_idx, _prop| {
+                    track_meta_map
+                        .get(&t_idx.to_string())
+                        .and_then(|m| m.get("_nodeField"))
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(|s| s.parse::<u64>().ok())
+                },
+            );
+            if let Some(existing_pcm) = node.fig_metadata.get("parameterConsumptionMap") {
+                if let Ok(existing_val) = serde_json::from_str::<serde_json::Value>(existing_pcm) {
+                    if let Some(arr) = existing_val.get("entries").and_then(serde_json::Value::as_array) {
+                        pcm_entries.extend(arr.iter().cloned());
+                    }
+                }
+            }
+            if !pcm_entries.is_empty() {
+                let pcm_json = json!({"entries": pcm_entries});
+                if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "parameterConsumptionMap", &pcm_json) {
+                    msg_fields.push(pair);
+                }
+            }
+        }
+    }
     append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
     cx.changes.push(V::Message(msg_fields));
 
@@ -1903,8 +2018,63 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
 
     let child_in_comp = in_component || matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_));
+    let child_count = node.children.len();
     for (cidx, cid) in node.children.into_iter().enumerate() {
         export_node_rec(cx, cid, nguid, cidx, my_dir, child_in_comp);
+    }
+    if let Some(motion) = node.motion.as_deref() {
+        for (t_idx, track) in motion.tracks.iter().enumerate() {
+            if track.property.kiwi_name().is_empty() {
+                continue;
+            }
+            let t_guid = cx.track_guid(id, t_idx);
+            let mut t_json = serde_json::Map::new();
+            crate::motion::track_modes_to_kiwi(track.operation, track.loop_mode, &mut t_json);
+            let mut t_msg_fields: Vec<(std::sync::Arc<str>, V)> = vec![
+                ("guid".into(), guid(t_guid.0, t_guid.1)),
+                ("phase".into(), en("CREATED")),
+                ("parentIndex".into(), st(vec![("guid", guid(nguid.0, nguid.1)), ("position", V::String(pos_str(child_count + t_idx)))])),
+                ("type".into(), en("KEYFRAME_TRACK")),
+                ("name".into(), V::String("Track".into())),
+                ("visible".into(), V::Bool(true)),
+                ("opacity".into(), fl_one(1.0)),
+                ("size".into(), vec2(0.0, 0.0)),
+                ("transform".into(), encode_matrix(&Affine::IDENTITY)),
+            ];
+            for (k, v) in &t_json {
+                if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, k, v) {
+                    t_msg_fields.push(pair);
+                }
+            }
+            if let Some(meta_obj) = track_meta_map.get(&t_idx.to_string()).and_then(serde_json::Value::as_object) {
+                let meta_btree: BTreeMap<String, String> = meta_obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect();
+                append_fig_metadata(cx.schema, cx.nc_def, &mut t_msg_fields, &meta_btree);
+            }
+            cx.changes.push(V::Message(t_msg_fields));
+
+            for (k_idx, kf) in track.keyframes.iter().enumerate() {
+                let k_guid = cx.alloc_guid(t_guid.0.max(1));
+                let mut k_json = serde_json::Map::new();
+                crate::motion::keyframe_to_kiwi(kf, &mut k_json);
+                let mut k_msg_fields: Vec<(std::sync::Arc<str>, V)> = vec![
+                    ("guid".into(), guid(k_guid.0, k_guid.1)),
+                    ("phase".into(), en("CREATED")),
+                    ("parentIndex".into(), st(vec![("guid", guid(t_guid.0, t_guid.1)), ("position", V::String(pos_str(k_idx)))])),
+                    ("type".into(), en("KEYFRAME")),
+                    ("name".into(), V::String("Keyframe".into())),
+                    ("visible".into(), V::Bool(true)),
+                    ("opacity".into(), fl_one(1.0)),
+                    ("size".into(), vec2(0.0, 0.0)),
+                    ("transform".into(), encode_matrix(&Affine::IDENTITY)),
+                ];
+                for (k, v) in &k_json {
+                    if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, k, v) {
+                        k_msg_fields.push(pair);
+                    }
+                }
+                cx.changes.push(V::Message(k_msg_fields));
+            }
+        }
     }
 }
 

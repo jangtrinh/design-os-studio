@@ -1492,6 +1492,13 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+        if let Some(mv) = v.get("motion") {
+            if let Ok(motion) = serde_json::from_value::<designos_doc::NodeMotion>(mv.clone()) {
+                if !motion.is_empty() {
+                    n.motion = Some(Box::new(motion));
+                }
+            }
+        }
         if ty == "BRUSH" {
             let bt = fstr(v, "brushType").unwrap_or("STRETCH").to_string();
             n.fig_metadata.entry("brushType".into()).or_insert(bt);

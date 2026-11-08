@@ -105,3 +105,14 @@ and render its frames with `--example fig_render`.
 ## Prototypes
 
 `prototypeInteractions [{id, isDeleted, event {interactionType ON_CLICK / ON_HOVER / MOUSE_IN / MOUSE_OUT}, actions [{connectionType INTERNAL_NODE, navigationType SWAP_STATE, transitionNodeID, transitionType DISSOLVE, transitionDuration, easingType, easingFunction}]}]`: confirmed. URL / overlay / scroll fields (`connectionURL`, `overlay*`, `overflowDirection`, `flowStartingPoint`) are unconfirmed.
+
+## Motion
+
+| Feature | Fields | Status |
+|---|---|---|
+| Timelines | node `timelineDefinitions` (552) `{entries [{id, data {durationUs, defaultTimeline, parentTimelineDefId, playbackStyle ONCE / LOOP / BOOMERANG, autoplay, keyframeSnappingFps {numerator, denominator}, quantizePlayback}}]}` | schema-confirmed (modelled on `NodeMotion::timelines`) |
+| Assignments | node `timelineAssignments` (553) `{entries [{key {assignedTimelineId, containingTimelineId}, value {offsetUs, disabled, autoplay}}]}` | schema-confirmed (modelled on `NodeMotion::assignments`) |
+| Track join | node `parameterConsumptionMap` (445) `{entries [{nodeField, variableField, variableData {dataType KEYFRAME_TRACK_PARAMETER_DATA / KEYFRAME_TRACK_ID, resolvedDataType, value {keyframeTrackParameterValue {parameters [{type MANUAL, value {manual {keyframeTrackId {guid}, timelineDefId}}}]}}}}]}` | schema-confirmed (modelled on `NodeMotion::tracks`; non-manual preset / assetRef entries kept in `fig_metadata`) |
+| Track node | `KEYFRAME_TRACK` (node type 57): `keyframeOperation` (509: `SET` / `SCALE` / `OFFSET`), `trackLoopMode` (591: `NONE` / `LOOP`); extra track fields (`timelineDuration` 512, `timelineOffset` 513, `timelineDisabled` 543) preserved across round-trip | schema-confirmed (modelled when bound via `parameterConsumptionMap`; unbound tracks stay in passthrough) |
+| Keyframe node | `KEYFRAME` (node type 56, child of `KEYFRAME_TRACK`): `timelinePosition` (506, `int64` µs), `keyframeValue` (507, `FLOAT` / `BOOLEAN` / `VECTOR` / `COLOR` / `CIRCLE` / `LINE` / `CIRCLE_POINT` / `ROTATION_3D` / `TEXT_DATA`), `interpolationType` (505, `HOLD` / `BEZIER` / `SPRING`), `bezierHandles` (508), `easingData` (535, `CUSTOM_CUBIC` / `CUSTOM_SPRING` / preset `EasingType`), `interpolationColorSpace` (599, `DEFAULT` / `OKLAB` / `OKLCH` / `HSL` / `SRGB_LINEAR`) | schema-confirmed (modelled on `Track::keyframes`) |
+| Presets & text delay | `ANIMATION_PRESET_INSTANCE` (node type 58), `animationPresets` (521), `styleIdsForAnimation` (582), `textElementDelayBehaviour` (500) | unconfirmed in real files, kept in passthrough |
