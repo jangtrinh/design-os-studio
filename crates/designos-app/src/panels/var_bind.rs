@@ -374,16 +374,9 @@ pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
         let sample_key = format!("{pfx}/{pi}/stops/0");
         state.has_vars = has_matching_var(app, ctx, &sample_key, VariableKind::Color, target_kind);
         state.open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first().cloned());
-        let stop_prefix = format!("{pfx}/{pi}/stops/");
         let mut keys = std::collections::BTreeSet::new();
         for &id in &nodes {
-            if let Some(node) = app.doc.get(id) {
-                for k in node.variables.bindings.keys() {
-                    if k.starts_with(&stop_prefix) && bound_var(app, id, k).is_some() {
-                        keys.insert(k.clone());
-                    }
-                }
-            }
+            collect_bound_stop_keys(&app.doc, id, pfx, pi, &mut keys);
         }
         for k in keys {
             let mut uniform: Option<(&str, &str, Option<egui::Color32>)> = None;
@@ -554,10 +547,41 @@ pub(crate) fn picker_stop_hover_button(ui: &mut Ui, st: &mut crate::widgets::pic
     }
 }
 
-/// The variable bound to `key` on `node` in `doc`, if any.
+/// The variable bound to `key` on `node` in `doc` (directly or through a linked style), if any.
 pub(super) fn doc_bound_var<'a>(doc: &'a Document, node: NodeId, key: &str) -> Option<&'a Variable> {
-    let id = doc.get(node)?.variables.bindings.get(key)?;
+    let id = doc.effective_binding(node, key)?;
     doc.variables.get(id)
+}
+
+/// Collects all stop binding keys (`"{pfx}/{pi}/stops/{si}"`) that resolve to a live variable on
+/// `node` (directly or through a linked fill/stroke style).
+pub(super) fn collect_bound_stop_keys(doc: &Document, node: NodeId, pfx: &str, pi: usize, out: &mut std::collections::BTreeSet<String>) {
+    let Some(n) = doc.get(node) else { return };
+    let stop_prefix = format!("{pfx}/{pi}/stops/");
+    for k in n.variables.bindings.keys() {
+        if k.starts_with(&stop_prefix) && doc_bound_var(doc, node, k).is_some() {
+            out.insert(k.clone());
+        }
+    }
+    let slot = if pfx == "strokes" { "stroke" } else { "fill" };
+    let style_stop_prefix = format!("fills/{pi}/stops/");
+    if let Some(meta) = n.style_refs.get(slot).and_then(|sk| doc.style_meta.get(sk)) {
+        for bkey in meta.bindings.keys() {
+            if let Some(rest) = bkey.strip_prefix(&style_stop_prefix) {
+                let k = format!("{stop_prefix}{rest}");
+                if doc_bound_var(doc, node, &k).is_some() {
+                    out.insert(k);
+                }
+            }
+        }
+    }
+}
+
+/// Whether `node` has any live gradient stop binding under `"{pfx}/{pi}/stops/"` (directly or through a linked style).
+pub(super) fn has_bound_stops(doc: &Document, node: NodeId, pfx: &str, pi: usize) -> bool {
+    let mut keys = std::collections::BTreeSet::new();
+    collect_bound_stop_keys(doc, node, pfx, pi, &mut keys);
+    !keys.is_empty()
 }
 
 /// The variable bound to `key` on `node`, if any.
@@ -579,7 +603,9 @@ fn open_style_picker(app: &mut App, style_key: &str, prop: &str, kind: VariableK
 /// on the first selected node. Returns whether it did.
 pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str]) -> bool {
     let Some(first) = sel.first() else { return false };
-    let Some(var) = bound_var(app, *first, keys[0]).cloned() else { return false };
+    let Some(var) = app.doc.get(*first).and_then(|n| n.variables.bindings.get(keys[0])).and_then(|id| app.doc.variables.get(id)).cloned() else {
+        return false;
+    };
     let swatch = match app.doc.bound_value(*first, keys[0]) {
         Some(VariableValue::Color(c)) => Some(to_c32(c)),
         _ => None,

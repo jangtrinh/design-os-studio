@@ -1629,3 +1629,130 @@ fn dangling_only_gradient_stop_flip_session_stays_one_undo_step_and_remaps_key()
     assert_eq!(steps, 1, "an unbound (dangling-only) session is one undo step");
     assert_eq!(back, original, "one undo restores fills and the dangling key");
 }
+
+#[test]
+fn picker_gradient_stop_binding_through_linked_style_locks_controls_and_preserves_color() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _) = theme_ids(s.app());
+    let fill_stop_var = store.add_variable(&coll, "Grad/StyleStopStart", VariableKind::Color).unwrap();
+    let bound_fill_color = Color::rgb(0xFF, 0x11, 0x22);
+    store.set_value(&fill_stop_var, &light, VariableValue::Color(bound_fill_color));
+    set_scopes(&mut store, &fill_stop_var, &["ALL_FILLS"]);
+
+    let stroke_stop_var = store.add_variable(&coll, "Stroke/StyleStopStart", VariableKind::Color).unwrap();
+    let bound_stroke_color = Color::rgb(0x22, 0xAA, 0xFF);
+    store.set_value(&stroke_stop_var, &light, VariableValue::Color(bound_stroke_color));
+    set_scopes(&mut store, &stroke_stop_var, &["STROKE_COLOR"]);
+    s.shell.app.commit_store(store, &[], &[]);
+
+    let grad_paint = Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+
+    s.shell.app.doc.styles.insert("Grad/BrandFill".into(), designos_doc::Style::Fill(vec![grad_paint.clone()]));
+    s.shell.app.doc.style_meta.insert(
+        "Grad/BrandFill".into(),
+        designos_doc::StyleMeta { name: "Grad/BrandFill".into(), property: designos_doc::StyleProperty::Fill, ..Default::default() },
+    );
+    assert!(s.shell.app.bind_style_variable("Grad/BrandFill", "fills/0/stops/0", &fill_stop_var));
+    s.shell.app.apply_style(&[hero], "Grad/BrandFill");
+
+    s.shell.app.doc.styles.insert("Grad/BrandStroke".into(), designos_doc::Style::Fill(vec![grad_paint]));
+    s.shell.app.doc.style_meta.insert(
+        "Grad/BrandStroke".into(),
+        designos_doc::StyleMeta { name: "Grad/BrandStroke".into(), property: designos_doc::StyleProperty::Stroke, ..Default::default() },
+    );
+    assert!(s.shell.app.bind_style_variable("Grad/BrandStroke", "fills/0/stops/0", &stroke_stop_var));
+    s.shell.app.edit_nodes(&[hero], |n| n.stroke.weight = 2.0);
+    s.shell.app.apply_style(&[hero], "Grad/BrandStroke");
+    s.frame(vec![]);
+
+    assert!(s.app().doc.get(hero).unwrap().variables.bindings.is_empty(), "bindings live on the linked styles, not directly on the node");
+
+    // Open the fill paint picker on Hero (`sw:false:0`).
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+
+    assert!(crate::panels::var_bind::picker_stop_is_bound(&s.ctx, 0), "stop 0 bound through linked fill style must report as bound in the picker");
+    assert!(!crate::panels::var_bind::picker_stop_is_bound(&s.ctx, 1), "unbound stop 1 must report as unbound");
+    assert!(has_test_rect(&s, "bound:fills/0/stops/0"), "bound variable pill must render for style-bound fill stop 0");
+
+    let before_node = s.app().doc.get(hero).unwrap().clone();
+
+    // Swatch click, SV drag, hue drag, alpha drag, and eyedropper click are locked on style-bound stop 0.
+    let swatch0 = Pos2::new(picker.left() + 24.0, picker.top() + 504.0);
+    s.click(swatch0);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "swatch click must not overwrite a style-bound gradient stop");
+
+    let sv_from = Pos2::new(picker.left() + 60.0, picker.top() + 200.0);
+    let sv_to = Pos2::new(picker.left() + 180.0, picker.top() + 260.0);
+    s.drag(sv_from, sv_to);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "SV drag must not overwrite a style-bound gradient stop");
+
+    let hue_from = Pos2::new(picker.left() + 80.0, picker.top() + 368.0);
+    let hue_to = Pos2::new(picker.left() + 180.0, picker.top() + 368.0);
+    s.drag(hue_from, hue_to);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "hue slider drag must not overwrite a style-bound gradient stop");
+
+    let alpha_from = Pos2::new(picker.left() + 200.0, picker.top() + 386.0);
+    let alpha_to = Pos2::new(picker.left() + 80.0, picker.top() + 386.0);
+    s.drag(alpha_from, alpha_to);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "alpha slider drag must not overwrite a style-bound gradient stop");
+
+    let eyedrop_btn = Pos2::new(picker.left() + 28.0, picker.top() + 377.0);
+    s.click(eyedrop_btn);
+    s.frame(vec![]);
+    assert!(!s.app().props.picker.as_ref().unwrap().eyedrop, "eyedropper button must be ignored while a style-bound stop is selected");
+
+    // Dragging stop 0's position on the gradient bar moves the stop while preserving its style-bound colour.
+    let stop0_handle = Pos2::new(picker.left() + 16.0, picker.top() + 100.0);
+    let stop0_dragged = Pos2::new(picker.left() + 54.0, picker.top() + 100.0);
+    s.drag(stop0_handle, stop0_dragged);
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert!((stops[0].pos - 0.25).abs() < 0.05, "style-bound stop position must remain draggable, got {}", stops[0].pos);
+    assert_eq!(stops[0].color, bound_fill_color, "dragging stop 0 position must preserve its style-bound colour");
+
+    // Selecting unbound stop 1 allows editing its colour while keeping stop 0's style-bound colour intact.
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(swatch0);
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_eq!(stops[0].color, bound_fill_color, "editing unbound stop 1 must preserve style-bound stop 0 colour");
+    assert_ne!(stops[1].color, Color::WHITE, "editing unbound stop 1 must update stop 1 colour");
+
+    s.shell.app.props.picker = None;
+    s.frame(vec![]);
+
+    // Open the stroke paint picker on Hero (`sw:true:0`) and verify the style-bound stroke stop is also locked.
+    s.click(s.rect_of("sw:true:0").center());
+    s.frame(vec![]);
+    let stroke_picker = s.rect_of("picker");
+    assert!(crate::panels::var_bind::picker_stop_is_bound(&s.ctx, 0), "stop 0 bound through linked stroke style must report as bound in the picker");
+    assert!(!crate::panels::var_bind::picker_stop_is_bound(&s.ctx, 1), "unbound stroke stop 1 must report as unbound");
+    assert!(has_test_rect(&s, "bound:strokes/0/stops/0"), "bound variable pill must render for style-bound stroke stop 0");
+
+    let before_stroke_node = s.app().doc.get(hero).unwrap().clone();
+    s.click(Pos2::new(stroke_picker.left() + 24.0, stroke_picker.top() + 504.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_stroke_node, "swatch click must not overwrite a style-bound stroke gradient stop");
+}

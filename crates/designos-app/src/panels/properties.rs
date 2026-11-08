@@ -2425,14 +2425,12 @@ fn picker_color(p: &Picker) -> Color {
 }
 
 fn has_stop_bindings(doc: &Document, pk: &Picker) -> bool {
-    let prefix = match pk.target {
-        PickTarget::Fill(i) => format!("fills/{i}/stops/"),
-        PickTarget::Stroke(i) => format!("strokes/{i}/stops/"),
+    let (pfx, pi) = match pk.target {
+        PickTarget::Fill(i) => ("fills", i),
+        PickTarget::Stroke(i) => ("strokes", i),
         _ => return false,
     };
-    pk.ids.iter().any(|&id| {
-        doc.get(id).is_some_and(|n| n.variables.bindings.keys().any(|k| k.starts_with(&prefix) && super::var_bind::doc_bound_var(doc, id, k).is_some()))
-    })
+    pk.ids.iter().any(|&id| super::var_bind::has_bound_stops(doc, id, pfx, pi))
 }
 
 fn preserve_bound_stop_colors(doc: &Document, id: NodeId, pt: &mut Paint, old_stops: &[GradientStop], prefix: &str, pi: usize, stop_origins: &[Option<usize>]) {
