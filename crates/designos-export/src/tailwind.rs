@@ -505,15 +505,26 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
             }
         } else {
             let w = n.stroke.weight;
-            let side = if matches!(n.kind, NodeKind::Line) { "border-t" } else { "border" };
+            // Center and Outside strokes do not participate in CSS layout. Use outline, matching
+            // the CSS exporter, so content keeps the same box as the canvas. Lines retain their
+            // border-top representation because CSS draws their stroke as a border.
+            let outline = n.stroke.align != StrokeAlign::Inside && !matches!(n.kind, NodeKind::Line);
+            let side = if matches!(n.kind, NodeKind::Line) {
+                "border-t"
+            } else if outline {
+                "outline"
+            } else {
+                "border"
+            };
             if w > 0.0 || bound(doc, n, "strokeWeight").is_some() {
                 c.push(stroke_width_class(side, w, bound(doc, n, "strokeWeight")));
             }
         }
         if n.stroke.dashes.iter().any(|d| *d > 0.0) {
-            c.push("border-dashed".into());
+            c.push(if n.stroke.align != StrokeAlign::Inside && !matches!(n.kind, NodeKind::Line) { "outline-dashed" } else { "border-dashed" }.into());
         }
-        c.push(color_class(doc, n, "strokes/0", "border", p, false));
+        let color_prefix = if n.stroke.align != StrokeAlign::Inside && !matches!(n.kind, NodeKind::Line) { "outline" } else { "border" };
+        c.push(color_class(doc, n, "strokes/0", color_prefix, p, false));
         if n.stroke.align != StrokeAlign::Inside {
             let offset = match n.stroke.align {
                 StrokeAlign::Center => {
@@ -892,10 +903,32 @@ mod tests {
         n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
         let id = d.insert(page, n).unwrap();
         let out = tailwind_for(&d, id);
-        assert!(out.contains("border-[length:var(--Stroke-Width)]"), "{out}");
+        assert!(out.contains("outline-[length:var(--Stroke-Width)]"), "{out}");
+        assert!(out.contains("outline-[#000000]"), "{out}");
+        assert!(!out.contains("border-[length:var(--Stroke-Width)]"), "{out}");
         assert!(out.contains("outline-offset-[calc(-0.5*var(--Stroke-Width))]"), "{out}");
         assert!(!out.contains("border-t-"), "center strokes use one outline: {out}");
         assert!(!out.contains("border-r-"), "center strokes use one outline: {out}");
+    }
+
+    #[test]
+    fn non_grid_center_and_outside_strokes_use_outline_classes() {
+        let mut d = Document::new("stroke-align");
+        let page = d.add_page("p");
+        for align in [StrokeAlign::Center, StrokeAlign::Outside] {
+            let id = d.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+            n.fills.clear();
+            n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+            n.stroke.weight = 4.0;
+            n.stroke.align = align;
+            let id = d.insert(page, n).unwrap();
+            let out = tailwind_for(&d, id);
+            assert!(out.contains("outline-4"), "{align:?}: {out}");
+            assert!(out.contains("outline-[#000000]"), "{align:?}: {out}");
+            assert!(!out.contains("border-4"), "{align:?}: {out}");
+            assert!(!out.contains("border-[#000000]"), "{align:?}: {out}");
+        }
     }
 
     #[test]
