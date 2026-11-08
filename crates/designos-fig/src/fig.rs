@@ -486,6 +486,11 @@ struct Lk<'a> {
     grid_column_index: HashMap<String, Option<usize>>,
     /// Same for `gridRows`.
     grid_row_index: HashMap<String, Option<usize>>,
+    /// Nodes whose effect-style link resolves (see [`Lk::effect_link_resolves`]), with the style id they link: the
+    /// style node's guid, or `key:<key>` for a library style the file does not carry.
+    effect_linked: HashMap<String, String>,
+    /// Variable id (`VariableID:s:l`) -> per mode, the variable that mode's value aliases (`None` for a literal).
+    var_aliases: HashMap<String, Vec<Option<String>>>,
 }
 
 impl<'a> Lk<'a> {
@@ -504,6 +509,8 @@ impl<'a> Lk<'a> {
             handoff_status: HashMap::new(),
             grid_column_index: HashMap::new(),
             grid_row_index: HashMap::new(),
+            effect_linked: HashMap::new(),
+            var_aliases: HashMap::new(),
         };
         let mut aliases: Vec<(String, String)> = Vec::new();
         let mut instance_keys: Vec<(String, String)> = Vec::new();
@@ -601,7 +608,74 @@ impl<'a> Lk<'a> {
                 lk.prop_defs.entry(id).or_insert(def);
             }
         }
+        let var_aliases: HashMap<String, Vec<Option<String>>> = entries
+            .iter()
+            .filter(|e| fstr(&e.json, "type") == Some("VARIABLE"))
+            .map(|e| {
+                let targets = e.json.get("variableDataValues").map(|d| rest_import::farr(d, "entries")).unwrap_or(&[]);
+                let targets = targets.iter().map(|t| Some(lk.variable_identity(t.get("variableData")?.get("value")?.get("alias")?))).collect();
+                (format!("VariableID:{}", e.id), targets)
+            })
+            .collect();
+        lk.var_aliases = var_aliases;
+        let linked: HashMap<String, String> = entries
+            .iter()
+            .filter_map(|e| {
+                // An instance whose own self entry names an effect style is linked to that one (or to none when the
+                // entry detaches it), not to the style its record carries.
+                let link = lk.own_effect_link_entry(&e.json).unwrap_or(&e.json);
+                let style = lk
+                    .style_node_of(link, "styleIdForEffect", "inheritEffectStyleID")
+                    .and_then(|s| s.get("guid").and_then(guid_str))
+                    .or_else(|| link.get("styleIdForEffect").and_then(|r| lk.style_id(r)).filter(|id| id.starts_with("key:")))?;
+                Some((e.id.clone(), style))
+            })
+            .collect();
+        lk.effect_linked = linked;
         lk
+    }
+
+    /// `id` is one of `carried`, or every mode of it aliases a variable that is (directly or through other
+    /// variables). A literal in any mode, or a cycle, makes it a different variable. `memo` holds the answers of one
+    /// comparison (`None` while a variable is still being walked, which counts as foreign), so each variable is
+    /// walked once however many modes point at it. A chain longer than [`MAX_ALIAS_DEPTH`] counts as a different
+    /// variable, which keeps the node's own list, so a crafted file cannot exhaust the stack.
+    fn variable_reaches(&self, id: &str, carried: &HashSet<String>, memo: &mut HashMap<String, Option<bool>>, depth: usize) -> bool {
+        if carried.contains(id) {
+            return true;
+        }
+        if depth > MAX_ALIAS_DEPTH {
+            return false;
+        }
+        match memo.get(id) {
+            Some(Some(known)) => return *known,
+            Some(None) => return false,
+            None => {}
+        }
+        memo.insert(id.to_string(), None);
+        let reaches = match self.var_aliases.get(id) {
+            Some(modes) if !modes.is_empty() => {
+                modes.iter().all(|target| target.as_deref().is_some_and(|t| self.variable_reaches(t, carried, memo, depth + 1)))
+            }
+            _ => false,
+        };
+        memo.insert(id.to_string(), Some(reaches));
+        reaches
+    }
+
+    /// The self entry of an instance record that names an effect style, if any.
+    fn own_effect_link_entry<'v>(&self, record: &'v Value) -> Option<&'v Value> {
+        let sd = record.get("symbolData")?;
+        let own = [sd.get("symbolID").and_then(guid_str), record.get("guid").and_then(guid_str)];
+        rest_import::farr(sd, "symbolOverrides")
+            .iter()
+            .find(|o| o.get("styleIdForEffect").is_some() && matches!(guid_path(o).as_slice(), [only] if own.iter().flatten().any(|g| g == only)))
+    }
+
+    /// Whether the effects an override entry restates are a stale copy that the linked `style` replaces: they bind
+    /// no variable the style lacks. A library style the file does not carry (`None`) has no values to compare.
+    fn style_replaces_entry_effects(&self, own: &[Value], style: Option<&Value>) -> bool {
+        style.is_none_or(|s| !effects_bind_foreign_variable(self, own, rest_import::farr(s, "effects")))
     }
 
     /// Resolves a preferred-value component key: literal `comp_by_key` match wins first; otherwise
@@ -614,6 +688,12 @@ impl<'a> Lk<'a> {
             return guid;
         }
         k.to_string()
+    }
+
+    /// Identity of a bound variable: its id in the file, else `key:<asset key>` for a library variable the file
+    /// does not carry (the version is not part of the identity), else the alias text.
+    fn variable_identity(&self, alias: &Value) -> String {
+        self.variable_id(alias).or_else(|| asset_key(alias).map(|k| format!("key:{k}"))).unwrap_or_else(|| alias.to_string())
     }
 
     /// Variable id for an alias value (`{assetRef}` or a local `{guid}`).
@@ -1688,7 +1768,9 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     // Effects follow the same rule as paints: the style node's list wins unless a variable is bound.
     let own_effects = rest_import::farr(nc, "effects");
-    let fx_style = lk.style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID").filter(|_| !own_effects.iter().any(|e| e.get("colorVar").is_some()));
+    let fx_style = lk
+        .style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID")
+        .filter(|s| !effects_bind_foreign_variable(lk, own_effects, rest_import::farr(s, "effects")));
     let effects: Vec<Value> = fx_style.map(|s| rest_import::farr(s, "effects")).unwrap_or(own_effects).iter().filter_map(convert_effect).collect();
     if !effects.is_empty() {
         m.insert("effects".into(), Value::Array(effects));
@@ -1838,7 +1920,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             if !ov.is_empty() {
                 m.insert("_overrides".into(), Value::Array(ov));
             }
-            if let Some(kept) = keep_symbol_overrides(sd, lk) {
+            if let Some(kept) = keep_symbol_overrides(nc, sd, lk) {
                 m.insert("_keptOverrides".into(), Value::String(kept.text));
                 if !kept.own_keys.is_empty() {
                     m.insert("_keptOwnKeys".into(), Value::Array(kept.own_keys.into_iter().map(Value::String).collect()));
@@ -2502,6 +2584,22 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             m.insert(clear_key.into(), Value::Bool(true));
         }
     }
+    // Effects follow the same style-link rules as paints.  A style-only effect
+    // override must carry the style's values, while a raw effect override
+    // detaches the inherited link.
+    let own_effects = rest_import::farr(o, "effects");
+    let from_style =
+        obj.get("styleIdForEffect").and_then(|r| lk.style_node(r)).filter(|s| !effects_bind_foreign_variable(lk, own_effects, rest_import::farr(s, "effects")));
+    if let Some(sn) = from_style {
+        m.insert("effects".into(), Value::Array(rest_import::farr(sn, "effects").iter().filter_map(convert_effect).collect()));
+    } else if obj.contains_key("effects") {
+        m.insert("effects".into(), Value::Array(own_effects.iter().filter_map(convert_effect).collect()));
+    }
+    if obj.contains_key("styleIdForEffect") {
+        insert_style_override_link(&mut m, obj, lk, "styleIdForEffect", "effect", "_clearEffectStyle");
+    } else if obj.contains_key("effects") {
+        m.insert("_clearEffectStyle".into(), Value::Bool(true));
+    }
     if has_borders {
         let mut iw = Map::new();
         iw.insert("fromFig".into(), Value::Bool(true));
@@ -2684,6 +2782,29 @@ fn insert_style_override_link(m: &mut Map<String, Value>, obj: &Map<String, Valu
     }
 }
 
+/// Removes the effect bindings of an override whose effect list was dropped, so they do not land on the list the
+/// node keeps.
+fn drop_effect_bindings(m: &mut Map<String, Value>) {
+    if let Some(bound) = m.get_mut("boundVariables").and_then(Value::as_object_mut) {
+        bound.remove("effects");
+        if bound.is_empty() {
+            m.remove("boundVariables");
+        }
+    }
+}
+
+/// Links the effect style `id` in an override's `styles` map; no id leaves the entry detached.
+fn insert_effect_link(m: &mut Map<String, Value>, id: Option<String>) {
+    match id {
+        Some(id) => {
+            m.entry("styles".to_string()).or_insert_with(|| Value::Object(Map::new())).as_object_mut().unwrap().insert("effect".into(), Value::String(id));
+        }
+        None => {
+            m.insert("_clearEffectStyle".into(), Value::Bool(true));
+        }
+    }
+}
+
 fn convert_derived_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     let mut m = Map::new();
     copy(&mut m, o, "size", "size");
@@ -2731,7 +2852,7 @@ fn resolve_override_grid_anchor(
 ///
 /// Also lists the keys the instance's own entry (the one whose path is its main component alone) carries, as the file
 /// names them: the loader flags the fields those keys state (see [`crate::own_entry_keys`]).
-fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
+fn keep_symbol_overrides(instance: &Value, sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
     if !lk.large_file {
         return None;
     }
@@ -2743,7 +2864,9 @@ fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
     let mut own_keys: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for e in entries {
         if main.as_ref().is_some_and(|m| guid_path(e) == std::slice::from_ref(m)) {
-            own_keys.extend(e.as_object().into_iter().flat_map(|o| o.keys().map(String::as_str)));
+            // A stale copy under an inherited link is not an override of the instance: it states no effects.
+            let stale_copy = drops_copy_under_inherited_link(instance, e, lk);
+            own_keys.extend(e.as_object().into_iter().flat_map(|o| o.keys().map(String::as_str)).filter(|k| !(stale_copy && *k == "effects")));
         }
         for key in ["fillGeometry", "strokeGeometry"] {
             for g in rest_import::farr(e, key) {
@@ -2769,6 +2892,22 @@ fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
         text: format!("{{\"main\":{main},\"entries\":{entries},\"blobs\":{blobs},\"props\":{props}}}"),
         own_keys: own_keys.into_iter().map(String::from).collect(),
     })
+}
+
+/// Whether the self entry `o` of `instance` restates effects without naming a style, while the instance only inherits
+/// the effect link of its main (no link keys of its own) and the linked style replaces the restated list. Such an entry
+/// is a stale copy: the record keeps the effects Figma cached for it and nothing is overridden.
+fn drops_copy_under_inherited_link(instance: &Value, o: &Value, lk: &Lk) -> bool {
+    if o.get("styleIdForEffect").is_some() || o.get("effects").is_none() {
+        return false;
+    }
+    let instance_guid = instance.get("guid").and_then(guid_str).unwrap_or_default();
+    let inherits =
+        !lk.effect_linked.contains_key(&instance_guid) && instance.get("styleIdForEffect").is_none() && instance.get("inheritEffectStyleID").is_none();
+    let Some(style) = inherits.then(|| instance.get("symbolData")?.get("symbolID").and_then(guid_str)).flatten().and_then(|m| lk.effect_linked.get(&m)) else {
+        return false;
+    };
+    lk.style_replaces_entry_effects(rest_import::farr(o, "effects"), lk.style_by_id.get(style))
 }
 
 /// What [`keep_symbol_overrides`] keeps of an instance's `symbolOverrides`.
@@ -2824,15 +2963,67 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
             return None;
         }
         let path = guid_path(o);
-        if !derived && path.len() == 1 {
-            let own = [instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str), instance.get("guid").and_then(guid_str)];
-            if own.iter().flatten().any(|g| *g == path[0]) {
-                // A self entry that restates paints without a style key keeps the style the instance itself names.
-                if let Some(inst_obj) = instance.as_object() {
-                    for (style, slot, clear_key) in [("styleIdForFill", "fill", "_clearFillStyle"), ("styleIdForStrokeFill", "stroke", "_clearStrokeStyle")] {
-                        if o.get(style).is_none() && inst_obj.contains_key(style) && set.remove(clear_key).is_some() {
-                            insert_style_override_link(&mut set, inst_obj, lk, style, slot, clear_key);
+        let is_self = path.len() == 1
+            && [instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str), instance.get("guid").and_then(guid_str)]
+                .iter()
+                .flatten()
+                .any(|g| *g == path[0]);
+        let restates_effects_without_style = !derived && o.get("styleIdForEffect").is_none();
+        let instance_guid = instance.get("guid").and_then(guid_str).unwrap_or_default();
+        let own_effects = rest_import::farr(o, "effects");
+        if !derived && is_self {
+            // A self entry that restates paints without a style key keeps the style the instance itself names.
+            if let Some(inst_obj) = instance.as_object() {
+                for (style, slot, clear_key) in [("styleIdForFill", "fill", "_clearFillStyle"), ("styleIdForStrokeFill", "stroke", "_clearStrokeStyle")] {
+                    if o.get(style).is_none() && inst_obj.contains_key(style) && set.remove(clear_key).is_some() {
+                        insert_style_override_link(&mut set, inst_obj, lk, style, slot, clear_key);
+                    }
+                }
+                // Figma repeats the instance's effect list in a root
+                // self-override even when the effect style itself was not
+                // overridden.  Drop that stale copy so the linked style
+                // remains authoritative instead of mixing both lists.  A copy
+                // that binds a variable the style lacks keeps its own list, and
+                // the link stays, as it does on a node: the instance's own
+                // link, or the one it inherits from its main.
+                if restates_effects_without_style {
+                    let own_link = lk.effect_linked.get(&instance_guid);
+                    let inherited = own_link.is_none() && instance.get("styleIdForEffect").is_none() && instance.get("inheritEffectStyleID").is_none();
+                    let link = own_link.or_else(|| {
+                        inherited.then(|| instance.get("symbolData")?.get("symbolID").and_then(guid_str)).flatten().and_then(|m| lk.effect_linked.get(&m))
+                    });
+                    if let Some(style) = link {
+                        let replaces = lk.style_replaces_entry_effects(own_effects, lk.style_by_id.get(style));
+                        if set.remove("_clearEffectStyle").is_some() {
+                            if replaces {
+                                set.remove("effects");
+                                drop_effect_bindings(&mut set);
+                            }
+                            // A stale copy under a link the instance only inherits leaves nothing to override: the
+                            // record keeps the effects Figma cached for it, and the link is not an Effects override.
+                            // Marking it as one would pin the record on save and restate a list that the reopen reads
+                            // as a stale copy again.
+                            insert_effect_link(&mut set, Some(style.clone()));
+                            if drops_copy_under_inherited_link(instance, o, lk) {
+                                set.insert("_inheritedEffectLink".into(), Value::Bool(true));
+                            }
                         }
+                    }
+                }
+            }
+        }
+        // The same holds for the layer directly below the instance: when its main links an effect style, the entry
+        // keeps the link, and a stale copy of the list is dropped. Deeper paths cross another instance whose own overrides may have
+        // changed the link, so they are left as written.
+        if restates_effects_without_style && !is_self && path.len() == 1 {
+            if let Some(style) = path.last().and_then(|last| lk.effect_linked.get(last)) {
+                if set.remove("_clearEffectStyle").is_some() {
+                    if lk.style_replaces_entry_effects(own_effects, lk.style_by_id.get(style)) {
+                        set.remove("effects");
+                        drop_effect_bindings(&mut set);
+                    } else {
+                        // Own list, same link: an override with effects would otherwise detach the style.
+                        insert_effect_link(&mut set, Some(style.clone()));
                     }
                 }
             }
@@ -3039,6 +3230,33 @@ fn convert_effect(e: &Value) -> Option<Value> {
         }
     }
     Some(Value::Object(m))
+}
+
+/// Longest alias chain followed when comparing effect variables.
+const MAX_ALIAS_DEPTH: usize = 256;
+
+/// Variable keys an effect can bind.
+const EFFECT_VARIABLE_KEYS: [&str; 6] = ["colorVar", "effectOpacityVar", "radiusVar", "spreadVar", "xVar", "yVar"];
+
+/// Id of every variable the `effects` bind (the alias text when it names no variable of the file).
+fn effect_variables(lk: &Lk, effects: &[Value]) -> HashSet<String> {
+    effects
+        .iter()
+        .flat_map(|e| EFFECT_VARIABLE_KEYS.iter().filter_map(move |key| e.get(*key)))
+        .map(|bound| {
+            let alias = bound.get("value").and_then(|v| v.get("alias")).unwrap_or(bound);
+            lk.variable_identity(alias)
+        })
+        .collect()
+}
+
+/// A node linked to an effect style shows the style's list. The exception is a node that binds a variable the
+/// style does not carry: that binding is the node's own. A variable that aliases one the style carries in every one
+/// of its modes, directly or through other variables, is a copy of it and does not count.
+fn effects_bind_foreign_variable(lk: &Lk, own: &[Value], style: &[Value]) -> bool {
+    let carried = effect_variables(lk, style);
+    let mut memo = HashMap::new();
+    effect_variables(lk, own).iter().any(|v| !lk.variable_reaches(v, &carried, &mut memo, 0))
 }
 
 // ------------------------------------------------------------------ text
@@ -3343,6 +3561,77 @@ mod tests {
     fn guid_session_max_minus_one_local_max_is_a_real_id() {
         assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX - 1, u32::MAX)).as_deref(), Some("4294967294:4294967295"));
         assert_eq!(guid_str(&json!({"sessionID": u32::MAX - 1, "localID": u32::MAX})).as_deref(), Some("4294967294:4294967295"));
+    }
+
+    #[test]
+    fn fig_instance_effect_style_ignores_stale_root_self_override() {
+        let guid = |session, local| json!({"sessionID": session, "localID": local});
+        let style = json!({
+            "guid": guid(9, 1),
+            "type": "STYLE",
+            "styleType": "EFFECT",
+            "effects": [{"type": "LAYER_BLUR", "radius": 8.0, "visible": true}],
+        });
+        let instance = json!({
+            "guid": guid(1, 1),
+            "type": "INSTANCE",
+            "styleIdForEffect": {"guid": guid(9, 1)},
+            "symbolData": {
+                "symbolID": guid(2, 1),
+                "symbolOverrides": [{
+                    "guidPath": [guid(1, 1)],
+                    "effects": [{"type": "LAYER_BLUR", "radius": 2.0, "visible": true}],
+                }],
+            },
+        });
+        let entries = vec![entry_from_json(style).unwrap(), entry_from_json(instance.clone()).unwrap()];
+        let lk = Lk::new(&entries, &[]);
+        let overrides = override_entries(&instance, instance["symbolData"].get("symbolOverrides"), &lk, false);
+        let set = overrides.first().and_then(|v| v.get("set")).expect("root self override");
+        assert_eq!(set["styles"]["effect"], "9:1");
+        assert!(set.get("effects").is_none(), "stale copied effects must not override the linked style");
+        assert!(set.get("_clearEffectStyle").is_none());
+    }
+
+    #[test]
+    fn fig_effect_style_override_uses_linked_effect_values() {
+        let guid = |session, local| json!({"sessionID": session, "localID": local});
+        let style = json!({
+            "guid": guid(9, 1),
+            "type": "STYLE",
+            "styleType": "EFFECT",
+            "effects": [{"type": "LAYER_BLUR", "radius": 8.0, "visible": true}],
+        });
+        let entries = vec![entry_from_json(style).unwrap()];
+        let lk = Lk::new(&entries, &[]);
+        let override_entry = json!({
+            "styleIdForEffect": {"guid": guid(9, 1)},
+            "effects": [{"type": "LAYER_BLUR", "radius": 2.0, "visible": true}],
+        });
+        let set = convert_override(&override_entry, &lk);
+        assert_eq!(set["styles"]["effect"], "9:1");
+        assert_eq!(set["effects"][0]["radius"], 8.0);
+        assert!(set.get("_clearEffectStyle").is_none());
+    }
+
+    #[test]
+    fn fig_effect_variable_override_keeps_its_own_values() {
+        let guid = |session, local| json!({"sessionID": session, "localID": local});
+        let style = json!({
+            "guid": guid(9, 1),
+            "type": "STYLE",
+            "styleType": "EFFECT",
+            "effects": [{"type": "DROP_SHADOW", "radius": 8.0, "visible": true}],
+        });
+        let entries = vec![entry_from_json(style).unwrap()];
+        let lk = Lk::new(&entries, &[]);
+        let override_entry = json!({
+            "styleIdForEffect": {"guid": guid(9, 1)},
+            "effects": [{"type": "DROP_SHADOW", "radius": 2.0, "radiusVar": "variable:radius", "visible": true}],
+        });
+        let set = convert_override(&override_entry, &lk);
+        assert_eq!(set["styles"]["effect"], "9:1");
+        assert_eq!(set["effects"][0]["radius"], 2.0);
     }
 
     #[test]

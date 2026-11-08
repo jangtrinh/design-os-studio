@@ -1389,6 +1389,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         [("fill", "styleIdForFill"), ("stroke", "styleIdForStrokeFill"), ("text", "styleIdForText"), ("effect", "styleIdForEffect"), ("grid", "styleIdForGrid")]
     {
         if let Some(sid) = node.style_refs.get(k) {
+            if k == "effect" && inherits_effect_link_with_own_cache(cx, &node, sid) {
+                continue;
+            }
             if let Some(&sg) = cx.style_guids.get(sid) {
                 fields.push((field_name, msg(vec![("guid", guid(sg.0, sg.1))])));
             } else if let Some(key) = sid.strip_prefix("key:") {
@@ -2293,7 +2296,12 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             Some(fields) if own => fields,
             _ => &n.component.overrides,
         };
+        // The instance keeps the effects Figma cached for it under a link it inherits. Figma's file states that as the
+        // record's own list next to a keyless entry that restates the main's list, and the loader reads the pair back
+        // the same way; a link pinned on the record would not survive the reopen (see the pin check above).
+        let restated_style = if own { n.style_refs.get("effect").filter(|sid| inherits_effect_link_with_own_cache(cx, n, sid)).cloned() } else { None };
         if !ovs.is_empty()
+            || restated_style.is_some()
             || (!own
                 && (has_fill_var
                     || has_stroke_var
@@ -2398,7 +2406,15 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                         encode_effect(e, cv, cx.opacity_var_data(&n.variables, &format!("effects/{i}/opacity")))
                     })
                     .collect();
+                if let Some(style_override) = instance_style_override(cx, n, "effect") {
+                    ov.push(("styleIdForEffect", style_override));
+                }
                 ov.push(("effects", V::Array(fx)));
+            }
+            if let Some(Style::Effect(fx)) = restated_style.as_ref().and_then(|sid| cx.doc.styles.get(sid)) {
+                let bindings = restated_style.as_ref().and_then(|sid| cx.doc.style_meta.get(sid)).map(|m| m.bindings.clone()).unwrap_or_default();
+                let list: Vec<V> = fx.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, &bindings)).collect();
+                ov.push(("effects", V::Array(list)));
             }
             if ovs.contains(&OverrideField::CornerRadii) {
                 let r = n.corner_radii;
@@ -2442,7 +2458,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                     // override record. The ordinary node style reference is not
                     // consulted while replaying symbolOverrides, so preserve the
                     // effective reference whenever it differs from the source.
-                    if let Some(style_override) = instance_text_style_override(cx, n) {
+                    if let Some(style_override) = instance_style_override(cx, n, "text") {
                         ov.push(("styleIdForText", style_override));
                     }
                     append_text_style_fields(&mut ov, &tp.style);
@@ -3210,9 +3226,28 @@ fn append_ot_and_variation_fields(fields: &mut Vec<(&'static str, V)>, ts: &Text
     }
 }
 
-fn instance_text_style_override(cx: &ExportCtx<'_>, n: &Node) -> Option<V> {
-    let source_style = n.component.source.and_then(|source| cx.doc.get(source)).and_then(|source| source.style_refs.get("text"));
-    let effective_style = n.style_refs.get("text");
+/// An instance that only inherits its main's effect style and shows effects of its own (the cache Figma wrote for a
+/// resized instance) keeps no link of its own in the file. A pin on the record would read as the instance's own link on
+/// reopen, and an own link makes the style's list win over a cache that binds no variable of its own, so the render
+/// would change with the save. A cache that binds a variable the style lacks is kept either way and keeps its pin.
+fn inherits_effect_link_with_own_cache(cx: &ExportCtx<'_>, node: &Node, sid: &str) -> bool {
+    let NodeKind::Instance { component: Some(main), .. } = node.kind else { return false };
+    if node.component.overrides.contains(&OverrideField::Effects) || cx.doc.get(main).and_then(|m| m.style_refs.get("effect")).map(String::as_str) != Some(sid)
+    {
+        return false;
+    }
+    let Some(Style::Effect(fx)) = cx.doc.styles.get(sid) else { return false };
+    let style_vars: Vec<&String> =
+        cx.doc.style_meta.get(sid).into_iter().flat_map(|m| m.bindings.iter()).filter(|(k, _)| k.starts_with("effects/")).map(|(_, v)| v).collect();
+    let own_foreign = node.variables.bindings.iter().filter(|(k, _)| k.starts_with("effects/")).any(|(_, v)| !style_vars.contains(&v));
+    *fx != node.effects && !own_foreign
+}
+
+/// The style reference an override entry writes for `slot` ("text", "effect"): the relinked style, or the detach
+/// marker, whenever the node's effective reference differs from the one its main component carries.
+fn instance_style_override(cx: &ExportCtx<'_>, n: &Node, slot: &str) -> Option<V> {
+    let source_style = n.component.source.and_then(|source| cx.doc.get(source)).and_then(|source| source.style_refs.get(slot));
+    let effective_style = n.style_refs.get(slot);
     if effective_style == source_style {
         return None;
     }
