@@ -889,3 +889,19 @@ fn removing_in_an_extended_collection_never_touches_the_parent_variable() {
     frames(&mut s, 3);
     assert_eq!(s.app().doc.variables.len(), before, "nothing was duplicated into the parent");
 }
+
+#[test]
+fn groups_of_an_extended_collection_open_no_menu_and_no_rename() {
+    let mut s = Sim::with(Options { panel: Some("variables".into()), ..Options::default() });
+    settle(&mut s);
+    let _ = open_extended_theme(&mut s);
+    s.right_click(s.rect_of("vars-group:Radius").center());
+    assert!(s.app().vars.menu.is_none(), "an extended collection has no group menu: its groups are its parent's");
+    s.shell.app.vars.group = None;
+    s.frame(vec![]);
+    let header = s.rect_of("vars-header:Radius");
+    s.click(header.center());
+    s.click(header.center());
+    frames(&mut s, 2);
+    assert!(s.app().vars.renaming.is_none(), "a group of an extended collection is not renamed here");
+}

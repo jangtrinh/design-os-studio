@@ -585,6 +585,14 @@ impl Engine {
                 let mut collections = json!(live_collections);
                 for (id, c) in &live_collections {
                     let Some(entry) = collections.get_mut(id.as_str()).and_then(|v| v.as_object_mut()) else { continue };
+                    // the storage keys are internal: `extendable` and `extension` below say the same, once
+                    if let Some(raw) = entry.get_mut("extensions").and_then(|x| x.as_object_mut()) {
+                        raw.remove(designos_doc::EXTENSION_KEY);
+                        raw.remove(designos_doc::EXTENDABLE_KEY);
+                        if raw.is_empty() {
+                            entry.remove("extensions");
+                        }
+                    }
                     if c.is_extendable() {
                         entry.insert("extendable".into(), json!(true));
                     }
@@ -2362,7 +2370,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "get_variables",
-        "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes.",
+        "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. A collection that extends another has an `extension` block (parent_collection_id, mode_map, inherited_variable_ids, overrides with value and parent_value); `extendable` marks a collection others may extend. Set an override with designos_apply_batch set_variables, using the extension's own mode id.",
         json!({"node_id":id}),
         vec![],
         json!({
@@ -2834,8 +2842,64 @@ mod tests {
         assert_eq!(overrides[0]["value"], json!({"Color": Color::rgb(255, 0, 0)}));
         assert_eq!(overrides[0]["parent_value"], json!({"Color": Color::BLACK}));
         assert_eq!(listed["collections"][&theme]["extendable"], json!(true));
+        for id in [&theme, &brand] {
+            let raw = listed["collections"][id].get("extensions").and_then(|x| x.as_object());
+            assert!(raw.is_none_or(|x| x.keys().all(|k| !k.starts_with("org.designos."))), "the internal storage blob is not part of the reply: {raw:?}");
+        }
         assert!(listed["collections"][&theme].get("extension").is_none(), "a plain collection has no extension block");
     }
+    fn extended_brand(e: &mut Engine) -> (String, String, String, String, String) {
+        use designos_doc::{Color, VariableKind, VariableStore, VariableValue};
+        let mut store = VariableStore::default();
+        let theme = store.add_collection("Theme");
+        let light = store.collections[&theme].default_mode.clone();
+        let bg = store.add_variable(&theme, "bg", VariableKind::Color).unwrap();
+        assert!(store.set_value(&bg, &light, VariableValue::Color(Color::WHITE)));
+        let brand = store.extend_collection(&theme, "Brand").unwrap();
+        let brand_light = store.collections[&brand].modes[0].id.clone();
+        e.doc.variables = store.variables.clone();
+        e.doc.variable_collections = store.collections.clone();
+        (theme, light, bg, brand, brand_light)
+    }
+
+    #[test]
+    fn set_variables_in_an_extension_mode_writes_an_override_never_the_parent() {
+        use designos_doc::{Color, VariableStore, VariableValue};
+        let mut e = Engine::default();
+        let (_, _, bg, brand, brand_light) = extended_brand(&mut e);
+        e.call(
+            "designos_apply_batch",
+            json!({"ops": [{"op": "set_variables", "upsert_variables": [{"id": bg, "values": { brand_light.clone(): "#00FF00" }}]}]}),
+        )
+        .unwrap();
+        assert_eq!(e.doc.variables[&bg].values.len(), 1, "the parent variable gains no value for an extension mode");
+        assert_eq!(e.doc.extended_value(&brand, &bg, &brand_light), Some(VariableValue::Color(Color::rgb(0, 255, 0))));
+        assert!(VariableStore::from_doc(&e.doc).is_overridden(&brand, &bg, &brand_light));
+        let refused = e.call(
+            "designos_apply_batch",
+            json!({"ops": [{"op": "set_variables", "upsert_variables": [{"id": "not-inherited", "kind": "color", "collection": brand, "values": { brand_light: "#FF0000" }}]}]}),
+        );
+        assert!(refused.is_err(), "an override of a variable the extension does not inherit is refused, not dropped");
+    }
+
+    #[test]
+    fn set_variables_cannot_replace_the_modes_of_an_extension_and_deleting_a_variable_drops_its_overrides() {
+        use designos_doc::{VariableStore, VariableValue};
+        let mut e = Engine::default();
+        let (_, _, bg, brand, brand_light) = extended_brand(&mut e);
+        let refused = e.call(
+            "designos_apply_batch",
+            json!({"ops": [{"op": "set_variables", "upsert_collections": [{"id": brand, "modes": [{"id": "only", "name": "Only"}], "default_mode": "only"}]}]}),
+        );
+        assert!(refused.is_err(), "the modes of an extension follow its parent");
+        let mut store = VariableStore::from_doc(&e.doc);
+        assert!(store.set_value(&bg, &brand_light, VariableValue::Color(designos_doc::Color::BLACK)));
+        e.doc.variables = store.variables;
+        e.doc.variable_collections = store.collections;
+        e.call("designos_apply_batch", json!({"ops": [{"op": "set_variables", "delete_variables": [bg.clone()]}]})).unwrap();
+        assert!(e.doc.variable_collections[&brand].extension().unwrap().overrides.is_empty(), "no override of a deleted variable is left behind");
+    }
+
     #[test]
     fn variable_listing_leaves_out_soft_deleted_variables_but_a_binding_to_one_still_resolves() {
         use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};

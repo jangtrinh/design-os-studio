@@ -91,7 +91,7 @@ impl VariableCollection {
     /// The value this extension overrides `variable` with in `mode`.
     pub fn extension_override(&self, variable: &str, mode: &str) -> Option<VariableValue> {
         let v = self.extensions.get(EXTENSION_KEY)?.get("overrides")?.get(variable)?.get(mode)?;
-        serde_json::from_value(v.clone()).ok()
+        VariableValue::deserialize(v).ok()
     }
 }
 
@@ -278,8 +278,16 @@ impl VariableStore {
         }
         let Some(c) = self.collections.get_mut(ext) else { return false };
         let Some(mut e) = c.extension() else { return false };
+        let previous = c.extensions.get(EXTENSION_KEY).cloned();
         e.overrides.entry(variable.to_string()).or_default().insert(mode.to_string(), value);
         c.set_extension(&e);
+        // an override that makes aliases chase each other resolves to nothing: refuse it
+        if self.resolve(variable, mode).is_none() {
+            if let (Some(c), Some(previous)) = (self.collections.get_mut(ext), previous) {
+                c.extensions.insert(EXTENSION_KEY.to_string(), previous);
+            }
+            return false;
+        }
         true
     }
 
@@ -329,7 +337,7 @@ impl VariableStore {
     }
 
     /// Drops the overrides of `variable`, and the overrides that alias it, from every extended collection.
-    pub(crate) fn forget_overrides_of(&mut self, variable: &str) {
+    pub fn forget_overrides_of(&mut self, variable: &str) {
         self.edit_extensions(|e| {
             let before = e.overrides.clone();
             e.overrides.remove(variable);
@@ -341,16 +349,30 @@ impl VariableStore {
         });
     }
 
-    /// Drops the overrides stored for `mode` in the extended collection `coll`, and the mode mapping entry.
-    pub(crate) fn forget_override_mode(&mut self, coll: &str, mode: &str) {
-        let Some(c) = self.collections.get_mut(coll) else { return };
-        let Some(mut e) = c.extension() else { return };
-        for modes in e.overrides.values_mut() {
-            modes.remove(mode);
+    /// True for a collection whose modes, variables and groups are not edited here: a library copy, or an extended
+    /// collection (it takes them from its parent).
+    pub fn is_structure_locked(&self, coll: &str) -> bool {
+        self.collections.get(coll).is_some_and(|c| c.is_library() || c.is_extension())
+    }
+
+    /// A parent mode was deleted: the extensions of `parent` stop mapping to it. Their modes keep any overrides and
+    /// show what an unmapped mode shows, the parent's default mode.
+    pub(crate) fn unmap_parent_mode(&mut self, parent: &str, mode: &str) {
+        self.edit_direct_extensions_of(parent, |e| {
+            let before = e.mode_map.len();
+            e.mode_map.retain(|_, parent_mode| parent_mode != mode);
+            e.mode_map.len() != before
+        });
+    }
+
+    fn edit_direct_extensions_of(&mut self, parent: &str, mut f: impl FnMut(&mut CollectionExtension) -> bool) {
+        for c in self.collections.values_mut().filter(|c| c.extension_parent_id() == Some(parent)) {
+            if let Some(mut e) = c.extension() {
+                if f(&mut e) {
+                    c.set_extension(&e);
+                }
+            }
         }
-        e.overrides.retain(|_, m| !m.is_empty());
-        e.mode_map.remove(mode);
-        c.set_extension(&e);
     }
 
     /// Removes every collection that extends `parent` (a deleted parent leaves nothing to inherit from).
@@ -586,5 +608,97 @@ mod tests {
         assert_eq!(s.extended_value(&sub, &bg, &s_light), Some(VariableValue::Color(Color::rgb(7, 7, 7))));
         assert_eq!(s.extended_value(&sub, &bg, &s_dark), Some(VariableValue::Color(Color::BLACK)));
         assert_eq!(s.inherited_variable_ids(&sub).len(), 2);
+    }
+
+    #[test]
+    fn duplicating_an_extension_shows_the_same_values_in_every_mode() {
+        let (mut s, theme, bg, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let (b_light, b_dark) = (s.collections[&brand].modes[0].id.clone(), s.collections[&brand].modes[1].id.clone());
+        assert!(s.set_value(&bg, &b_light, VariableValue::Color(Color::rgb(255, 0, 0))));
+        let copy = s.duplicate_collection(&brand).unwrap();
+        let (c_light, c_dark) = (s.collections[&copy].modes[0].id.clone(), s.collections[&copy].modes[1].id.clone());
+        assert_ne!(c_light, b_light, "the copy has its own mode ids");
+        for (own, copied) in [(&b_light, &c_light), (&b_dark, &c_dark)] {
+            assert_eq!(s.extended_value(&copy, &bg, copied), s.extended_value(&brand, &bg, own));
+        }
+        assert_eq!(s.extended_value(&copy, &bg, &c_dark), Some(VariableValue::Color(Color::BLACK)), "Dark keeps the parent's Dark");
+        assert!(s.is_overridden(&copy, &bg, &c_light), "the override moved to the copy's mode");
+        let ext = s.collections[&copy].extension().unwrap();
+        assert!(ext.mode_map.keys().chain(ext.overrides.values().flat_map(|m| m.keys())).all(|m| s.collections[&copy].modes.iter().any(|x| &x.id == m)));
+        let parent_copy = s.duplicate_collection(&theme).unwrap();
+        assert!(!s.collections[&parent_copy].is_extendable(), "the copy of a parent is not extendable");
+    }
+
+    #[test]
+    fn modes_variables_and_groups_of_an_extension_are_refused_in_the_model() {
+        let (mut s, theme, bg, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_dark = s.collections[&brand].modes[1].id.clone();
+        let (variables, modes) = (s.variables.len(), s.collections[&brand].modes.len());
+        assert!(s.add_variable(&brand, "x", VariableKind::Color).is_none());
+        assert!(s.add_mode(&brand, "Extra").is_none());
+        assert!(s.duplicate_mode(&brand, &b_dark).is_none());
+        assert!(!s.delete_mode(&brand, &b_dark));
+        s.rename_mode(&brand, &b_dark, "Renamed");
+        s.set_default_mode(&brand, &b_dark);
+        s.rename_folder(&brand, "a", "b");
+        assert_eq!((s.variables.len(), s.collections[&brand].modes.len()), (variables, modes));
+        assert_eq!(s.collections[&brand].modes[1].name, "Dark");
+        assert_ne!(s.collections[&brand].default_mode, b_dark);
+        assert!(s.variables.contains_key(&bg));
+    }
+
+    #[test]
+    fn overrides_that_alias_each_other_are_refused() {
+        let (mut s, theme, bg, _, _) = base();
+        let fg = s.add_variable(&theme, "fg", VariableKind::Color).unwrap();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_light = s.collections[&brand].modes[0].id.clone();
+        assert!(s.set_alias(&fg, &b_light, &bg));
+        assert!(!s.set_alias(&bg, &b_light, &fg), "bg -> fg -> bg would resolve to nothing");
+        assert!(s.resolve(&bg, &b_light).is_some() && s.resolve(&fg, &b_light).is_some());
+        assert!(!s.is_overridden(&brand, &bg, &b_light), "the refused override left nothing behind");
+    }
+
+    #[test]
+    fn deleting_a_parent_mode_unmaps_the_extension_and_it_shows_the_parent_default() {
+        let (mut s, theme, bg, _, [light, dark]) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_dark = s.collections[&brand].modes[1].id.clone();
+        assert!(s.delete_mode(&theme, &dark));
+        let ext = s.collections[&brand].extension().unwrap();
+        assert!(ext.mode_map.values().all(|m| m != &dark), "no mapping to the deleted mode is left");
+        assert_eq!(s.collections[&brand].modes.len(), 2, "the extension keeps its own modes");
+        assert_eq!(s.extended_value(&brand, &bg, &b_dark), s.variables[&bg].values.get(&light).cloned(), "an unmapped mode shows the parent default");
+    }
+
+    #[test]
+    fn a_lookup_costs_nothing_extra_when_the_document_has_no_extension() {
+        let (s, _, bg, _, _) = base();
+        let (d, _, rect) = doc_with(&s);
+        let v = d.variables[&bg].clone();
+        assert!(d.node_extension_value(rect, &v, &[]).is_none());
+        let start = std::time::Instant::now();
+        let n = 200_000u32;
+        for _ in 0..n {
+            std::hint::black_box(d.node_extension_value(rect, std::hint::black_box(&v), &[]));
+        }
+        let per_call = start.elapsed().as_nanos() / u128::from(n);
+        eprintln!("node_extension_value without extensions: {per_call} ns per call");
+        assert!(per_call < 2_000, "{per_call} ns per call");
+    }
+
+    #[test]
+    fn extension_collections_are_not_published() {
+        let (mut s, theme, _, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let (d, _, _) = doc_with(&s);
+        let keys: Vec<String> = publishable_assets(&d).into_iter().map(|(k, _, _)| k).collect();
+        assert!(keys.contains(&format!("col:{theme}")), "the parent still publishes");
+        assert!(!keys.contains(&format!("col:{brand}")), "the extension does not: {keys:?}");
+        let snap = snapshot(&d, "L1", "Lib", 1);
+        assert!(snap.variable_collections.contains_key(&theme));
+        assert!(!snap.variable_collections.contains_key(&brand));
     }
 }

@@ -39,7 +39,7 @@ pub mod web_capture;
 pub use clipboard::{import_figma_clipboard, looks_like_figma_clipboard, parse_figma_clipboard_html, FigClipboard};
 pub use designos_doc::Document;
 pub use export::export_rest_json;
-pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig, import_fig_with_budget, import_fig_with_report};
+pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig, import_fig_node_changes_with_report, import_fig_with_budget, import_fig_with_report};
 #[doc(hidden)]
 pub use fig::{extract_fig_derived_symbol_data, import_fig_node_changes, FigDerivedSymbolEntry, FigInstanceDerivedData};
 pub use fig_export::{export_fig, export_fig_with_report, path_to_commands_blob};

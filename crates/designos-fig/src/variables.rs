@@ -742,7 +742,9 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
         }
         colls.insert(id, c);
     }
-    // Override values sit on the overridden variable, keyed by the extending collection's mode ids.
+    // UNVERIFIED layout (no real extended-collection `.fig` was available; the alternative is `VARIABLE_OVERRIDE` nodes,
+    // which `import_fig_with_report` counts and does not read): override values sit on the overridden variable, keyed
+    // by the extending collection's mode ids.
     let mut extension_of_mode: BTreeMap<String, String> = BTreeMap::new();
     for &e in entries.iter().filter(|e| active(e) && fstr(e, "type") == Some("VARIABLE_SET")) {
         let Some(gid) = e.get("guid").and_then(guid) else { continue };

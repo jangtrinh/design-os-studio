@@ -1,9 +1,12 @@
 //! Extended variable collections (a parent link, a mode mapping and per-variable overrides) survive a `.fig`
 //! export and re-import, and the REST variables payload carries them in Figma's documented fields.
 
+mod common;
+
+use common::fig_fixture::{document_and_page, fig_node, variable_set};
 use designos_doc::*;
-use designos_fig::{export_fig, export_variables_json, import_fig, import_variables_value};
-use serde_json::json;
+use designos_fig::{export_fig, export_variables_json, import_fig, import_fig_node_changes_with_report, import_variables_value};
+use serde_json::{json, Value};
 
 const PARENT: &str = "VariableCollectionId:10:1";
 const EXT: &str = "VariableCollectionId:10:2";
@@ -157,4 +160,17 @@ fn the_rest_payload_uses_figmas_extended_collection_fields() {
     assert_eq!(ext.mode_map["10:6"], "10:3");
     assert_eq!(ext.overrides[BG]["10:6"], color(255, 0, 0));
     assert!(back.variable_collections[PARENT].is_extendable());
+}
+
+#[test]
+fn override_nodes_the_importer_does_not_read_are_counted_in_the_report() {
+    let mut nodes = document_and_page();
+    nodes.push(variable_set((1, 5), "Colors", (1, 6), json!({})));
+    let (_, report) = import_fig_node_changes_with_report(&Value::Array(nodes.clone()), "None").unwrap();
+    assert_eq!(report.dropped_variable_overrides, 0);
+
+    nodes.push(fig_node((1, 20), (0, 1), "VARIABLE_OVERRIDE", "Override A", json!({})));
+    nodes.push(fig_node((1, 21), (0, 1), "VARIABLE_OVERRIDE", "Override B", json!({})));
+    let (_, report) = import_fig_node_changes_with_report(&Value::Array(nodes), "Two").unwrap();
+    assert_eq!(report.dropped_variable_overrides, 2, "nothing vanishes silently: both nodes are counted");
 }

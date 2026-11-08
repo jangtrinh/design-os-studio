@@ -205,19 +205,32 @@ impl VariableStore {
                 }
             }
         }
-        self.collections.insert(
-            new_id.clone(),
-            VariableCollection {
-                id: new_id.clone(),
-                name: format!("{} copy", src.name),
-                modes,
-                default_mode,
-                variables: var_ids,
-                key: None,
-                source_library_key: None,
-                extensions: src.extensions.clone(),
-            },
-        );
+        let mut copy = VariableCollection {
+            id: new_id.clone(),
+            name: format!("{} copy", src.name),
+            modes,
+            default_mode,
+            variables: var_ids,
+            key: None,
+            source_library_key: None,
+            extensions: src.extensions.clone(),
+        };
+        // the copy of a parent is not extendable until it is extended; the copy of an extension keeps its parent and
+        // follows its own new mode ids
+        copy.set_extendable(false);
+        if let Some(ext) = src.extension() {
+            let remap = |m: &String| mode_map.get(m).cloned();
+            copy.set_extension(&CollectionExtension {
+                parent: ext.parent,
+                mode_map: ext.mode_map.into_iter().filter_map(|(m, parent_mode)| Some((remap(&m)?, parent_mode))).collect(),
+                overrides: ext
+                    .overrides
+                    .into_iter()
+                    .map(|(var, by_mode)| (var, by_mode.into_iter().filter_map(|(m, value)| Some((remap(&m)?, value))).collect()))
+                    .collect(),
+            });
+        }
+        self.collections.insert(new_id.clone(), copy);
         Some(new_id)
     }
 
@@ -243,7 +256,7 @@ impl VariableStore {
     // ------------------------------------------------------------ modes
 
     pub fn add_mode(&mut self, coll: &str, name: &str) -> Option<String> {
-        if self.is_library_collection(coll) {
+        if self.is_structure_locked(coll) {
             return None;
         }
         let id = self.fresh_id("VariableModeId");
@@ -261,7 +274,7 @@ impl VariableStore {
     }
 
     pub fn rename_mode(&mut self, coll: &str, mode: &str, name: &str) {
-        if self.is_library_collection(coll) {
+        if self.is_structure_locked(coll) {
             return;
         }
         if let Some(m) = self.collections.get_mut(coll).and_then(|c| c.modes.iter_mut().find(|m| m.id == mode)) {
@@ -270,7 +283,7 @@ impl VariableStore {
     }
 
     pub fn duplicate_mode(&mut self, coll: &str, mode: &str) -> Option<String> {
-        if self.is_library_collection(coll) {
+        if self.is_structure_locked(coll) {
             return None;
         }
         let name = self.collections.get(coll)?.modes.iter().find(|m| m.id == mode)?.name.clone();
@@ -294,7 +307,7 @@ impl VariableStore {
 
     /// Deletes a mode (the last one cannot be deleted). Returns whether it was removed.
     pub fn delete_mode(&mut self, coll: &str, mode: &str) -> bool {
-        if self.is_library_collection(coll) {
+        if self.is_structure_locked(coll) {
             return false;
         }
         let Some(c) = self.collections.get_mut(coll) else { return false };
@@ -305,7 +318,7 @@ impl VariableStore {
         if c.default_mode == mode {
             c.default_mode = c.modes[0].id.clone();
         }
-        self.forget_override_mode(coll, mode);
+        self.unmap_parent_mode(coll, mode);
         for id in self.member_ids(coll) {
             if let Some(v) = self.variables.get_mut(&id) {
                 v.values.remove(mode);
@@ -316,7 +329,7 @@ impl VariableStore {
     }
 
     pub fn set_default_mode(&mut self, coll: &str, mode: &str) {
-        if self.is_library_collection(coll) {
+        if self.is_structure_locked(coll) {
             return;
         }
         if let Some(c) = self.collections.get_mut(coll) {
@@ -329,7 +342,7 @@ impl VariableStore {
     // ------------------------------------------------------------ variables
 
     pub fn add_variable(&mut self, coll: &str, name: &str, kind: VariableKind) -> Option<String> {
-        if self.is_library_collection(coll) {
+        if self.is_structure_locked(coll) {
             return None;
         }
         let id = self.fresh_id("VariableID");
@@ -565,7 +578,7 @@ impl VariableStore {
 
     /// Renames a folder: every variable of `coll` whose name starts with `old/`.
     pub fn rename_folder(&mut self, coll: &str, old: &str, new: &str) {
-        if self.is_library_collection(coll) {
+        if self.is_structure_locked(coll) {
             return;
         }
         let new = new.trim().trim_matches('/');

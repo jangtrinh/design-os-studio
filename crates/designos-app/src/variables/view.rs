@@ -656,7 +656,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                     app.vars.scroll = 0.0;
                 }
             }
-            if resp.secondary_clicked() && path.is_some() && !coll.is_library() {
+            if resp.secondary_clicked() && path.is_some() && !coll.is_library() && !coll.is_extension() {
                 let pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(row.left_bottom());
                 app.vars.menu = Some(VarMenu { kind: VarMenuKind::Folder(cid.clone(), key.clone()), pos, anchor: Rect::from_min_size(pos, Vec2::ZERO) });
             }
@@ -853,13 +853,13 @@ const SIDE_BADGE_SIZE: f32 = 12.0;
 const OVERRIDE_DOT_X: f32 = 5.0;
 const RESET_GAP: f32 = 4.0;
 
-/// Hover text of the note and of the override marker.
-const EXTENSION_TIP: &str = "Values come from the parent collection until you change them here";
+/// Hover text of the "Extends ..." note.
+const EXTENSION_TIP: &str = "Parent values, until you override them";
 
 /// "Extends Theme" for an extended collection (the parent's name, else its library key), else `None`.
 fn extension_note(view: &VariableStore, coll: &VariableCollection) -> Option<String> {
     let ext = coll.extension()?;
-    let parent = view.collections.get(&ext.parent.collection).map(|c| c.name.clone()).or(ext.parent.set_key).unwrap_or_else(|| "a library collection".into());
+    let parent = view.collections.get(&ext.parent.collection).map(|c| c.name.clone()).unwrap_or_else(|| "a library collection".into());
     Some(format!("Extends {parent}"))
 }
 
@@ -872,8 +872,8 @@ fn reset_slot(overridden: bool, hot: bool, read_only: bool) -> f32 {
     }
 }
 
-/// Marks an overridden value with a blue dot at the left of its cell. While the row is hovered a reset button at the
-/// right edge restores the parent's value.
+/// Marks an overridden value with a blue dot at the left of its cell (no hover of its own). While the row is hovered a
+/// reset button at the right edge restores the parent's value.
 fn override_marker(ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, hot: bool, fr: &mut Frame) {
     if !fr.view.is_overridden(&v.collection, &v.id, mode) {
         return;
@@ -895,7 +895,7 @@ fn override_marker(ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, hot: bool,
     if r.clicked() {
         fr.work.reset_override(&v.collection, &v.id, mode);
     }
-    r.on_hover_text("Reset to the parent's value");
+    r.on_hover_text("Reset to parent");
 }
 
 // ------------------------------------------------------------------ table
@@ -1089,7 +1089,7 @@ fn header_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &str, path: &
     let group_fg = theme::TEXT_TERTIARY;
     icons::paint(&p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, Pos2::new(x + 4.0, r.center().y), 12.0, group_fg);
     let label = split_name(path).1;
-    let read_only = fr.view.is_library_collection(coll);
+    let read_only = fr.view.is_structure_locked(coll);
     let renaming = app.vars.renaming == Some(('f', key.clone())) && !read_only;
     let text_r = Rect::from_min_max(Pos2::new(x + 20.0, r.top() + 8.0), Pos2::new(name_cell.right() - 8.0, r.bottom() - 8.0));
     widgets::record(ui, &format!("vars-header:{path}"), text_r);

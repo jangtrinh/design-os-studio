@@ -16,7 +16,7 @@ use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
     apply_style_values_with_fields, recorded_text_paragraph_fields, resolve_easeui_color, style_property, text_style_paragraph_fields_after_update, Color,
     Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect, SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable,
-    VariableCollection, VariableKind, VariableMode, VariableValue,
+    VariableCollection, VariableKind, VariableMode, VariableStore, VariableValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1496,6 +1496,15 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
             return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "collection id must not be empty"));
         }
         let existing = collections.get(&c_in.id).cloned();
+        if existing.as_ref().is_some_and(|e| e.is_extension()) && (!c_in.modes.is_empty() || c_in.default_mode.is_some()) {
+            return Err(op_failed_error(
+                op_idx,
+                "set_variables",
+                ErrorCode::InvalidArguments,
+                &path,
+                format!("collection '{}' extends another collection: its modes follow the parent, set values per mode with upsert_variables", c_in.id),
+            ));
+        }
         let modes = if !c_in.modes.is_empty() {
             c_in.modes.clone()
         } else if let Some(ex) = &existing {
@@ -1525,6 +1534,7 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
         );
     }
 
+    let mut extension_writes: Vec<(String, String, VariableValue)> = Vec::new();
     for v_in in &op.upsert_variables {
         if v_in.id.trim().is_empty() {
             return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "variable id must not be empty"));
@@ -1564,7 +1574,12 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
         let mut values = existing.as_ref().map(|e| e.values.clone()).unwrap_or_default();
         for (mode_id, raw_val) in &v_in.values {
             let parsed_val = parse_variable_value(raw_val, kind).map_err(|(code, msg)| op_failed_error(op_idx, "set_variables", code, &path, msg))?;
-            values.insert(mode_id.clone(), parsed_val);
+            // a mode of an extended collection holds an override of the extension, never a value of the variable
+            if collections.values().any(|c| c.is_extension() && c.modes.iter().any(|m| &m.id == mode_id)) {
+                extension_writes.push((v_in.id.clone(), mode_id.clone(), parsed_val));
+            } else {
+                values.insert(mode_id.clone(), parsed_val);
+            }
         }
         let name = v_in.name.clone().or_else(|| existing.as_ref().map(|e| e.name.clone())).unwrap_or_else(|| v_in.id.clone());
         let var = Variable {
@@ -1589,12 +1604,26 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
         }
     }
 
+    let mut store = VariableStore { variables, collections };
     for del_id in &op.delete_variables {
-        variables.remove(del_id);
-        for col in collections.values_mut() {
+        store.forget_overrides_of(del_id);
+        store.variables.remove(del_id);
+        for col in store.collections.values_mut() {
             col.variables.retain(|v| v != del_id);
         }
     }
+    for (variable, mode, value) in extension_writes {
+        if !store.set_value(&variable, &mode, value) {
+            return Err(op_failed_error(
+                op_idx,
+                "set_variables",
+                ErrorCode::InvalidArguments,
+                &path,
+                format!("mode '{mode}' belongs to an extended collection that does not accept a value for variable '{variable}' (not inherited, wrong kind, or an alias cycle)"),
+            ));
+        }
+    }
+    let VariableStore { variables, collections } = store;
 
     if variables == doc.variables && collections == doc.variable_collections {
         return Ok((None, 0));

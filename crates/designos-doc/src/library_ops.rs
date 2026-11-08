@@ -295,7 +295,9 @@ pub fn publishable_assets(doc: &Document) -> Vec<(String, LibraryAssetKind, Stri
     }
     // A soft-deleted collection or variable is not published as an asset (a variable's `is_publishable` says so);
     // `snapshot` still carries one that a published component binds to, so the component renders as it does here.
-    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted()) {
+    // An extended collection is not published: the import side does not yet carry its parent link, mode ids and
+    // override keys across documents.
+    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted() && !c.is_extension()) {
         out.push((format!("col:{id}"), LibraryAssetKind::VariableCollection, c.name.clone()));
     }
     for (id, v) in doc.variables.iter().filter(|(id, v)| !imported.contains(id.as_str()) && v.is_publishable()) {

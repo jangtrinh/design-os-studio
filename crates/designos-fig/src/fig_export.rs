@@ -828,6 +828,10 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
             let Some(vdata) = encode(val) else { continue };
             val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
         }
+        // UNVERIFIED layout (no real extended-collection `.fig` was available; the alternative is `VARIABLE_OVERRIDE`
+        // nodes, which the importer counts and does not read): the overrides of an extended collection are written as
+        // extra entries on the overridden variable, keyed by the extension's own mode ids. Overrides of a variable
+        // this file does not hold are not written (see `ParentCollection::set_key`).
         // Overrides of an extended collection sit on the overridden variable, keyed by the extension's own mode ids.
         for ext in cx.doc.variable_collections.values().filter(|c| c.is_extension()) {
             for (mode_id, val) in ext.extension().iter().filter_map(|e| e.overrides.get(&v.id).cloned()).flatten() {
