@@ -161,7 +161,7 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
             }
         }
 
-        if allow("non-4px-grid", id) && !matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::Line) {
+        if allow("non-4px-grid", id) && !matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::Line | NodeKind::Connector(_)) {
             let sx = (n.size.x / 4.0).round().max(1.0) * 4.0;
             let sy = (n.size.y / 4.0).round().max(1.0) * 4.0;
             if (sx - n.size.x).abs() >= 0.05 || (sy - n.size.y).abs() >= 0.05 {
@@ -333,4 +333,37 @@ pub fn lint_fix_document(doc: &mut Document, page: Option<NodeId>, rules: Option
         let _ = Command::Batch(cmds).apply(doc);
     }
     summary
+}
+
+#[cfg(test)]
+mod issue_1710_tests {
+    use super::*;
+    use crate::{ConnectorEnd, ConnectorProps, Document, Magnet, Node, Rect, Vec2};
+
+    #[test]
+    fn non_4px_grid_leaves_connector_geometry_unchanged() {
+        let mut doc = Document::new("connector lint");
+        let page = doc.add_page("Page");
+        let start_id = doc.alloc_id();
+        let start = doc.insert(page, Node::rectangle(start_id, Rect::new(0.0, 0.0, 41.0, 43.0))).unwrap();
+        let end_id = doc.alloc_id();
+        let end = doc.insert(page, Node::rectangle(end_id, Rect::new(160.0, 0.0, 40.0, 40.0))).unwrap();
+        let connector = doc.alloc_id();
+        let props =
+            ConnectorProps { start: ConnectorEnd::attached(start, Magnet::Right), end: ConnectorEnd::attached(end, Magnet::Left), ..Default::default() };
+        let connector = doc.insert(page, Node::connector(connector, props)).unwrap();
+        doc.get_mut(connector).unwrap().size = Vec2::new(127.0, 3.0);
+        let connector_before = doc.get(connector).unwrap().clone();
+
+        let cfg = LintConfig::from_rule_list(&["non-4px-grid".into(), "small-touch-target".into()]).unwrap();
+        let (cmds, report) = lint_fix_commands(&doc, &[page], &cfg);
+        assert!(report["changes"].as_array().unwrap().iter().all(|change| change["node_id"] != connector.0));
+        assert!(cmds.iter().all(|cmd| !matches!(cmd, Command::Update { node } if node.id == connector)));
+
+        let mut history = History::default();
+        lint_fix_with_history(&mut doc, &mut history, Some(page), Some(&["non-4px-grid".into(), "small-touch-target".into()])).unwrap();
+        assert_eq!(doc.get(connector), Some(&connector_before));
+        assert!(history.undo(&mut doc).unwrap());
+        assert_eq!(doc.get(connector), Some(&connector_before));
+    }
 }

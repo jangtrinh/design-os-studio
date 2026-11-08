@@ -665,7 +665,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
     }
 
     if active.non_4px_grid
-        && !matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::Line)
+        && !matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::Line | NodeKind::Connector(_))
         && (!is_grid_multiple(n.size.x, config.thresholds.grid_step) || !is_grid_multiple(n.size.y, config.thresholds.grid_step))
     {
         let step = config.thresholds.grid_step.max(1.0);
