@@ -177,3 +177,110 @@ fn background_blur_on_text_counts_a_visible_run_fill() {
         "a hidden run fill leaves the text with no paint: the stripe stays sharp"
     );
 }
+
+#[test]
+fn background_blur_descendant_uses_resolved_radius_inside_opacity_group() {
+    for masked in [false, true] {
+        let mut t = T::new();
+        t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), BLACK);
+        let group = t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(40.0, 40.0);
+            n.opacity = if masked { 1.0 } else { 0.9 };
+            n
+        });
+        if masked {
+            t.add(Some(group), |id| {
+                let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+                n.fills = vec![Paint::solid(Color::WHITE)];
+                n.is_mask = true;
+                n
+            });
+        }
+        let pane = t.add(Some(group), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills = vec![Paint::solid(Color::TRANSPARENT)];
+            n.effects = vec![Effect::BackgroundBlur { radius: 0.0, visible: true }];
+            n.visible = false;
+            n.variables.bindings.insert("effects/0/radius".into(), "blur-radius".into());
+            n.variables.bindings.insert("visible".into(), "blur-visible".into());
+            n
+        });
+        t.doc.variable_collections.insert(
+            "theme".into(),
+            VariableCollection {
+                id: "theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["blur-radius".into(), "blur-visible".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        t.doc.variables.insert(
+            "blur-visible".into(),
+            Variable {
+                id: "blur-visible".into(),
+                name: "blur-visible".into(),
+                collection: "theme".into(),
+                kind: VariableKind::Boolean,
+                values: [("light".into(), VariableValue::Boolean(false)), ("dark".into(), VariableValue::Boolean(true))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                extensions: Default::default(),
+                code_syntax: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        t.doc.variables.insert(
+            "blur-radius".into(),
+            Variable {
+                id: "blur-radius".into(),
+                name: "blur-radius".into(),
+                collection: "theme".into(),
+                kind: VariableKind::Number,
+                values: [("light".into(), VariableValue::Number(0.0)), ("dark".into(), VariableValue::Number(8.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                extensions: Default::default(),
+                code_syntax: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        t.node(group).variables.modes.insert("theme".into(), "dark".into());
+
+        t.node(group).variables.modes.insert("theme".into(), "light".into());
+        let light_actual = t.render(60, 40);
+        let light_resolved = designos_doc::apply_bound_variables(&t.doc);
+        let mut light_expected = Pixmap::new(60, 40).unwrap();
+        designos_render::render_page(&light_resolved, light_resolved.pages[0], &designos_render::Viewport::default(), &mut light_expected);
+        assert_eq!(px(&light_actual, 15, 20), px(&light_expected, 15, 20), "light mode keeps the stored hidden pane hidden");
+        assert_eq!(px(&light_actual, 15, 20), [0, 0, 0, 255]);
+
+        t.node(group).variables.modes.insert("theme".into(), "dark".into());
+
+        let actual = t.render(60, 40);
+        let resolved = designos_doc::apply_bound_variables(&t.doc);
+        let mut expected = Pixmap::new(60, 40).unwrap();
+        designos_render::render_page(&resolved, resolved.pages[0], &designos_render::Viewport::default(), &mut expected);
+        if let Ok(dir) = std::env::var("DESIGNOS_BLUR_EVIDENCE_DIR") {
+            std::fs::create_dir_all(&dir).unwrap();
+            actual.save_png(std::path::Path::new(&dir).join(format!("cpu-actual-masked-{masked}.png"))).unwrap();
+            expected.save_png(std::path::Path::new(&dir).join(format!("cpu-resolved-expected-masked-{masked}.png"))).unwrap();
+        }
+        assert_eq!(px(&actual, 15, 20), px(&expected, 15, 20), "descendant background blur must use resolved radius");
+        assert!(px(&expected, 15, 20)[0] > 40, "fixture must visibly blur the stripe");
+        assert_eq!(t.node(pane).effects[0], Effect::BackgroundBlur { radius: 0.0, visible: true });
+        assert!(!t.node(pane).visible);
+
+        t.node(pane).variables.bindings.clear();
+        let unbound = t.render(60, 40);
+        assert_eq!(px(&unbound, 15, 20), [0, 0, 0, 255], "unbound hidden pane preserves stored visibility");
+    }
+}

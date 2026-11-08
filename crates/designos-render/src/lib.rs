@@ -482,6 +482,8 @@ impl Renderer<'_> {
 
     /// Whether `n` or any drawn descendant has a visible background blur.
     fn has_bg_blur(&self, n: &Node) -> bool {
+        let resolved = resolve_node(self.doc, n);
+        let n = &*resolved;
         if !n.visible {
             return false;
         }
