@@ -263,11 +263,11 @@ fn copy_bound_to(copy: (u32, u32), variables: Vec<Value>) -> Document {
 
 #[test]
 fn a_variable_that_aliases_one_the_style_carries_is_a_copy_and_the_style_wins() {
-    // 7:2 aliases 7:1 directly; 7:4 reaches it through 7:3; 7:6 only in its second mode.
+    // 7:2 aliases 7:1 directly; 7:4 reaches it through 7:3; 7:6 aliases it in both of its modes.
     for (copy, variables) in [
         ((7, 2), vec![variable(1, vec![None]), variable(2, vec![Some((7, 1))])]),
         ((7, 4), vec![variable(1, vec![None]), variable(3, vec![Some((7, 1))]), variable(4, vec![Some((7, 3))])]),
-        ((7, 6), vec![variable(1, vec![None]), variable(6, vec![None, Some((7, 1))])]),
+        ((7, 6), vec![variable(1, vec![None]), variable(6, vec![Some((7, 1)), Some((7, 1))])]),
     ] {
         let doc = copy_bound_to(copy, variables);
         assert_eq!(radii(named(&doc, "Aliased")), vec![8.0, 4.0], "variable {copy:?} resolves to the style's variable");
@@ -297,4 +297,12 @@ fn library_variables_that_differ_only_in_version_are_the_same_variable() {
     let own = json!({"styleIdForEffect": link(1), "effects": [with_var(shadow(2.0), "2:9")]});
     let doc = import(&doc_json(card, json!({}), json!({}), vec![inst(1, "Versions", own, vec![])]));
     assert_eq!(radii(named(&doc, "Versions")), vec![8.0, 4.0]);
+}
+
+#[test]
+fn a_variable_that_aliases_the_styles_variable_in_only_one_mode_is_foreign() {
+    for modes in [vec![None, Some((7, 1))], vec![Some((7, 1)), None]] {
+        let doc = copy_bound_to((7, 6), vec![variable(1, vec![None]), variable(6, modes.clone())]);
+        assert_eq!(radii(named(&doc, "Aliased")), vec![2.0], "modes {modes:?} differ, so the binding is the node's own");
+    }
 }

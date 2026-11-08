@@ -488,8 +488,8 @@ struct Lk<'a> {
     grid_row_index: HashMap<String, Option<usize>>,
     /// Guids of the nodes whose effect-style link resolves (see [`Lk::effect_link_resolves`]).
     effect_linked: HashSet<String>,
-    /// Variable id (`VariableID:s:l`) -> the variables its values alias, over every mode.
-    var_aliases: HashMap<String, Vec<String>>,
+    /// Variable id (`VariableID:s:l`) -> per mode, the variable that mode's value aliases (`None` for a literal).
+    var_aliases: HashMap<String, Vec<Option<String>>>,
 }
 
 impl<'a> Lk<'a> {
@@ -607,12 +607,12 @@ impl<'a> Lk<'a> {
                 lk.prop_defs.entry(id).or_insert(def);
             }
         }
-        let var_aliases: HashMap<String, Vec<String>> = entries
+        let var_aliases: HashMap<String, Vec<Option<String>>> = entries
             .iter()
             .filter(|e| fstr(&e.json, "type") == Some("VARIABLE"))
             .map(|e| {
                 let targets = e.json.get("variableDataValues").map(|d| rest_import::farr(d, "entries")).unwrap_or(&[]);
-                let targets = targets.iter().filter_map(|t| t.get("variableData")?.get("value")?.get("alias")).filter_map(|a| lk.variable_id(a)).collect();
+                let targets = targets.iter().map(|t| Some(lk.variable_identity(t.get("variableData")?.get("value")?.get("alias")?))).collect();
                 (format!("VariableID:{}", e.id), targets)
             })
             .collect();
@@ -622,18 +622,21 @@ impl<'a> Lk<'a> {
         lk
     }
 
-    /// `id` and every variable reachable from it through alias values in any mode. A cycle ends the walk.
-    fn variable_chain(&self, id: &str) -> HashSet<String> {
-        let mut seen = HashSet::from([id.to_string()]);
-        let mut queue = vec![id.to_string()];
-        while let Some(next) = queue.pop() {
-            for target in self.var_aliases.get(&next).into_iter().flatten() {
-                if seen.insert(target.clone()) {
-                    queue.push(target.clone());
-                }
-            }
+    /// `id` is one of `carried`, or every mode of it aliases a variable that is (directly or through other
+    /// variables). A literal in any mode, or a cycle, makes it a different variable.
+    fn variable_reaches(&self, id: &str, carried: &HashSet<String>, visiting: &mut HashSet<String>) -> bool {
+        if carried.contains(id) {
+            return true;
         }
-        seen
+        if !visiting.insert(id.to_string()) {
+            return false;
+        }
+        let reaches = match self.var_aliases.get(id) {
+            Some(modes) if !modes.is_empty() => modes.iter().all(|target| target.as_deref().is_some_and(|t| self.variable_reaches(t, carried, visiting))),
+            _ => false,
+        };
+        visiting.remove(id);
+        reaches
     }
 
     /// `nc` links an effect style that resolves: a style node of this file (modern or legacy reference) or a
@@ -3142,11 +3145,11 @@ fn effect_variables(lk: &Lk, effects: &[Value]) -> HashSet<String> {
 }
 
 /// A node linked to an effect style shows the style's list. The exception is a node that binds a variable the
-/// style does not carry: that binding is the node's own. A variable that aliases one the style carries, directly or
-/// through other variables and modes, is a copy of it and does not count.
+/// style does not carry: that binding is the node's own. A variable that aliases one the style carries in every one
+/// of its modes, directly or through other variables, is a copy of it and does not count.
 fn effects_bind_foreign_variable(lk: &Lk, own: &[Value], style: &[Value]) -> bool {
     let carried = effect_variables(lk, style);
-    effect_variables(lk, own).iter().any(|v| lk.variable_chain(v).is_disjoint(&carried))
+    effect_variables(lk, own).iter().any(|v| !lk.variable_reaches(v, &carried, &mut HashSet::new()))
 }
 
 // ------------------------------------------------------------------ text
