@@ -395,3 +395,22 @@ fn a_foreign_binding_on_a_node_keeps_the_link() {
     let n = named(&doc, "Node level");
     assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![2.0], Some("Shadow/Card")));
 }
+
+#[test]
+fn a_very_long_alias_chain_imports_on_a_small_stack() {
+    // 50,000 single-mode variables, each aliasing the next; the last one aliases the style's variable.
+    let handle = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(|| {
+            let mut variables = vec![variable(1, vec![None])];
+            for local in 101..=50_100 {
+                let next = if local == 50_100 { (7, 1) } else { (7, local + 1) };
+                variables.push(variable(local, vec![Some(next)]));
+            }
+            let doc = copy_bound_to((7, 101), variables);
+            radii(named(&doc, "Aliased"))
+        })
+        .expect("spawn");
+    // Past the depth bound the chain counts as a different variable, so the node keeps its own list.
+    assert_eq!(handle.join().expect("the import must not overflow the stack"), vec![2.0]);
+}

@@ -633,10 +633,14 @@ impl<'a> Lk<'a> {
     /// `id` is one of `carried`, or every mode of it aliases a variable that is (directly or through other
     /// variables). A literal in any mode, or a cycle, makes it a different variable. `memo` holds the answers of one
     /// comparison (`None` while a variable is still being walked, which counts as foreign), so each variable is
-    /// walked once however many modes point at it.
-    fn variable_reaches(&self, id: &str, carried: &HashSet<String>, memo: &mut HashMap<String, Option<bool>>) -> bool {
+    /// walked once however many modes point at it. A chain longer than [`MAX_ALIAS_DEPTH`] counts as a different
+    /// variable, which keeps the node's own list, so a crafted file cannot exhaust the stack.
+    fn variable_reaches(&self, id: &str, carried: &HashSet<String>, memo: &mut HashMap<String, Option<bool>>, depth: usize) -> bool {
         if carried.contains(id) {
             return true;
+        }
+        if depth > MAX_ALIAS_DEPTH {
+            return false;
         }
         match memo.get(id) {
             Some(Some(known)) => return *known,
@@ -645,7 +649,9 @@ impl<'a> Lk<'a> {
         }
         memo.insert(id.to_string(), None);
         let reaches = match self.var_aliases.get(id) {
-            Some(modes) if !modes.is_empty() => modes.iter().all(|target| target.as_deref().is_some_and(|t| self.variable_reaches(t, carried, memo))),
+            Some(modes) if !modes.is_empty() => {
+                modes.iter().all(|target| target.as_deref().is_some_and(|t| self.variable_reaches(t, carried, memo, depth + 1)))
+            }
             _ => false,
         };
         memo.insert(id.to_string(), Some(reaches));
@@ -3162,6 +3168,9 @@ fn convert_effect(e: &Value) -> Option<Value> {
     Some(Value::Object(m))
 }
 
+/// Longest alias chain followed when comparing effect variables.
+const MAX_ALIAS_DEPTH: usize = 256;
+
 /// Variable keys an effect can bind.
 const EFFECT_VARIABLE_KEYS: [&str; 6] = ["colorVar", "effectOpacityVar", "radiusVar", "spreadVar", "xVar", "yVar"];
 
@@ -3183,7 +3192,7 @@ fn effect_variables(lk: &Lk, effects: &[Value]) -> HashSet<String> {
 fn effects_bind_foreign_variable(lk: &Lk, own: &[Value], style: &[Value]) -> bool {
     let carried = effect_variables(lk, style);
     let mut memo = HashMap::new();
-    effect_variables(lk, own).iter().any(|v| !lk.variable_reaches(v, &carried, &mut memo))
+    effect_variables(lk, own).iter().any(|v| !lk.variable_reaches(v, &carried, &mut memo, 0))
 }
 
 // ------------------------------------------------------------------ text
