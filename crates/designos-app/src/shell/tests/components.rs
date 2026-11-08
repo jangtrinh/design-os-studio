@@ -181,6 +181,49 @@ fn inspector_toggle_changes_the_boolean_property() {
     assert!(!s.app().doc.get(icon).unwrap().visible);
 }
 
+/// A "Theme" boolean variable, light on and dark off, added to the demo document.
+fn add_icon_flag(s: &mut Sim) -> (String, String) {
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let theme = store.collections.values().find(|c| c.name == "Theme").expect("Theme collection").clone();
+    let flag = store.add_variable(&theme.id, "Flags/Icon", designos_doc::VariableKind::Boolean).unwrap();
+    store.set_value(&flag, &theme.modes[0].id, designos_doc::VariableValue::Boolean(true));
+    store.set_value(&flag, &theme.modes[1].id, designos_doc::VariableValue::Boolean(false));
+    s.shell.app.commit_store(store, &[], &[]);
+    s.frame(vec![]);
+    (flag, theme.modes[1].id.clone())
+}
+
+#[test]
+fn a_boolean_property_binds_to_a_variable_from_the_inspector_and_follows_the_mode() {
+    let mut s = Sim::with(Options { select: Some("Learn more".into()), ..Default::default() });
+    let inst = s.by_name("Learn more");
+    let icon = child_of(&s.app().doc, inst, "Icon");
+    let (flag, dark) = add_icon_flag(&mut s);
+    let key = designos_doc::prop_binding_key("Show icon");
+    assert!(!s.app().doc.get(icon).unwrap().visible, "precondition: the demo instance hides its icon");
+
+    let row = s.rect_of("prop:Show icon");
+    s.mv(row.center());
+    s.frame(vec![]);
+    s.click(s.rect_of(&format!("bind:{key}")).center());
+    assert!(s.app().vars.bind_picker.is_some(), "the bind button opens the variable picker");
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Flags/Icon").center());
+    assert_eq!(s.app().doc.get(inst).unwrap().variables.bindings[&key], flag);
+    assert!(s.app().doc.get(icon).unwrap().visible, "light mode: the variable is true, the icon shows");
+
+    // the control is now a pill; the dark mode hides the icon, one undo brings it back
+    s.frame(vec![]);
+    s.rect_of(&format!("bound:{key}"));
+    let c = s.app().doc.variables[&flag].collection.clone();
+    s.shell.app.set_node_mode(&[inst], &c, Some(&dark));
+    assert!(!s.app().doc.get(icon).unwrap().visible, "dark mode: the variable is false, the icon hides");
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.get(icon).unwrap().visible);
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.get(inst).unwrap().variables.bindings.is_empty(), "the second undo takes the bind back");
+}
+
 #[test]
 fn inspector_text_property_relabels_the_instance() {
     let mut s = Sim::with(Options { select: Some("Get started".into()), ..Default::default() });

@@ -1605,8 +1605,8 @@ impl Engine {
                 self.relayout(id);
             }
         }
-        let bound = match a.property_variables.as_ref().filter(|m| !m.is_empty()) {
-            Some(map) => Some(self.bind_property_variables(id, map)?),
+        let bound = match a.prop_vars.as_ref().filter(|m| !m.is_empty()) {
+            Some(map) => Some(self.bind_prop_vars(id, map)?),
             None => None,
         };
         let mut out = json!({"node":self.node_reply_json(NodeId(a.node_id)),"changed":changed || bound.is_some()});
@@ -1623,19 +1623,19 @@ impl Engine {
 
     /// Binds (or with `None` unbinds) component properties of instance `id` to variables as one undo step, and
     /// returns one entry per property whose variable gives a value the property cannot take (it keeps its last value).
-    fn bind_property_variables(&mut self, id: NodeId, map: &std::collections::BTreeMap<String, Option<String>>) -> Result<Vec<Value>, ToolError> {
+    fn bind_prop_vars(&mut self, id: NodeId, map: &std::collections::BTreeMap<String, Option<String>>) -> Result<Vec<Value>, ToolError> {
         use designos_doc::PropBindError;
         let comp = self
             .doc
             .get(id)
             .and_then(designos_doc::instance_component)
-            .ok_or_else(|| ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/property_variables", format!("node {} is not an instance", id.0)))?;
+            .ok_or_else(|| ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/prop_vars", format!("node {} is not an instance", id.0)))?;
         let defs = designos_doc::prop_defs(&self.doc, comp);
         let libraries = crate::tools::library_source::load_enabled_snapshots(&self.doc);
         let mut index = designos_doc::SpecBindIndex::build(&self.doc);
         let mut resolved: Vec<(String, Option<String>)> = Vec::with_capacity(map.len());
         for (name, reference) in map {
-            let path = format!("/property_variables/{name}");
+            let path = format!("/prop_vars/{name}");
             let def = defs
                 .iter()
                 .find(|d| d.name == *name)
@@ -1659,12 +1659,10 @@ impl Engine {
         }
         let edits: Vec<(&str, Option<&str>)> = resolved.iter().map(|(n, v)| (n.as_str(), v.as_deref())).collect();
         let cmd = designos_doc::bind_prop_variables(&mut self.doc, id, &edits).map_err(|e| match e {
-            PropBindError::NoSuchVariable(_) => ToolError::new(ErrorCode::UnknownVariable, "/property_variables", e.to_string()),
-            PropBindError::KindMismatch { .. } | PropBindError::NotBindable(_) => {
-                ToolError::new(ErrorCode::VariableTypeMismatch, "/property_variables", e.to_string())
-            }
-            PropBindError::NoSuchProperty(_) => ToolError::new(ErrorCode::UnknownComponentProperty, "/property_variables", e.to_string()),
-            PropBindError::NotAnInstance(_) => ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/property_variables", e.to_string()),
+            PropBindError::NoSuchVariable(_) => ToolError::new(ErrorCode::UnknownVariable, "/prop_vars", e.to_string()),
+            PropBindError::KindMismatch { .. } | PropBindError::NotBindable(_) => ToolError::new(ErrorCode::VariableTypeMismatch, "/prop_vars", e.to_string()),
+            PropBindError::NoSuchProperty(_) => ToolError::new(ErrorCode::UnknownComponentProperty, "/prop_vars", e.to_string()),
+            PropBindError::NotAnInstance(_) => ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/prop_vars", e.to_string()),
         })?;
         self.exec(cmd)?;
         self.relayout(id);
@@ -1863,7 +1861,7 @@ struct UpdateArgs {
     fills: Option<Vec<designos_doc::Paint>>,
     /// Component properties of an instance bound to variables: `{property: "var:Collection/Name"}`; `null` unbinds.
     #[serde(default)]
-    property_variables: Option<std::collections::BTreeMap<String, Option<String>>>,
+    prop_vars: Option<std::collections::BTreeMap<String, Option<String>>>,
     #[serde(default)]
     diff_image: bool,
     #[serde(default)]
@@ -2472,7 +2470,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "update_node",
         "Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"property_variables":{"type":"object","description":"Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.","additionalProperties":{"type":["string","null"]}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"prop_vars":{"type":"object","description":"Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.","additionalProperties":{"type":["string","null"]}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["node_id"],
         json!({
             "node": {"type": "object"},
@@ -4239,6 +4237,7 @@ mod tests {
         e.doc.insert(page, btn).unwrap();
 
         bind_style_to_missing_variable(&mut e);
+        bind_property_to_missing_variable(&mut e, page);
         let res = e.call("designos_lint", json!({"preset": "strict", "limit": 500})).unwrap();
         assert!(res.get("passed").is_none(), "old two-rule `passed` field must be gone");
         let by_rule = res["by_rule"].as_object().expect("by_rule map");
@@ -4358,6 +4357,19 @@ mod tests {
 
         let catalog = tools();
         assert!(catalog.iter().any(|t| t["name"] == "designos_lint_fix" && t["annotations"]["readOnlyHint"] == false));
+    }
+
+    /// An instance whose boolean property is bound to a variable the document does not hold.
+    fn bind_property_to_missing_variable(e: &mut Engine, page: NodeId) {
+        use designos_doc::{add_prop, create_component, create_instance, ComponentPropDef, PropKind, PropValue, Rect, Vec2};
+        let d = &mut e.doc;
+        let id = d.alloc_id();
+        let comp = d.insert(page, Node::frame(id, Rect::new(2000.0, 0.0, 40.0, 40.0))).unwrap();
+        create_component(d, comp).apply(d).unwrap();
+        add_prop(d, comp, ComponentPropDef { name: "Show".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) }).apply(d).unwrap();
+        create_instance(d, comp, page, Vec2::new(2100.0, 0.0)).apply(d).unwrap();
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        d.get_mut(inst).unwrap().variables.bindings.insert(designos_doc::prop_binding_key("Show"), "var-deleted".into());
     }
 
     fn bind_style_to_missing_variable(e: &mut Engine) {

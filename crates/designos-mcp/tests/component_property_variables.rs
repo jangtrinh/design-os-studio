@@ -92,8 +92,7 @@ fn key(name: &str) -> String {
 fn update_node_binds_properties_in_one_undo_step_and_get_node_shows_them() {
     let mut s = setup();
     let reply =
-        s.e.call("designos_update_node", json!({"node_id": s.inst.0, "property_variables": {"Show icon": "var:Theme/show", "Label": "var:Theme/title"}}))
-            .unwrap();
+        s.e.call("designos_update_node", json!({"node_id": s.inst.0, "prop_vars": {"Show icon": "var:Theme/show", "Label": "var:Theme/title"}})).unwrap();
     assert_eq!(reply["changed"], true, "{reply}");
     let got = s.e.call("designos_get_node", json!({"node_id": s.inst.0})).unwrap();
     assert_eq!(got["node"]["variables"]["bindings"][key("Show icon")], "show", "{got}");
@@ -113,16 +112,16 @@ fn update_node_binds_properties_in_one_undo_step_and_get_node_shows_them() {
 #[test]
 fn update_node_unbinds_with_null_and_refuses_a_wrong_variable() {
     let mut s = setup();
-    s.e.call("designos_update_node", json!({"node_id": s.inst.0, "property_variables": {"Label": "var:Theme/title"}})).unwrap();
-    s.e.call("designos_update_node", json!({"node_id": s.inst.0, "property_variables": {"Label": null}})).unwrap();
+    s.e.call("designos_update_node", json!({"node_id": s.inst.0, "prop_vars": {"Label": "var:Theme/title"}})).unwrap();
+    s.e.call("designos_update_node", json!({"node_id": s.inst.0, "prop_vars": {"Label": null}})).unwrap();
     assert!(s.e.doc.get(s.inst).unwrap().variables.bindings.is_empty());
 
-    let wrong = s.e.call("designos_update_node", json!({"node_id": s.inst.0, "property_variables": {"Show icon": "var:Theme/title"}})).unwrap_err();
+    let wrong = s.e.call("designos_update_node", json!({"node_id": s.inst.0, "prop_vars": {"Show icon": "var:Theme/title"}})).unwrap_err();
     let wrong: Value = wrong.to_json_value();
     assert!(wrong["error"]["code"].as_str().is_some_and(|c| c.contains("VARIABLE") || c.contains("TYPE")), "{wrong}");
-    let missing = s.e.call("designos_update_node", json!({"node_id": s.inst.0, "property_variables": {"Nope": "var:Theme/show"}})).unwrap_err();
+    let missing = s.e.call("designos_update_node", json!({"node_id": s.inst.0, "prop_vars": {"Nope": "var:Theme/show"}})).unwrap_err();
     assert_eq!(missing.to_json_value()["error"]["code"], "UNKNOWN_COMPONENT_PROPERTY");
-    let not_instance = s.e.call("designos_update_node", json!({"node_id": s.comp.0, "property_variables": {"Label": "var:Theme/title"}})).unwrap_err();
+    let not_instance = s.e.call("designos_update_node", json!({"node_id": s.comp.0, "prop_vars": {"Label": "var:Theme/title"}})).unwrap_err();
     assert_eq!(not_instance.to_json_value()["error"]["code"], "OVERRIDE_FIELD_NOT_APPLICABLE");
     assert!(s.e.doc.get(s.inst).unwrap().variables.bindings.is_empty(), "a refused call changes nothing");
 }
@@ -173,7 +172,7 @@ fn a_variant_value_that_is_no_option_is_reported_and_keeps_the_variant() {
     create_instance(d, mains[0], host, Vec2::new(0.0, 0.0)).apply(d).unwrap();
     let inst = *d.get(host).unwrap().children.last().unwrap();
 
-    let reply = s.e.call("designos_update_node", json!({"node_id": inst.0, "property_variables": {"Size": "var:Theme/size"}})).unwrap();
+    let reply = s.e.call("designos_update_node", json!({"node_id": inst.0, "prop_vars": {"Size": "var:Theme/size"}})).unwrap();
     assert_eq!(reply["property_binding_issues"][0]["property"], "Size", "{reply}");
     assert!(reply["property_binding_issues"][0]["problem"].as_str().unwrap().contains("Huge"));
     assert_eq!(s.e.doc.get(inst).and_then(instance_component), Some(mains[0]), "the instance keeps its variant");
