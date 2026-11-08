@@ -161,6 +161,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         plugin_data,
         detached_symbol_id,
         fig_metadata,
+        motion,
     } = old;
     *visible != cur.visible
         || *locked != cur.locked
@@ -192,6 +193,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         || *detached_symbol_id != cur.detached_symbol_id
         || *plugin_data != cur.plugin_data
         || *fig_metadata != cur.fig_metadata
+        || *motion != cur.motion
         || *kind != cur.kind
         || *fill_geometry != cur.fill_geometry
         || *stroke_geometry != cur.stroke_geometry

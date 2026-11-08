@@ -591,6 +591,9 @@ pub(crate) fn node_fingerprint(node: &designos_doc::Node) -> u64 {
     if node.mask_type != designos_doc::MaskType::Alpha {
         let _ = node.mask_type.serialize(HashSerializer(&mut h));
     }
+    if let Some(motion) = &node.motion {
+        let _ = motion.serialize(HashSerializer(&mut h));
+    }
     h.finish()
 }
 

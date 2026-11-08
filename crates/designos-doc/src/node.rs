@@ -160,6 +160,9 @@ pub struct Node {
     /// `nodeGenerationData`, `brushType`, `shapeWithTextType`, etc.).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fig_metadata: BTreeMap<String, String>,
+    /// Timelines, assignments and animated-property tracks of this layer; absent for almost every layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<Box<crate::NodeMotion>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -432,6 +435,7 @@ impl Node {
             plugin_data: BTreeMap::new(),
             detached_symbol_id: None,
             fig_metadata: BTreeMap::new(),
+            motion: None,
         }
     }
 
