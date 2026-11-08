@@ -453,7 +453,7 @@ mod raster_page {
     pub(super) fn flatten(doc: &Document, id: NodeId, width: f32, height: f32, inset: f32) -> Result<PageImage, String> {
         let scale = 2.0_f32.min(MAX_SIDE / width).min(MAX_SIDE / height);
         let pixmap = if inset > 0.0 {
-            crate::raster::render_bounded(doc, id, scale, Rect::new(-inset, -inset, width, height))
+            crate::raster::render_bounded(doc, id, scale, Rect::new(-inset, -inset, width, height), false)
         } else {
             designos_render::render_node(doc, id, scale)
         }
