@@ -486,6 +486,8 @@ struct Lk<'a> {
     grid_column_index: HashMap<String, Option<usize>>,
     /// Same for `gridRows`.
     grid_row_index: HashMap<String, Option<usize>>,
+    /// Guids of the nodes whose effect-style link resolves (see [`Lk::effect_link_resolves`]).
+    effect_linked: HashSet<String>,
 }
 
 impl<'a> Lk<'a> {
@@ -504,6 +506,7 @@ impl<'a> Lk<'a> {
             handoff_status: HashMap::new(),
             grid_column_index: HashMap::new(),
             grid_row_index: HashMap::new(),
+            effect_linked: HashSet::new(),
         };
         let mut aliases: Vec<(String, String)> = Vec::new();
         let mut instance_keys: Vec<(String, String)> = Vec::new();
@@ -601,7 +604,16 @@ impl<'a> Lk<'a> {
                 lk.prop_defs.entry(id).or_insert(def);
             }
         }
+        let linked: HashSet<String> = entries.iter().filter(|e| lk.effect_link_resolves(&e.json)).map(|e| e.id.clone()).collect();
+        lk.effect_linked = linked;
         lk
+    }
+
+    /// `nc` links an effect style that resolves: a style node of this file (modern or legacy reference) or a
+    /// library style named by key. A detach marker or a style that is gone does not count.
+    fn effect_link_resolves(&self, nc: &Value) -> bool {
+        self.style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID").is_some()
+            || nc.get("styleIdForEffect").and_then(|r| self.style_id(r)).is_some_and(|id| id.starts_with("key:"))
     }
 
     /// Resolves a preferred-value component key: literal `comp_by_key` match wins first; otherwise
@@ -1688,7 +1700,9 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     // Effects follow the same rule as paints: the style node's list wins unless a variable is bound.
     let own_effects = rest_import::farr(nc, "effects");
-    let fx_style = lk.style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID").filter(|_| !own_effects.iter().any(|e| e.get("colorVar").is_some()));
+    let fx_style = lk
+        .style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID")
+        .filter(|s| !effects_bind_foreign_variable(own_effects, rest_import::farr(s, "effects")));
     let effects: Vec<Value> = fx_style.map(|s| rest_import::farr(s, "effects")).unwrap_or(own_effects).iter().filter_map(convert_effect).collect();
     if !effects.is_empty() {
         m.insert("effects".into(), Value::Array(effects));
@@ -2506,7 +2520,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     // override must carry the style's values, while a raw effect override
     // detaches the inherited link.
     let own_effects = rest_import::farr(o, "effects");
-    let from_style = obj.get("styleIdForEffect").and_then(|r| lk.style_node(r)).filter(|_| !own_effects.iter().any(effect_has_variable));
+    let from_style =
+        obj.get("styleIdForEffect").and_then(|r| lk.style_node(r)).filter(|s| !effects_bind_foreign_variable(own_effects, rest_import::farr(s, "effects")));
     if let Some(sn) = from_style {
         m.insert("effects".into(), Value::Array(rest_import::farr(sn, "effects").iter().filter_map(convert_effect).collect()));
     } else if obj.contains_key("effects") {
@@ -2853,12 +2868,26 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                     // self-override even when the effect style itself was not
                     // overridden.  Drop that stale copy so the linked style
                     // remains authoritative instead of mixing both lists.
-                    if o.get("styleIdForEffect").is_none() && inst_obj.contains_key("styleIdForEffect") && set.remove("_clearEffectStyle").is_some() {
+                    if o.get("styleIdForEffect").is_none() && lk.effect_link_resolves(instance) && set.remove("_clearEffectStyle").is_some() {
                         set.remove("effects");
                         insert_style_override_link(&mut set, inst_obj, lk, "styleIdForEffect", "effect", "_clearEffectStyle");
                     }
                 }
             }
+        }
+        let is_self = path.len() == 1
+            && [instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str), instance.get("guid").and_then(guid_str)]
+                .iter()
+                .flatten()
+                .any(|g| *g == path[0]);
+        if !derived
+            && !is_self
+            && o.get("styleIdForEffect").is_none()
+            && path.last().is_some_and(|last| lk.effect_linked.contains(last))
+            && set.remove("_clearEffectStyle").is_some()
+        {
+            // The same holds below the instance: a layer whose main links an effect style keeps it.
+            set.remove("effects");
         }
         if !derived {
             let parent = path.split_last().and_then(|(_, up)| restated.get(up));
@@ -3064,8 +3093,26 @@ fn convert_effect(e: &Value) -> Option<Value> {
     Some(Value::Object(m))
 }
 
-fn effect_has_variable(e: &Value) -> bool {
-    ["colorVar", "effectOpacityVar", "radiusVar", "spreadVar", "xVar", "yVar"].iter().any(|key| e.get(*key).is_some())
+/// Variable keys an effect can bind.
+const EFFECT_VARIABLE_KEYS: [&str; 6] = ["colorVar", "effectOpacityVar", "radiusVar", "spreadVar", "xVar", "yVar"];
+
+/// Identity of every variable the `effects` bind.
+fn effect_variables(effects: &[Value]) -> HashSet<String> {
+    effects
+        .iter()
+        .flat_map(|e| EFFECT_VARIABLE_KEYS.iter().filter_map(move |key| e.get(*key)))
+        .map(|bound| {
+            let alias = bound.get("value").and_then(|v| v.get("alias")).unwrap_or(bound);
+            alias.get("guid").and_then(guid_str).or_else(|| asset_key(alias).map(str::to_string)).unwrap_or_else(|| alias.to_string())
+        })
+        .collect()
+}
+
+/// A node linked to an effect style shows the style's list. The exception is a node that binds a variable the
+/// style does not carry: that binding is the node's own. A copy of the style's own variables is not.
+fn effects_bind_foreign_variable(own: &[Value], style: &[Value]) -> bool {
+    let carried = effect_variables(style);
+    effect_variables(own).iter().any(|v| !carried.contains(v))
 }
 
 // ------------------------------------------------------------------ text

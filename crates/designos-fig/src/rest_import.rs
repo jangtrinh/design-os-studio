@@ -3351,9 +3351,6 @@ impl<'a> Ctx<'a> {
                 n.stroke_geometry = None;
             }
         }
-        if set.get("effects").is_some() {
-            n.effects = farr(set, "effects").iter().filter_map(parse_effect).collect();
-        }
         if let (NodeKind::Ellipse(arc), Some(a)) = (&mut n.kind, set.get("arcData").filter(|_| keep("arcData"))) {
             // an overridden ring or pie: only the keys the override carries replace the main component's arc
             arc.start = fnum(a, "startingAngle").unwrap_or(arc.start);

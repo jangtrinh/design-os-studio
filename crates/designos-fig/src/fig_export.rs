@@ -2398,6 +2398,9 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                         encode_effect(e, cv, cx.opacity_var_data(&n.variables, &format!("effects/{i}/opacity")))
                     })
                     .collect();
+                if let Some(style_override) = instance_style_override(cx, n, "effect") {
+                    ov.push(("styleIdForEffect", style_override));
+                }
                 ov.push(("effects", V::Array(fx)));
             }
             if ovs.contains(&OverrideField::CornerRadii) {
@@ -2442,7 +2445,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                     // override record. The ordinary node style reference is not
                     // consulted while replaying symbolOverrides, so preserve the
                     // effective reference whenever it differs from the source.
-                    if let Some(style_override) = instance_text_style_override(cx, n) {
+                    if let Some(style_override) = instance_style_override(cx, n, "text") {
                         ov.push(("styleIdForText", style_override));
                     }
                     append_text_style_fields(&mut ov, &tp.style);
@@ -3210,9 +3213,11 @@ fn append_ot_and_variation_fields(fields: &mut Vec<(&'static str, V)>, ts: &Text
     }
 }
 
-fn instance_text_style_override(cx: &ExportCtx<'_>, n: &Node) -> Option<V> {
-    let source_style = n.component.source.and_then(|source| cx.doc.get(source)).and_then(|source| source.style_refs.get("text"));
-    let effective_style = n.style_refs.get("text");
+/// The style reference an override entry writes for `slot` ("text", "effect"): the relinked style, or the detach
+/// marker, whenever the node's effective reference differs from the one its main component carries.
+fn instance_style_override(cx: &ExportCtx<'_>, n: &Node, slot: &str) -> Option<V> {
+    let source_style = n.component.source.and_then(|source| cx.doc.get(source)).and_then(|source| source.style_refs.get(slot));
+    let effective_style = n.style_refs.get(slot);
     if effective_style == source_style {
         return None;
     }
