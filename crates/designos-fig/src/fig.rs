@@ -1920,7 +1920,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             if !ov.is_empty() {
                 m.insert("_overrides".into(), Value::Array(ov));
             }
-            if let Some(kept) = keep_symbol_overrides(sd, lk) {
+            if let Some(kept) = keep_symbol_overrides(nc, sd, lk) {
                 m.insert("_keptOverrides".into(), Value::String(kept.text));
                 if !kept.own_keys.is_empty() {
                     m.insert("_keptOwnKeys".into(), Value::Array(kept.own_keys.into_iter().map(Value::String).collect()));
@@ -2852,7 +2852,7 @@ fn resolve_override_grid_anchor(
 ///
 /// Also lists the keys the instance's own entry (the one whose path is its main component alone) carries, as the file
 /// names them: the loader flags the fields those keys state (see [`crate::own_entry_keys`]).
-fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
+fn keep_symbol_overrides(instance: &Value, sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
     if !lk.large_file {
         return None;
     }
@@ -2864,7 +2864,9 @@ fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
     let mut own_keys: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for e in entries {
         if main.as_ref().is_some_and(|m| guid_path(e) == std::slice::from_ref(m)) {
-            own_keys.extend(e.as_object().into_iter().flat_map(|o| o.keys().map(String::as_str)));
+            // A stale copy under an inherited link is not an override of the instance: it states no effects.
+            let stale_copy = drops_copy_under_inherited_link(instance, e, lk);
+            own_keys.extend(e.as_object().into_iter().flat_map(|o| o.keys().map(String::as_str)).filter(|k| !(stale_copy && *k == "effects")));
         }
         for key in ["fillGeometry", "strokeGeometry"] {
             for g in rest_import::farr(e, key) {
@@ -2890,6 +2892,22 @@ fn keep_symbol_overrides(sd: Option<&Value>, lk: &Lk) -> Option<KeptOverrides> {
         text: format!("{{\"main\":{main},\"entries\":{entries},\"blobs\":{blobs},\"props\":{props}}}"),
         own_keys: own_keys.into_iter().map(String::from).collect(),
     })
+}
+
+/// Whether the self entry `o` of `instance` restates effects without naming a style, while the instance only inherits
+/// the effect link of its main (no link keys of its own) and the linked style replaces the restated list. Such an entry
+/// is a stale copy: the record keeps the effects Figma cached for it and nothing is overridden.
+fn drops_copy_under_inherited_link(instance: &Value, o: &Value, lk: &Lk) -> bool {
+    if o.get("styleIdForEffect").is_some() || o.get("effects").is_none() {
+        return false;
+    }
+    let instance_guid = instance.get("guid").and_then(guid_str).unwrap_or_default();
+    let inherits =
+        !lk.effect_linked.contains_key(&instance_guid) && instance.get("styleIdForEffect").is_none() && instance.get("inheritEffectStyleID").is_none();
+    let Some(style) = inherits.then(|| instance.get("symbolData")?.get("symbolID").and_then(guid_str)).flatten().and_then(|m| lk.effect_linked.get(&m)) else {
+        return false;
+    };
+    lk.style_replaces_entry_effects(rest_import::farr(o, "effects"), lk.style_by_id.get(style))
 }
 
 /// What [`keep_symbol_overrides`] keeps of an instance's `symbolOverrides`.
@@ -2986,7 +3004,7 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                             // Marking it as one would pin the record on save and restate a list that the reopen reads
                             // as a stale copy again.
                             insert_effect_link(&mut set, Some(style.clone()));
-                            if replaces && own_link.is_none() {
+                            if drops_copy_under_inherited_link(instance, o, lk) {
                                 set.insert("_inheritedEffectLink".into(), Value::Bool(true));
                             }
                         }

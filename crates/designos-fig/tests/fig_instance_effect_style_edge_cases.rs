@@ -525,7 +525,8 @@ fn a_stale_copy_under_an_inherited_link_keeps_the_mains_link() {
     let n = named(&scaled, "Inherited scaled");
     assert_eq!((radii(n), style_of(&scaled, n).as_deref()), (vec![4.0], Some("Shadow/Card")), "scaled cache, import");
     let reopened = reopened(&scaled);
-    assert_eq!(radii(named(&reopened, "Inherited scaled")), vec![4.0], "scaled cache, reopen");
+    let n = named(&reopened, "Inherited scaled");
+    assert_eq!((radii(n), style_of(&reopened, n).as_deref()), (vec![4.0], Some("Shadow/Card")), "scaled cache, reopen");
 }
 
 /// Figma caches a scaled copy of the linked style on an instance that was resized. A save keeps that cache.
@@ -539,8 +540,29 @@ fn a_scaled_record_cache_under_an_inherited_link_survives_saves() {
         assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![4.0], Some("Shadow/Card")), "{tag}, import");
         for round in 1..=3 {
             doc = reopened(&doc);
-            assert_eq!(radii(named(&doc, "Scaled")), vec![4.0], "{tag}, save {round}");
+            let n = named(&doc, "Scaled");
+            assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![4.0], Some("Shadow/Card")), "{tag}, save {round}");
         }
+    }
+}
+
+/// The same in a file big enough to defer its pages, which flags an instance's overrides from the keys of its own
+/// entry instead of from what the loader made of them.
+#[test]
+fn a_scaled_record_cache_survives_saves_in_a_file_with_deferred_pages() {
+    let master = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
+    let entry = root_entry(json!({"effects": [shadow(8.0)]}));
+    let cache = json!({"effects": [bound(shadow(4.0), (7, 1))]});
+    let mut changes = doc_json(card_binding_7_1(), master.clone(), master, vec![inst(1, "Scaled", cache, vec![entry])]);
+    let list = changes.as_array_mut().expect("node list");
+    for i in 0..5100u32 {
+        list.push(node((8, i), (0, 1), &format!("p{i:05}"), "RECTANGLE", "pad", json!({"size": {"x": 1.0, "y": 1.0}})));
+    }
+    let mut doc = import(&changes);
+    assert_eq!(radii(named(&doc, "Scaled")), vec![4.0], "import");
+    for round in 1..=2 {
+        doc = reopened(&doc);
+        assert_eq!(radii(named(&doc, "Scaled")), vec![4.0], "save {round}");
     }
 }
 
@@ -549,9 +571,11 @@ fn a_scaled_record_cache_under_an_inherited_link_survives_saves() {
 fn a_record_without_cached_effects_under_an_inherited_link_survives_a_save() {
     let master = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
     let doc = inherited_cached(master, json!({}), vec![shadow(2.0)], "Uncached");
-    let before = radii(named(&doc, "Uncached"));
+    let n = named(&doc, "Uncached");
+    let before = (radii(n), style_of(&doc, n));
     let after = reopened(&doc);
-    assert_eq!(radii(named(&after, "Uncached")), before, "a save keeps the render");
+    let n = named(&after, "Uncached");
+    assert_eq!((radii(n), style_of(&after, n)), before, "a save keeps the render and the link");
 }
 
 #[test]
