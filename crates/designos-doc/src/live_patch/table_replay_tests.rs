@@ -1,7 +1,9 @@
 //! Replaying the live-patch log of a table edit gives the table the agent side holds.
 
 use super::{live_ops_for_command, replay_live_patch, LivePatch, LivePatchReport, LivePatchState};
-use crate::table_ops::{create_table, delete_cols, delete_rows, insert_cols, insert_rows, merge, move_col, move_row, resize_col, resize_table, unmerge};
+use crate::table_ops::{
+    create_table, delete_cols, delete_rows, insert_cols, insert_rows, merge, move_col, move_row, resize_col, resize_row, resize_table, set_cell_text, unmerge,
+};
 use crate::*;
 use serde_json::Value;
 
@@ -50,6 +52,9 @@ fn parity(agent: &mut Document, editor: &mut Document, table: NodeId, op: impl F
 }
 
 fn same(agent: &Document, editor: &Document, table: NodeId) {
+    for page in &agent.pages {
+        assert_eq!(editor.get(*page).unwrap().children, agent.get(*page).unwrap().children, "the page lists the same children in the same order");
+    }
     if agent.get(table).is_none() {
         assert!(editor.get(table).is_none(), "the table is gone on both sides");
     } else {
@@ -168,4 +173,87 @@ fn resize_col_matches() {
     let id = props(&a, t).cols[1].id;
     parity(&mut a, &mut e, t, |d| resize_col(d, t, id, 240.0));
     same(&a, &e, t);
+}
+
+#[test]
+fn resize_row_matches() {
+    let (mut a, mut e, t) = pair(3, 3);
+    let id = props(&a, t).rows[2].id;
+    parity(&mut a, &mut e, t, |d| resize_row(d, t, id, 90.0));
+    same(&a, &e, t);
+}
+
+#[test]
+fn set_cell_text_matches() {
+    let (mut a, mut e, t) = pair(3, 3);
+    parity(&mut a, &mut e, t, |d| set_cell_text(d, t, 1, 2, "changed\nin two lines"));
+    same(&a, &e, t);
+}
+
+/// Replays the edit and, like the MCP session, the undo and the redo of it, recorded from the step's inverse.
+fn parity_through_undo_redo(rows: usize, cols: usize, op: impl Fn(&Document, NodeId) -> Built) {
+    let (mut a, mut e, t) = pair(rows, cols);
+    let mut hist = History::default();
+    let replay = |from: &Document, cmd: &Command, e: &mut Document| {
+        let ops = live_ops_for_command(from, cmd).expect("the step can be mirrored");
+        let patch: LivePatch = serde_json::from_str(&serde_json::to_string(&LivePatch::new(ops)).unwrap()).unwrap();
+        let report = replay_live_patch(e, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+        assert!(report.skipped.is_empty(), "nothing is skipped: {:?}", report.skipped);
+    };
+    let cmd = op(&a, t).expect("the op is accepted");
+    replay(&a, &cmd, &mut e);
+    hist.exec_agent(&mut a, cmd).unwrap();
+    same(&a, &e, t);
+    let inverse = hist.peek_undo().cloned().expect("an undo step");
+    replay(&a, &inverse, &mut e);
+    assert!(hist.undo(&mut a).unwrap());
+    same(&a, &e, t);
+    let forward = hist.peek_redo().cloned().expect("a redo step");
+    replay(&a, &forward, &mut e);
+    assert!(hist.redo(&mut a).unwrap());
+    same(&a, &e, t);
+}
+
+#[test]
+fn undo_and_redo_of_insert_rows_match() {
+    parity_through_undo_redo(3, 3, |d, t| insert_rows(d, t, 1, 2));
+}
+
+#[test]
+fn undo_and_redo_of_delete_cols_match() {
+    parity_through_undo_redo(3, 4, |d, t| delete_cols(d, t, &[props(d, t).cols[1].id]));
+}
+
+#[test]
+fn undo_and_redo_of_merge_match() {
+    parity_through_undo_redo(3, 3, |d, t| merge(d, t, (0, 0, 0, 1)));
+}
+
+#[test]
+fn undo_and_redo_of_move_row_match() {
+    parity_through_undo_redo(4, 3, |d, t| move_row(d, t, props(d, t).rows[3].id, 0));
+}
+
+#[test]
+fn undo_and_redo_of_resize_col_match() {
+    parity_through_undo_redo(3, 3, |d, t| resize_col(d, t, props(d, t).cols[0].id, 200.0));
+}
+
+#[test]
+fn undo_and_redo_of_delete_every_row_match() {
+    parity_through_undo_redo(2, 2, |d, t| delete_rows(d, t, &props(d, t).rows.iter().map(|r| r.id).collect::<Vec<_>>()));
+}
+
+#[test]
+fn a_created_table_lands_in_the_same_place_among_the_page_children() {
+    let (mut agent, page, _) = table_doc(1, 1);
+    let rect = agent.alloc_id();
+    agent.insert(page, Node::rectangle(rect, Rect::new(0.0, 0.0, 5.0, 5.0))).unwrap();
+    let mut editor = agent.clone();
+    let cmd = create_table(&agent, page, Vec2::new(5.0, 6.0), 2, 2, &TableStyle::default()).unwrap();
+    let ops = live_ops_for_command(&agent, &cmd).unwrap();
+    cmd.apply(&mut agent).unwrap();
+    replay_live_patch(&mut editor, &LivePatch::new(ops), &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    let table = *agent.get(page).unwrap().children.last().unwrap();
+    same(&agent, &editor, table);
 }

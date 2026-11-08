@@ -65,3 +65,7 @@ pub fn replay_unabsorbed_patches(doc: &mut Document, log: &[u8], canvas_base: Op
     }
     Ok(patches.len())
 }
+
+#[cfg(test)]
+#[path = "ledger_reconnect_table_tests.rs"]
+mod table_tests;
