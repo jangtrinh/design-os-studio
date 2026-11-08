@@ -174,3 +174,12 @@ fn override_nodes_the_importer_does_not_read_are_counted_in_the_report() {
     let (_, report) = import_fig_node_changes_with_report(&Value::Array(nodes), "Two").unwrap();
     assert_eq!(report.dropped_variable_overrides, 2, "nothing vanishes silently: both nodes are counted");
 }
+
+#[test]
+fn an_imported_extension_makes_its_parent_extendable_even_without_the_flag() {
+    let mut payload = export_variables_json(&extended_doc(None));
+    payload["meta"]["variableCollections"][PARENT].as_object_mut().unwrap().remove("isExtendable");
+    let mut back = Document::new("d");
+    import_variables_value(&mut back, &payload);
+    assert!(back.variable_collections[PARENT].is_extendable(), "lookups rely on the parent's flag to skip the extension scan");
+}

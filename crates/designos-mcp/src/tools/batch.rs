@@ -1490,6 +1490,7 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
     let path = format!("/ops/{op_idx}");
     let mut collections = doc.variable_collections.clone();
     let mut variables = doc.variables.clone();
+    let mut unmapped_modes: Vec<(String, String)> = Vec::new();
 
     for c_in in &op.upsert_collections {
         if c_in.id.trim().is_empty() {
@@ -1517,6 +1518,10 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
             .clone()
             .or_else(|| existing.as_ref().map(|e| e.default_mode.clone()))
             .unwrap_or_else(|| modes.first().map(|m| m.id.clone()).unwrap_or_else(|| "light".into()));
+        if let Some(ex) = &existing {
+            // modes the parent no longer has: its extensions stop mapping to them, as when a mode is deleted in the panel
+            unmapped_modes.extend(ex.modes.iter().filter(|m| !modes.iter().any(|n| n.id == m.id)).map(|m| (c_in.id.clone(), m.id.clone())));
+        }
         let name = c_in.name.clone().or_else(|| existing.as_ref().map(|e| e.name.clone())).unwrap_or_else(|| c_in.id.clone());
         let vars_list = c_in.variables.clone().or_else(|| existing.as_ref().map(|e| e.variables.clone())).unwrap_or_default();
         collections.insert(
@@ -1534,7 +1539,8 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
         );
     }
 
-    let mut extension_writes: Vec<(String, String, VariableValue)> = Vec::new();
+    // (variable, mode, value); `None` is a null value: reset the override of an extended collection's mode
+    let mut writes: Vec<(String, String, Option<VariableValue>)> = Vec::new();
     for v_in in &op.upsert_variables {
         if v_in.id.trim().is_empty() {
             return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "variable id must not be empty"));
@@ -1571,15 +1577,16 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
                 format!("variable collection '{collection_id}' not found"),
             ));
         }
-        let mut values = existing.as_ref().map(|e| e.values.clone()).unwrap_or_default();
+        // values are written below through the variable store (set_value, set_alias, reset_override), which owns the
+        // rules for extended collections and alias cycles; this record only keeps what the variable already has
+        let values = existing.as_ref().map(|e| e.values.clone()).unwrap_or_default();
         for (mode_id, raw_val) in &v_in.values {
-            let parsed_val = parse_variable_value(raw_val, kind).map_err(|(code, msg)| op_failed_error(op_idx, "set_variables", code, &path, msg))?;
-            // a mode of an extended collection holds an override of the extension, never a value of the variable
-            if collections.values().any(|c| c.is_extension() && c.modes.iter().any(|m| &m.id == mode_id)) {
-                extension_writes.push((v_in.id.clone(), mode_id.clone(), parsed_val));
-            } else {
-                values.insert(mode_id.clone(), parsed_val);
+            if raw_val.is_null() {
+                writes.push((v_in.id.clone(), mode_id.clone(), None));
+                continue;
             }
+            let parsed_val = parse_variable_value(raw_val, kind).map_err(|(code, msg)| op_failed_error(op_idx, "set_variables", code, &path, msg))?;
+            writes.push((v_in.id.clone(), mode_id.clone(), Some(parsed_val)));
         }
         let name = v_in.name.clone().or_else(|| existing.as_ref().map(|e| e.name.clone())).unwrap_or_else(|| v_in.id.clone());
         let var = Variable {
@@ -1612,16 +1619,38 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
             col.variables.retain(|v| v != del_id);
         }
     }
-    for (variable, mode, value) in extension_writes {
-        if !store.set_value(&variable, &mode, value) {
+    for (coll, mode) in &unmapped_modes {
+        store.unmap_parent_mode(coll, mode);
+    }
+    for (variable, mode, value) in writes {
+        let ok = match &value {
+            Some(VariableValue::Alias(target)) => store.set_alias(&variable, &mode, target),
+            Some(literal) => store.set_value(&variable, &mode, literal.clone()),
+            None => match store.extension_owning_mode(&mode, &variable) {
+                Some(ext) => {
+                    store.reset_override(&ext, &variable, &mode);
+                    true
+                }
+                None => false,
+            },
+        };
+        if !ok {
+            let why = if value.is_none() {
+                "null resets an override and is only valid in a mode of an extended collection that extends the variable's collection"
+            } else {
+                "refused: a library variable, a value of the wrong kind, an alias that would leave a variable without a value, or a mode of an extended collection that does not extend the variable's collection"
+            };
             return Err(op_failed_error(
                 op_idx,
                 "set_variables",
                 ErrorCode::InvalidArguments,
                 &path,
-                format!("mode '{mode}' belongs to an extended collection that does not accept a value for variable '{variable}' (not inherited, wrong kind, or an alias cycle)"),
+                format!("value for variable '{variable}' in mode '{mode}' {why}"),
             ));
         }
+    }
+    if let Err(why) = store.check_extension_rules() {
+        return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, why));
     }
     let VariableStore { variables, collections } = store;
 

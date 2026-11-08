@@ -8,7 +8,7 @@ use crate::rest_import::{color, farr, fbool, fstr};
 use crate::FigError;
 use designos_doc::*;
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn is_alias(v: &Value) -> bool {
     fstr(v, "type") == Some("VARIABLE_ALIAS")
@@ -192,6 +192,13 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
     }
     // An extension of a library collection also remembers the library collection's key.
     let library_keys: BTreeMap<String, String> = collections.values().filter(|c| c.is_library()).filter_map(|c| Some((c.id.clone(), c.key.clone()?))).collect();
+    // A parent that is extended allows it: lookups skip the extension scan for a collection that is not extendable.
+    let parents: BTreeSet<String> = collections.values().filter_map(|c| c.extension_parent_id().map(String::from)).collect();
+    for id in &parents {
+        if let Some(parent) = collections.get_mut(id) {
+            parent.set_extendable(true);
+        }
+    }
     for coll in collections.values_mut() {
         if let Some(mut ext) = coll.extension().filter(|e| e.parent.set_key.is_none()) {
             if let Some(key) = library_keys.get(&ext.parent.collection) {

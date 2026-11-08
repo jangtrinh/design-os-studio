@@ -8,7 +8,7 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Collection extension key holding a serialized [`CollectionExtension`].
 pub const EXTENSION_KEY: &str = "org.designos.extendedCollection";
@@ -158,12 +158,26 @@ impl Document {
         inherited_ids(&self.variable_collections, &self.variables, coll)
     }
 
+    /// Debug check of the gate in `node_extension_value`: no collection extends `coll` while `coll` is not extendable.
+    /// It scans every collection, so it exists in debug builds only and is not counted as a lookup scan.
+    #[cfg(debug_assertions)]
+    fn assert_no_extension_of(&self, coll: &str) {
+        let offender = self.variable_collections.values().find(|c| c.id != coll && c.is_extension() && extends(&self.variable_collections, &c.id, coll));
+        debug_assert!(offender.is_none(), "collection {:?} extends {coll:?}, which is not marked extendable", offender.map(|c| &c.id));
+    }
+
     /// The value `v` takes at `node` when the nearest mode choice among its collection and the collections extending
     /// it is an extended collection's. `None` leaves the plain lookup in charge.
     pub(crate) fn node_extension_value(&self, node: NodeId, v: &Variable, mode_overrides: &[(&str, &str)]) -> Option<VariableValue> {
-        if !self.variable_collections.values().any(VariableCollection::is_extension) {
+        // An extension needs a parent that allows it (`extend_collection` and the importers set the flag), so one lookup
+        // of the variable's own collection, which every resolve makes anyway, rules out a document without extensions.
+        if !self.variable_collections.get(&v.collection).is_some_and(VariableCollection::is_extendable) {
+            #[cfg(debug_assertions)]
+            self.assert_no_extension_of(&v.collection);
             return None;
         }
+        #[cfg(test)]
+        SCANS.with(|c| c.set(c.get() + 1));
         // extensions first, so a node that picks both the parent and an extension follows the extension
         let mut candidates: Vec<&str> = self
             .variable_collections
@@ -210,7 +224,100 @@ fn inherited_ids(collections: &BTreeMap<String, VariableCollection>, variables: 
     Vec::new()
 }
 
+#[cfg(test)]
+thread_local! {
+    static SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+#[cfg(test)]
+pub(crate) fn reset_extension_scan_count() {
+    SCANS.with(|c| c.set(0));
+}
+#[cfg(test)]
+pub(crate) fn extension_scan_count() -> usize {
+    SCANS.with(std::cell::Cell::get)
+}
+
 impl VariableStore {
+    /// The model's rules for extended collections, checked on a whole store (the MCP batch, which builds records
+    /// itself, runs it before it commits). An extension holds no variables of its own, no variable names an extension as
+    /// its collection, and a value is never keyed by a mode of an extension the variable is not part of.
+    pub fn check_extension_rules(&self) -> Result<(), String> {
+        for c in self.collections.values().filter(|c| c.is_extension()) {
+            if !c.variables.is_empty() {
+                return Err(format!("collection '{}' extends another collection and cannot list variables of its own", c.id));
+            }
+        }
+        for v in self.variables.values() {
+            if self.collections.get(&v.collection).is_some_and(VariableCollection::is_extension) {
+                return Err(format!("variable '{}' cannot belong to collection '{}': it extends another collection", v.id, v.collection));
+            }
+            let own = self.collections.get(&v.collection);
+            for mode in v.values.keys() {
+                if own.is_some_and(|c| c.modes.iter().any(|m| &m.id == mode)) {
+                    continue;
+                }
+                if let Some(ext) = self.collections.values().find(|c| c.is_extension() && c.modes.iter().any(|m| &m.id == mode)) {
+                    if !extends(&self.collections, &ext.id, &v.collection) {
+                        return Err(format!(
+                            "variable '{}' has a value for mode '{mode}', which belongs to extended collection '{}' that does not extend '{}'",
+                            v.id, ext.id, v.collection
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// True when `mode` is a mode of the collection that holds `variable`.
+    pub(crate) fn is_own_mode(&self, variable: &str, mode: &str) -> bool {
+        self.variables.get(variable).and_then(|v| self.collections.get(&v.collection)).is_some_and(|c| c.modes.iter().any(|m| m.id == mode))
+    }
+
+    /// True when `mode` belongs to some extended collection (whichever it extends).
+    pub(crate) fn is_extension_mode(&self, mode: &str) -> bool {
+        self.collections.values().any(|c| c.is_extension() && c.modes.iter().any(|m| m.id == mode))
+    }
+
+    /// Every mode `variable` shows a value in: its collection's modes and the modes of the collections extending it.
+    fn modes_shown_for(&self, variable: &str) -> Vec<String> {
+        let Some(v) = self.variables.get(variable) else { return Vec::new() };
+        let mut modes: Vec<String> = self.collections.get(&v.collection).map(|c| c.modes.iter().map(|m| m.id.clone()).collect()).unwrap_or_default();
+        for c in self.collections.values().filter(|c| c.id != v.collection && c.is_extension() && extends(&self.collections, &c.id, &v.collection)) {
+            modes.extend(c.modes.iter().map(|m| m.id.clone()));
+        }
+        modes
+    }
+
+    /// The (variable, mode) pairs that resolve to nothing: a missing value or an alias cycle.
+    fn unresolved_pairs(&self) -> BTreeSet<(String, String)> {
+        let mut out = BTreeSet::new();
+        for id in self.variables.keys() {
+            for mode in self.modes_shown_for(id) {
+                if self.resolve(id, &mode).is_none() {
+                    out.insert((id.clone(), mode));
+                }
+            }
+        }
+        out
+    }
+
+    /// Runs an alias edit and undoes it when it leaves any variable without a value in any mode it is shown in, in the
+    /// collection itself or in an extension. The one check behind every alias: a parent alias, an override alias, from the
+    /// panel, MCP or a script.
+    pub(crate) fn guard_alias(&mut self, edit: impl FnOnce(&mut Self) -> bool) -> bool {
+        let before = self.unresolved_pairs();
+        let backup = (self.variables.clone(), self.collections.clone());
+        if !edit(self) {
+            return false;
+        }
+        if self.unresolved_pairs().is_subset(&before) {
+            return true;
+        }
+        (self.variables, self.collections) = backup;
+        false
+    }
+
     /// Creates a collection that extends `parent`, with one mode for each of the parent's modes. A collection of the
     /// file's own becomes extendable; a library collection must already allow it. `None` when `parent` is missing,
     /// soft-deleted, or a library collection that is not extendable.
@@ -276,19 +383,18 @@ impl VariableStore {
                 }
             }
         }
-        let Some(c) = self.collections.get_mut(ext) else { return false };
-        let Some(mut e) = c.extension() else { return false };
-        let previous = c.extensions.get(EXTENSION_KEY).cloned();
-        e.overrides.entry(variable.to_string()).or_default().insert(mode.to_string(), value);
-        c.set_extension(&e);
-        // an override that makes aliases chase each other resolves to nothing: refuse it
-        if self.resolve(variable, mode).is_none() {
-            if let (Some(c), Some(previous)) = (self.collections.get_mut(ext), previous) {
-                c.extensions.insert(EXTENSION_KEY.to_string(), previous);
-            }
-            return false;
+        let write = |s: &mut Self| {
+            let Some(c) = s.collections.get_mut(ext) else { return false };
+            let Some(mut e) = c.extension() else { return false };
+            e.overrides.entry(variable.to_string()).or_default().insert(mode.to_string(), value.clone());
+            c.set_extension(&e);
+            true
+        };
+        if matches!(value, VariableValue::Alias(_)) {
+            self.guard_alias(write)
+        } else {
+            write(self)
         }
-        true
     }
 
     /// Removes the override of `variable` in `mode`, so the extended collection shows the parent's value again.
@@ -357,7 +463,7 @@ impl VariableStore {
 
     /// A parent mode was deleted: the extensions of `parent` stop mapping to it. Their modes keep any overrides and
     /// show what an unmapped mode shows, the parent's default mode.
-    pub(crate) fn unmap_parent_mode(&mut self, parent: &str, mode: &str) {
+    pub fn unmap_parent_mode(&mut self, parent: &str, mode: &str) {
         self.edit_direct_extensions_of(parent, |e| {
             let before = e.mode_map.len();
             e.mode_map.retain(|_, parent_mode| parent_mode != mode);
@@ -674,22 +780,6 @@ mod tests {
     }
 
     #[test]
-    fn a_lookup_costs_nothing_extra_when_the_document_has_no_extension() {
-        let (s, _, bg, _, _) = base();
-        let (d, _, rect) = doc_with(&s);
-        let v = d.variables[&bg].clone();
-        assert!(d.node_extension_value(rect, &v, &[]).is_none());
-        let start = std::time::Instant::now();
-        let n = 200_000u32;
-        for _ in 0..n {
-            std::hint::black_box(d.node_extension_value(rect, std::hint::black_box(&v), &[]));
-        }
-        let per_call = start.elapsed().as_nanos() / u128::from(n);
-        eprintln!("node_extension_value without extensions: {per_call} ns per call");
-        assert!(per_call < 2_000, "{per_call} ns per call");
-    }
-
-    #[test]
     fn extension_collections_are_not_published() {
         let (mut s, theme, _, _, _) = base();
         let brand = s.extend_collection(&theme, "Brand").unwrap();
@@ -700,5 +790,135 @@ mod tests {
         let snap = snapshot(&d, "L1", "Lib", 1);
         assert!(snap.variable_collections.contains_key(&theme));
         assert!(!snap.variable_collections.contains_key(&brand));
+    }
+
+    #[test]
+    fn a_parent_alias_cannot_close_a_cycle_through_an_extension_override_in_either_order() {
+        for reversed in [false, true] {
+            let (mut s, theme, bg, _, [light, _]) = base();
+            let fg = s.add_variable(&theme, "fg", VariableKind::Color).unwrap();
+            assert!(s.set_value(&fg, &light, VariableValue::Color(Color::BLACK)));
+            let brand = s.extend_collection(&theme, "Brand").unwrap();
+            let b_light = s.collections[&brand].modes[0].id.clone();
+            let (first, second) = if reversed { ((&bg, &light, &fg), (&fg, &b_light, &bg)) } else { ((&fg, &b_light, &bg), (&bg, &light, &fg)) };
+            assert!(s.set_alias(first.0, first.1, first.2), "the first alias is fine");
+            assert!(!s.set_alias(second.0, second.1, second.2), "the second would leave a variable with no value (reversed: {reversed})");
+            for v in [&bg, &fg] {
+                assert!(s.resolve(v, &b_light).is_some() && s.resolve(v, &light).is_some(), "{v} still resolves in the parent and in Brand");
+            }
+        }
+    }
+
+    #[test]
+    fn a_value_in_a_mode_of_an_unrelated_extension_is_refused() {
+        let (mut s, theme, _, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_light = s.collections[&brand].modes[0].id.clone();
+        let spacing = s.add_collection("Spacing");
+        let sm = s.collections[&spacing].default_mode.clone();
+        let gap = s.add_variable(&spacing, "gap", VariableKind::Number).unwrap();
+        assert!(s.set_value(&gap, &sm, VariableValue::Number(8.0)));
+        assert!(!s.set_value(&gap, &b_light, VariableValue::Number(4.0)), "gap does not belong to what Brand extends");
+        assert!(!s.variables[&gap].values.contains_key(&b_light));
+        assert!(s.set_value(&gap, &sm, VariableValue::Number(9.0)), "its own modes still edit");
+    }
+
+    #[test]
+    fn the_extension_rules_refuse_variables_in_an_extension_and_stray_mode_keys() {
+        let (mut s, theme, bg, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        assert_eq!(s.check_extension_rules(), Ok(()));
+        let mut a = s.clone();
+        a.collections.get_mut(&brand).unwrap().variables.push(bg.clone());
+        assert!(a.check_extension_rules().is_err(), "an extension with a variable list");
+        let mut b = s.clone();
+        b.variables.get_mut(&bg).unwrap().collection = brand.clone();
+        assert!(b.check_extension_rules().is_err(), "a variable whose collection is an extension");
+        let mut c = s.clone();
+        let spacing = c.add_collection("Spacing");
+        let gap = c.add_variable(&spacing, "gap", VariableKind::Number).unwrap();
+        let b_light = c.collections[&brand].modes[0].id.clone();
+        c.variables.get_mut(&gap).unwrap().values.insert(b_light, VariableValue::Number(4.0));
+        assert!(c.check_extension_rules().is_err(), "a value keyed by a mode of an extension the variable is not part of");
+    }
+
+    #[test]
+    fn a_lookup_without_extensions_scans_no_collection() {
+        let mut s = VariableStore::default();
+        let mut last = String::new();
+        for i in 0..10 {
+            let c = s.add_collection(&format!("C{i}"));
+            last = s.add_variable(&c, "v", VariableKind::Number).unwrap();
+        }
+        let (d, _, rect) = doc_with(&s);
+        reset_extension_scan_count();
+        for _ in 0..100 {
+            d.resolve_variable(rect, &last);
+        }
+        assert_eq!(extension_scan_count(), 0, "10 collections, no extension: no scan");
+        // the same lookups in a document that does extend a collection do scan, so the counter is live
+        let (mut s2, theme, ..) = base();
+        s2.extend_collection(&theme, "Brand").unwrap();
+        let (d2, _, rect2) = doc_with(&s2);
+        let var = d2.variables.keys().next().cloned().unwrap();
+        reset_extension_scan_count();
+        d2.resolve_variable(rect2, &var);
+        assert!(extension_scan_count() > 0);
+    }
+
+    #[test]
+    fn the_snapshot_never_carries_an_extension_or_a_variable_that_names_one() {
+        let (mut s, theme, _, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let stray = "stray".to_string();
+        s.variables.insert(
+            stray.clone(),
+            Variable {
+                id: stray.clone(),
+                name: "stray".into(),
+                collection: brand.clone(),
+                kind: VariableKind::Color,
+                values: Default::default(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let (d, _, _) = doc_with(&s);
+        let keys: Vec<String> = publishable_assets(&d).into_iter().map(|(k, _, _)| k).collect();
+        assert!(!keys.contains(&"var:stray".to_string()), "{keys:?}");
+        let snap = snapshot(&d, "L1", "Lib", 1);
+        assert!(!snap.variables.contains_key("stray"));
+        assert!(!snap.variable_collections.contains_key(&brand), "no collection is inserted through a variable either");
+    }
+
+    #[test]
+    fn publishing_names_the_components_that_pick_an_extension_mode() {
+        let (mut s, theme, bg, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_dark = s.collections[&brand].modes[1].id.clone();
+        let (mut d, frame, _) = doc_with(&s);
+        let page = d.pages[0];
+        let cid = d.alloc_id();
+        let mut comp = Node::new(cid, NodeKind::Component(FrameProps::default()));
+        comp.name = "Card".into();
+        comp.variables.bindings.insert("fills/0".into(), bg);
+        comp.variables.modes.insert(brand, b_dark);
+        d.insert(page, comp).unwrap();
+        assert_eq!(publish_warnings(&d), vec!["Card".to_string()]);
+        d.get_mut(frame).unwrap().variables.modes.insert("x".into(), "y".into());
+        assert_eq!(publish_warnings(&d), vec!["Card".to_string()], "a plain mode pick is not reported");
+    }
+
+    #[test]
+    fn replacing_modes_on_the_parent_through_the_shared_path_unmaps_extensions() {
+        let (mut s, theme, _, _, [_, dark]) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        s.unmap_parent_mode(&theme, &dark);
+        assert!(s.collections[&brand].extension().unwrap().mode_map.values().all(|m| m != &dark));
     }
 }
