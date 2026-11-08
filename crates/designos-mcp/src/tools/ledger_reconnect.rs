@@ -7,7 +7,7 @@
 //! now cannot be inside that canvas yet. A line made on an older canvas was written before the
 //! current snapshot and is taken as absorbed: replaying it could undo the user's later edits.
 
-use designos_doc::live_patch::{log_version_refusal, replay_live_patch, LiveLogLine, LivePatch, LivePatchState};
+use designos_doc::live_patch::{log_version_refusal, replay_live_patch_checked, LiveLogLine, LivePatch, LivePatchState};
 use designos_doc::Document;
 
 /// The edit-log lines made on the canvas whose modification time is `canvas_base` (`None` when
@@ -44,24 +44,36 @@ fn scan(log: &[u8], canvas_base: Option<u64>) -> (Vec<LivePatch>, Option<u32>) {
 }
 
 /// Replays [`unabsorbed_patches`] onto `doc` without recording history or live ops, so nothing is
-/// published to the editor again. Returns how many patches were replayed. When a patch cannot be
-/// replayed, or the log holds an edit from a newer build (replaying only the older ones would leave
-/// the canvas half-way), `doc` is left as loaded and the reason is returned.
+/// published to the editor again. Returns how many patches were replayed. A patch that cannot be
+/// replayed or would leave a table broken is refused alone and counted on stderr ([`replay_unabsorbed_patches_counted`]);
+/// the log holding an edit from a newer build (replaying only the older ones would leave the canvas
+/// half-way) leaves `doc` as loaded and returns the reason.
 pub fn replay_unabsorbed_patches(doc: &mut Document, log: &[u8], canvas_base: Option<u64>) -> Result<usize, String> {
+    let (replayed, refused) = replay_unabsorbed_patches_counted(doc, log, canvas_base)?;
+    if !refused.is_empty() {
+        eprintln!("designos-mcp: refused {} edit-log patch(es) while replaying onto the loaded canvas: {}", refused.len(), refused.join("; "));
+    }
+    Ok(replayed)
+}
+
+/// [`replay_unabsorbed_patches`] with the reason of every refused patch. Patches replay one at a time,
+/// and each is all-or-nothing: the tables it touched must still hold a cell for every live position
+/// ([`replay_live_patch_checked`]), otherwise that patch alone is rolled back and the replay goes on.
+pub fn replay_unabsorbed_patches_counted(doc: &mut Document, log: &[u8], canvas_base: Option<u64>) -> Result<(usize, Vec<String>), String> {
     let (patches, newer) = scan(log, canvas_base);
     if let Some(refusal) = newer.and_then(log_version_refusal) {
         return Err(refusal);
     }
-    if patches.is_empty() {
-        return Ok(0);
-    }
-    let loaded = doc.clone();
     let mut state = LivePatchState::default();
-    for patch in &patches {
-        if let Err(e) = replay_live_patch(doc, patch, &mut state, &mut |d, c| c.apply(d).map(|_| ())) {
-            *doc = loaded;
-            return Err(e.to_string());
+    let mut refused = Vec::new();
+    for (i, patch) in patches.iter().enumerate() {
+        if let Err(e) = replay_live_patch_checked(doc, patch, &mut state) {
+            refused.push(format!("patch {}: {e}", i + 1));
         }
     }
-    Ok(patches.len())
+    Ok((patches.len() - refused.len(), refused))
 }
+
+#[cfg(test)]
+#[path = "ledger_reconnect_table_tests.rs"]
+mod table_tests;

@@ -79,6 +79,8 @@ mod live_doc_epoch_tests;
 mod live_log_wake;
 mod live_patch_apply;
 mod live_patch_log;
+#[cfg(test)]
+mod live_patch_table_tests;
 mod live_spec_apply;
 #[cfg(test)]
 mod live_sync_interaction_tests;

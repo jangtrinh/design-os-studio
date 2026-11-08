@@ -14,7 +14,7 @@ mod replay_tokens;
 mod validate;
 
 pub use record::{batch_doc_clones, is_independent_batch, live_ops_for_command, live_ops_for_independent};
-pub use replay::{replay_live_patch, LivePatchReport, LivePatchState, TouchKind};
+pub use replay::{replay_live_patch, replay_live_patch_checked, LivePatchReport, LivePatchState, TouchKind};
 
 use crate::{
     Comment, CommentAnchor, CommentThread, ExternalAsset, InProgress, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection,
@@ -352,6 +352,8 @@ pub(crate) const STRUCTURAL_FIELDS: [&str; 3] = ["id", "parent", "children"];
 mod builder_redirect_tests;
 #[cfg(test)]
 mod log_line_tests;
+#[cfg(test)]
+mod table_replay_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
