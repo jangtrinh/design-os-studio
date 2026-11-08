@@ -1350,6 +1350,7 @@ mod table_edit_drags;
 mod table_edit_fixes;
 mod table_edit_round2;
 mod table_edit_round3;
+mod table_edit_round4;
 mod text_styles;
 mod toast_clock;
 mod toast_queue;

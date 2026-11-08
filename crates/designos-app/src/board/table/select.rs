@@ -306,7 +306,9 @@ pub fn canvas_owns_keys(app: &App, ctx: &egui::Context) -> bool {
         || app.ui.ctx_menu.is_some()
         || app.props.eyedropper.is_some()
         || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop)
-        || app.history.viewing.is_some();
+        || app.history.viewing.is_some()
+        // a presentation owns every key (Tab is a prototype trigger), and the editor's selection stays where it was
+        || app.proto.present.is_some();
     let focus = crate::agent_a11y::non_canvas_has_focus(ctx) || crate::widgets::field_tab::press_lands_on_field(ctx);
     !(crate::terminal::overlay_owns_keyboard(app, ctx)
         || canvas_only

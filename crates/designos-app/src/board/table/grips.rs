@@ -76,6 +76,9 @@ pub fn live_area(app: &App) -> Rect {
     let mut r = app.canvas_rect;
     if app.ui.rulers {
         r.min += egui::vec2(theme::DRAG_DIVIDER_HIT, theme::DRAG_DIVIDER_HIT);
+    } else if !app.ui.left_hidden() {
+        // without rulers the Layers panel's resize band reaches this far into the canvas
+        r.min.x += theme::DRAG_DIVIDER_HIT * 0.5;
     }
     r
 }

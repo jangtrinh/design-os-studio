@@ -1635,6 +1635,8 @@ impl Shell {
                     crate::board::table::select::single_cell(app).filter(|_| !m.shift && crate::board::table::select::canvas_owns_keys(app, ctx))
                 {
                     interact::begin_text_edit(app, cell);
+                    // the edit is open with its text selected: this Enter must not also type a newline over it
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
                 } else if m.shift {
                     if !crate::canvas::interact::navigate_hierarchy_enter(app, true) {
                         menus::run(app, ctx, Action::SelectParent);
@@ -1646,6 +1648,7 @@ impl Shell {
                         || matches!(n.kind, designos_doc::NodeKind::Sticky(_) | designos_doc::NodeKind::ShapeWithText(_))
                     {
                         interact::begin_text_edit(app, id);
+                        ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
                     } else if matches!(n.kind, designos_doc::NodeKind::Connector(_)) {
                         crate::board::create::edit_label(app, id);
                     } else if canvas::vector::is_vector(app, id) {
