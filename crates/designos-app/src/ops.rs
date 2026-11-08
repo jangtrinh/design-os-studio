@@ -3029,6 +3029,33 @@ mod tests {
     }
 
     #[test]
+    fn a_child_pasted_into_another_file_never_plays_a_same_named_foreign_timeline() {
+        use designos_doc::{NodeMotion, Timeline, Track, TrackProperty};
+        let (mut src, _, child) = app_with_motion();
+        src.selection = vec![child];
+        let only_child = src.copy_selection().unwrap();
+
+        // The other file owns a timeline called "tl" too, and a layer animated by it.
+        let mut other = Document::new("other");
+        let page = other.add_page("p");
+        let oid = other.alloc_id();
+        let mut owner = Node::frame(oid, Rect::new(0.0, 0.0, 10.0, 10.0));
+        owner.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 5)],
+            tracks: vec![Track::new("own-tr", "tl", TrackProperty::Width)],
+            ..Default::default()
+        }));
+        other.insert(page, owner).unwrap();
+        let mut dst = App::new(other);
+        dst.paste(Some(&only_child));
+        assert_motion_ids_healthy(&dst.doc, "cross-file child paste");
+        let pasted = dst.doc.get(dst.selection[0]).unwrap();
+        assert!(pasted.motion.is_none(), "no reference to the foreign timeline survives: {:?}", pasted.motion);
+        let ix = designos_doc::MotionIndex::build(&dst.doc);
+        assert_eq!(ix.tracks_on("tl").len(), 1, "only the target's own track plays its timeline");
+    }
+
+    #[test]
     fn pasting_twice_never_shares_a_slot_content_id() {
         let (mut app, inst, _) = app_with_slot_instance();
         app.selection = vec![inst];

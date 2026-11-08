@@ -21,11 +21,13 @@ fn fresh(old: &str, taken: &mut BTreeSet<MotionId>) -> MotionId {
 /// `doc`, and rewrites the references to the renamed timelines (a track's timeline, an assignment's two
 /// timelines, a timeline's parent).
 ///
-/// A reference to a timeline the copied set does not define is kept when `doc` has that timeline (a copy of a
-/// layer that plays a timeline of its parent still plays it) and dropped otherwise (a paste into another file
-/// has no such timeline): the track or assignment goes, a parent link is cleared. A layer left with no Motion
+/// A reference to a timeline the copied set does not define is kept when the copy goes into the same document
+/// (`same_document`) and that document has the timeline (a copy of a layer that plays a timeline of its parent
+/// still plays it). Into another document it is always dropped, whatever that document owns: ids are never matched
+/// across documents, so a colliding id cannot make the copy play a foreign timeline. A dropped reference removes
+/// the track or assignment and clears a parent link. A layer left with no Motion
 /// loses the field.
-pub fn reid_copied_motion(doc: &Document, nodes: &mut [&mut Node]) {
+pub fn reid_copied_motion(doc: &Document, nodes: &mut [&mut Node], same_document: bool) {
     if nodes.iter().all(|n| n.motion.is_none()) {
         return;
     }
@@ -45,7 +47,8 @@ pub fn reid_copied_motion(doc: &Document, nodes: &mut [&mut Node]) {
         }
     }
     // `Some(new)` for a renamed timeline, the id itself for one the document has, `None` for a dangling one.
-    let resolve = |id: &str| -> Option<MotionId> { timelines.get(id).cloned().or_else(|| ix.timeline(id).map(|_| id.to_string())) };
+    let resolve =
+        |id: &str| -> Option<MotionId> { timelines.get(id).cloned().or_else(|| (same_document && ix.timeline(id).is_some()).then(|| id.to_string())) };
 
     for n in nodes.iter_mut() {
         let Some(m) = n.motion.take() else { continue };
