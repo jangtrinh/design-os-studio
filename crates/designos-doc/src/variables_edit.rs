@@ -55,11 +55,11 @@ impl VariableStore {
         self.variables == doc.variables && self.collections == doc.variable_collections
     }
 
-    fn fresh_id(&self, prefix: &str) -> String {
+    pub(crate) fn fresh_id(&self, prefix: &str) -> String {
         self.fresh_id_avoiding(prefix, &BTreeSet::new())
     }
 
-    fn fresh_id_avoiding(&self, prefix: &str, avoid: &BTreeSet<String>) -> String {
+    pub(crate) fn fresh_id_avoiding(&self, prefix: &str, avoid: &BTreeSet<String>) -> String {
         let mut n = 1u64;
         loop {
             let id = format!("{prefix}:d{n}");
@@ -227,6 +227,7 @@ impl VariableStore {
             return Vec::new();
         }
         let Some(c) = self.collections.remove(id) else { return Vec::new() };
+        self.remove_extensions_of(id);
         let mut gone: Vec<String> = c.variables.clone();
         gone.extend(self.variables.values().filter(|v| v.collection == id).map(|v| v.id.clone()));
         gone.sort();
@@ -304,6 +305,7 @@ impl VariableStore {
         if c.default_mode == mode {
             c.default_mode = c.modes[0].id.clone();
         }
+        self.forget_override_mode(coll, mode);
         for id in self.member_ids(coll) {
             if let Some(v) = self.variables.get_mut(&id) {
                 v.values.remove(mode);
@@ -481,6 +483,7 @@ impl VariableStore {
 
     fn remove_variable_inner(&mut self, id: &str) {
         let Some(gone) = self.variables.get(id).cloned() else { return };
+        self.forget_overrides_of(id);
         // aliases to the deleted variable become the literal they resolved to
         let affected: Vec<(String, String)> = self
             .variables

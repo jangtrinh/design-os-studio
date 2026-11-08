@@ -2145,8 +2145,14 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
 /// `explicitVariableModes` (collection id -> mode id) from `variableModeBySetMap`.
 fn explicit_modes(nc: &Value, lk: &Lk) -> Option<Value> {
     let entries = nc.get("variableModeBySetMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]);
-    let out: Map<String, Value> =
-        entries.iter().filter_map(|e| Some((lk.set_id(e.get("variableSetID")?)?, Value::String(guid_str(e.get("variableModeID")?)?)))).collect();
+    // A layer that picks a mode of an extended collection names the extension next to the collection it extends.
+    let out: Map<String, Value> = entries
+        .iter()
+        .filter_map(|e| {
+            let set = e.get("variableSetExtensionID").or_else(|| e.get("variableSetID"))?;
+            Some((lk.set_id(set)?, Value::String(guid_str(e.get("variableModeID")?)?)))
+        })
+        .collect();
     (!out.is_empty()).then_some(Value::Object(out))
 }
 
