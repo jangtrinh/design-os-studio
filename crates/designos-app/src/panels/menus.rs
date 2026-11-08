@@ -15,6 +15,8 @@ use egui::{Align2, Context, Id, Key, Modifiers, Pos2, Rect, Sense, Vec2};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
+    /// An entry of the table cell menu.
+    Table(crate::board::table::TableAction),
     New,
     /// File -> New board.
     NewBoard,
@@ -163,6 +165,9 @@ pub fn toggle_mask_selection(app: &mut App) {
 
 pub fn run(app: &mut App, ctx: &Context, a: Action) {
     match a {
+        Action::Table(t) => {
+            crate::board::table::run(app, t);
+        }
         Action::New => app.new_file_here(),
         Action::NewBoard => app.new_board_here(),
         Action::NewDeck => app.new_deck_here(),
@@ -688,6 +693,10 @@ pub fn preset_menu(ctx: &Context, app: &mut App, spec: &str, screen: Rect) -> bo
             app.ui.menu_anchor = Some(super::toolbar::chevron_rect(screen, g));
         }
         "palette" => run(app, ctx, Action::OpenPalette),
+        // the menu of the selected table cells, opened at the middle of the window (screenshots)
+        "cell" => {
+            app.ui.ctx_menu = Some(screen.center());
+        }
         "zoom" => {
             app.ui.menu = Some(MenuKind::Zoom);
             app.ui.menu_anchor = Some(Rect::from_min_size(Pos2::new(screen.right() - 68.0, 12.0), Vec2::new(56.0, 28.0)));

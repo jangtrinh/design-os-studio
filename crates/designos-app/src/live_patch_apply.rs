@@ -625,7 +625,7 @@ fn reroute_into_last_step(app: &mut App, written: &[NodeId], touched_ids: &mut V
     };
     let label = app.hist.peek_undo_label().map(str::to_owned);
     let depth = app.hist.undo_depth();
-    let forward = inverse.apply_atomic(&mut app.doc).map_err(|e| e.to_string())?;
+    let forward = designos_doc::table_ops::apply_checked(&mut app.doc, inverse).map_err(|e| e.to_string())?;
     app.hist.drop_undo_steps_after(depth - 1);
     let mut commands = match forward {
         designos_doc::Command::Batch(commands) => commands,
@@ -820,6 +820,29 @@ mod close_save_classification_tests {
         let (a, b) = (app.doc.to_json().unwrap(), before);
         let first_diff = a.bytes().zip(b.bytes()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
         assert_eq!(a, b, "nothing of the patch is applied; first difference near {}", &a[first_diff.saturating_sub(60)..(first_diff + 60).min(a.len())]);
+    }
+
+    #[test]
+    fn a_live_patch_that_leaves_a_table_without_a_cell_applies_nothing() {
+        use designos_doc::live_patch::live_ops_for_command;
+        use designos_doc::*;
+
+        let mut doc = Document::new("live_patch_table_rollback");
+        let page = doc.add_page("Page 1");
+        let cmd = table_ops::create_table(&doc, page, Vec2::new(0.0, 0.0), 2, 2, &TableStyle::default()).unwrap();
+        cmd.apply(&mut doc).unwrap();
+        let table = *doc.get(page).unwrap().children.last().unwrap();
+        let cell = doc.get(table).unwrap().children[0];
+        // every op of the patch is valid alone; together they leave a live position without a cell
+        let patch = LivePatch::new(live_ops_for_command(&doc, &Command::Remove { id: cell }).unwrap());
+        let before = doc.to_json().unwrap();
+
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, &[patch]);
+
+        assert!(app.doc.get(cell).is_some(), "the cell is still there");
+        assert_eq!(app.hist.undo_depth(), 0, "no step was recorded");
+        assert_eq!(app.doc.to_json().unwrap(), before, "the table is as it was");
     }
 
     #[test]

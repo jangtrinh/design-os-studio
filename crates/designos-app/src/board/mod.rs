@@ -11,6 +11,7 @@ pub mod create;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod demo;
 pub mod preview;
+pub mod table;
 pub mod toolbar;
 
 use crate::app::App;

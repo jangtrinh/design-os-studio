@@ -134,7 +134,11 @@ pub fn finish_text(app: &mut App, commit: bool) {
         let id = sess.id;
         // text in Arabic, Hebrew or Devanagari needs its Noto fallback font (fetched once, then cached)
         let complex = app.doc.get(id).and_then(|n| n.kind.any_text()).is_some_and(|t| !designos_fonts::scripts_in(&t.content).is_empty());
-        app.run_tx(sess.tx);
+        if crate::board::table::select::is_cell(&app.doc, id) {
+            crate::board::table::select::commit_cell(app, sess, false);
+        } else {
+            app.run_tx(sess.tx);
+        }
         app.selection = vec![id];
         if complex {
             app.fonts.load_for(&app.doc);
@@ -421,6 +425,7 @@ fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: Link
         }
     }
     follow_label(doc, &mut sess.tx, id);
+    crate::board::table::select::preview_relayout(doc, &mut sess.tx.ed, id);
     if let (Some(b), Some((kind, new_word))) = (before, log) {
         if kind == EditKind::Style {
             let after = Snap {
@@ -761,8 +766,10 @@ fn commit_ime(app: &mut App, text: &str) {
 
 // ------------------------------------------------------------------ events
 pub fn text_keys(app: &mut App, ctx: &Context) {
-    // A focused inspector field owns the keyboard.
-    if ctx.egui_wants_keyboard_input() {
+    // A focused inspector field owns the keyboard. The canvas's own egui focus (Cmd+Alt+J) is where a table cell's
+    // keys belong; every other text session keeps its established rule that any focus holds them back.
+    let in_cell = app.canvas.text.as_ref().is_some_and(|t| crate::board::table::select::is_cell(&app.doc, t.id));
+    if crate::agent_a11y::non_canvas_has_focus(ctx) || (!in_cell && ctx.egui_wants_keyboard_input()) {
         return;
     }
     let tabs = app.canvas.text.as_mut().map(|s| std::mem::take(&mut s.tabs)).unwrap_or_default();
@@ -837,6 +844,10 @@ fn key_event(app: &mut App, key: egui::Key, m: egui::Modifiers) -> bool {
 
 /// Tab: on a sticky note it starts the next one to the right; elsewhere it changes the list level.
 fn tab(app: &mut App, shift: bool) {
+    if app.canvas.text.as_ref().is_some_and(|s| crate::board::table::select::is_cell(&app.doc, s.id)) {
+        crate::board::table::select::tab_in_cell(app, shift);
+        return;
+    }
     let on_sticky = app.canvas.text.as_ref().and_then(|s| app.doc.get(s.id)).is_some_and(|n| matches!(n.kind, NodeKind::Sticky(_)));
     if on_sticky {
         if !shift {

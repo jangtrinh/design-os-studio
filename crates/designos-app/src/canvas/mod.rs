@@ -174,6 +174,8 @@ pub enum Interaction {
     Guide(rulers::GuideDrag),
     /// Dragging a connector out of a board node (or from empty canvas).
     Connect(crate::board::connect::ConnectDrag),
+    /// Dragging a table grip, a track line or across cells (nothing is written until the release).
+    Table(crate::board::table::grips::TableDrag),
 }
 
 pub use textsession::TextSession;
@@ -202,6 +204,10 @@ pub struct CanvasState {
     /// On-canvas inline input pill for Auto-Layout padding/gap single-click (`S1-08`).
     pub al_inline: Option<AutoLayoutInlineEdit>,
     pub pointer_page: Option<DV>,
+    /// `--pointer x,y` of a screenshot: where the pointer is taken to be when no real one is over the canvas.
+    pub shot_pointer: Option<egui::Pos2>,
+    /// The last press landed outside the canvas, so the keys are not the canvas's until it is pressed again.
+    pub keys_left_canvas: bool,
     pub cursor: Option<egui::CursorIcon>,
     pub last_render_ms: f32,
     /// Cached `(pointer_screen_pos, tile_rev, deep_mod, shift_mod, zoom, selection_hash)` for hover hit-test deduplication.

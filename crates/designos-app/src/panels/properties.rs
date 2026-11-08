@@ -1115,66 +1115,78 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
 
     // ---- Position
     title(ui, pane, "Position", None, false);
-    sublabel(ui, pane, "Alignment");
-    let h = [Icon::AlignLeft, Icon::AlignHCenter, Icon::AlignRight];
-    let v = [Icon::AlignTop, Icon::AlignVCenter, Icon::AlignBottom];
-    let shift_align = ui.input(|i| i.modifiers.shift) && app.selection.len() >= 2;
-    if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X, "alignh", &h, None) {
-        let kind = [Align::Left, Align::HCenter, Align::Right][i];
-        if shift_align {
-            app.align_selection_as_group(kind);
-        } else {
-            app.align(kind);
+    // a cell sits where its table's rows and columns put it: its geometry is read-only (disabled, not hidden)
+    let cell_sel = sel.iter().any(|id| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::TableCell(_))));
+    let geometry_top = pane.y;
+    ui.add_enabled_ui(!cell_sel, |ui| {
+        sublabel(ui, pane, "Alignment");
+        let h = [Icon::AlignLeft, Icon::AlignHCenter, Icon::AlignRight];
+        let v = [Icon::AlignTop, Icon::AlignVCenter, Icon::AlignBottom];
+        let shift_align = ui.input(|i| i.modifiers.shift) && app.selection.len() >= 2;
+        if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X, "alignh", &h, None) {
+            let kind = [Align::Left, Align::HCenter, Align::Right][i];
+            if shift_align {
+                app.align_selection_as_group(kind);
+            } else {
+                app.align(kind);
+            }
         }
-    }
-    if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X + 3.0 * theme::SEGMENT_W + theme::SEGMENT_GROUP_GAP, "alignv", &v, None) {
-        let kind = [Align::Top, Align::VCenter, Align::Bottom][i];
-        if shift_align {
-            app.align_selection_as_group(kind);
-        } else {
-            app.align(kind);
+        if let Some(i) = segmented(ui, pane, theme::SECTION_CONTENT_X + 3.0 * theme::SEGMENT_W + theme::SEGMENT_GROUP_GAP, "alignv", &v, None) {
+            let kind = [Align::Top, Align::VCenter, Align::Bottom][i];
+            if shift_align {
+                app.align_selection_as_group(kind);
+            } else {
+                app.align(kind);
+            }
         }
-    }
-    let dist_r = pane.rect(theme::DISTRIBUTE_BTN_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
-    widgets::record(ui, "distribute", dist_r);
-    if widgets::icon_button(ui, dist_r, "distribute", Icon::Distribute, false, "Distribute spacing").clicked() {
-        app.distribute_selection();
-    }
-    row_end(pane);
-    sublabel(ui, pane, "Position");
-    let geom = mixed_value_summary(&app.doc, sel);
-    let xs = geom.x;
-    let ys = geom.y;
-    if let Some(x) = field::num_field(ui, pane.col(0, 0.0), "x", Prefix::Text("X"), xs, "") {
-        app.edit_nodes(sel, |n| n.transform.tx = x);
-    }
-    if let Some(y) = field::num_field(ui, pane.col(1, 0.0), "y", Prefix::Text("Y"), ys, "") {
-        app.edit_nodes(sel, |n| n.transform.ty = y);
-    }
-    row_end(pane);
-    sublabel(ui, pane, "Rotation");
-    let rot = geom.rotation_deg;
-    if let Some(deg) = field::num_field(ui, pane.col(0, 0.0), "rot", Prefix::Icon(Icon::Rotation), rot, "°") {
-        if multi {
-            // A group rotates as one body around its bounding-box centre.
-            app.rotate_selection(-(deg - rot.unwrap_or(0.0)).to_radians());
-        } else {
-            let rad = -deg.to_radians();
-            app.edit_nodes(sel, |n| n.transform = crate::canvas::handles::rotate_about_center(&n.transform, n.size, rad));
+        let dist_r = pane.rect(theme::DISTRIBUTE_BTN_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        widgets::record(ui, "distribute", dist_r);
+        if widgets::icon_button(ui, dist_r, "distribute", Icon::Distribute, false, "Distribute spacing").clicked() {
+            app.distribute_selection();
         }
-    }
-    for i in 0..3 {
-        widgets::record(ui, &format!("xform:{i}"), pane.rect(theme::FIELD_COL_X[1] + i as f32 * theme::SEGMENT_W, 0.0, theme::SEGMENT_W, theme::FIELD_HEIGHT));
-    }
-    if let Some(i) = segmented(ui, pane, theme::FIELD_COL_X[1], "xform", &[Icon::Rotate90, Icon::FlipH, Icon::FlipV], None) {
-        match i {
-            0 => app.rotate_selection(-std::f32::consts::FRAC_PI_2),
-            1 => app.flip_selection(true),
-            _ => app.flip_selection(false),
+        row_end(pane);
+        sublabel(ui, pane, "Position");
+        let geom = mixed_value_summary(&app.doc, sel);
+        let xs = geom.x;
+        let ys = geom.y;
+        if let Some(x) = field::num_field(ui, pane.col(0, 0.0), "x", Prefix::Text("X"), xs, "") {
+            app.edit_nodes(sel, |n| n.transform.tx = x);
         }
+        if let Some(y) = field::num_field(ui, pane.col(1, 0.0), "y", Prefix::Text("Y"), ys, "") {
+            app.edit_nodes(sel, |n| n.transform.ty = y);
+        }
+        row_end(pane);
+        sublabel(ui, pane, "Rotation");
+        let rot = geom.rotation_deg;
+        if let Some(deg) = field::num_field(ui, pane.col(0, 0.0), "rot", Prefix::Icon(Icon::Rotation), rot, "°") {
+            if multi {
+                // A group rotates as one body around its bounding-box centre.
+                app.rotate_selection(-(deg - rot.unwrap_or(0.0)).to_radians());
+            } else {
+                let rad = -deg.to_radians();
+                app.edit_nodes(sel, |n| n.transform = crate::canvas::handles::rotate_about_center(&n.transform, n.size, rad));
+            }
+        }
+        for i in 0..3 {
+            widgets::record(
+                ui,
+                &format!("xform:{i}"),
+                pane.rect(theme::FIELD_COL_X[1] + i as f32 * theme::SEGMENT_W, 0.0, theme::SEGMENT_W, theme::FIELD_HEIGHT),
+            );
+        }
+        if let Some(i) = segmented(ui, pane, theme::FIELD_COL_X[1], "xform", &[Icon::Rotate90, Icon::FlipH, Icon::FlipV], None) {
+            match i {
+                0 => app.rotate_selection(-std::f32::consts::FRAC_PI_2),
+                1 => app.flip_selection(true),
+                _ => app.flip_selection(false),
+            }
+        }
+        row_end(pane);
+        pane.y += 4.0;
+    });
+    if cell_sel {
+        cell_geometry_reason(ui, pane, geometry_top, "cell-geometry-position");
     }
-    row_end(pane);
-    pane.y += 4.0;
 
     let al_frame = is_frame && !multi && n0.kind.frame_props().map(|f| f.auto_layout.is_some()).unwrap_or(false);
 
@@ -1197,7 +1209,11 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     if !al_frame {
         section_sep(ui, pane, false);
         title(ui, pane, "Layout", None, false);
-        dimensions_ui(app, ui, pane, sel, &fresh, is_line);
+        let dimensions_top = pane.y;
+        ui.add_enabled_ui(!cell_sel, |ui| dimensions_ui(app, ui, pane, sel, &fresh, is_line));
+        if cell_sel {
+            cell_geometry_reason(ui, pane, dimensions_top, "cell-geometry-size");
+        }
         if parent_al || is_text {
             resizing_ui(app, ui, pane, sel, &n0);
         }
@@ -1506,9 +1522,11 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         }
     }
 
-    // ---- Stroke
-    section_sep(ui, pane, false);
-    super::stroke::section(app, ui, pane, sel, &n0);
+    // ---- Stroke (a cell's stroke is never drawn: the lines belong to the table)
+    if !cell_sel {
+        section_sep(ui, pane, false);
+        super::stroke::section(app, ui, pane, sel, &n0);
+    }
 
     // ---- Effects
     section_sep(ui, pane, false);
@@ -1577,8 +1595,19 @@ fn set_sizing(app: &mut App, sel: &[NodeId], horizontal: bool, s: Sizing) {
     });
 }
 
+/// Says why the greyed rows from `top` down to the pane's current y cannot be edited: a cell sits where the
+/// table's rows and columns put it.
+fn cell_geometry_reason(ui: &Ui, pane: &Pane, top: f32, id: &str) {
+    let from = pane.rect(0.0, top - pane.y, 1.0, 1.0).min;
+    let to = pane.rect(0.0, 0.0, 1.0, 1.0).min;
+    let width = pane.full(0.0).width();
+    let r = Rect::from_min_size(from, Vec2::new(width, (to.y - from.y).max(1.0)));
+    ui.interact(r, ui.id().with(id), Sense::hover()).on_hover_text("Resize rows or columns to change cell size.");
+}
+
 fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32>) {
     let mut tx = Tx::new();
+    let mut tables = Vec::new();
     for id in sel {
         let Some(n) = app.doc.get(*id) else { continue };
         let is_line = matches!(n.kind, NodeKind::Line);
@@ -1593,8 +1622,24 @@ fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32
             }
         }
         let size = v2(nw, nh);
+        // a table's size is the sum of its tracks: the table operation keeps the two in step
+        if matches!(n.kind, NodeKind::Table(_)) {
+            tables.push((*id, size));
+            continue;
+        }
         let t = n.transform;
         apply_resize(&mut app.doc, &mut tx.ed, *id, size, t, true);
+    }
+    for (id, size) in tables {
+        match designos_doc::table_ops::resize_table(&app.doc, id, size) {
+            Ok(cmd) => {
+                if tx.cmd(&mut app.doc, cmd).is_ok() {
+                    crate::board::table::reflow_parents(app, &mut tx, id, None);
+                }
+            }
+            Err(designos_doc::TableOpError::NoChange(_)) => {}
+            Err(e) => app.show_toast(e.to_string(), true),
+        }
     }
     app.run_tx(tx);
 }

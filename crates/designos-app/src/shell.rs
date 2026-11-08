@@ -669,6 +669,7 @@ impl Shell {
             app.ui.pixel_grid = true;
         }
         app.startup_zoom = opts.zoom.map(|z| z / 100.0);
+        app.canvas.shot_pointer = opts.pointer.map(|(x, y)| Pos2::new(x, y));
         app.startup_fit_selection = opts.zoom_fit;
         if let Some(kind) = &opts.layout_grid {
             let target = app.selection.first().copied();
@@ -684,7 +685,7 @@ impl Shell {
             }
         }
         if let Some(name) = &opts.edit_text {
-            let found = app.doc.nodes.values().find(|n| &n.name == name && matches!(n.kind, designos_doc::NodeKind::Text(_))).map(|n| n.id);
+            let found = app.doc.nodes.values().find(|n| &n.name == name && n.kind.any_text().is_some()).map(|n| n.id);
             if let Some(id) = found {
                 if let Some(pg) = app.doc.page_of(id) {
                     app.doc.ensure_page_hydrated(pg);
@@ -1215,6 +1216,10 @@ impl Shell {
 
     fn handle_keys(&mut self, ctx: &Context) {
         self.pointer_over_align_row = crate::panels::properties::take_pointer_over_align_row(ctx);
+        // a press outside the canvas takes the keys from it until the canvas is pressed again
+        if let Some(p) = ctx.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()).flatten()) {
+            self.app.canvas.keys_left_canvas = !crate::board::table::select::press_on_canvas(&self.app, ctx, p);
+        }
         let frame_modifiers = ctx.input(|i| i.modifiers);
         self.paste_chord.begin_frame(frame_modifiers);
         if self.app.plugins.open
@@ -1421,6 +1426,10 @@ impl Shell {
     fn key(&mut self, ctx: &Context, key: Key, m: egui::Modifiers) {
         let app = &mut self.app;
         let cmd = m.command;
+        // a printable key on a selected table cell types into it (the text event starts the edit), never a tool shortcut
+        if !cmd && !m.alt && key.symbol_or_name().chars().count() == 1 && crate::board::table::select::single_cell(app).is_some() {
+            return;
+        }
         if cmd {
             let act = match (key, m.shift, m.alt) {
                 (Key::E, false, _) => Some(Action::Flatten),
@@ -1582,6 +1591,12 @@ impl Shell {
         }
         match key {
             Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
+            // cells selected: the keys are the table's or nobody's, never the generic Delete that would try to remove the cell
+            Key::Delete | Key::Backspace if crate::board::table::select::cells_selected(app) => {
+                if crate::board::table::select::canvas_owns_keys(app, ctx) {
+                    crate::board::table::select::delete_key(app);
+                }
+            }
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
             // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
             // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
@@ -1605,6 +1620,7 @@ impl Shell {
                     app.close_layer_filter();
                 } else if app.tool != Tool::Move {
                     app.tool = Tool::Move;
+                } else if crate::board::table::select::escape(app) {
                 } else if Self::escape_clears_selection() {
                     app.clear_selection();
                 } else {
@@ -1615,6 +1631,12 @@ impl Shell {
                 if app.canvas.pen.is_some() {
                     interact::finish_pen(app);
                     app.tool = Tool::Move;
+                } else if let Some(cell) =
+                    crate::board::table::select::single_cell(app).filter(|_| !m.shift && crate::board::table::select::canvas_owns_keys(app, ctx))
+                {
+                    interact::begin_text_edit(app, cell);
+                    // the edit is open with its text selected: this Enter must not also type a newline over it
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
                 } else if m.shift {
                     if !crate::canvas::interact::navigate_hierarchy_enter(app, true) {
                         menus::run(app, ctx, Action::SelectParent);
@@ -1626,6 +1648,7 @@ impl Shell {
                         || matches!(n.kind, designos_doc::NodeKind::Sticky(_) | designos_doc::NodeKind::ShapeWithText(_))
                     {
                         interact::begin_text_edit(app, id);
+                        ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
                     } else if matches!(n.kind, designos_doc::NodeKind::Connector(_)) {
                         crate::board::create::edit_label(app, id);
                     } else if canvas::vector::is_vector(app, id) {
@@ -1645,6 +1668,11 @@ impl Shell {
                 }
                 if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
                     app.props.eyedropper_format = app.props.eyedropper_format.next();
+                } else if crate::board::table::select::cells_selected(app) {
+                    // Tab stays with egui focus unless the canvas owns the keys
+                    if crate::board::table::select::canvas_owns_keys(app, ctx) {
+                        crate::board::table::select::tab_select(app, m.shift);
+                    }
                 } else if app.wb_tools_enabled() && !m.shift {
                     crate::board::create::tab_next(app);
                 } else {
@@ -1752,8 +1780,14 @@ impl Shell {
                 return;
             }
         }
+        crate::board::table::select::right_click(app, page);
         match interact::hit_under(app, page, false) {
-            Some(hit) if !app.is_selected(hit) => app.select_only(hit),
+            Some(hit)
+                if !app.is_selected(hit)
+                    && crate::board::table::table_of(&app.doc, hit).is_none_or(|t| crate::board::table::grips::active_table(app) != Some(t)) =>
+            {
+                app.select_only(hit)
+            }
             Some(_) => {}
             None => app.clear_selection(),
         }
@@ -2079,6 +2113,10 @@ impl eframe::App for Shell {
         if self.app.plugins.open {
             return;
         }
+        // a capture with `--pointer` has the pointer there for real, so hover states and tooltips draw as they do for a person
+        if let Some(p) = self.app.canvas.shot_pointer {
+            raw.events.push(egui::Event::PointerMoved(p));
+        }
         // A layer being renamed in the Layers panel moves its rename to the next row on Tab, so Tab is left to it.
         if self.app.layers.renaming.is_none() {
             crate::widgets::field_tab::take_tab_press(ctx, raw);
@@ -2096,6 +2134,9 @@ impl eframe::App for Shell {
                 }
                 _ => true,
             });
+        } else if crate::board::table::select::single_cell(&self.app).is_some() && crate::board::table::select::canvas_owns_keys(&self.app, ctx) {
+            // Tab on a selected cell steps to the next cell, in this frame: egui must not also move its focus to a field
+            crate::board::table::select::take_tab_presses(&mut self.app, raw);
         }
     }
 

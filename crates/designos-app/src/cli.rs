@@ -29,6 +29,8 @@ pub struct Options {
     /// Initial zoom in percent (`--zoom 800`) or fit selection (`--zoom fit`).
     pub zoom: Option<f32>,
     pub zoom_fit: bool,
+    /// With `--screenshot`: the window position of the pointer (`--pointer 400,300`), for hover states.
+    pub pointer: Option<(f32, f32)>,
     /// Show the rulers.
     pub rulers: bool,
     /// Draw the canvas with the GPU renderer (`--screenshot` otherwise always uses the
@@ -350,6 +352,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                     o.zoom = Some(parse_zoom(&v).ok_or_else(|| format!("invalid zoom '{v}' (expected 1..25600, e.g. 800 or 800%)"))?);
                 }
             }
+            "--pointer" => {
+                let v = it.next().ok_or("--pointer needs x,y in window pixels")?;
+                let (x, y) = v.split_once(',').ok_or("--pointer needs x,y in window pixels")?;
+                o.pointer = Some((x.trim().parse().map_err(|_| "--pointer needs numbers")?, y.trim().parse().map_err(|_| "--pointer needs numbers")?));
+            }
             "--edit-text" => o.edit_text = Some(it.next().ok_or("--edit-text needs a text layer name")?),
             "--select-text" => {
                 let v = it.next().ok_or("--select-text needs START-END")?;
@@ -435,6 +442,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     if o.layout_json.is_some() && o.screenshot.is_none() {
         return Err("--layout-json needs --screenshot".into());
     }
+    if o.pointer.is_some() && o.screenshot.is_none() {
+        return Err("--pointer needs --screenshot".into());
+    }
     Ok(o)
 }
 
@@ -456,9 +466,10 @@ pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
     designos_mcp::tools::errors::parse_spec_json(raw)
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout-json OUT.json] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|comments|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|text-style-overrides|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report|export-toast]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout-json OUT.json] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|comments|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|text-style-overrides|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report|export-toast]\n               [--zoom PERCENT|fit] [--pointer X,Y] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
   --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number that is both a layer name and a node id exits 2 (use id:<n> or name:<n>). Ids of expanded instance content are per session: use fig:<id> or a name for those. A selector that matches nothing exits 2 and changes nothing
+  --pointer  window pixels of the pointer for a capture (hover states), only with --screenshot
   --zoom     a percentage, or fit to frame the --select node (the page when nothing is selected)
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
@@ -489,6 +500,15 @@ mod tests {
 
     fn p(a: &[&str]) -> Result<Options, String> {
         parse(a.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn pointer_needs_a_screenshot_and_parses_two_numbers() {
+        assert_eq!(p(&["--screenshot", "x.png", "--pointer", "337,465"]).unwrap().pointer, Some((337.0, 465.0)));
+        assert!(p(&["--pointer", "1,2"]).is_err(), "no capture, no phantom pointer");
+        assert!(p(&["--screenshot", "x.png", "--pointer", "12"]).is_err());
+        assert!(p(&["--screenshot", "x.png", "--pointer", "a,b"]).is_err());
+        assert!(USAGE.contains("--pointer X,Y"));
     }
 
     #[test]

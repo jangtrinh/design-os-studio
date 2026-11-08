@@ -318,6 +318,11 @@ impl App {
 
     // ------------------------------------------------------------ plumbing
     pub fn run_tx(&mut self, tx: Tx) -> bool {
+        self.run_tx_labeled(tx, None)
+    }
+
+    /// [`App::run_tx`] with a label on the undo step.
+    pub fn run_tx_labeled(&mut self, tx: Tx, label: Option<String>) -> bool {
         if self.history.viewing.is_some() {
             // an old version is shown read-only
             tx.cancel(&mut self.doc);
@@ -331,7 +336,7 @@ impl App {
             return true;
         }
         let opened_at = tx.ed.opened_at();
-        match tx.commit_with_before(&mut self.doc, &mut self.hist, None) {
+        match tx.commit_with_before(&mut self.doc, &mut self.hist, label) {
             Ok((changed, before_nodes)) => {
                 if changed {
                     // Every layout write of an editor edit goes through `tx.ed`, so the step holds the
@@ -1683,6 +1688,10 @@ impl App {
 
     // ------------------------------------------------------------ transforms
     pub fn nudge(&mut self, dx: f32, dy: f32) {
+        // a cell sits where its table's tracks put it: only the table moves
+        if self.selection.iter().any(|id| matches!(self.doc.get(*id).map(|n| &n.kind), Some(NodeKind::TableCell(_)))) {
+            return;
+        }
         let tops = self.top_selection();
         let mut tx = Tx::new();
         let mut relayout_roots = Vec::new();

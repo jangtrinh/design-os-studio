@@ -101,8 +101,12 @@ pub fn selection_box(app: &App) -> Option<([DV; 4], bool)> {
         [] => None,
         [one] => {
             let n = app.doc.get(*one)?;
+            if matches!(n.kind, NodeKind::TableCell(_)) {
+                return None;
+            }
             Some((super::fast_world_corners(&app.doc, *one), matches!(n.kind, NodeKind::Line)))
         }
+        many if many.iter().any(|id| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::TableCell(_)))) => None,
         many => {
             let idx = active_index(app);
             let bb = union_all(many.iter().take(512).map(|i| super::fast_world_aabb(&app.doc, idx, *i)))?;
@@ -365,6 +369,10 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         }
     }
 
+    if app.canvas.text.is_none() && !typing && crate::board::table::select::canvas_owns_keys(app, &ctx) {
+        // opens the session; the block below types into it, once
+        crate::board::table::select::start_edit_on_text(app, &ctx);
+    }
     if app.canvas.text.is_some() {
         ts::text_keys(app, &ctx);
         // drag-select with the primary button held
@@ -388,7 +396,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         }
     }
 
-    app.canvas.pointer_page = inp.pos.filter(|p| rect.contains(*p)).map(|p| app.view.to_page(rect.min, p));
+    app.canvas.pointer_page = inp.pos.or(app.canvas.shot_pointer).filter(|p| rect.contains(*p)).map(|p| app.view.to_page(rect.min, p));
     if app.canvas.vedit.is_some() {
         vector::hover(app, rect, inp.pos);
     }
@@ -426,6 +434,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
             | Interaction::Guide(_)
             | Interaction::Pencil(_)
             | Interaction::Connect(_)
+            | Interaction::Table(_)
             | Interaction::VectorDrag
     );
     if new_press && open_gesture && (hovered || inp.prior_release_pos.is_some()) {
@@ -755,6 +764,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         return;
     }
     // Text editing: click inside the edited node moves the caret, elsewhere ends editing.
+    let mut ended_edit = false;
     if let Some(sess) = &app.canvas.text {
         let id = sess.id;
         if ts::node_contains(app, id, page) {
@@ -762,6 +772,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
             return;
         }
         finish_text(app, true);
+        ended_edit = true;
     }
     let mid = inp.mid_pressed && !inp.pressed;
     if !mid
@@ -774,6 +785,9 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         return;
     }
     let over_handle = handle_hit(app, rect, pos);
+    if over_handle.is_none() && !mid && !inp.space && crate::board::table::select::on_press(app, pos, page, inp.mods.shift, !ended_edit) {
+        return;
+    }
     // a magnet dot starts a connector; in a design file a resize handle or Alt (copy-drag) wins over a dot
     let dot_wins = app.wb_board_targeting() || (over_handle.is_none() && !inp.mods.alt);
     if dot_wins && app.wb_connectors_enabled() && !mid && !inp.space && matches!(app.tool, Tool::Move | Tool::Connector) {
@@ -1126,6 +1140,13 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         | Interaction::Pencil(_)
         | Interaction::VectorDrag => follow_pointer(app, rect, &mut inter, pos, cur, inp),
         Interaction::Connect(c) => crate::board::connect::drag(app, c, cur, inp.mods),
+        Interaction::Table(d) => match d {
+            crate::board::table::grips::TableDrag::Block { table, anchor } => crate::board::table::select::drag_block(app, *table, *anchor, cur),
+            other => {
+                let reach = ui.ctx().options(|o| o.input_options.max_click_dist);
+                crate::board::table::grips::drag(app, other, cur, reach)
+            }
+        },
         Interaction::Marquee { start, cur: c, base, matching } => {
             if inp.space {
                 let delta = sub(cur, *c);
@@ -1586,6 +1607,7 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
                     scale_node_properties_proportionally(&mut app.doc, &mut r.tx.ed, *id, factor);
                 }
             }
+            crate::board::table::select::preview_scale(&mut app.doc, &mut r.tx.ed, *id, *size0, ns);
         }
         ResizeKind::Multi { bbox0, nodes } => {
             let ml = sub(mouse, v2(bbox0.x, bbox0.y));
@@ -1676,12 +1698,13 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             if p.was_selected {
                 if p.shift {
                     app.selection.retain(|s| *s != p.node);
-                } else {
+                } else if !crate::board::table::select::click_selected_table(app, p.node, p.start_page) {
                     app.select_only(p.node);
                 }
             }
         }
         Interaction::Guide(g) => rulers::release(app, g),
+        Interaction::Table(d) => crate::board::table::grips::release(app, d),
         Interaction::Connect(mut c) => {
             // the drop lands where the pointer is now, with the modifiers held now (a board file keeps the last drag step)
             if let Some(page) = cur.filter(|_| !app.wb_board_targeting()) {
@@ -1698,7 +1721,9 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             }
         }
         Interaction::Resize(r) => {
-            app.run_tx(r.tx);
+            if let Some(r) = crate::board::table::select::commit_table_resize(app, r) {
+                app.run_tx(r.tx);
+            }
         }
         Interaction::Rotate(r) => {
             app.run_tx(r.tx);
@@ -2069,6 +2094,9 @@ fn on_double_click(app: &mut App, rect: ERect, inp: &Inp) {
         }
     }
     if app.tool != Tool::Move {
+        return;
+    }
+    if crate::board::table::select::double_click(app, page) {
         return;
     }
     // Double-click on a resize edge/corner handle (`S1-02`, `S1-03`, `S2-05`, `S2-06`):

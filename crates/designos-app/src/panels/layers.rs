@@ -82,7 +82,8 @@ pub fn flatten(doc: &Document, page: NodeId, expanded: &HashSet<NodeId>) -> Vec<
                 return;
             }
             let Some(cn) = doc.get(*c) else { continue };
-            let has = !cn.children.is_empty();
+            // a table is one row: its cells are reached on the canvas
+            let has = !cn.children.is_empty() && !matches!(cn.kind, NodeKind::Table(_));
             out.push(Row { id: *c, depth, has_children: has });
             if has && expanded.contains(c) {
                 rec(doc, *c, depth + 1, expanded, out);
@@ -439,6 +440,10 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             for id in sel.iter().take(8) {
                 let mut cur = app.doc.get(*id).and_then(|n| n.parent);
                 while let Some(p) = cur {
+                    if app.doc.get(p).is_some_and(|n| matches!(n.kind, NodeKind::Table(_))) {
+                        cur = app.doc.get(p).and_then(|n| n.parent);
+                        continue;
+                    }
                     if (!huge_doc || app.doc.get(p).is_some_and(|n| n.children.len() <= 500)) && app.layers.expanded.insert(p) {
                         app.layers.expanded_gen = app.layers.expanded_gen.wrapping_add(1);
                     }
@@ -471,7 +476,11 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let first = (scroll / theme::LAYER_ROW_HEIGHT).floor().max(0.0) as usize;
     let last = (((scroll + region.height()) / theme::LAYER_ROW_HEIGHT).ceil() as usize + 1).min(total_rows);
     let visible_slice: Vec<Row> = if first < last { app.layers.rows_cache[first..last].to_vec() } else { Vec::new() };
-    let selected: HashSet<NodeId> = app.selection.iter().copied().collect();
+    let mut selected: HashSet<NodeId> = app.selection.iter().copied().collect();
+    // a selected cell lights its table's row
+    selected.extend(
+        app.selection.iter().filter(|id| crate::board::table::select::is_cell(&app.doc, **id)).filter_map(|id| app.doc.get(*id).and_then(|n| n.parent)),
+    );
 
     // Drag bookkeeping.
     // A drop is aimed at where the button came up, not where the pointer is at the end of the frame, and at the rows
