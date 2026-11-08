@@ -486,9 +486,9 @@ struct Lk<'a> {
     grid_column_index: HashMap<String, Option<usize>>,
     /// Same for `gridRows`.
     grid_row_index: HashMap<String, Option<usize>>,
-    /// Nodes whose effect-style link resolves (see [`Lk::effect_link_resolves`]), with the guid of the style node
-    /// they link (`None` for a library style the file does not carry).
-    effect_linked: HashMap<String, Option<String>>,
+    /// Nodes whose effect-style link resolves (see [`Lk::effect_link_resolves`]), with the style id they link: the
+    /// style node's guid, or `key:<key>` for a library style the file does not carry.
+    effect_linked: HashMap<String, String>,
     /// Variable id (`VariableID:s:l`) -> per mode, the variable that mode's value aliases (`None` for a literal).
     var_aliases: HashMap<String, Vec<Option<String>>>,
 }
@@ -618,16 +618,17 @@ impl<'a> Lk<'a> {
             })
             .collect();
         lk.var_aliases = var_aliases;
-        let linked: HashMap<String, Option<String>> = entries
+        let linked: HashMap<String, String> = entries
             .iter()
             .filter_map(|e| {
                 // An instance whose own self entry names an effect style is linked to that one (or to none when the
                 // entry detaches it), not to the style its record carries.
                 let link = lk.own_effect_link_entry(&e.json).unwrap_or(&e.json);
-                lk.effect_link_resolves(link).then(|| {
-                    let style = lk.style_node_of(link, "styleIdForEffect", "inheritEffectStyleID").and_then(|s| s.get("guid").and_then(guid_str));
-                    (e.id.clone(), style)
-                })
+                let style = lk
+                    .style_node_of(link, "styleIdForEffect", "inheritEffectStyleID")
+                    .and_then(|s| s.get("guid").and_then(guid_str))
+                    .or_else(|| link.get("styleIdForEffect").and_then(|r| lk.style_id(r)).filter(|id| id.starts_with("key:")))?;
+                Some((e.id.clone(), style))
             })
             .collect();
         lk.effect_linked = linked;
@@ -669,13 +670,6 @@ impl<'a> Lk<'a> {
         rest_import::farr(sd, "symbolOverrides")
             .iter()
             .find(|o| o.get("styleIdForEffect").is_some() && matches!(guid_path(o).as_slice(), [only] if own.iter().flatten().any(|g| g == only)))
-    }
-
-    /// `nc` links an effect style that resolves: a style node of this file (modern or legacy reference) or a
-    /// library style named by key. A detach marker or a style that is gone does not count.
-    fn effect_link_resolves(&self, nc: &Value) -> bool {
-        self.style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID").is_some()
-            || nc.get("styleIdForEffect").and_then(|r| self.style_id(r)).is_some_and(|id| id.starts_with("key:"))
     }
 
     /// Whether the effects an override entry restates are a stale copy that the linked `style` replaces: they bind
@@ -2788,6 +2782,17 @@ fn insert_style_override_link(m: &mut Map<String, Value>, obj: &Map<String, Valu
     }
 }
 
+/// Removes the effect bindings of an override whose effect list was dropped, so they do not land on the list the
+/// node keeps.
+fn drop_effect_bindings(m: &mut Map<String, Value>) {
+    if let Some(bound) = m.get_mut("boundVariables").and_then(Value::as_object_mut) {
+        bound.remove("effects");
+        if bound.is_empty() {
+            m.remove("boundVariables");
+        }
+    }
+}
+
 /// Links the effect style `id` in an override's `styles` map; no id leaves the entry detached.
 fn insert_effect_link(m: &mut Map<String, Value>, id: Option<String>) {
     match id {
@@ -2970,14 +2975,13 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                         inherited.then(|| instance.get("symbolData")?.get("symbolID").and_then(guid_str)).flatten().and_then(|m| lk.effect_linked.get(&m))
                     });
                     if let Some(style) = link {
-                        let replaces = lk.style_replaces_entry_effects(own_effects, style.as_deref().and_then(|id| lk.style_by_id.get(id)));
-                        // A stale copy under an inherited link already resolves to that link.
-                        if !(inherited && replaces) && set.remove("_clearEffectStyle").is_some() {
+                        let replaces = lk.style_replaces_entry_effects(own_effects, lk.style_by_id.get(style));
+                        if set.remove("_clearEffectStyle").is_some() {
                             if replaces {
                                 set.remove("effects");
+                                drop_effect_bindings(&mut set);
                             }
-                            let id = style.clone().or_else(|| lk.style_id_of(lk.own_effect_link_entry(instance).unwrap_or(instance), "styleIdForEffect", None));
-                            insert_effect_link(&mut set, id);
+                            insert_effect_link(&mut set, Some(style.clone()));
                         }
                     }
                 }
@@ -2988,13 +2992,13 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
         // changed the link, so they are left as written.
         if restates_effects_without_style && !is_self && path.len() == 1 {
             if let Some(style) = path.last().and_then(|last| lk.effect_linked.get(last)) {
-                let style_node = style.as_deref().and_then(|id| lk.style_by_id.get(id));
                 if set.remove("_clearEffectStyle").is_some() {
-                    if lk.style_replaces_entry_effects(own_effects, style_node) {
+                    if lk.style_replaces_entry_effects(own_effects, lk.style_by_id.get(style)) {
                         set.remove("effects");
-                    } else if style.is_some() {
+                        drop_effect_bindings(&mut set);
+                    } else {
                         // Own list, same link: an override with effects would otherwise detach the style.
-                        insert_effect_link(&mut set, style.clone());
+                        insert_effect_link(&mut set, Some(style.clone()));
                     }
                 }
             }

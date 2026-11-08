@@ -499,3 +499,75 @@ fn two_self_entries_keep_the_shadow_and_the_library_style_the_first_one_names() 
         assert_eq!(n.style_refs.get("effect").map(String::as_str), Some("key:absent-lib"), "{stage}: the library style the entry names");
     }
 }
+
+/// An instance with no link keys of its own; its record caches the main's effects, as Figma writes it.
+fn inherited(master: Value, entry_effects: Vec<Value>, name: &str) -> Document {
+    let entry = root_entry(json!({"effects": entry_effects}));
+    let cache = json!({"effects": master["effects"].clone()});
+    import(&doc_json(card_binding_7_1(), master.clone(), master, vec![inst(1, name, cache, vec![entry])]))
+}
+
+#[test]
+fn a_stale_copy_under_an_inherited_link_keeps_the_mains_link() {
+    let master = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
+    let doc = inherited(master, vec![shadow(8.0)], "Inherited stale");
+    for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
+        let n = named(&doc, "Inherited stale");
+        assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![8.0], Some("Shadow/Card")), "{stage}");
+    }
+}
+
+#[test]
+fn a_copy_of_the_styles_own_variable_under_an_inherited_link_keeps_the_mains_link() {
+    let master = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
+    let doc = inherited(master, vec![bound(shadow(8.0), (7, 1))], "Inherited copy");
+    for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
+        let n = named(&doc, "Inherited copy");
+        assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![8.0], Some("Shadow/Card")), "{stage}");
+    }
+}
+
+#[test]
+fn a_main_linked_to_a_library_style_keeps_that_link_under_a_foreign_binding() {
+    let master = json!({"styleIdForEffect": {"assetRef": {"key": "absent-lib"}}, "effects": [shadow(8.0)]});
+    let doc = inherited(master, vec![bound(shadow(2.0), (7, 99))], "Inherited library");
+    for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
+        let n = named(&doc, &"Inherited library");
+        assert_eq!(n.style_refs.get("effect").map(String::as_str), Some("key:absent-lib"), "{stage}");
+    }
+}
+
+/// `BadgeIn` in `CardM` links Card (`record_link` holds the link keys) and binds a foreign variable in its own self
+/// entry; the outer instance restates `BadgeIn` with a copy of the style's own variable.
+fn dropped_copy_doc(record_link: Value) -> Document {
+    let card_m = node((1, 20), (0, 1), "b", "SYMBOL", "CardM", json!({"size": {"x": 44.0, "y": 22.0}}));
+    let mut badge_fields = json!({"size": {"x": 44.0, "y": 22.0}, "symbolData": {"symbolID": g(1, 10), "symbolOverrides": [
+        root_entry(json!({"effects": [bound(shadow(2.0), (7, 99))]}))
+    ]}});
+    for (k, v) in record_link.as_object().expect("link keys") {
+        badge_fields[k] = v.clone();
+    }
+    let badge_in = node((1, 21), (1, 20), "a", "INSTANCE", "BadgeIn", badge_fields);
+    let entry = json!({"guidPath": {"guids": [g(1, 21)]}, "effects": [bound(shadow(8.0), (7, 1))]});
+    let outer = node(
+        (3, 1),
+        (0, 1),
+        "c",
+        "INSTANCE",
+        "Outer",
+        json!({"size": {"x": 44.0, "y": 22.0}, "symbolData": {"symbolID": g(1, 20), "symbolOverrides": [entry]}}),
+    );
+    let linked = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
+    import(&doc_json(card_binding_7_1(), linked.clone(), linked, vec![card_m, badge_in, outer]))
+}
+
+#[test]
+fn a_dropped_copy_leaves_no_binding_behind_so_a_save_keeps_the_render() {
+    for (label, link_keys) in [("modern link", json!({"styleIdForEffect": link(1)})), ("legacy link", json!({"inheritEffectStyleID": g(9, 1)}))] {
+        let doc = dropped_copy_doc(link_keys);
+        let before = radii(doc.get(named(&doc, "Outer").children[0]).expect("BadgeIn"));
+        let again = reopened(&doc);
+        let after = radii(again.get(named(&again, "Outer").children[0]).expect("BadgeIn after save"));
+        assert_eq!(before, after, "{label}: a save does not change the render");
+    }
+}
