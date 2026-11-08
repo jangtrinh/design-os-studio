@@ -222,7 +222,6 @@ pub(crate) struct UpdateFields {
     pub y: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
-    pub rotation: Option<f32>,
     pub visible: Option<bool>,
     pub opacity: Option<f32>,
     pub fill: Option<String>,
@@ -267,13 +266,6 @@ pub(crate) fn validate_update_fields(u: &UpdateFields) -> Result<(), ToolError> 
                 .with_expected(">= 0"));
         }
     }
-    if let Some(rot) = u.rotation {
-        if !rot.is_finite() || rot.abs() > 1_000_000.0 {
-            return Err(
-                ToolError::new(ErrorCode::InvalidGeometry, "/rotation", "rotation must be finite").with_expected("finite number within -1000000..=1000000")
-            );
-        }
-    }
     if let Some(opacity) = u.opacity {
         if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
             return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/opacity", "opacity must be between 0 and 1")
@@ -305,8 +297,6 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             Some("/width")
         } else if u.height.is_some() {
             Some("/height")
-        } else if u.rotation.is_some() {
-            Some("/rotation")
         } else {
             None
         } {
@@ -327,13 +317,6 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     }
     if let Some(y) = u.y {
         new_transform.ty = y;
-    }
-    if let Some(rot_deg) = u.rotation {
-        let rot = designos_doc::Affine::rotate(rot_deg.to_radians());
-        new_transform.a = rot.a;
-        new_transform.b = rot.b;
-        new_transform.c = rot.c;
-        new_transform.d = rot.d;
     }
     let mut new_size = node.size;
     if let Some(width) = u.width {

@@ -42,7 +42,7 @@ pub fn tool_descriptor() -> Value {
     let size = json!({ "type": "number", "minimum": 0, "maximum": 1000000 });
     let connect_end = json!({
         "anyOf": [
-            { "type": "integer", "minimum": 0 },
+            { "type": "integer", "minimum": 1 },
             { "type": "string", "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$" },
             {
                 "type": "object",
@@ -58,7 +58,7 @@ pub fn tool_descriptor() -> Value {
                 }
             }
         ],
-        "description": "Connector endpoint (node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]}) or 0-based track index for table move_row/move_col."
+        "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
     });
     let magnet_schema = json!({
         "type": "string",
@@ -107,23 +107,22 @@ pub fn tool_descriptor() -> Value {
     op_properties.insert("name".into(), json!({ "type": "string", "maxLength": 1024 }));
     op_properties.insert("text".into(), json!({ "type": "string", "maxLength": 100000 }));
     op_properties.insert("x".into(), coordinate.clone());
-    op_properties.insert("y".into(), coordinate.clone());
+    op_properties.insert("y".into(), coordinate);
     op_properties.insert("width".into(), size.clone());
     op_properties.insert("height".into(), size);
-    op_properties.insert("rotation".into(), coordinate);
     op_properties.insert("visible".into(), json!({ "type": "boolean" }));
     op_properties.insert("opacity".into(), json!({ "type": "number", "minimum": 0, "maximum": 1 }));
     op_properties.insert("fills".into(), json!({ "type": "array", "items": { "type": "object" } }));
     op_properties.insert("action".into(), json!({ "type": "string", "enum": crate::tools::batch_table::TABLE_ACTIONS }));
-    op_properties.insert("rows".into(), json!({ "type": "integer", "minimum": 1, "maximum": 100 }));
-    op_properties.insert("cols".into(), json!({ "type": "integer", "minimum": 1, "maximum": 100 }));
-    op_properties.insert("col_width".into(), json!({ "type": "number", "minimum": 16, "maximum": 1000000 }));
-    op_properties.insert("row_height".into(), json!({ "type": "number", "minimum": 16, "maximum": 1000000 }));
+    op_properties.insert("rows".into(), json!({ "type": "integer", "minimum": 1, "maximum": 500 }));
+    op_properties.insert("cols".into(), json!({ "type": "integer", "minimum": 1, "maximum": 500 }));
+    op_properties.insert("col_width".into(), json!({ "type": "number", "minimum": 24, "maximum": 1000000 }));
+    op_properties.insert("row_height".into(), json!({ "type": "number", "minimum": 24, "maximum": 1000000 }));
     op_properties.insert("row".into(), json!({ "type": "integer", "minimum": 0 }));
     op_properties.insert("col".into(), json!({ "type": "integer", "minimum": 0 }));
     op_properties.insert("at".into(), json!({ "type": "integer", "minimum": 0 }));
-    op_properties.insert("count".into(), json!({ "type": "integer", "minimum": 1, "maximum": 100 }));
-    op_properties.insert("size".into(), json!({ "type": "number", "minimum": 16, "maximum": 1000000 }));
+    op_properties.insert("count".into(), json!({ "type": "integer", "minimum": 1, "maximum": 500 }));
+    op_properties.insert("size".into(), json!({ "type": "number", "minimum": 24, "maximum": 1000000 }));
     op_properties.insert("row_span".into(), json!({ "type": "integer", "minimum": 1 }));
     op_properties.insert("col_span".into(), json!({ "type": "integer", "minimum": 1 }));
     op_properties.insert("upsert_collections".into(), json!({ "type": "array", "items": { "type": "object" } }));
@@ -199,7 +198,7 @@ pub fn tool_descriptor() -> Value {
     });
     json!({
         "name": "designos_apply_batch",
-        "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
+        "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}; (5) table: {\"ops\":[{\"op\":\"table\",\"as\":\"t\",\"action\":\"create\",\"parent\":1,\"rows\":3,\"cols\":3},{\"op\":\"table\",\"node\":\"@t\",\"action\":\"set_cell_text\",\"row\":0,\"col\":0,\"text\":\"Header\"}]}.",
         "inputSchema": {
             "type": "object",
             "required": ["ops"],
@@ -209,7 +208,7 @@ pub fn tool_descriptor() -> Value {
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 200,
-                    "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update). Use op='table' with action (create|insert_rows|delete_rows|insert_cols|delete_cols|move_row|move_col|resize_row|resize_col|resize_table|merge|unmerge|set_cell_text); reference cells via '@<table_as>/r<row>c<col>' (0-based, e.g. '@t/r0c0').",
+                    "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update). Use op='table' with action (create|insert_rows|delete_rows|insert_cols|delete_cols|move_row|move_col|resize_row|resize_col|resize|merge|unmerge|set_cell_text); reference cells via '@<table_as>/r<row>c<col>' (0-based, e.g. '@t/r0c0').",
                     "items": op_item_schema
                 },
                 "dry_run": { "type": "boolean", "default": false },
@@ -317,8 +316,6 @@ struct UpdateOp {
     y: Option<f32>,
     width: Option<f32>,
     height: Option<f32>,
-    #[serde(default)]
-    rotation: Option<f32>,
     visible: Option<bool>,
     opacity: Option<f32>,
     #[serde(default)]
@@ -965,7 +962,6 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                     y: a.y,
                     width: a.width,
                     height: a.height,
-                    rotation: a.rotation,
                     visible: a.visible,
                     opacity: a.opacity,
                     fill: a.fill.clone(),
@@ -2201,7 +2197,6 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         y: a.y,
                         width: a.width,
                         height: a.height,
-                        rotation: a.rotation,
                         visible: a.visible,
                         opacity: a.opacity,
                         fill: a.fill.clone(),
@@ -3172,8 +3167,6 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         recorded_live_ops.extend(ops);
                     }
                     cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
-                    designos_doc::check_table_positions(&trial, table_id)
-                        .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                     relayout_for_node(&mut trial, table_id);
 
                     let count = set.len();
@@ -3247,8 +3240,6 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                             sc.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                             collected_cmds.push(sc);
                         }
-                        designos_doc::check_table_positions(&trial, table_id)
-                            .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                         relayout_for_node(&mut trial, table_id);
                         relayout_targets.push(table_id);
                     }
@@ -3260,6 +3251,25 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 }
             }
         }
+    }
+
+    // Commit-point invariant check across every table touched by this batch.
+    let mut touched_tables: Vec<(usize, NodeId)> = Vec::new();
+    for rec in &touched_records {
+        let table_id = match trial.get(rec.node_id).map(|n| (&n.kind, n.parent)) {
+            Some((NodeKind::Table(_), _)) => Some(rec.node_id),
+            Some((NodeKind::TableCell(_), Some(parent_id))) if matches!(trial.get(parent_id).map(|p| &p.kind), Some(NodeKind::Table(_))) => Some(parent_id),
+            _ => None,
+        };
+        if let Some(tid) = table_id {
+            if !touched_tables.iter().any(|&(_, id)| id == tid) {
+                touched_tables.push((rec.op, tid));
+            }
+        }
+    }
+    for (op_idx, tid) in touched_tables {
+        designos_doc::check_table_positions(&trial, tid)
+            .map_err(|e| op_failed_error(op_idx, "table", ErrorCode::InternalError, &format!("/ops/{op_idx}"), e))?;
     }
 
     trial.flush_pending_relayout();

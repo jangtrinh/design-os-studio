@@ -1306,7 +1306,7 @@
   },
   {
     "name": "designos_apply_batch",
-    "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
+    "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}; (5) table: {\"ops\":[{\"op\":\"table\",\"as\":\"t\",\"action\":\"create\",\"parent\":1,\"rows\":3,\"cols\":3},{\"op\":\"table\",\"node\":\"@t\",\"action\":\"set_cell_text\",\"row\":0,\"col\":0,\"text\":\"Header\"}]}.",
     "inputSchema": {
       "additionalProperties": false,
       "examples": [
@@ -1473,7 +1473,7 @@
           "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
         },
         "ops": {
-          "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update). Use op='table' with action (create|insert_rows|delete_rows|insert_cols|delete_cols|move_row|move_col|resize_row|resize_col|resize_table|merge|unmerge|set_cell_text); reference cells via '@<table_as>/r<row>c<col>' (0-based, e.g. '@t/r0c0').",
+          "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update). Use op='table' with action (create|insert_rows|delete_rows|insert_cols|delete_cols|move_row|move_col|resize_row|resize_col|resize|merge|unmerge|set_cell_text); reference cells via '@<table_as>/r<row>c<col>' (0-based, e.g. '@t/r0c0').",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -1523,16 +1523,16 @@
               },
               "col_width": {
                 "maximum": 1000000,
-                "minimum": 16,
+                "minimum": 24,
                 "type": "number"
               },
               "cols": {
-                "maximum": 100,
+                "maximum": 500,
                 "minimum": 1,
                 "type": "integer"
               },
               "count": {
-                "maximum": 100,
+                "maximum": 500,
                 "minimum": 1,
                 "type": "integer"
               },
@@ -1574,7 +1574,7 @@
               "from": {
                 "anyOf": [
                   {
-                    "minimum": 0,
+                    "minimum": 1,
                     "type": "integer"
                   },
                   {
@@ -1601,7 +1601,7 @@
                     "type": "object"
                   }
                 ],
-                "description": "Connector endpoint (node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]}) or 0-based track index for table move_row/move_col."
+                "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
               },
               "from_magnet": {
                 "enum": [
@@ -1761,18 +1761,13 @@
                 ],
                 "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
               },
-              "rotation": {
-                "maximum": 1000000,
-                "minimum": -1000000,
-                "type": "number"
-              },
               "row": {
                 "minimum": 0,
                 "type": "integer"
               },
               "row_height": {
                 "maximum": 1000000,
-                "minimum": 16,
+                "minimum": 24,
                 "type": "number"
               },
               "row_span": {
@@ -1780,7 +1775,7 @@
                 "type": "integer"
               },
               "rows": {
-                "maximum": 100,
+                "maximum": 500,
                 "minimum": 1,
                 "type": "integer"
               },
@@ -1790,7 +1785,7 @@
               },
               "size": {
                 "maximum": 1000000,
-                "minimum": 16,
+                "minimum": 24,
                 "type": "number"
               },
               "slot": {
@@ -1828,7 +1823,7 @@
               "to": {
                 "anyOf": [
                   {
-                    "minimum": 0,
+                    "minimum": 1,
                     "type": "integer"
                   },
                   {
@@ -1855,7 +1850,7 @@
                     "type": "object"
                   }
                 ],
-                "description": "Connector endpoint (node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]}) or 0-based track index for table move_row/move_col."
+                "description": "Connector endpoint: numeric node ID, '$prev', '@<as>' / '@<as>/<name path>', or {\"point\": [x, y]} in page space."
               },
               "to_magnet": {
                 "enum": [

@@ -1596,7 +1596,6 @@ impl Engine {
                 y: a.y,
                 width: a.width,
                 height: a.height,
-                rotation: a.rotation,
                 visible: a.visible,
                 opacity: a.opacity,
                 fill: a.fill,
@@ -1802,8 +1801,6 @@ struct UpdateArgs {
     y: Option<f32>,
     width: Option<f32>,
     height: Option<f32>,
-    #[serde(default)]
-    rotation: Option<f32>,
     visible: Option<bool>,
     opacity: Option<f32>,
     #[serde(default)]

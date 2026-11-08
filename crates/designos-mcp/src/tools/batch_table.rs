@@ -1,4 +1,4 @@
-//! Batch `table` operation for `designos_apply_batch` (T5b, #1231).
+//! Batch `table` operation for `designos_apply_batch`.
 //!
 //! Dispatches `create`, `set_cell_text`, `insert_rows`, `insert_cols`, `delete_rows`,
 //! `delete_cols`, `move_row`, `move_col`, `resize_row`, `resize_col`, `merge`, `unmerge`,
@@ -12,8 +12,8 @@ use designos_doc::table_ops::{
     TABLE_MAX_SIZE,
 };
 use designos_doc::{
-    Color, Command, Document, DocumentKind, Node, NodeId, NodeKind, Paint, Stroke, TableOpError, TableProps, TableStyle, TrackId, Vec2,
-    TABLE_DEFAULT_COLUMN_WIDTH, TABLE_DEFAULT_ROW_HEIGHT,
+    Command, Document, DocumentKind, NodeId, NodeKind, TableOpError, TableProps, TableStyle, TrackId, Vec2, TABLE_DEFAULT_COLUMN_WIDTH,
+    TABLE_DEFAULT_ROW_HEIGHT, TABLE_MAX_TRACKS, TABLE_MIN_TRACK,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -34,10 +34,6 @@ pub const TABLE_ACTIONS: &[&str] = &[
     "unmerge",
     "resize",
 ];
-
-pub const MAX_MCP_TABLE_TRACKS: usize = 100;
-pub const MIN_MCP_COL_WIDTH: f32 = 24.0;
-pub const MIN_MCP_ROW_HEIGHT: f32 = 28.0;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -150,11 +146,23 @@ pub fn parse_and_validate(val: Value, raw_op: &Value, idx: usize, declared_as: &
         }
         let rows = req_pos(a.rows, idx, "rows")?;
         let cols = req_pos(a.cols, idx, "cols")?;
-        if rows > MAX_MCP_TABLE_TRACKS {
-            return Err(op_failed_error(idx, "table", ErrorCode::ValueOutOfRange, &format!("{op_path}/rows"), "rows must be between 1 and 100"));
+        if rows > TABLE_MAX_TRACKS {
+            return Err(op_failed_error(
+                idx,
+                "table",
+                ErrorCode::ValueOutOfRange,
+                &format!("{op_path}/rows"),
+                format!("rows must be between 1 and {TABLE_MAX_TRACKS}"),
+            ));
         }
-        if cols > MAX_MCP_TABLE_TRACKS {
-            return Err(op_failed_error(idx, "table", ErrorCode::ValueOutOfRange, &format!("{op_path}/cols"), "cols must be between 1 and 100"));
+        if cols > TABLE_MAX_TRACKS {
+            return Err(op_failed_error(
+                idx,
+                "table",
+                ErrorCode::ValueOutOfRange,
+                &format!("{op_path}/cols"),
+                format!("cols must be between 1 and {TABLE_MAX_TRACKS}"),
+            ));
         }
         for (f, v) in [("x", a.x), ("y", a.y)] {
             if !v.is_finite() || v.abs() > TABLE_MAX_SIZE {
@@ -175,13 +183,25 @@ pub fn parse_and_validate(val: Value, raw_op: &Value, idx: usize, declared_as: &
             }
         }
         if let Some(cw) = a.col_width {
-            if !cw.is_finite() || !(MIN_MCP_COL_WIDTH..=TABLE_MAX_SIZE).contains(&cw) {
-                return Err(op_failed_error(idx, "table", ErrorCode::ValueOutOfRange, &format!("{op_path}/col_width"), "col_width must be >= 24"));
+            if !cw.is_finite() || !(TABLE_MIN_TRACK..=TABLE_MAX_SIZE).contains(&cw) {
+                return Err(op_failed_error(
+                    idx,
+                    "table",
+                    ErrorCode::ValueOutOfRange,
+                    &format!("{op_path}/col_width"),
+                    format!("col_width must be >= {TABLE_MIN_TRACK}"),
+                ));
             }
         }
         if let Some(rh) = a.row_height {
-            if !rh.is_finite() || !(MIN_MCP_ROW_HEIGHT..=TABLE_MAX_SIZE).contains(&rh) {
-                return Err(op_failed_error(idx, "table", ErrorCode::ValueOutOfRange, &format!("{op_path}/row_height"), "row_height must be >= 28"));
+            if !rh.is_finite() || !(TABLE_MIN_TRACK..=TABLE_MAX_SIZE).contains(&rh) {
+                return Err(op_failed_error(
+                    idx,
+                    "table",
+                    ErrorCode::ValueOutOfRange,
+                    &format!("{op_path}/row_height"),
+                    format!("row_height must be >= {TABLE_MIN_TRACK}"),
+                ));
             }
         }
         if let Some(name) = &a.name {
@@ -203,8 +223,14 @@ pub fn parse_and_validate(val: Value, raw_op: &Value, idx: usize, declared_as: &
         "insert_rows" | "insert_cols" | "delete_rows" | "delete_cols" => {
             req_non_neg(a.at, idx, "at")?;
             if let Some(c) = a.count {
-                if !(1..=MAX_MCP_TABLE_TRACKS as i64).contains(&c) {
-                    return Err(op_failed_error(idx, "table", ErrorCode::ValueOutOfRange, &format!("{op_path}/count"), "count must be between 1 and 100"));
+                if !(1..=TABLE_MAX_TRACKS as i64).contains(&c) {
+                    return Err(op_failed_error(
+                        idx,
+                        "table",
+                        ErrorCode::ValueOutOfRange,
+                        &format!("{op_path}/count"),
+                        format!("count must be between 1 and {TABLE_MAX_TRACKS}"),
+                    ));
                 }
             }
         }
@@ -214,10 +240,15 @@ pub fn parse_and_validate(val: Value, raw_op: &Value, idx: usize, declared_as: &
         }
         "resize_row" | "resize_col" => {
             req_non_neg(a.at, idx, "at")?;
-            let min = if a.action == "resize_row" { MIN_MCP_ROW_HEIGHT } else { MIN_MCP_COL_WIDTH };
             let sz = a.size.ok_or_else(|| op_failed_error(idx, "table", ErrorCode::MissingField, &format!("{op_path}/size"), "missing 'size'"))?;
-            if !sz.is_finite() || !(min..=TABLE_MAX_SIZE).contains(&sz) {
-                return Err(op_failed_error(idx, "table", ErrorCode::ValueOutOfRange, &format!("{op_path}/size"), format!("size must be >= {min}")));
+            if !sz.is_finite() || !(TABLE_MIN_TRACK..=TABLE_MAX_SIZE).contains(&sz) {
+                return Err(op_failed_error(
+                    idx,
+                    "table",
+                    ErrorCode::ValueOutOfRange,
+                    &format!("{op_path}/size"),
+                    format!("size must be >= {TABLE_MIN_TRACK}"),
+                ));
             }
         }
         "merge" => {
@@ -240,16 +271,20 @@ pub fn parse_and_validate(val: Value, raw_op: &Value, idx: usize, declared_as: &
             req_non_neg(a.col, idx, "col")?;
         }
         "resize" => {
+            if a.width.is_none() && a.height.is_none() {
+                return Err(op_failed_error(idx, "table", ErrorCode::MissingField, &op_path, "resize requires at least one of 'width' or 'height'"));
+            }
             for (f, v) in [("width", a.width), ("height", a.height)] {
-                let val = v.ok_or_else(|| op_failed_error(idx, "table", ErrorCode::MissingField, &format!("{op_path}/{f}"), format!("missing '{f}'")))?;
-                if !(val.is_finite() && val > 0.0 && val <= TABLE_MAX_SIZE) {
-                    return Err(op_failed_error(
-                        idx,
-                        "table",
-                        ErrorCode::ValueOutOfRange,
-                        &format!("{op_path}/{f}"),
-                        format!("{f} must be > 0 and <= 1000000"),
-                    ));
+                if let Some(val) = v {
+                    if !(val.is_finite() && val > 0.0 && val <= TABLE_MAX_SIZE) {
+                        return Err(op_failed_error(
+                            idx,
+                            "table",
+                            ErrorCode::ValueOutOfRange,
+                            &format!("{op_path}/{f}"),
+                            format!("{f} must be > 0 and <= 1000000"),
+                        ));
+                    }
                 }
             }
         }
@@ -295,24 +330,6 @@ fn is_valid_table_parent(doc: &Document, parent: NodeId) -> bool {
     true
 }
 
-fn style_new_cells_in_nodes(nodes: &mut [Node]) {
-    let text_fill = vec![Paint::solid(Color::rgb(0xB3, 0xB3, 0xB5))];
-    for n in nodes {
-        if let NodeKind::TableCell(cp) = &mut n.kind {
-            cp.text.style.fills = text_fill.clone();
-            cp.text.style.set_font_weight(500);
-        }
-    }
-}
-
-fn style_new_cells_in_cmd(cmd: &mut Command) {
-    match cmd {
-        Command::Insert { nodes, .. } => style_new_cells_in_nodes(nodes),
-        Command::Batch(cmds) => cmds.iter_mut().for_each(style_new_cells_in_cmd),
-        _ => {}
-    }
-}
-
 pub fn execute_create(doc: &Document, parent: NodeId, a: &TableOp, idx: usize) -> Result<(NodeId, Command), ToolError> {
     check_file_kind(doc, idx)?;
     let p_path = format!("/ops/{idx}/parent");
@@ -330,15 +347,9 @@ pub fn execute_create(doc: &Document, parent: NodeId, a: &TableOp, idx: usize) -
     }
     let rows = a.rows.unwrap_or(3) as usize;
     let cols = a.cols.unwrap_or(3) as usize;
-    let col_w = a.col_width.unwrap_or_else(|| a.width.map(|w| (w / cols as f32).max(MIN_MCP_COL_WIDTH)).unwrap_or(TABLE_DEFAULT_COLUMN_WIDTH));
-    let row_h = a.row_height.unwrap_or_else(|| a.height.map(|h| (h / rows as f32).max(MIN_MCP_ROW_HEIGHT)).unwrap_or(TABLE_DEFAULT_ROW_HEIGHT));
-    let style = TableStyle {
-        column_width: col_w,
-        row_height: row_h,
-        fills: vec![Paint::solid(Color::rgb(0x1E, 0x1E, 0x22))],
-        stroke: Some(Stroke { paints: vec![Paint::solid(Color::rgb(0x27, 0x27, 0x2A))], weight: 1.0, ..Stroke::default() }),
-        cell_fills: Vec::new(),
-    };
+    let col_w = a.col_width.unwrap_or_else(|| a.width.map(|w| (w / cols as f32).max(TABLE_MIN_TRACK)).unwrap_or(TABLE_DEFAULT_COLUMN_WIDTH));
+    let row_h = a.row_height.unwrap_or_else(|| a.height.map(|h| (h / rows as f32).max(TABLE_MIN_TRACK)).unwrap_or(TABLE_DEFAULT_ROW_HEIGHT));
+    let style = TableStyle { column_width: col_w, row_height: row_h, ..TableStyle::default() };
     let mut cmd = create_table(doc, parent, Vec2::new(a.x, a.y), rows, cols, &style).map_err(|e| map_table_err(idx, e))?;
     let Command::Insert { index, nodes, .. } = &mut cmd else {
         return Err(op_failed_error(idx, "table", ErrorCode::InternalError, &format!("/ops/{idx}"), "create_table did not return Insert"));
@@ -350,7 +361,6 @@ pub fn execute_create(doc: &Document, parent: NodeId, a: &TableOp, idx: usize) -
         let max_idx = *index;
         *index = req_idx.min(max_idx);
     }
-    style_new_cells_in_nodes(&mut nodes[1..]);
     let table_id = nodes[0].id;
     Ok((table_id, cmd))
 }
@@ -391,13 +401,13 @@ pub fn execute_mutation(doc: &Document, table_id: NodeId, a: &TableOp, idx: usiz
         "insert_rows" => {
             let at = a.at.unwrap() as usize;
             let count = a.count.unwrap_or(1) as usize;
-            if at > rows_len || rows_len + count > MAX_MCP_TABLE_TRACKS {
+            if at > rows_len || rows_len + count > TABLE_MAX_TRACKS {
                 return Err(op_failed_error(
                     idx,
                     "table",
                     ErrorCode::ValueOutOfRange,
                     &op_path,
-                    format!("insert_rows at={at}, count={count} exceeds 0..={rows_len} or max {MAX_MCP_TABLE_TRACKS} rows"),
+                    format!("insert_rows at={at}, count={count} exceeds 0..={rows_len} or max {TABLE_MAX_TRACKS} rows"),
                 ));
             }
             insert_rows(doc, table_id, at, count)
@@ -405,13 +415,13 @@ pub fn execute_mutation(doc: &Document, table_id: NodeId, a: &TableOp, idx: usiz
         "insert_cols" => {
             let at = a.at.unwrap() as usize;
             let count = a.count.unwrap_or(1) as usize;
-            if at > cols_len || cols_len + count > MAX_MCP_TABLE_TRACKS {
+            if at > cols_len || cols_len + count > TABLE_MAX_TRACKS {
                 return Err(op_failed_error(
                     idx,
                     "table",
                     ErrorCode::ValueOutOfRange,
                     &op_path,
-                    format!("insert_cols at={at}, count={count} exceeds 0..={cols_len} or max {MAX_MCP_TABLE_TRACKS} cols"),
+                    format!("insert_cols at={at}, count={count} exceeds 0..={cols_len} or max {TABLE_MAX_TRACKS} cols"),
                 ));
             }
             insert_cols(doc, table_id, at, count)
@@ -533,46 +543,18 @@ pub fn execute_mutation(doc: &Document, table_id: NodeId, a: &TableOp, idx: usiz
                 .ok_or_else(|| op_failed_error(idx, "table", ErrorCode::InvalidArguments, &op_path, "Merged anchor cell not found in table."))?;
             unmerge(doc, table_id, anchor_id)
         }
-        "resize" => resize_table_with_row_min(doc, table_id, Vec2::new(a.width.unwrap(), a.height.unwrap())),
+        "resize" => {
+            let target_size = Vec2::new(a.width.unwrap_or(table_node.size.x), a.height.unwrap_or(table_node.size.y));
+            resize_table(doc, table_id, target_size)
+        }
         _ => unreachable!(),
     };
 
     match res {
-        Ok(mut cmd) => {
-            style_new_cells_in_cmd(&mut cmd);
-            Ok(Some(cmd))
-        }
+        Ok(cmd) => Ok(Some(cmd)),
         Err(TableOpError::NoChange(_)) => Ok(None),
         Err(e) => Err(map_table_err(idx, e)),
     }
-}
-
-fn resize_table_with_row_min(doc: &Document, table_id: NodeId, new_size: Vec2) -> Result<Command, TableOpError> {
-    let cmd = resize_table(doc, table_id, new_size)?;
-    let Command::Batch(mut cmds) = cmd else { return Ok(cmd) };
-    let needs_clamp = cmds.iter().any(|c| {
-        matches!(c, Command::Update { node } if node.id == table_id && matches!(&node.kind, NodeKind::Table(p) if p.rows.iter().any(|t| t.size < MIN_MCP_ROW_HEIGHT)))
-    });
-    if !needs_clamp {
-        return Ok(Command::Batch(cmds));
-    }
-    let mut scratch = doc.clone();
-    for c in &cmds {
-        let _ = c.clone().apply(&mut scratch);
-    }
-    let small_rows: Vec<TrackId> = match scratch.get(table_id).map(|n| &n.kind) {
-        Some(NodeKind::Table(p)) => p.rows.iter().filter(|t| t.size < MIN_MCP_ROW_HEIGHT).map(|t| t.id).collect(),
-        _ => Vec::new(),
-    };
-    for rid in small_rows {
-        if let Ok(Command::Batch(extra)) = resize_row(&scratch, table_id, rid, MIN_MCP_ROW_HEIGHT) {
-            for ec in extra {
-                let _ = ec.clone().apply(&mut scratch);
-                cmds.push(ec);
-            }
-        }
-    }
-    Ok(Command::Batch(cmds))
 }
 
 fn map_table_err(idx: usize, err: TableOpError) -> ToolError {
