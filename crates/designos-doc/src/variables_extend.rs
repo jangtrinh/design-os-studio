@@ -143,6 +143,20 @@ fn extends(collections: &BTreeMap<String, VariableCollection>, coll: &str, ances
 }
 
 impl Document {
+    /// Marks every collection that is extended as extendable. A file whose extension has a parent without the flag
+    /// (an import, an older build) is normalised on open, so the canvas, which skips the extension lookup for a
+    /// collection that is not extendable, resolves what the panel resolves.
+    pub fn normalize_extensions(&mut self) {
+        let parents: BTreeSet<String> = self.variable_collections.values().filter_map(|c| c.extension_parent_id().map(String::from)).collect();
+        for id in parents {
+            if let Some(parent) = self.variable_collections.get_mut(&id) {
+                if !parent.is_extendable() {
+                    parent.set_extendable(true);
+                }
+            }
+        }
+    }
+
     /// Collections that extend `parent`, directly or through a chain, nearest extensions first.
     pub fn extensions_of(&self, parent: &str) -> Vec<&VariableCollection> {
         self.variable_collections.values().filter(|c| c.id != parent && c.is_extension() && extends(&self.variable_collections, &c.id, parent)).collect()
@@ -158,22 +172,12 @@ impl Document {
         inherited_ids(&self.variable_collections, &self.variables, coll)
     }
 
-    /// Debug check of the gate in `node_extension_value`: no collection extends `coll` while `coll` is not extendable.
-    /// It scans every collection, so it exists in debug builds only and is not counted as a lookup scan.
-    #[cfg(debug_assertions)]
-    fn assert_no_extension_of(&self, coll: &str) {
-        let offender = self.variable_collections.values().find(|c| c.id != coll && c.is_extension() && extends(&self.variable_collections, &c.id, coll));
-        debug_assert!(offender.is_none(), "collection {:?} extends {coll:?}, which is not marked extendable", offender.map(|c| &c.id));
-    }
-
     /// The value `v` takes at `node` when the nearest mode choice among its collection and the collections extending
     /// it is an extended collection's. `None` leaves the plain lookup in charge.
     pub(crate) fn node_extension_value(&self, node: NodeId, v: &Variable, mode_overrides: &[(&str, &str)]) -> Option<VariableValue> {
         // An extension needs a parent that allows it (`extend_collection` and the importers set the flag), so one lookup
         // of the variable's own collection, which every resolve makes anyway, rules out a document without extensions.
         if !self.variable_collections.get(&v.collection).is_some_and(VariableCollection::is_extendable) {
-            #[cfg(debug_assertions)]
-            self.assert_no_extension_of(&v.collection);
             return None;
         }
         #[cfg(test)]
@@ -237,19 +241,65 @@ pub(crate) fn extension_scan_count() -> usize {
     SCANS.with(std::cell::Cell::get)
 }
 
+#[cfg(test)]
+thread_local! {
+    static ALIAS_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+#[cfg(test)]
+pub(crate) fn reset_alias_check_count() {
+    ALIAS_CHECKS.with(|c| c.set(0));
+}
+#[cfg(test)]
+pub(crate) fn alias_check_count() -> usize {
+    ALIAS_CHECKS.with(std::cell::Cell::get)
+}
+
 impl VariableStore {
-    /// The model's rules for extended collections, checked on a whole store (the MCP batch, which builds records
-    /// itself, runs it before it commits). An extension holds no variables of its own, no variable names an extension as
-    /// its collection, and a value is never keyed by a mode of an extension the variable is not part of.
-    pub fn check_extension_rules(&self) -> Result<(), String> {
-        for c in self.collections.values().filter(|c| c.is_extension()) {
-            if !c.variables.is_empty() {
-                return Err(format!("collection '{}' extends another collection and cannot list variables of its own", c.id));
+    /// Applies a batch of value writes (variable, mode, value; `None` resets an override) and checks once, after the
+    /// last one, that no alias left a variable without a value. The aliases of a batch may come before the values they
+    /// point to; a cycle closed anywhere in the batch is refused. Per-write checks are quadratic in the batch size.
+    pub fn apply_value_writes(&mut self, writes: Vec<(String, String, Option<VariableValue>)>) -> Result<(), String> {
+        let before = self.unresolved_pairs();
+        for (variable, mode, value) in writes {
+            let ok = match &value {
+                Some(VariableValue::Alias(target)) => self.set_alias_with(&variable, &mode, target, false),
+                Some(literal) => self.set_value(&variable, &mode, literal.clone()),
+                None => match self.extension_owning_mode(&mode, &variable) {
+                    Some(ext) => {
+                        self.reset_override(&ext, &variable, &mode);
+                        true
+                    }
+                    None => false,
+                },
+            };
+            if !ok {
+                let why = if value.is_none() {
+                    "null resets an override and is only valid in a mode of an extended collection that extends the variable's collection"
+                } else {
+                    "refused: a library variable, a value of the wrong kind, an alias to a missing variable or a variable of another kind, or a mode of an extended collection that does not extend the variable's collection"
+                };
+                return Err(format!("value for variable '{variable}' in mode '{mode}' {why}"));
             }
+        }
+        if self.unresolved_pairs().is_subset(&before) {
+            Ok(())
+        } else {
+            Err("an alias in this batch would leave a variable without a value (a cycle, or an alias to a variable with no value)".into())
+        }
+    }
+
+    /// The model's rules for extended collections, as the set of rules a store breaks. An extension holds no
+    /// variables of its own, no variable names an extension as its collection, and a value is never keyed by a mode of
+    /// an extension the variable is not part of. An import keeps what Figma stored, so a store can already break one;
+    /// an edit is judged by what it adds (see [`VariableStore::check_extension_rules`]), never by what was there.
+    pub fn extension_violations(&self) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for c in self.collections.values().filter(|c| c.is_extension() && !c.variables.is_empty()) {
+            out.insert(format!("collection '{}' extends another collection and lists variables of its own", c.id));
         }
         for v in self.variables.values() {
             if self.collections.get(&v.collection).is_some_and(VariableCollection::is_extension) {
-                return Err(format!("variable '{}' cannot belong to collection '{}': it extends another collection", v.id, v.collection));
+                out.insert(format!("variable '{}' belongs to collection '{}', which extends another collection", v.id, v.collection));
             }
             let own = self.collections.get(&v.collection);
             for mode in v.values.keys() {
@@ -258,7 +308,7 @@ impl VariableStore {
                 }
                 if let Some(ext) = self.collections.values().find(|c| c.is_extension() && c.modes.iter().any(|m| &m.id == mode)) {
                     if !extends(&self.collections, &ext.id, &v.collection) {
-                        return Err(format!(
+                        out.insert(format!(
                             "variable '{}' has a value for mode '{mode}', which belongs to extended collection '{}' that does not extend '{}'",
                             v.id, ext.id, v.collection
                         ));
@@ -266,7 +316,23 @@ impl VariableStore {
                 }
             }
         }
-        Ok(())
+        out
+    }
+
+    /// `Err` with the rules this store breaks that `before` did not. A store that already broke a rule on import is
+    /// not locked: only an edit that adds a break is refused.
+    pub fn check_extension_rules(&self) -> Result<(), String> {
+        self.rules_added_since(&BTreeSet::new())
+    }
+
+    /// [`VariableStore::check_extension_rules`] relative to the violations recorded before an edit.
+    pub fn rules_added_since(&self, before: &BTreeSet<String>) -> Result<(), String> {
+        let added: Vec<String> = self.extension_violations().difference(before).cloned().collect();
+        if added.is_empty() {
+            Ok(())
+        } else {
+            Err(added.join("; "))
+        }
     }
 
     /// True when `mode` is a mode of the collection that holds `variable`.
@@ -289,17 +355,26 @@ impl VariableStore {
         modes
     }
 
-    /// The (variable, mode) pairs that resolve to nothing: a missing value or an alias cycle.
+    /// The (variable, mode) pairs whose stored value is an alias that resolves to nothing: a cycle, or a target without
+    /// a value. A variable that has no value at all in a mode is not an alias problem and is not listed.
     fn unresolved_pairs(&self) -> BTreeSet<(String, String)> {
+        #[cfg(test)]
+        ALIAS_CHECKS.with(|c| c.set(c.get() + 1));
         let mut out = BTreeSet::new();
-        for id in self.variables.keys() {
+        for (id, v) in &self.variables {
             for mode in self.modes_shown_for(id) {
-                if self.resolve(id, &mode).is_none() {
+                let own = if self.is_own_mode(id, &mode) { v.values.get(&mode).cloned() } else { self.extended_value_of(&mode, id) };
+                if matches!(own, Some(VariableValue::Alias(_))) && self.resolve(id, &mode).is_none() {
                     out.insert((id.clone(), mode));
                 }
             }
         }
         out
+    }
+
+    fn extended_value_of(&self, mode: &str, variable: &str) -> Option<VariableValue> {
+        let ext = self.extension_owning_mode(mode, variable)?;
+        self.extended_value(&ext, variable, mode)
     }
 
     /// Runs an alias edit and undoes it when it leaves any variable without a value in any mode it is shown in, in the
@@ -367,6 +442,11 @@ impl VariableStore {
     /// is a library copy or does not extend a collection that holds the variable, when `mode` is not one of its
     /// modes, or when the value does not fit the variable.
     pub fn set_override(&mut self, ext: &str, variable: &str, mode: &str, value: VariableValue) -> bool {
+        self.set_override_with(ext, variable, mode, value, true)
+    }
+
+    /// [`VariableStore::set_override`], with the alias check optional: a batch runs it once after all its writes.
+    pub(crate) fn set_override_with(&mut self, ext: &str, variable: &str, mode: &str, value: VariableValue, guard: bool) -> bool {
         if !self.can_override(ext, variable, mode) {
             return false;
         }
@@ -390,7 +470,7 @@ impl VariableStore {
             c.set_extension(&e);
             true
         };
-        if matches!(value, VariableValue::Alias(_)) {
+        if guard && matches!(value, VariableValue::Alias(_)) {
             self.guard_alias(write)
         } else {
             write(self)
@@ -920,5 +1000,77 @@ mod tests {
         let brand = s.extend_collection(&theme, "Brand").unwrap();
         s.unmap_parent_mode(&theme, &dark);
         assert!(s.collections[&brand].extension().unwrap().mode_map.values().all(|m| m != &dark));
+    }
+
+    #[test]
+    fn a_document_whose_extension_parent_is_not_extendable_opens_normalised_and_resolves_the_same() {
+        let (mut s, theme, bg, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_dark = s.collections[&brand].modes[1].id.clone();
+        assert!(s.set_value(&bg, &b_dark, VariableValue::Color(Color::rgb(255, 0, 0))));
+        s.collections.get_mut(&theme).unwrap().set_extendable(false);
+        let (d, frame, rect) = doc_with(&s);
+        let mut d = d;
+        d.get_mut(frame).unwrap().variables.modes.insert(brand.clone(), b_dark.clone());
+        d.get_mut(rect).unwrap().variables.bindings.insert("fills/0".into(), bg.clone());
+        let opened = Document::from_json(&d.to_json().unwrap()).unwrap();
+        assert!(opened.variable_collections[&theme].is_extendable(), "the flag is set on open");
+        let canvas = opened.bound_value(rect, "fills/0");
+        assert_eq!(canvas, VariableStore::from_doc(&opened).resolve(&bg, &b_dark), "canvas and panel agree");
+        assert_eq!(canvas, Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+    }
+
+    #[test]
+    fn violations_are_a_set_so_an_edit_is_judged_by_what_it_adds() {
+        let (mut s, theme, bg, _, _) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        assert!(s.extension_violations().is_empty());
+        // an extension-local variable, as an import keeps it
+        s.variables.get_mut(&bg).unwrap().collection = brand.clone();
+        let before = s.extension_violations();
+        assert_eq!(before.len(), 1, "{before:?}");
+        // an unrelated edit leaves the set as it was
+        let spacing = s.add_collection("Spacing");
+        let gap = s.add_variable(&spacing, "gap", VariableKind::Number).unwrap();
+        let sm = s.collections[&spacing].default_mode.clone();
+        assert!(s.set_value(&gap, &sm, VariableValue::Number(12.0)));
+        assert!(s.extension_violations().is_subset(&before));
+        // a new break is in the set and not in `before`
+        let b_light = s.collections[&brand].modes[0].id.clone();
+        s.variables.get_mut(&gap).unwrap().values.insert(b_light, VariableValue::Number(4.0));
+        assert!(!s.extension_violations().is_subset(&before));
+    }
+
+    #[test]
+    fn a_batch_of_aliases_runs_the_resolution_check_twice_not_once_per_alias() {
+        let mut s = VariableStore::default();
+        let c = s.add_collection("C");
+        let mode = s.collections[&c].default_mode.clone();
+        let ids: Vec<String> = (0..2500).map(|i| s.add_variable(&c, &format!("v{i}"), VariableKind::Number).unwrap()).collect();
+        let writes: Vec<(String, String, Option<VariableValue>)> =
+            (0..1000).map(|i| (ids[i].clone(), mode.clone(), Some(VariableValue::Alias(ids[1000 + i].clone())))).collect();
+        reset_alias_check_count();
+        let start = std::time::Instant::now();
+        s.apply_value_writes(writes).unwrap();
+        eprintln!("1000 aliases in a 2500-variable store: {:?}, {} resolution checks", start.elapsed(), alias_check_count());
+        assert_eq!(alias_check_count(), 2, "before and after, whatever the number of aliases");
+        assert!(s.variables[&ids[0]].values[&mode] == VariableValue::Alias(ids[1000].clone()));
+    }
+
+    #[test]
+    fn a_batch_may_list_an_alias_before_the_value_it_points_to_but_not_close_a_cycle() {
+        let (mut s, theme, bg, _, [light, _]) = base();
+        let fg = s.add_variable(&theme, "fg", VariableKind::Color).unwrap();
+        let prim = s.add_variable(&theme, "prim", VariableKind::Color).unwrap();
+        s.variables.get_mut(&prim).unwrap().values.clear();
+        let ok = vec![
+            (fg.clone(), light.clone(), Some(VariableValue::Alias(prim.clone()))),
+            (prim.clone(), light.clone(), Some(VariableValue::Color(Color::rgb(1, 2, 3)))),
+        ];
+        assert!(s.apply_value_writes(ok).is_ok(), "the alias comes first in the list, the value second");
+        assert_eq!(s.resolve(&fg, &light), Some(VariableValue::Color(Color::rgb(1, 2, 3))));
+        let cycle =
+            vec![(bg.clone(), light.clone(), Some(VariableValue::Alias(fg.clone()))), (prim.clone(), light.clone(), Some(VariableValue::Alias(bg.clone())))];
+        assert!(s.apply_value_writes(cycle).is_err(), "a cycle closed inside one batch is refused");
     }
 }

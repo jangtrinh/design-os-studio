@@ -1746,6 +1746,7 @@ impl Document {
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
         doc.migrate_text();
+        doc.normalize_extensions();
         (doc, report)
     }
 

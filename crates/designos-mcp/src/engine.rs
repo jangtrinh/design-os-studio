@@ -2990,6 +2990,88 @@ mod tests {
         assert!(ext.mode_map.values().all(|m| m != &dark), "no extension maps to a mode the parent no longer has: {:?}", ext.mode_map);
     }
 
+    fn white_json() -> serde_json::Value {
+        json!({"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0})
+    }
+
+    fn imported_extension_with_a_local_variable() -> Engine {
+        let w = white_json();
+        let p = json!({"meta": {
+            "variableCollections": {
+                "C:1": {"id": "C:1", "name": "Theme", "defaultModeId": "L", "modes": [{"modeId": "L", "name": "Light"}], "variableIds": ["V:a"]},
+                "C:2": {"id": "C:2", "name": "Brand", "isExtension": true, "parentVariableCollectionId": "C:1", "modes": [{"modeId": "BL", "name": "Light", "parentModeId": "L"}], "variableIds": ["V:a", "V:own"]},
+                "C:3": {"id": "C:3", "name": "Spacing", "defaultModeId": "S", "modes": [{"modeId": "S", "name": "Default"}], "variableIds": ["V:gap"]}
+            },
+            "variables": {
+                "V:a": {"id": "V:a", "name": "a", "resolvedType": "COLOR", "variableCollectionId": "C:1", "valuesByMode": {"L": w.clone()}},
+                "V:own": {"id": "V:own", "name": "own", "resolvedType": "COLOR", "variableCollectionId": "C:2", "valuesByMode": {"BL": w}},
+                "V:gap": {"id": "V:gap", "name": "gap", "resolvedType": "FLOAT", "variableCollectionId": "C:3", "valuesByMode": {"S": 8}}
+            }
+        }});
+        let mut e = Engine::default();
+        designos_fig::import_variables_value(&mut e.doc, &p);
+        e
+    }
+
+    #[test]
+    fn an_imported_extension_local_variable_does_not_lock_writes_to_other_variables_and_stays_listed() {
+        let mut e = imported_extension_with_a_local_variable();
+        let listed = e.call("designos_get_variables", json!({})).unwrap();
+        assert!(listed["variables"].get("V:own").is_some(), "an imported extension-local variable is kept and listed");
+        let r = set_variables(&mut e, json!({"upsert_variables": [{"id": "V:gap", "values": {"S": 12}}]}));
+        assert!(r.is_ok(), "an edit that breaks nothing new is accepted: {r:?}");
+        assert_eq!(e.doc.variables["V:gap"].values["S"], designos_doc::VariableValue::Number(12.0));
+        let adds = set_variables(&mut e, json!({"upsert_variables": [{"id": "V:new", "kind": "color", "collection": "C:2"}]}));
+        assert!(adds.is_err(), "a write that adds a new violation is still refused");
+    }
+
+    #[test]
+    fn a_stray_extension_mode_key_on_one_variable_does_not_lock_writes_to_another() {
+        use designos_doc::{VariableKind, VariableStore, VariableValue};
+        let mut e = Engine::default();
+        let mut s = VariableStore::default();
+        let theme = s.add_collection("Theme");
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let bl = s.collections[&brand].modes[0].id.clone();
+        let sp = s.add_collection("Spacing");
+        let sm = s.collections[&sp].default_mode.clone();
+        let gap = s.add_variable(&sp, "gap", VariableKind::Number).unwrap();
+        let pad = s.add_variable(&sp, "pad", VariableKind::Number).unwrap();
+        s.variables.get_mut(&gap).unwrap().values.insert(bl, VariableValue::Number(4.0));
+        e.doc.variables = s.variables;
+        e.doc.variable_collections = s.collections;
+        let r = set_variables(&mut e, json!({"upsert_variables": [{"id": pad, "values": { sm: 12 }}]}));
+        assert!(r.is_ok(), "{r:?}");
+    }
+
+    #[test]
+    fn an_alias_to_a_variable_created_later_in_the_same_op_is_accepted_and_a_cycle_inside_one_op_is_not() {
+        use designos_doc::{Color, VariableKind, VariableStore, VariableValue};
+        let mut e = Engine::default();
+        let mut s = VariableStore::default();
+        let theme = s.add_collection("Theme");
+        let light = s.collections[&theme].default_mode.clone();
+        let fg = s.add_variable(&theme, "fg", VariableKind::Color).unwrap();
+        assert!(s.set_value(&fg, &light, VariableValue::Color(Color::BLACK)));
+        e.doc.variables = s.variables;
+        e.doc.variable_collections = s.collections;
+        let ok = set_variables(
+            &mut e,
+            json!({"upsert_variables": [
+                {"id": fg, "values": { light.clone(): {"alias": "prim"} }},
+                {"id": "prim", "kind": "color", "collection": theme, "values": { light.clone(): "#123456" }}
+            ]}),
+        );
+        assert!(ok.is_ok(), "a valid batch does not depend on list order: {ok:?}");
+        let cycle = set_variables(
+            &mut e,
+            json!({"upsert_variables": [
+                {"id": "prim", "values": { light.clone(): {"alias": "fg"} }}
+            ]}),
+        );
+        assert!(cycle.is_err(), "fg -> prim -> fg is refused");
+    }
+
     #[test]
     fn variable_listing_leaves_out_soft_deleted_variables_but_a_binding_to_one_still_resolves() {
         use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};

@@ -486,9 +486,14 @@ impl VariableStore {
 
     /// Makes the value in `mode` an alias of `target`.
     pub fn set_alias(&mut self, var: &str, mode: &str, target: &str) -> bool {
+        self.set_alias_with(var, mode, target, true)
+    }
+
+    /// [`VariableStore::set_alias`] with the resolution check optional (a batch checks once, after its last write).
+    pub(crate) fn set_alias_with(&mut self, var: &str, mode: &str, target: &str, guard: bool) -> bool {
         if !self.is_own_mode(var, mode) {
             if let Some(ext) = self.extension_owning_mode(mode, var) {
-                return self.can_alias(var, target) && self.set_override(&ext, var, mode, VariableValue::Alias(target.to_string()));
+                return self.can_alias(var, target) && self.set_override_with(&ext, var, mode, VariableValue::Alias(target.to_string()), guard);
             }
             if self.is_extension_mode(mode) {
                 return false;
@@ -497,12 +502,17 @@ impl VariableStore {
         if self.is_library_variable(var) || !self.can_alias(var, target) {
             return false;
         }
-        self.guard_alias(|s| {
+        let write = |s: &mut Self| {
             let Some(v) = s.variables.get_mut(var) else { return false };
             v.values.insert(mode.to_string(), VariableValue::Alias(target.to_string()));
             v.clear_derived_mode_extensions(mode);
             true
-        })
+        };
+        if guard {
+            self.guard_alias(write)
+        } else {
+            write(self)
+        }
     }
 
     /// Replaces an alias by the literal it currently resolves to.

@@ -1611,6 +1611,7 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
         }
     }
 
+    let rules_before = VariableStore { variables: doc.variables.clone(), collections: doc.variable_collections.clone() }.extension_violations();
     let mut store = VariableStore { variables, collections };
     for del_id in &op.delete_variables {
         store.forget_overrides_of(del_id);
@@ -1622,34 +1623,11 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
     for (coll, mode) in &unmapped_modes {
         store.unmap_parent_mode(coll, mode);
     }
-    for (variable, mode, value) in writes {
-        let ok = match &value {
-            Some(VariableValue::Alias(target)) => store.set_alias(&variable, &mode, target),
-            Some(literal) => store.set_value(&variable, &mode, literal.clone()),
-            None => match store.extension_owning_mode(&mode, &variable) {
-                Some(ext) => {
-                    store.reset_override(&ext, &variable, &mode);
-                    true
-                }
-                None => false,
-            },
-        };
-        if !ok {
-            let why = if value.is_none() {
-                "null resets an override and is only valid in a mode of an extended collection that extends the variable's collection"
-            } else {
-                "refused: a library variable, a value of the wrong kind, an alias that would leave a variable without a value, or a mode of an extended collection that does not extend the variable's collection"
-            };
-            return Err(op_failed_error(
-                op_idx,
-                "set_variables",
-                ErrorCode::InvalidArguments,
-                &path,
-                format!("value for variable '{variable}' in mode '{mode}' {why}"),
-            ));
-        }
+    if let Err(why) = store.apply_value_writes(writes) {
+        return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, why));
     }
-    if let Err(why) = store.check_extension_rules() {
+    // an import can leave a store that already breaks an extension rule; the op is refused only for a break it adds
+    if let Err(why) = store.rules_added_since(&rules_before) {
         return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, why));
     }
     let VariableStore { variables, collections } = store;
