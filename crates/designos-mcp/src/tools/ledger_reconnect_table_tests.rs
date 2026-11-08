@@ -68,3 +68,14 @@ fn removing_one_cell_is_dropped_and_the_table_stays_valid() {
     check_table_positions(&d, t).unwrap();
     assert!(d.get(NodeId(5000)).is_some() && d.get(NodeId(5001)).is_some());
 }
+
+#[test]
+fn every_refused_patch_is_counted_with_its_reason() {
+    let (mut d, page, t) = one_table();
+    let cell = d.get(t).unwrap().children[4];
+    let log = [insert_rect(&d, page, 5000), line(vec![LiveOp::Remove { id: cell }])].join("\n") + "\n";
+    let (applied, refused) = super::replay_unabsorbed_patches_counted(&mut d, log.as_bytes(), Some(10)).unwrap();
+    assert_eq!(applied, 1);
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(refused[0].starts_with("patch 2:"), "{refused:?}");
+}

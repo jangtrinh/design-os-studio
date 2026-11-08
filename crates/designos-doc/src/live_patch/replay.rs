@@ -157,6 +157,37 @@ pub fn replay_live_patch(
     Ok(report)
 }
 
+/// [`replay_live_patch`] as one all-or-nothing unit that keeps the table rule, for a commit path that
+/// applies commands outside `History`. Each command runs atomically; once the patch is in, every table
+/// it touched must still hold one cell per live position (tables pass through invalid states between
+/// commands, so only the end state is checked). When a command or the check fails, the commands already
+/// applied are undone, `state` is restored and the error is returned: the patch is refused alone.
+pub fn replay_live_patch_checked(doc: &mut Document, patch: &LivePatch, state: &mut LivePatchState) -> Result<LivePatchReport, DocError> {
+    let saved = state.clone();
+    let mut touched = BTreeSet::new();
+    let mut inverses: Vec<Command> = Vec::new();
+    let replayed = replay_live_patch(doc, patch, state, &mut |d, c| {
+        crate::table::touched_tables(d, &c, &mut touched);
+        inverses.push(c.apply_atomic(d)?);
+        Ok(())
+    });
+    let outcome = replayed.and_then(|report| crate::table::check_touched(doc, &touched).map(|()| report));
+    if let Err(e) = outcome {
+        let mut rollback = Ok(());
+        while let Some(inv) = inverses.pop() {
+            if let Err(re) = inv.apply(doc) {
+                rollback = Err(re);
+            }
+        }
+        *state = saved;
+        return Err(match rollback {
+            Ok(()) => e,
+            Err(re) => DocError::Table(format!("{e} Rolling the patch back also failed: {re}")),
+        });
+    }
+    outcome
+}
+
 fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
     match op {
         LiveOp::Insert { parent: agent_parent, at, nodes } => {

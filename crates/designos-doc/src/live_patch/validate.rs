@@ -4,9 +4,10 @@
 use crate::{Document, Node, NodeId, NodeKind, MAX_TREE_DEPTH, MIN_ID_HEADROOM};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Whether a layer of this kind may list children in a patch: a container, or a table (its cells).
+/// Whether a layer of this kind may list children in a patch. `Unknown` stays out: a layer this build
+/// cannot read must not gain children from a log line.
 pub(super) fn holds_children(kind: &NodeKind) -> bool {
-    kind.is_container() || matches!(kind, NodeKind::Table(_))
+    kind.can_hold_children() && !matches!(kind, NodeKind::Unknown { .. })
 }
 
 /// Why `nodes` (root first) cannot be inserted under `parent`, or `None` when it can.

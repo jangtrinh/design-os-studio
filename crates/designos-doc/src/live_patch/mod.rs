@@ -14,7 +14,7 @@ mod replay_tokens;
 mod validate;
 
 pub use record::{batch_doc_clones, is_independent_batch, live_ops_for_command, live_ops_for_independent};
-pub use replay::{replay_live_patch, LivePatchReport, LivePatchState, TouchKind};
+pub use replay::{replay_live_patch, replay_live_patch_checked, LivePatchReport, LivePatchState, TouchKind};
 
 use crate::{
     Comment, CommentAnchor, CommentThread, ExternalAsset, InProgress, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection,
