@@ -852,17 +852,40 @@ fn an_extended_collection_lists_inherited_variables_marks_overrides_and_resets_t
     let shown = texts_of(&s).into_iter().find(|t| field.contains(t.pos + egui::vec2(1.0, 1.0)) && t.galley.job.text == "30");
     assert!(shown.is_some(), "the override value is drawn in the first mode");
     assert_eq!(s.app().doc.extended_value(&ext, &radius, &second), Some(designos_doc::VariableValue::Number(12.0)), "the other mode follows the parent");
-    // the overridden value carries the marker, inside its cell
-    let marker = s.rect_of(&format!("vars-reset:Radius/Card:{first}"));
-    assert!(cell.contains(marker.center()), "the marker sits in the overridden cell");
+    // the overridden value carries the blue dot, inside its cell
+    let dot = s.rect_of(&format!("vars-override:Radius/Card:{first}"));
+    assert!(cell.contains(dot.center()), "the dot sits in the overridden cell");
     assert!(s.rect_of("vars-extends").width() > 0.0, "the note says where the variables come from");
 
-    // clicking the marker resets the override in one undo step
-    s.click(marker.center());
+    // hovering the row offers a reset button that meets the pointer floor; clicking it resets in one undo step
+    s.mv(cell.center());
+    let reset = s.rect_of(&format!("vars-reset:Radius/Card:{first}"));
+    assert!(reset.width() >= theme::TARGET_MIN && reset.height() >= theme::TARGET_MIN, "reset target is {:?}", reset.size());
+    assert!(cell.contains(reset.center()));
+    s.click(reset.center());
     frames(&mut s, 3);
     assert!(s.app().doc.variable_collections[&ext].extension_override(&radius, &first).is_none(), "the override is gone");
     assert_eq!(s.app().doc.extended_value(&ext, &radius, &first), Some(designos_doc::VariableValue::Number(12.0)));
     s.cmd_key(egui::Key::Z);
     frames(&mut s, 3);
     assert!(s.app().doc.variable_collections[&ext].extension_override(&radius, &first).is_some(), "undo brings it back");
+}
+
+#[test]
+fn removing_in_an_extended_collection_never_touches_the_parent_variable() {
+    let mut s = Sim::with(Options { panel: Some("variables".into()), ..Options::default() });
+    settle(&mut s);
+    let _ = open_extended_theme(&mut s);
+    let radius = radius_id(&s);
+    let before = s.app().doc.variables.len();
+    let row = s.rect_of("vars-row:Radius/Card");
+    s.click(row.center());
+    frames(&mut s, 2);
+    s.key(egui::Key::Delete);
+    frames(&mut s, 3);
+    assert_eq!(s.app().doc.variables.len(), before, "no variable was removed");
+    assert!(s.app().doc.variables.contains_key(&radius), "the parent's variable is still there");
+    s.cmd_key(egui::Key::D);
+    frames(&mut s, 3);
+    assert_eq!(s.app().doc.variables.len(), before, "nothing was duplicated into the parent");
 }

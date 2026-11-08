@@ -336,7 +336,13 @@ fn keys(app: &mut App, ctx: &Context, view: &VariableStore) {
     for ev in events {
         let egui::Event::Key { key, pressed: true, modifiers, .. } = ev else { continue };
         // library variables can be selected but never edited, renamed, duplicated or deleted
-        let sel: Vec<String> = app.vars.selected.iter().filter(|s| view.variables.contains_key(*s) && !view.is_library_variable(s)).cloned().collect();
+        // an extended collection lists its parent's variables: they are edited in the parent, never from here
+        let in_extension = app.vars.collection.as_ref().and_then(|c| view.collections.get(c)).is_some_and(VariableCollection::is_extension);
+        let sel: Vec<String> = if in_extension {
+            Vec::new()
+        } else {
+            app.vars.selected.iter().filter(|s| view.variables.contains_key(*s) && !view.is_library_variable(s)).cloned().collect()
+        };
         match key {
             Key::Escape => {
                 if !app.vars.selected.is_empty() {
@@ -549,7 +555,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
             if read_only {
                 library::paint_lock(ui, Pos2::new(count.left() - 10.0, row.center().y), 12.0);
             } else if c.is_extension() {
-                icons::paint(&p, Icon::Link, Pos2::new(count.left() - 10.0, row.center().y), 12.0, theme::ICON_TERTIARY);
+                icons::paint(&p, Icon::Link, Pos2::new(count.left() - SIDE_BADGE_GAP, row.center().y), SIDE_BADGE_SIZE, theme::ICON_TERTIARY);
             }
         }
         if resp.clicked() && !selected {
@@ -782,8 +788,8 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
     let b = Rect::from_min_size(Pos2::new(x0 + 8.0, top), Vec2::new(w, theme::FIELD_HEIGHT));
     if let Some(note) = &note {
         // an extended collection inherits its variables: say from where, in the space "Create variable" would take
-        icons::paint(&p, Icon::Link, Pos2::new(b.left() + 14.0, b.center().y), 14.0, theme::ICON_TERTIARY);
-        p.text(Pos2::new(b.left() + 34.0, b.center().y), Align2::LEFT_CENTER, note, theme::font_body(), theme::TEXT_SECONDARY);
+        icons::paint(&p, Icon::Link, Pos2::new(b.left() + NOTE_ICON_X, b.center().y), NOTE_ICON_SIZE, theme::ICON_TERTIARY);
+        p.text(Pos2::new(b.left() + NOTE_TEXT_X, b.center().y), Align2::LEFT_CENTER, note, theme::font_body(), theme::TEXT_SECONDARY);
         widgets::record(ui, "vars-extends", b);
         ui.interact(b, Id::new("vars-extends"), Sense::hover()).on_hover_text(EXTENSION_TIP);
     } else if read_only {
@@ -836,6 +842,17 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
 
 // ------------------------------------------------------------------ extended collections
 
+/// Where the "Extends ..." note puts its icon and text, laid out like the "Create variable" button it replaces.
+const NOTE_ICON_X: f32 = 14.0;
+const NOTE_ICON_SIZE: f32 = 14.0;
+const NOTE_TEXT_X: f32 = 34.0;
+/// The link glyph left of an extended collection's count in the sidebar.
+const SIDE_BADGE_GAP: f32 = 10.0;
+const SIDE_BADGE_SIZE: f32 = 12.0;
+/// Distance of the override dot from the left edge of its cell, and the gap before a reset button.
+const OVERRIDE_DOT_X: f32 = 5.0;
+const RESET_GAP: f32 = 4.0;
+
 /// Hover text of the note and of the override marker.
 const EXTENSION_TIP: &str = "Values come from the parent collection until you change them here";
 
@@ -846,24 +863,39 @@ fn extension_note(view: &VariableStore, coll: &VariableCollection) -> Option<Str
     Some(format!("Extends {parent}"))
 }
 
-/// The blue dot of an overridden value; clicking it (it turns into a reset arrow on hover) restores the parent's value.
-fn override_marker(ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, fr: &mut Frame) {
+/// Width the reset button of an overridden value takes at the right edge of its cell while the row is hovered.
+fn reset_slot(overridden: bool, hot: bool, read_only: bool) -> f32 {
+    if overridden && hot && !read_only {
+        theme::TARGET_MIN + RESET_GAP
+    } else {
+        0.0
+    }
+}
+
+/// Marks an overridden value with a blue dot at the left of its cell. While the row is hovered a reset button at the
+/// right edge restores the parent's value.
+fn override_marker(ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, hot: bool, fr: &mut Frame) {
     if !fr.view.is_overridden(&v.collection, &v.id, mode) {
         return;
     }
-    let c = Pos2::new(cell.left() + 5.0, cell.center().y);
-    let hit = Rect::from_center_size(c, Vec2::new(10.0, 18.0));
+    let cy = cell.center().y;
+    let dot = Pos2::new(cell.left() + OVERRIDE_DOT_X, cy);
+    ui.painter().circle_filled(dot, 2.5, theme::INFO);
+    widgets::record(ui, &format!("vars-override:{}:{}", v.name, mode), Rect::from_center_size(dot, Vec2::splat(6.0)));
+    if reset_slot(true, hot, false) == 0.0 {
+        return;
+    }
+    let hit = Rect::from_center_size(Pos2::new(cell.right() - theme::TARGET_MIN / 2.0, cy), Vec2::splat(theme::TARGET_MIN));
     widgets::record(ui, &format!("vars-reset:{}:{}", v.name, mode), hit);
     let r = ui.interact(hit, Id::new(("vars-reset", &v.id, mode)), Sense::click());
     if r.hovered() {
-        icons::paint(ui.painter(), Icon::Rotation, c, 12.0, theme::INFO);
-    } else {
-        ui.painter().circle_filled(c, 2.5, theme::INFO);
+        ui.painter().rect_filled(hit, theme::cr(theme::RADIUS_CONTROL), theme::BG_PRESSED);
     }
+    icons::paint(ui.painter(), Icon::Rotation, hit.center(), 14.0, theme::INFO);
     if r.clicked() {
         fr.work.reset_override(&v.collection, &v.id, mode);
     }
-    r.on_hover_text("Overridden here. Click to use the parent's value");
+    r.on_hover_text("Reset to the parent's value");
 }
 
 // ------------------------------------------------------------------ table
@@ -1346,7 +1378,7 @@ fn move_into_group(store: &mut VariableStore, id: &str, group: Option<&str>) {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, hot: bool, opacity: bool, fr: &mut Frame) {
     value_cell_body(app, ui, cell, v, mode, hot, opacity, fr);
-    override_marker(ui, cell, v, mode, fr);
+    override_marker(ui, cell, v, mode, hot, fr);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1380,8 +1412,10 @@ fn value_cell_body(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, mode: &
         }
         return;
     }
-    let bind_rect = Rect::from_center_size(Pos2::new(cell.right() - 16.0, cy), Vec2::splat(20.0));
-    let mut field_right = cell.right() - 8.0;
+    // an overridden value keeps the right edge free for its reset button
+    let reset_w = reset_slot(fr.view.is_overridden(&v.collection, &v.id, mode), hot, ro);
+    let bind_rect = Rect::from_center_size(Pos2::new(cell.right() - 16.0 - reset_w, cy), Vec2::splat(20.0));
+    let mut field_right = cell.right() - 8.0 - reset_w;
     if hot && opacity && !ro {
         field_right = bind_rect.left() - 4.0;
     }
@@ -1838,6 +1872,18 @@ pub fn store_item(store: &VariableStore, v: &Variable) -> PickItem {
     PickItem { id: v.id.clone(), group: coll.map(|c| c.name.clone()).unwrap_or_default(), name: v.name.clone(), kind: v.kind, preview }
 }
 
+/// Writes a colour picked for `var` in `mode` through the variable store, so a colour picked in a mode of an extended
+/// collection becomes an override instead of a value the parent variable never reads.
+fn apply_picked_color(doc: &mut Document, var: &str, mode: &str, color: Color) -> bool {
+    let mut store = VariableStore::from_doc(doc);
+    if !store.set_value(var, mode, VariableValue::Color(color)) {
+        return false;
+    }
+    doc.variables = store.variables;
+    doc.variable_collections = store.collections;
+    true
+}
+
 fn run_cell_picker(app: &mut App, ctx: &Context) {
     let Some(mut pk) = app.vars.cell_picker.take() else { return };
     let screen = ctx.content_rect();
@@ -1854,11 +1900,7 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
         rect
     });
     if changed {
-        let c = from_c32(pk.color);
-        if let Some(v) = app.doc.variables.get_mut(&pk.var) {
-            v.values.insert(pk.mode.clone(), VariableValue::Color(c));
-            v.clear_derived_mode_extensions(&pk.mode);
-        }
+        apply_picked_color(&mut app.doc, &pk.var, &pk.mode, from_c32(pk.color));
         app.changed();
     }
     let (pressed, ptr, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(Key::Escape)));
@@ -1879,6 +1921,27 @@ mod tests {
 
     fn soft_delete(store: &mut VariableStore, id: &str) {
         store.variables.get_mut(id).unwrap().extensions.insert(designos_doc::SOFT_DELETED_EXTENSION_KEY.into(), true.into());
+    }
+
+    #[test]
+    fn a_colour_picked_in_an_extension_mode_is_an_override_and_leaves_the_parent_variable_alone() {
+        let mut store = VariableStore::default();
+        let theme = store.add_collection("Theme");
+        let light = store.collections[&theme].default_mode.clone();
+        let bg = store.add_variable(&theme, "bg", VariableKind::Color).unwrap();
+        assert!(store.set_value(&bg, &light, VariableValue::Color(Color::WHITE)));
+        let brand = store.extend_collection(&theme, "Brand").unwrap();
+        let brand_light = store.collections[&brand].modes[0].id.clone();
+        let mut doc = Document::new("d");
+        doc.variables = store.variables;
+        doc.variable_collections = store.collections;
+
+        assert!(apply_picked_color(&mut doc, &bg, &brand_light, Color::rgb(255, 0, 0)));
+        assert_eq!(doc.variables[&bg].values.len(), 1, "the parent variable gains no value for an extension mode");
+        assert_eq!(doc.extended_value(&brand, &bg, &brand_light), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+        assert!(VariableStore::from_doc(&doc).is_overridden(&brand, &bg, &brand_light));
+        assert!(apply_picked_color(&mut doc, &bg, &light, Color::BLACK), "the parent's own mode still edits the parent");
+        assert_eq!(doc.variables[&bg].values[&light], VariableValue::Color(Color::BLACK));
     }
 
     #[test]
