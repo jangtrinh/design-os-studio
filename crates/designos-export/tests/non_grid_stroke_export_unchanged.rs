@@ -39,6 +39,18 @@ fn outputs() -> Vec<(&'static str, String, String)> {
         n.stroke.align = StrokeAlign::Center;
         n.stroke.dashes = vec![4.0, 2.0];
     });
+    let neg_row = frame(&mut doc, page, LayoutDirection::Horizontal, |n, al| {
+        n.stroke.paints.clear();
+        al.padding = [-10.0, 20.0, 0.0, 20.0];
+    });
+    let neg_all = frame(&mut doc, page, LayoutDirection::Vertical, |n, al| {
+        n.stroke.paints.clear();
+        al.padding = [-10.0; 4];
+    });
+    let neg_grid = frame(&mut doc, page, LayoutDirection::Grid, |n, al| {
+        n.stroke.paints.clear();
+        al.padding = [-10.0, 20.0, 0.0, 20.0];
+    });
     let rect = doc.alloc_id();
     let mut r = Node::rectangle(rect, Rect::new(0.0, 0.0, 40.0, 40.0));
     r.fills.clear();
@@ -54,6 +66,9 @@ fn outputs() -> Vec<(&'static str, String, String)> {
     record("flex row, version 1 Inside stroke", &doc, v1_inside);
     record("flex column, dashed Center stroke", &doc, dashed_center);
     record("rectangle, Center stroke", &doc, rect);
+    record("flex row, negative padding", &doc, neg_row);
+    record("flex column, all sides negative padding", &doc, neg_all);
+    record("grid without a stroke, negative padding", &doc, neg_grid);
     out
 }
 
@@ -92,6 +107,21 @@ const GOLDEN: &[Case] = &[
         label: "rectangle, Center stroke",
         css: "width: 40px;\nheight: 40px;\noutline: 3px solid #333;\noutline-offset: -1.5px;",
         tailwind: "<div class=\"w-10 h-10 border-[3px] border-[#333333] outline-offset-[-1.5px]\"></div>",
+    },
+    Case {
+        label: "flex row, negative padding",
+        css: "display: flex;\nwidth: 200px;\nheight: 100px;\npadding: -10px 20px 0px;\nalign-items: flex-start;",
+        tailwind: "<div class=\"flex items-start px-5 pt-[-10px] w-[200px] h-[100px]\"></div>",
+    },
+    Case {
+        label: "flex column, all sides negative padding",
+        css: "display: flex;\nwidth: 200px;\nheight: 100px;\nflex-direction: column;\nalign-items: flex-start;",
+        tailwind: "<div class=\"flex flex-col items-start p-[-10px] w-[200px] h-[100px]\"></div>",
+    },
+    Case {
+        label: "grid without a stroke, negative padding",
+        css: "display: grid;\nwidth: 200px;\nheight: 100px;\npadding: -10px 20px 0px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(3, minmax(0, 1fr));\nalign-content: start;",
+        tailwind: "<div class=\"grid grid-cols-3 content-start box-border px-5 pt-[-10px] w-[200px] h-[100px]\"></div>",
     },
 ];
 

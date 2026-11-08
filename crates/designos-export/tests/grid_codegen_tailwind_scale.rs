@@ -123,3 +123,10 @@ fn react_with_tailwind_writes_the_same_classes() {
     assert!(jsx.contains("grid-cols-[repeat(16,minmax(0,1fr))]"), "{jsx}");
     assert!(jsx.contains("col-start-[14]") && jsx.contains("col-[span_13_/_span_13]"), "{jsx}");
 }
+
+#[test]
+fn rows_of_a_grid_with_a_child_are_the_content_sized_rows_not_the_scale() {
+    let (c6, _) = grid_and_child(3, 6, |_| {});
+    assert!(!c6.iter().any(|c| c.starts_with("grid-rows")), "{c6:?}");
+    assert!(has(&c6, "content-start"), "{c6:?}");
+}

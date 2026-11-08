@@ -132,7 +132,7 @@ pub fn scene_s6b_hug_height_explicit_rows_unequal() -> GridFixture {
 }
 
 pub fn scene_c10_stroke_v1_inside_sides_unpadded_fixed() -> GridFixture {
-    let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Hug);
+    let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Fixed);
     al.layout_version = 1;
     let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 60.0));
     let n = doc.get_mut(grid).unwrap();
@@ -141,8 +141,8 @@ pub fn scene_c10_stroke_v1_inside_sides_unpadded_fixed() -> GridFixture {
     let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
     let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
     doc.relayout_subtree(grid);
-    GridFixture { name: "c10_stroke_v1_inside_sides_unpadded_fixed", doc, grid, items: vec![a, b], expected_css: "display: grid;\nwidth: 200px;\nheight: 30px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nbox-shadow: inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
-        expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[200px] h-[30px] shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>", }
+    GridFixture { name: "c10_stroke_v1_inside_sides_unpadded_fixed", doc, grid, items: vec![a, b], expected_css: "display: grid;\nwidth: 200px;\nheight: 60px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nborder-width: 4px 1px 2px 3px;\nborder-style: solid;\nborder-color: #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start box-border w-[200px] h-15 border-t-4 border-r border-b-2 border-l-[3px] border-[#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>", }
 }
 
 /// A grid component (not a plain frame) with a Center stroke: the container kinds share one stroke model.
@@ -179,4 +179,27 @@ pub fn scene_c9_stroke_v1_inside_sides_padded_fixed() -> GridFixture {
     doc.relayout_subtree(grid);
     GridFixture { name: "c9_stroke_v1_inside_sides_padded_fixed", doc, grid, items: vec![a, b], expected_css: "display: grid;\nwidth: 200px;\nheight: 46px;\npadding: 8px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nbox-shadow: inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
         expected_tailwind: "<div class=\"grid grid-cols-2 content-start box-border p-2 w-[200px] h-[46px] shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>", }
+}
+
+/// A child spans rows 0 and 1 and is taller (30) than the content of both rows (10 and 2). The solver
+/// levels the rows to 15 each; CSS `auto` rows would split the extra unevenly (19 and 11).
+pub fn scene_c12_row_span_over_content_sized_rows() -> GridFixture {
+    let al = base(2, 0.0, Sizing::Fixed, Sizing::Fixed);
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 200.0));
+    let a = add_item(&mut doc, grid, 50.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 50.0, 10.0, Sizing::Fixed, Sizing::Fixed);
+    let c = add_item(&mut doc, grid, 50.0, 2.0, Sizing::Fixed, Sizing::Fixed);
+    let lc = &mut doc.get_mut(a).unwrap().layout_child;
+    lc.grid_column = Some(0);
+    lc.grid_row = Some(0);
+    lc.row_span = 2;
+    let lc = &mut doc.get_mut(b).unwrap().layout_child;
+    lc.grid_column = Some(1);
+    lc.grid_row = Some(0);
+    let lc = &mut doc.get_mut(c).unwrap().layout_child;
+    lc.grid_column = Some(1);
+    lc.grid_row = Some(1);
+    doc.relayout_subtree(grid);
+    GridFixture { name: "c12_row_span_over_content_sized_rows", doc, grid, items: vec![a, b, c], expected_css: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: 15px 15px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 grid-rows-[15px_15px] content-start w-[200px] h-[200px]\">\n  <div class=\"col-start-1 row-start-1 row-span-2 w-[50px] h-[30px]\"></div>\n  <div class=\"col-start-2 row-start-1 w-[50px] h-2.5\"></div>\n  <div class=\"col-start-2 row-start-2 w-[50px] h-0.5\"></div>\n</div>" }
 }

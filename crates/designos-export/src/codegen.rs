@@ -858,7 +858,10 @@ pub(crate) fn resolved_grid_row_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
         };
     }
     let (rows, content) = packed_rows(doc, n, al, &kids);
-    if rows.len() != content.len() || rows.iter().zip(&content).any(|(a, b)| (a - b).abs() > 0.01) {
+    // CSS shares a spanning child's extra height out evenly over its `auto` rows, the solver levels them,
+    // so the solver's rows are written whenever a child spans more than one.
+    let spans = kids.iter().any(|k| k.cell.row_span > 1);
+    if spans || rows.len() != content.len() || rows.iter().zip(&content).any(|(a, b)| (a - b).abs() > 0.01) {
         return pixel_rows(rows);
     }
     // The solver's rows are content-sized: a stored Flex row becomes `auto`, and the Flex rows after the
@@ -1085,7 +1088,8 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
                 .enumerate()
                 .map(|(i, k)| match b(k, Fallback::Px) {
                     Some(v) => padding_with_extra(&v, extra[i]),
-                    None => format!("{}px", num((al.padding[i] + extra[i]).max(0.0))),
+                    None if extra[i] != 0.0 => format!("{}px", num((al.padding[i] + extra[i]).max(0.0))),
+                    None => format!("{}px", num(al.padding[i])),
                 })
                 .collect();
             lines.retain(|l| !l.starts_with("padding: "));
@@ -1109,6 +1113,11 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
             corners.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(n.corner_radii[i])))).collect();
         set_decl(lines, "border-radius", css_box(&vals));
     }
+}
+
+/// The stroke colour of `n` as CSS when a variable is bound to it: `var(--Color-Stroke, #333)`.
+pub(crate) fn stroke_color_token(doc: &Document, n: &Node) -> Option<String> {
+    bound(doc, n, "strokes/0").map(|v| css_var_with_fallback(doc, n, v, Fallback::Color))
 }
 
 /// A bound padding side plus the pixels the stroke model of a grid frame asks of it.

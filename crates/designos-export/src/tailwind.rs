@@ -83,7 +83,7 @@ fn spaced_plus(prefix: &str, px: f32, var: Option<&Variable>, extra: f32) -> Str
             format!("{prefix}-[{name}]")
         };
     }
-    let px = (px + extra).max(0.0);
+    let px = if extra != 0.0 { (px + extra).max(0.0) } else { px };
     match space_token(px) {
         Some(t) => format!("{prefix}-{t}"),
         None => format!("{prefix}-[{}px]", num(px)),
@@ -200,11 +200,12 @@ fn opacity_class(o: f32) -> Option<String> {
     }
 }
 
-fn shadow_value(n: &Node, stroke: Option<GridStroke>) -> Option<String> {
+fn shadow_value(doc: &Document, n: &Node, stroke: Option<GridStroke>) -> Option<String> {
     let mut parts = Vec::new();
-    if let (Some(g), Some(p)) = (stroke, n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0)) {
-        let color = match &p.kind {
-            PaintKind::Solid(c) => hex8(c, p.opacity),
+    if let (Some(g), Some(p)) = (stroke, crate::grid_stroke::drawn_paint(&n.stroke)) {
+        let color = match (bound(doc, n, "strokes/0"), &p.kind) {
+            (Some(v), _) => css_var(v),
+            (None, PaintKind::Solid(c)) => hex8(c, p.opacity),
             _ => "transparent".to_string(),
         };
         parts.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset_{}px_{}px_0px_0px_{color}", num(*x), num(*y))));
@@ -286,13 +287,13 @@ fn outline_classes(doc: &Document, n: &Node, p: &Paint) -> Vec<String> {
     c
 }
 
-fn pad_classes(doc: &Document, n: &Node, al: &AutoLayout) -> Vec<String> {
+fn pad_classes(doc: &Document, n: &Node, al: &AutoLayout, stroke: Option<GridStroke>) -> Vec<String> {
     let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     let var = |i: usize| bound(doc, n, keys[i]);
     let p = al.padding;
-    let extra = crate::grid_stroke::grid_stroke_of(doc, n).map_or([0.0; 4], |g| g.pad_extra);
+    let extra = stroke.map_or([0.0; 4], |g| g.pad_extra);
     let side = |prefix: &str, i: usize| spaced_plus(prefix, p[i], var(i), extra[i]);
-    if p.iter().zip(&extra).all(|(v, e)| *v + *e <= 0.0) && keys.iter().all(|k| bound(doc, n, k).is_none()) {
+    if p.iter().zip(&extra).all(|(v, e)| if *e != 0.0 { *v + *e <= 0.0 } else { *v == 0.0 }) && keys.iter().all(|k| bound(doc, n, k).is_none()) {
         return vec![];
     }
     let same = |a: usize, b: usize| p[a] == p[b] && extra[a] == extra[b] && var(a).map(|v| &v.id) == var(b).map(|v| &v.id);
@@ -395,6 +396,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     let mut c: Vec<String> = Vec::new();
     let sz = web_sizes(n, parent);
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
+    let grid_stroke = crate::grid_stroke::grid_stroke_of(doc, n);
     let has_children = !visible_children(doc, n).is_empty();
     let abs_children = visible_children(doc, n).iter().any(|k| own_al.is_none() || k.layout_child.absolute);
 
@@ -444,8 +446,8 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
                     c.push(spaced("gap-y", row_gap, row_var));
                 }
             }
-            let pads = pad_classes(doc, n, al);
-            let border_takes_space = crate::grid_stroke::grid_stroke_of(doc, n).is_some_and(|g| g.border());
+            let pads = pad_classes(doc, n, al, grid_stroke);
+            let border_takes_space = grid_stroke.is_some_and(|g| g.border());
             if !pads.is_empty() || al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) || border_takes_space {
                 c.push("box-border".into());
             }
@@ -473,7 +475,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
             if al.item_spacing > 0.0 && al.primary_align != LayoutAlign::SpaceBetween {
                 c.push(spaced("gap", al.item_spacing, bound(doc, n, "itemSpacing")));
             }
-            c.extend(pad_classes(doc, n, al));
+            c.extend(pad_classes(doc, n, al, None));
         }
     }
     if sz.in_flow {
@@ -550,7 +552,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         .filter(|_| text_of(n).is_none() && has_stroke_width)
     {
         let w = n.stroke.weight;
-        let grid_model = crate::grid_stroke::grid_stroke_of(doc, n).map(|g| g.model);
+        let grid_model = grid_stroke.map(|g| g.model);
         if grid_model == Some(StrokeModel::Shadow) {
             // drawn as inset shadows with the other effects
         } else if grid_model == Some(StrokeModel::Outline) {
@@ -600,7 +602,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         c.push("overflow-hidden".into());
     }
     // effects
-    if let Some(s) = shadow_value(n, crate::grid_stroke::grid_stroke_of(doc, n).filter(|g| g.model == StrokeModel::Shadow)) {
+    if let Some(s) = shadow_value(doc, n, grid_stroke.filter(|g| g.model == StrokeModel::Shadow)) {
         c.push(s);
     }
     for e in &n.effects {

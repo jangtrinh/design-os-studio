@@ -120,7 +120,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     let grid_stroke = crate::grid_stroke::grid_stroke_of(doc, n);
     if let Some(al) = own_al {
         let extra = grid_stroke.map_or([0.0; 4], |g| g.pad_extra);
-        let [t, r, b, l] = std::array::from_fn(|i| (al.padding[i] + extra[i]).max(0.0));
+        let [t, r, b, l] = std::array::from_fn(|i| if extra[i] != 0.0 { (al.padding[i] + extra[i]).max(0.0) } else { al.padding[i] });
         if t + r + b + l > 0.0 {
             push("padding", box_shorthand(t, r, b, l));
         }
@@ -227,8 +227,8 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     // effects
     let mut shadows = Vec::new();
     let mut text_shadows = Vec::new();
-    if let (Some(g), Some(p)) = (grid_stroke.filter(|g| g.model == StrokeModel::Shadow), n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0)) {
-        let color = solid_or_first(p);
+    if let (Some(g), Some(p)) = (grid_stroke.filter(|g| g.model == StrokeModel::Shadow), crate::grid_stroke::drawn_paint(&n.stroke)) {
+        let color = crate::codegen::stroke_color_token(doc, n).unwrap_or_else(|| solid_or_first(p));
         shadows.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset {}px {}px 0 0 {color}", num(*x), num(*y))));
     }
     for e in &n.effects {

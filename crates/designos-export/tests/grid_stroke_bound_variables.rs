@@ -125,3 +125,67 @@ fn an_included_inside_stroke_stays_a_border_with_the_stored_padding() {
     assert_eq!(decl(&css, "border"), "var(--Stroke-Width, 6px) solid #333", "{css}");
     assert!(!css.contains("outline"), "{css}");
 }
+
+fn color_variable() -> Variable {
+    Variable {
+        id: "stroke-color".into(),
+        name: "Color/Stroke".into(),
+        collection: "c".into(),
+        kind: VariableKind::Color,
+        values: [("m".to_string(), VariableValue::Color(Color::rgb(0x33, 0x33, 0x33)))].into_iter().collect(),
+        description: String::new(),
+        scopes: vec![],
+        hidden_from_publishing: false,
+        key: None,
+        code_syntax: Default::default(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
+    }
+}
+
+/// A version 1 grid with an Inside stroke of sides 4/1/2/3 (the solver reserves nothing), stored padding
+/// `padding` on every side, and the stroke colour bound to a variable.
+fn sided_grid(padding: f32) -> (Document, NodeId) {
+    let (mut doc, g) = grid(1, false, StrokeAlign::Inside, false);
+    doc.variables.insert("stroke-color".into(), color_variable());
+    doc.variable_collections.get_mut("c").unwrap().variables.push("stroke-color".into());
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    n.stroke.side_weights = Some([4.0, 1.0, 2.0, 3.0]);
+    n.variables.bindings.insert("strokes/0".into(), "stroke-color".into());
+    if let NodeKind::Frame(f) = &mut n.kind {
+        f.auto_layout.as_mut().unwrap().padding = [padding; 4];
+    }
+    (doc, g)
+}
+
+#[test]
+fn an_inset_shadow_stroke_keeps_the_bound_colour_variable() {
+    let (doc, g) = sided_grid(8.0);
+    let css = css_for(&doc, g);
+    assert!(decl(&css, "box-shadow").contains("var(--Color-Stroke"), "{css}");
+    assert!(!css.lines().any(|l| l.starts_with("border")), "{css}");
+    let tw = tailwind_for(&doc, g);
+    assert!(tw.contains("shadow-[inset_0px_4px_0px_0px_var(--Color-Stroke)"), "{tw}");
+}
+
+#[test]
+fn a_per_side_stroke_wider_than_the_padding_is_a_visible_border_with_its_colour_variable() {
+    let (doc, g) = sided_grid(2.0);
+    let css = css_for(&doc, g);
+    assert_eq!(decl(&css, "border-width"), "4px 1px 2px 3px", "{css}");
+    assert!(decl(&css, "border-color").contains("var(--Color-Stroke"), "{css}");
+    assert!(!css.contains("box-shadow"), "{css}");
+    let tw = tailwind_for(&doc, g);
+    assert!(tw.contains("border-t-4") && tw.contains("border-[var(--Color-Stroke)]") && !tw.contains("shadow-["), "{tw}");
+}
+
+#[test]
+fn the_inset_shadow_needs_padding_at_least_the_widest_stroked_side() {
+    let (doc, g) = sided_grid(3.0);
+    let css = css_for(&doc, g);
+    assert!(css.contains("border-width") && !css.contains("box-shadow"), "padding 3 < 4 on top must be a border: {css}");
+    let (doc, g) = sided_grid(4.0);
+    let css = css_for(&doc, g);
+    assert!(css.contains("box-shadow: inset"), "{css}");
+}

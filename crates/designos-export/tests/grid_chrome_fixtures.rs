@@ -87,6 +87,7 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         extra::scene_c8_component_grid_center_stroke(),
         extra::scene_c9_stroke_v1_inside_sides_padded_fixed(),
         extra::scene_c10_stroke_v1_inside_sides_unpadded_fixed(),
+        extra::scene_c12_row_span_over_content_sized_rows(),
     ]
 }
 
@@ -272,8 +273,8 @@ fn scene_row_and_column_spans() -> GridFixture {
         doc,
         grid,
         items: vec![hero, top_wide, mid_a, mid_b, footer],
-        expected_css: "display: grid;\nwidth: 428px;\nheight: 220px;\npadding: 12px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(4, minmax(0, 1fr));\ngap: 12px;\nalign-content: start;",
-        expected_tailwind: "<div class=\"grid grid-cols-4 content-start gap-3 box-border p-3 w-[428px] h-[220px]\">\n  <div class=\"col-span-2 row-span-2 h-[92px]\"></div>\n  <div class=\"col-span-2 h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"col-start-1 col-span-4 row-start-3 h-9\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 428px;\nheight: 220px;\npadding: 12px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(4, minmax(0, 1fr));\ngrid-template-rows: 40px 40px 36px;\ngap: 12px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-4 grid-rows-[40px_40px_36px] content-start gap-3 box-border p-3 w-[428px] h-[220px]\">\n  <div class=\"col-span-2 row-span-2 h-[92px]\"></div>\n  <div class=\"col-span-2 h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"col-start-1 col-span-4 row-start-3 h-9\"></div>\n</div>",
     }
 }
 
@@ -715,6 +716,17 @@ fn json_str(s: &str) -> String {
     out
 }
 
+/// What the Chrome harness expects of a scene beyond box positions: the drift it accepts (a visible
+/// stroke wins over exact geometry) and whether a child that fills its cell must leave the stroke
+/// visible on all four sides.
+fn harness_expectation(name: &str) -> (f32, bool) {
+    match name {
+        "c9_stroke_v1_inside_sides_padded_fixed" => (0.0, true),
+        "c10_stroke_v1_inside_sides_unpadded_fixed" => (4.0, true),
+        _ => (0.0, false),
+    }
+}
+
 fn dump_fixtures_json() -> String {
     let fixtures = build_fixtures();
     let mut out = String::from("[\n");
@@ -724,6 +736,8 @@ fn dump_fixtures_json() -> String {
         out.push_str(&format!("    \"name\": {},\n", json_str(f.name)));
         out.push_str(&format!("    \"grid_width\": {},\n", gnode.size.x));
         out.push_str(&format!("    \"grid_height\": {},\n", gnode.size.y));
+        let (accepted_drift, stroke_probe) = harness_expectation(f.name);
+        out.push_str(&format!("    \"accepted_drift\": {accepted_drift},\n    \"stroke_probe\": {stroke_probe},\n"));
         out.push_str(&format!("    \"grid_css\": {},\n", json_str(&css_for(&f.doc, f.grid))));
         out.push_str(&format!("    \"tailwind_html\": {},\n", json_str(&tailwind_for(&f.doc, f.grid))));
         out.push_str("    \"items\": [\n");
@@ -992,6 +1006,21 @@ fn exported_stroke_padding_plus_border_equals_the_inset_the_solver_reserves() {
     let css = css_for(&f.doc, f.grid);
     assert_eq!(px_list(&css, "padding"), Some(vec![8.0]), "{css}");
     assert!(css.contains("outline-offset: -2px;"), "{css}");
+}
+
+#[test]
+fn c12_row_span_over_content_sized_rows_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c12_row_span_over_content_sized_rows");
+}
+
+#[test]
+fn row_span_over_content_sized_rows_exports_the_solver_rows() {
+    let f = fixture_named("c12_row_span_over_content_sized_rows");
+    let (al, own, size, kids) = solver_inputs(&f);
+    let solved = designos_doc::layout_solver::grid_row_heights(&al, size, own, &kids);
+    assert_eq!(solved, vec![15.0, 15.0]);
+    let css = css_for(&f.doc, f.grid);
+    assert_eq!(px_list(&css, "grid-template-rows"), Some(solved), "{css}");
 }
 
 #[test]
