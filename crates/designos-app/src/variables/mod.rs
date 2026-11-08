@@ -274,6 +274,7 @@ impl App {
             Ok(()) => {
                 self.changed();
                 self.sanitize();
+                self.warn_prop_binding_problems(&affected);
                 true
             }
             Err(e) => {
@@ -281,6 +282,28 @@ impl App {
                 false
             }
         }
+    }
+
+    fn warn_prop_binding_problems(&mut self, nodes: &[NodeId]) {
+        let msg = nodes.iter().find_map(|&id| {
+            let n = self.doc.get(id)?;
+            prop_bindings_of(n).find_map(|(prop, _)| prop_binding_problem(&self.doc, id, prop).map(|p| p.to_string()))
+        });
+        if let Some(msg) = msg {
+            self.show_toast(msg, false);
+        }
+    }
+
+    fn warn_prop_binding_problems_in_subtrees(&mut self, roots: &[NodeId]) {
+        let mut ids = Vec::new();
+        for &root in roots {
+            self.doc.walk(root, |n, _| {
+                if matches!(n.kind, NodeKind::Instance { .. }) {
+                    ids.push(n.id);
+                }
+            });
+        }
+        self.warn_prop_binding_problems(&ids);
     }
 
     /// Ends a colour-picker session: the live edits become one undo step.
@@ -298,6 +321,7 @@ impl App {
         let mut tx = Tx::new();
         self.bind_variable_in(&mut tx, nodes, keys, var);
         self.run_tx(tx);
+        self.warn_prop_binding_problems(nodes);
     }
 
     /// [`App::bind_variable`] inside a caller-owned transaction.
@@ -368,6 +392,7 @@ impl App {
                 n.variables.modes.remove(&c);
             }
         });
+        self.warn_prop_binding_problems_in_subtrees(nodes);
     }
 
     /// Merges a `variables/local`, `figma-native`, or `dtcg` JSON payload into the document (one undo step).

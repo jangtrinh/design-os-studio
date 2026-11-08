@@ -225,6 +225,67 @@ fn a_boolean_property_binds_to_a_variable_from_the_inspector_and_follows_the_mod
 }
 
 #[test]
+fn a_variant_property_binds_to_a_variable_from_the_inspector_and_warns_when_not_an_option() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let mut variants = Vec::new();
+    for (name, w, y) in [("Size=Small", 80.0, 500.0), ("Size=Large", 120.0, 600.0)] {
+        let id = s.shell.app.doc.alloc_id();
+        let mut v = designos_doc::Node::frame(id, designos_doc::Rect::new(40.0, y, w, 40.0));
+        v.name = name.into();
+        let v = s.shell.app.doc.insert(page, v).unwrap();
+        designos_doc::create_component(&mut s.shell.app.doc, v).apply(&mut s.shell.app.doc).unwrap();
+        variants.push(v);
+    }
+    let (small, large) = (variants[0], variants[1]);
+    designos_doc::combine_as_variants(&mut s.shell.app.doc, &[small, large]).apply(&mut s.shell.app.doc).unwrap();
+    designos_doc::create_instance(&mut s.shell.app.doc, small, page, DV::new(260.0, 500.0)).apply(&mut s.shell.app.doc).unwrap();
+    let inst = *s.app().doc.get(page).unwrap().children.last().unwrap();
+
+    let (size_var, coll_id, dark) = {
+        let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+        let theme = store.collections.values().find(|c| c.name == "Theme").expect("Theme collection").clone();
+        let var = store.add_variable(&theme.id, "Tokens/Size", designos_doc::VariableKind::String).unwrap();
+        store.set_value(&var, &theme.modes[0].id, designos_doc::VariableValue::String("Large".into()));
+        store.set_value(&var, &theme.modes[1].id, designos_doc::VariableValue::String("XL".into()));
+        s.shell.app.commit_store(store, &[], &[]);
+        (var, theme.id.clone(), theme.modes[1].id.clone())
+    };
+
+    s.shell.app.selection = vec![inst];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let key = designos_doc::prop_binding_key("Size");
+    let row = s.rect_of("prop:Size");
+    s.mv(row.center());
+    s.frame(vec![]);
+    s.click(s.rect_of(&format!("bind:{key}")).center());
+    assert!(s.app().vars.bind_picker.is_some(), "the bind button opens the variable picker for Variant");
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Tokens/Size").center());
+    assert_eq!(s.app().doc.get(inst).unwrap().variables.bindings.get(&key), Some(&size_var));
+    assert_eq!(designos_doc::instance_component(s.app().doc.get(inst).unwrap()), Some(large), "light mode swaps to Size=Large");
+
+    s.frame(vec![]);
+    s.rect_of(&format!("bound:{key}"));
+    s.shell.app.toast = None;
+    s.shell.app.set_node_mode(&[inst], &coll_id, Some(&dark));
+    assert_eq!(
+        designos_doc::instance_component(s.app().doc.get(inst).unwrap()),
+        Some(large),
+        "dark mode value XL is not an option of Size, so the instance keeps Size=Large"
+    );
+    let toast = s.app().toast.as_ref().map(|t| t.text.as_str());
+    assert_eq!(toast, Some("\"XL\" is not a variant option (Small, Large)"), "the invalid variant option reports a warning toast");
+
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.get(inst).unwrap().variables.modes.is_empty(), "first undo reverts the mode change");
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.get(inst).unwrap().variables.bindings.is_empty(), "second undo reverts the variable bind");
+    assert_eq!(designos_doc::instance_component(s.app().doc.get(inst).unwrap()), Some(small));
+}
+
+#[test]
 fn inspector_text_property_relabels_the_instance() {
     let mut s = Sim::with(Options { select: Some("Get started".into()), ..Default::default() });
     let inst = s.by_name("Get started");

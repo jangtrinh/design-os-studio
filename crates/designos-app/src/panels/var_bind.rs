@@ -649,6 +649,11 @@ pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
     };
     let k0 = keys[0];
     let r = draw_pill(ui, rect, || format!("bound:{k0}"), ("bound", k0), &var.name, swatch);
+    if let Some(prop) = k0.strip_prefix(PROP_BINDING_PREFIX) {
+        if let Some(problem) = prop_binding_problem(&app.doc, *first, prop) {
+            r.body.clone().on_hover_text(problem.to_string());
+        }
+    }
     if r.detach {
         app.detach_variable(sel, keys);
     } else if r.body.clicked() {

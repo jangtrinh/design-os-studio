@@ -162,3 +162,66 @@ fn an_instance_without_bindings_writes_no_alias() {
     let assigns = inst["componentPropAssignments"].as_array().cloned().unwrap_or_default();
     assert!(assigns.iter().all(|a| a["varValue"]["dataType"] != "ALIAS"), "{assigns:?}");
 }
+
+#[test]
+fn a_variant_assignment_bound_to_a_string_variable_swaps_the_variant_and_round_trips() {
+    let mut nodes = document_and_page();
+    let set = fig_node(
+        SET,
+        (0, 1),
+        "VARIABLE_SET",
+        "Theme",
+        json!({"key": "theme", "variableSetModes": [
+            {"id": guid(LIGHT.0, LIGHT.1), "name": "Light", "sortPosition": "!"}, {"id": guid(DARK.0, DARK.1), "name": "Dark", "sortPosition": "\""}]}),
+    );
+    let size_var = (1, 9);
+    let comp_set_defs = json!([
+        {"id": guid(7, 3), "name": "Size", "type": "VARIANT", "initialValue": {"textValue": {"characters": "Small"}}}
+    ]);
+    let orders = json!([{"property": "Size", "values": ["Small", "Large"]}]);
+    nodes.extend([
+        set,
+        variable(size_var, "BtnSize", "STRING", json!({"textValue": "Large"}), json!({"textValue": "Small"})),
+        fig_node(
+            (5, 10),
+            (0, 1),
+            "FRAME",
+            "Btn",
+            json!({"isStateGroup": true, "size": {"x": 240.0, "y": 60.0}, "componentPropDefs": comp_set_defs, "stateGroupPropertyValueOrders": orders}),
+        ),
+        fig_node((5, 11), (5, 10), "SYMBOL", "Size=Small", json!({"size": {"x": 80.0, "y": 32.0}})),
+        fig_node((5, 12), (5, 10), "SYMBOL", "Size=Large", json!({"size": {"x": 120.0, "y": 48.0}})),
+        fig_node(
+            (1, 2),
+            (0, 1),
+            "INSTANCE",
+            "Cta",
+            json!({"size": {"x": 80.0, "y": 32.0}, "symbolData": {"symbolID": guid(5, 11), "uniformScaleFactor": 1.0, "symbolOverrides": []},
+                   "componentPropAssignments": [
+                       alias_assignment((7, 3), "STRING", size_var, json!({"textValue": {"characters": "Large"}}))]}),
+        ),
+    ]);
+    let doc = import_fig_node_changes(&Value::Array(nodes), "variant prop variable binding").expect("import");
+    let cta = by_name(&doc, "Cta");
+    let large = by_name(&doc, "Size=Large").id;
+    let small = by_name(&doc, "Size=Small").id;
+    assert_eq!(bound_name(&doc, cta, "Size").as_deref(), Some("BtnSize"));
+    assert_eq!(instance_component(cta), Some(large), "light mode variable selects Size=Large even when symbolID was Size=Small");
+
+    let saved = export_fig(&doc).expect("export");
+    let mut reopened = import_fig(&saved).expect("reopen");
+    let cta_re = by_name(&reopened, "Cta");
+    assert_eq!(bound_name(&reopened, cta_re, "Size").as_deref(), Some("BtnSize"));
+    assert_eq!(instance_component(cta_re), Some(by_name(&reopened, "Size=Large").id));
+
+    let cta_id = cta_re.id;
+    let small_re = by_name(&reopened, "Size=Small").id;
+    let mut host = reopened.get(cta_id).unwrap().clone();
+    host.variables
+        .modes
+        .insert(reopened.variable_collections.keys().next().unwrap().clone(), reopened.variable_collections.values().next().unwrap().modes[1].id.clone());
+    let mut h = History::default();
+    h.exec(&mut reopened, Command::Update { node: Box::new(host) }).unwrap();
+    assert_eq!(instance_component(reopened.get(cta_id).unwrap()), Some(small_re), "dark mode swaps reopened instance to Size=Small");
+    let _ = small;
+}

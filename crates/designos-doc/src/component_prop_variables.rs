@@ -237,6 +237,21 @@ pub(crate) fn prop_resync_scope(doc: &Document, cmd: &Command) -> PropResyncScop
     out
 }
 
+fn prop_needs_resync(doc: &Document, id: NodeId, n: &Node, def: &ComponentPropDef, value: &PropValue) -> bool {
+    if prop_value(doc, id, def) != *value {
+        return true;
+    }
+    if let PropValue::Variant(want) = value {
+        let shown = instance_component(n)
+            .and_then(|c| doc.get(c))
+            .and_then(|c| parse_variant_name(&c.name).into_iter().find_map(|(k, v)| (k == def.name).then_some(v)));
+        if shown.as_deref() != Some(want.as_str()) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Re-applies the bound values of every instance in `scope` whose stored value differs from what its variable gives
 /// now, and returns the command that undoes it (`None` when nothing changed). A binding that gives no valid value
 /// leaves its property alone.
@@ -263,7 +278,7 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
                 .filter_map(|(name, var)| {
                     let def = def_of(doc, n, name)?;
                     let value = resolve_for_def(doc, id, &def, var).ok()?;
-                    (prop_value(doc, id, &def) != value).then(|| (name.to_string(), value))
+                    prop_needs_resync(doc, id, n, &def, &value).then(|| (name.to_string(), value))
                 })
                 .collect();
             (!changes.is_empty()).then_some((id, changes))
@@ -276,6 +291,9 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
                 n.component.values.insert(name, value);
             }
         });
+        if matches!(&cmd, Command::Batch(v) if v.is_empty()) {
+            continue;
+        }
         match cmd.apply_atomic(doc) {
             Ok(inv) => undo.push(inv),
             Err(e) => {
@@ -287,7 +305,7 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
         }
     }
     undo.reverse();
-    Ok((!undo.is_empty()).then(|| Command::Batch(undo)))
+    Ok(if undo.is_empty() { None } else { Some(Command::Batch(undo)) })
 }
 
 /// Applies the values of every bound property to its instance, with no undo step: for a document that was just read
