@@ -1142,7 +1142,10 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         Interaction::Connect(c) => crate::board::connect::drag(app, c, cur, inp.mods),
         Interaction::Table(d) => match d {
             crate::board::table::grips::TableDrag::Block { table, anchor } => crate::board::table::select::drag_block(app, *table, *anchor, cur),
-            other => crate::board::table::grips::drag(app, other, cur),
+            other => {
+                let reach = ui.ctx().options(|o| o.input_options.max_click_dist);
+                crate::board::table::grips::drag(app, other, cur, reach)
+            }
         },
         Interaction::Marquee { start, cur: c, base, matching } => {
             if inp.space {

@@ -1117,6 +1117,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     title(ui, pane, "Position", None, false);
     // a cell sits where its table's rows and columns put it: its geometry is read-only (disabled, not hidden)
     let cell_sel = sel.iter().any(|id| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::TableCell(_))));
+    let geometry_top = pane.y;
     ui.add_enabled_ui(!cell_sel, |ui| {
         sublabel(ui, pane, "Alignment");
         let h = [Icon::AlignLeft, Icon::AlignHCenter, Icon::AlignRight];
@@ -1183,6 +1184,9 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         row_end(pane);
         pane.y += 4.0;
     });
+    if cell_sel {
+        cell_geometry_reason(ui, pane, geometry_top, "cell-geometry-position");
+    }
 
     let al_frame = is_frame && !multi && n0.kind.frame_props().map(|f| f.auto_layout.is_some()).unwrap_or(false);
 
@@ -1205,7 +1209,11 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     if !al_frame {
         section_sep(ui, pane, false);
         title(ui, pane, "Layout", None, false);
+        let dimensions_top = pane.y;
         ui.add_enabled_ui(!cell_sel, |ui| dimensions_ui(app, ui, pane, sel, &fresh, is_line));
+        if cell_sel {
+            cell_geometry_reason(ui, pane, dimensions_top, "cell-geometry-size");
+        }
         if parent_al || is_text {
             resizing_ui(app, ui, pane, sel, &n0);
         }
@@ -1585,6 +1593,16 @@ fn set_sizing(app: &mut App, sel: &[NodeId], horizontal: bool, s: Sizing) {
             }
         }
     });
+}
+
+/// Says why the greyed rows from `top` down to the pane's current y cannot be edited: a cell sits where the
+/// table's rows and columns put it.
+fn cell_geometry_reason(ui: &Ui, pane: &Pane, top: f32, id: &str) {
+    let from = pane.rect(0.0, top - pane.y, 1.0, 1.0).min;
+    let to = pane.rect(0.0, 0.0, 1.0, 1.0).min;
+    let width = pane.full(0.0).width();
+    let r = Rect::from_min_size(from, Vec2::new(width, (to.y - from.y).max(1.0)));
+    ui.interact(r, ui.id().with(id), Sense::hover()).on_hover_text("Resize rows or columns to change cell size.");
 }
 
 fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32>) {

@@ -3,6 +3,7 @@
 
 use super::{commit, table_of, TableGeo};
 use crate::app::App;
+use crate::theme;
 use designos_doc::table_ops;
 use designos_doc::{NodeId, Vec2};
 use egui::{Pos2, Rect};
@@ -40,6 +41,7 @@ pub enum TableDrag {
         start_size: f32,
         start_local: f32,
         size: f32,
+        moved: bool,
     },
     Reorder {
         table: NodeId,
@@ -67,6 +69,15 @@ fn track_under(edges: &[f32], at: impl Fn(f32) -> f32, v: f32) -> usize {
 
 fn mid(edges: &[f32], i: usize) -> f32 {
     (edges[i] + edges[i + 1]) / 2.0
+}
+
+/// Where a control of the table chrome can be pressed: the canvas, less the ruler strips and their press band.
+pub fn live_area(app: &App) -> Rect {
+    let mut r = app.canvas_rect;
+    if app.ui.rulers {
+        r.min += egui::vec2(theme::DRAG_DIVIDER_HIT, theme::DRAG_DIVIDER_HIT);
+    }
+    r
 }
 
 /// Pointer areas, in screen px, of everything a selected table offers around `pos`.
@@ -99,18 +110,17 @@ pub fn areas(app: &App, geo: &TableGeo, pos: Pos2) -> Vec<(Hover, Rect)> {
         (0..=rows).min_by(|a, b| (screen(app, geo, 0.0, geo.row_y[*a]).y - pos.y).abs().total_cmp(&(screen(app, geo, 0.0, geo.row_y[*b]).y - pos.y).abs()));
     let line_col =
         (0..=cols).min_by(|a, b| (screen(app, geo, geo.col_x[*a], 0.0).x - pos.x).abs().total_cmp(&(screen(app, geo, geo.col_x[*b], 0.0).x - pos.x).abs()));
-    // the "+" has a lane of its own, one grip further out, so its 24 px target never overlaps a grip's;
-    // were it to overlap, it would be neither drawn nor live
-    let free = |plus: Rect, grip: &Rect| (!plus.shrink(0.5).intersects(*grip)).then_some(plus);
-    let (row_grip, col_grip) = (out[0].1, out[1].1);
+    // the "+" has a lane of its own, one grip further out
     if let Some(i) = line_row {
-        let plus = area(Pos2::new(gx - GRIP_AREA, screen(app, geo, 0.0, geo.row_y[i]).y));
-        out.extend(free(plus, &row_grip).map(|r| (Hover::Plus { rows: true, index: i }, r)));
+        out.push((Hover::Plus { rows: true, index: i }, area(Pos2::new(gx - GRIP_AREA, screen(app, geo, 0.0, geo.row_y[i]).y))));
     }
     if let Some(j) = line_col {
-        let plus = area(Pos2::new(screen(app, geo, geo.col_x[j], 0.0).x, gy - GRIP_AREA));
-        out.extend(free(plus, &col_grip).map(|r| (Hover::Plus { rows: false, index: j }, r)));
+        out.push((Hover::Plus { rows: false, index: j }, area(Pos2::new(screen(app, geo, geo.col_x[j], 0.0).x, gy - GRIP_AREA))));
     }
+    // drawn means live: a box that leaves the live area of the canvas (the ruler strips and their press band
+    // included) is neither drawn nor pressable, so a grip or "+" is never a dead control
+    let live = live_area(app);
+    out.retain(|(_, r)| live.contains_rect(*r));
     // inner lines: drag to resize
     let inside = pos.x >= tl.x && pos.x <= br.x && pos.y >= tl.y && pos.y <= br.y;
     if inside {
@@ -166,7 +176,7 @@ pub fn press(app: &mut App, table: NodeId, hover: Hover, page: Vec2) -> Option<T
         Hover::Line { rows, index } => {
             let edges = if rows { &geo.row_y } else { &geo.col_x };
             let start_size = edges[index + 1] - edges[index];
-            Some(TableDrag::Resize { table, rows, index, start_size, start_local: local_axis(app, &geo, page, rows), size: start_size })
+            Some(TableDrag::Resize { table, rows, index, start_size, start_local: local_axis(app, &geo, page, rows), size: start_size, moved: false })
         }
         Hover::Grip { rows, index } => {
             // a grip click selects its row or column; a drag past it reorders
@@ -183,11 +193,17 @@ pub fn select_track(app: &mut App, geo: &TableGeo, rows: bool, index: usize) {
 }
 
 /// Moves an open drag to the pointer.
-pub fn drag(app: &App, d: &mut TableDrag, page: Vec2) {
+/// `reach` is egui's click distance in screen px: a line moves only once the pointer is past it.
+pub fn drag(app: &App, d: &mut TableDrag, page: Vec2, reach: f32) {
     match d {
-        TableDrag::Resize { table, rows, start_size, start_local, size, .. } => {
+        TableDrag::Resize { table, rows, start_size, start_local, size, moved, .. } => {
             if let Some(geo) = TableGeo::of(&app.doc, *table) {
-                *size = (*start_size + local_axis(app, &geo, page, *rows) - *start_local).max(designos_doc::table::TABLE_MIN_TRACK);
+                let delta = local_axis(app, &geo, page, *rows) - *start_local;
+                if !*moved && delta.abs() * app.view.zoom < reach {
+                    return;
+                }
+                *moved = true;
+                *size = (*start_size + delta).max(designos_doc::table::TABLE_MIN_TRACK);
             }
         }
         TableDrag::Reorder { table, rows, from, to, refusal } => {
@@ -209,8 +225,8 @@ pub fn drag(app: &App, d: &mut TableDrag, page: Vec2) {
 /// Ends the drag: one command, or nothing. A refused reorder says what to do first.
 pub fn release(app: &mut App, d: TableDrag) {
     match d {
-        TableDrag::Resize { table, rows, index, size, start_size, .. } => {
-            if (size - start_size).abs() < 0.5 {
+        TableDrag::Resize { table, rows, index, size, start_size, moved, .. } => {
+            if !moved || (size - start_size).abs() < 0.5 {
                 return;
             }
             let Some(geo) = TableGeo::of(&app.doc, table) else { return };

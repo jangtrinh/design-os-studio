@@ -296,16 +296,34 @@ pub fn commit_table_resize(app: &mut App, r: crate::canvas::ResizeState) -> Opti
 }
 
 /// Whether the canvas owns the keyboard: the keys of a selected table cell (Tab, typing, Enter, Delete) are
-/// its alone. Not while an egui widget has focus, a menu, dialog or the Variables view is open, the agent
-/// terminal holds the keys, a modal tool (the eyedropper, a version preview) runs, or the last press
-/// landed outside the canvas (a click on a greyed field gives focus to nothing, and keys still are not the canvas's).
+/// its alone. Not while the shared overlay gate holds them (dialogs, modals, the palette, menus, marked popups),
+/// nor for what only the canvas has to know: the Variables view, a context menu, the eyedropper, a version
+/// preview, the agent terminal, a focused widget, or a last press that was not on the canvas itself.
+/// The canvas's own egui focus does not close it: that is where the keys belong after Cmd+Alt+J.
 pub fn canvas_owns_keys(app: &App, ctx: &egui::Context) -> bool {
     let agent_rail_open = !app.ui.left_hidden() && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
-    let modal = app.plugins.open || app.dialog.is_some() || app.history.save_modal.is_some() || app.dev.compare.is_some() || app.ui.permissions_modal_open;
-    let overlay = app.vars.open || app.ui.menu.is_some() || app.ui.ctx_menu.is_some() || app.ui.layer_picker.is_some();
-    let tool = app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) || app.history.viewing.is_some();
-    let focus = crate::agent_a11y::non_canvas_has_focus(ctx) || ctx.egui_wants_keyboard_input() || crate::widgets::field_tab::press_lands_on_field(ctx);
-    !(modal || overlay || tool || focus || app.terminal.is_capturing_keyboard(agent_rail_open) || app.canvas.keys_left_canvas)
+    let canvas_only = app.vars.open
+        || app.ui.ctx_menu.is_some()
+        || app.props.eyedropper.is_some()
+        || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop)
+        || app.history.viewing.is_some();
+    let focus = crate::agent_a11y::non_canvas_has_focus(ctx) || crate::widgets::field_tab::press_lands_on_field(ctx);
+    !(crate::terminal::overlay_owns_keyboard(app, ctx)
+        || canvas_only
+        || focus
+        || app.terminal.is_capturing_keyboard(agent_rail_open)
+        || app.canvas.keys_left_canvas)
+}
+
+/// Whether a press at `p` is a press on the canvas itself: inside its rectangle, on the background layer that
+/// draws it, and not on a floating window (the colour picker, a toolbar, a dropdown) that sits over it.
+pub fn press_on_canvas(app: &App, ctx: &egui::Context, p: egui::Pos2) -> bool {
+    app.canvas_rect.contains(p) && ctx.layer_id_at(p).is_none_or(|l| l.order == egui::Order::Background)
+}
+
+/// Whether the selection is cells of a table.
+pub fn cells_selected(app: &App) -> bool {
+    app.selection.first().is_some_and(|id| is_cell(&app.doc, *id))
 }
 
 /// Tab (Shift+Tab) presses of one frame on a selected cell, taken out of the raw input in the frame they arrive

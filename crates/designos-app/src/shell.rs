@@ -1218,7 +1218,7 @@ impl Shell {
         self.pointer_over_align_row = crate::panels::properties::take_pointer_over_align_row(ctx);
         // a press outside the canvas takes the keys from it until the canvas is pressed again
         if let Some(p) = ctx.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()).flatten()) {
-            self.app.canvas.keys_left_canvas = !self.app.canvas_rect.contains(p);
+            self.app.canvas.keys_left_canvas = !crate::board::table::select::press_on_canvas(&self.app, ctx, p);
         }
         let frame_modifiers = ctx.input(|i| i.modifiers);
         self.paste_chord.begin_frame(frame_modifiers);
@@ -1591,7 +1591,12 @@ impl Shell {
         }
         match key {
             Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
-            Key::Delete | Key::Backspace if crate::board::table::select::canvas_owns_keys(app, ctx) && crate::board::table::select::delete_key(app) => {}
+            // cells selected: the keys are the table's or nobody's, never the generic Delete that would try to remove the cell
+            Key::Delete | Key::Backspace if crate::board::table::select::cells_selected(app) => {
+                if crate::board::table::select::canvas_owns_keys(app, ctx) {
+                    crate::board::table::select::delete_key(app);
+                }
+            }
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
             // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
             // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
@@ -1660,7 +1665,11 @@ impl Shell {
                 }
                 if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
                     app.props.eyedropper_format = app.props.eyedropper_format.next();
-                } else if crate::board::table::select::canvas_owns_keys(app, ctx) && crate::board::table::select::tab_select(app, m.shift) {
+                } else if crate::board::table::select::cells_selected(app) {
+                    // Tab stays with egui focus unless the canvas owns the keys
+                    if crate::board::table::select::canvas_owns_keys(app, ctx) {
+                        crate::board::table::select::tab_select(app, m.shift);
+                    }
                 } else if app.wb_tools_enabled() && !m.shift {
                     crate::board::create::tab_next(app);
                 } else {
@@ -2100,6 +2109,10 @@ impl eframe::App for Shell {
         }
         if self.app.plugins.open {
             return;
+        }
+        // a capture with `--pointer` has the pointer there for real, so hover states and tooltips draw as they do for a person
+        if let Some(p) = self.app.canvas.shot_pointer {
+            raw.events.push(egui::Event::PointerMoved(p));
         }
         // A layer being renamed in the Layers panel moves its rename to the next row on Tab, so Tab is left to it.
         if self.app.layers.renaming.is_none() {
