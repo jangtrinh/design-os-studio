@@ -84,13 +84,16 @@ fn assert_close(got: &[f32], want: &[f32], what: &str, out: &str) {
 }
 
 fn compose_widths(out: &str, n_cols: usize) -> Vec<f32> {
+    assert!(out.contains(".coerceAtLeast(0)"), "compose unit must be coerced to >= 0:\n{out}");
+    assert!(out.contains("+ 0.5f).toInt()"), "compose column share must round instead of truncating:\n{out}");
     let fixed = numbers(between(out, "val fixed = listOf(", ")"), ".dp");
     let weights = numbers(between(out, "val weights = listOf(", ")"), "f");
     assert_eq!(fixed.len(), n_cols);
     let gaps = (n_cols - 1) as f32;
-    let free = WIDTH - 2.0 * PAD - GAP * gaps - fixed.iter().sum::<f32>();
+    let free = (WIDTH - 2.0 * PAD - GAP * gaps - fixed.iter().sum::<f32>()).max(0.0);
     let total: f32 = weights.iter().sum();
-    fixed.iter().zip(&weights).map(|(f, w)| f + w * free / total).collect()
+    let unit = free / total;
+    fixed.iter().zip(&weights).map(|(&f, &w)| (f as i32 + (w * unit + 0.5) as i32) as f32).collect()
 }
 
 #[test]
@@ -116,13 +119,24 @@ fn android_columns(xml: &str, n_cols: usize) -> Vec<(String, Option<f32>)> {
     for tag in xml.split('<').skip(1) {
         let head = tag.split('>').next().unwrap();
         let attr = |name: &str| head.split(&format!("android:{name}=\"")).nth(1).map(|r| r.split('"').next().unwrap().to_string());
-        let (Some(col), None) = (attr("layout_column"), attr("layout_columnSpan")) else { continue };
         if attr("layout_row").is_none() {
             continue;
         }
         let w = attr("layout_width").unwrap();
-        // The column-filler `Space` has height 0dp and sits in row 0; cells carry the width too.
         let weight = attr("layout_columnWeight").map(|v| v.parse::<f32>().unwrap());
+        if head.starts_with("FrameLayout") && (w == "0dp" || weight.is_some()) {
+            assert_eq!(
+                attr("layout_gravity").as_deref(),
+                Some("fill_horizontal"),
+                "weighted Android cell FrameLayout must have android:layout_gravity=\"fill_horizontal\":\n{xml}"
+            );
+        }
+        if attr("layout_columnSpan").is_some() {
+            assert!(weight.is_none(), "spanning Android cell FrameLayout must not publish layout_columnWeight:\n{xml}");
+            continue;
+        }
+        let Some(col) = attr("layout_column") else { continue };
+        // The column-filler `Space` has height 0dp and sits in row 0; span-1 cells carry the width too.
         let c: usize = col.parse().unwrap();
         if cols[c].is_none() {
             cols[c] = Some((w, weight));
@@ -240,4 +254,199 @@ fn uikit_weighted_grid_typechecks_with_swiftc() {
         .expect("run swiftc");
     let _ = std::fs::remove_dir_all(&dir);
     assert!(out.status.success(), "swiftc rejected the UIKit export:\n{}\n{source}", String::from_utf8_lossy(&out.stderr));
+}
+
+fn custom_grid_scene(tracks: &[GridTrack], width: f32, pad: f32, gap: f32, items: &[(f32, Sizing, Option<u16>, u16)]) -> Scene {
+    let mut al = AutoLayout {
+        grid_columns: tracks.len() as u32,
+        grid_rows: 0,
+        item_spacing: gap,
+        counter_spacing: gap,
+        padding: [pad; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        direction: LayoutDirection::Grid,
+        ..Default::default()
+    };
+    for (i, t) in tracks.iter().enumerate() {
+        al.grid_col_tracks[i] = *t;
+    }
+    let mut doc = Document::new("grid-native-weights-custom");
+    let page = doc.add_page("Page 1");
+    let id = doc.alloc_id();
+    let mut frame = Node::frame(id, Rect::new(0.0, 0.0, width, 120.0));
+    frame.name = "GridFrame".into();
+    frame.fills.clear();
+    frame.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), ..Default::default() });
+    let grid = doc.insert(page, frame).unwrap();
+    for (i, &(w, horiz, col, col_span)) in items.iter().enumerate() {
+        let cid = doc.alloc_id();
+        let mut rect = Node::rectangle(cid, Rect::new(0.0, 0.0, w, 30.0));
+        rect.name = format!("Item {}", i + 1);
+        rect.fills = vec![Paint::solid(Color::rgb(0x35, 0x82, 0xFF))];
+        rect.layout_child.horizontal = horiz;
+        rect.layout_child.vertical = Sizing::Fixed;
+        rect.layout_child.grid_column = col;
+        rect.layout_child.col_span = col_span;
+        doc.insert(grid, rect).unwrap();
+    }
+    doc.relayout_subtree(grid);
+    Scene { doc, grid }
+}
+
+#[test]
+fn android_weighted_cells_fill_horizontally_and_keep_inner_child_gravity() {
+    let mut s =
+        custom_grid_scene(&[GridTrack::Flex(1.0), GridTrack::Flex(1.0)], 400.0, 0.0, 0.0, &[(200.0, Sizing::Fill, None, 1), (120.0, Sizing::Fixed, None, 1)]);
+    let second = s.doc.get(s.grid).unwrap().children[1];
+    s.doc.get_mut(second).unwrap().layout_child.grid_align_h = designos_doc::GridChildAlign::Center;
+    s.doc.get_mut(second).unwrap().layout_child.grid_align_v = designos_doc::GridChildAlign::End;
+    s.doc.relayout_subtree(s.grid);
+
+    let xml = android_xml_for(&s.doc, s.grid);
+    let cols = android_columns(&xml, 2);
+    assert_eq!(cols, vec![("0dp".into(), Some(1.0)), ("0dp".into(), Some(1.0))], "{xml}");
+    for col in [0, 1] {
+        let cell_tag = format!(
+            "<FrameLayout\n        android:layout_width=\"0dp\"\n        android:layout_height=\"30dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"{col}\"\n        android:layout_columnWeight=\"1\"\n        android:layout_gravity=\"fill_horizontal\">"
+        );
+        assert!(xml.contains(&cell_tag), "missing weighted cell FrameLayout for col {col}:\n{xml}");
+    }
+    assert!(!xml.contains("android:layout_gravity=\"fill\""), "cell must use fill_horizontal so layout_height stays:\n{xml}");
+    assert!(xml.contains("android:layout_gravity=\"top|start\""), "first inner child must keep its top|start gravity:\n{xml}");
+    assert!(xml.contains("android:layout_gravity=\"bottom|center_horizontal\""), "second inner child must keep its alignment gravity:\n{xml}");
+}
+
+#[test]
+fn android_spanning_cell_keeps_column_weights_and_omits_span_weight() {
+    // 1. Flex(2) + Flex(1) with one cell spanning both -> no weight 3 anywhere, columns keep 2 and 1.
+    let s1 = custom_grid_scene(&[GridTrack::Flex(2.0), GridTrack::Flex(1.0)], 300.0, 0.0, 0.0, &[(300.0, Sizing::Fill, Some(0), 2)]);
+    let xml1 = android_xml_for(&s1.doc, s1.grid);
+    assert!(!xml1.contains("android:layout_columnWeight=\"3\""), "spanning cell must not sum weights to 3:\n{xml1}");
+    let cols1 = android_columns(&xml1, 2);
+    assert_eq!(cols1, vec![("0dp".into(), Some(2.0)), ("0dp".into(), Some(1.0))], "{xml1}");
+    assert!(
+        xml1.contains(
+            "<FrameLayout\n        android:layout_width=\"0dp\"\n        android:layout_height=\"30dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"0\"\n        android:layout_columnSpan=\"2\"\n        android:layout_gravity=\"fill_horizontal\">"
+        ),
+        "spanning cell over Flex(2)+Flex(1) must be 0dp + layout_columnSpan + fill_horizontal with no columnWeight:\n{xml1}"
+    );
+
+    // 2. Fixed(100) + Flex(1) with one cell spanning both -> fixed column carries no weight.
+    let s2 = custom_grid_scene(&[GridTrack::Fixed(100.0), GridTrack::Flex(1.0)], 300.0, 0.0, 0.0, &[(300.0, Sizing::Fill, Some(0), 2)]);
+    let xml2 = android_xml_for(&s2.doc, s2.grid);
+    let cols2 = android_columns(&xml2, 2);
+    assert_eq!(cols2, vec![("100dp".into(), None), ("0dp".into(), Some(1.0))], "{xml2}");
+    assert_eq!(xml2.matches("android:layout_columnWeight=").count(), 1, "only the Flex(1) column Space may carry a weight:\n{xml2}");
+    assert!(
+        xml2.contains(
+            "<FrameLayout\n        android:layout_width=\"0dp\"\n        android:layout_height=\"30dp\"\n        android:layout_row=\"0\"\n        android:layout_column=\"0\"\n        android:layout_columnSpan=\"2\"\n        android:layout_gravity=\"fill_horizontal\">"
+        ),
+        "spanning cell over Fixed(100)+Flex(1) must be 0dp + layout_columnSpan + fill_horizontal with no columnWeight:\n{xml2}"
+    );
+}
+
+#[test]
+fn swiftui_span_covering_fixed_or_hug_column_keeps_solved_width() {
+    // 1. Width 400, Fixed(100) + Flex(1) + Flex(1), item spanning cols 0-1 + item in col 2 -> span frame 250, col 2 150.
+    let s_fixed = custom_grid_scene(
+        &[GridTrack::Fixed(100.0), GridTrack::Flex(1.0), GridTrack::Flex(1.0)],
+        400.0,
+        0.0,
+        0.0,
+        &[(250.0, Sizing::Fill, Some(0), 2), (150.0, Sizing::Fill, Some(2), 1)],
+    );
+    assert_close(&solver_widths(&s_fixed), &[100.0, 150.0, 150.0], "solver", "");
+    let out_fixed = swiftui_for(&s_fixed.doc, s_fixed.grid);
+    assert!(
+        out_fixed.contains(".frame(width: 250, height: 30, alignment: .topLeading)\n            .gridCellColumns(2)"),
+        "span covering Fixed(100)+Flex(1) must keep solved 250pt frame:\n{out_fixed}"
+    );
+    assert!(
+        out_fixed.contains(".frame(minWidth: 0, maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .topLeading)"),
+        "all-flex col 2 must stretch to fill remaining 150pt:\n{out_fixed}"
+    );
+    assert!(!out_fixed.contains("minWidth: 100"), "span over Fixed(100) must not emit minWidth: 100, maxWidth: .infinity:\n{out_fixed}");
+
+    // 2. Width 400, Hug + Flex(1) + Flex(1), only a span over cols 0-1 + item in col 2 -> span keeps solved pixel frame,
+    //    and the Hug comment does not claim the Hug column's standalone width was emitted on a cell.
+    let s_hug = custom_grid_scene(
+        &[GridTrack::Hug, GridTrack::Flex(1.0), GridTrack::Flex(1.0)],
+        400.0,
+        0.0,
+        0.0,
+        &[(200.0, Sizing::Fill, Some(0), 2), (150.0, Sizing::Fill, Some(2), 1)],
+    );
+    let hug_widths = solver_widths(&s_hug);
+    let span_w = hug_widths[0] + hug_widths[1];
+    let out_hug = swiftui_for(&s_hug.doc, s_hug.grid);
+    assert!(
+        out_hug.contains(&format!(".frame(width: {span_w}, height: 30, alignment: .topLeading)\n            .gridCellColumns(2)")),
+        "span covering Hug+Flex(1) must keep solved {span_w}pt frame:\n{out_hug}"
+    );
+    assert!(
+        !out_hug.contains("// Hug column 1 is exported as its solved width"),
+        "Hug column covered only by a span never emits its standalone width:\n{out_hug}"
+    );
+    assert!(
+        out_hug.contains("// Hug column 1 keeps its solved width 1 in its span"),
+        "Hug comment should explain that the Hug column width is kept inside its span:\n{out_hug}"
+    );
+}
+
+#[test]
+fn compose_column_sizes_round_each_share_and_clamp_negative_unit() {
+    // 3 equal Flex(1) columns in 200px free width (220 wide, pad 10, gap 0): each column is 66.667px.
+    // Truncating `.toInt()` yields 66 (0.667px error > 0.5); rounding `+ 0.5f).toInt()` yields 67 (0.333px error <= 0.5).
+    let s = custom_grid_scene(
+        &[GridTrack::Flex(1.0), GridTrack::Flex(1.0), GridTrack::Flex(1.0)],
+        220.0,
+        10.0,
+        0.0,
+        &[(50.0, Sizing::Fill, None, 1), (50.0, Sizing::Fill, None, 1), (50.0, Sizing::Fill, None, 1)],
+    );
+    let out = compose_for(&s.doc, s.grid);
+    assert!(out.contains(".coerceAtLeast(0)"), "{out}");
+    assert!(out.contains("+ 0.5f).toInt()"), "{out}");
+    let fixed = numbers(between(&out, "val fixed = listOf(", ")"), ".dp");
+    let weights = numbers(between(&out, "val weights = listOf(", ")"), "f");
+    let free = (220.0 - 20.0 - fixed.iter().sum::<f32>()).max(0.0);
+    let unit = free / weights.iter().sum::<f32>();
+    let got: Vec<f32> = fixed.iter().zip(&weights).map(|(&f, &w)| (f as i32 + (w * unit + 0.5) as i32) as f32).collect();
+    assert_close(&got, &solver_widths(&s), "compose rounded 3-col", &out);
+
+    // Narrower than fixed tracks: unit is clamped to 0 so flex columns become 0, not negative.
+    let narrow_free = (50.0f32 - 130.0f32).max(0.0);
+    let narrow_unit = narrow_free / 3.0;
+    assert_eq!((2.0 * narrow_unit + 0.5) as i32, 0);
+}
+
+#[test]
+fn solver_floor_on_flex_columns_keeps_solved_pixels_in_all_generators() {
+    // Width 200, Fixed(200) + Flex(1) + Flex(1): free width is 0, so the solver floors both flex columns to 1px.
+    // Weight share `weight * free / totalWeight` is 0 != 1, so generators must keep solved pixels.
+    let s = custom_grid_scene(
+        &[GridTrack::Fixed(200.0), GridTrack::Flex(1.0), GridTrack::Flex(1.0)],
+        200.0,
+        0.0,
+        0.0,
+        &[(200.0, Sizing::Fixed, None, 1), (10.0, Sizing::Fill, None, 1), (10.0, Sizing::Fill, None, 1)],
+    );
+    assert_eq!(solver_widths(&s), vec![200.0, 1.0, 1.0]);
+
+    let compose = compose_for(&s.doc, s.grid);
+    assert!(!compose.contains("val weights"), "Compose must keep pixels when 1px floor changed flex widths:\n{compose}");
+    assert!(compose.contains("listOf(200.dp, 1.dp, 1.dp)"), "{compose}");
+
+    let xml = android_xml_for(&s.doc, s.grid);
+    assert!(!xml.contains("columnWeight"), "Android must keep pixels when 1px floor changed flex widths:\n{xml}");
+    assert!(xml.contains("android:layout_width=\"1dp\""), "{xml}");
+
+    let swift = swiftui_for(&s.doc, s.grid);
+    assert!(!swift.contains("minWidth:"), "SwiftUI must keep pixels when 1px floor changed flex widths:\n{swift}");
+    assert!(swift.contains(".frame(width: 1, height: 30, alignment: .topLeading)"), "{swift}");
+
+    let uikit = uikit_for(&s.doc, s.grid);
+    assert!(!uikit.contains("colUnit"), "UIKit must keep pixels when 1px floor changed flex widths:\n{uikit}");
+    assert!(uikit.contains("widthAnchor.constraint(equalToConstant: 1)"), "{uikit}");
 }

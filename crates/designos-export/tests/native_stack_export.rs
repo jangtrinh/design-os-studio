@@ -663,7 +663,7 @@ Box(
         .background(Color(0xFFF5F5FA), RoundedCornerShape(8.dp))
 ) {
     LazyVerticalGrid(
-        columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> { val fixed = listOf(0.dp, 0.dp).map { it.roundToPx() }; val weights = listOf(1f, 1f); val unit = (availableSize - spacing * 1 - fixed.sum()) / weights.sum(); return fixed.indices.map { fixed[it] + (weights[it] * unit).toInt() } } },
+        columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> { val fixed = listOf(0.dp, 0.dp).map { it.roundToPx() }; val weights = listOf(1f, 1f); val unit = (availableSize - spacing * 1 - fixed.sum()).coerceAtLeast(0) / weights.sum(); return fixed.indices.map { fixed[it] + (weights[it] * unit + 0.5f).toInt() } } },
         modifier = Modifier
             .fillMaxSize()
             .padding(10.dp),

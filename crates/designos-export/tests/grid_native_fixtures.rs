@@ -525,7 +525,9 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
     assert!(swift.contains("Grid("), "{name} SwiftUI missing Grid(: {swift}");
     assert_eq!(swift.matches("GridRow {").count(), rows.len(), "{name} SwiftUI GridRow count != {}: {swift}", rows.len());
     let weights = weighted_cols(scene);
-    for (c, &w) in widths.iter().enumerate().filter(|(c, _)| weights[*c].is_none()) {
+    let first_weight = weights.iter().find_map(|w| *w).unwrap_or(0.0);
+    let equal_weights = weights.iter().any(Option::is_some) && weights.iter().flatten().all(|w| (w - first_weight).abs() < 1e-3);
+    for (c, &w) in widths.iter().enumerate().filter(|(c, _)| !equal_weights || weights[*c].is_none()) {
         let ws = fmt_num(w);
         assert!(swift.contains(&format!("width: {ws}, height:")), "{name} SwiftUI missing column {c} width {ws}: {swift}");
     }
@@ -550,9 +552,10 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
             (GridChildAlign::End, GridChildAlign::End) => ".bottomTrailing",
             _ => ".topLeading",
         };
-        let (span_weight, span_px) = span_weight_and_px(&weights, &widths, col_gap, p.col, p.col_span);
+        let (_, span_px) = span_weight_and_px(&weights, &widths, col_gap, p.col, p.col_span);
+        let span_stretches = equal_weights && (p.col..p.col + p.col_span).all(|c| weights[c].is_some());
         let swift_frame = |h: f32| {
-            if span_weight > 0.0 {
+            if span_stretches {
                 format!(
                     ".frame(minWidth: {}, maxWidth: .infinity, minHeight: {}, maxHeight: {}, alignment: {swift_align})",
                     fmt_num(span_px),
@@ -757,7 +760,7 @@ fn assert_android_scene(scene: &NativeGridScene) {
             format!("android:layout_row=\"{}\"", p.row),
             format!("android:layout_column=\"{}\"", p.col),
         ];
-        if span_weight > 0.0 {
+        if span_weight > 0.0 && p.col_span == 1 {
             cell_attrs.push(format!("android:layout_columnWeight=\"{}\"", fmt_num(span_weight)));
         }
         if p.row_span > 1 {
@@ -765,6 +768,9 @@ fn assert_android_scene(scene: &NativeGridScene) {
         }
         if p.col_span > 1 {
             cell_attrs.push(format!("android:layout_columnSpan=\"{}\"", p.col_span));
+        }
+        if span_weight > 0.0 {
+            cell_attrs.push("android:layout_gravity=\"fill_horizontal\"".to_string());
         }
         if p.col > 0 && col_gap > 0.0 {
             cell_attrs.push(format!("android:layout_marginStart=\"{}dp\"", fmt_num(col_gap)));
@@ -2345,4 +2351,46 @@ fn explicit_trailing_grid_rows_exported() {
     assert_eq!(swift.matches("GridRow {").count(), 3, "SwiftUI should emit all 3 explicit grid rows:\n{swift}");
     let xml = android_xml_for(&doc, grid);
     assert!(xml.contains("android:rowCount=\"3\""), "Android XML should have rowCount=3:\n{xml}");
+}
+
+#[test]
+fn unequal_weights_and_mixed_fixed_flex_spans_match_scene_assertions() {
+    let mut al_unequal = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 0,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        padding: [10.0; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    al_unequal.grid_col_tracks[0] = GridTrack::Flex(2.0);
+    al_unequal.grid_col_tracks[1] = GridTrack::Flex(1.0);
+    let (mut doc1, grid1) = new_grid(al_unequal, Vec2::new(330.0, 80.0));
+    let i1 = add_named_item(&mut doc1, grid1, "WideFlex", 60.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let i2 = add_named_item(&mut doc1, grid1, "NarrowFlex", 60.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc1.relayout_subtree(grid1);
+    assert_scene_outputs(&NativeGridScene { name: "unequal_flex_weights", doc: doc1, grid: grid1, items: vec![i1, i2] });
+
+    let mut al_span = AutoLayout {
+        grid_columns: 3,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    al_span.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al_span.grid_col_tracks[1] = GridTrack::Flex(1.0);
+    al_span.grid_col_tracks[2] = GridTrack::Flex(1.0);
+    let (mut doc2, grid2) = new_grid(al_span, Vec2::new(400.0, 60.0));
+    let span_item = add_named_item(&mut doc2, grid2, "FixedPlusFlexSpan", 250.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc2.get_mut(span_item).unwrap().layout_child.col_span = 2;
+    let tail_item = add_named_item(&mut doc2, grid2, "TailFlex", 150.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let row2_fixed = add_named_item(&mut doc2, grid2, "Row2Fixed", 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc2.relayout_subtree(grid2);
+    assert_scene_outputs(&NativeGridScene { name: "mixed_fixed_flex_span", doc: doc2, grid: grid2, items: vec![span_item, tail_item, row2_fixed] });
 }
