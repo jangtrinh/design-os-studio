@@ -223,8 +223,7 @@ pub(crate) fn prop_resync_scope(doc: &Document, cmd: &Command) -> PropResyncScop
                 if cur.variables.modes != node.variables.modes {
                     out.subtrees.insert(node.id);
                 }
-                let props = |n: &Node| prop_bindings_of(n).map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
-                if props(cur) != props(node) {
+                if !prop_bindings_of(cur).eq(prop_bindings_of(node)) {
                     out.nodes.insert(node.id);
                 }
             }
@@ -245,7 +244,9 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
     let mut candidates: BTreeSet<NodeId> = scope.nodes.clone();
     for &root in &scope.subtrees {
         doc.walk(root, |n, _| {
-            candidates.insert(n.id);
+            if has_prop_binding(n) {
+                candidates.insert(n.id);
+            }
         });
     }
     if scope.all {

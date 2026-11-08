@@ -81,6 +81,8 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
         "fontStyle" => has(&["FONT_STYLE"]),
         "characters" => has(&["TEXT_CONTENT"]),
         "visible" => true,
+        // a component property takes a variable of its type whatever the variable's scopes
+        k if crate::prop_binding_name(k).is_some() => true,
         _ => false,
     }
 }
