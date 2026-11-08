@@ -272,9 +272,18 @@ pub fn relayout(doc: &Document, table_id: NodeId) -> Vec<Command> {
 
 /// Applies [`relayout`] for `table_id` straight to `doc` (load repair, tests).
 pub(crate) fn apply_relayout(doc: &mut Document, table_id: NodeId) {
-    for cmd in relayout(doc, table_id) {
+    apply_table_relayout(doc, table_id);
+}
+
+/// Applies [`relayout`] for `table_id` straight to `doc`, outside any undo step, and says whether it
+/// moved anything. For writes that are not an edit, such as measuring again once a font has loaded.
+pub fn apply_table_relayout(doc: &mut Document, table_id: NodeId) -> bool {
+    let cmds = relayout(doc, table_id);
+    let changed = !cmds.is_empty();
+    for cmd in cmds {
         let _ = cmd.apply(doc);
     }
+    changed
 }
 
 /// The anchor cell under `local`, a point in the table's own coordinates; `None` outside the table.
@@ -441,6 +450,23 @@ pub(crate) fn touched_tables(doc: &Document, cmd: &Command, out: &mut BTreeSet<N
             _ => {}
         },
         Command::Batch(cmds) => cmds.iter().for_each(|c| touched_tables(doc, c, out)),
+        _ => {}
+    }
+}
+
+/// Tables that have a cell whose text `cmd` changes (before the command runs). Every writer of cell
+/// text (find and replace, paste, lint fix, the editor) goes through such an update, so
+/// `History` re-solves these tables in the same step and no text is left hidden by a stored row height.
+pub(crate) fn text_edited_tables(doc: &Document, cmd: &Command, out: &mut BTreeSet<NodeId>) {
+    match cmd {
+        Command::Update { node } => {
+            if let (Some(old), NodeKind::TableCell(new)) = (doc.get(node.id), &node.kind) {
+                if matches!(&old.kind, NodeKind::TableCell(o) if o.text != new.text) {
+                    out.extend(old.parent.filter(|p| doc.get(*p).is_some_and(|t| matches!(t.kind, NodeKind::Table(_)))));
+                }
+            }
+        }
+        Command::Batch(cmds) => cmds.iter().for_each(|c| text_edited_tables(doc, c, out)),
         _ => {}
     }
 }

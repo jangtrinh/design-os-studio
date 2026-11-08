@@ -377,12 +377,17 @@ fn lower_connector(doc: &Document, n: &Node, body: &mut Node, extras: &mut Vec<N
     Some(())
 }
 
-/// A table cell: its fills as a frame that clips to the cell box, and its text inside the cell minus the padding.
-/// The text wraps at the cell width and never shrinks to fit.
+/// A table cell: its fills as a plain rectangle, and its text inside the cell minus the padding.
+/// The text wraps at the cell width and never shrinks to fit. Table layout grows a row to its text, so
+/// the text normally fits. A cell whose text still does not fit (a row held short, a word wider than
+/// the cell) becomes a clipping frame, so the text never paints over its neighbours; every other cell
+/// stays a rectangle and costs no clip mask. The fit test reads the text geometry the glyph painter
+/// uses for the same box, which the renderer caches, so a frame shapes the text once.
+/// The GPU clips to whole pixels where the CPU mask is anti-aliased, so at a fractional zoom or
+/// origin an overflowing line can differ by a pixel at the cell edge.
 fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
     let NodeKind::TableCell(c) = &n.kind else { return };
-    // a clipping frame: text that still does not fit never paints over the neighbouring cells
-    body.kind = NodeKind::Frame(FrameProps { clips_content: true, ..FrameProps::default() });
+    body.kind = NodeKind::Rectangle;
     body.corner_radii = [0.0; 4];
     body.stroke.paints.clear();
     body.stroke.weight = 0.0;
@@ -392,8 +397,17 @@ fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
     // wraps at the cell width, the width the table layout measures with
     let mut props = c.text.clone();
     props.auto_resize = TextAutoResize::Height;
+    if !props.content.is_empty() {
+        let g = text_geometry(&props, Vec2::new(bx.w, bx.h));
+        if g.height > bx.h + TEXT_FIT_SLACK || g.width > bx.w + TEXT_FIT_SLACK {
+            body.kind = NodeKind::Frame(FrameProps { clips_content: true, ..FrameProps::default() });
+        }
+    }
     extras.extend(fitted_text(n, 0, TextFrame { rect: bx, props }));
 }
+
+/// Pixels a laid-out line may pass its box before the cell clips it (rounding in the shaper).
+const TEXT_FIT_SLACK: f32 = 0.5;
 
 /// A table: its fills as a frame that clips nothing, with the grid lines as one synthetic vector
 /// child (slot 0). The cells are the table's real children, drawn before the grid.

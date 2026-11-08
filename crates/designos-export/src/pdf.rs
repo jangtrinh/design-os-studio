@@ -90,17 +90,19 @@ pub fn export_pdf(doc: &Document, slides: &[NodeId]) -> Result<Vec<u8>, String> 
     }
     // A table's border hangs half its weight outside the table box: its page grows by that much on
     // each side, as its PNG and SVG exports do. Read before lowering turns the table into a frame.
-    let insets: Vec<f32> = slides.iter().map(|id| doc.get(*id).map_or(0.0, |n| table_stroke_outset(n).ceil())).collect();
+    let insets: Vec<f32> = slides.iter().map(|id| doc.get(*id).map_or(0.0, |n| table_stroke_outset(&resolve_node(doc, n)).ceil())).collect();
     let lowered = designos_render::board::lowered_document(doc);
     let doc = lowered.as_ref().unwrap_or(doc);
     // Validate the complete selection before spending time emitting any page. Sizes are the sizes the
     // canvas shows, with variable bindings applied.
-    for id in slides {
+    for (id, inset) in slides.iter().zip(&insets) {
         let node = doc.get(*id).ok_or_else(|| format!("Frame {} no longer exists.", id.0))?;
         if !matches!(node.kind, NodeKind::Frame(_)) {
             return Err(format!("{} is not a frame; only frames export as PDF pages.", node.name));
         }
+        // the page is the frame plus the border that hangs outside it
         let size = resolve_node(doc, node).size;
+        let size = designos_doc::Vec2::new(size.x + 2.0 * inset, size.y + 2.0 * inset);
         if !size.x.is_finite() || !size.y.is_finite() || size.x < 1.0 || size.y < 1.0 || size.x > 19_200.0 || size.y > 19_200.0 {
             return Err("Frame dimensions must be finite and between 1 and 19,200 pixels.".into());
         }

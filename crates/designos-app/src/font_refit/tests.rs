@@ -324,6 +324,52 @@ fn a_text_edited_while_a_gesture_holds_the_pass_joins_it() {
     assert!(size_of(&app, texts[0]).x > edited.x + 20.0);
 }
 
+/// A 1x1 table, 144 wide so its text box is 120, whose cell holds `WRAPPED` in `family` with the
+/// 40 px row the file stores.
+fn opened_table(family: &str, served: &[&str]) -> (App, NodeId, NodeId) {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let mut nodes = designos_doc::build_table(&mut d, 1, 1, Vec2::new(0.0, 0.0));
+    let (table, cell) = (nodes[0].id, nodes[1].id);
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols[0].size = 144.0;
+        p.rows[0].size = 40.0;
+    }
+    nodes[0].size = Vec2::new(144.0, 40.0);
+    nodes[1].size = Vec2::new(144.0, 40.0);
+    if let NodeKind::TableCell(c) = &mut nodes[1].kind {
+        c.text.content = WRAPPED.into();
+        c.text.style.font_family = family.into();
+    }
+    designos_doc::Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    let mut app = App::new(d);
+    app.fonts = testkit::serving(served);
+    (app, table, cell)
+}
+
+#[test]
+fn a_table_row_grows_to_the_wrapped_text_of_a_face_that_arrives_late() {
+    let (mut app, table, cell) = opened_table("TestRefitT1", &["TestRefitT1"]);
+    designos_doc::apply_table_relayout(&mut app.doc, table);
+    let with_stand_in = size_of(&app, cell).y;
+    let depth = app.hist.undo_depth();
+    arrive(&mut app);
+    let with_face = size_of(&app, cell).y;
+    assert!(with_face > with_stand_in + 20.0, "the row was {with_stand_in} with the stand-in and is {with_face} with the face");
+    assert_eq!(size_of(&app, table).y, with_face, "the table follows its row");
+    assert_eq!(app.hist.undo_depth(), depth, "a late face is not an edit");
+}
+
+#[test]
+fn a_table_in_other_families_is_left_alone_when_a_face_arrives() {
+    let (mut app, table, cell) = opened_table("Inter", &["TestRefitT2"]);
+    app.doc.get_mut(cell).unwrap().size.y = 40.0;
+    let epoch = app.doc.mutation_epoch();
+    let _ = table;
+    arrive(&mut app);
+    assert_eq!(app.doc.mutation_epoch(), epoch);
+}
+
 mod after_edits;
 mod guards;
 mod open_edit;

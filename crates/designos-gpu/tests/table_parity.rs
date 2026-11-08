@@ -120,6 +120,50 @@ fn overflowing_cell_text_stays_inside_its_cell_on_both_renderers() {
     assert!(c.report.ratio < 0.02, "{:?}", c.report);
 }
 
+/// Offscreen programs of a 20x20 table turned 15 degrees, every cell holding `texts[0]` except cell 0
+/// which holds `texts[1]`, compiled the interactive way, next to those of an empty page.
+fn rotated_table_programs(texts: [&str; 2]) -> (usize, usize) {
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let interactive = || {
+        let mut c = SceneCompiler::new();
+        c.geom.budget = Some(Duration::from_millis(8));
+        c
+    };
+    let t0 = T::new();
+    let empty = interactive().compile(&t0.doc, t0.page, 1, &vp, (3000, 3000)).programs.len();
+    let mut t = T::new();
+    let mut nodes = build_table(&mut t.doc, 20, 20, Vec2::new(500.0, 100.0));
+    nodes[0].transform = Affine { tx: 500.0, ty: 100.0, ..Affine::rotate(15f32.to_radians()) };
+    nodes[0].fills = vec![Paint::solid(Color::WHITE)];
+    nodes[0].stroke.paints = vec![Paint::solid(Color::BLACK)];
+    nodes[0].stroke.weight = 1.0;
+    for (i, n) in nodes.iter_mut().skip(1).enumerate() {
+        n.size = Vec2::new(60.0, 30.0);
+        n.transform = Affine::translate((i % 20) as f32 * 60.0, (i / 20) as f32 * 30.0);
+        if let NodeKind::TableCell(c) = &mut n.kind {
+            c.text = default_cell_text(texts[usize::from(i == 0)]);
+            c.text.style.font_size = 8.0;
+        }
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let with = interactive().compile(&t.doc, t.page, 1, &vp, (3000, 3000)).programs.len();
+    (empty, with)
+}
+
+/// A turned table whose text fits opens no program: its cells stay plain rectangles.
+#[test]
+fn a_rotated_table_with_fitting_text_opens_no_offscreen_program() {
+    let (empty, with) = rotated_table_programs(["a", "a"]);
+    assert_eq!(with, empty, "a rotated 20x20 table opened {with} programs, an empty page {empty}");
+}
+
+/// One cell whose text overflows clips, which costs that cell one program and no more.
+#[test]
+fn a_rotated_table_with_one_overflowing_cell_opens_at_most_one_program() {
+    let (empty, with) = rotated_table_programs(["a", "a\na\na\na\na\na"]);
+    assert!(with <= empty + 1, "one overflowing cell opened {} programs", with - empty);
+}
+
 /// The GPU compile on its own meets a registry one below its limit: the grid must still be compiled.
 /// (In the pixel test above the CPU render runs first and its table lowering clears the registry.)
 #[test]

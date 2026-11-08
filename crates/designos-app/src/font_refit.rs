@@ -205,6 +205,34 @@ impl App {
             refit.stand_in.remove(&id);
         }
         refit.arrived.get_or_insert_with(Arrived::default).merge(arrived);
+        self.relayout_tables_shaped_by(families);
+    }
+
+    /// Lays out again the tables that have a cell shaped by one of `families`: a row is as tall as
+    /// its text, and the text is taller or shorter in the face that arrived than in the stand-in.
+    /// Table geometry is derived from the text, never a stored measure of the file, so unlike a
+    /// text box this is done for every table; it is not an edit and enters no undo step.
+    fn relayout_tables_shaped_by(&mut self, families: &[String]) {
+        let arrived = Arrived::new(families);
+        let tables: Vec<NodeId> = self
+            .doc
+            .nodes
+            .values()
+            .filter(|n| matches!(n.kind, NodeKind::Table(_)))
+            .filter(|t| t.children.iter().filter_map(|c| self.doc.get(*c)).any(|c| matches!(&c.kind, NodeKind::TableCell(cell) if arrived.shapes(&cell.text))))
+            .map(|t| t.id)
+            .collect();
+        let mut moved = false;
+        for id in tables {
+            moved |= designos_doc::apply_table_relayout(&mut self.doc, id);
+        }
+        if moved {
+            // the boxes moved behind the canvas's and the history's back, like the text re-fit's own writes
+            self.changed();
+            self.canvas.tiles.invalidate_all();
+            self.doc.note_layout_written_outside_history();
+            self.hist.forget_layout_recorded();
+        }
     }
 
     /// Texts or frames of the open document are waiting to be re-fitted or laid out: the caller

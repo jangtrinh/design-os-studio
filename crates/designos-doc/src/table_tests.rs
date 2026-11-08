@@ -571,6 +571,129 @@ fn a_merged_block_whose_text_fits_leaves_its_rows_alone() {
     assert_eq!(frame_of(&d, cell(&d, table, 1, 2).unwrap()).3, 40.0);
 }
 
+/// Merges the block of `rs` x `cs` tracks at `(r0, c0)`: records the merge and removes the covered cells.
+fn merge_block(d: &mut Document, table: NodeId, (r0, c0): (usize, usize), (rs, cs): (usize, usize)) {
+    let p = props(d, table);
+    for r in r0..r0 + rs {
+        for c in c0..c0 + cs {
+            if (r, c) != (r0, c0) {
+                let id = cell(d, table, r, c).unwrap();
+                d.remove(id).unwrap();
+            }
+        }
+    }
+    let NodeKind::Table(t) = &mut d.get_mut(table).unwrap().kind else { unreachable!() };
+    t.merges.push(TableMerge { row: p.rows[r0].id, col: p.cols[c0].id, row_span: rs as u32, col_span: cs as u32 });
+}
+
+/// `n` lines of text, `20 * n` tall under [`LineMeasure`].
+fn lines(n: usize) -> String {
+    vec!["x"; n].join("\n")
+}
+
+fn lines_height(n: usize) -> f32 {
+    20.0 * n as f32 + 2.0 * TABLE_CELL_PADDING.1
+}
+
+#[test]
+fn merges_that_end_on_one_row_leave_that_row_as_tall_as_the_hungriest_block() {
+    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));
+    let (mut d, _, table) = sized_table();
+    merge_block(&mut d, table, (0, 0), (2, 1));
+    merge_block(&mut d, table, (0, 1), (2, 1));
+    set_text_at(&mut d, table, 0, 0, &lines(5));
+    set_text_at(&mut d, table, 0, 1, &lines(7));
+    apply_relayout(&mut d, table);
+    let want = lines_height(7);
+    assert_eq!(frame_of(&d, cell(&d, table, 0, 0).unwrap()).3, want, "both blocks are as tall as the hungriest");
+    assert_eq!(frame_of(&d, cell(&d, table, 0, 1).unwrap()).3, want);
+    assert_eq!(frame_of(&d, cell(&d, table, 1, 2).unwrap()).3, want - 40.0, "the shared last row took the larger shortfall once");
+    assert_eq!(frame_of(&d, cell(&d, table, 2, 0).unwrap()).1, want, "the next row moves down");
+}
+
+#[test]
+fn a_block_over_rows_and_columns_is_measured_at_the_summed_width_and_grows_its_last_row() {
+    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));
+    let (mut d, _, table) = sized_table();
+    merge_block(&mut d, table, (1, 1), (2, 2));
+    set_text_at(&mut d, table, 1, 1, &lines(7));
+    apply_relayout(&mut d, table);
+    let h = lines_height(7);
+    assert_eq!(frame_of(&d, cell(&d, table, 1, 1).unwrap()), (120.0, 40.0, 330.0, h), "spans both columns and exactly its text");
+    assert_eq!(frame_of(&d, cell(&d, table, 1, 0).unwrap()).3, 40.0, "the first spanned row keeps its height");
+    assert_eq!(d.get(table).unwrap().size, Vec2::new(450.0, 40.0 + h));
+}
+
+#[test]
+fn a_tall_cell_in_the_last_row_of_a_block_is_not_grown_twice() {
+    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));
+    let (mut d, _, table) = sized_table();
+    merge_block(&mut d, table, (0, 0), (2, 1));
+    set_text_at(&mut d, table, 0, 0, &lines(5));
+    set_text_at(&mut d, table, 1, 1, &lines(5));
+    apply_relayout(&mut d, table);
+    let h = lines_height(5);
+    assert_eq!(frame_of(&d, cell(&d, table, 1, 1).unwrap()).3, h, "the single cell sets the row");
+    assert_eq!(frame_of(&d, cell(&d, table, 0, 0).unwrap()).3, 40.0 + h, "the block already fits: its text needs only {h}");
+}
+
+#[test]
+fn an_edit_that_grows_a_merged_row_undoes_with_the_edit() {
+    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));
+    let (mut d, _, table) = sized_table();
+    merge_top_left_2x2(&mut d, table);
+    apply_relayout(&mut d, table);
+    let anchor = cell(&d, table, 0, 0).unwrap();
+    let mut grown = d.get(anchor).unwrap().clone();
+    if let NodeKind::TableCell(c) = &mut grown.kind {
+        c.text.content = lines(5);
+    }
+    let mut h = History::default();
+    h.exec(&mut d, Command::Update { node: Box::new(grown) }).unwrap();
+    assert_eq!(frame_of(&d, anchor).3, lines_height(5), "the row grew with the edit");
+    assert_eq!(frame_of(&d, cell(&d, table, 2, 2).unwrap()).1, lines_height(5));
+    assert!(h.undo(&mut d).unwrap());
+    assert_eq!(frame_of(&d, anchor).3, 80.0, "undo gives the rows back");
+    assert_eq!(frame_of(&d, cell(&d, table, 2, 2).unwrap()).1, 80.0);
+    assert_eq!(text_of(&d, anchor), "");
+    assert!(h.redo(&mut d).unwrap());
+    assert_eq!(frame_of(&d, anchor).3, lines_height(5), "redo grows them again");
+}
+
+#[test]
+fn find_and_replace_in_a_cell_grows_its_row_and_no_text_is_hidden() {
+    use crate::find::{find_text, replace, FindOptions, Scope};
+    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));
+    let (mut d, page, table) = sized_table();
+    set_text_at(&mut d, table, 0, 1, "Hi");
+    apply_relayout(&mut d, table);
+    let id = cell(&d, table, 0, 1).unwrap();
+    assert_eq!(frame_of(&d, id).3, 40.0);
+    let found = find_text(&d, &Scope::Page(page), "Hi", FindOptions::default());
+    assert_eq!(found.len(), 1);
+    let mut h = History::default();
+    let cmd = replace(&d, &found, "1\n2\n3");
+    h.exec(&mut d, cmd).unwrap();
+    assert_eq!(frame_of(&d, id).3, lines_height(3), "the row grew to hold the replacement");
+    assert_eq!(frame_of(&d, cell(&d, table, 1, 0).unwrap()).1, lines_height(3));
+    assert!(h.undo(&mut d).unwrap());
+    assert_eq!(frame_of(&d, id).3, 40.0);
+    assert_eq!(text_of(&d, id), "Hi");
+}
+
+#[test]
+fn an_edit_that_leaves_the_text_alone_does_not_touch_the_geometry() {
+    let _guard = text_measure::ThreadLayoutMeasurerGuard::install(std::sync::Arc::new(LineMeasure));
+    let (mut d, _, table) = sized_table();
+    let id = cell(&d, table, 0, 0).unwrap();
+    let mut n = d.get(id).unwrap().clone();
+    n.name = "Renamed".into();
+    let mut h = History::default();
+    h.exec(&mut d, Command::Update { node: Box::new(n) }).unwrap();
+    assert_eq!(h.undo_depth(), 1);
+    assert!(relayout(&d, table).is_empty());
+}
+
 // ---------------------------------------------------------------- review round 2
 
 /// `node` as a child of `parent` inside an `Insert` payload.

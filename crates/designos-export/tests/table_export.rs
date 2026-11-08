@@ -164,6 +164,57 @@ fn pdf_of_a_table_keeps_the_full_border_weight_on_every_side() {
 }
 
 #[test]
+fn pdf_and_png_read_a_variable_bound_border_weight_alike() {
+    let (mut doc, table) = bordered_table();
+    let weight = Variable {
+        id: "bw".into(),
+        name: "bw".into(),
+        collection: "c".into(),
+        kind: VariableKind::Number,
+        values: [("light".to_string(), VariableValue::Number(8.0))].into_iter().collect(),
+        description: String::new(),
+        scopes: vec![],
+        hidden_from_publishing: false,
+        key: None,
+        code_syntax: Default::default(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
+    };
+    doc.variable_collections.insert(
+        "c".into(),
+        VariableCollection {
+            id: "c".into(),
+            name: "C".into(),
+            modes: vec![VariableMode { id: "light".into(), name: "Light".into() }],
+            default_mode: "light".into(),
+            variables: vec![],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    doc.variables.insert(weight.id.clone(), weight);
+    let n = doc.get_mut(table).unwrap();
+    n.stroke.weight = 1.0;
+    n.variables.bindings.insert("strokeWeight".into(), "bw".into());
+    let pm = render_export(&doc, table, 1.0).unwrap();
+    assert_eq!((pm.width(), pm.height()), (EXPORT_W, EXPORT_H), "PNG takes the bound weight of 8");
+    let bytes = export_pdf(&doc, &[table]).unwrap();
+    let page = &Pdf::parse(&bytes).pages()[0];
+    assert_eq!((page.width, page.height), (EXPORT_W as f32 * 0.75, EXPORT_H as f32 * 0.75), "PDF takes the same weight");
+}
+
+#[test]
+fn pdf_size_limit_counts_the_border_that_hangs_outside_the_table() {
+    let (mut doc, table) = bordered_table();
+    doc.get_mut(table).unwrap().size.x = 19_200.0;
+    let err = export_pdf(&doc, &[table]).expect_err("the page is 19,208 px wide");
+    assert!(err.contains("19,200"), "{err}");
+    doc.get_mut(table).unwrap().size.x = 19_190.0;
+    assert!(export_pdf(&doc, &[table]).is_ok(), "19,198 px fits");
+}
+
+#[test]
 fn a_frame_with_an_inside_border_exports_at_its_own_size() {
     let mut doc = Document::new("frame");
     let page = doc.add_page("p");

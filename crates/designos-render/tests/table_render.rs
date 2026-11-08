@@ -222,6 +222,76 @@ fn cell_text_taller_than_its_cell_never_paints_outside_it() {
     assert_eq!(outside, 0, "no ink outside the cell box");
 }
 
+/// The lowered kind of cell (0, 0) of a 2x2 table whose first cell holds `text` in its 160 x 44 box.
+fn lowered_cell_kind(text: &str) -> NodeKind {
+    let mut t = T::new();
+    let nodes = build_table(&mut t.doc, 2, 2, Vec2::new(ORIGIN, ORIGIN));
+    let cell = nodes[1].id;
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    if let NodeKind::TableCell(c) = &mut t.node(cell).kind {
+        c.text = default_cell_text(text);
+    }
+    board::lower(&t.doc, t.doc.get(cell).unwrap()).expect("a cell lowers").kind
+}
+
+#[test]
+fn a_cell_whose_text_fits_stays_a_plain_rectangle() {
+    assert!(matches!(lowered_cell_kind("Việt Nam"), NodeKind::Rectangle));
+    assert!(matches!(lowered_cell_kind(""), NodeKind::Rectangle));
+    assert!(matches!(lowered_cell_kind("Ô"), NodeKind::Rectangle));
+}
+
+#[test]
+fn only_a_cell_whose_text_does_not_fit_is_clipped() {
+    let tall = lowered_cell_kind("W\nW\nW\nW\nW\nW");
+    assert!(matches!(&tall, NodeKind::Frame(f) if f.clips_content), "too tall: {tall:?}");
+    let wide = lowered_cell_kind("Supercalifragilisticexpialidociousandmoreletters");
+    assert!(matches!(&wide, NodeKind::Frame(f) if f.clips_content), "one word wider than the cell: {wide:?}");
+}
+
+/// Times a 100 x 10 table of fitting text inside a clipping frame at 2x as it lowers now, and with every
+/// cell forced to clip. Run with `--ignored --nocapture`; it prints the numbers and asserts nothing
+/// about speed, because timings depend on the machine.
+#[test]
+#[ignore = "prints timings"]
+fn clip_cost_probe() {
+    use designos_render::{render_page, tiny_skia::Pixmap, Viewport};
+    let (rows, cols) = (100usize, 10usize);
+    let mut t = T::new();
+    let frame = t.doc.alloc_id();
+    let mut fr = Node::frame(frame, Rect::new(0.0, 0.0, cols as f32 * 160.0, rows as f32 * 44.0));
+    if let NodeKind::Frame(f) = &mut fr.kind {
+        f.clips_content = true;
+    }
+    t.doc.insert(t.page, fr).unwrap();
+    let mut nodes = build_table(&mut t.doc, rows, cols, Vec2::new(0.0, 0.0));
+    let table = nodes[0].id;
+    for n in nodes[1..].iter_mut() {
+        if let NodeKind::TableCell(c) = &mut n.kind {
+            c.text = default_cell_text("Cell text");
+        }
+    }
+    Command::Insert { parent: frame, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let lowered = board::lowered_document(&t.doc).unwrap();
+    let mut forced = lowered.clone();
+    for id in t.doc.get(table).unwrap().children.clone() {
+        if let Some(n) = forced.get_mut(id) {
+            n.kind = NodeKind::Frame(FrameProps { clips_content: true, ..FrameProps::default() });
+        }
+    }
+    let (w, h) = ((cols as f32 * 160.0 * 2.0) as u32, (rows as f32 * 44.0 * 2.0) as u32);
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 2.0, dpr: 1.0 };
+    for round in 0..3 {
+        // the forced pass is slow in a debug build: once is enough to see the gap
+        for (label, d) in [("as lowered", &lowered), ("every cell clipped", &forced)].into_iter().filter(|(l, _)| round == 0 || *l == "as lowered") {
+            let mut pm = Pixmap::new(w, h).unwrap();
+            let t0 = std::time::Instant::now();
+            render_page(d, t.page, &vp, &mut pm);
+            eprintln!("round {round} {label}: {:?}", t0.elapsed());
+        }
+    }
+}
+
 /// Writes the documents the visual evidence is captured from. Set `DESIGNOS_TABLE_EVIDENCE_DIR` and run
 /// `cargo test -p designos-render --test table_render -- --ignored write_evidence_documents`.
 #[test]
