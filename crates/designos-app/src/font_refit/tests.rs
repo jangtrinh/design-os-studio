@@ -349,7 +349,7 @@ fn opened_table(family: &str, served: &[&str]) -> (App, NodeId, NodeId) {
 
 #[test]
 fn a_table_row_grows_to_the_wrapped_text_of_a_face_that_arrives_late() {
-    let (mut app, table, cell) = opened_table("TestRefitT1", &["TestRefitT1"]);
+    let (mut app, table, cell) = opened_table("TestRefTbl1", &["TestRefTbl1"]);
     designos_doc::apply_table_relayout(&mut app.doc, table);
     let with_stand_in = size_of(&app, cell).y;
     let depth = app.hist.undo_depth();
@@ -362,12 +362,88 @@ fn a_table_row_grows_to_the_wrapped_text_of_a_face_that_arrives_late() {
 
 #[test]
 fn a_table_in_other_families_is_left_alone_when_a_face_arrives() {
-    let (mut app, table, cell) = opened_table("Inter", &["TestRefitT2"]);
-    app.doc.get_mut(cell).unwrap().size.y = 40.0;
+    let (mut app, table, cell) = opened_table("Inter", &["TestRefTbl2"]);
+    // a text elsewhere in the document asks for a family that has to be fetched, so a face does arrive
+    let page = app.doc.get(table).and_then(|n| n.parent).unwrap();
+    text_node(&mut app.doc, page, "TestRefTbl2", NARROW, TextAutoResize::WidthAndHeight, FILE_BOX);
+    // the stored row is shorter than the wrapped Inter text needs: a re-solve would move it
+    assert!(!designos_doc::table::relayout(&app.doc, table).is_empty(), "a re-solve would change this table");
+    let before = size_of(&app, cell);
     let epoch = app.doc.mutation_epoch();
-    let _ = table;
     arrive(&mut app);
-    assert_eq!(app.doc.mutation_epoch(), epoch);
+    assert!(designos_render::resolve_font("TestRefTbl2", 400, false).is_some_and(|f| f.family == "TestRefTbl2"), "the face did arrive");
+    assert_eq!(size_of(&app, cell), before, "the table in Inter did not move");
+    assert_eq!(app.doc.mutation_epoch(), epoch, "the document was not written");
+}
+
+/// A 20 x 20 table (400 cells) of `WRAPPED` text in `family`, 144 wide columns, stored 40 px rows.
+fn opened_big_table(family: &str, served: &[&str]) -> (App, NodeId, NodeId) {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let mut nodes = designos_doc::build_table(&mut d, 20, 20, Vec2::new(0.0, 0.0));
+    let table = nodes[0].id;
+    let first = nodes[1].id;
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols.iter_mut().for_each(|c| c.size = 144.0);
+        p.rows.iter_mut().for_each(|r| r.size = 40.0);
+    }
+    for n in nodes.iter_mut().skip(1) {
+        n.size = Vec2::new(144.0, 40.0);
+        if let NodeKind::TableCell(c) = &mut n.kind {
+            c.text.content = WRAPPED.into();
+            c.text.style.font_family = family.into();
+        }
+    }
+    designos_doc::Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    let mut app = App::new(d);
+    app.fonts = testkit::serving(served);
+    (app, table, first)
+}
+
+#[test]
+fn a_big_tables_layout_is_spread_over_frames_not_done_in_one() {
+    let (mut app, table, first) = opened_big_table("TestRefTbl3", &["TestRefTbl3"]);
+    app.fonts.refit.budget = Duration::ZERO;
+    load_only(&mut app);
+    assert!(app.text_refit_pending(), "the first slice left the table for the next frame");
+    assert_eq!(size_of(&app, first).y, 40.0, "the table has not been laid out yet");
+    let mut frames = 1;
+    while app.text_refit_pending() {
+        app.poll_fonts();
+        frames += 1;
+        assert!(frames <= 8, "{frames} frames for 400 cells in slices of 128");
+    }
+    assert!(frames >= 4, "400 cells took {frames} frames: the slices are 128 cells");
+    assert!(size_of(&app, first).y > 60.0, "and the rows follow the face in the end: {:?}", size_of(&app, first));
+    let _ = table;
+}
+
+#[test]
+fn a_gesture_holds_the_table_layout_after_a_face_arrives() {
+    let (mut app, table, cell) = opened_table("TestRefTbl4", &["TestRefTbl4"]);
+    let row = size_of(&app, cell).y;
+    let mut tx = Tx::new();
+    tx.ed.node(&mut app.doc, table).unwrap().size.x += 1.0;
+    app.canvas.inter = Interaction::Resize(ResizeState {
+        tx,
+        handle: Handle::R,
+        kind: ResizeKind::Single { id: table, world0: Affine::IDENTITY, t0: Affine::IDENTITY, size0: Vec2::new(144.0, 40.0) },
+        targets: Vec::new(),
+    });
+    load_only(&mut app);
+    assert!(app.text_refit_pending() && app.text_refit_held(), "the table waits for the gesture");
+    let epoch = app.doc.mutation_epoch();
+    for _ in 0..3 {
+        app.poll_fonts();
+    }
+    assert_eq!(app.doc.mutation_epoch(), epoch, "nothing is written while the gesture runs");
+    assert_eq!(size_of(&app, cell).y, row);
+    if let Interaction::Resize(r) = &mut app.canvas.inter {
+        r.tx.ed.revert(&mut app.doc);
+    }
+    app.canvas.inter = Interaction::None;
+    settle(&mut app);
+    assert!(size_of(&app, cell).y > row + 20.0, "the queue was kept, and the table follows the face once the gesture ended");
 }
 
 mod after_edits;

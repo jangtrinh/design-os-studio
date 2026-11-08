@@ -29,6 +29,10 @@ struct Fonts {
 thread_local! {
     static FONTS: RefCell<Option<Fonts>> = const { RefCell::new(None) };
     static LAYOUTS: RefCell<TextCache<TextLayout>> = RefCell::new(TextCache::default());
+    /// Text boxes measured for table layout, a few bytes each, so many more fit than shaped layouts.
+    static MEASURES: RefCell<TextCache<Vec2>> = RefCell::new(TextCache::default());
+    /// How many texts this thread has shaped (laid out, measured or given a geometry), cache misses only.
+    static SHAPING_RUNS: Cell<usize> = const { Cell::new(0) };
     /// How many entries of [`EXTRA_FONTS`] this thread's font system has loaded.
     static REPLAYED: Cell<usize> = const { Cell::new(0) };
 }
@@ -48,6 +52,18 @@ static BASE_DB: OnceLock<(fontdb::Database, HashSet<fontdb::ID>)> = OnceLock::ne
 #[inline]
 pub fn font_generation() -> usize {
     FONT_GEN.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Entries the young generation of the layout cache holds before it is retired. A table of 100 x 100
+/// text cells fits in one generation; the memory bound is twice this many layouts.
+const LAYOUT_CACHE_LIMIT: usize = 16_384;
+/// The same for the table measure cache (a `Vec2` and the text it was measured for).
+const MEASURE_CACHE_LIMIT: usize = 65_536;
+
+/// How many texts this thread has shaped so far. Only cache misses count, so a pass over text that
+/// was already shaped leaves it unchanged. For tests and diagnostics.
+pub fn shaping_runs() -> usize {
+    SHAPING_RUNS.with(Cell::get)
 }
 
 /// Outlines of laid out text, one path per style (index 0 = base style,
@@ -123,6 +139,7 @@ fn with_fonts<R>(f: impl FnOnce(&mut Fonts) -> R) -> R {
                 // Shaped text depends on the fonts: neither the outlines nor the measured geometry of the old set stand.
                 LAYOUTS.with(|l| l.borrow_mut().clear());
                 GEOMS.with(|g| g.borrow_mut().clear());
+                MEASURES.with(|m| m.borrow_mut().clear());
             }
         }
         f(fonts)
@@ -352,27 +369,41 @@ impl<T> Cached<T> {
 
 /// Cached results grouped by bucket hash. A bucket keeps every result whose inputs hash to it, so
 /// texts that differ only in a field the hash leaves out (fills, letter spacing, ...) never evict
-/// each other. The memory bound is on the total entry count: past the limit the cache is emptied.
+/// each other. The memory bound is on the entry count, in two generations: when the young one passes
+/// the limit it becomes the old one and the previous old one is dropped. A hit in the old generation
+/// moves back to the young one, so a working set that fits in one generation is never reshaped, and
+/// one past the limit loses its oldest half instead of everything.
 struct TextCache<T> {
     buckets: HashMap<u64, Vec<Cached<T>>>,
+    old: HashMap<u64, Vec<Cached<T>>>,
     entries: usize,
 }
 
 impl<T> Default for TextCache<T> {
     fn default() -> Self {
-        Self { buckets: HashMap::new(), entries: 0 }
+        Self { buckets: HashMap::new(), old: HashMap::new(), entries: 0 }
     }
 }
 
 impl<T> TextCache<T> {
-    fn get(&self, key: u64, props: &TextProps, size: Vec2) -> Option<Rc<T>> {
-        self.buckets.get(&key)?.iter().find(|c| c.matches(props, size)).map(|c| Rc::clone(&c.value))
+    fn get(&mut self, key: u64, props: &TextProps, size: Vec2) -> Option<Rc<T>> {
+        if let Some(hit) = self.buckets.get(&key).and_then(|b| b.iter().find(|c| c.matches(props, size))) {
+            return Some(Rc::clone(&hit.value));
+        }
+        let bucket = self.old.get_mut(&key)?;
+        let at = bucket.iter().position(|c| c.matches(props, size))?;
+        let hit = bucket.swap_remove(at);
+        let value = Rc::clone(&hit.value);
+        self.buckets.entry(key).or_default().push(hit);
+        self.entries += 1;
+        Some(value)
     }
 
-    /// Stores `value`, first emptying the cache when it already holds more than `limit` entries.
+    /// Stores `value`, first retiring the young generation when it already holds more than `limit` entries.
     fn insert(&mut self, key: u64, props: &TextProps, size: Vec2, value: Rc<T>, limit: usize) {
         if self.entries > limit {
-            self.clear();
+            self.old = std::mem::take(&mut self.buckets);
+            self.entries = 0;
         }
         self.buckets.entry(key).or_default().push(Cached { props: props.clone(), size, value });
         self.entries += 1;
@@ -380,12 +411,13 @@ impl<T> TextCache<T> {
 
     fn clear(&mut self) {
         self.buckets.clear();
+        self.old.clear();
         self.entries = 0;
     }
 
     #[cfg(test)]
     fn entries(&self) -> usize {
-        self.entries
+        self.entries + self.old.values().map(Vec::len).sum::<usize>()
     }
 }
 
@@ -413,11 +445,12 @@ fn bucket_key(props: &TextProps, size: Vec2) -> u64 {
 pub fn layout(props: &TextProps, size: Vec2) -> Rc<TextLayout> {
     sync_fonts();
     let key = bucket_key(props, size);
-    if let Some(hit) = LAYOUTS.with(|l| l.borrow().get(key, props, size)) {
+    if let Some(hit) = LAYOUTS.with(|l| l.borrow_mut().get(key, props, size)) {
         return hit;
     }
+    SHAPING_RUNS.with(|c| c.set(c.get() + 1));
     let lay = Rc::new(with_fonts(|f| compute_layout(f, props, size)));
-    LAYOUTS.with(|l| l.borrow_mut().insert(key, props, size, lay.clone(), 8192));
+    LAYOUTS.with(|l| l.borrow_mut().insert(key, props, size, lay.clone(), LAYOUT_CACHE_LIMIT));
     lay
 }
 
@@ -861,9 +894,10 @@ thread_local! {
 pub fn text_geometry(props: &TextProps, size: Vec2) -> Rc<TextGeometry> {
     sync_fonts();
     let key = bucket_key(props, size);
-    if let Some(hit) = GEOMS.with(|g| g.borrow().get(key, props, size)) {
+    if let Some(hit) = GEOMS.with(|g| g.borrow_mut().get(key, props, size)) {
         return hit;
     }
+    SHAPING_RUNS.with(|c| c.set(c.get() + 1));
     let geom = Rc::new(with_fonts(|f| compute_geometry(f, props, size)));
     GEOMS.with(|g| g.borrow_mut().insert(key, props, size, geom.clone(), 256));
     geom
@@ -889,8 +923,16 @@ pub fn measure_text_box(tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
             Vec2::ZERO
         }
     };
-    let g = text_geometry(&p, size);
-    Vec2::new(g.width.ceil().max(1.0), g.height.ceil().max(1.0))
+    sync_fonts();
+    let key = bucket_key(&p, size);
+    if let Some(hit) = MEASURES.with(|m| m.borrow_mut().get(key, &p, size)) {
+        return *hit;
+    }
+    SHAPING_RUNS.with(|c| c.set(c.get() + 1));
+    let g = with_fonts(|f| compute_geometry(f, &p, size));
+    let out = Vec2::new(g.width.ceil().max(1.0), g.height.ceil().max(1.0));
+    MEASURES.with(|m| m.borrow_mut().insert(key, &p, size, Rc::new(out), MEASURE_CACHE_LIMIT));
+    out
 }
 
 /// [`designos_doc::text_measure::TextMeasure`] backed by [`measure_text_box`]
@@ -1051,17 +1093,23 @@ mod tests {
     }
 
     #[test]
-    fn cache_clears_by_total_entries_not_by_bucket() {
+    fn cache_retires_a_generation_at_a_time_not_everything() {
         let mut c: TextCache<u32> = TextCache::default();
         let p = props("x", TextAutoResize::WidthAndHeight, None);
+        let at = |i: u32| Vec2::new(i as f32, 0.0);
         for i in 0..6u32 {
-            c.insert(7, &p, Vec2::new(i as f32, 0.0), Rc::new(i), 4);
+            c.insert(7, &p, at(i), Rc::new(i), 4);
         }
-        assert_eq!(c.entries(), 1, "past the limit the whole cache is dropped, then the new entry stays");
+        assert_eq!(c.entries(), 6, "the first five became the old generation, the sixth is young");
+        assert!(c.get(7, &p, at(0)).is_some(), "an old entry still hits");
+        assert_eq!(c.get(7, &p, at(5)).map(|v| *v), Some(5));
+        for i in 6..14u32 {
+            c.insert(7, &p, at(i), Rc::new(i), 4);
+        }
+        assert!(c.get(7, &p, at(1)).is_none(), "an entry nobody asked for is gone two generations later");
+        assert!(c.get(7, &p, at(0)).is_some(), "one that was asked for again stayed");
         c.clear();
-        assert_eq!(c.entries(), 0, "clear resets the entry count");
-        c.insert(7, &p, Vec2::ZERO, Rc::new(0), 4);
-        assert_eq!(c.entries(), 1);
+        assert_eq!(c.entries(), 0, "clear drops both generations");
     }
 
     const LONG: &str = "The quick brown fox jumps over the lazy dog and keeps running far away";

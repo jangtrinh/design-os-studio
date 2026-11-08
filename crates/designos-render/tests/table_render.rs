@@ -249,6 +249,98 @@ fn only_a_cell_whose_text_does_not_fit_is_clipped() {
     assert!(matches!(&wide, NodeKind::Frame(f) if f.clips_content), "one word wider than the cell: {wide:?}");
 }
 
+/// A `n` x `n` table whose cells hold different texts, on a page.
+fn big_table(t: &mut T, n: usize) {
+    let mut nodes = build_table(&mut t.doc, n, n, Vec2::new(0.0, 0.0));
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+}
+
+#[test]
+fn a_second_render_of_an_unchanged_100x100_table_shapes_no_text() {
+    use designos_render::{render_page, shaping_runs, tiny_skia::Pixmap, Viewport};
+    let mut t = T::new();
+    big_table(&mut t, 100);
+    // 16000 x 4400 px of table drawn into 1600 x 440: every cell is in view and lowered
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 0.1, dpr: 1.0 };
+    let mut pm = Pixmap::new(1600, 440).unwrap();
+    let before = shaping_runs();
+    render_page(&t.doc, t.page, &vp, &mut pm);
+    let first = shaping_runs() - before;
+    assert!(first >= 10_000, "the first render shapes every cell's text once: {first}");
+    let before = shaping_runs();
+    render_page(&t.doc, t.page, &vp, &mut pm);
+    assert_eq!(shaping_runs() - before, 0, "an unchanged table is not shaped again");
+}
+
+/// Times table layout of a 200 x 200 table with the renderer's measurer: the first solve (nothing
+/// cached, as after a font arrives), a second one, and cell-text edits through `History`. Run with
+/// `--release --ignored --nocapture`; it prints the times and asserts nothing about speed.
+#[test]
+#[ignore = "prints timings"]
+fn relayout_cost_probe() {
+    designos_doc::text_measure::set_layout_measurer(Some(std::sync::Arc::new(designos_render::RenderTextMeasure)));
+    let mut t = T::new();
+    let n = 200;
+    let mut nodes = build_table(&mut t.doc, n, n, Vec2::new(0.0, 0.0));
+    for (i, c) in nodes.iter_mut().skip(1).enumerate() {
+        if let NodeKind::TableCell(p) = &mut c.kind {
+            p.text = default_cell_text(&format!("Cell {i}"));
+        }
+    }
+    let table = nodes[0].id;
+    let cell = nodes[1 + 5 * n + 5].id;
+    Command::Insert { parent: t.page, index: 0, nodes }.apply(&mut t.doc).unwrap();
+    let t0 = std::time::Instant::now();
+    designos_doc::apply_table_relayout(&mut t.doc, table);
+    eprintln!("cold solve: {:?}", t0.elapsed());
+    let t0 = std::time::Instant::now();
+    designos_doc::apply_table_relayout(&mut t.doc, table);
+    eprintln!("warm solve: {:?}", t0.elapsed());
+    let mut h = History::default();
+    for text in ["Edited", "Edited again"] {
+        let mut node = t.doc.get(cell).unwrap().clone();
+        if let NodeKind::TableCell(c) = &mut node.kind {
+            c.text.content = text.into();
+        }
+        let t0 = std::time::Instant::now();
+        h.exec(&mut t.doc, Command::Update { node: Box::new(node) }).unwrap();
+        eprintln!("history edit to {text:?}: {:?}", t0.elapsed());
+    }
+}
+
+/// Resident memory of this process before and after the layout cache holds 100 x 100 cell texts.
+/// Run with `--release --ignored --nocapture`.
+#[test]
+#[ignore = "prints memory"]
+fn layout_cache_memory_probe() {
+    use designos_render::{render_page, tiny_skia::Pixmap, Viewport};
+    let rss = || {
+        let out = std::process::Command::new("ps").args(["-o", "rss=", "-p", &std::process::id().to_string()]).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().unwrap_or(0)
+    };
+    let mut t = T::new();
+    big_table(&mut t, 100);
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 0.1, dpr: 1.0 };
+    let mut pm = Pixmap::new(1600, 440).unwrap();
+    render_page(&t.doc, t.page, &vp, &mut pm);
+    let before = rss();
+    let mut t2 = T::new();
+    big_table(&mut t2, 100);
+    for n in t2.doc.nodes.values_mut() {
+        if let NodeKind::TableCell(c) = &mut n.kind {
+            c.text.content.push('!');
+        }
+    }
+    render_page(&t2.doc, t2.page, &vp, &mut pm);
+    let after = rss();
+    eprintln!("rss before {before} KB, after a second 10,000 layouts {after} KB, grown {} KB", after.saturating_sub(before));
+}
+
 /// Times a 100 x 10 table of fitting text inside a clipping frame at 2x as it lowers now, and with every
 /// cell forced to clip. Run with `--ignored --nocapture`; it prints the numbers and asserts nothing
 /// about speed, because timings depend on the machine.
