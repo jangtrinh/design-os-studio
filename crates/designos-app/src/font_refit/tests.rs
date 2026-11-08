@@ -494,6 +494,117 @@ fn a_late_face_does_not_make_an_untouched_library_file_dirty_or_rewrite_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A library file holding a 1 x 1 (or `n` x `n`) table in `family` and a marker rectangle, opened in the app.
+struct OpenFile {
+    app: App,
+    lib: designos_library::Library,
+    entry: String,
+    cell: NodeId,
+    marker: NodeId,
+    dir: std::path::PathBuf,
+}
+
+fn open_file_with_table(family: &str, n: usize, tag: &str) -> OpenFile {
+    let dir = std::env::temp_dir().join(format!("designos-refit-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut d = Document::new("File");
+    let page = d.add_page("p");
+    let mut nodes = designos_doc::build_table(&mut d, n, n, Vec2::new(0.0, 0.0));
+    let cell = nodes[1].id;
+    if let NodeKind::Table(p) = &mut nodes[0].kind {
+        p.cols.iter_mut().for_each(|c| c.size = 144.0);
+        p.rows.iter_mut().for_each(|r| r.size = 40.0);
+    }
+    for node in nodes.iter_mut().skip(1) {
+        node.size = Vec2::new(144.0, 40.0);
+        if let NodeKind::TableCell(c) = &mut node.kind {
+            c.text.content = WRAPPED.into();
+            c.text.style.font_family = family.into();
+        }
+    }
+    designos_doc::Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+    let marker = d.alloc_id();
+    let mut m = Node::new(marker, NodeKind::Rectangle);
+    m.size = Vec2::new(10.0, 10.0);
+    m.transform = Affine::translate(-100.0, -100.0);
+    d.insert(page, m).unwrap();
+    let lib = designos_library::Library::open(dir.join("library")).unwrap();
+    let proj = lib.create_project("Project").unwrap();
+    let entry = lib.create_file(&proj.id, None, "File", &d).unwrap();
+    let mut app = App::new(Document::new("empty"));
+    app.fonts = testkit::serving(&[family]);
+    app.lib = Some(lib.clone());
+    app.open_library_file(&entry.id);
+    OpenFile { app, lib, entry: entry.id, cell, marker, dir }
+}
+
+fn autosave_ticks(app: &mut App, from: f64, count: usize) {
+    let ctx = egui::Context::default();
+    for step in 1..=count {
+        app.now = from + step as f64 * 0.1;
+        crate::canvas::tiles::take_rev(app);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| app.autosave_tick(ui.ctx()));
+    }
+}
+
+fn move_marker(f: &mut OpenFile, x: f32) {
+    f.app.edit_nodes(&[f.marker], |n| n.transform = Affine::translate(x, -100.0));
+}
+
+fn marker_x_on_disk(f: &OpenFile) -> f32 {
+    f.lib.load_file(&f.entry).unwrap().get(f.marker).unwrap().transform.translation().x
+}
+
+/// A face arrives and lays out a table while the file holds an unsaved edit: the edit must still reach
+/// the file, and the document must stay dirty until it does. Rebasing the saved state onto the new row
+/// heights is only for a document that matched its file.
+fn assert_the_edit_outlives_the_layout(f: &mut OpenFile, row_before: f32) {
+    assert!(size_of(&f.app, f.cell).y > row_before, "the table was laid out with the face");
+    assert!(f.app.has_unsaved_edits(), "the document is still dirty after the layout");
+    autosave_ticks(&mut f.app, 100.0, 40);
+    f.app.flush_autosave();
+    assert_eq!(marker_x_on_disk(f), 500.0, "the edit reached the file");
+    assert!(!f.app.has_unsaved_edits(), "and it is clean once saved");
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[test]
+fn an_edit_with_a_save_pending_reaches_the_file_when_a_late_face_lays_out_a_table() {
+    let mut f = open_file_with_table("TestRefEd1", 1, "pending");
+    move_marker(&mut f, 500.0);
+    autosave_ticks(&mut f.app, 10.0, 1); // one tick has seen the edit: its save is pending
+    let before = size_of(&f.app, f.cell).y;
+    arrive(&mut f.app);
+    assert_the_edit_outlives_the_layout(&mut f, before);
+}
+
+#[test]
+fn an_edit_no_autosave_tick_has_seen_reaches_the_file_when_a_late_face_lays_out_a_table() {
+    let mut f = open_file_with_table("TestRefEd2", 1, "unseen");
+    let before = size_of(&f.app, f.cell).y;
+    move_marker(&mut f, 500.0);
+    arrive(&mut f.app);
+    assert_the_edit_outlives_the_layout(&mut f, before);
+}
+
+#[test]
+fn an_edit_made_between_two_warm_up_slices_reaches_the_file() {
+    let mut f = open_file_with_table("TestRefEd3", 20, "slices");
+    f.app.fonts.refit.budget = Duration::ZERO;
+    load_only(&mut f.app);
+    assert!(f.app.text_refit_pending(), "the table layout is sliced");
+    f.app.poll_fonts();
+    move_marker(&mut f, 500.0);
+    let before = size_of(&f.app, f.cell).y;
+    let mut frames = 0;
+    while f.app.text_refit_pending() {
+        f.app.poll_fonts();
+        frames += 1;
+        assert!(frames < 50, "the pass ends");
+    }
+    assert_the_edit_outlives_the_layout(&mut f, before);
+}
+
 mod after_edits;
 mod guards;
 mod open_edit;
