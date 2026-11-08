@@ -87,7 +87,7 @@ fn font_family_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 }
 
 #[test]
-fn font_weight_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+fn font_weight_edit_keeps_linked_text_style_as_an_override_in_one_undo_step_with_undo_and_redo() {
     let (mut s, id) = linked_sim();
     let depth = s.app().hist.undo_depth();
 
@@ -101,8 +101,8 @@ fn font_weight_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
     s.click(bold_row.center());
 
     assert_eq!(text_of(&s, id).style.font_weight, 700);
-    assert_eq!(link_of(&s, id), None, "editing font weight must detach the text style");
-    assert_eq!(s.app().hist.undo_depth(), depth + 1, "weight edit + style detach must be one undo step");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "editing font weight keeps the text style: it is an override");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "weight edit + override record must be one undo step");
 
     s.cmd_key(Key::Z);
     assert_eq!(text_of(&s, id).style.font_weight, 400, "undo restores font weight");
@@ -110,11 +110,11 @@ fn font_weight_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 
     s.cmd_shift_key(Key::Z);
     assert_eq!(text_of(&s, id).style.font_weight, 700, "redo reapplies font weight");
-    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "redo keeps the text style link");
 }
 
 #[test]
-fn font_style_italic_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+fn font_style_italic_edit_keeps_linked_text_style_as_an_override_in_one_undo_step_with_undo_and_redo() {
     let (mut s, id) = linked_sim();
     let depth_before_italic = s.app().hist.undo_depth();
 
@@ -128,8 +128,8 @@ fn font_style_italic_edit_detaches_linked_text_style_in_one_undo_step_with_undo_
     s.click(italic_pos);
 
     assert!(text_of(&s, id).style.italic, "clicking Italic sets italic = true");
-    assert_eq!(link_of(&s, id), None, "editing font style (italic) must detach the text style");
-    assert_eq!(s.app().hist.undo_depth(), depth_before_italic + 1, "italic edit + style detach must be one undo step");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "editing font style (italic) keeps the text style: it is an override");
+    assert_eq!(s.app().hist.undo_depth(), depth_before_italic + 1, "italic edit + override record must be one undo step");
 
     s.cmd_key(Key::Z);
     assert!(!text_of(&s, id).style.italic, "undo restores italic = false");
@@ -137,7 +137,7 @@ fn font_style_italic_edit_detaches_linked_text_style_in_one_undo_step_with_undo_
 
     s.cmd_shift_key(Key::Z);
     assert!(text_of(&s, id).style.italic, "redo reapplies italic = true");
-    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "redo keeps the text style link");
 }
 
 #[test]
@@ -292,14 +292,14 @@ fn active_text_session_typography_edit_detaches_while_alignment_and_fill_keep_li
 }
 
 #[test]
-fn cmd_b_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+fn cmd_b_outside_session_keeps_linked_text_style_as_an_override_in_one_undo_step_with_undo_and_redo() {
     let (mut s, id) = linked_sim();
     let depth = s.app().hist.undo_depth();
 
     s.cmd_key(Key::B);
     assert_eq!(text_of(&s, id).style.font_weight, 700);
-    assert_eq!(link_of(&s, id), None, "Cmd+B outside a session must detach the text style");
-    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+B + style detach must be one undo step");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "Cmd+B outside a session keeps the text style: it is an override");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+B + override record must be one undo step");
 
     s.cmd_key(Key::Z);
     assert_eq!(text_of(&s, id).style.font_weight, 400, "undo restores font weight");
@@ -307,11 +307,11 @@ fn cmd_b_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_a
 
     s.cmd_shift_key(Key::Z);
     assert_eq!(text_of(&s, id).style.font_weight, 700, "redo reapplies font weight");
-    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "redo keeps the text style link");
 }
 
 #[test]
-fn cmd_b_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+fn cmd_b_in_session_keeps_linked_text_style_as_an_override_in_one_undo_step_with_undo_and_redo() {
     let (mut s, id) = linked_sim();
     let depth = s.app().hist.undo_depth();
     crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
@@ -320,7 +320,7 @@ fn cmd_b_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 
     s.cmd_key(Key::B);
     assert_eq!(text_of(&s, id).style.font_weight, 700);
-    assert_eq!(link_of(&s, id), None, "Cmd+B in a session must detach the text style");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "Cmd+B in a session keeps the text style: it is an override");
 
     s.cmd_key(Key::Z);
     assert_eq!(text_of(&s, id).style.font_weight, 400, "in-session undo restores font weight");
@@ -329,7 +329,7 @@ fn cmd_b_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 
     s.cmd_shift_key(Key::Z);
     assert_eq!(text_of(&s, id).style.font_weight, 700, "in-session redo reapplies font weight");
-    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session redo keeps the text style link");
 
     s.key(Key::Escape);
     s.frame(vec![]);
@@ -341,14 +341,14 @@ fn cmd_b_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 }
 
 #[test]
-fn cmd_i_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+fn cmd_i_outside_session_keeps_linked_text_style_as_an_override_in_one_undo_step_with_undo_and_redo() {
     let (mut s, id) = linked_sim();
     let depth = s.app().hist.undo_depth();
 
     s.cmd_key(Key::I);
     assert!(text_of(&s, id).style.italic);
-    assert_eq!(link_of(&s, id), None, "Cmd+I outside a session must detach the text style");
-    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+I + style detach must be one undo step");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "Cmd+I outside a session keeps the text style: it is an override");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+I + override record must be one undo step");
 
     s.cmd_key(Key::Z);
     assert!(!text_of(&s, id).style.italic, "undo restores italic");
@@ -356,11 +356,11 @@ fn cmd_i_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_a
 
     s.cmd_shift_key(Key::Z);
     assert!(text_of(&s, id).style.italic, "redo reapplies italic");
-    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "redo keeps the text style link");
 }
 
 #[test]
-fn cmd_i_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+fn cmd_i_in_session_keeps_linked_text_style_as_an_override_in_one_undo_step_with_undo_and_redo() {
     let (mut s, id) = linked_sim();
     let depth = s.app().hist.undo_depth();
     crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
@@ -369,7 +369,7 @@ fn cmd_i_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 
     s.cmd_key(Key::I);
     assert!(text_of(&s, id).style.italic);
-    assert_eq!(link_of(&s, id), None, "Cmd+I in a session must detach the text style");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "Cmd+I in a session keeps the text style: it is an override");
 
     s.cmd_key(Key::Z);
     assert!(!text_of(&s, id).style.italic, "in-session undo restores italic");
@@ -378,7 +378,7 @@ fn cmd_i_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 
     s.cmd_shift_key(Key::Z);
     assert!(text_of(&s, id).style.italic, "in-session redo reapplies italic");
-    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session redo keeps the text style link");
 
     s.key(Key::Escape);
     s.frame(vec![]);
@@ -390,14 +390,14 @@ fn cmd_i_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 }
 
 #[test]
-fn cmd_u_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+fn cmd_u_outside_session_keeps_linked_text_style_as_an_override_in_one_undo_step_with_undo_and_redo() {
     let (mut s, id) = linked_sim();
     let depth = s.app().hist.undo_depth();
 
     s.cmd_key(Key::U);
     assert_eq!(text_of(&s, id).style.decoration, TextDecoration::Underline);
-    assert_eq!(link_of(&s, id), None, "Cmd+U outside a session must detach the text style");
-    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+U + style detach must be one undo step");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "Cmd+U outside a session keeps the text style: it is an override");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+U + override record must be one undo step");
 
     s.cmd_key(Key::Z);
     assert_eq!(text_of(&s, id).style.decoration, TextDecoration::None, "undo restores decoration");
@@ -405,11 +405,11 @@ fn cmd_u_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_a
 
     s.cmd_shift_key(Key::Z);
     assert_eq!(text_of(&s, id).style.decoration, TextDecoration::Underline, "redo reapplies decoration");
-    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "redo keeps the text style link");
 }
 
 #[test]
-fn cmd_u_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+fn cmd_u_in_session_keeps_linked_text_style_as_an_override_in_one_undo_step_with_undo_and_redo() {
     let (mut s, id) = linked_sim();
     let depth = s.app().hist.undo_depth();
     crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
@@ -418,7 +418,7 @@ fn cmd_u_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 
     s.cmd_key(Key::U);
     assert_eq!(text_of(&s, id).style.decoration, TextDecoration::Underline);
-    assert_eq!(link_of(&s, id), None, "Cmd+U in a session must detach the text style");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "Cmd+U in a session keeps the text style: it is an override");
 
     s.cmd_key(Key::Z);
     assert_eq!(text_of(&s, id).style.decoration, TextDecoration::None, "in-session undo restores decoration");
@@ -427,7 +427,7 @@ fn cmd_u_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_re
 
     s.cmd_shift_key(Key::Z);
     assert_eq!(text_of(&s, id).style.decoration, TextDecoration::Underline, "in-session redo reapplies decoration");
-    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session redo keeps the text style link");
 
     s.key(Key::Escape);
     s.frame(vec![]);
@@ -701,7 +701,7 @@ fn paragraph_indent_in_session_detaches_linked_text_style_in_one_undo_step_with_
 }
 
 #[test]
-fn run_merge_into_base_on_cmd_i_detaches_linked_text_style() {
+fn run_merge_into_base_on_cmd_i_keeps_linked_text_style_as_an_override() {
     let (mut s, id) = linked_sim();
     s.shell.app.edit_nodes(&[id], |n| {
         if let NodeKind::Text(t) = &mut n.kind {
@@ -717,7 +717,7 @@ fn run_merge_into_base_on_cmd_i_detaches_linked_text_style() {
     s.cmd_key(Key::I);
     assert!(text_of(&s, id).style.italic);
     assert!(text_of(&s, id).runs.is_empty(), "making the non-italic run italic merges it into the italic base");
-    assert_eq!(link_of(&s, id), None, "merging a run into the base via Cmd+I must detach the text style");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "merging a run into the base via Cmd+I only changes italic: the style stays");
     assert_eq!(s.app().hist.undo_depth(), depth + 1);
 
     s.cmd_key(Key::Z);
@@ -727,7 +727,7 @@ fn run_merge_into_base_on_cmd_i_detaches_linked_text_style() {
 }
 
 #[test]
-fn run_only_style_change_on_cmd_i_detaches_linked_text_style() {
+fn run_only_italic_change_on_cmd_i_keeps_linked_text_style() {
     let (mut s, id) = linked_sim();
     s.shell.app.edit_nodes(&[id], |n| {
         if let NodeKind::Text(t) = &mut n.kind {
@@ -745,13 +745,41 @@ fn run_only_style_change_on_cmd_i_detaches_linked_text_style() {
     assert!(text_of(&s, id).style.italic);
     assert_eq!(text_of(&s, id).runs.len(), 1);
     assert!(text_of(&s, id).runs[0].style.italic, "Cmd+I makes the bold non-italic run italic");
-    assert_eq!(link_of(&s, id), None, "a style-owned change on a single run must detach the text style");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "italic on a single run is an override: the style stays");
     assert_eq!(s.app().hist.undo_depth(), depth + 1);
 
     s.cmd_key(Key::Z);
     assert_eq!(text_of(&s, id).runs.len(), 1);
     assert!(!text_of(&s, id).runs[0].style.italic);
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores the run style and text style link");
+}
+
+#[test]
+fn the_override_pill_sits_inside_the_style_field_inset_from_its_right_edge_and_centred() {
+    let (mut s, id) = linked_sim();
+    let recorded = |s: &Sim| s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "text-style-overrides".to_string())))).is_some();
+    assert!(!recorded(&s), "no pill without an override");
+    s.cmd_key(Key::B);
+    s.cmd_key(Key::U);
+    s.frame(vec![]);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    let (row, pill) = (s.rect_of("text-style-row"), s.rect_of("text-style-overrides"));
+    assert!(pill.is_positive(), "bold and underline show a count pill");
+    assert!((row.right() - theme::INSET_CONTROL - pill.right()).abs() < 0.5, "pill {pill:?} sits INSET_CONTROL from the field {row:?} right edge");
+    assert!((pill.center().y - row.center().y).abs() < 0.5, "pill is centred on the field vertically");
+    assert!(row.contains_rect(pill), "pill is inside the field");
+}
+
+#[test]
+fn the_capture_preset_leaves_a_linked_text_with_two_overrides_on_the_built_in_document() {
+    let mut s = Sim::with(Options { select: Some("Continue".into()), ..Options::default() });
+    let id = s.by_name("Continue");
+    crate::panels::properties::preset_popup(&mut s.shell.app, "text-style-overrides:row", egui::vec2(1440.0, 900.0));
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let doc = &s.app().doc;
+    assert_eq!(designos_doc::text_style_overrides(doc, doc.get(id).unwrap()).labels(), vec!["Weight", "Decoration"], "the pill reads 2");
+    assert!(link_of(&s, id).is_some());
 }
 
 #[test]

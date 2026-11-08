@@ -1572,10 +1572,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push(("vectorData", msg(vd)));
         }
         NodeKind::Text(tp) => {
-            encode_text_node(&mut fields, tp);
+            let link = node.style_refs.contains_key("text").then_some(node.text_style_overrides);
+            encode_text_node(&mut fields, tp, link);
         }
         NodeKind::Sticky(sp) => {
-            encode_text_node(&mut fields, &sp.text);
+            encode_text_node(&mut fields, &sp.text, None);
         }
         NodeKind::ShapeWithText(sp) => {
             let st_name = node.fig_metadata.get("shapeWithTextType").map(String::as_str).filter(|s| !s.is_empty()).unwrap_or(match sp.shape {
@@ -1592,7 +1593,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             });
             let st_name = if cx.schema.has_enum_variant("ShapeWithTextType", st_name) { st_name } else { "SQUARE" };
             fields.push(("shapeWithTextType", en(st_name)));
-            encode_text_node(&mut fields, &sp.text);
+            encode_text_node(&mut fields, &sp.text, None);
         }
         NodeKind::Connector(cp) => {
             if let Some((lc, carrier_val)) = &lowered_conn {
@@ -1659,7 +1660,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 fields.push(("connectorStart", end_msg(&cp.start, "connectorStartMagnet", "connectorStartRelativePosition")));
                 fields.push(("connectorEnd", end_msg(&cp.end, "connectorEndMagnet", "connectorEndRelativePosition")));
                 if let Some(lbl) = &cp.label {
-                    encode_text_node(&mut fields, lbl);
+                    encode_text_node(&mut fields, lbl, None);
                 }
             }
         }
@@ -1770,7 +1771,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 ("strokeWeight", fl(0.0)),
                 ("strokeAlign", en("INSIDE")),
             ];
-            encode_text_node(&mut t_fields, &lbl);
+            encode_text_node(&mut t_fields, &lbl, None);
             cx.changes.push(msg(t_fields));
         }
     }
@@ -2360,7 +2361,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                 // Only a node that overrides its characters records them: a record that names the characters pins the
                 // text, and a node with a style-only override must keep following its main component's text.
                 if ovs.contains(&OverrideField::Characters) {
-                    ov.push(("textData", encode_text_data(tp, runs_differ, lists_differ)));
+                    ov.push(("textData", encode_text_data(tp, runs_differ, lists_differ, None)));
                 }
                 if ovs.contains(&OverrideField::TextStyle) {
                     // Figma applies an instance text-style relink/detach from the
@@ -3240,19 +3241,107 @@ fn append_paragraph_fields(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) 
     }
 }
 
-fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool) -> V {
+/// One row of the character style table of a text node.
+struct TableRun<'a> {
+    start: usize,
+    end: usize,
+    style: &'a TextStyle,
+    /// Set when the row is an override over the layer's text style (Figma's `isOverrideOverTextStyle`):
+    /// the weight, italic and decoration it carries, and nothing else of the style.
+    over: Option<OwnedFieldSet>,
+}
+
+/// The rows of the character style table of `tp`. On a layer linked to a text style (`link` holds its
+/// stored overrides), a range that differs from the base style only in weight, italic or decoration is
+/// an override row, and the characters outside every range get an override row of the layer's stored
+/// overrides: Figma reads the base values of a linked layer from the style, so a layer-wide override has
+/// to travel as a range to survive.
+fn table_runs(tp: &TextProps, link: Option<OwnedFieldSet>) -> Vec<TableRun<'_>> {
+    let stored = link.unwrap_or_default();
+    let mut layer_wide = OwnedFieldSet::EMPTY;
+    for f in [OwnedField::Weight, OwnedField::Italic, OwnedField::Decoration] {
+        if stored.contains(f) {
+            layer_wide.insert(f);
+        }
+    }
+    // A range row carries its own difference from the base and the layer-wide overrides, because Figma
+    // reads a linked layer's base values from the style: a row that left them out would lose them.
+    let mut rows: Vec<TableRun<'_>> = tp
+        .runs
+        .iter()
+        .map(|r| {
+            let mut over = designos_doc::text_style_diff(&r.style, &tp.style);
+            let overridable_only = !over.has_non_overridable();
+            over.union(layer_wide);
+            let over = link.filter(|_| overridable_only && !over.is_empty()).map(|_| over);
+            TableRun { start: r.start, end: r.end, style: &r.style, over }
+        })
+        .collect();
+    if !layer_wide.is_empty() && !tp.content.is_empty() {
+        let len = tp.content.len();
+        let mut covered: Vec<(usize, usize)> = tp.runs.iter().map(|r| (r.start.min(len), r.end.min(len))).collect();
+        covered.sort_unstable();
+        let mut at = 0;
+        for (s, e) in covered.into_iter().chain([(len, len)]) {
+            if s > at {
+                rows.push(TableRun { start: at, end: s, style: &tp.style, over: Some(layer_wide) });
+            }
+            at = at.max(e);
+        }
+    }
+    rows
+}
+
+/// A style override table row that overrides only `over` of the text style: its id, the flag, and the
+/// weight (with the font style name and the semantic weight and italic) and decoration it carries.
+fn override_row(sid: u32, style: &TextStyle, base: &TextStyle, over: OwnedFieldSet) -> V {
+    let mut f = vec![("styleID", V::Uint(sid)), ("isOverrideOverTextStyle", V::Bool(true))];
+    if over.contains(OwnedField::Weight) || over.contains(OwnedField::Italic) {
+        f.push((
+            "fontName",
+            st(vec![
+                ("family", V::String(style.font_family.clone())),
+                ("style", V::String(style_name_from_weight(style.font_weight, style.italic))),
+                ("postscript", V::String(String::new())),
+            ]),
+        ));
+        f.push(("semanticWeight", en(if style.font_weight >= 600 { "BOLD" } else { "NORMAL" })));
+        f.push(("semanticItalic", en(if style.italic { "ITALIC" } else { "NORMAL" })));
+    }
+    if over.contains(OwnedField::Decoration) {
+        f.push((
+            "textDecoration",
+            en(match style.decoration {
+                TextDecoration::None => "NONE",
+                TextDecoration::Underline => "UNDERLINE",
+                TextDecoration::Strikethrough => "STRIKETHROUGH",
+            }),
+        ));
+    }
+    if style.fills != base.fills {
+        f.push(("fillPaints", V::Array(style.fills.iter().map(|p| encode_paint(p, None, None)).collect())));
+    }
+    msg(f)
+}
+
+fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool, link: Option<OwnedFieldSet>) -> V {
     let mut td = vec![("characters", V::String(tp.content.clone()))];
-    if include_runs && !tp.runs.is_empty() {
+    let rows = table_runs(tp, link);
+    if include_runs && !rows.is_empty() {
         let offs = utf16_to_byte_offsets(&tp.content);
         let mut char_ids = vec![0u32; offs.len().saturating_sub(1)];
         let mut table = Vec::new();
-        for (i, r) in tp.runs.iter().enumerate() {
+        for (i, r) in rows.iter().enumerate() {
             let sid = (i + 1) as u32;
             let s = offs.partition_point(|&o| o < r.start);
             let e = offs.partition_point(|&o| o < r.end);
             let cap = e.min(char_ids.len());
             for slot in char_ids.iter_mut().take(cap).skip(s) {
                 *slot = sid;
+            }
+            if let Some(over) = r.over {
+                table.push(override_row(sid, r.style, &tp.style, over));
+                continue;
             }
             let st_name = style_name_from_weight(r.style.font_weight, r.style.italic);
             let lh = match r.style.line_height {
@@ -3289,7 +3378,7 @@ fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool) -> 
                 ("letterSpacing", st(vec![("value", fl(r.style.letter_spacing)), ("units", en("PIXELS"))])),
                 ("lineHeight", lh),
             ];
-            append_ot_and_variation_fields(&mut so_fields, &r.style);
+            append_ot_and_variation_fields(&mut so_fields, r.style);
             table.push(msg(so_fields));
         }
         td.push(("characterStyleIDs", V::Array(char_ids.into_iter().map(V::Uint).collect())));
@@ -3320,7 +3409,8 @@ fn encode_text_data(tp: &TextProps, include_runs: bool, include_lines: bool) -> 
     msg(td)
 }
 
-fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
+/// `link` holds the stored overrides of a layer linked to a text style (`None` for any other text).
+fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps, link: Option<OwnedFieldSet>) {
     append_text_style_fields(fields, &tp.style);
     fields.push(("autoRename", V::Bool(tp.auto_rename)));
     fields.push(("textDecorationSkipInk", V::Bool(tp.decoration_skip_ink)));
@@ -3346,7 +3436,7 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
         fields.push(("maxLines", V::Int(i32::try_from(m).unwrap_or(i32::MAX))));
     }
     append_paragraph_fields(fields, tp);
-    fields.push(("textData", encode_text_data(tp, true, true)));
+    fields.push(("textData", encode_text_data(tp, true, true, link)));
 }
 
 fn blend_name(b: BlendMode) -> &'static str {

@@ -108,6 +108,8 @@ pub struct Snap {
     pub props: TextProps,
     /// The text style the layer is linked to, which undo and redo bring back with the values.
     pub style_ref: Option<String>,
+    /// The properties of that text style the layer overrides, restored with the link and the values.
+    pub overrides: designos_doc::OwnedFieldSet,
     pub caret: usize,
     pub anchor: usize,
 }
@@ -297,6 +299,7 @@ mod tests {
                 ..Default::default()
             },
             style_ref: None,
+            overrides: Default::default(),
             caret: s.len(),
             anchor: s.len(),
         }

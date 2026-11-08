@@ -504,6 +504,7 @@ pub fn record_override(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
                 || a.lists != b.lists
                 || a.direction != b.direction
                 || before.style_refs.get("text") != after.style_refs.get("text")
+                || before.text_style_overrides != after.text_style_overrides
                 || before.style_refs.get("fill") != after.style_refs.get("fill"),
             OverrideField::TextStyle,
         );
@@ -1243,6 +1244,11 @@ fn copy_overridden(from: &Node, to: &mut Node, fields: &BTreeSet<OverrideField>)
 }
 
 fn copy_style_ref_key(key: &str, from: &Node, to: &mut Node) {
+    // The overrides of a text style go with the link: an instance taking its main's text style takes
+    // what the main overrides of it, and one resetting to the main has none left over.
+    if key == "text" {
+        to.text_style_overrides = from.text_style_overrides;
+    }
     match from.style_refs.get(key) {
         Some(v) => {
             to.style_refs.insert(key.to_string(), v.clone());
@@ -4071,6 +4077,72 @@ mod tests {
         if let NodeKind::Text(t) = &n_label.kind {
             assert_eq!(t.style.font_size, 24.0);
         }
+    }
+
+    #[test]
+    fn an_instance_takes_the_text_style_overrides_of_its_main_through_sync_style_edits_and_reset() {
+        let mut f = fx();
+        f.d.styles.insert("Heading".into(), Style::Text(TextStyle { font_size: 16.0, ..Default::default() }));
+        f.d.style_meta.insert("Heading".into(), StyleMeta { name: "Heading".into(), property: StyleProperty::Text, ..Default::default() });
+        let mut main_label = f.d.get(f.label).unwrap().clone();
+        if let NodeKind::Text(t) = &mut main_label.kind {
+            t.style.font_size = 16.0;
+        }
+        main_label.style_refs.insert("text".into(), "Heading".into());
+        apply(&mut f.d, Command::Update { node: Box::new(main_label) });
+        let i = inst(&mut f, (200.0, 0.0));
+        let ilabel = child_named(&f.d, i, "label");
+
+        // The main overrides its weight while linked, then the style is edited.
+        let mut main_label = f.d.get(f.label).unwrap().clone();
+        let before = main_label.kind.any_text().unwrap().clone();
+        main_label.kind.any_text_mut().unwrap().style.set_font_weight(700);
+        assert_eq!(apply_text_link_rule(&mut main_label, &before), LinkOutcome::Kept);
+        apply(&mut f.d, Command::Update { node: Box::new(main_label) });
+        let c = sync_instances(&mut f.d, f.comp);
+        apply(&mut f.d, c);
+        let cmd = update_style(&f.d, "Heading", Style::Text(TextStyle { font_size: 18.0, font_weight: 500, ..Default::default() })).unwrap();
+        apply(&mut f.d, cmd);
+
+        let look = |d: &Document, id: NodeId| {
+            let n = d.get(id).unwrap();
+            let s = &n.kind.any_text().unwrap().style;
+            (s.font_size, s.font_weight, n.text_style_overrides.labels())
+        };
+        assert_eq!(look(&f.d, f.label), (18.0, 700, vec!["Weight"]), "the main keeps its weight and takes the new size");
+        assert_eq!(look(&f.d, ilabel), look(&f.d, f.label), "the instance matches the main");
+
+        // The instance overrides it on its own, then resets: nothing stale is left.
+        let before_i = f.d.get(ilabel).unwrap().clone();
+        let mut after_i = before_i.clone();
+        after_i.kind.any_text_mut().unwrap().style.set_font_weight(300);
+        after_i.component.overrides = record_override(&before_i, &after_i);
+        apply(&mut f.d, Command::Update { node: Box::new(after_i) });
+        let c = reset_overrides(&mut f.d, ilabel, &[OverrideField::TextStyle]);
+        apply(&mut f.d, c);
+        assert_eq!(look(&f.d, ilabel), look(&f.d, f.label));
+    }
+
+    #[test]
+    fn a_reset_instance_text_keeps_no_stale_overrides_of_a_main_without_any() {
+        let mut f = fx();
+        f.d.styles.insert("Heading".into(), Style::Text(TextStyle { font_size: 16.0, ..Default::default() }));
+        f.d.style_meta.insert("Heading".into(), StyleMeta { name: "Heading".into(), property: StyleProperty::Text, ..Default::default() });
+        let mut main_label = f.d.get(f.label).unwrap().clone();
+        main_label.style_refs.insert("text".into(), "Heading".into());
+        apply(&mut f.d, Command::Update { node: Box::new(main_label) });
+        let i = inst(&mut f, (200.0, 0.0));
+        let ilabel = child_named(&f.d, i, "label");
+        let before = f.d.get(ilabel).unwrap().clone();
+        let mut after = before.clone();
+        after.kind.any_text_mut().unwrap().style.set_font_weight(700);
+        let outcome = apply_text_link_rule(&mut after, before.kind.any_text().unwrap());
+        assert_eq!((outcome, after.text_style_overrides.labels()), (LinkOutcome::Kept, vec!["Weight"]));
+        after.component.overrides = record_override(&before, &after);
+        apply(&mut f.d, Command::Update { node: Box::new(after) });
+        let c = reset_overrides(&mut f.d, ilabel, &[OverrideField::TextStyle]);
+        apply(&mut f.d, c);
+        assert!(f.d.get(ilabel).unwrap().text_style_overrides.is_empty(), "no stale set after Reset overrides");
     }
 
     #[test]

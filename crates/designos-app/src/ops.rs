@@ -252,6 +252,8 @@ fn match_text_style(node: &mut Node, target: &Node, style: &TextStyle, is_root: 
         match_style_links(node, target, &["text", "fill"]);
         match_bindings(node, target, |key| key.starts_with("fills/") || is_typography_binding(key));
     }
+    // The layer takes the target's style values, so it also takes what the target overrides of that style.
+    node.text_style_overrides = if node.style_refs.contains_key("text") { target.text_style_overrides } else { Default::default() };
 }
 
 impl App {
@@ -1110,8 +1112,14 @@ impl App {
                 n.corner_smoothing = snap.corner_smoothing;
                 let is_text = matches!(n.kind, NodeKind::Text(_));
                 if let (Some(style), Some(tp)) = (&snap.text_style, n.kind.any_text_mut()) {
+                    let before = n.style_refs.contains_key("text").then(|| tp.clone());
                     crate::richtext::apply_all(tp, |st| *st = style.clone());
-                    n.style_refs.remove("text");
+                    // Pasted weight, italic and decoration are overrides of the target's style, which
+                    // stays linked; any other pasted style value detaches it.
+                    if let Some(before) = before {
+                        designos_doc::apply_text_link_rule(n, &before);
+                    }
+                    let Some(tp) = n.kind.any_text_mut() else { continue };
                     if is_text {
                         n.size = layout::fit_text(tp, n.size);
                         relayout_text = true;

@@ -661,8 +661,12 @@ pub fn style_numeric(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, pr
     v
 }
 
+/// Whether binding `key` detaches a linked text style: a property the style owns that Figma does not let
+/// a layer override while linked. A weight or font style variable keeps the link and is recorded as an
+/// override instead (`bind_variable_in`).
 fn is_text_style_key(key: &str) -> bool {
     matches!(key, "fontFamily" | "fontStyle" | "fontWeight" | "fontSize" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent")
+        && !designos_doc::binding_key_is_overridable(key)
 }
 
 fn detach_text_style_in(doc: &mut Document, tx: &mut crate::edit::Tx, nodes: &[NodeId]) {
@@ -671,6 +675,7 @@ fn detach_text_style_in(doc: &mut Document, tx: &mut crate::edit::Tx, nodes: &[N
         if doc.get(nid).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)) && n.style_refs.contains_key(rk)) {
             if let Some(n) = tx.ed.node(doc, nid) {
                 n.style_refs.remove(rk);
+                n.text_style_overrides = designos_doc::OwnedFieldSet::EMPTY;
             }
         }
     }
@@ -831,5 +836,28 @@ pub(super) fn mode_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Node
             app.set_node_mode(sel, &c.id, pick.as_deref());
         }
         row_end(pane);
+    }
+}
+
+#[cfg(test)]
+mod detach_tests {
+    use super::*;
+
+    #[test]
+    fn binding_a_size_detaches_the_style_and_leaves_no_stale_override_set() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let id = doc.alloc_id();
+        let mut text = Node::text(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 20.0), "Hi", designos_doc::TextStyle::default());
+        text.style_refs.insert("text".into(), "Body".into());
+        text.text_style_overrides.insert(designos_doc::OwnedField::Weight);
+        doc.insert(page, text).unwrap();
+        let mut tx = crate::edit::Tx::new();
+        detach_text_style_in(&mut doc, &mut tx, &[id]);
+        let mut hist = designos_doc::History::default();
+        tx.commit(&mut doc, &mut hist).unwrap();
+        let n = doc.get(id).unwrap();
+        assert!(!n.style_refs.contains_key("text"));
+        assert!(n.text_style_overrides.is_empty(), "an unlinked layer has no overrides of a style");
     }
 }

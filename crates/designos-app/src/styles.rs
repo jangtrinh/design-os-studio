@@ -151,6 +151,8 @@ impl App {
                     }
                     n.size = layout::fit_text(t, n.size);
                     n.style_refs.insert("text".into(), key.into());
+                    // Every value is the style's now.
+                    n.text_style_overrides = designos_doc::OwnedFieldSet::default();
                 }
             }
             Style::Effect(fx) => {
@@ -173,6 +175,29 @@ impl App {
             }
             layout::relayout_around(&mut self.doc, &mut tx.ed, *id);
         }
+    }
+
+    /// "Reapply text style": every text layer of `sel` that overrides its linked text style gets the
+    /// style's values back, loses the variable bindings the style owns and has no overrides left, as one
+    /// undo step. The link stays. False when no selected layer overrides its style.
+    pub fn reapply_text_style(&mut self, sel: &[NodeId]) -> bool {
+        self.end_text_edit_of(sel);
+        let ids: Vec<NodeId> =
+            sel.iter().copied().filter(|id| self.doc.get(*id).is_some_and(|n| !designos_doc::text_style_overrides(&self.doc, n).is_empty())).collect();
+        if ids.is_empty() {
+            return false;
+        }
+        let op = reapply_text_style(&self.doc, &ids);
+        self.run_style_op_then(op, move |app, tx| {
+            for id in ids {
+                if let Some(n) = tx.ed.node(&mut app.doc, id) {
+                    if let NodeKind::Text(t) = &mut n.kind {
+                        n.size = layout::fit_text(t, n.size);
+                    }
+                }
+                layout::relayout_around(&mut app.doc, &mut tx.ed, id);
+            }
+        })
     }
 
     /// Runs the outcome of a style operation as one undo step; false (with a toast) when refused.
@@ -521,6 +546,9 @@ pub use text_style_ops::{create_text_style_from_nodes, detach_text_style, shared
 
 #[cfg(test)]
 mod fill_binding_tests;
+
+#[cfg(test)]
+mod text_style_override_tests;
 
 #[cfg(test)]
 mod variable_binding_tests;
