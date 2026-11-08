@@ -333,14 +333,12 @@ fn render_instance_prop_rows(
         let bind_key = prop_binding_key(&def.name);
         let bind_keys = [bind_key.as_str()];
         let sel = [target_inst];
-        if bind_kind.is_some() {
-            if var_bind::pill_field(app, ui, ctl, &sel, &bind_keys) {
-                if let Some(problem) = prop_binding_problem(&app.doc, target_inst, &def.name) {
-                    ui.interact(ctl, ui.id().with(("prop-bind-problem", target_inst, &def.name)), Sense::hover()).on_hover_text(problem.to_string());
-                }
-                row_end(pane);
-                continue;
+        if bind_kind.is_some() && var_bind::pill_field(app, ui, ctl, &sel, &bind_keys) {
+            if let Some(problem) = prop_binding_problem(&app.doc, target_inst, &def.name) {
+                ui.interact(ctl, ui.id().with(("prop-bind-problem", target_inst, &def.name)), Sense::hover()).on_hover_text(problem.to_string());
             }
+            row_end(pane);
+            continue;
         }
         let ctl_full = ctl;
         let ctl = match bind_kind {

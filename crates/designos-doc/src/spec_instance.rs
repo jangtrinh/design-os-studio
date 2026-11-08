@@ -1019,6 +1019,8 @@ fn resolve_override_target(doc: &Document, instance_root: NodeId, ov: &OverrideS
     }
 }
 
+type PropEntries<'a> = Vec<(&'a String, &'a Value)>;
+
 /// Applies component `props` (`Boolean`, `Text`, `InstanceSwap`) onto an instance node `instance_id`.
 pub(crate) fn apply_instance_props_with_ctx(
     doc: &mut Document,
@@ -1039,8 +1041,7 @@ pub(crate) fn apply_instance_props_with_ctx(
 
     // A `"var:..."` string binds the property to that variable (boolean, text and variant properties); every other
     // value is the property's own value.
-    let (bound, props): (Vec<(&String, &Value)>, Vec<(&String, &Value)>) =
-        props.iter().partition(|(_, v)| v.as_str().is_some_and(|s| s.trim_start().starts_with("var:")));
+    let (bound, props): (PropEntries, PropEntries) = props.iter().partition(|(_, v)| v.as_str().is_some_and(|s| s.trim_start().starts_with("var:")));
 
     for (key, raw_val) in props {
         let def = non_variant_defs

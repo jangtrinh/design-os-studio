@@ -287,7 +287,7 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
         }
     }
     undo.reverse();
-    Ok((!undo.is_empty()).then(|| Command::Batch(undo)))
+    Ok(if undo.is_empty() { None } else { Some(Command::Batch(undo)) })
 }
 
 /// Applies the values of every bound property to its instance, with no undo step: for a document that was just read
