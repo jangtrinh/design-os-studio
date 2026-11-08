@@ -1188,6 +1188,8 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
     new_node.name = format!("{} · {}", orig.name, job.op.layer_suffix());
     new_node.visible = true;
     new_node.kind = NodeKind::Rectangle;
+    // the result layer sits next to the original: its own timeline and track ids, references to shared timelines kept
+    designos_doc::reid_copied_motion(doc, &mut [&mut new_node], true);
 
     let (orig_opacity, orig_blend) =
         orig.fills.get(job.fill_index).filter(|p| matches!(p.kind, PaintKind::Image { .. })).map(|p| (p.opacity, p.blend)).unwrap_or((1.0, BlendMode::Normal));
@@ -1916,6 +1918,35 @@ mod tests {
         let children_after_undo = &app.doc.get(app.page).unwrap().children;
         assert_eq!(children_after_undo, &[orig_id]);
         assert!(app.doc.get(orig_id).unwrap().visible, "single undo restores original visibility");
+    }
+
+    #[test]
+    fn the_result_layer_gets_its_own_motion_ids_and_keeps_sharing_the_originals_timeline() {
+        use designos_doc::{MotionIndex, NodeMotion, Timeline, Track, TrackProperty};
+        let tmp = TestDir::new("motion-ids");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        // a frame-level timeline the layer plays, and one the layer owns
+        let mut owner = app.doc.get(orig_id).unwrap().clone();
+        owner.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 1_000)],
+            tracks: vec![Track::new("own", "tl", TrackProperty::Opacity)],
+            ..Default::default()
+        }));
+        app.doc.get_mut(orig_id).unwrap().motion = owner.motion;
+        let stub_png = tmp.path().join("stub_rgba_transparent.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        app.image_jobs.agent_script = Some(format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+        app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts");
+        wait_for_job_completion(&mut app);
+
+        let new_id = app.doc.get(app.page).unwrap().children[1];
+        let ix = MotionIndex::build(&app.doc);
+        assert!(ix.duplicate_ids().is_empty(), "{:?}", ix.duplicate_ids());
+        let m = app.doc.get(new_id).unwrap().motion.as_deref().unwrap();
+        assert_ne!(m.timelines[0].id, "tl");
+        assert_eq!(m.tracks[0].timeline, m.timelines[0].id, "the copy's track runs on the copy's timeline");
+        let orig = app.doc.get(orig_id).unwrap().motion.as_deref().unwrap();
+        assert_eq!((orig.timelines[0].id.as_str(), orig.tracks[0].id.as_str()), ("tl", "own"));
     }
 
     #[test]

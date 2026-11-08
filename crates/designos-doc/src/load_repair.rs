@@ -49,6 +49,10 @@ pub struct RepairReport {
     /// every fix keeps the text it finds (a cell outside a table becomes a text layer, a duplicate or covered
     /// cell folds into the cell that stays), so a caller that refuses repaired graphs still opens the file.
     pub tables: TableRepairs,
+    /// Motion tracks with an empty property name, dropped on load (no other track is touched). Left out of
+    /// [`RepairReport::structural_summary`]: nothing in the node graph was guessed, and a caller that refuses
+    /// repaired graphs still opens the file.
+    pub motion_tracks_dropped: usize,
 }
 
 /// What the table pass of [`Document::validate_and_repair`] changed; all zero for well-formed tables.
@@ -139,6 +143,14 @@ impl Document {
             if node.id != *key {
                 node.id = *key;
                 report.ids_realigned += 1;
+            }
+            if let Some(m) = node.motion.as_deref_mut() {
+                let before = m.tracks.len();
+                m.tracks.retain(|t| !t.property.kiwi_name().is_empty());
+                report.motion_tracks_dropped += before - m.tracks.len();
+                if m.is_empty() {
+                    node.motion = None;
+                }
             }
         }
 

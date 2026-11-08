@@ -11,8 +11,8 @@ use crate::edit::Tx;
 use crate::test_alloc_count::allocations_in;
 use designos_doc::{
     Affine, BlendMode, Color, ComponentLink, ComponentPropDef, Constraint, Constraints, DevInfo, DevStatus, Effect, ExportPreset, FrameProps, LayoutChild,
-    MaskType, Node, NodeId, NodeKind, NodeVariables, OverrideField, Paint, Path, PathCmd, PropKind, PropValue, PrototypeProps, SlideProps, SlotPropConfig,
-    Stroke, TextProps, Vec2,
+    MaskType, Node, NodeId, NodeKind, NodeMotion, NodeVariables, OverrideField, Paint, Path, PathCmd, PropKind, PropValue, PrototypeProps, SlideProps,
+    SlotPropConfig, Stroke, TextProps, Timeline, Vec2,
 };
 use std::collections::BTreeSet;
 
@@ -117,6 +117,7 @@ fn populated() -> Node {
     n.plugin_data.insert("plugin:key".into(), "value".into());
     n.detached_symbol_id = Some("1:1".into());
     n.fig_metadata.insert("version".into(), "1".into());
+    n.motion = Some(Box::new(NodeMotion { timelines: vec![Timeline::new("1:1", 1_000_000)], ..Default::default() }));
     n
 }
 
@@ -226,6 +227,10 @@ fn field_edits() -> Vec<(&'static str, Vec<Edit>)> {
         ("plugin_data", vec![|n| n.plugin_data.clear(), |n| n.plugin_data.insert("a:b".into(), "c".into()).map_or((), |_| ())]),
         ("detached_symbol_id", vec![|n| n.detached_symbol_id = None, |n| n.detached_symbol_id = Some("2:2".into())]),
         ("fig_metadata", vec![|n| n.fig_metadata.clear(), |n| n.fig_metadata.insert("publishID".into(), "p".into()).map_or((), |_| ())]),
+        (
+            "motion",
+            vec![|n| n.motion = None, |n| n.motion = Some(Box::new(NodeMotion { timelines: vec![Timeline::new("1:1", 2_000_000)], ..Default::default() }))],
+        ),
     ]
 }
 
@@ -316,7 +321,7 @@ fn the_corpus_edits_every_field_a_populated_node_serializes() {
     let serialized: BTreeSet<&str> = map.keys().map(String::as_str).filter(|k| !matches!(*k, "id" | "parent" | "children")).collect();
     let edited: BTreeSet<&str> = field_edits().iter().map(|(f, _)| *f).collect();
     assert_eq!(serialized, edited, "every serialized field of a populated node needs edits here, and every edit names a serialized field");
-    assert_eq!(serialized.len(), 32);
+    assert_eq!(serialized.len(), 33);
 }
 
 #[test]
@@ -391,7 +396,7 @@ fn random_combinations_of_edits_are_reported_as_the_value_diff_reported_them() {
         seen_fields.extend(value_diff_oracle(&a, &b));
         assert_same_as_value_diff(&a, &b, &format!("round {round} of seed 0x5EED0993"));
     }
-    assert_eq!(seen_fields.len(), 32, "the random pairs differ in every field at least once, saw {seen_fields:?}");
+    assert_eq!(seen_fields.len(), 33, "the random pairs differ in every field at least once, saw {seen_fields:?}");
 }
 
 #[test]

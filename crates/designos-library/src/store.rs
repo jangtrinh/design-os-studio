@@ -168,11 +168,25 @@ pub fn load_external(path: &Path) -> Result<Document> {
     load_external_counted(path).map(|(doc, _)| doc)
 }
 
+/// What reading a file repaired without failing it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReadRepairs {
+    /// `null` numbers read as their neutral value.
+    pub non_finite_numbers: usize,
+    /// Motion tracks stored with no property, dropped.
+    pub motion_tracks_dropped: usize,
+}
+
 /// Like [`load_external`], also returning how many `null` numbers were replaced on read.
 pub fn load_external_counted(path: &Path) -> Result<(Document, usize)> {
+    load_external_repairs(path).map(|(doc, repairs)| (doc, repairs.non_finite_numbers))
+}
+
+/// Like [`load_external`], also returning what the read repaired.
+pub fn load_external_repairs(path: &Path) -> Result<(Document, ReadRepairs)> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let invalid = |m: String| LibraryError::Invalid(m);
-    let mut replaced_on_read = 0;
+    let mut repairs = ReadRepairs::default();
     let mut doc = match ext.as_str() {
         "fig" => designos_fig::import_fig(&std::fs::read(path)?).map_err(|e| invalid(format!("Cannot import .fig: {e}")))?,
         "svg" => {
@@ -196,7 +210,7 @@ pub fn load_external_counted(path: &Path) -> Result<(Document, usize)> {
                         if !report.is_clean() {
                             eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
                         }
-                        replaced_on_read = report.non_finite_numbers;
+                        repairs = ReadRepairs { non_finite_numbers: report.non_finite_numbers, motion_tracks_dropped: report.motion_tracks_dropped };
                         d
                     }
                 }
@@ -207,7 +221,7 @@ pub fn load_external_counted(path: &Path) -> Result<(Document, usize)> {
             if !report.is_clean() {
                 eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
             }
-            replaced_on_read = report.non_finite_numbers;
+            repairs = ReadRepairs { non_finite_numbers: report.non_finite_numbers, motion_tracks_dropped: report.motion_tracks_dropped };
             d
         }
     };
@@ -218,7 +232,7 @@ pub fn load_external_counted(path: &Path) -> Result<(Document, usize)> {
     if doc.pages.is_empty() {
         doc.add_page("Page 1");
     }
-    Ok((doc, replaced_on_read))
+    Ok((doc, repairs))
 }
 
 fn clean_name(name: &str, what: &str) -> Result<String> {
@@ -913,9 +927,15 @@ impl Library {
     /// because it has more nested component copies than can be expanded. Every page of the import is loaded
     /// before the file is written, and the returned document holds them all.
     pub fn import_file_with_doc_counted(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize, usize)> {
-        let (doc, replaced_on_read) = load_external_counted(path)?;
+        self.import_file_with_doc_repairs(path, project, folder).map(|(e, d, replaced, left_empty, _)| (e, d, replaced, left_empty))
+    }
+
+    /// [`Self::import_file_with_doc_counted`], also returning how many Motion tracks with no property the read dropped.
+    pub fn import_file_with_doc_repairs(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize, usize, usize)> {
+        let (doc, repairs) = load_external_repairs(path)?;
         let stem = path.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty());
-        self.store_imported_document(doc, replaced_on_read, stem, project, folder)
+        let (entry, doc, replaced, left_empty) = self.store_imported_document(doc, repairs.non_finite_numbers, stem, project, folder)?;
+        Ok((entry, doc, replaced, left_empty, repairs.motion_tracks_dropped))
     }
 
     /// Stores a document that was just read from a file. Pages the reader left unloaded are loaded first.

@@ -53,6 +53,12 @@ pub mod live_patch;
 mod load_repair;
 #[cfg(test)]
 mod load_repair_tests;
+mod motion;
+mod motion_copy;
+mod motion_ops;
+#[cfg(test)]
+mod motion_tests;
+mod motion_value;
 mod node;
 pub mod openpencil;
 mod paint;
@@ -117,6 +123,9 @@ pub use layout_constraints::*;
 pub use library::*;
 pub use library_ops::*;
 pub use load_repair::*;
+pub use motion::*;
+pub use motion_copy::{reid_copied_motion, reid_copied_motion_mapped, reid_copied_motion_with};
+pub use motion_ops::*;
 pub use node::*;
 pub use openpencil::*;
 pub use paint::*;

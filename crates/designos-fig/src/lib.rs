@@ -21,6 +21,7 @@ mod fig;
 mod fig_export;
 mod instance_self_digest;
 pub mod kiwi;
+pub mod motion;
 mod own_entry_keys;
 pub mod pen;
 mod proto;

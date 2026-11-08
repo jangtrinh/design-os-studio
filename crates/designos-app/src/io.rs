@@ -49,6 +49,15 @@ pub fn non_finite_notice(count: usize) -> Option<String> {
     }
 }
 
+/// The notice for animation tracks that a file stored with no property and that were dropped on open.
+pub fn motion_tracks_dropped_notice(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("Dropped 1 animation track with no property".to_string()),
+        n => Some(format!("Dropped {n} animation tracks with no property")),
+    }
+}
+
 /// Returns [`non_finite_notice`] at most once per file and per run.
 pub fn non_finite_notice_once(path: &Path, count: usize) -> Option<String> {
     let notice = non_finite_notice(count)?;
@@ -104,12 +113,8 @@ fn parse_native_with_warning(path: &Path, text: &str, record_once: bool) -> serd
         }
     };
     let nf_notice = if record_once { non_finite_notice_once(path, report.non_finite_numbers) } else { non_finite_notice(report.non_finite_numbers) };
-    let warning = match (structural_warning, nf_notice) {
-        (Some(s), Some(n)) => Some(format!("{s}; {n}")),
-        (Some(s), None) => Some(s),
-        (None, Some(n)) => Some(n),
-        (None, None) => None,
-    };
+    let warning =
+        [structural_warning, nf_notice, motion_tracks_dropped_notice(report.motion_tracks_dropped)].into_iter().flatten().reduce(|a, b| format!("{a}; {b}"));
     Ok((doc, warning))
 }
 
@@ -812,6 +817,78 @@ mod tests {
         assert!(!bak.exists(), "clean file must not write a .bak file on save");
 
         std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn dropped_animation_tracks_are_named_in_the_notice_on_open_and_import() {
+        use designos_doc::{NodeMotion, Timeline, Track, TrackProperty};
+        assert_eq!(motion_tracks_dropped_notice(0), None);
+        assert_eq!(motion_tracks_dropped_notice(1).as_deref(), Some("Dropped 1 animation track with no property"));
+        assert_eq!(motion_tracks_dropped_notice(2).as_deref(), Some("Dropped 2 animation tracks with no property"));
+
+        let mut d = Document::new("Animated");
+        let page = d.add_page("Page 1");
+        let id = d.alloc_id();
+        let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+        frame.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 1)],
+            tracks: vec![Track::new("a", "tl", TrackProperty::Opacity), Track::new("b", "tl", TrackProperty::Rotation)],
+            ..Default::default()
+        }));
+        d.insert(page, frame).unwrap();
+        // a file made elsewhere: both tracks have an empty property name
+        let text = d.to_json().unwrap().replace("\"OPACITY\"", "\"\"").replace("\"MOTION_ROTATION\"", "\"\"");
+        let file = tmp("empty_track_property.designos");
+        std::fs::write(&file, text).unwrap();
+
+        let (doc, warning) = load_path_with_warning(&file).unwrap();
+        assert_eq!(warning.as_deref(), Some("Dropped 2 animation tracks with no property"));
+        assert!(doc.get(id).unwrap().motion.is_none() || doc.get(id).unwrap().motion.as_deref().unwrap().tracks.is_empty());
+        assert!(!backup_path(&file).exists(), "nothing structural was repaired, so no backup");
+
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.open_path(file.clone());
+        let toast = app.toast.as_ref().expect("open shows the notice");
+        assert!(toast.text.contains("Dropped 2 animation tracks with no property"), "{}", toast.text);
+        std::fs::remove_file(&file).ok();
+    }
+
+    #[test]
+    fn importing_into_the_library_names_the_animation_tracks_that_were_dropped() {
+        use designos_doc::{NodeMotion, Timeline, Track, TrackProperty};
+        let mut d = Document::new("Animated import");
+        let page = d.add_page("Page 1");
+        let id = d.alloc_id();
+        let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+        frame.motion = Some(Box::new(NodeMotion {
+            timelines: vec![Timeline::new("tl", 1)],
+            tracks: vec![Track::new("a", "tl", TrackProperty::Opacity), Track::new("b", "tl", TrackProperty::Rotation)],
+            ..Default::default()
+        }));
+        d.insert(page, frame).unwrap();
+        let text = d.to_json().unwrap().replace("\"OPACITY\"", "\"\"").replace("\"MOTION_ROTATION\"", "\"\"");
+        let src = tmp("empty_track_property_import.designos");
+        std::fs::write(&src, text).unwrap();
+
+        let lib_dir = tmp("motion_drop_lib");
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.attach_library(lib_dir);
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("P").unwrap());
+
+        // the store hands the count back next to the document
+        let (_, doc, _, _, dropped) = lib.import_file_with_doc_repairs(&src, &proj.id, None).unwrap();
+        assert_eq!(dropped, 2);
+        assert!(doc.get(id).is_none() || doc.nodes.values().all(|n| n.motion.as_deref().is_none_or(|m| m.tracks.is_empty())));
+
+        // and the import toast names it, in warning styling
+        app.toast = None;
+        assert_eq!(app.import_into_library(std::slice::from_ref(&src), &proj.id, None), 1);
+        let toast = app.toast.as_ref().expect("import shows a toast");
+        assert!(toast.error, "a drop is shown with warning styling");
+        assert!(toast.text.contains("Dropped 2 animation tracks with no property"), "{}", toast.text);
+        std::fs::remove_file(&src).ok();
     }
 
     #[test]

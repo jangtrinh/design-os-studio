@@ -1325,13 +1325,17 @@ impl Session {
                 // Native files are checked before the loader repairs them, so a broken node graph is
                 // refused instead of silently rewritten.
                 let mut repaired_non_finite_numbers = 0;
+                let mut repaired_motion_tracks_dropped = 0;
                 if !matches!(path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(), Some("fig" | "svg")) {
                     if let Ok(raw) = fs::read_to_string(&path) {
                         match parse_native_checked(&raw) {
                             Err(e) if e.starts_with(REPAIR_PREFIX) => {
                                 return Err(ToolError::new(ErrorCode::DocumentInvalid, "/path", e).with_received(json!(a.path)));
                             }
-                            Ok((_, report)) => repaired_non_finite_numbers = report.non_finite_numbers,
+                            Ok((_, report)) => {
+                                repaired_non_finite_numbers = report.non_finite_numbers;
+                                repaired_motion_tracks_dropped = report.motion_tracks_dropped;
+                            }
                             Err(_) => {}
                         }
                     }
@@ -1371,6 +1375,12 @@ impl Session {
                 if repaired_non_finite_numbers > 0 {
                     if let Some(fields) = summary.as_object_mut() {
                         fields.insert("repaired_non_finite_numbers".into(), json!(repaired_non_finite_numbers));
+                    }
+                }
+                // Motion tracks stored with no property cannot play and were dropped on load; the caller is told.
+                if repaired_motion_tracks_dropped > 0 {
+                    if let Some(fields) = summary.as_object_mut() {
+                        fields.insert("repaired_motion_tracks_dropped".into(), json!(repaired_motion_tracks_dropped));
                     }
                 }
                 self.attach_enabled_tools_warnings(&mut summary);
@@ -1926,7 +1936,8 @@ pub fn tools() -> Vec<Tool> {
                 "styles": {"type": "array"},
                 "can_undo": {"type": "boolean"},
                 "can_redo": {"type": "boolean"},
-                "repaired_non_finite_numbers": {"type": "integer"}
+                "repaired_non_finite_numbers": {"type": "integer"},
+                "repaired_motion_tracks_dropped": {"type": "integer"}
             }),
             vec!["name", "pages", "node_count", "can_undo", "can_redo"],
         ),

@@ -495,6 +495,10 @@ fn instantiate_mapped(doc: &mut Document, clip: &Clip) -> (Vec<Vec<Node>>, HashM
         }
         out.push(list);
     }
+    // copies of layers with Motion get their own timeline and track ids (and the references to them)
+    let mut copied: Vec<&mut Node> = out.iter_mut().flatten().collect();
+    // a timeline outside the copied set is only meaningful in the document the layers came from
+    designos_doc::reid_copied_motion(doc, &mut copied, clip.origin == Some(Origin::of(doc)));
     (out, map)
 }
 
@@ -597,13 +601,23 @@ pub fn instantiate_linking_mains(doc: &mut Document, clip: &Clip, parent_of: imp
     let mut original_of: Option<HashMap<NodeId, NodeId>> = None;
     // layers of the copies that were replaced -> the layer that stands in for them (`None`: a free end)
     let mut stand_in: HashMap<NodeId, Option<NodeId>> = HashMap::new();
+    // one set of Motion ids for the whole batch: the copies above already use theirs, and each new instance must
+    // avoid those and the instances made before it (none of them is in the document yet)
+    let mut reserved: std::collections::BTreeSet<String> = lists
+        .iter()
+        .flatten()
+        .filter_map(|n| n.motion.as_deref())
+        .flat_map(|m| m.timelines.iter().map(|t| t.id.clone()).chain(m.tracks.iter().map(|t| t.id.clone())))
+        .collect();
     for ((root, link), list) in clip.roots.iter().zip(links).zip(lists.iter_mut()) {
         let Some(link) = link else { continue };
         let Some(parent) = parent_of(doc, *root) else { continue };
         if !instance_fits(doc, &link, parent) {
             continue;
         }
-        let Command::Insert { nodes: mut instance, .. } = create_instance(doc, link.comp, parent, Vec2::ZERO) else { continue };
+        let Command::Insert { nodes: mut instance, .. } = designos_doc::create_instance_reserving(doc, link.comp, parent, Vec2::ZERO, &mut reserved) else {
+            continue;
+        };
         if let (Some(copy), Some(root_instance)) = (list.first(), instance.first_mut()) {
             root_instance.transform = copy.transform;
             root_instance.visible = copy.visible;

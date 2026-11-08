@@ -398,6 +398,7 @@ mod tests {
             plugin_data: BTreeMap::new(),
             detached_symbol_id: None,
             fig_metadata: BTreeMap::new(),
+            motion: None,
         }
     }
 
