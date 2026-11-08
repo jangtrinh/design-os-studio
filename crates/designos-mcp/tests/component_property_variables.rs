@@ -246,3 +246,71 @@ fn apply_spec_warns_when_bound_variant_variable_is_not_an_option() {
         "expected a spec warning for the invalid variant value, got: {applied}"
     );
 }
+
+#[test]
+fn update_node_refuses_mismatched_library_prop_var_without_importing_then_binds_and_undoes_with_import() {
+    let dir = std::env::temp_dir().join(format!("designos_mcp_prop_var_lib_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut lib_doc = Document::new("Theme Library");
+    lib_doc.variable_collections.insert(
+        "theme".into(),
+        VariableCollection {
+            id: "theme".into(),
+            name: "Theme".into(),
+            modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+            default_mode: "light".into(),
+            variables: vec!["title".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    lib_doc
+        .variables
+        .insert("title".into(), variable("title", VariableKind::String, VariableValue::String("Pay".into()), VariableValue::String("Pay later".into())));
+    designos_library::Library::open(&dir).unwrap().publish_library("lib-theme", &lib_doc, "v1").unwrap();
+
+    let mut s = setup();
+    s.e.doc.variables.clear();
+    s.e.doc.variable_collections.clear();
+    s.e.doc.library.enabled.push(LibraryRef { id: "lib-theme".into(), name: "Theme".into(), version: 1 });
+    let loaded = designos_mcp::tools::library_source::load_enabled_snapshots_from(&s.e.doc, &dir);
+    assert_eq!(loaded.len(), 1);
+
+    let orig_library = s.e.doc.library.clone();
+    let orig_depth = s.e.history.undo_depth();
+
+    let wrong = s.e.call("designos_update_node", json!({"node_id": s.inst.0, "prop_vars": {"Show icon": "var:Theme/title"}})).unwrap_err();
+    let wrong_json: Value = wrong.to_json_value();
+    assert_eq!(wrong_json["error"]["code"], "VARIABLE_TYPE_MISMATCH", "{wrong_json}");
+    assert!(s.e.doc.variables.is_empty(), "refused library variable bind must leave doc.variables empty");
+    assert!(s.e.doc.variable_collections.is_empty(), "refused library variable bind must leave doc.variable_collections empty");
+    assert_eq!(s.e.doc.library, orig_library, "refused library variable bind must leave doc.library unchanged");
+    assert_eq!(s.e.history.undo_depth(), orig_depth, "refused library variable bind must leave undo stack untouched");
+
+    let partial =
+        s.e.call("designos_update_node", json!({"node_id": s.inst.0, "prop_vars": {"Label": "var:Theme/title", "Nope": "var:Theme/title"}})).unwrap_err();
+    assert_eq!(partial.to_json_value()["error"]["code"], "UNKNOWN_COMPONENT_PROPERTY");
+    assert!(s.e.doc.variables.is_empty(), "partial prop_vars failure must roll back imported variables");
+    assert!(s.e.doc.variable_collections.is_empty(), "partial prop_vars failure must roll back imported collections");
+    assert_eq!(s.e.doc.library, orig_library, "partial prop_vars failure must roll back doc.library");
+    assert_eq!(s.e.history.undo_depth(), orig_depth);
+
+    let reply = s.e.call("designos_update_node", json!({"node_id": s.inst.0, "prop_vars": {"Label": "var:Theme/title"}})).unwrap();
+    assert_eq!(reply["changed"], true, "{reply}");
+    assert_eq!(s.e.doc.get(s.inst).unwrap().variables.bindings.get(&key("Label")).map(String::as_str), Some("lib-theme/title"));
+    assert_eq!(label_text(&s.e.doc, s.inst), "Pay");
+    assert!(s.e.doc.variables.contains_key("lib-theme/title"));
+    assert!(!s.e.doc.library.external.is_empty());
+    assert_eq!(s.e.history.undo_depth(), orig_depth + 1);
+
+    s.e.call("designos_undo", json!({})).unwrap();
+    assert!(s.e.doc.get(s.inst).unwrap().variables.bindings.is_empty(), "one undo removes the property binding");
+    assert_eq!(label_text(&s.e.doc, s.inst), "Label", "one undo restores the bound text child");
+    assert!(s.e.doc.variables.is_empty(), "one undo removes the imported library variable");
+    assert!(s.e.doc.variable_collections.is_empty(), "one undo removes the imported library collection");
+    assert_eq!(s.e.doc.library, orig_library, "one undo restores doc.library (removing imported external registrations)");
+    assert_eq!(s.e.history.undo_depth(), orig_depth);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

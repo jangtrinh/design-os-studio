@@ -1604,23 +1604,28 @@ impl Engine {
         )?;
         let id = node.id;
         let prop_map = a.prop_vars.as_ref().filter(|m| !m.is_empty());
-        let saved_vars =
-            (prop_map.is_some() && !self.doc.library.enabled.is_empty()).then(|| (self.doc.variables.clone(), self.doc.variable_collections.clone()));
-        let restore_vars = |doc: &mut Document,
-                            saved: Option<(
-            std::collections::BTreeMap<String, designos_doc::Variable>,
-            std::collections::BTreeMap<String, designos_doc::VariableCollection>,
-        )>| {
-            if let Some((vars, colls)) = saved {
-                doc.variables = vars;
-                doc.variable_collections = colls;
+        let saved_data = prop_map.is_some().then(|| designos_doc::SpecDataSnapshot::of(&self.doc));
+        let restore_data = |doc: &mut Document, saved: Option<designos_doc::SpecDataSnapshot>| {
+            if let Some(data) = saved {
+                data.restore(doc);
             }
         };
-        let resolved_props = match prop_map {
+        let take_data_cmds = |doc: &mut Document, saved: Option<designos_doc::SpecDataSnapshot>| -> Vec<Command> {
+            match saved {
+                Some(before) => {
+                    let after = designos_doc::SpecDataSnapshot::of(doc);
+                    let cmds = before.commands_to(&after);
+                    before.restore(doc);
+                    cmds
+                }
+                None => Vec::new(),
+            }
+        };
+        let resolved_props: Option<Vec<(String, Option<String>)>> = match prop_map {
             Some(map) => match self.resolve_prop_vars(id, map) {
                 Ok(r) => Some(r),
                 Err(e) => {
-                    restore_vars(&mut self.doc, saved_vars);
+                    restore_data(&mut self.doc, saved_data);
                     return Err(e);
                 }
             },
@@ -1629,9 +1634,16 @@ impl Engine {
         let planned_bind = match (&resolved_props, changed) {
             (None, _) => None,
             (Some(resolved), false) => match self.plan_prop_vars_cmd(id, resolved) {
-                Ok(cmd) => Some(cmd),
+                Ok(bind_cmd) => {
+                    let mut cmds = take_data_cmds(&mut self.doc, saved_data);
+                    match bind_cmd {
+                        Command::Batch(v) => cmds.extend(v),
+                        other => cmds.push(other),
+                    }
+                    Some(if cmds.len() == 1 { cmds.remove(0) } else { Command::Batch(cmds) })
+                }
                 Err(e) => {
-                    restore_vars(&mut self.doc, saved_vars);
+                    restore_data(&mut self.doc, saved_data);
                     return Err(e);
                 }
             },
@@ -1640,7 +1652,7 @@ impl Engine {
                 let field_inv = match field_cmd.clone().apply(&mut self.doc) {
                     Ok(inv) => inv,
                     Err(e) => {
-                        restore_vars(&mut self.doc, saved_vars);
+                        restore_data(&mut self.doc, saved_data);
                         return Err(ToolError::new(ErrorCode::InternalError, "", e.to_string()));
                     }
                 };
@@ -1649,19 +1661,20 @@ impl Engine {
                 let bind_cmd = match bind_res {
                     Ok(cmd) => cmd,
                     Err(e) => {
-                        restore_vars(&mut self.doc, saved_vars);
+                        restore_data(&mut self.doc, saved_data);
                         return Err(e);
                     }
                 };
-                let mut cmds = match field_cmd {
-                    Command::Batch(v) => v,
-                    other => vec![other],
-                };
+                let mut cmds = take_data_cmds(&mut self.doc, saved_data);
+                match field_cmd {
+                    Command::Batch(v) => cmds.extend(v),
+                    other => cmds.push(other),
+                }
                 match bind_cmd {
                     Command::Batch(v) => cmds.extend(v),
                     other => cmds.push(other),
                 }
-                Some(Command::Batch(cmds))
+                Some(if cmds.len() == 1 { cmds.remove(0) } else { Command::Batch(cmds) })
             }
         };
         let before_doc = a.diff_image.then(|| self.doc.clone());

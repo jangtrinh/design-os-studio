@@ -1084,3 +1084,26 @@ fn unbound_variant_migrated_slot_shows_in_variant_properties_and_edits_slot_sett
     s.click(del_btn.center());
     assert!(s.app().doc.get(small).unwrap().component.props.is_empty(), "deleting the variant-owned slot property removes it from the variant");
 }
+
+#[test]
+fn deleted_variable_on_component_property_var_bind_renders_missing_pill_and_detaches() {
+    let mut s = Sim::with(Options { select: Some("Learn more".into()), ..Default::default() });
+    let inst = s.by_name("Learn more");
+    let (flag, _) = add_icon_flag(&mut s);
+    let key = designos_doc::prop_binding_key("Show icon");
+    let row = s.rect_of("prop:Show icon");
+    s.mv(row.center());
+    s.frame(vec![]);
+    s.click(s.rect_of(&format!("bind:{key}")).center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Flags/Icon").center());
+    assert_eq!(s.app().doc.get(inst).unwrap().variables.bindings.get(&key), Some(&flag));
+
+    s.shell.app.doc.variables.remove(&flag);
+    s.frame(vec![]);
+    let pill = s.rect_of(&format!("bound:{key}"));
+    s.mv(pill.center());
+    s.frame(vec![]);
+    s.click(Pos2::new(pill.right() - 13.0, pill.center().y));
+    assert!(!s.app().doc.get(inst).unwrap().variables.bindings.contains_key(&key), "clicking detach on the missing-variable pill unbinds the property");
+}
