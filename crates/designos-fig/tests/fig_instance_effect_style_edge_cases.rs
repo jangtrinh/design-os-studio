@@ -285,3 +285,16 @@ fn an_alias_cycle_does_not_hang_and_counts_as_foreign() {
     let doc = copy_bound_to((7, 2), vec![variable(1, vec![None]), variable(2, vec![Some((7, 3))]), variable(3, vec![Some((7, 2))])]);
     assert_eq!(radii(named(&doc, "Aliased")), vec![2.0]);
 }
+
+#[test]
+fn library_variables_that_differ_only_in_version_are_the_same_variable() {
+    let by_key = |version: &str| json!({"colorVar": {"dataType": "ALIAS", "value": {"alias": {"assetRef": {"key": "lib-var", "version": version}}}}});
+    let with_var = |mut effect: Value, version: &str| {
+        effect["colorVar"] = by_key(version)["colorVar"].clone();
+        effect
+    };
+    let card = vec![with_var(shadow(8.0), "1:1"), with_var(shadow(4.0), "1:1")];
+    let own = json!({"styleIdForEffect": link(1), "effects": [with_var(shadow(2.0), "2:9")]});
+    let doc = import(&doc_json(card, json!({}), json!({}), vec![inst(1, "Versions", own, vec![])]));
+    assert_eq!(radii(named(&doc, "Versions")), vec![8.0, 4.0]);
+}

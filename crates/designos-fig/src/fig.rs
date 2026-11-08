@@ -655,6 +655,12 @@ impl<'a> Lk<'a> {
         k.to_string()
     }
 
+    /// Identity of a bound variable: its id in the file, else `key:<asset key>` for a library variable the file
+    /// does not carry (the version is not part of the identity), else the alias text.
+    fn variable_identity(&self, alias: &Value) -> String {
+        self.variable_id(alias).or_else(|| asset_key(alias).map(|k| format!("key:{k}"))).unwrap_or_else(|| alias.to_string())
+    }
+
     /// Variable id for an alias value (`{assetRef}` or a local `{guid}`).
     fn variable_id(&self, alias: &Value) -> Option<String> {
         if let Some(k) = asset_key(alias) {
@@ -3130,7 +3136,7 @@ fn effect_variables(lk: &Lk, effects: &[Value]) -> HashSet<String> {
         .flat_map(|e| EFFECT_VARIABLE_KEYS.iter().filter_map(move |key| e.get(*key)))
         .map(|bound| {
             let alias = bound.get("value").and_then(|v| v.get("alias")).unwrap_or(bound);
-            lk.variable_id(alias).unwrap_or_else(|| alias.to_string())
+            lk.variable_identity(alias)
         })
         .collect()
 }
