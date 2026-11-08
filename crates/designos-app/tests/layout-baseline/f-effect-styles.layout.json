@@ -1992,19 +1992,6 @@
       ]
     },
     {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        1472.0,
-        1050.0,
-        88.0,
-        2.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
       "region": "right_panel",
       "rect": [
         1537.0,
