@@ -348,8 +348,10 @@ pub fn drag_view(app: &App) -> TableDragView<'_> {
 /// Lays out the auto-layout frames around a table whose size changed, into the same transaction, so a
 /// Hug frame grows with its table and one undo gives both back.
 pub fn reflow_parents(app: &mut App, tx: &mut Tx, table: NodeId, parent: Option<NodeId>) {
-    let from = if app.doc.get(table).is_some() { Some(table) } else { parent };
-    if let Some(id) = from {
-        crate::layout::relayout_up(&mut app.doc, &mut tx.ed, id);
+    if app.doc.get(table).is_some() {
+        crate::layout::relayout_up(&mut app.doc, &mut tx.ed, table);
+    } else if let Some(parent) = parent {
+        // the table is gone: its parent is laid out too, not only what is above it
+        crate::layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
     }
 }

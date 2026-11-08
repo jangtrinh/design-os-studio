@@ -1216,6 +1216,10 @@ impl Shell {
 
     fn handle_keys(&mut self, ctx: &Context) {
         self.pointer_over_align_row = crate::panels::properties::take_pointer_over_align_row(ctx);
+        // a press outside the canvas takes the keys from it until the canvas is pressed again
+        if let Some(p) = ctx.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()).flatten()) {
+            self.app.canvas.keys_left_canvas = !self.app.canvas_rect.contains(p);
+        }
         let frame_modifiers = ctx.input(|i| i.modifiers);
         self.paste_chord.begin_frame(frame_modifiers);
         if self.app.plugins.open
@@ -1587,7 +1591,7 @@ impl Shell {
         }
         match key {
             Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
-            Key::Delete | Key::Backspace if crate::board::table::select::delete_key(app) => {}
+            Key::Delete | Key::Backspace if crate::board::table::select::canvas_owns_keys(app, ctx) && crate::board::table::select::delete_key(app) => {}
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
             // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
             // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
@@ -1622,7 +1626,9 @@ impl Shell {
                 if app.canvas.pen.is_some() {
                     interact::finish_pen(app);
                     app.tool = Tool::Move;
-                } else if let Some(cell) = crate::board::table::select::single_cell(app).filter(|_| !m.shift) {
+                } else if let Some(cell) =
+                    crate::board::table::select::single_cell(app).filter(|_| !m.shift && crate::board::table::select::canvas_owns_keys(app, ctx))
+                {
                     interact::begin_text_edit(app, cell);
                 } else if m.shift {
                     if !crate::canvas::interact::navigate_hierarchy_enter(app, true) {
@@ -1654,7 +1660,7 @@ impl Shell {
                 }
                 if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
                     app.props.eyedropper_format = app.props.eyedropper_format.next();
-                } else if crate::board::table::select::tab_select(app, m.shift) {
+                } else if crate::board::table::select::canvas_owns_keys(app, ctx) && crate::board::table::select::tab_select(app, m.shift) {
                 } else if app.wb_tools_enabled() && !m.shift {
                     crate::board::create::tab_next(app);
                 } else {
@@ -2112,18 +2118,9 @@ impl eframe::App for Shell {
                 }
                 _ => true,
             });
-        } else if crate::board::table::select::single_cell(&self.app).is_some() {
-            // Tab on a selected cell steps to the next cell: egui must not also move its focus to a field
-            let tabs = &mut self.app.canvas.table_tabs;
-            raw.events.retain(|e| match e {
-                egui::Event::Key { key: egui::Key::Tab, pressed, modifiers, .. } if !modifiers.command && !modifiers.alt => {
-                    if *pressed {
-                        tabs.push(modifiers.shift);
-                    }
-                    false
-                }
-                _ => true,
-            });
+        } else if crate::board::table::select::single_cell(&self.app).is_some() && crate::board::table::select::canvas_owns_keys(&self.app, ctx) {
+            // Tab on a selected cell steps to the next cell, in this frame: egui must not also move its focus to a field
+            crate::board::table::select::take_tab_presses(&mut self.app, raw);
         }
     }
 

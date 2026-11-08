@@ -254,6 +254,18 @@ pub fn preview_scale(doc: &mut Document, ed: &mut Edit, table: NodeId, size0: Ve
 /// Ends a handle drag on a table: one step that moves the table and scales every track in proportion
 /// (nothing was written to the document for the drag itself). Gives the drag back for any other node.
 pub fn commit_table_resize(app: &mut App, r: crate::canvas::ResizeState) -> Option<crate::canvas::ResizeState> {
+    if let crate::canvas::ResizeKind::Multi { nodes, .. } = &r.kind {
+        let tables: Vec<_> = nodes
+            .iter()
+            .filter(|(id, ..)| matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Table(_))))
+            .map(|(id, _, t0, size0)| (*id, *t0, *size0))
+            .collect();
+        if tables.is_empty() {
+            return Some(r);
+        }
+        commit_multi_resize(app, r, tables);
+        return None;
+    }
     let crate::canvas::ResizeKind::Single { id, t0, size0, .. } = &r.kind else { return Some(r) };
     let (id, t0, size0) = (*id, *t0, *size0);
     let Some(n) = app.doc.get(id).filter(|n| matches!(n.kind, NodeKind::Table(_))) else { return Some(r) };
@@ -283,15 +295,67 @@ pub fn commit_table_resize(app: &mut App, r: crate::canvas::ResizeState) -> Opti
     None
 }
 
-/// The W / H fields of a selected table: scale every track in proportion, as the corner handles do.
-pub fn resize_from_inspector(app: &mut App, table: NodeId, w: Option<f32>, h: Option<f32>) {
-    let Some(cur) = app.doc.get(table).map(|n| n.size) else { return };
-    let size = Vec2::new(w.unwrap_or(cur.x), h.unwrap_or(cur.y));
-    match table_ops::resize_table(&app.doc, table, size) {
-        Ok(cmd) => {
-            super::commit(app, table, cmd, "Resize table");
+/// Whether the canvas owns the keyboard: the keys of a selected table cell (Tab, typing, Enter, Delete) are
+/// its alone. Not while an egui widget has focus, a menu, dialog or the Variables view is open, the agent
+/// terminal holds the keys, a modal tool (the eyedropper, a version preview) runs, or the last press
+/// landed outside the canvas (a click on a greyed field gives focus to nothing, and keys still are not the canvas's).
+pub fn canvas_owns_keys(app: &App, ctx: &egui::Context) -> bool {
+    let agent_rail_open = !app.ui.left_hidden() && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+    let modal = app.plugins.open || app.dialog.is_some() || app.history.save_modal.is_some() || app.dev.compare.is_some() || app.ui.permissions_modal_open;
+    let overlay = app.vars.open || app.ui.menu.is_some() || app.ui.ctx_menu.is_some() || app.ui.layer_picker.is_some();
+    let tool = app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) || app.history.viewing.is_some();
+    let focus = crate::agent_a11y::non_canvas_has_focus(ctx) || ctx.egui_wants_keyboard_input() || crate::widgets::field_tab::press_lands_on_field(ctx);
+    !(modal || overlay || tool || focus || app.terminal.is_capturing_keyboard(agent_rail_open) || app.canvas.keys_left_canvas)
+}
+
+/// Tab (Shift+Tab) presses of one frame on a selected cell, taken out of the raw input in the frame they arrive
+/// (egui would otherwise move its focus to a field) and acted on at once. Nothing is queued for a later frame.
+pub fn take_tab_presses(app: &mut App, raw: &mut egui::RawInput) {
+    let mut steps = Vec::new();
+    raw.events.retain(|e| match e {
+        egui::Event::Key { key: egui::Key::Tab, pressed, modifiers, .. } if !modifiers.command && !modifiers.alt => {
+            if *pressed {
+                steps.push(modifiers.shift);
+            }
+            false
         }
-        Err(table_ops::TableOpError::NoChange(_)) => {}
-        Err(e) => app.show_toast(e.to_string(), true),
+        _ => true,
+    });
+    for back in steps {
+        tab_select(app, back);
     }
+}
+
+/// Handles a handle drag that ended on a selection holding tables and other layers: every table goes through the
+/// table operation in the same step, so its tracks, cells and size stay one thing.
+fn commit_multi_resize(app: &mut App, mut r: crate::canvas::ResizeState, tables: Vec<(NodeId, designos_doc::Affine, Vec2)>) {
+    let mut finals = Vec::new();
+    for (id, t0, size0) in &tables {
+        let Some(n) = app.doc.get_mut(*id) else { continue };
+        finals.push((*id, n.transform, n.size, *t0));
+        // the drag wrote the table's box only: put it back and let the operation write all of it
+        n.transform = *t0;
+        n.size = *size0;
+        r.tx.ed.forget(*id);
+    }
+    let mut ok = true;
+    for (id, transform, size, t0) in &finals {
+        if transform != t0 {
+            if let Some(mut moved) = app.doc.get(*id).cloned() {
+                moved.transform = *transform;
+                ok &= r.tx.cmd(&mut app.doc, Command::Update { node: Box::new(moved) }).is_ok();
+            }
+        }
+        if let Ok(cmd) = table_ops::resize_table(&app.doc, *id, *size) {
+            ok &= r.tx.cmd(&mut app.doc, cmd).is_ok();
+        }
+        super::reflow_parents(app, &mut r.tx, *id, None);
+    }
+    if ok {
+        app.run_tx_labeled(r.tx, Some("Resize layers".into()));
+    } else {
+        r.tx.cancel(&mut app.doc);
+        app.show_toast("The layers could not be resized. Try again.", true);
+    }
+    app.canvas.dirty = true;
 }

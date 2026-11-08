@@ -1514,9 +1514,11 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         }
     }
 
-    // ---- Stroke
-    section_sep(ui, pane, false);
-    super::stroke::section(app, ui, pane, sel, &n0);
+    // ---- Stroke (a cell's stroke is never drawn: the lines belong to the table)
+    if !cell_sel {
+        section_sep(ui, pane, false);
+        super::stroke::section(app, ui, pane, sel, &n0);
+    }
 
     // ---- Effects
     section_sep(ui, pane, false);
@@ -1587,6 +1589,7 @@ fn set_sizing(app: &mut App, sel: &[NodeId], horizontal: bool, s: Sizing) {
 
 fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32>) {
     let mut tx = Tx::new();
+    let mut tables = Vec::new();
     for id in sel {
         let Some(n) = app.doc.get(*id) else { continue };
         let is_line = matches!(n.kind, NodeKind::Line);
@@ -1601,8 +1604,24 @@ fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32
             }
         }
         let size = v2(nw, nh);
+        // a table's size is the sum of its tracks: the table operation keeps the two in step
+        if matches!(n.kind, NodeKind::Table(_)) {
+            tables.push((*id, size));
+            continue;
+        }
         let t = n.transform;
         apply_resize(&mut app.doc, &mut tx.ed, *id, size, t, true);
+    }
+    for (id, size) in tables {
+        match designos_doc::table_ops::resize_table(&app.doc, id, size) {
+            Ok(cmd) => {
+                if tx.cmd(&mut app.doc, cmd).is_ok() {
+                    crate::board::table::reflow_parents(app, &mut tx, id, None);
+                }
+            }
+            Err(designos_doc::TableOpError::NoChange(_)) => {}
+            Err(e) => app.show_toast(e.to_string(), true),
+        }
     }
     app.run_tx(tx);
 }
@@ -1626,13 +1645,7 @@ fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], ge
     let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui, r| field::num_field(ui, r, "w", Prefix::Text("W"), ws, ""));
     let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui, r| field::num_field(ui, r, "h", Prefix::Text("H"), hs, "")) };
     if w_new.is_some() || h_new.is_some() {
-        match sel {
-            // a table's size is the sum of its tracks: the table operation keeps the two in step
-            [one] if matches!(app.doc.get(*one).map(|n| &n.kind), Some(NodeKind::Table(_))) => {
-                crate::board::table::select::resize_from_inspector(app, *one, w_new, h_new)
-            }
-            _ => resize_selection(app, sel, w_new, h_new),
-        }
+        resize_selection(app, sel, w_new, h_new);
     }
     // The aspect lock covers the nodes that have both a width and a height. A line has only a width and never gets one.
     let lockable = |app: &App, id: NodeId| app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Line));

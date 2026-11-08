@@ -53,6 +53,11 @@ impl Edit {
         }
     }
 
+    /// Forgets `id`: its change is no longer this edit's, so the caller writes it some other way.
+    pub(crate) fn forget(&mut self, id: NodeId) {
+        self.before.remove(&id);
+    }
+
     /// Records the original state of `id` (first touch wins).
     pub fn touch(&mut self, doc: &Document, id: NodeId) {
         self.note_opened(doc);

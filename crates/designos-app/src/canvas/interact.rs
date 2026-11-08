@@ -369,10 +369,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         }
     }
 
-    for back in std::mem::take(&mut app.canvas.table_tabs) {
-        crate::board::table::select::tab_select(app, back);
-    }
-    if app.canvas.text.is_none() && !typing {
+    if app.canvas.text.is_none() && !typing && crate::board::table::select::canvas_owns_keys(app, &ctx) {
         // opens the session; the block below types into it, once
         crate::board::table::select::start_edit_on_text(app, &ctx);
     }

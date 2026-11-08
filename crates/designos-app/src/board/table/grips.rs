@@ -78,8 +78,8 @@ pub fn areas(app: &App, geo: &TableGeo, pos: Pos2) -> Vec<(Hover, Rect)> {
     let (rows, cols) = (geo.props.rows.len(), geo.props.cols.len());
     let tl = screen(app, geo, 0.0, 0.0);
     let br = screen(app, geo, *geo.col_x.last().unwrap_or(&0.0), *geo.row_y.last().unwrap_or(&0.0));
-    let near_x = pos.x >= tl.x - GRIP_AREA - GRIP_GAP && pos.x <= br.x + 4.0;
-    let near_y = pos.y >= tl.y - GRIP_AREA - GRIP_GAP && pos.y <= br.y + 4.0;
+    let near_x = pos.x >= tl.x - 3.0 * GRIP_AREA && pos.x <= br.x + 4.0;
+    let near_y = pos.y >= tl.y - 3.0 * GRIP_AREA && pos.y <= br.y + 4.0;
     if !(near_x && near_y) {
         return Vec::new();
     }
@@ -99,11 +99,17 @@ pub fn areas(app: &App, geo: &TableGeo, pos: Pos2) -> Vec<(Hover, Rect)> {
         (0..=rows).min_by(|a, b| (screen(app, geo, 0.0, geo.row_y[*a]).y - pos.y).abs().total_cmp(&(screen(app, geo, 0.0, geo.row_y[*b]).y - pos.y).abs()));
     let line_col =
         (0..=cols).min_by(|a, b| (screen(app, geo, geo.col_x[*a], 0.0).x - pos.x).abs().total_cmp(&(screen(app, geo, geo.col_x[*b], 0.0).x - pos.x).abs()));
+    // the "+" has a lane of its own, one grip further out, so its 24 px target never overlaps a grip's;
+    // were it to overlap, it would be neither drawn nor live
+    let free = |plus: Rect, grip: &Rect| (!plus.shrink(0.5).intersects(*grip)).then_some(plus);
+    let (row_grip, col_grip) = (out[0].1, out[1].1);
     if let Some(i) = line_row {
-        out.push((Hover::Plus { rows: true, index: i }, area(Pos2::new(gx, screen(app, geo, 0.0, geo.row_y[i]).y))));
+        let plus = area(Pos2::new(gx - GRIP_AREA, screen(app, geo, 0.0, geo.row_y[i]).y));
+        out.extend(free(plus, &row_grip).map(|r| (Hover::Plus { rows: true, index: i }, r)));
     }
     if let Some(j) = line_col {
-        out.push((Hover::Plus { rows: false, index: j }, area(Pos2::new(screen(app, geo, geo.col_x[j], 0.0).x, gy))));
+        let plus = area(Pos2::new(screen(app, geo, geo.col_x[j], 0.0).x, gy - GRIP_AREA));
+        out.extend(free(plus, &col_grip).map(|r| (Hover::Plus { rows: false, index: j }, r)));
     }
     // inner lines: drag to resize
     let inside = pos.x >= tl.x && pos.x <= br.x && pos.y >= tl.y && pos.y <= br.y;
