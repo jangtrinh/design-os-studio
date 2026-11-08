@@ -52,24 +52,22 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 }
 
 fn show_prototype_settings_btn(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
-    let btn_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 28.0);
+    let btn_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::CONTROL_XS);
     record(ui, "proto-show-settings", btn_r);
-    // Button/Secondary colours with the previous 12 px label: the font change waits for the geometry step.
-    let resp = ui.interact(btn_r, ui.id().with("proto-show-settings"), Sense::click());
-    let state = if resp.is_pointer_button_down_on() {
-        crate::widgets::kit::State::Pressed
-    } else if resp.hovered() {
-        crate::widgets::kit::State::Hover
-    } else {
-        crate::widgets::kit::State::Default
-    };
-    let look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Secondary, state);
-    crate::widgets::kit::paint_frame(ui.painter(), btn_r, theme::RADIUS_CONTROL, &look);
-    ui.painter().text(btn_r.center(), Align2::CENTER_CENTER, "Show prototype settings", theme::font_body_strong(), look.text);
+    // Button/Secondary xs: the kit button owns the states, the focus ring and the 14 Semibold label.
+    let resp = crate::widgets::kit::button(
+        ui,
+        btn_r,
+        "proto-show-settings",
+        "Show prototype settings",
+        crate::widgets::kit::Hierarchy::Secondary,
+        crate::widgets::kit::Size::Xs,
+        true,
+    );
     if resp.clicked() {
         app.selection.clear();
     }
-    pane.y += 34.0;
+    pane.y += theme::CONTROL_XS + theme::SPACE_INLINE - theme::INSET_SEGMENT;
 }
 
 fn prototype_guide_cards(ui: &mut Ui, pane: &mut Pane) {
@@ -733,7 +731,7 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
             }
             pane.y += 3.0 * 28.0 + 8.0;
             if *position == OverlayPosition::Manual {
-                let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, 24.0));
+                let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, theme::FIELD_HEIGHT));
                 let y = x.translate(Vec2::new(60.0, 0.0));
                 if let Some(v) = field::num_field(ui, x, ("pop-ox", ai), Prefix::Text("X"), Some(offset.x), "") {
                     offset.x = v;
@@ -750,11 +748,14 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                 *background = if v { Some(Color::rgba(0, 0, 0, 102)) } else { None };
             }
             if let Some(bg) = *background {
-                let hex = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(72.0, 24.0));
-                let op = Rect::from_min_size(hex.right_top() + Vec2::new(8.0, 0.0), Vec2::new(48.0, 24.0));
+                let hex = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(72.0, theme::FIELD_HEIGHT));
+                let op = Rect::from_min_size(hex.right_top() + Vec2::new(8.0, 0.0), Vec2::new(48.0, theme::FIELD_HEIGHT));
                 widgets::swatch(
                     ui.painter(),
-                    Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, pane.oy + pane.y + 4.0), Vec2::splat(16.0)),
+                    Rect::from_min_size(
+                        Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, hex.center().y - theme::SWATCH_SIZE * 0.5),
+                        Vec2::splat(theme::SWATCH_SIZE),
+                    ),
                     Color32::from_rgba_unmultiplied((bg.r * 255.0) as u8, (bg.g * 255.0) as u8, (bg.b * 255.0) as u8, (bg.a * 255.0) as u8),
                 );
                 if let Some(s) = field::text_input(ui, hex, ("pop-bg-hex", ai), &bg.to_hex()) {
@@ -779,7 +780,7 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
             if let Some(d) = dest_dropdown(ui, pane, &app.doc, &format!("scroll-{key}"), "Scroll to", *dest, &opts) {
                 *dest = d;
             }
-            let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, 24.0));
+            let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, theme::FIELD_HEIGHT));
             let y = x.translate(Vec2::new(60.0, 0.0));
             ui.painter().text(
                 Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, x.center().y),
@@ -965,6 +966,49 @@ mod tests {
         assert_eq!(pts[10], r.right_top());
         let mid = curve_points(&Easing::EaseIn, r, 10)[5];
         assert!(mid.y > r.center().y, "ease in is below the diagonal at the middle");
+    }
+
+    /// Paints the Prototype tab with nothing selected (the empty state shows the settings button) for two frames.
+    fn paint_empty_prototype_tab() -> (Vec<egui::epaint::ClippedShape>, Rect) {
+        let mut app = App::new(Document::new("t"));
+        app.ui.right_tab = Some(crate::app::RightTab::Prototype);
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0));
+        let mut shapes = Vec::new();
+        for i in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(screen), time: Some(0.05 * (i + 1) as f64), ..Default::default() };
+            shapes = ctx.run_ui(raw, |ui| crate::panels::right::show(&mut app, ui, Rect::from_min_size(Pos2::new(960.0, 0.0), Vec2::new(240.0, 700.0)))).shapes;
+        }
+        let rect = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "proto-show-settings".to_string())))).expect("proto-show-settings rect");
+        (shapes, rect)
+    }
+
+    #[test]
+    fn show_prototype_settings_is_a_secondary_xs_button_with_the_kit_colours_and_font() {
+        use crate::widgets::kit::{button_look, Hierarchy, State};
+        fn walk(shape: &egui::Shape, rect: Rect, fills: &mut Vec<egui::Color32>, label: &mut Option<(egui::Color32, f32)>) {
+            match shape {
+                egui::Shape::Rect(r) if r.rect == rect => fills.push(r.fill),
+                egui::Shape::Text(t) if t.galley.job.text == "Show prototype settings" => {
+                    *label = t.galley.job.sections.first().map(|s| (s.format.color, s.format.font_id.size));
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, rect, fills, label)),
+                _ => {}
+            }
+        }
+        let (shapes, rect) = paint_empty_prototype_tab();
+        assert_eq!(rect.height(), theme::CONTROL_XS, "Button/Secondary xs is 32 tall");
+        let (mut fills, mut label) = (Vec::new(), None);
+        shapes.iter().for_each(|s| walk(&s.shape, rect, &mut fills, &mut label));
+        let rest = button_look(Hierarchy::Secondary, State::Default);
+        assert!(fills.contains(&rest.fill), "resting fill must be the Secondary fill {:?}, got {fills:?}", rest.fill);
+        assert_eq!(label, Some((rest.text, theme::FONT_SIZE_TEXT_SM)), "label is TEXT_SECONDARY at 14 px (text-sm)");
+        assert_eq!((rest.fill, rest.text), (theme::BG, theme::TEXT_SECONDARY));
+        let hover = button_look(Hierarchy::Secondary, State::Hover);
+        assert_eq!((hover.fill, hover.text), (theme::BG_HOVER, theme::TEXT_SECONDARY_HOVER));
+        let pressed = button_look(Hierarchy::Secondary, State::Pressed);
+        assert_eq!(pressed.fill, theme::BG_PRESSED);
     }
 
     #[test]

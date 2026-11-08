@@ -832,11 +832,19 @@ pub fn wcag_contrast_ratio(l1: f32, l2: f32) -> f32 {
     (hi + 0.05) / (lo + 0.05)
 }
 
-const IMAGE_PANEL_BODY_H: f32 = 468.0;
-const IMAGE_ROW_H: f32 = theme::BADGE_LG;
+/// Image rows (rotate, tile scale, the seven adjustments) are a full control tall with a 1 px gap; the studio preset buttons
+/// below them keep their own 29 px step.
+const IMAGE_ROW_H: f32 = theme::CONTROL_XS;
+/// The gap between two image rows is one hairline.
+const IMAGE_ROW_STEP: f32 = IMAGE_ROW_H + theme::BORDER_WIDTH;
+const IMAGE_PRESET_STEP: f32 = 29.0;
+/// Adjustment sliders, in panel order.
+const ADJ_LABELS: [&str; 7] = ["Exposure", "Contrast", "Saturation", "Temperature", "Tint", "Highlights", "Shadows"];
+/// Rows that step by `IMAGE_ROW_STEP` in the tallest layout (Tile scale mode): rotate, tile scale and the adjustments.
+const IMAGE_STEPPED_ROWS: f32 = (2 + ADJ_LABELS.len()) as f32;
+const IMAGE_PANEL_BODY_H: f32 = 468.0 + IMAGE_STEPPED_ROWS * (IMAGE_ROW_STEP - IMAGE_PRESET_STEP);
 const IMAGE_BTN_H: f32 = theme::TARGET_MIN;
 const IMAGE_PRESET_H: f32 = 26.0;
-const IMAGE_ROW_STEP: f32 = 29.0;
 const IMAGE_HDR_STEP: f32 = 26.0;
 const IMAGE_TOP_PAD: f32 = 8.0;
 const IMAGE_SCALE_W: f32 = 84.0;
@@ -1233,7 +1241,6 @@ fn show_image_mode(ui: &mut Ui, rect: Rect, y: f32, st: &mut State, paint: &mut 
     }
     iy += IMAGE_HDR_STEP;
 
-    const ADJ_LABELS: [&str; 7] = ["Exposure", "Contrast", "Saturation", "Temperature", "Tint", "Highlights", "Shadows"];
     for (idx, label) in ADJ_LABELS.iter().copied().enumerate() {
         let row_r = Rect::from_min_size(Pos2::new(rect.left() + PAD, iy), Vec2::new(AREA, IMAGE_ROW_H));
         text_on_baseline(ui.painter(), row_r.left(), centered_baseline(row_r, &theme::font_caption()), label, theme::font_caption(), theme::TEXT_SECONDARY);
@@ -1297,7 +1304,7 @@ fn show_image_mode(ui: &mut Ui, rect: Rect, y: f32, st: &mut State, paint: &mut 
             out.changed = true;
             out.commit_tx = true;
         }
-        iy += IMAGE_ROW_STEP;
+        iy += IMAGE_PRESET_STEP;
     }
     let disk_r = Rect::from_min_size(Pos2::new(rect.left() + PAD, iy), Vec2::new(AREA, IMAGE_PRESET_H));
     super::record(ui, "picker-image-disk", disk_r);
@@ -4019,6 +4026,24 @@ mod tests {
         let cap_reset = h.capture(shapes_reset);
         assert_ne!(cap_after.1.as_raw(), cap_reset.1.as_raw(), "rendered image picker crop must change after Reset");
         save_headless_picker_evidence(&cap_after, &cap_reset, "picker-image-adjustments-fill-exposure.png", "picker-image-adjustments-reset.png");
+    }
+
+    #[test]
+    fn picker_image_rows_are_a_full_control_tall_and_fit_the_panel() {
+        let ctx = test_ctx();
+        let mut paint = test_image_paint(ImageScaleMode::Tile);
+        let mut st = State::new(&paint);
+        let _ = visible_texts(&ctx, &mut paint, &mut st);
+        let rect_of = |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("no rect {name}"));
+        assert_eq!(IMAGE_ROW_H, theme::CONTROL_XS, "image rows are 32 tall");
+        for name in ["picker-image-tile-val", "picker-image-adj-val:Exposure", "picker-image-adj-val:Shadows"] {
+            assert_eq!(rect_of(name).height(), theme::CONTROL_XS, "{name} value cell is 32 tall");
+        }
+        let panel = rect_of("picker");
+        let disk = rect_of("picker-image-disk");
+        assert!(disk.bottom() <= panel.bottom(), "the last image control {disk:?} must end inside the panel {panel:?}");
+        let rows = [rect_of("picker-image-adj-val:Exposure"), rect_of("picker-image-adj-val:Contrast")];
+        assert_eq!(rows[1].top() - rows[0].top(), IMAGE_ROW_STEP, "rows step by their height plus a 1 px gap");
     }
 
     #[test]

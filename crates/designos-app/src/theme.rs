@@ -565,7 +565,8 @@ pub const FIND_HIGHLIGHT_SELECTED: Color32 = rgba(0x7CC4F8, 0x66);
 pub const FIND_EXCERPT_LEAD: usize = 12;
 
 pub const RIGHT_PANEL_WIDTH: f32 = 240.0;
-/// The present button sits at the right edge, level with the zoom dropdown (8px from the edge).
+/// Frozen value of the old fixed Share anchor. The header now derives its positions from Share's measured width.
+#[allow(dead_code)]
 pub const RIGHT_PRESENT_FROM_RIGHT: f32 = 56.0;
 /// Outlined play triangle of the present button.
 #[allow(dead_code)]

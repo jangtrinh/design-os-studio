@@ -68,6 +68,7 @@ LABEL_CALLS: List[Tuple[str, str, int]] = [
     (r"(?<![\w.])text_button", "find/panel.rs", 3),
     (r"(?<![\w.])primary_button", "dev/sections.rs", 3),
     (r"(?<![\w.])small_button", "panels/", 3),
+    (r"(?<![\w.])secondary_button", "panels/inspect.rs", 3),
     (r"(?<![\w.])slide_button", "present.rs", 3),
     (r"(?<![\w.])(?:ui::|buttons::|modal::)?button", "comments/", 3),
     (r"(?<![\w.])(?:ui::|buttons::|modal::)?button", "plugins/", 3),
