@@ -64,8 +64,8 @@ pub struct TableOp {
     pub text: Option<String>,
     pub at: Option<i64>,
     pub count: Option<i64>,
-    pub from: Option<i64>,
-    pub to: Option<i64>,
+    pub from_index: Option<i64>,
+    pub to_index: Option<i64>,
     pub size: Option<f32>,
     pub row_span: Option<i64>,
     pub col_span: Option<i64>,
@@ -235,8 +235,8 @@ pub fn parse_and_validate(val: Value, raw_op: &Value, idx: usize, declared_as: &
             }
         }
         "move_row" | "move_col" => {
-            req_non_neg(a.from, idx, "from")?;
-            req_non_neg(a.to, idx, "to")?;
+            req_non_neg(a.from_index, idx, "from_index")?;
+            req_non_neg(a.to_index, idx, "to_index")?;
         }
         "resize_row" | "resize_col" => {
             req_non_neg(a.at, idx, "at")?;
@@ -475,18 +475,30 @@ pub fn execute_mutation(doc: &Document, table_id: NodeId, a: &TableOp, idx: usiz
             delete_cols(doc, table_id, &ids)
         }
         "move_row" => {
-            let from = a.from.unwrap() as usize;
-            let to = a.to.unwrap() as usize;
+            let from = a.from_index.unwrap() as usize;
+            let to = a.to_index.unwrap() as usize;
             if from >= rows_len || to >= rows_len {
-                return Err(op_failed_error(idx, "table", ErrorCode::ValueOutOfRange, &op_path, format!("move_row from={from}, to={to} out of 0..{rows_len}")));
+                return Err(op_failed_error(
+                    idx,
+                    "table",
+                    ErrorCode::ValueOutOfRange,
+                    &op_path,
+                    format!("move_row from_index={from}, to_index={to} out of 0..{rows_len}"),
+                ));
             }
             move_row(doc, table_id, props.rows[from].id, to)
         }
         "move_col" => {
-            let from = a.from.unwrap() as usize;
-            let to = a.to.unwrap() as usize;
+            let from = a.from_index.unwrap() as usize;
+            let to = a.to_index.unwrap() as usize;
             if from >= cols_len || to >= cols_len {
-                return Err(op_failed_error(idx, "table", ErrorCode::ValueOutOfRange, &op_path, format!("move_col from={from}, to={to} out of 0..{cols_len}")));
+                return Err(op_failed_error(
+                    idx,
+                    "table",
+                    ErrorCode::ValueOutOfRange,
+                    &op_path,
+                    format!("move_col from_index={from}, to_index={to} out of 0..{cols_len}"),
+                ));
             }
             move_col(doc, table_id, props.cols[from].id, to)
         }

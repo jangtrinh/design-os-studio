@@ -121,6 +121,8 @@ pub fn tool_descriptor() -> Value {
     op_properties.insert("row".into(), json!({ "type": "integer", "minimum": 0 }));
     op_properties.insert("col".into(), json!({ "type": "integer", "minimum": 0 }));
     op_properties.insert("at".into(), json!({ "type": "integer", "minimum": 0 }));
+    op_properties.insert("from_index".into(), json!({ "type": "integer", "minimum": 0 }));
+    op_properties.insert("to_index".into(), json!({ "type": "integer", "minimum": 0 }));
     op_properties.insert("count".into(), json!({ "type": "integer", "minimum": 1, "maximum": 500 }));
     op_properties.insert("size".into(), json!({ "type": "number", "minimum": 24, "maximum": 1000000 }));
     op_properties.insert("row_span".into(), json!({ "type": "integer", "minimum": 1 }));
@@ -208,7 +210,7 @@ pub fn tool_descriptor() -> Value {
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 200,
-                    "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update). Use op='table' with action (create|insert_rows|delete_rows|insert_cols|delete_cols|move_row|move_col|resize_row|resize_col|resize|merge|unmerge|set_cell_text); reference cells via '@<table_as>/r<row>c<col>' (0-based, e.g. '@t/r0c0').",
+                    "description": "Ordered batch operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table). Use op='connect' with from/to (node ID, '@handle', '$prev', or {\"point\":[x,y]}), optional from_magnet/to_magnet (auto|top|right|bottom|left|center), line (elbowed|straight|curved), start_cap/end_cap (none|arrow|triangle|circle|diamond), label, and node (existing connector ID to update). Use op='table' with action (create|insert_rows|delete_rows|insert_cols|delete_cols|move_row|move_col|resize_row|resize_col|resize|merge|unmerge|set_cell_text) and from_index/to_index (0-based) for move_row/move_col; reference cells via '@<table_as>/r<row>c<col>' (0-based, e.g. '@t/r0c0').",
                     "items": op_item_schema
                 },
                 "dry_run": { "type": "boolean", "default": false },

@@ -95,7 +95,7 @@ fn all_thirteen_actions_and_noop_skip_undo() {
                     { "op": "table", "as": "t", "action": "create", "rows": 3, "cols": 3 },
                     { "op": "table", "node": "@t", "action": "insert_cols", "at": 1, "count": 1 },
                     { "op": "table", "node": "@t", "action": "delete_rows", "at": 2, "count": 1 },
-                    { "op": "table", "node": "@t", "action": "move_col", "from": 2, "to": 0 },
+                    { "op": "table", "node": "@t", "action": "move_col", "from_index": 2, "to_index": 0 },
                     { "op": "table", "node": "@t", "action": "resize_row", "at": 0, "size": 60.0 },
                     { "op": "table", "node": "@t", "action": "merge", "row": 0, "col": 0, "row_span": 2, "col_span": 2 },
                     { "op": "table", "node": "@t", "action": "unmerge", "row": 1, "col": 1 },
@@ -120,7 +120,7 @@ fn all_thirteen_actions_and_noop_skip_undo() {
     e2.history = Default::default();
     assert!(!e2.history.can_undo());
     let noop_res = e2
-        .call("designos_apply_batch", json!({ "ops": [{ "op": "table", "node": table2, "action": "move_row", "from": 0, "to": 0 }] }))
+        .call("designos_apply_batch", json!({ "ops": [{ "op": "table", "node": table2, "action": "move_row", "from_index": 0, "to_index": 0 }] }))
         .expect("NoChange move_row is a no-op");
     assert_eq!(noop_res["changed"]["updated"], 0);
     assert!(!e2.history.can_undo(), "NoChange must not record an undo step");
@@ -267,7 +267,11 @@ fn refusals_and_rollback() {
             ErrorCode::ValueOutOfRange,
         ),
         ("delete_rows removing all rows", json!({ "op": "table", "node": t_id, "action": "delete_rows", "at": 0, "count": 3 }), ErrorCode::InvalidArguments),
-        ("move_row splitting a merge", json!({ "op": "table", "node": t_id, "action": "move_row", "from": 0, "to": 2 }), ErrorCode::InvalidArguments),
+        (
+            "move_row splitting a merge",
+            json!({ "op": "table", "node": t_id, "action": "move_row", "from_index": 0, "to_index": 2 }),
+            ErrorCode::InvalidArguments,
+        ),
         (
             "merge overlapping an existing merge",
             json!({ "op": "table", "node": t_id, "action": "merge", "row": 1, "col": 1, "row_span": 2, "col_span": 2 }),
@@ -647,8 +651,8 @@ fn batch_table_ops_replay_into_editor_document() {
                 { "op": "table", "node": table_id.0, "action": "insert_cols", "at": 1, "count": 1 },
                 { "op": "table", "node": table_id.0, "action": "delete_rows", "at": 3, "count": 1 },
                 { "op": "table", "node": table_id.0, "action": "delete_cols", "at": 1, "count": 1 },
-                { "op": "table", "node": table_id.0, "action": "move_row", "from": 0, "to": 2 },
-                { "op": "table", "node": table_id.0, "action": "move_col", "from": 2, "to": 0 },
+                { "op": "table", "node": table_id.0, "action": "move_row", "from_index": 0, "to_index": 2 },
+                { "op": "table", "node": table_id.0, "action": "move_col", "from_index": 2, "to_index": 0 },
                 { "op": "table", "node": table_id.0, "action": "resize_row", "at": 0, "size": 56.0 },
                 { "op": "table", "node": table_id.0, "action": "resize_col", "at": 1, "size": 180.0 },
                 { "op": "table", "node": table_id.0, "action": "resize", "width": 540.0, "height": 180.0 }
@@ -667,4 +671,70 @@ fn batch_table_ops_replay_into_editor_document() {
     for &cid in &agent_table.children {
         assert_eq!(serde_json::to_value(editor.get(cid).unwrap()).unwrap(), serde_json::to_value(e.doc.get(cid).unwrap()).unwrap());
     }
+}
+
+#[test]
+fn move_row_and_move_col_use_from_index_to_index_and_validate_against_input_schema() {
+    let tools = designos_mcp::engine::tools();
+    let batch = tools.iter().find(|t| t["name"] == "designos_apply_batch").expect("designos_apply_batch tool");
+    let op_props = &batch["inputSchema"]["properties"]["ops"]["items"]["properties"];
+    assert_eq!(op_props["from_index"], json!({ "type": "integer", "minimum": 0 }));
+    assert_eq!(op_props["to_index"], json!({ "type": "integer", "minimum": 0 }));
+    let ops_desc = batch["inputSchema"]["properties"]["ops"]["description"].as_str().unwrap_or("");
+    assert!(ops_desc.contains("from_index/to_index"), "ops description must mention from_index/to_index: {ops_desc}");
+
+    let validator = jsonschema::validator_for(&batch["inputSchema"]).expect("compile published designos_apply_batch inputSchema");
+
+    // 1. A move_col with from_index 2, to_index 0 is accepted by the published inputSchema and moves the 3rd column to the front.
+    let move_col_args = json!({
+        "ops": [
+            { "op": "table", "as": "t", "action": "create", "parent": 1, "rows": 2, "cols": 3 },
+            { "op": "table", "node": "@t", "action": "set_cell_text", "row": 0, "col": 0, "text": "C0" },
+            { "op": "table", "node": "@t", "action": "set_cell_text", "row": 0, "col": 1, "text": "C1" },
+            { "op": "table", "node": "@t", "action": "set_cell_text", "row": 0, "col": 2, "text": "C2" },
+            { "op": "table", "node": "@t", "action": "move_col", "from_index": 2, "to_index": 0 }
+        ]
+    });
+    if let Err(err) = validator.validate(&move_col_args) {
+        panic!("move_col with from_index=2, to_index=0 failed inputSchema validation: {err}");
+    }
+
+    let mut e = Engine::new();
+    let res = e.call("designos_apply_batch", move_col_args).expect("move_col with from_index=2, to_index=0 must succeed");
+    let table_id = NodeId(res["name_to_id"]["t"].as_u64().unwrap());
+    let col_texts: Vec<String> = (0..3)
+        .map(|c| {
+            let cid = cell_at(&e.doc, table_id, 0, c);
+            let NodeKind::TableCell(cp) = &e.doc.get(cid).unwrap().kind else { unreachable!() };
+            cp.text.content.clone()
+        })
+        .collect();
+    assert_eq!(col_texts, vec!["C2", "C0", "C1"], "move_col from_index=2, to_index=0 must move the 3rd column to the front");
+
+    // 2. A connector op with from: 0 is still rejected by the published inputSchema and at runtime.
+    let bad_connect_args = json!({
+        "ops": [
+            { "op": "connect", "from": 0, "to": 1 }
+        ]
+    });
+    assert!(validator.validate(&bad_connect_args).is_err(), "connector op with from: 0 must be rejected by the published inputSchema");
+    assert!(e.call("designos_apply_batch", bad_connect_args).is_err(), "connector op with from: 0 must be rejected at runtime");
+
+    // 3. move_row with from_index 0 is accepted by the published inputSchema and works at runtime.
+    let move_row_args = json!({
+        "ops": [
+            { "op": "table", "node": table_id.0, "action": "set_cell_text", "row": 1, "col": 0, "text": "R1C0" },
+            { "op": "table", "node": table_id.0, "action": "move_row", "from_index": 0, "to_index": 1 }
+        ]
+    });
+    if let Err(err) = validator.validate(&move_row_args) {
+        panic!("move_row with from_index=0, to_index=1 failed inputSchema validation: {err}");
+    }
+    e.call("designos_apply_batch", move_row_args).expect("move_row with from_index=0, to_index=1 must succeed");
+    let r0c0 = cell_at(&e.doc, table_id, 0, 0);
+    let r1c0 = cell_at(&e.doc, table_id, 1, 0);
+    let NodeKind::TableCell(cp_r0) = &e.doc.get(r0c0).unwrap().kind else { unreachable!() };
+    let NodeKind::TableCell(cp_r1) = &e.doc.get(r1c0).unwrap().kind else { unreachable!() };
+    assert_eq!(cp_r0.text.content, "R1C0", "row 1 must move to row 0");
+    assert_eq!(cp_r1.text.content, "C2", "row 0 must move to row 1");
 }
