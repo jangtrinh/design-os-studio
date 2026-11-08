@@ -2454,16 +2454,22 @@ pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value
 }
 
 fn set_instance_prop_inner(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize) {
+    set_instance_prop_edit(doc, instance, |n| match value {
+        Some(v) => {
+            n.component.values.insert(name.to_string(), v);
+        }
+        None => {
+            n.component.values.remove(name);
+        }
+    })
+}
+
+/// [`set_instance_prop`] for any edit of the instance root (its stored values, its variable bindings): the edit is
+/// applied, then the instance is synced, so a changed value reaches the layers (or the variant) it drives in one command.
+pub(crate) fn set_instance_prop_edit(doc: &mut Document, instance: NodeId, edit: impl FnOnce(&mut Node)) -> (Command, usize) {
     let mut c = Ctx::new(doc);
     if let Some(mut n) = c.s.get(instance).cloned() {
-        match value {
-            Some(v) => {
-                n.component.values.insert(name.to_string(), v);
-            }
-            None => {
-                n.component.values.remove(name);
-            }
-        }
+        edit(&mut n);
         c.update(n);
     }
     sync_one(&mut c, instance);
@@ -2791,6 +2797,9 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
         if let Some(v) = n.component.values.remove(old) {
             n.component.values.insert(new.to_string(), v);
         }
+        if let Some(var) = n.variables.bindings.remove(&prop_binding_key(old)) {
+            n.variables.bindings.insert(prop_binding_key(new), var);
+        }
         if let Some(scid) = n.component.slot_content_ids.remove(old) {
             n.component.slot_content_ids.insert(new.to_string(), scid);
         }
@@ -2822,6 +2831,7 @@ pub fn delete_prop(doc: &mut Document, owner: NodeId, name: &str) -> Command {
         let Some(mut n) = c.s.get(inst).cloned() else { continue };
         n.component.values.remove(name);
         n.component.slot_content_ids.remove(name);
+        n.variables.bindings.remove(&prop_binding_key(name));
         c.update(n);
     }
     sync_component(&mut c, owner);

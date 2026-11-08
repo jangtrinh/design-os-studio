@@ -129,6 +129,7 @@ pub struct ActiveRules {
     pub tiny_text: bool,
     pub detached_text_style: bool,
     pub detached_instance: bool,
+    pub component_property_variable: bool,
     pub default_layer_name: bool,
     pub deeply_nested: bool,
     pub empty_container: bool,
@@ -158,6 +159,7 @@ impl ActiveRules {
             tiny_text: config.is_enabled("tiny-text"),
             detached_text_style: config.is_enabled("detached-text-style"),
             detached_instance: config.is_enabled("detached-instance"),
+            component_property_variable: config.is_enabled("component-property-variable"),
             default_layer_name: config.is_enabled("default-layer-name"),
             deeply_nested: config.is_enabled("deeply-nested"),
             empty_container: config.is_enabled("empty-container"),
@@ -245,6 +247,27 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
             ignored: false,
         });
     };
+
+    // A component property bound to a variable it cannot follow keeps its last value.
+    if active.component_property_variable && matches!(n.kind, NodeKind::Instance { .. }) {
+        for (name, _) in crate::prop_bindings_of(n) {
+            if let Some(problem) = crate::prop_binding_problem(doc, n.id, name) {
+                emit(
+                    "component-property-variable",
+                    Category::Components,
+                    n,
+                    ctx.page_bounds,
+                    format!("Property \"{name}\" keeps its last value: {problem}"),
+                    None,
+                    false,
+                );
+            }
+        }
+    }
+    // An instance mirrored from its main is audited only through its property bindings.
+    if ctx.is_instance_mirror && !config.include_instances {
+        return false;
+    }
 
     // ------------------------------------------------------------------
     // 1. Parent-relative geometric rules: `overflow-parent`, `clipped-partial`, `clipped-full`
