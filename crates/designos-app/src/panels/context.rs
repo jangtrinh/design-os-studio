@@ -104,6 +104,9 @@ fn ai_image_submenu(app: &App) -> Entry {
 
 /// Entries given the current selection.
 fn entries(app: &App) -> Vec<Entry> {
+    if crate::board::table::selected_block(app).is_some() {
+        return crate::board::table::menu::entries(app).into_iter().map(|(item, a)| leaf(item, Action::Table(a))).collect();
+    }
     let has = !app.selection.is_empty();
     let has_clip = app.clip.is_some();
     let insts = app.selected_instances();
@@ -119,7 +122,8 @@ fn entries(app: &App) -> Vec<Entry> {
                 .and_then(|pn| pn.kind.frame_props())
                 .and_then(|fp| fp.auto_layout.as_ref())
                 .is_some_and(|al| al.direction == designos_doc::LayoutDirection::Grid);
-            self_grid || parent_grid || n.name.to_ascii_lowercase().contains("table")
+            let real_table = matches!(n.kind, NodeKind::Table(_) | NodeKind::TableCell(_));
+            !real_table && (self_grid || parent_grid || n.name.to_ascii_lowercase().contains("table"))
         })
     });
     let can_create = app

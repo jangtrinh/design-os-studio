@@ -682,6 +682,22 @@ pub fn apply_checked(doc: &mut Document, cmd: Command) -> Result<Command, DocErr
     }
 }
 
+/// [`apply_checked`] for a caller that applies commands one by one and rolls its own log back (a
+/// transaction): the command runs as [`Command::apply`] does, without the all-or-nothing batch, and
+/// the table rule is checked the same way.
+pub fn apply_table_checked(doc: &mut Document, cmd: Command) -> Result<Command, DocError> {
+    let mut touched = BTreeSet::new();
+    crate::table::touched_tables(doc, &cmd, &mut touched);
+    let inverse = cmd.apply(doc)?;
+    match crate::table::check_touched(doc, &touched) {
+        Ok(()) => Ok(inverse),
+        Err(e) => match inverse.apply(doc) {
+            Ok(_) => Err(e),
+            Err(re) => Err(DocError::Table(format!("{e} Rolling the edit back also failed: {re}"))),
+        },
+    }
+}
+
 #[cfg(test)]
 #[path = "table_ops_tests.rs"]
 mod tests;

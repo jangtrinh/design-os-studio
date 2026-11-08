@@ -41,6 +41,10 @@ fn is_whiteboard_item(kind: &NodeKind) -> bool {
 /// Whether a connector end may attach to `id`: a visible, unlocked whiteboard item in a board
 /// file, any connectable layer in a design file.
 fn candidate(app: &App, id: NodeId) -> bool {
+    // a cell sits where its table puts it: a connector joins the table, never one of its cells
+    if app.doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::TableCell(_))) {
+        return false;
+    }
     if app.wb_board_targeting() {
         app.doc.get(id).is_some_and(|n| n.visible && !n.locked && is_whiteboard_item(&n.kind))
     } else {

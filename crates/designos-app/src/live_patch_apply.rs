@@ -625,7 +625,7 @@ fn reroute_into_last_step(app: &mut App, written: &[NodeId], touched_ids: &mut V
     };
     let label = app.hist.peek_undo_label().map(str::to_owned);
     let depth = app.hist.undo_depth();
-    let forward = inverse.apply_atomic(&mut app.doc).map_err(|e| e.to_string())?;
+    let forward = designos_doc::table_ops::apply_checked(&mut app.doc, inverse).map_err(|e| e.to_string())?;
     app.hist.drop_undo_steps_after(depth - 1);
     let mut commands = match forward {
         designos_doc::Command::Batch(commands) => commands,

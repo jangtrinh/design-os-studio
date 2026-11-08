@@ -1345,6 +1345,8 @@ mod style_edit;
 mod svg;
 mod system_paste_and_drop;
 mod tab_disk_state;
+mod table_edit;
+mod table_edit_drags;
 mod text_styles;
 mod toast_clock;
 mod toast_queue;

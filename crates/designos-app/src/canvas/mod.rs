@@ -174,6 +174,8 @@ pub enum Interaction {
     Guide(rulers::GuideDrag),
     /// Dragging a connector out of a board node (or from empty canvas).
     Connect(crate::board::connect::ConnectDrag),
+    /// Dragging a table grip, a track line or across cells (nothing is written until the release).
+    Table(crate::board::table::grips::TableDrag),
 }
 
 pub use textsession::TextSession;

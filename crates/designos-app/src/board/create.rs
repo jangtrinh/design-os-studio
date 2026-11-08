@@ -131,6 +131,13 @@ pub struct TextFrame {
 pub fn text_frame(doc: &Document, n: &Node) -> Option<TextFrame> {
     match &n.kind {
         NodeKind::Text(t) => Some(TextFrame { origin: Vec2::ZERO, size: n.size, props: t.clone() }),
+        NodeKind::TableCell(c) => {
+            // the text of a cell sits inside its padding and wraps at the cell width
+            let (px, py) = designos_doc::table::TABLE_CELL_PADDING;
+            let mut props = c.text.clone();
+            props.auto_resize = designos_doc::TextAutoResize::Height;
+            Some(TextFrame { origin: v2(px, py), size: v2((n.size.x - 2.0 * px).max(1.0), (n.size.y - 2.0 * py).max(1.0)), props })
+        }
         k if k.board_text().is_some() || matches!(k, NodeKind::Connector(_)) => {
             let f = designos_render::board::text_frame(doc, n)?;
             Some(TextFrame { origin: v2(f.rect.x, f.rect.y), size: v2(f.rect.w, f.rect.h), props: f.props })

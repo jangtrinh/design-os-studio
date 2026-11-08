@@ -1095,6 +1095,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         }
     }
 
+    crate::board::table::overlay::draw(app, &p);
     // Selection (the shape builder paints its own regions instead).
     if !app.selection.is_empty() && app.canvas.builder.is_none() {
         let multi = app.selection.len() > 1;

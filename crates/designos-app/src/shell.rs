@@ -684,7 +684,7 @@ impl Shell {
             }
         }
         if let Some(name) = &opts.edit_text {
-            let found = app.doc.nodes.values().find(|n| &n.name == name && matches!(n.kind, designos_doc::NodeKind::Text(_))).map(|n| n.id);
+            let found = app.doc.nodes.values().find(|n| &n.name == name && n.kind.any_text().is_some()).map(|n| n.id);
             if let Some(id) = found {
                 if let Some(pg) = app.doc.page_of(id) {
                     app.doc.ensure_page_hydrated(pg);
@@ -1421,6 +1421,10 @@ impl Shell {
     fn key(&mut self, ctx: &Context, key: Key, m: egui::Modifiers) {
         let app = &mut self.app;
         let cmd = m.command;
+        // a printable key on a selected table cell types into it (the text event starts the edit), never a tool shortcut
+        if !cmd && !m.alt && key.symbol_or_name().chars().count() == 1 && crate::board::table::select::single_cell(app).is_some() {
+            return;
+        }
         if cmd {
             let act = match (key, m.shift, m.alt) {
                 (Key::E, false, _) => Some(Action::Flatten),
@@ -1582,6 +1586,7 @@ impl Shell {
         }
         match key {
             Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
+            Key::Delete | Key::Backspace if crate::board::table::select::delete_key(app) => {}
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
             // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
             // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
@@ -1605,6 +1610,7 @@ impl Shell {
                     app.close_layer_filter();
                 } else if app.tool != Tool::Move {
                     app.tool = Tool::Move;
+                } else if crate::board::table::select::escape(app) {
                 } else if Self::escape_clears_selection() {
                     app.clear_selection();
                 } else {
@@ -1615,6 +1621,8 @@ impl Shell {
                 if app.canvas.pen.is_some() {
                     interact::finish_pen(app);
                     app.tool = Tool::Move;
+                } else if let Some(cell) = crate::board::table::select::single_cell(app).filter(|_| !m.shift) {
+                    interact::begin_text_edit(app, cell);
                 } else if m.shift {
                     if !crate::canvas::interact::navigate_hierarchy_enter(app, true) {
                         menus::run(app, ctx, Action::SelectParent);
@@ -1645,6 +1653,7 @@ impl Shell {
                 }
                 if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
                     app.props.eyedropper_format = app.props.eyedropper_format.next();
+                } else if crate::board::table::select::tab_select(app, m.shift) {
                 } else if app.wb_tools_enabled() && !m.shift {
                     crate::board::create::tab_next(app);
                 } else {
@@ -1752,8 +1761,14 @@ impl Shell {
                 return;
             }
         }
+        crate::board::table::select::right_click(app, page);
         match interact::hit_under(app, page, false) {
-            Some(hit) if !app.is_selected(hit) => app.select_only(hit),
+            Some(hit)
+                if !app.is_selected(hit)
+                    && crate::board::table::table_of(&app.doc, hit).is_none_or(|t| crate::board::table::grips::active_table(app) != Some(t)) =>
+            {
+                app.select_only(hit)
+            }
             Some(_) => {}
             None => app.clear_selection(),
         }
