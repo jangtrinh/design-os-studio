@@ -126,13 +126,14 @@ impl App {
 
     /// Generates code for `id` in `lang`, reflecting any active scratch overrides in the Dev Mode Component Playground.
     pub fn dev_code_for(&self, id: NodeId, lang: Language, react_tailwind: bool) -> String {
+        let opts = (react_tailwind, self.dev.color_format);
         if self.dev.playground.has_overrides_for(id) {
             if let Some((scratch_doc, code_id, _)) = playground::build_scratch_doc(&self.doc, id, &self.dev.playground) {
-                return lang.generate(&scratch_doc, code_id, react_tailwind);
+                return lang.generate(&scratch_doc, code_id, opts);
             }
         }
         let base_doc = if self.doc.nodes.len() <= 2_000 && !self.doc.variables.is_empty() { self.export_doc() } else { std::borrow::Cow::Borrowed(&self.doc) };
-        lang.generate(&base_doc, id, react_tailwind)
+        lang.generate(&base_doc, id, opts)
     }
 
     /// Re-evaluates the Ready for dev / Changed statuses after edits (throttled to 4 per second

@@ -402,6 +402,27 @@ fn color_handoff_copies_the_selected_format() {
 }
 
 #[test]
+fn color_format_setting_offers_hex_rgb_oklch_and_updates_dev_mode_codegen() {
+    use crate::dev::color::ColorFormat;
+    assert_eq!(ColorFormat::ALL.map(ColorFormat::label), ["Hex", "RGB", "OKLCH"]);
+    let (mut s, card) = dev_sim();
+    let default_css = s.app().dev_code_for(card, Language::Css, false);
+    let default_tw = s.app().dev_code_for(card, Language::Tailwind, false);
+
+    s.shell.app.dev.color_format = ColorFormat::Oklch;
+    let oklch_css = s.app().dev_code_for(card, Language::Css, false);
+    let oklch_tw = s.app().dev_code_for(card, Language::Tailwind, false);
+    assert_ne!(oklch_css, default_css, "OKLCH color format must change Dev Mode CSS output");
+    assert!(oklch_css.contains("oklch("), "expected oklch() in CSS output: {oklch_css}");
+    assert_ne!(oklch_tw, default_tw, "OKLCH color format must change Dev Mode Tailwind output");
+    assert!(oklch_tw.contains("oklch("), "expected oklch() in Tailwind output: {oklch_tw}");
+
+    s.shell.app.dev.color_format = ColorFormat::Rgb;
+    let rgb_css = s.app().dev_code_for(card, Language::Css, false);
+    assert!(rgb_css.contains("rgb("), "expected rgb() in CSS output: {rgb_css}");
+}
+
+#[test]
 fn selecting_instances_and_vectors_draws_the_dev_panel() {
     let (mut s, _) = dev_sim();
     let inst = s.app().doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).map(|n| n.id).unwrap();

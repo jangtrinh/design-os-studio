@@ -1,10 +1,10 @@
 //! React (JSX) output with inline styles or Tailwind classes.
 
 use crate::codegen::*;
-use crate::css::css_for;
+use crate::css::css_for_with;
 use crate::slots::*;
-use crate::tailwind::{instance_attrs, jsx_markup};
-use crate::util::num;
+use crate::tailwind::{instance_attrs, jsx_markup_with};
+use crate::util::{num, ColorFormat};
 use designos_doc::*;
 
 /// Options of [`react_with`].
@@ -23,6 +23,11 @@ pub fn react_for(doc: &Document, node: NodeId) -> String {
 /// per layer. Instances become `<Component prop="value" />`; bound variables are written as
 /// `var(--token)` references.
 pub fn react_with(doc: &Document, node: NodeId, opts: &ReactOptions) -> String {
+    react_with_format(doc, node, opts, ColorFormat::Hex)
+}
+
+/// Like [`react_with`] with an explicit [`ColorFormat`] for inline CSS or Tailwind classes.
+pub fn react_with_format(doc: &Document, node: NodeId, opts: &ReactOptions, fmt: ColorFormat) -> String {
     let Some(n) = doc.get(node) else { return String::new() };
     if matches!(n.kind, NodeKind::Connector(_)) {
         return String::new();
@@ -31,9 +36,9 @@ pub fn react_with(doc: &Document, node: NodeId, opts: &ReactOptions) -> String {
     o.line(0, react_slot_signature(doc, n));
     o.line(1, "return (");
     if opts.tailwind {
-        jsx_markup(doc, node, 2, &mut o);
+        jsx_markup_with(doc, node, 2, &mut o, fmt);
     } else {
-        element(doc, node, Parent::root(), 2, &mut o);
+        element(doc, node, Parent::root(), 2, &mut o, fmt);
     }
     o.line(1, ");");
     o.line(0, "}");
@@ -79,10 +84,10 @@ fn js_value(v: &str) -> String {
 }
 
 /// `key: value` pairs of a node's CSS (with variable references) as JS object entries.
-fn style_entries(doc: &Document, id: NodeId, root: bool) -> Vec<String> {
+fn style_entries(doc: &Document, id: NodeId, root: bool, fmt: ColorFormat) -> Vec<String> {
     // Every declaration ends with `;`. A line break inside a value (a code-syntax string can carry
     // one) must stay part of its declaration instead of being dropped as a stray line.
-    let css = css_for(doc, id);
+    let css = css_for_with(doc, id, fmt);
     let mut decls: Vec<String> = Vec::new();
     let mut open = false;
     for l in css.lines() {
@@ -138,12 +143,12 @@ fn open_tag(o: &mut Out, depth: usize, tag: &str, extra: &str, style: &[String],
     o.line(depth, close);
 }
 
-fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
+fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out, fmt: ColorFormat) {
     let Some(n) = doc.get(id) else { return };
     if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
-    let style = style_entries(doc, id, parent.root);
+    let style = style_entries(doc, id, parent.root, fmt);
     if matches!(n.kind, NodeKind::Instance { .. }) {
         let vname = view_name(doc, n);
         let me = Parent::of(n);
@@ -153,7 +158,7 @@ fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out
             head.extend(style.iter().map(|s| (2, s.clone())));
             head.push((1, "}}".to_string()));
         }
-        emit_jsx_instance(o, depth, &vname, &head, &react_fills(doc, n), &|o, k, d| element(doc, k, me, d, o));
+        emit_jsx_instance(o, depth, &vname, &head, &react_fills(doc, n), &|o, k, d| element(doc, k, me, d, o, fmt));
         return;
     }
     if is_vector_asset(doc, id) {
@@ -184,10 +189,10 @@ fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out
     open_tag(o, depth, tag, "", &style, ">");
     let me = Parent::of(n);
     if let Some(site) = &site {
-        emit_react_slot(doc, o, depth + 1, site, &|o, k, d| element(doc, k, me, d, o));
+        emit_react_slot(doc, o, depth + 1, site, &|o, k, d| element(doc, k, me, d, o, fmt));
     }
     for k in kids {
-        element(doc, k.id, me, depth + 1, o);
+        element(doc, k.id, me, depth + 1, o, fmt);
     }
     o.line(depth, format!("</{tag}>"));
 }

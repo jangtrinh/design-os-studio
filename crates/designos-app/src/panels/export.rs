@@ -416,7 +416,7 @@ pub fn copy_as(app: &mut App, node: NodeId, kind: CopyKind) {
                 Ok("Copied as SVG")
             }
             CopyKind::Css => {
-                cb.set_text(designos_export::css_for(&app.export_doc(), node)).map_err(|e| e.to_string())?;
+                cb.set_text(designos_export::css_for_with(&app.export_doc(), node, app.dev.color_format)).map_err(|e| e.to_string())?;
                 Ok("Copied as CSS")
             }
         }

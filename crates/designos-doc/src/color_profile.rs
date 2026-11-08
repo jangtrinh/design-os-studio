@@ -90,6 +90,51 @@ impl ColorProfile {
             }
         }
     }
+
+    /// Whether `c` (written in this profile) lies outside the sRGB gamut.
+    ///
+    /// An sRGB profile always returns `false`. In Display P3, colours whose unclipped linear sRGB
+    /// coordinates exceed `0.0..=1.0` beyond matrix rounding tolerance are outside sRGB.
+    pub fn is_outside_srgb(&self, c: &Color) -> bool {
+        match self {
+            ColorProfile::Srgb => false,
+            ColorProfile::DisplayP3 => {
+                if c.r == c.g && c.g == c.b {
+                    return false;
+                }
+                const GAMUT_EPS: f32 = 1e-4;
+                let lin = [srgb_channel_to_linear(c.r), srgb_channel_to_linear(c.g), srgb_channel_to_linear(c.b)];
+                let dot = |row: &[f32; 3]| row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2];
+                P3_TO_SRGB.iter().any(|row| {
+                    let v = dot(row);
+                    !(-GAMUT_EPS..=1.0 + GAMUT_EPS).contains(&v)
+                })
+            }
+        }
+    }
+
+    /// Converts `c` (written in this profile) to `OKLab` `[L, a, b]` without clipping wide-gamut
+    /// Display P3 colours to sRGB first.
+    pub fn to_oklab(&self, c: &Color) -> [f32; 3] {
+        match self {
+            ColorProfile::Srgb => crate::color_space::srgb_to_oklab(c.r, c.g, c.b),
+            ColorProfile::DisplayP3 => {
+                if c.r == c.g && c.g == c.b {
+                    return crate::color_space::srgb_to_oklab(c.r, c.g, c.b);
+                }
+                let lin = [srgb_channel_to_linear(c.r), srgb_channel_to_linear(c.g), srgb_channel_to_linear(c.b)];
+                let dot = |row: &[f32; 3]| row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2];
+                crate::color_space::linear_srgb_to_oklab(dot(&P3_TO_SRGB[0]), dot(&P3_TO_SRGB[1]), dot(&P3_TO_SRGB[2]))
+            }
+        }
+    }
+
+    /// Converts `c` (written in this profile) to `OKLCH` `[L, C, H_deg]` (`H_deg` in `0.0..360.0`)
+    /// without clipping wide-gamut Display P3 colours to sRGB first.
+    pub fn to_oklch(&self, c: &Color) -> [f32; 3] {
+        let [l, a, b] = self.to_oklab(c);
+        crate::color_space::oklab_to_oklch(l, a, b)
+    }
 }
 
 impl ColorProfile {
@@ -212,5 +257,71 @@ mod tests {
         assert_eq!(ColorProfile::from_figma_name("LEGACY"), ColorProfile::Srgb);
         assert_eq!(ColorProfile::DisplayP3.figma_name(), Some("DISPLAY_P3"));
         assert_eq!(ColorProfile::Srgb.figma_name(), None);
+    }
+
+    #[test]
+    fn display_p3_gamut_boundary_and_outside_srgb_detection() {
+        // sRGB profile never reports a colour as outside sRGB.
+        assert!(!ColorProfile::Srgb.is_outside_srgb(&Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }));
+        assert!(!ColorProfile::Srgb.is_outside_srgb(&Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 }));
+        assert!(!ColorProfile::Srgb.is_outside_srgb(&Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }));
+
+        // Neutral greys, black, and white in Display P3 share D65 and are inside sRGB.
+        for v in [0.0_f32, 0.25, 0.5, 0.75, 1.0] {
+            assert!(!ColorProfile::DisplayP3.is_outside_srgb(&Color { r: v, g: v, b: v, a: 1.0 }), "neutral {v}");
+        }
+
+        // Any sRGB primary or corner mapped into Display P3 via from_srgb lies on the sRGB gamut boundary (inside sRGB).
+        for srgb_corner in [
+            Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+            Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+            Color { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+            Color { r: 0.0, g: 1.0, b: 1.0, a: 1.0 },
+            Color { r: 1.0, g: 0.0, b: 1.0, a: 1.0 },
+            Color { r: 0.5, g: 0.4, b: 0.8, a: 1.0 },
+        ] {
+            let in_p3 = ColorProfile::DisplayP3.from_srgb(&srgb_corner);
+            assert!(!ColorProfile::DisplayP3.is_outside_srgb(&in_p3), "sRGB corner {srgb_corner:?} in P3 ({in_p3:?}) must be inside sRGB");
+        }
+
+        // Display P3 primaries and wide-gamut secondaries are outside sRGB.
+        for p3_wide in [
+            Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+            Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+            Color { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+            Color { r: 0.0, g: 1.0, b: 1.0, a: 1.0 },
+            Color { r: 1.0, g: 0.0, b: 1.0, a: 1.0 },
+        ] {
+            assert!(ColorProfile::DisplayP3.is_outside_srgb(&p3_wide), "P3 primary {p3_wide:?} must be outside sRGB");
+        }
+    }
+
+    #[test]
+    fn display_p3_oklab_and_oklch_preserve_wide_gamut_chroma_and_match_css_color_4() {
+        let tol = 1e-3;
+        // CSS Color 4: Display P3 red color(display-p3 1 0 0) -> OKLCH(0.6486, 0.2995, 28.96 deg), higher chroma than sRGB red (0.2577).
+        let p3_red_lch = ColorProfile::DisplayP3.to_oklch(&Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
+        let srgb_red_lch = ColorProfile::Srgb.to_oklch(&Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
+        assert!((p3_red_lch[0] - 0.6486).abs() <= tol, "P3 red L: {:?}", p3_red_lch);
+        assert!((p3_red_lch[1] - 0.2995).abs() <= tol, "P3 red C: {:?}", p3_red_lch);
+        assert!((p3_red_lch[2] - 28.96).abs() <= 0.05, "P3 red H: {:?}", p3_red_lch);
+        assert!(p3_red_lch[1] > srgb_red_lch[1] + 0.03, "P3 red chroma must exceed sRGB red chroma");
+
+        // CSS Color 4: Display P3 green color(display-p3 0 1 0) -> OKLCH(0.8488, 0.3685, 145.64 deg), higher chroma than sRGB green (0.2948).
+        let p3_green_lch = ColorProfile::DisplayP3.to_oklch(&Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 });
+        let srgb_green_lch = ColorProfile::Srgb.to_oklch(&Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 });
+        assert!((p3_green_lch[0] - 0.8488).abs() <= tol, "P3 green L: {:?}", p3_green_lch);
+        assert!((p3_green_lch[1] - 0.3685).abs() <= tol, "P3 green C: {:?}", p3_green_lch);
+        assert!((p3_green_lch[2] - 145.64).abs() <= 0.05, "P3 green H: {:?}", p3_green_lch);
+        assert!(p3_green_lch[1] > srgb_green_lch[1] + 0.05, "P3 green C ({:?}) must exceed sRGB green C ({:?})", p3_green_lch, srgb_green_lch);
+
+        // An sRGB colour converted into Display P3 via from_srgb has the same OKLCH as in sRGB.
+        let sample = Color { r: 0.2, g: 0.6, b: 0.9, a: 1.0 };
+        let in_p3 = ColorProfile::DisplayP3.from_srgb(&sample);
+        let lch_srgb = ColorProfile::Srgb.to_oklch(&sample);
+        let lch_p3 = ColorProfile::DisplayP3.to_oklch(&in_p3);
+        assert!((lch_srgb[0] - lch_p3[0]).abs() <= tol && (lch_srgb[1] - lch_p3[1]).abs() <= tol && (lch_srgb[2] - lch_p3[2]).abs() <= 0.1);
     }
 }

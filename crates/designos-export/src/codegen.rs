@@ -1,6 +1,6 @@
 //! Helpers shared by the code generators (Tailwind, SwiftUI, Compose, React).
 
-use crate::util::{css_color, num};
+use crate::util::{css_color_in, num, ColorFormat};
 use designos_doc::*;
 
 /// Indenting line writer.
@@ -185,9 +185,9 @@ enum Fallback {
     Raw,
 }
 
-fn fallback_text(value: &VariableValue, fmt: Fallback) -> Option<String> {
+fn fallback_text(value: &VariableValue, fmt: Fallback, profile: ColorProfile, color_fmt: ColorFormat) -> Option<String> {
     match (value, fmt) {
-        (VariableValue::Color(c), _) => Some(css_color(c, 1.0)),
+        (VariableValue::Color(c), _) => Some(css_color_in(profile, color_fmt, c, 1.0)),
         (VariableValue::Number(x), Fallback::Px) => Some(format!("{}px", num(*x))),
         (VariableValue::Number(x), Fallback::Raw) => Some(num(*x)),
         _ => None,
@@ -206,12 +206,12 @@ pub fn css_var_display(v: &Variable) -> String {
 
 /// [`css_var_display`] plus, when there is no code syntax, the value `v` resolves to at `n` as the
 /// fallback: `var(--Color-Primary, #0D99FF)`.
-fn css_var_with_fallback(doc: &Document, n: &Node, v: &Variable, fmt: Fallback) -> String {
+fn css_var_with_fallback(doc: &Document, n: &Node, v: &Variable, fmt: Fallback, color_fmt: ColorFormat) -> String {
     if let Some(code) = v.code_syntax_for(CodeSyntaxPlatform::Web) {
         return code.to_string();
     }
     let name = css_var_name(&v.name);
-    match doc.resolve_variable(n.id, &v.id).and_then(|value| fallback_text(&value, fmt)) {
+    match doc.resolve_variable(n.id, &v.id).and_then(|value| fallback_text(&value, fmt, doc.color_profile, color_fmt)) {
         Some(fallback) => format!("var(--{name}, {fallback})"),
         None => format!("var(--{name})"),
     }
@@ -973,11 +973,11 @@ fn has_decl(lines: &[String], prop: &str) -> bool {
 
 /// Replaces literal values in CSS declarations by `var(--token)` references for properties
 /// bound to variables.
-pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) {
+pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>, color_fmt: ColorFormat) {
     if n.variables.bindings.is_empty() {
         return;
     }
-    let b = |key: &str, fmt: Fallback| bound(doc, n, key).map(|v| css_var_with_fallback(doc, n, v, fmt));
+    let b = |key: &str, fmt: Fallback| bound(doc, n, key).map(|v| css_var_with_fallback(doc, n, v, fmt, color_fmt));
     let is_text = matches!(n.kind, NodeKind::Text(_));
     let visible_fills = if is_text {
         text_of(n).map(|t| t.style.fills.iter().filter(|p| p.visible).count()).unwrap_or(0)
@@ -1117,8 +1117,8 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
 }
 
 /// The stroke colour of `n` as CSS when a variable is bound to it: `var(--Color-Stroke, #333)`.
-pub(crate) fn stroke_color_token(doc: &Document, n: &Node) -> Option<String> {
-    bound(doc, n, "strokes/0").map(|v| css_var_with_fallback(doc, n, v, Fallback::Color))
+pub(crate) fn stroke_color_token(doc: &Document, n: &Node, color_fmt: ColorFormat) -> Option<String> {
+    bound(doc, n, "strokes/0").map(|v| css_var_with_fallback(doc, n, v, Fallback::Color, color_fmt))
 }
 
 /// A bound padding side plus the pixels the stroke model of a grid frame asks of it.

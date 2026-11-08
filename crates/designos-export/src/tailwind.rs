@@ -1,10 +1,10 @@
 //! Tailwind CSS output: markup with utility classes.
 
 use crate::codegen::*;
-use crate::css::paint_css;
+use crate::css::paint_css_with;
 use crate::grid_stroke::{GridStroke, StrokeModel};
 use crate::slots::*;
-use crate::util::{css_color, num, num2};
+use crate::util::{css_color_in, num, num2, ColorFormat};
 use designos_doc::*;
 
 /// HTML with Tailwind utility classes for `node` and its descendants. Values on the Tailwind
@@ -12,14 +12,25 @@ use designos_doc::*;
 /// bound variables become CSS variable references (`bg-[var(--Color-Primary)]`). Instances
 /// are written as `<Component prop="value" />`.
 pub fn tailwind_for(doc: &Document, node: NodeId) -> String {
+    tailwind_for_with(doc, node, ColorFormat::Hex)
+}
+
+/// Like [`tailwind_for`] with an explicit [`ColorFormat`].
+pub fn tailwind_for_with(doc: &Document, node: NodeId, fmt: ColorFormat) -> String {
     let mut o = Out::new("  ");
-    markup(doc, node, Parent::root(), 0, &mut o, false);
+    markup(doc, node, Parent::root(), 0, &mut o, false, fmt);
     o.finish()
 }
 
 /// Same markup for use inside JSX (`className`, escaped text).
+#[allow(dead_code)]
 pub(crate) fn jsx_markup(doc: &Document, node: NodeId, depth: usize, o: &mut Out) {
-    markup(doc, node, Parent::root(), depth, o, true);
+    jsx_markup_with(doc, node, depth, o, ColorFormat::Hex);
+}
+
+/// Like [`jsx_markup`] with an explicit [`ColorFormat`].
+pub(crate) fn jsx_markup_with(doc: &Document, node: NodeId, depth: usize, o: &mut Out, fmt: ColorFormat) {
+    markup(doc, node, Parent::root(), depth, o, true, fmt);
 }
 
 const SPACING: [(f32, &str); 35] = [
@@ -135,13 +146,26 @@ fn hex8(c: &Color, opacity: f32) -> String {
     }
 }
 
-fn color_class(doc: &Document, n: &Node, key: &str, prefix: &str, p: &Paint, text: bool) -> String {
+fn tailwind_solid_color(profile: ColorProfile, fmt: ColorFormat, c: &Color, opacity: f32) -> String {
+    if profile.is_outside_srgb(c) && fmt != ColorFormat::Oklch {
+        return css_color_in(profile, fmt, c, opacity).replace(' ', "_");
+    }
+    match fmt {
+        ColorFormat::Hex => {
+            let srgb = profile.to_srgb(c);
+            hex8(&srgb, opacity)
+        }
+        _ => css_color_in(profile, fmt, c, opacity).replace(' ', "_"),
+    }
+}
+
+fn color_class(doc: &Document, n: &Node, key: &str, prefix: &str, p: &Paint, text: bool, fmt: ColorFormat) -> String {
     if let Some(v) = bound(doc, n, key) {
         return if text { format!("{prefix}-[color:{}]", css_var(v)) } else { format!("{prefix}-[{}]", css_var(v)) };
     }
     match &p.kind {
-        PaintKind::Solid(c) => format!("{prefix}-[{}]", hex8(c, p.opacity)),
-        _ => format!("{prefix}-[{}]", paint_css(p, Vec2::new(1.0, 1.0)).replace(", ", ",").replace(' ', "_")),
+        PaintKind::Solid(c) => format!("{prefix}-[{}]", tailwind_solid_color(doc.color_profile, fmt, c, p.opacity)),
+        _ => format!("{prefix}-[{}]", paint_css_with(p, Vec2::new(1.0, 1.0), doc.color_profile, fmt).replace(", ", ",").replace(' ', "_")),
     }
 }
 
@@ -200,12 +224,12 @@ fn opacity_class(o: f32) -> Option<String> {
     }
 }
 
-fn shadow_value(doc: &Document, n: &Node, stroke: Option<GridStroke>) -> Option<String> {
+fn shadow_value(doc: &Document, n: &Node, stroke: Option<GridStroke>, fmt: ColorFormat) -> Option<String> {
     let mut parts = Vec::new();
     if let (Some(g), Some(p)) = (stroke, crate::grid_stroke::drawn_paint(&n.stroke)) {
         let color = match (bound(doc, n, "strokes/0"), &p.kind) {
             (Some(v), _) => css_var(v),
-            (None, PaintKind::Solid(c)) => hex8(c, p.opacity),
+            (None, PaintKind::Solid(c)) => tailwind_solid_color(doc.color_profile, fmt, c, p.opacity),
             _ => "transparent".to_string(),
         };
         parts.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset_{}px_{}px_0px_0px_{color}", num(*x), num(*y))));
@@ -219,7 +243,7 @@ fn shadow_value(doc: &Document, n: &Node, stroke: Option<GridStroke>) -> Option<
                     num(offset.y),
                     num(*radius),
                     num(*spread),
-                    css_color(color, 1.0).replace(", ", ",")
+                    css_color_in(doc.color_profile, fmt, color, 1.0).replace(", ", ",").replace(' ', "_")
                 ));
             }
             Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } => {
@@ -229,7 +253,7 @@ fn shadow_value(doc: &Document, n: &Node, stroke: Option<GridStroke>) -> Option<
                     num(offset.y),
                     num(*radius),
                     num(*spread),
-                    css_color(color, 1.0).replace(", ", ",")
+                    css_color_in(doc.color_profile, fmt, color, 1.0).replace(", ", ",").replace(' ', "_")
                 ));
             }
             _ => {}
@@ -259,7 +283,7 @@ fn stroke_width_class(prefix: &str, px: f32, var: Option<&Variable>) -> String {
 /// A grid frame's stroke drawn as an outline, which takes no layout space: `outline outline-2
 /// outline-[#333333] outline-offset-[-1px]`. Inside and Center strokes are offset inward by their
 /// width and half of it; an Outside stroke is not offset.
-fn outline_classes(doc: &Document, n: &Node, p: &Paint) -> Vec<String> {
+fn outline_classes(doc: &Document, n: &Node, p: &Paint, fmt: ColorFormat) -> Vec<String> {
     let width = match bound(doc, n, "strokeWeight") {
         Some(v) => format!("outline-[length:{}]", css_var(v)),
         None => match n.stroke.weight {
@@ -271,7 +295,7 @@ fn outline_classes(doc: &Document, n: &Node, p: &Paint) -> Vec<String> {
     if n.stroke.dashes.iter().any(|d| *d > 0.0) {
         c.push("outline-dashed".into());
     }
-    c.push(color_class(doc, n, "strokes/0", "outline", p, false));
+    c.push(color_class(doc, n, "strokes/0", "outline", p, false, fmt));
     let inward = match n.stroke.align {
         StrokeAlign::Inside => Some(("-1", 1.0)),
         StrokeAlign::Center => Some(("-0.5", 0.5)),
@@ -318,7 +342,7 @@ fn pad_classes(doc: &Document, n: &Node, al: &AutoLayout, stroke: Option<GridStr
     out.retain(|c| !c.ends_with("-0"));
     out
 }
-fn text_classes(doc: &Document, n: &Node, t: &TextProps, c: &mut Vec<String>) {
+fn text_classes(doc: &Document, n: &Node, t: &TextProps, c: &mut Vec<String>, fmt: ColorFormat) {
     let s = &t.style;
     c.push(format!("font-['{}']", s.font_family.replace(' ', "_")));
     let fs = match s.font_size as i32 {
@@ -389,11 +413,11 @@ fn text_classes(doc: &Document, n: &Node, t: &TextProps, c: &mut Vec<String>) {
         TextCase::SmallCaps => c.push("[font-variant:small-caps]".into()),
     }
     if let Some(p) = first_paint(&s.fills) {
-        c.push(color_class(doc, n, "fills/0", "text", p, true));
+        c.push(color_class(doc, n, "fills/0", "text", p, true, fmt));
     }
 }
 
-fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
+fn classes(doc: &Document, n: &Node, parent: Parent<'_>, fmt: ColorFormat) -> Vec<String> {
     let mut c: Vec<String> = Vec::new();
     let sz = web_sizes(n, parent);
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
@@ -531,12 +555,12 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     }
     // fills
     if let Some(t) = text_of(n) {
-        text_classes(doc, n, t, &mut c);
+        text_classes(doc, n, t, &mut c, fmt);
     } else if !matches!(n.kind, NodeKind::Line) {
         let visible: Vec<(usize, &Paint)> =
             n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))).collect();
         if let Some((i, p)) = visible.last() {
-            c.push(color_class(doc, n, &format!("fills/{i}"), "bg", p, false));
+            c.push(color_class(doc, n, &format!("fills/{i}"), "bg", p, false, fmt));
         }
     }
     // stroke
@@ -557,7 +581,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         if grid_model == Some(StrokeModel::Shadow) {
             // drawn as inset shadows with the other effects
         } else if grid_model == Some(StrokeModel::Outline) {
-            c.extend(outline_classes(doc, n, p));
+            c.extend(outline_classes(doc, n, p, fmt));
         } else {
             let side_prefixes = ["border-t", "border-r", "border-b", "border-l"];
             let stored = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
@@ -578,7 +602,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
             if n.stroke.dashes.iter().any(|d| *d > 0.0) {
                 c.push("border-dashed".into());
             }
-            c.push(color_class(doc, n, "strokes/0", "border", p, false));
+            c.push(color_class(doc, n, "strokes/0", "border", p, false, fmt));
             if n.stroke.align != StrokeAlign::Inside {
                 let offset = match n.stroke.align {
                     StrokeAlign::Center => {
@@ -603,7 +627,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         c.push("overflow-hidden".into());
     }
     // effects
-    if let Some(s) = shadow_value(doc, n, grid_stroke.filter(|g| g.model == StrokeModel::Shadow)) {
+    if let Some(s) = shadow_value(doc, n, grid_stroke.filter(|g| g.model == StrokeModel::Shadow), fmt) {
         c.push(s);
     }
     for e in &n.effects {
@@ -650,13 +674,13 @@ pub(crate) fn instance_attrs(doc: &Document, n: &Node) -> String {
     o
 }
 
-fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out, jsx: bool) {
+fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out, jsx: bool, fmt: ColorFormat) {
     let Some(n) = doc.get(id) else { return };
     if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
     let attr = if jsx { "className" } else { "class" };
-    let cls = classes(doc, n, parent).join(" ");
+    let cls = classes(doc, n, parent, fmt).join(" ");
     let class_attr = if cls.is_empty() { String::new() } else { format!(" {attr}=\"{cls}\"") };
 
     if matches!(n.kind, NodeKind::Instance { .. }) {
@@ -666,19 +690,19 @@ fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out,
         if jsx {
             let gap = if fills.is_empty() { " " } else { "" }; // `<X a="b" />`
             let head = [(0, format!("<{vname}{}{class_attr}{gap}", instance_attrs(doc, n)))];
-            emit_jsx_instance(o, depth, &vname, &head, &fills, &|o, k, d| markup(doc, k, me, d, o, true));
+            emit_jsx_instance(o, depth, &vname, &head, &fills, &|o, k, d| markup(doc, k, me, d, o, true, fmt));
         } else if fills.is_empty() {
             o.line(depth, format!("<{vname}{}{class_attr} />", instance_attrs(doc, n)));
         } else {
             // Plain HTML has no props: named slots become `<template slot="name">` children.
             o.line(depth, format!("<{vname}{}{class_attr}>", instance_attrs(doc, n)));
             for id in fills.children.iter().flatten() {
-                markup(doc, *id, me, depth + 1, o, false);
+                markup(doc, *id, me, depth + 1, o, false, fmt);
             }
             for (prop, ids) in &fills.props {
                 o.line(depth + 1, format!("<template slot=\"{prop}\">"));
                 for id in ids {
-                    markup(doc, *id, me, depth + 2, o, false);
+                    markup(doc, *id, me, depth + 2, o, false, fmt);
                 }
                 o.line(depth + 1, "</template>");
             }
@@ -718,13 +742,13 @@ fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out,
     let me = Parent::of(n);
     if let Some(site) = &site {
         if jsx {
-            emit_react_slot(doc, o, depth + 1, site, &|o, k, d| markup(doc, k, me, d, o, true));
+            emit_react_slot(doc, o, depth + 1, site, &|o, k, d| markup(doc, k, me, d, o, true, fmt));
         } else {
             o.line(depth + 1, format!("<!-- slot: {} -->", site.name));
         }
     }
     for k in kids {
-        markup(doc, k.id, me, depth + 1, o, jsx);
+        markup(doc, k.id, me, depth + 1, o, jsx, fmt);
     }
     o.line(depth, format!("</{tag}>"));
 }

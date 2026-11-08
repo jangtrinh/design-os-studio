@@ -4,7 +4,10 @@
 //! `designos-export`, the Dev Mode inspect panel (`designos-app`), the headless CLI
 //! (`--dev` / `--codegen`), and the MCP `generate_code` tool (`designos-mcp`).
 
-use crate::{android_xml_for, compose_for, css_for, html_for, react_with, swiftui_for, tailwind_for, uikit_for, ReactOptions};
+use crate::{
+    android_xml_for, compose_for, css_for_with, html::html_with_format, react::react_with_format, swiftui_for, tailwind_for_with, uikit_for, ColorFormat,
+    HtmlOptions, ReactOptions,
+};
 use designos_doc::{Document, NodeId};
 
 /// Options passed to [`CodeLanguage::generate`].
@@ -12,23 +15,37 @@ use designos_doc::{Document, NodeId};
 pub struct CodeLanguageOptions {
     /// Switches React output from inline styles (`false`) to Tailwind classes (`true`).
     pub react_tailwind: bool,
+    /// Colour notation for CSS, Tailwind, React, and HTML output.
+    pub color_format: ColorFormat,
 }
 
 impl From<bool> for CodeLanguageOptions {
     fn from(react_tailwind: bool) -> Self {
-        Self { react_tailwind }
+        Self { react_tailwind, color_format: ColorFormat::default() }
+    }
+}
+
+impl From<ColorFormat> for CodeLanguageOptions {
+    fn from(color_format: ColorFormat) -> Self {
+        Self { react_tailwind: false, color_format }
+    }
+}
+
+impl From<(bool, ColorFormat)> for CodeLanguageOptions {
+    fn from((react_tailwind, color_format): (bool, ColorFormat)) -> Self {
+        Self { react_tailwind, color_format }
     }
 }
 
 impl From<crate::ReactOptions> for CodeLanguageOptions {
     fn from(opts: crate::ReactOptions) -> Self {
-        Self { react_tailwind: opts.tailwind }
+        Self { react_tailwind: opts.tailwind, color_format: ColorFormat::default() }
     }
 }
 
 impl From<&crate::ReactOptions> for CodeLanguageOptions {
     fn from(opts: &crate::ReactOptions) -> Self {
-        Self { react_tailwind: opts.tailwind }
+        Self { react_tailwind: opts.tailwind, color_format: ColorFormat::default() }
     }
 }
 
@@ -88,14 +105,14 @@ impl CodeLanguage {
     pub fn generate(self, doc: &Document, node: NodeId, opts: impl Into<CodeLanguageOptions>) -> String {
         let opts = opts.into();
         match self {
-            Self::Css => css_for(doc, node),
-            Self::Tailwind => tailwind_for(doc, node),
+            Self::Css => css_for_with(doc, node, opts.color_format),
+            Self::Tailwind => tailwind_for_with(doc, node, opts.color_format),
             Self::SwiftUi => swiftui_for(doc, node),
             Self::UiKit => uikit_for(doc, node),
             Self::Compose => compose_for(doc, node),
             Self::AndroidXml => android_xml_for(doc, node),
-            Self::React => react_with(doc, node, &ReactOptions { tailwind: opts.react_tailwind }),
-            Self::Html => html_for(doc, node),
+            Self::React => react_with_format(doc, node, &ReactOptions { tailwind: opts.react_tailwind }, opts.color_format),
+            Self::Html => html_with_format(doc, node, &HtmlOptions { fragment: false }, opts.color_format),
         }
     }
 }

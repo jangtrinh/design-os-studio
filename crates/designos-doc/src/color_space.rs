@@ -41,11 +41,11 @@ pub(crate) fn linear_channel_to_srgb(v: f32) -> f32 {
     }
 }
 
-/// Converts straight sRGB channels (`0.0..=1.0`) to `OKLab` `[L, a, b]`.
-pub fn srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
-    let r_lin = srgb_channel_to_linear(r);
-    let g_lin = srgb_channel_to_linear(g);
-    let b_lin = srgb_channel_to_linear(b);
+/// Converts linear-light sRGB channels to `OKLab` `[L, a, b]`.
+pub fn linear_srgb_to_oklab(r_lin: f32, g_lin: f32, b_lin: f32) -> [f32; 3] {
+    let r_lin = sanitize_finite(r_lin);
+    let g_lin = sanitize_finite(g_lin);
+    let b_lin = sanitize_finite(b_lin);
 
     if r_lin == g_lin && g_lin == b_lin {
         return [r_lin.cbrt().clamp(0.0, 1.0), 0.0, 0.0];
@@ -64,6 +64,11 @@ pub fn srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
     let ok_b = 0.025_904_037 * l_ + 0.782_771_77 * m_ - 0.808_675_77 * s_;
 
     [sanitize_unit(ok_l), sanitize_finite(ok_a), sanitize_finite(ok_b)]
+}
+
+/// Converts straight sRGB channels (`0.0..=1.0`) to `OKLab` `[L, a, b]`.
+pub fn srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
+    linear_srgb_to_oklab(srgb_channel_to_linear(r), srgb_channel_to_linear(g), srgb_channel_to_linear(b))
 }
 
 /// Converts `OKLab` `[L, a, b]` to straight sRGB channels (`0.0..=1.0`),
@@ -199,6 +204,22 @@ mod tests {
         let black_lch = srgb_to_oklch(0.0, 0.0, 0.0);
         assert_near(black_lch[0], 0.0, tol, "black OKLCH L");
         assert_near(black_lch[1], 0.0, tol, "black OKLCH C");
+
+        // CSS Color 4 sample values: yellow (1, 1, 0), cyan (0, 1, 1), magenta (1, 0, 1)
+        let yellow_lch = srgb_to_oklch(1.0, 1.0, 0.0);
+        assert_near(yellow_lch[0], 0.9680, tol, "yellow OKLCH L");
+        assert_near(yellow_lch[1], 0.2110, tol, "yellow OKLCH C");
+        assert_near(yellow_lch[2], 109.77, 0.05, "yellow OKLCH H");
+
+        let cyan_lch = srgb_to_oklch(0.0, 1.0, 1.0);
+        assert_near(cyan_lch[0], 0.9054, tol, "cyan OKLCH L");
+        assert_near(cyan_lch[1], 0.1545, tol, "cyan OKLCH C");
+        assert_near(cyan_lch[2], 194.77, 0.05, "cyan OKLCH H");
+
+        let magenta_lch = srgb_to_oklch(1.0, 0.0, 1.0);
+        assert_near(magenta_lch[0], 0.7017, tol, "magenta OKLCH L");
+        assert_near(magenta_lch[1], 0.3225, tol, "magenta OKLCH C");
+        assert_near(magenta_lch[2], 328.36, 0.05, "magenta OKLCH H");
     }
 
     #[test]
