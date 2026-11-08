@@ -631,19 +631,24 @@ impl<'a> Lk<'a> {
     }
 
     /// `id` is one of `carried`, or every mode of it aliases a variable that is (directly or through other
-    /// variables). A literal in any mode, or a cycle, makes it a different variable.
-    fn variable_reaches(&self, id: &str, carried: &HashSet<String>, visiting: &mut HashSet<String>) -> bool {
+    /// variables). A literal in any mode, or a cycle, makes it a different variable. `memo` holds the answers of one
+    /// comparison (`None` while a variable is still being walked, which counts as foreign), so each variable is
+    /// walked once however many modes point at it.
+    fn variable_reaches(&self, id: &str, carried: &HashSet<String>, memo: &mut HashMap<String, Option<bool>>) -> bool {
         if carried.contains(id) {
             return true;
         }
-        if !visiting.insert(id.to_string()) {
-            return false;
+        match memo.get(id) {
+            Some(Some(known)) => return *known,
+            Some(None) => return false,
+            None => {}
         }
+        memo.insert(id.to_string(), None);
         let reaches = match self.var_aliases.get(id) {
-            Some(modes) if !modes.is_empty() => modes.iter().all(|target| target.as_deref().is_some_and(|t| self.variable_reaches(t, carried, visiting))),
+            Some(modes) if !modes.is_empty() => modes.iter().all(|target| target.as_deref().is_some_and(|t| self.variable_reaches(t, carried, memo))),
             _ => false,
         };
-        visiting.remove(id);
+        memo.insert(id.to_string(), Some(reaches));
         reaches
     }
 
@@ -3169,7 +3174,8 @@ fn effect_variables(lk: &Lk, effects: &[Value]) -> HashSet<String> {
 /// of its modes, directly or through other variables, is a copy of it and does not count.
 fn effects_bind_foreign_variable(lk: &Lk, own: &[Value], style: &[Value]) -> bool {
     let carried = effect_variables(lk, style);
-    effect_variables(lk, own).iter().any(|v| !lk.variable_reaches(v, &carried, &mut HashSet::new()))
+    let mut memo = HashMap::new();
+    effect_variables(lk, own).iter().any(|v| !lk.variable_reaches(v, &carried, &mut memo))
 }
 
 // ------------------------------------------------------------------ text

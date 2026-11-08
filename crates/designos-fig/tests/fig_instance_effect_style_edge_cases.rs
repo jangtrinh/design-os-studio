@@ -370,3 +370,25 @@ fn an_outer_edit_of_a_child_the_inner_instance_detached_keeps_the_edit() {
     assert_eq!(radii(dot), vec![5.0]);
     assert_eq!(style_of(&doc, dot), None);
 }
+
+#[test]
+fn a_deep_chain_of_multi_mode_aliases_finishes() {
+    // Twenty variables, four modes each, every mode aliasing the next one; the last aliases the style's variable.
+    // An unmemoised walk makes 4^20 steps; the answer is that the chain is a copy.
+    let mut variables = vec![variable(1, vec![None])];
+    for local in 101..=120 {
+        let next = if local == 120 { (7, 1) } else { (7, local + 1) };
+        variables.push(variable(local, vec![Some(next); 4]));
+    }
+    let doc = copy_bound_to((7, 101), variables);
+    assert_eq!(radii(named(&doc, "Aliased")), vec![8.0, 4.0]);
+}
+
+#[test]
+fn a_foreign_binding_on_a_node_keeps_the_link() {
+    let card = card_binding_7_1();
+    let own = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(2.0), (7, 99))]});
+    let doc = import(&doc_json(card, json!({}), json!({}), vec![inst(1, "Node level", own, vec![])]));
+    let n = named(&doc, "Node level");
+    assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![2.0], Some("Shadow/Card")));
+}
