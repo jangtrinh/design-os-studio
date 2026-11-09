@@ -771,20 +771,29 @@ impl TabsState {
         }
     }
 
+    /// Drops any cached profile-converted images of closed tabs no remaining tab holds.
+    pub(crate) fn release_closed_doc_images(&self, app: &App, closed: &[Document]) {
+        for doc in closed {
+            let open = (!self.parked_in_home && app.home.is_none()).then_some(&app.doc).into_iter().chain(self.entries.iter().map(|t| &t.doc));
+            designos_render::drop_converted_images_except(doc, open);
+        }
+    }
+
     /// Closes `entries[idx]` unless it is `pinned`. If `entries` becomes empty, opens `Home`;
     /// otherwise activates the nearest remaining tab.
     pub fn close_tab(&mut self, idx: usize, app: &mut App) -> bool {
         let closed_paths: Vec<_> = self.disk_path_of_tab(idx, app).into_iter().collect();
-        let closed = self.close_tab_entry(idx, app);
-        if closed {
-            self.release_closed_paths(app, &closed_paths);
-        }
-        closed
+        let Some(closed_doc) = self.close_tab_entry(idx, app) else {
+            return false;
+        };
+        self.release_closed_paths(app, &closed_paths);
+        self.release_closed_doc_images(app, &[closed_doc]);
+        true
     }
 
-    fn close_tab_entry(&mut self, idx: usize, app: &mut App) -> bool {
+    fn close_tab_entry(&mut self, idx: usize, app: &mut App) -> Option<Document> {
         if idx >= self.entries.len() || self.entries[idx].pinned {
-            return false;
+            return None;
         }
         let was_home = app.home.is_some();
         if was_home && self.hist_in_app {
@@ -818,10 +827,11 @@ impl TabsState {
                 } else {
                     app.home = Some(crate::home::Home::new());
                 }
+                removed.doc = Self::take_live_doc(app);
             }
             app.file_path = None;
             app.lib_file = None;
-            return true;
+            return Some(removed.doc);
         }
         if was_home {
             if idx < self.active_idx {
@@ -829,14 +839,19 @@ impl TabsState {
             } else if self.active_idx >= self.entries.len() {
                 self.active_idx = self.entries.len() - 1;
             }
-            return true;
+            return Some(removed.doc);
         }
         if idx != old_active {
             if idx < old_active {
                 self.active_idx = old_active - 1;
             }
-            return true;
+            return Some(removed.doc);
         }
+        crate::decks::ui::flush_notes(app);
+        app.stop_plugin();
+        app.exit_version_view();
+        app.flush_autosave();
+        removed.doc = Self::take_live_doc(app);
         let next_idx = idx.min(self.entries.len() - 1);
         self.active_idx = next_idx;
         self.parked_in_home = false;
@@ -849,7 +864,7 @@ impl TabsState {
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.hist_in_app = true;
-        true
+        Some(removed.doc)
     }
 
     /// Closes all unpinned tabs except `keep_idx` and activates `keep_idx`.
@@ -875,7 +890,14 @@ impl TabsState {
                 t.terminal.shutdown();
             }
         }
-        self.entries.retain(|t| t.id == keep_id || t.pinned);
+        let mut closed_docs = Vec::new();
+        self.entries.retain_mut(|t| {
+            let keep = t.id == keep_id || t.pinned;
+            if !keep {
+                closed_docs.push(std::mem::take(&mut t.doc));
+            }
+            keep
+        });
         self.project_states.retain(|id, _| self.entries.iter().any(|t| t.id == *id));
         if let Some(new_idx) = self.entries.iter().position(|t| t.id == keep_id) {
             let tab_id = self.entries[new_idx].id;
@@ -891,6 +913,7 @@ impl TabsState {
             self.hist_in_app = true;
         }
         self.release_closed_paths(app, &closed_paths);
+        self.release_closed_doc_images(app, &closed_docs);
     }
 
     /// Whether the document of tab `idx` still has pages that wait for their content. The open tab's document is on

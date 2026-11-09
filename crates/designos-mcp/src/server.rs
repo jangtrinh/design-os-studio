@@ -882,6 +882,7 @@ impl Session {
     }
 
     fn reset_closed_session(&mut self) {
+        designos_render::drop_converted_images(&self.engine.doc);
         let next_rev = self.engine.revision.wrapping_add(1);
         self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
         self.save_session_options();

@@ -2,7 +2,9 @@
 //! the eyedropper loupe samples every frame and an export can hold many layers on one photo.
 
 use designos_doc::*;
-use designos_render::{image_conversions, render_page_native, tiny_skia::Pixmap, Viewport};
+use designos_render::{
+    converted_image_bytes, drop_converted_images, image_conversions, render_page_native, tiny_skia::Pixmap, Viewport, MAX_CONVERTED_IMAGE_BYTES,
+};
 
 const W: u32 = 4000;
 const H: u32 = 3000;
@@ -64,6 +66,118 @@ fn an_srgb_document_converts_no_image() {
     let before = image_conversions();
     render(&d, page, 11 * 12 + 40);
     assert_eq!(image_conversions() - before, 0);
+}
+
+fn small_png(seed: u8) -> Vec<u8> {
+    let img = image::RgbaImage::from_pixel(4, 4, image::Rgba([seed, seed.wrapping_mul(3), seed.wrapping_add(17), 255]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
+#[test]
+fn forty_p3_images_over_two_native_renders_convert_forty_times() {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    d.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+    d.color_profile = ColorProfile::DisplayP3;
+    for i in 0..40u8 {
+        let key = format!("img-{i}");
+        d.images.insert(key.clone(), small_png(i));
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(i as f32 * 6.0, 0.0, 4.0, 4.0));
+        n.fills = vec![Paint {
+            kind: PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill, params: ImageParams::default() },
+            ..Paint::solid(Color::WHITE)
+        }];
+        d.insert(page, n).unwrap();
+    }
+    let before = image_conversions();
+    render(&d, page, 40 * 6);
+    render(&d, page, 40 * 6);
+    assert_eq!(image_conversions() - before, 40, "two renders of 40 images must convert each image once");
+}
+
+fn solid_png(side: u32, seed: u8) -> Vec<u8> {
+    let img = image::RgbaImage::from_pixel(side, side, image::Rgba([seed, seed.wrapping_mul(5), seed.wrapping_add(31), 255]));
+    let mut out = Vec::new();
+    let enc = image::codecs::png::PngEncoder::new_with_quality(&mut out, image::codecs::png::CompressionType::Fast, image::codecs::png::FilterType::NoFilter);
+    image::ImageEncoder::write_image(enc, img.as_raw(), side, side, image::ExtendedColorType::Rgba8).unwrap();
+    out
+}
+
+fn single_image_doc(name: &str, side: u32, seed: u8) -> (Document, NodeId) {
+    let mut d = Document::new(name);
+    let page = d.add_page("p");
+    d.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+    d.color_profile = ColorProfile::DisplayP3;
+    let key = format!("photo-{seed}");
+    d.images.insert(key.clone(), solid_png(side, seed));
+    let id = d.alloc_id();
+    let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, side as f32, side as f32));
+    n.fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill, params: ImageParams::default() },
+        ..Paint::solid(Color::WHITE)
+    }];
+    d.insert(page, n).unwrap();
+    (d, page)
+}
+
+fn render_one_px(d: &Document, page: NodeId) {
+    let mut pm = Pixmap::new(1, 1).unwrap();
+    render_page_native(d, page, &Viewport::default(), &mut pm);
+}
+
+#[test]
+fn converted_image_cache_stays_within_byte_budget_and_evicts_oldest_first() {
+    // 2500 x 2500 RGBA8 is 25 MB: two fit in the 64 MiB budget (50 MB <= 64 MiB), the third (75 MB) evicts the first.
+    let (d0, p0) = single_image_doc("d0", 2500, 10);
+    let (d1, p1) = single_image_doc("d1", 2500, 20);
+    let (d2, p2) = single_image_doc("d2", 2500, 30);
+
+    let before = image_conversions();
+    render_one_px(&d0, p0);
+    render_one_px(&d1, p1);
+    assert_eq!(image_conversions() - before, 2);
+    assert!(converted_image_bytes() <= MAX_CONVERTED_IMAGE_BYTES);
+
+    render_one_px(&d2, p2);
+    assert_eq!(image_conversions() - before, 3);
+    assert!(
+        converted_image_bytes() <= MAX_CONVERTED_IMAGE_BYTES,
+        "cache bytes {} must not exceed budget {}",
+        converted_image_bytes(),
+        MAX_CONVERTED_IMAGE_BYTES
+    );
+
+    // d1 and d2 (the two newest) are still cached; d0 (the oldest) was evicted first.
+    let after_three = image_conversions();
+    render_one_px(&d1, p1);
+    render_one_px(&d2, p2);
+    assert_eq!(image_conversions() - after_three, 0, "the newer images stay in the cache");
+
+    render_one_px(&d0, p0);
+    assert_eq!(image_conversions() - after_three, 1, "the oldest image was evicted and converts again");
+    assert!(converted_image_bytes() <= MAX_CONVERTED_IMAGE_BYTES);
+}
+
+#[test]
+fn dropping_a_closed_document_releases_its_converted_images() {
+    let (d0, p0) = single_image_doc("open", 64, 41);
+    let (d1, p1) = single_image_doc("closed", 64, 42);
+    render_one_px(&d0, p0);
+    render_one_px(&d1, p1);
+    let bytes_before = converted_image_bytes();
+    assert!(bytes_before >= 2 * 64 * 64 * 4);
+
+    drop_converted_images(&d1);
+    assert_eq!(converted_image_bytes(), bytes_before - 64 * 64 * 4, "closing d1 drops its converted pixmap bytes");
+
+    let before = image_conversions();
+    render_one_px(&d0, p0);
+    assert_eq!(image_conversions() - before, 0, "the still-open document keeps its converted image");
+    render_one_px(&d1, p1);
+    assert_eq!(image_conversions() - before, 1, "the closed document's image was dropped from the cache");
 }
 
 /// Release timing of a 1x1 native sample over the 4000x3000 photo, as the eyedropper loupe takes it every frame:

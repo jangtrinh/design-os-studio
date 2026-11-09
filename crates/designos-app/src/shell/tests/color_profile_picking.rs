@@ -148,3 +148,94 @@ fn swatches_are_right_in_the_frame_a_tab_switch_happens() {
     assert!(filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "the sRGB tab's swatch is raw in the switching frame");
     assert!(!filled_near(&s, [132, 101, 211]), "no converted swatch in the switching frame");
 }
+
+fn pick_profile_frame(s: &mut Sim, i: usize) {
+    let ctl = s.rect_of("color-profile");
+    s.click(ctl.center());
+    let menu = s.rect_of("menu-level-0");
+    let y = menu.top() + theme::MENU_PADDING + i as f32 * theme::MENU_ITEM_HEIGHT + theme::MENU_ITEM_HEIGHT / 2.0;
+    s.mv(Pos2::new(ctl.left() + 20.0, y));
+    s.button(true);
+    s.button(false);
+}
+
+fn press_cmd_z(s: &mut Sim, shift: bool) {
+    let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+    let modifiers = Modifiers { alt: false, ctrl: !is_mac, shift, mac_cmd: is_mac, command: true };
+    s.frame(vec![Event::Key { key: Key::Z, physical_key: Some(Key::Z), pressed: true, repeat: false, modifiers }]);
+}
+
+fn swatch_filled_with(s: &Sim, c: egui::Color32) -> bool {
+    s.shapes.iter().any(|cs| matches!(&cs.shape, egui::Shape::Rect(r) if r.rect.size() == Vec2::splat(theme::PAGE_SWATCH) && r.fill == c))
+}
+
+#[test]
+fn the_page_swatch_updates_in_the_same_frame_as_the_profile_dropdown_undo_and_redo() {
+    let mut s = Sim::new();
+    s.shell.app.selection.clear();
+    let page = s.app().page;
+    s.shell.app.doc.get_mut(page).unwrap().kind = NodeKind::Page { background: MID };
+    s.frame(vec![]);
+    assert!(swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "starts in sRGB with raw numbers");
+
+    pick_profile_frame(&mut s, 1);
+    assert_eq!(s.app().doc.color_profile, ColorProfile::DisplayP3);
+    assert!(filled_near(&s, [132, 101, 211]), "the dropdown frame already draws the converted swatch");
+    assert!(!swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "no stale raw swatch in the dropdown frame");
+
+    press_cmd_z(&mut s, false);
+    assert_eq!(s.app().doc.color_profile, ColorProfile::Srgb);
+    assert!(swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "the undo frame already draws the raw swatch");
+    assert!(!filled_near(&s, [132, 101, 211]), "no stale converted swatch in the undo frame");
+
+    press_cmd_z(&mut s, true);
+    assert_eq!(s.app().doc.color_profile, ColorProfile::DisplayP3);
+    assert!(filled_near(&s, [132, 101, 211]), "the redo frame already draws the converted swatch");
+    assert!(!swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "no stale raw swatch in the redo frame");
+}
+
+fn p3_doc_with_png(rgb: [u8; 3], key: &str) -> (Document, NodeId) {
+    let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([rgb[0], rgb[1], rgb[2], 255]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    let fill = Paint {
+        kind: PaintKind::Image { image_ref: key.into(), scale_mode: ImageScaleMode::Fill, params: ImageParams::default() },
+        ..Paint::solid(DColor::WHITE)
+    };
+    let (mut doc, page, _) = doc_with_fill(fill);
+    doc.images.insert(key.into(), bytes.into_inner());
+    (doc, page)
+}
+
+#[test]
+fn closing_a_tab_drops_its_converted_images_and_keeps_open_tabs() {
+    let mut s = Sim::new();
+    let (doc_a, page_a) = p3_doc_with_png([210, 50, 40], "tab-a");
+    let (doc_b, page_b) = p3_doc_with_png([40, 180, 90], "tab-b");
+    designos_render::drop_converted_images(&doc_a);
+    designos_render::drop_converted_images(&doc_b);
+
+    s.shell.app.replace_document(doc_a, None);
+    let base_bytes = designos_render::converted_image_bytes();
+    let base_conv = designos_render::image_conversions();
+    let _ = sample_page(&s.app().doc, page_a, designos_doc::Vec2::new(4.0, 4.0));
+    let one_img_bytes = designos_render::converted_image_bytes() - base_bytes;
+    assert_eq!(one_img_bytes, 8 * 8 * 4);
+    assert_eq!(designos_render::image_conversions() - base_conv, 1);
+
+    s.shell.app.open_new_design_tab();
+    s.shell.app.replace_document(doc_b, None);
+    let _ = sample_page(&s.app().doc, page_b, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 2 * one_img_bytes);
+    assert_eq!(designos_render::image_conversions() - base_conv, 2);
+
+    // Closing the second tab drops its converted image while keeping the first tab's image cached.
+    s.shell.app.close_tab(1);
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, one_img_bytes);
+    let _ = sample_page(&s.app().doc, page_a, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::image_conversions() - base_conv, 2, "the remaining open tab's image stays cached");
+
+    // Replacing the remaining document drops its converted image too.
+    s.shell.app.replace_document(Document::new("empty"), None);
+    assert_eq!(designos_render::converted_image_bytes(), base_bytes);
+}

@@ -2396,6 +2396,8 @@ impl Shell {
         if !self.app.plugins.open {
             self.handle_drops(&ctx);
         }
+        // Key handling may have undone or redone a profile change: update before the panels draw.
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
 
         ui.painter().rect_filled(full, 0.0, theme::BG);
         let board = self.app.board_chrome();
@@ -2455,6 +2457,7 @@ impl Shell {
         }
         // Agent edits that arrived during a drag or text edit land once it has ended.
         crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
         if !self.app.doc.prune_in_progress().is_empty() {
             self.app.in_progress_changed();
             ctx.request_repaint();

@@ -549,6 +549,7 @@ impl App {
                 }
                 self.relayout_moved_geometry();
                 self.sanitize();
+                crate::widgets::set_document_profile(self.doc.color_profile);
                 crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
             Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
@@ -566,6 +567,7 @@ impl App {
             Ok(true) => {
                 self.relayout_moved_geometry();
                 self.sanitize();
+                crate::widgets::set_document_profile(self.doc.color_profile);
                 crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
             Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
@@ -2458,7 +2460,8 @@ impl App {
         self.load_next_id = doc.peek_next_id();
         doc.ensure_page_hydrated(first_page);
         self.page = first_page;
-        self.doc = doc;
+        let old_doc = std::mem::replace(&mut self.doc, doc);
+        self.tabs.release_closed_doc_images(self, &[old_doc]);
         self.decks = Default::default();
         self.hist = History::default();
         self.history.reset();
