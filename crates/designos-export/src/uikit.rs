@@ -175,12 +175,13 @@ impl Cx<'_> {
             self.line(format!("let {v} = UILabel()"));
             self.label(&v, n, t);
         } else if let Some((al, grid)) = own_al.and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
+            let native_al = crate::codegen::native_grid_layout(doc, n, al);
             self.line(format!("let {v} = UIStackView()"));
             self.line(format!("{v}.axis = .vertical"));
             let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
             self.line(format!("{v}.spacing = {row_gap_s}"));
             self.line(format!("{v}.alignment = .leading"));
-            self.stack_padding(&v, n, al);
+            self.stack_padding(&v, n, &native_al);
             grid_body = Some((al, grid));
         } else if let Some(al) = own_al.filter(|_| !kids.is_empty()) {
             let horizontal = al.direction == LayoutDirection::Horizontal;
