@@ -2374,6 +2374,16 @@ fn apply_instance_constraints(c: &mut Ctx, parent: NodeId, old: Vec2, new: Vec2,
         return;
     }
     let has_al = pnode.kind.frame_props().is_some_and(|f| f.auto_layout.is_some());
+    constrain_direct_children(c, parent, old, new, depth);
+    if has_al {
+        solve_instance_auto_layout(c, parent, old, new, depth);
+    }
+}
+
+fn constrain_direct_children(c: &mut Ctx, parent: NodeId, old: Vec2, new: Vec2, depth: usize) {
+    if depth == 0 || ((new.x - old.x).abs() <= 1e-4 && (new.y - old.y).abs() <= 1e-4) {
+        return;
+    }
     for (cid, new_tf, new_sz) in crate::layout_constraints::plan_constraint_pass(c.s, parent, old, new, 1) {
         if cid == parent {
             continue;
@@ -2392,15 +2402,13 @@ fn apply_instance_constraints(c: &mut Ctx, parent: NodeId, old: Vec2, new: Vec2,
             apply_instance_constraints(c, cid, old_child, sz, depth - 1);
         }
     }
-    if has_al {
-        solve_instance_auto_layout(c, parent, old, new, depth);
-    }
 }
 
 fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, depth: usize) {
     let Some(root_node) = c.s.get(root).cloned() else { return };
     let resolved = crate::resolve_node(c.s, &root_node);
     let Some(mut al) = resolved.kind.frame_props().and_then(|f| f.auto_layout.clone()) else { return };
+    let stroke = resolved.stroke.clone();
     let horiz = al.direction != LayoutDirection::Vertical;
     if (new.x - old.x).abs() > 1e-4 {
         let target = if al.primary_is_horizontal() { &mut al.primary_sizing } else { &mut al.counter_sizing };
@@ -2425,58 +2433,68 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
             }
         }
     }
-    let (flow_ids, mut kids): (Vec<NodeId>, Vec<crate::layout_solver::ChildIn>) =
-        children.iter().filter_map(|cid| c.s.flow_child_input(*cid, horiz).map(|k| (*cid, k))).collect::<Vec<_>>().into_iter().unzip();
     let measure = crate::text_measure::layout_measurer();
     let own_limits = crate::layout_solver::SizeLimits::from(&root_node.layout_child);
-    let out = {
-        let doc = &*c.s;
-        crate::layout_solver::compute_then_refit_wrapped(&al, root_node.size, own_limits, &resolved.stroke, &flow_ids, &mut kids, |id, w| {
-            let measure = measure.as_deref()?;
-            crate::text_measure::height_resize_text_height(doc.get(id)?, w, measure)
-        })
-    };
-    if ((out.frame.x - root_node.size.x).abs() > 1e-3 || (out.frame.y - root_node.size.y).abs() > 1e-3)
-        && !root_node.component.overrides.contains(&OverrideField::Size)
-    {
-        if let Some(mut fnode) = c.s.get(root).cloned() {
+    let mut second_pass = false;
+    while let Some(frame_node) = c.s.get(root).cloned() {
+        let frame_size = frame_node.size;
+        let (flow_ids, mut kids): (Vec<NodeId>, Vec<crate::layout_solver::ChildIn>) =
+            children.iter().filter_map(|cid| c.s.flow_child_input(*cid, horiz).map(|k| (*cid, k))).collect::<Vec<_>>().into_iter().unzip();
+        let out = {
+            let doc = &*c.s;
+            crate::layout_solver::compute_then_refit_wrapped(&al, frame_size, own_limits, &stroke, &flow_ids, &mut kids, |id, w| {
+                let measure = measure.as_deref()?;
+                crate::text_measure::height_resize_text_height(doc.get(id)?, w, measure)
+            })
+        };
+        if ((out.frame.x - frame_size.x).abs() > 1e-3 || (out.frame.y - frame_size.y).abs() > 1e-3)
+            && !frame_node.component.overrides.contains(&OverrideField::Size)
+        {
+            let mut fnode = frame_node;
             fnode.size = out.frame;
             c.update(fnode);
+            constrain_direct_children(c, root, frame_size, out.frame, depth);
         }
-    }
-    for ((cid, kid), r) in flow_ids.iter().zip(&kids).zip(&out.rects) {
-        let Some(mut cnode) = c.s.get(*cid).cloned() else { continue };
-        let old_child = cnode.size;
-        let is_container = cnode.kind.is_container();
-        let mut new_tf = cnode.transform;
-        new_tf.tx = r.x;
-        new_tf.ty = r.y;
-        let new_sz = Vec2::new(r.w, r.h);
-        let tf = if cnode.component.overrides.contains(&OverrideField::Transform) { cnode.transform } else { new_tf };
-        let sz = if cnode.component.overrides.contains(&OverrideField::Size) { cnode.size } else { new_sz };
-        let size_changed = (sz.x - old_child.x).abs() > 1e-3 || (sz.y - old_child.y).abs() > 1e-3;
-        if size_changed
-            && matches!(
-                cnode.kind,
-                NodeKind::Vector { .. }
-                    | NodeKind::BooleanOp(_)
-                    | NodeKind::Rectangle
-                    | NodeKind::Ellipse(_)
-                    | NodeKind::Star { .. }
-                    | NodeKind::Polygon { .. }
-                    | NodeKind::Line
-            )
-        {
-            crate::layout_constraints::apply_constrained_geometry(&mut cnode, tf, sz);
-        } else {
-            cnode.transform = tf;
-            cnode.size = sz;
+        for ((cid, kid), r) in flow_ids.iter().zip(&kids).zip(&out.rects) {
+            let Some(mut cnode) = c.s.get(*cid).cloned() else { continue };
+            let old_child = cnode.size;
+            let is_container = cnode.kind.is_container();
+            let mut new_tf = cnode.transform;
+            new_tf.tx = r.x;
+            new_tf.ty = r.y;
+            let new_sz = Vec2::new(r.w, r.h);
+            let tf = if cnode.component.overrides.contains(&OverrideField::Transform) { cnode.transform } else { new_tf };
+            let sz = if cnode.component.overrides.contains(&OverrideField::Size) { cnode.size } else { new_sz };
+            let size_changed = (sz.x - old_child.x).abs() > 1e-3 || (sz.y - old_child.y).abs() > 1e-3;
+            if size_changed
+                && matches!(
+                    cnode.kind,
+                    NodeKind::Vector { .. }
+                        | NodeKind::BooleanOp(_)
+                        | NodeKind::Rectangle
+                        | NodeKind::Ellipse(_)
+                        | NodeKind::Star { .. }
+                        | NodeKind::Polygon { .. }
+                        | NodeKind::Line
+                )
+            {
+                crate::layout_constraints::apply_constrained_geometry(&mut cnode, tf, sz);
+            } else {
+                cnode.transform = tf;
+                cnode.size = sz;
+            }
+            cnode.layout_child.record_stretched(kid.size, sz, horiz, kid.stretches_cross());
+            c.update(cnode);
+            if size_changed && is_container {
+                apply_instance_constraints(c, *cid, old_child, sz, depth - 1);
+            }
         }
-        cnode.layout_child.record_stretched(kid.size, sz, horiz, kid.stretches_cross());
-        c.update(cnode);
-        if size_changed && is_container {
-            apply_instance_constraints(c, *cid, old_child, sz, depth - 1);
+        let drifted =
+            flow_ids.iter().zip(out.rects.iter()).any(|(cid, r)| c.s.get(*cid).is_some_and(|n| (n.size.x - r.w).abs() > 1e-3 || (n.size.y - r.h).abs() > 1e-3));
+        if second_pass || !drifted {
+            break;
         }
+        second_pass = true;
     }
 }
 
@@ -10003,5 +10021,218 @@ mod tests {
 
         assert!(history.undo(&mut d).unwrap());
         assert_eq!(d.nodes, before_sync);
+    }
+
+    #[test]
+    fn wrap_row_hugging_after_main_sync_refits_siblings_and_pins_absolute_child() {
+        let mut d = Document::new("wrap-row-hug-sync");
+        let page = d.add_page("P");
+
+        let card_id = d.alloc_id();
+        let mut card = Node::frame(card_id, Rect::new(0.0, 0.0, 100.0, 60.0));
+        card.name = "Card".into();
+        card.fills = vec![Paint::solid(Color::rgb(20, 30, 40))];
+        if let NodeKind::Frame(fp) = &mut card.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                padding: [0.0; 4],
+                item_spacing: 0.0,
+                ..Default::default()
+            });
+        }
+        let card = d.insert(page, card).unwrap();
+
+        let row_id = d.alloc_id();
+        let mut row = Node::frame(row_id, Rect::new(0.0, 0.0, 100.0, 40.0));
+        row.name = "Row".into();
+        row.layout_child.horizontal = Sizing::Fill;
+        if let NodeKind::Frame(fp) = &mut row.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                wrap: true,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Hug,
+                padding: [0.0; 4],
+                item_spacing: 0.0,
+                counter_spacing: 0.0,
+                ..Default::default()
+            });
+        }
+        let row = d.insert(card, row).unwrap();
+
+        for (name, y) in [("ChipA", 0.0), ("ChipB", 20.0)] {
+            let chip_id = d.alloc_id();
+            let mut chip = Node::rectangle(chip_id, Rect::new(0.0, y, 60.0, 20.0));
+            chip.name = name.into();
+            d.insert(row, chip).unwrap();
+        }
+
+        let pin_id = d.alloc_id();
+        let mut pin = Node::rectangle(pin_id, Rect::new(0.0, 35.0, 10.0, 5.0));
+        pin.name = "Pin".into();
+        pin.layout_child.absolute = true;
+        pin.constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Max };
+        d.insert(row, pin).unwrap();
+
+        let footer_id = d.alloc_id();
+        let mut footer = Node::rectangle(footer_id, Rect::new(0.0, 40.0, 100.0, 20.0));
+        footer.name = "Footer".into();
+        d.insert(card, footer).unwrap();
+
+        let c = create_component(&mut d, card);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, card, page, Vec2::new(200.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inst_row = d.get(inst).unwrap().children[0];
+        let inst_footer = d.get(inst).unwrap().children[1];
+        let inst_pin = d.get(inst_row).unwrap().children[2];
+
+        // Simulate editor resize of Card instance to 300x60: Row stretches to 300 and hugs to 20,
+        // Footer moves up to y=20, and bottom-pinned Pin sits at y=15 inside the 20px Row.
+        let mut inst_node = d.get(inst).unwrap().clone();
+        inst_node.size = Vec2::new(300.0, 60.0);
+        inst_node.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(inst_node) });
+        let mut row_node = d.get(inst_row).unwrap().clone();
+        row_node.size = Vec2::new(300.0, 20.0);
+        row_node.layout_child.record_stretched(Vec2::new(100.0, 20.0), Vec2::new(300.0, 20.0), false, true);
+        apply(&mut d, Command::Update { node: Box::new(row_node) });
+        let mut pin_node = d.get(inst_pin).unwrap().clone();
+        pin_node.transform.ty = 15.0;
+        apply(&mut d, Command::Update { node: Box::new(pin_node) });
+        let mut footer_node = d.get(inst_footer).unwrap().clone();
+        footer_node.transform.ty = 20.0;
+        apply(&mut d, Command::Update { node: Box::new(footer_node) });
+
+        // First main edit + sync.
+        let mut card_main = d.get(card).unwrap().clone();
+        card_main.fills = vec![Paint::solid(Color::rgb(40, 80, 120))];
+        apply(&mut d, Command::Update { node: Box::new(card_main) });
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+
+        assert_eq!(d.get(inst_row).unwrap().size, Vec2::new(300.0, 20.0));
+        assert_eq!(d.get(inst_footer).unwrap().transform.ty, 20.0);
+        assert_eq!(d.get(inst_pin).unwrap().transform.ty, 15.0);
+        assert_eq!(d.get(inst_pin).unwrap().size, Vec2::new(10.0, 5.0));
+
+        // Second sync stays stable.
+        let mut card_main = d.get(card).unwrap().clone();
+        card_main.fills = vec![Paint::solid(Color::rgb(80, 120, 160))];
+        apply(&mut d, Command::Update { node: Box::new(card_main) });
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+
+        assert_eq!(d.get(inst_row).unwrap().size, Vec2::new(300.0, 20.0));
+        assert_eq!(d.get(inst_footer).unwrap().transform.ty, 20.0);
+        assert_eq!(d.get(inst_pin).unwrap().transform.ty, 15.0);
+        assert_eq!(d.get(inst_pin).unwrap().size, Vec2::new(10.0, 5.0));
+    }
+
+    #[test]
+    fn hug_container_shrinking_on_drift_pass_repositions_bottom_pinned_absolute_child() {
+        let mut d = Document::new("hug-drift-abs-pin-sync");
+        let page = d.add_page("P");
+
+        let card_id = d.alloc_id();
+        let mut card = Node::frame(card_id, Rect::new(0.0, 0.0, 100.0, 60.0));
+        card.name = "Card".into();
+        card.fills = vec![Paint::solid(Color::rgb(20, 30, 40))];
+        if let NodeKind::Frame(fp) = &mut card.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                padding: [0.0; 4],
+                item_spacing: 0.0,
+                ..Default::default()
+            });
+        }
+        let card = d.insert(page, card).unwrap();
+
+        let body_id = d.alloc_id();
+        let mut body = Node::frame(body_id, Rect::new(0.0, 0.0, 100.0, 60.0));
+        body.name = "Body".into();
+        body.layout_child.horizontal = Sizing::Fill;
+        if let NodeKind::Frame(fp) = &mut body.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Fixed,
+                padding: [0.0; 4],
+                item_spacing: 0.0,
+                ..Default::default()
+            });
+        }
+        let body = d.insert(card, body).unwrap();
+
+        let row_id = d.alloc_id();
+        let mut row = Node::frame(row_id, Rect::new(0.0, 0.0, 100.0, 40.0));
+        row.name = "Row".into();
+        row.layout_child.horizontal = Sizing::Fill;
+        if let NodeKind::Frame(fp) = &mut row.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                wrap: true,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Hug,
+                padding: [0.0; 4],
+                item_spacing: 0.0,
+                counter_spacing: 0.0,
+                ..Default::default()
+            });
+        }
+        let row = d.insert(body, row).unwrap();
+
+        for (name, y) in [("ChipA", 0.0), ("ChipB", 20.0)] {
+            let chip_id = d.alloc_id();
+            let mut chip = Node::rectangle(chip_id, Rect::new(0.0, y, 60.0, 20.0));
+            chip.name = name.into();
+            d.insert(row, chip).unwrap();
+        }
+
+        let footer_id = d.alloc_id();
+        let mut footer = Node::rectangle(footer_id, Rect::new(0.0, 40.0, 100.0, 20.0));
+        footer.name = "Footer".into();
+        d.insert(body, footer).unwrap();
+
+        let body_pin_id = d.alloc_id();
+        let mut body_pin = Node::rectangle(body_pin_id, Rect::new(0.0, 55.0, 10.0, 5.0));
+        body_pin.name = "BodyPin".into();
+        body_pin.layout_child.absolute = true;
+        body_pin.constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Max };
+        d.insert(body, body_pin).unwrap();
+
+        let c = create_component(&mut d, card);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, card, page, Vec2::new(200.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inst_body = d.get(inst).unwrap().children[0];
+        let inst_row = d.get(inst_body).unwrap().children[0];
+        let inst_footer = d.get(inst_body).unwrap().children[1];
+        let inst_body_pin = d.get(inst_body).unwrap().children[2];
+
+        let mut inst_node = d.get(inst).unwrap().clone();
+        inst_node.size = Vec2::new(300.0, 60.0);
+        inst_node.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(inst_node) });
+
+        let mut card_main = d.get(card).unwrap().clone();
+        card_main.fills = vec![Paint::solid(Color::rgb(40, 80, 120))];
+        apply(&mut d, Command::Update { node: Box::new(card_main) });
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+
+        assert_eq!(d.get(inst_row).unwrap().size, Vec2::new(300.0, 20.0));
+        assert_eq!(d.get(inst_footer).unwrap().transform.ty, 20.0);
+        assert_eq!(d.get(inst_body).unwrap().size, Vec2::new(300.0, 40.0));
+        assert_eq!(d.get(inst_body_pin).unwrap().transform.ty, 35.0);
+        assert_eq!(d.get(inst_body_pin).unwrap().size, Vec2::new(10.0, 5.0));
     }
 }
