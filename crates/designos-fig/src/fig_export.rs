@@ -414,6 +414,15 @@ impl<'a> ExportCtx<'a> {
                 }
             }
         }
+        for n in doc.nodes.values() {
+            for vid in n.variables.bindings.values() {
+                if let Some(g) = parse_guid_pair(vid) {
+                    if cx.used_guids.insert(g) {
+                        bump_next_local(&mut cx.next_local, g.1);
+                    }
+                }
+            }
+        }
         let mut sorted_motion_nodes: Vec<NodeId> = doc.nodes.iter().filter_map(|(&id, n)| n.motion.is_some().then_some(id)).collect();
         sorted_motion_nodes.sort_by_key(|id| id.0);
         for &id in &sorted_motion_nodes {
@@ -1611,7 +1620,10 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
 
     // Node variable bindings & explicit modes.
-    let mut pcm_var_fields: HashSet<String> = HashSet::new();
+    let (pcm_var_entries, mut pcm_var_fields) =
+        crate::motion::reconstruct_pcm_variable_entries(node.fig_metadata.get("_pcmVarFields").map(String::as_str), &node.variables.bindings, |vid| {
+            cx.resolve_var_guid(vid)
+        });
     if let Some(raw_pcm) = node.fig_metadata.get("parameterConsumptionMap") {
         if let Ok(pcm_val) = serde_json::from_str::<serde_json::Value>(raw_pcm) {
             if let Some(entries) = pcm_val.get("entries").and_then(serde_json::Value::as_array) {
@@ -2049,8 +2061,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 msg_fields.push(pair);
             }
         }
+    }
+    let mut pcm_entries = pcm_var_entries;
+    if let Some(motion) = node.motion.as_deref() {
         if !motion.tracks.is_empty() {
-            let mut pcm_entries = crate::motion::tracks_to_parameter_consumption_entries_with_shape(
+            pcm_entries.extend(crate::motion::tracks_to_parameter_consumption_entries_with_shape(
                 &motion.tracks,
                 |t_idx, _tr| cx.track_guid(id, t_idx),
                 |tid| cx.timeline_guid(tid),
@@ -2062,20 +2077,20 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                         .and_then(|s| s.parse::<u64>().ok())
                 },
                 |t_idx| track_meta_map.get(&t_idx.to_string()).and_then(|m| m.get("_trackIdShape")).and_then(serde_json::Value::as_str) == Some("true"),
-            );
-            if let Some(existing_pcm) = node.fig_metadata.get("parameterConsumptionMap") {
-                if let Ok(existing_val) = serde_json::from_str::<serde_json::Value>(existing_pcm) {
-                    if let Some(arr) = existing_val.get("entries").and_then(serde_json::Value::as_array) {
-                        pcm_entries.extend(arr.iter().cloned());
-                    }
-                }
+            ));
+        }
+    }
+    if let Some(existing_pcm) = node.fig_metadata.get("parameterConsumptionMap") {
+        if let Ok(existing_val) = serde_json::from_str::<serde_json::Value>(existing_pcm) {
+            if let Some(arr) = existing_val.get("entries").and_then(serde_json::Value::as_array) {
+                pcm_entries.extend(arr.iter().cloned());
             }
-            if !pcm_entries.is_empty() {
-                let pcm_json = json!({"entries": pcm_entries});
-                if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "parameterConsumptionMap", &pcm_json) {
-                    msg_fields.push(pair);
-                }
-            }
+        }
+    }
+    if !pcm_entries.is_empty() {
+        let pcm_json = json!({"entries": pcm_entries});
+        if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "parameterConsumptionMap", &pcm_json) {
+            msg_fields.push(pair);
         }
     }
     append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
@@ -2376,11 +2391,15 @@ fn encode_var_entries_from_bindings_skipping(cx: &ExportCtx, bindings: &BTreeMap
             }
             font_style_done = true;
             let mut fs_fields = Vec::new();
-            if let Some(vg) = bindings.get("fontStyle").and_then(|v| cx.resolve_var_guid(v)) {
-                fs_fields.push(("asString", alias_var_data(vg)));
+            if !skip_fields.contains("FONT_STYLE:asString") {
+                if let Some(vg) = bindings.get("fontStyle").and_then(|v| cx.resolve_var_guid(v)) {
+                    fs_fields.push(("asString", alias_var_data(vg)));
+                }
             }
-            if let Some(vg) = bindings.get("fontWeight").and_then(|v| cx.resolve_var_guid(v)) {
-                fs_fields.push(("asFloat", alias_var_data(vg)));
+            if !skip_fields.contains("FONT_STYLE:asFloat") {
+                if let Some(vg) = bindings.get("fontWeight").and_then(|v| cx.resolve_var_guid(v)) {
+                    fs_fields.push(("asFloat", alias_var_data(vg)));
+                }
             }
             if !fs_fields.is_empty() {
                 var_entries.push(msg(vec![

@@ -991,3 +991,262 @@ fn two_bindings_to_one_track_share_single_exported_track_node() {
     let hero2 = doc2.nodes.values().find(|n| n.name == "Hero").unwrap();
     assert_eq!(hero2.motion, hero1.motion);
 }
+
+#[test]
+fn shared_track_passthrough_survives_when_file_order_differs_from_tree_order() {
+    let manual_binding = json!({
+        "nodeField": 18,
+        "variableField": "OPACITY",
+        "variableData": {
+            "value": {
+                "keyframeTrackParameterValue": {
+                    "parameters": [{
+                        "type": "MANUAL",
+                        "value": {
+                            "manual": {
+                                "keyframeTrackId": {"guid": g(1, 21)},
+                                "timelineDefId": g(3, 1)
+                            }
+                        }
+                    }]
+                }
+            },
+            "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA"
+        }
+    });
+
+    // In nodeChanges, Beta (1:20, position "\"") comes before Alpha (1:10, position "!").
+    // In tree order, Alpha comes before Beta. Both bind KEYFRAME_TRACK 1:21 (parent Beta),
+    // which has child ANIMATION_PRESET_INSTANCE 1:23.
+    let msg = json!({"nodeChanges": [
+        node((0, 0), (0, 0), "DOCUMENT", "Doc", json!({})),
+        node((0, 1), (0, 0), "CANVAS", "Page", json!({})),
+        node((1, 20), (0, 1), "FRAME", "Beta", json!({
+            "parentIndex": {"guid": g(0, 1), "position": "\""},
+            "timelineDefinitions": {"entries": [
+                {"id": g(3, 1), "data": {"durationUs": 1000000, "defaultTimeline": true}}
+            ]},
+            "parameterConsumptionMap": {"entries": [manual_binding.clone()]}
+        })),
+        node((1, 10), (0, 1), "FRAME", "Alpha", json!({
+            "parentIndex": {"guid": g(0, 1), "position": "!"},
+            "parameterConsumptionMap": {"entries": [manual_binding]}
+        })),
+        node((1, 21), (1, 20), "KEYFRAME_TRACK", "OpacityTrack", json!({
+            "keyframeOperation": "SET",
+            "trackLoopMode": "NONE"
+        })),
+        node((1, 23), (1, 21), "ANIMATION_PRESET_INSTANCE", "TrackPresetChild", json!({
+            "timelineDuration": 400000,
+            "pluginData": [{"pluginID": "p2", "key": "k2", "value": "v2"}]
+        })),
+        node((1, 24), (1, 21), "KEYFRAME", "ValidKey", json!({
+            "timelinePosition": 500000,
+            "keyframeValue": {"value": {"floatValue": 0.5}, "valueType": "FLOAT"},
+            "interpolationType": "HOLD"
+        }))
+    ]});
+
+    let doc1 = import_fig_node_changes(&msg, "Motion").expect("import 1");
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let decoded1 = decode_fig_to_json(&bytes1).expect("decode 1");
+    let changes1 = decoded1["message"]["nodeChanges"].as_array().expect("nodeChanges 1");
+
+    let preset_child1 =
+        changes1.iter().find(|n| n["guid"] == g(1, 23)).expect("ANIMATION_PRESET_INSTANCE 1:23 must survive export when file order differs from tree order");
+    assert_eq!(preset_child1["type"], "ANIMATION_PRESET_INSTANCE");
+    assert_eq!(preset_child1["name"], "TrackPresetChild");
+    assert_eq!(preset_child1["parentIndex"]["guid"], g(1, 21));
+    assert_eq!(preset_child1["timelineDuration"], json!(400000));
+    assert_eq!(preset_child1["pluginData"], json!([{"pluginID": "p2", "key": "k2", "value": "v2"}]));
+
+    let doc2 = import_fig(&bytes1).expect("re-import 1");
+    let alpha1 = doc1.nodes.values().find(|n| n.name == "Alpha").unwrap();
+    let alpha2 = doc2.nodes.values().find(|n| n.name == "Alpha").unwrap();
+    let beta1 = doc1.nodes.values().find(|n| n.name == "Beta").unwrap();
+    let beta2 = doc2.nodes.values().find(|n| n.name == "Beta").unwrap();
+    assert_eq!(alpha2.motion, alpha1.motion);
+    assert_eq!(beta2.motion, beta1.motion);
+    assert_eq!(alpha2.fig_metadata, alpha1.fig_metadata);
+    assert_eq!(beta2.fig_metadata, beta1.fig_metadata);
+
+    let bytes2 = export_fig(&doc2).expect("export 2");
+    let decoded2 = decode_fig_to_json(&bytes2).expect("decode 2");
+    let changes2 = decoded2["message"]["nodeChanges"].as_array().expect("nodeChanges 2");
+    assert_eq!(changes2.iter().find(|n| n["guid"] == g(1, 23)), Some(preset_child1));
+}
+
+#[test]
+fn edited_variable_binding_from_parameter_consumption_map_survives_round_trip() {
+    let alias_entry = json!({
+        "nodeField": 18,
+        "variableField": "OPACITY",
+        "variableData": {
+            "dataType": "ALIAS",
+            "resolvedDataType": "FLOAT",
+            "value": {
+                "alias": {"guid": g(1, 10)}
+            }
+        }
+    });
+    let font_style_entry = json!({
+        "nodeField": 42,
+        "variableField": "FONT_STYLE",
+        "variableData": {
+            "dataType": "FONT_STYLE",
+            "resolvedDataType": "FONT_STYLE",
+            "value": {
+                "fontStyleValue": {
+                    "asString": {
+                        "dataType": "ALIAS",
+                        "resolvedDataType": "STRING",
+                        "value": {"alias": {"guid": g(1, 14)}}
+                    }
+                }
+            }
+        }
+    });
+    let preset_entry = json!({
+        "nodeField": 21,
+        "variableField": "MOTION_TRANSLATION_XY",
+        "variableData": {
+            "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "value": {
+                "keyframeTrackParameterValue": {
+                    "parameters": [{
+                        "type": "ANIMATION_PRESET",
+                        "value": {
+                            "animationPreset": {
+                                "animationPresetId": {"guid": g(3, 99)},
+                                "timelineDefId": g(3, 1)
+                            }
+                        }
+                    }]
+                }
+            }
+        }
+    });
+    let manual_entry = json!({
+        "nodeField": 25,
+        "variableField": "CORNER_RADIUS",
+        "variableData": {
+            "dataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "resolvedDataType": "KEYFRAME_TRACK_PARAMETER_DATA",
+            "value": {
+                "keyframeTrackParameterValue": {
+                    "parameters": [{
+                        "type": "MANUAL",
+                        "value": {
+                            "manual": {
+                                "keyframeTrackId": {"guid": g(1, 21)},
+                                "timelineDefId": g(3, 1)
+                            }
+                        }
+                    }]
+                }
+            }
+        }
+    });
+
+    let msg = json!({"nodeChanges": [
+        node((0, 0), (0, 0), "DOCUMENT", "Doc", json!({})),
+        node((0, 1), (0, 0), "CANVAS", "Page", json!({})),
+        node((0, 999_999), (0, 0), "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        node((1, 8), (0, 999_999), "VARIABLE_SET", "Tokens", json!({
+            "variableSetModes": [{"id": g(1, 9), "name": "Mode 1", "sortPosition": "!"}]
+        })),
+        node((1, 10), (0, 999_999), "VARIABLE", "opacity-token", json!({
+            "variableSetID": {"guid": g(1, 8)},
+            "variableResolvedType": "FLOAT",
+            "variableDataValues": {"entries": [
+                {"modeID": g(1, 9), "variableData": {"dataType": "FLOAT", "value": {"floatValue": 0.75}}}
+            ]}
+        })),
+        node((1, 99), (0, 999_999), "VARIABLE", "opacity-token-2", json!({
+            "variableSetID": {"guid": g(1, 8)},
+            "variableResolvedType": "FLOAT",
+            "variableDataValues": {"entries": [
+                {"modeID": g(1, 9), "variableData": {"dataType": "FLOAT", "value": {"floatValue": 0.25}}}
+            ]}
+        })),
+        node((1, 20), (0, 1), "FRAME", "Hero", json!({
+            "parameterConsumptionMap": {"entries": [
+                alias_entry,
+                font_style_entry,
+                preset_entry.clone(),
+                manual_entry.clone()
+            ]}
+        })),
+        node((1, 21), (1, 20), "KEYFRAME_TRACK", "RadiusTrack", json!({
+            "keyframeOperation": "SET",
+            "trackLoopMode": "NONE"
+        })),
+        node((1, 22), (1, 21), "KEYFRAME", "RadiusKey", json!({
+            "timelinePosition": 0,
+            "keyframeValue": {"value": {"floatValue": 8.0}, "valueType": "FLOAT"},
+            "interpolationType": "HOLD"
+        }))
+    ]});
+
+    let mut doc1 = import_fig_node_changes(&msg, "Motion").expect("import 1");
+    let hero_id = doc1.nodes.values().find(|n| n.name == "Hero").unwrap().id;
+    assert_eq!(doc1.nodes[&hero_id].variables.bindings.get("opacity").map(String::as_str), Some("VariableID:1:10"));
+    assert_eq!(doc1.nodes[&hero_id].variables.bindings.get("fontStyle").map(String::as_str), Some("VariableID:1:14"));
+    if let Some(raw_pcm) = doc1.nodes[&hero_id].fig_metadata.get("parameterConsumptionMap") {
+        let pcm_val: Value = serde_json::from_str(raw_pcm).expect("parse fig_metadata parameterConsumptionMap");
+        assert_eq!(pcm_val["entries"], json!([preset_entry]), "fig_metadata parameterConsumptionMap must only keep entries the model does not hold");
+    }
+
+    doc1.nodes.get_mut(&hero_id).unwrap().variables.bindings.insert("opacity".into(), "VariableID:1:99".into());
+    doc1.nodes.get_mut(&hero_id).unwrap().variables.bindings.insert("fontStyle".into(), "VariableID:1:98".into());
+
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let decoded1 = decode_fig_to_json(&bytes1).expect("decode 1");
+    let changes1 = decoded1["message"]["nodeChanges"].as_array().expect("nodeChanges 1");
+    let hero_nc1 = changes1.iter().find(|n| n["guid"] == g(1, 20)).expect("Hero NodeChange");
+    assert!(hero_nc1.get("variableConsumptionMap").is_none(), "edited parameterConsumptionMap bindings must not duplicate into variableConsumptionMap");
+
+    let expected_alias_99 = json!({
+        "nodeField": 18,
+        "variableField": "OPACITY",
+        "variableData": {
+            "dataType": "ALIAS",
+            "resolvedDataType": "FLOAT",
+            "value": {
+                "alias": {"guid": g(1, 99)}
+            }
+        }
+    });
+    let expected_font_style_98 = json!({
+        "nodeField": 42,
+        "variableField": "FONT_STYLE",
+        "variableData": {
+            "dataType": "FONT_STYLE",
+            "resolvedDataType": "FONT_STYLE",
+            "value": {
+                "fontStyleValue": {
+                    "asString": {
+                        "dataType": "ALIAS",
+                        "resolvedDataType": "STRING",
+                        "value": {"alias": {"guid": g(1, 98)}}
+                    }
+                }
+            }
+        }
+    });
+    let entries1 = hero_nc1["parameterConsumptionMap"]["entries"].as_array().expect("parameterConsumptionMap entries");
+    assert!(entries1.contains(&expected_alias_99), "updated ALIAS entry 1:99 must be emitted in parameterConsumptionMap: {entries1:?}");
+    assert!(entries1.contains(&expected_font_style_98), "updated FONT_STYLE entry 1:98 must be emitted in parameterConsumptionMap: {entries1:?}");
+    assert!(entries1.contains(&preset_entry), "ANIMATION_PRESET entry must survive in parameterConsumptionMap: {entries1:?}");
+    assert!(entries1.contains(&manual_entry), "MANUAL track entry must survive in parameterConsumptionMap: {entries1:?}");
+
+    let doc2 = import_fig(&bytes1).expect("re-import 1");
+    let hero2 = doc2.nodes.values().find(|n| n.name == "Hero").unwrap();
+    assert_eq!(hero2.variables.bindings.get("opacity").map(String::as_str), Some("VariableID:1:99"));
+    assert_eq!(hero2.variables.bindings.get("fontStyle").map(String::as_str), Some("VariableID:1:98"));
+    assert_eq!(hero2.variables, doc1.nodes[&hero_id].variables);
+    assert_eq!(hero2.motion, doc1.nodes[&hero_id].motion);
+    assert_eq!(hero2.fig_metadata, doc1.nodes[&hero_id].fig_metadata);
+}

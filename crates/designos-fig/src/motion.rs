@@ -280,10 +280,235 @@ pub struct TrackBinding {
     pub is_track_id_shape: bool,
 }
 
+/// Document `NodeVariables::bindings` keys populated by `bound_variables` for a `VariableField` name.
+pub fn pcm_variable_keys_for_field(field: &str) -> &'static [&'static str] {
+    match field {
+        "STACK_PADDING_LEFT" => &["paddingLeft"],
+        "STACK_PADDING_RIGHT" => &["paddingRight"],
+        "STACK_PADDING_TOP" => &["paddingTop"],
+        "STACK_PADDING_BOTTOM" => &["paddingBottom"],
+        "STACK_HORIZONTAL_PADDING" => &["paddingLeft", "paddingRight"],
+        "STACK_VERTICAL_PADDING" => &["paddingTop", "paddingBottom"],
+        "STACK_PADDING" => &["paddingLeft", "paddingRight", "paddingTop", "paddingBottom"],
+        "STACK_SPACING" | "GRID_COLUMN_GAP" => &["itemSpacing"],
+        "STACK_COUNTER_SPACING" | "GRID_ROW_GAP" => &["counterAxisSpacing"],
+        "RECTANGLE_TOP_LEFT_CORNER_RADIUS" => &["topLeftRadius"],
+        "RECTANGLE_TOP_RIGHT_CORNER_RADIUS" => &["topRightRadius"],
+        "RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS" => &["bottomLeftRadius"],
+        "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS" => &["bottomRightRadius"],
+        "CORNER_RADIUS" => &["topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius"],
+        "WIDTH" => &["width"],
+        "HEIGHT" => &["height"],
+        "MIN_WIDTH" => &["minWidth"],
+        "MAX_WIDTH" => &["maxWidth"],
+        "MIN_HEIGHT" => &["minHeight"],
+        "MAX_HEIGHT" => &["maxHeight"],
+        "OPACITY" => &["opacity"],
+        "VISIBLE" => &["visible"],
+        "TEXT_DATA" => &["characters"],
+        "OVERRIDDEN_SYMBOL_ID" => &["component"],
+        "STROKE_WEIGHT" => &["strokeWeight"],
+        "BORDER_TOP_WEIGHT" => &["strokeTopWeight"],
+        "BORDER_RIGHT_WEIGHT" => &["strokeRightWeight"],
+        "BORDER_BOTTOM_WEIGHT" => &["strokeBottomWeight"],
+        "BORDER_LEFT_WEIGHT" => &["strokeLeftWeight"],
+        "FONT_SIZE" => &["fontSize"],
+        "FONT_FAMILY" => &["fontFamily"],
+        "FONT_WEIGHT" | "FONT_STYLE" => &["fontWeight"],
+        "LINE_HEIGHT" => &["lineHeight"],
+        "LETTER_SPACING" => &["letterSpacing"],
+        "PARAGRAPH_SPACING" => &["paragraphSpacing"],
+        "PARAGRAPH_INDENT" => &["paragraphIndent"],
+        _ => &[],
+    }
+}
+
+/// If `entry` is a `parameterConsumptionMap` row that `bound_variables` models into `NodeVariables::bindings`
+/// (an `ALIAS` or `FONT_STYLE` entry whose alias target is a local `guid`), returns a template clone with the
+/// bound variable `guid` removed so export can re-emit the row from the current `node.variables.bindings`.
+pub fn strip_modelled_pcm_variable_entry(entry: &Value) -> Option<Value> {
+    let field = entry.get("variableField").and_then(Value::as_str)?;
+    let vdata = entry.get("variableData")?.as_object()?;
+    if field == "FONT_STYLE" {
+        if let Some(fs) = vdata.get("value").and_then(|v| v.get("fontStyleValue")).and_then(Value::as_object) {
+            if fs.is_empty() {
+                return None;
+            }
+            for (k, inner) in fs {
+                if !matches!(k.as_str(), "asFloat" | "asString") {
+                    return None;
+                }
+                let alias = inner.get("value")?.get("alias")?;
+                if alias.get("assetRef").is_some() || alias.get("guid").and_then(guid_text).is_none() {
+                    return None;
+                }
+            }
+            let mut stripped = entry.clone();
+            if let Some(fs_mut) =
+                stripped.get_mut("variableData").and_then(|d| d.get_mut("value")).and_then(|v| v.get_mut("fontStyleValue")).and_then(Value::as_object_mut)
+            {
+                for inner in fs_mut.values_mut() {
+                    if let Some(obj) = inner.as_object_mut() {
+                        obj.remove("value");
+                    }
+                }
+            }
+            return Some(stripped);
+        }
+    }
+    if pcm_variable_keys_for_field(field).is_empty() {
+        return None;
+    }
+    let val_obj = vdata.get("value")?.as_object()?;
+    if val_obj.len() != 1 {
+        return None;
+    }
+    let alias = val_obj.get("alias")?;
+    if alias.get("assetRef").is_some() || alias.get("guid").and_then(guid_text).is_none() {
+        return None;
+    }
+    let mut stripped = entry.clone();
+    if let Some(d_mut) = stripped.get_mut("variableData").and_then(Value::as_object_mut) {
+        d_mut.remove("value");
+    }
+    Some(stripped)
+}
+
+/// Reconstructs `ALIAS` and `FONT_STYLE` `parameterConsumptionMap` entries from the stripped `_pcmVarFields`
+/// templates and the node's current `bindings`, returning the reconstructed entries and the set of
+/// `VariableField` names that `variableConsumptionMap` should skip.
+pub fn reconstruct_pcm_variable_entries(
+    pcm_var_fields_json: Option<&str>,
+    bindings: &std::collections::BTreeMap<String, String>,
+    mut resolve_var_guid: impl FnMut(&str) -> Option<(u32, u32)>,
+) -> (Vec<Value>, std::collections::HashSet<String>) {
+    let mut out_entries = Vec::new();
+    let mut skip_fields = std::collections::HashSet::new();
+    let Some(raw) = pcm_var_fields_json else {
+        return (out_entries, skip_fields);
+    };
+    let Ok(val) = serde_json::from_str::<Value>(raw) else {
+        return (out_entries, skip_fields);
+    };
+    let Some(templates) = val.get("entries").and_then(Value::as_array) else {
+        return (out_entries, skip_fields);
+    };
+
+    let mut lookup_binding = |key: &str| -> Option<(u32, u32)> {
+        let vid = bindings.get(key).or_else(|| match key {
+            "width" => bindings.get("size/x"),
+            "height" => bindings.get("size/y"),
+            _ => None,
+        })?;
+        resolve_var_guid(vid)
+    };
+
+    for tmpl in templates {
+        let Some(field) = tmpl.get("variableField").and_then(Value::as_str) else { continue };
+        let Some(vdata) = tmpl.get("variableData").and_then(Value::as_object) else { continue };
+
+        if field == "FONT_STYLE" && vdata.get("value").and_then(|v| v.get("fontStyleValue")).is_some() {
+            let fs_tmpl = vdata.get("value").and_then(|v| v.get("fontStyleValue")).and_then(Value::as_object);
+            let mut fs_out = Map::new();
+            if fs_tmpl.is_some_and(|m| m.contains_key("asFloat")) {
+                if let Some(vg) = lookup_binding("fontWeight") {
+                    let mut inner = fs_tmpl.and_then(|m| m.get("asFloat")).and_then(Value::as_object).cloned().unwrap_or_else(|| {
+                        let mut m = Map::new();
+                        m.insert("dataType".into(), json!("ALIAS"));
+                        m
+                    });
+                    inner.insert("value".into(), json!({"alias": {"guid": guid_pair_json(vg)}}));
+                    fs_out.insert("asFloat".into(), Value::Object(inner));
+                    skip_fields.insert("FONT_STYLE:asFloat".into());
+                }
+            }
+            if fs_tmpl.is_some_and(|m| m.contains_key("asString")) {
+                if let Some(vg) = lookup_binding("fontStyle") {
+                    let mut inner = fs_tmpl.and_then(|m| m.get("asString")).and_then(Value::as_object).cloned().unwrap_or_else(|| {
+                        let mut m = Map::new();
+                        m.insert("dataType".into(), json!("ALIAS"));
+                        m
+                    });
+                    inner.insert("value".into(), json!({"alias": {"guid": guid_pair_json(vg)}}));
+                    fs_out.insert("asString".into(), Value::Object(inner));
+                    skip_fields.insert("FONT_STYLE:asString".into());
+                }
+            }
+            if !fs_out.is_empty() {
+                let mut entry = tmpl.clone();
+                entry["variableData"]["value"]["fontStyleValue"] = Value::Object(fs_out);
+                out_entries.push(entry);
+            }
+            continue;
+        }
+
+        let keys = pcm_variable_keys_for_field(field);
+        if keys.is_empty() {
+            continue;
+        }
+        let mut resolved_guid: Option<(u32, u32)> = None;
+        let mut all_match = true;
+        for &k in keys {
+            match lookup_binding(k) {
+                Some(vg) if resolved_guid.is_none_or(|prev| prev == vg) => {
+                    resolved_guid = Some(vg);
+                }
+                _ => {
+                    all_match = false;
+                    break;
+                }
+            }
+        }
+        if all_match {
+            if let Some(vg) = resolved_guid {
+                let mut entry = tmpl.clone();
+                if let Some(d_mut) = entry.get_mut("variableData").and_then(Value::as_object_mut) {
+                    d_mut.insert("value".into(), json!({"alias": {"guid": guid_pair_json(vg)}}));
+                }
+                out_entries.push(entry);
+                skip_fields.insert(field.to_string());
+                match field {
+                    "FONT_WEIGHT" | "FONT_STYLE" => {
+                        skip_fields.insert("FONT_STYLE:asFloat".into());
+                    }
+                    "GRID_COLUMN_GAP" => {
+                        skip_fields.insert("STACK_SPACING".into());
+                    }
+                    "GRID_ROW_GAP" => {
+                        skip_fields.insert("STACK_COUNTER_SPACING".into());
+                    }
+                    "STACK_HORIZONTAL_PADDING" => {
+                        skip_fields.insert("STACK_PADDING_LEFT".into());
+                        skip_fields.insert("STACK_PADDING_RIGHT".into());
+                    }
+                    "STACK_VERTICAL_PADDING" => {
+                        skip_fields.insert("STACK_PADDING_TOP".into());
+                        skip_fields.insert("STACK_PADDING_BOTTOM".into());
+                    }
+                    "STACK_PADDING" => {
+                        skip_fields.insert("STACK_PADDING_LEFT".into());
+                        skip_fields.insert("STACK_PADDING_RIGHT".into());
+                        skip_fields.insert("STACK_PADDING_TOP".into());
+                        skip_fields.insert("STACK_PADDING_BOTTOM".into());
+                    }
+                    "CORNER_RADIUS" => {
+                        skip_fields.insert("RECTANGLE_TOP_LEFT_CORNER_RADIUS".into());
+                        skip_fields.insert("RECTANGLE_TOP_RIGHT_CORNER_RADIUS".into());
+                        skip_fields.insert("RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS".into());
+                        skip_fields.insert("RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS".into());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    (out_entries, skip_fields)
+}
+
 /// Splits a layer's `parameterConsumptionMap` (field 445) into:
 /// 1. Manual keyframe-track bindings whose `keyframeTrackId.guid` resolves to a known `KEYFRAME_TRACK` node in `valid_track_guids`.
 /// 2. Remaining `parameterConsumptionMap` JSON for `bound_variables` (`ALIAS` / `FONT_STYLE` entries), or `None` when none remain.
-/// 3. All non-manual-track `parameterConsumptionMap` JSON (preset entries, variable entries, and any other unmodelled entries) to keep in `fig_metadata`, or `None`.
+/// 3. Unmodelled `parameterConsumptionMap` JSON (preset entries and any other rows `bound_variables` does not model) to keep in `fig_metadata`, or `None`.
 pub fn extract_track_bindings(param_map: Option<&Value>, valid_track_guids: &BTreeSet<String>) -> (Vec<TrackBinding>, Option<Value>, Option<Value>) {
     let Some(map) = param_map else { return (Vec::new(), None, None) };
     let list = entries(Some(map));
@@ -358,6 +583,9 @@ pub fn extract_track_bindings(param_map: Option<&Value>, valid_track_guids: &BTr
         }
         if !is_motion_entry {
             kept_for_vars.push(entry.clone());
+            if strip_modelled_pcm_variable_entry(entry).is_some() {
+                continue;
+            }
         }
         kept_for_meta.push(entry.clone());
     }

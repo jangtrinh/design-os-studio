@@ -1569,6 +1569,7 @@ fn extract_keyframe_meta(kf_json: &Value, kf_id: &str, large_file: bool) -> Map<
 fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usize>>, large_file: bool, visited: &mut HashSet<usize>) {
     let mut track_entry_by_id: HashMap<String, usize> = HashMap::new();
     let mut valid_track_guids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut track_passthrough_by_guid: HashMap<String, Option<String>> = HashMap::new();
     for (idx, e) in entries.iter().enumerate() {
         if fstr(&e.json, "type") == Some("KEYFRAME_TRACK") {
             track_entry_by_id.insert(e.id.clone(), idx);
@@ -1608,6 +1609,18 @@ fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usi
             if has_param_map {
                 match rem_vars {
                     Some(rv) => {
+                        let stripped_templates: Vec<Value> = rv
+                            .get("entries")
+                            .and_then(Value::as_array)
+                            .map(|arr| arr.iter().filter_map(crate::motion::strip_modelled_pcm_variable_entry).collect())
+                            .unwrap_or_default();
+                        if !stripped_templates.is_empty() {
+                            if let Ok(s) = serde_json::to_string(&clean_json_floats(&json!({"entries": stripped_templates}))) {
+                                if let Some(fm) = obj.entry("figMetadata").or_insert_with(|| Value::Object(Map::new())).as_object_mut() {
+                                    fm.insert("_pcmVarFields".into(), Value::String(s));
+                                }
+                            }
+                        }
                         obj.insert("parameterConsumptionMap".into(), rv);
                     }
                     None => {
@@ -1629,11 +1642,11 @@ fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usi
 
         for (t_idx, binding) in bindings.into_iter().enumerate() {
             let Some(&track_idx) = track_entry_by_id.get(&binding.track_guid) else { continue };
-            let track_already_visited = visited.contains(&track_idx);
+            let first_visit_for_track = !track_passthrough_by_guid.contains_key(&binding.track_guid);
             let track_json = &entries[track_idx].json;
             let (op, loop_mode) = crate::motion::track_modes_from_kiwi(track_json);
             let tl_id = binding.timeline_id.unwrap_or_default();
-            let mut track = designos_doc::Track::new(binding.track_guid, tl_id, binding.property);
+            let mut track = designos_doc::Track::new(binding.track_guid.clone(), tl_id, binding.property);
             track.operation = op;
             track.loop_mode = loop_mode;
 
@@ -1670,7 +1683,7 @@ fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usi
                             let kmeta = extract_keyframe_meta(kf_json, &entries[kf_idx].id, large_file);
                             kf_pairs.push((kf, kmeta));
                             visited.insert(kf_idx);
-                            if !track_already_visited {
+                            if first_visit_for_track {
                                 if let Some(grandkids) = children.get(&kf_idx) {
                                     for &gk_idx in grandkids {
                                         collect_passthrough_subtree(entries, children, gk_idx, visited, &mut passthrough_children);
@@ -1680,10 +1693,14 @@ fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usi
                             continue;
                         }
                     }
-                    if !track_already_visited {
+                    if first_visit_for_track {
                         collect_passthrough_subtree(entries, children, kf_idx, visited, &mut passthrough_children);
                     }
                 }
+            }
+            if first_visit_for_track {
+                let serialized = if passthrough_children.is_empty() { None } else { serde_json::to_string(&Value::Array(passthrough_children)).ok() };
+                track_passthrough_by_guid.insert(binding.track_guid.clone(), serialized);
             }
             kf_pairs.sort_by_key(|(k, _)| k.time_us);
             let mut kf_metas = Vec::with_capacity(kf_pairs.len());
@@ -1696,10 +1713,8 @@ fn extract_motion_nodes(entries: &mut [Entry], children: &HashMap<usize, Vec<usi
                     tmeta.insert("_keyframes".into(), Value::String(s));
                 }
             }
-            if !passthrough_children.is_empty() {
-                if let Ok(s) = serde_json::to_string(&Value::Array(passthrough_children)) {
-                    tmeta.insert("_passthroughChildren".into(), Value::String(s));
-                }
+            if let Some(Some(pc_json)) = track_passthrough_by_guid.get(&binding.track_guid) {
+                tmeta.insert("_passthroughChildren".into(), Value::String(pc_json.clone()));
             }
             if !tmeta.is_empty() {
                 track_meta_by_index.insert(t_idx.to_string(), Value::Object(tmeta));
