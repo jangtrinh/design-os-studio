@@ -17,12 +17,20 @@ use egui::{Align2, Context, Id, Pos2, Rect, Sense, Ui, Vec2};
 const LIB_PREFIX: &str = "lib\u{1f}";
 const LIB_SEP: char = '\u{1e}';
 
+#[derive(Clone)]
+struct BoundStopPill {
+    label: String,
+    swatch: Option<egui::Color32>,
+    style_name: Option<String>,
+}
+
 #[derive(Clone, Default)]
 struct PickerStopBindState {
     prefix: Option<(&'static str, usize)>,
     has_vars: bool,
+    shot_hover: bool,
     open_key: Option<String>,
-    bound_stops: std::collections::BTreeMap<String, (String, Option<egui::Color32>)>,
+    bound_stops: std::collections::BTreeMap<String, BoundStopPill>,
 }
 
 #[derive(Clone, Default)]
@@ -358,7 +366,7 @@ pub fn style_value_rect(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
 
 pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
     sync_picker_paint_from_doc(app);
-    let mut state = PickerStopBindState::default();
+    let mut state = PickerStopBindState { shot_hover: app.canvas.shot_pointer.is_some(), ..Default::default() };
     let pk_info = app.props.picker.as_ref().and_then(|pk| {
         let prefix = match pk.target {
             super::properties::PickTarget::Fill(pi) => Some(("fills", pi)),
@@ -374,16 +382,9 @@ pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
         let sample_key = format!("{pfx}/{pi}/stops/0");
         state.has_vars = has_matching_var(app, ctx, &sample_key, VariableKind::Color, target_kind);
         state.open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first().cloned());
-        let stop_prefix = format!("{pfx}/{pi}/stops/");
         let mut keys = std::collections::BTreeSet::new();
         for &id in &nodes {
-            if let Some(node) = app.doc.get(id) {
-                for k in node.variables.bindings.keys() {
-                    if k.starts_with(&stop_prefix) && bound_var(app, id, k).is_some() {
-                        keys.insert(k.clone());
-                    }
-                }
-            }
+            collect_bound_stop_keys(&app.doc, id, pfx, pi, &mut keys);
         }
         for k in keys {
             let mut uniform: Option<(&str, &str, Option<egui::Color32>)> = None;
@@ -414,10 +415,11 @@ pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
                     }
                 }
             }
+            let style_name = nodes.iter().find_map(|&id| style_bound_stop_style_name(&app.doc, id, &k).map(str::to_string));
             if mixed {
-                state.bound_stops.insert(k, ("Mixed".to_string(), None));
+                state.bound_stops.insert(k, BoundStopPill { label: "Mixed".to_string(), swatch: None, style_name });
             } else if let Some((_, name, swatch)) = uniform {
-                state.bound_stops.insert(k, (name.to_string(), swatch));
+                state.bound_stops.insert(k, BoundStopPill { label: name.to_string(), swatch, style_name });
             }
         }
     }
@@ -530,9 +532,24 @@ pub(crate) fn picker_stop_pill_field(ui: &mut Ui, st: &mut crate::widgets::picke
     let Some(st_ctx) = ui.ctx().data(|d| d.get_temp::<PickerStopBindState>(picker_state_id())) else { return false };
     let Some((pfx, pi)) = st_ctx.prefix else { return false };
     let key = format!("{pfx}/{pi}/stops/{stop_idx}");
-    let Some((label, swatch)) = st_ctx.bound_stops.get(&key).cloned() else { return false };
-    let r = draw_pill(ui, rect, || format!("bound:{key}"), ("bound", key.as_str()), &label, swatch);
-    if r.detach {
+    let Some(info) = st_ctx.bound_stops.get(&key).cloned() else { return false };
+    widgets::record_with(ui, || format!("bound:{key}"), rect);
+    let r = pill(ui, rect, ("bound", key.as_str()), &info.label, info.swatch, info.style_name.is_none());
+    if let Some(style_name) = info.style_name {
+        let tip = format!("Bound in style {style_name}");
+        if st_ctx.shot_hover && r.body.hovered() {
+            egui::Area::new(Id::new(("picker-stop-style-tip", key)))
+                .order(egui::Order::Tooltip)
+                .fixed_pos(Pos2::new(rect.left() + theme::INSET_CONTROL, rect.bottom() + theme::SPACE_FACT))
+                .interactable(false)
+                .show(ui.ctx(), |ui| {
+                    crate::widgets::kit::tooltip_frame().show(ui, |ui| {
+                        ui.label(&tip);
+                    });
+                });
+        }
+        r.body.on_hover_text(tip);
+    } else if r.detach {
         st.menu_open = true;
         ui.ctx().data_mut(|d| d.insert_temp(picker_action_id(), PickerStopBindAction::Detach { key }));
     } else if r.body.clicked() {
@@ -554,10 +571,54 @@ pub(crate) fn picker_stop_hover_button(ui: &mut Ui, st: &mut crate::widgets::pic
     }
 }
 
-/// The variable bound to `key` on `node` in `doc`, if any.
+/// The variable bound to `key` on `node` in `doc` (directly or through a linked style), if any.
 pub(super) fn doc_bound_var<'a>(doc: &'a Document, node: NodeId, key: &str) -> Option<&'a Variable> {
-    let id = doc.get(node)?.variables.bindings.get(key)?;
+    let id = doc.effective_binding(node, key)?;
     doc.variables.get(id)
+}
+
+/// When `key` on `node` resolves to a live variable through a linked fill/stroke style (and not
+/// a direct node binding), returns that style's display name.
+pub(super) fn style_bound_stop_style_name<'a>(doc: &'a Document, node: NodeId, key: &str) -> Option<&'a str> {
+    let n = doc.get(node)?;
+    if n.variables.bindings.contains_key(key) {
+        return None;
+    }
+    doc_bound_var(doc, node, key)?;
+    let slot = if key.starts_with("strokes/") { "stroke" } else { "fill" };
+    let sk = n.style_refs.get(slot)?;
+    Some(doc.style_name(sk))
+}
+
+/// Collects all stop binding keys (`"{pfx}/{pi}/stops/{si}"`) that resolve to a live variable on
+/// `node` (directly or through a linked fill/stroke style).
+pub(super) fn collect_bound_stop_keys(doc: &Document, node: NodeId, pfx: &str, pi: usize, out: &mut std::collections::BTreeSet<String>) {
+    let Some(n) = doc.get(node) else { return };
+    let stop_prefix = format!("{pfx}/{pi}/stops/");
+    for k in n.variables.bindings.keys() {
+        if k.starts_with(&stop_prefix) && doc_bound_var(doc, node, k).is_some() {
+            out.insert(k.clone());
+        }
+    }
+    let slot = if pfx == "strokes" { "stroke" } else { "fill" };
+    let style_stop_prefix = format!("fills/{pi}/stops/");
+    if let Some(meta) = n.style_refs.get(slot).and_then(|sk| doc.style_meta.get(sk)) {
+        for bkey in meta.bindings.keys() {
+            if let Some(rest) = bkey.strip_prefix(&style_stop_prefix) {
+                let k = format!("{stop_prefix}{rest}");
+                if doc_bound_var(doc, node, &k).is_some() {
+                    out.insert(k);
+                }
+            }
+        }
+    }
+}
+
+/// Whether `node` has any live gradient stop binding under `"{pfx}/{pi}/stops/"` (directly or through a linked style).
+pub(super) fn has_bound_stops(doc: &Document, node: NodeId, pfx: &str, pi: usize) -> bool {
+    let mut keys = std::collections::BTreeSet::new();
+    collect_bound_stop_keys(doc, node, pfx, pi, &mut keys);
+    !keys.is_empty()
 }
 
 /// The variable bound to `key` on `node`, if any.
@@ -579,7 +640,9 @@ fn open_style_picker(app: &mut App, style_key: &str, prop: &str, kind: VariableK
 /// on the first selected node. Returns whether it did.
 pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str]) -> bool {
     let Some(first) = sel.first() else { return false };
-    let Some(var) = bound_var(app, *first, keys[0]).cloned() else { return false };
+    let Some(var) = app.doc.get(*first).and_then(|n| n.variables.bindings.get(keys[0])).and_then(|id| app.doc.variables.get(id)).cloned() else {
+        return false;
+    };
     let swatch = match app.doc.bound_value(*first, keys[0]) {
         Some(VariableValue::Color(c)) => Some(to_c32(c)),
         _ => None,
@@ -689,11 +752,15 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
             match action {
                 PickerStopBindAction::None => {}
                 PickerStopBindAction::Open { key, anchor } => {
-                    open_picker(app, &ids, &[key.as_str()], VariableKind::Color, anchor);
+                    if ids.iter().all(|&id| style_bound_stop_style_name(&app.doc, id, &key).is_none()) {
+                        open_picker(app, &ids, &[key.as_str()], VariableKind::Color, anchor);
+                    }
                 }
                 PickerStopBindAction::Detach { key } => {
-                    commit_picker_tx_before_bind(app);
-                    app.detach_variable(&ids, &[key.as_str()]);
+                    if ids.iter().all(|&id| style_bound_stop_style_name(&app.doc, id, &key).is_none()) {
+                        commit_picker_tx_before_bind(app);
+                        app.detach_variable(&ids, &[key.as_str()]);
+                    }
                 }
             }
         }
