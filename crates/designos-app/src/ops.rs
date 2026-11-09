@@ -2078,6 +2078,11 @@ impl App {
             // A layer that holds an instance of a main is not dropped into that main, nor into a layer in it: that
             // main would hold itself.
             if reparent_would_hold_itself(&self.doc, &[*id], new_parent) {
+                if let Some(component) = self.doc.get(*id).and_then(instance_component) {
+                    if let Some(reason) = instance_insert_cycle_error(&self.doc, component, new_parent) {
+                        self.show_toast(reason, true);
+                    }
+                }
                 continue;
             }
             let old_p = self.doc.get(*id).and_then(|n| n.parent);

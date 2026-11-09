@@ -596,6 +596,11 @@ fn swapping_an_instance_in_b_to_a_main_that_holds_b_changes_nothing() {
     s.shell.app.swap_instance(inside_b, a);
     assert_eq!(instance_component(s.app().doc.get(inside_b).unwrap()), Some(z), "still an instance of Z");
     assert_eq!(s.app().doc.nodes.len(), before);
+    assert!(
+        s.app().toast.as_ref().is_some_and(|t| t.error && t.text.contains("INSTANCE_CYCLE")),
+        "the refused swap explains the cycle: {:?}",
+        s.app().toast.as_ref().map(|t| &t.text)
+    );
     edit_main(&mut s, b);
     s.frame(vec![]);
 }
@@ -610,6 +615,11 @@ fn a_layers_panel_drop_of_an_instance_of_a_into_b_is_refused_when_a_holds_b() {
     let page = s.app().doc.get(inst).unwrap().parent;
     // what the panel does for a drop in the middle of B's row, and for one in a layer of B
     s.shell.app.move_to_parent(&[inst], b, 0);
+    assert!(
+        s.app().toast.as_ref().is_some_and(|t| t.error && t.text.contains("INSTANCE_CYCLE")),
+        "the refused move explains the cycle: {:?}",
+        s.app().toast.as_ref().map(|t| &t.text)
+    );
     s.shell.app.move_to_parent(&[inst], host, 0);
     assert_eq!(s.app().doc.get(inst).unwrap().parent, page, "the instance stays where it was");
     edit_main(&mut s, b);

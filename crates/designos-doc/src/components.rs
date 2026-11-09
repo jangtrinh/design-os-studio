@@ -899,6 +899,31 @@ pub fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool 
     held_main_at(doc, component, at).is_some()
 }
 
+/// Human-readable refusal for a manual instance swap that would introduce a component cycle.
+/// Keeping the `INSTANCE_CYCLE` wording here lets GUI callers surface the same core reason as
+/// other edit paths without duplicating cycle detection or silently turning the command into a no-op.
+pub fn instance_swap_cycle_error(doc: &Document, instance: NodeId, component: NodeId) -> Option<String> {
+    let target = doc.get(component).filter(|n| matches!(n.kind, NodeKind::Component(_)))?;
+    let (held_main, path) = held_main_cycle_path_at(doc, component, instance, &[])?;
+    Some(format_instance_cycle_error(doc, "swap nested instance to component", target.id, held_main, &path))
+}
+
+/// Human-readable refusal for inserting an instance into a GUI container.
+pub fn instance_insert_cycle_error(doc: &Document, component: NodeId, parent: NodeId) -> Option<String> {
+    let target = doc.get(component).filter(|n| matches!(n.kind, NodeKind::Component(_)))?;
+    let (held_main, path) = held_main_cycle_path_at(doc, component, parent, &[])?;
+    Some(format_instance_cycle_error(doc, "insert instance of component", target.id, held_main, &path))
+}
+
+fn format_instance_cycle_error(doc: &Document, action: &str, component: NodeId, held_main: NodeId, path: &[String]) -> String {
+    format!(
+        "INSTANCE_CYCLE: cannot {action} '{}' inside main component '{}': that would make a component hold an instance of itself (cycle path: {})",
+        cycle_node_label(doc, component),
+        cycle_node_label(doc, held_main),
+        path.join(" -> ")
+    )
+}
+
 /// Instantiates `component` under `parent`, with its origin at `at` (parent
 /// space). The copy mirrors the whole component subtree. Nothing is created
 /// where the instance would make a main hold itself: in the component, or in a

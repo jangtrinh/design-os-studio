@@ -394,6 +394,9 @@ impl App {
                     parent = self.page;
                     continue;
                 }
+                if let Some(reason) = instance_insert_cycle_error(&self.doc, comp, parent) {
+                    self.show_toast(reason, true);
+                }
                 return None;
             }
             if is_slot_container(&self.doc, parent) {
@@ -439,6 +442,9 @@ impl App {
         }
         let cmd = create_instance(&mut self.doc, comp, slot, Vec2::ZERO);
         let Command::Insert { index, nodes, .. } = cmd else {
+            if let Some(reason) = instance_insert_cycle_error(&self.doc, comp, slot) {
+                self.show_toast(reason, true);
+            }
             return None;
         };
         let id = nodes.first().map(|n| n.id);
@@ -488,6 +494,10 @@ impl App {
 
     /// Swaps an instance to another component.
     pub fn swap_instance(&mut self, inst: NodeId, comp: NodeId) {
+        if let Some(reason) = instance_swap_cycle_error(&self.doc, inst, comp) {
+            self.show_toast(reason, true);
+            return;
+        }
         let mut tx = Tx::new();
         let cmd = swap_instance(&mut self.doc, inst, comp);
         if self.push_cmd(&mut tx, cmd) {
