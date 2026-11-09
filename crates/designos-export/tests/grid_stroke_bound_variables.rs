@@ -206,3 +206,73 @@ fn negative_padding_on_an_unstroked_side_of_a_shadow_stroke_stays_valid_in_css_a
     assert!(tw.iter().any(|c| c == "pl-1") && tw.iter().any(|c| c == "py-1"), "{tw:?}");
     assert!(!tw.iter().any(|c| c.starts_with("pr-")), "the clamped right side is 0 and dropped: {tw:?}");
 }
+
+#[test]
+fn bound_per_side_inside_stroke_uses_geometry_preserving_shadows() {
+    let (mut doc, g) = sided_grid(0.0);
+    for (id, name, value) in
+        [("top", "Stroke/Top Weight", 4.0), ("right", "Stroke/Right Weight", 1.0), ("bottom", "Stroke/Bottom Weight", 2.0), ("left", "Stroke/Left Weight", 3.0)]
+    {
+        doc.variables.insert(id.into(), number_variable(id, name, value));
+    }
+    doc.variable_collections.get_mut("c").unwrap().variables.extend(["top", "right", "bottom", "left"].into_iter().map(String::from));
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.insert("strokeTopWeight".into(), "top".into());
+    n.variables.bindings.insert("strokeRightWeight".into(), "right".into());
+    n.variables.bindings.insert("strokeBottomWeight".into(), "bottom".into());
+    n.variables.bindings.insert("strokeLeftWeight".into(), "left".into());
+
+    let css = css_for(&doc, g);
+    assert!(css.contains("box-shadow: inset"), "bound per-side strokes must not consume layout space: {css}");
+    assert!(css.contains("var(--Stroke-Top-Weight"), "top side variable must reach the shadow: {css}");
+    assert!(!css.lines().any(|line| line.starts_with("border-width")), "{css}");
+
+    let tw = tailwind_for(&doc, g);
+    assert!(tw.contains("shadow-[inset_0px_var(--Stroke-Top-Weight)"), "{tw}");
+    assert!(!tw.contains("border-t-"), "{tw}");
+}
+
+#[test]
+fn stroked_outline_grid_clamps_negative_padding() {
+    let (mut doc, g) = sided_grid(0.0);
+    let n = doc.get_mut(g).unwrap();
+    n.stroke.side_weights = None;
+    n.stroke.weight = 2.0;
+    n.stroke.align = StrokeAlign::Inside;
+    if let NodeKind::Frame(f) = &mut n.kind {
+        f.auto_layout.as_mut().unwrap().padding = [4.0, -5.0, 4.0, 4.0];
+    }
+    let css = css_for(&doc, g);
+    assert!(!decl(&css, "padding").contains('-'), "negative padding is invalid CSS: {css}");
+}
+
+#[test]
+fn bound_grid_padding_is_clamped_when_the_stroke_model_has_no_extra() {
+    let (mut doc, g) = grid(1, false, StrokeAlign::Inside, true);
+    doc.variables.get_mut("pad").unwrap().values.insert("m".into(), VariableValue::Number(-5.0));
+    let css = css_for(&doc, g);
+    assert!(decl(&css, "padding").contains("max(0px, var(--Space-Pad, -5px))"), "{css}");
+    let tw = classes(&tailwind_for(&doc, g));
+    assert!(tw.iter().any(|c| c == "pl-[max(0px,var(--Space-Pad))]"), "{tw:?}");
+}
+
+#[test]
+fn dashed_and_gradient_per_side_strokes_keep_the_documented_border_fallback() {
+    let (mut dashed, dashed_id) = sided_grid(0.0);
+    dashed.get_mut(dashed_id).unwrap().stroke.dashes = vec![4.0, 2.0];
+    let dashed_css = css_for(&dashed, dashed_id);
+    assert!(dashed_css.contains("border-width:") && !dashed_css.contains("box-shadow:"), "{dashed_css}");
+
+    let (mut gradient, gradient_id) = sided_grid(0.0);
+    let gradient_node = gradient.get_mut(gradient_id).unwrap();
+    gradient_node.variables.bindings.clear();
+    gradient_node.stroke.paints = vec![Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+        },
+        ..Paint::solid(Color::BLACK)
+    }];
+    let gradient_css = css_for(&gradient, gradient_id);
+    assert!(gradient_css.contains("border-width:") && gradient_css.contains("border-image-source:"), "{gradient_css}");
+}

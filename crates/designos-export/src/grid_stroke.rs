@@ -48,6 +48,12 @@ pub(crate) struct GridStroke {
     /// For [`StrokeModel::Shadow`]: the offset of the inset shadow layer of each stroked side (top,
     /// right, bottom, left), so a layer is a band of that side's width.
     pub shadow_offsets: [Option<(f32, f32)>; 4],
+    /// Variable bindings for the width of each shadow side. A side without a binding uses its
+    /// resolved numeric offset; the static keys let CSS and Tailwind retain live width tokens.
+    pub shadow_width_keys: [Option<&'static str>; 4],
+    /// A real grid stroke must never make the emitted padding shorthand invalid. Grids without a
+    /// stroke retain their historical negative-padding output.
+    pub clamp_padding: bool,
 }
 
 impl GridStroke {
@@ -55,7 +61,7 @@ impl GridStroke {
     /// more. A shadow stroke clamps every side: a negative side would make the whole `padding` shorthand
     /// invalid in CSS and drop the other sides with it.
     pub fn adjusts_padding(&self, i: usize) -> bool {
-        self.pad_extra[i] != 0.0 || self.model == StrokeModel::Shadow
+        self.pad_extra[i] != 0.0 || self.model == StrokeModel::Shadow || self.clamp_padding
     }
 
     /// The stroke is a CSS `border` and takes layout space.
@@ -82,7 +88,8 @@ pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStro
         std::array::from_fn::<f32, 4, _>(|i| effective[i] - resolved_al.padding[i])
     };
     let none = [None; 4];
-    let outline = GridStroke { model: StrokeModel::Outline, pad_extra: reserved, shadow_offsets: none };
+    let outline =
+        GridStroke { model: StrokeModel::Outline, pad_extra: reserved, shadow_offsets: none, shadow_width_keys: [None; 4], clamp_padding: stroke_is_drawn(n) };
     if !stroke_is_drawn(n) || st.align != StrokeAlign::Inside {
         return outline;
     }
@@ -93,18 +100,33 @@ pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStro
         return outline;
     }
     let widths = st.side_weights.unwrap_or([st.weight; 4]);
-    let bound = WIDTH_KEYS.iter().any(|key| n.variables.bindings.contains_key(*key));
     let dashed = st.dashes.iter().any(|d| *d > 0.0);
-    if sided && !reserves && !gradient && !dashed && !bound {
+    if sided && !reserves && !gradient && !dashed {
         let [t, r, b, l] = widths.map(|w| w.max(0.0));
-        let layer = |w: f32, at: (f32, f32)| (w > 0.0).then_some(at);
+        let shadow_width_keys = std::array::from_fn(|i| {
+            let side = SIDE_WEIGHT_KEYS[i];
+            n.variables
+                .bindings
+                .contains_key(side)
+                .then_some(side)
+                .or_else(|| (st.side_weights.is_none() && n.variables.bindings.contains_key("strokeWeight")).then_some("strokeWeight"))
+        });
+        let layer = |i: usize, w: f32, at: (f32, f32)| (w > 0.0 || shadow_width_keys[i].is_some()).then_some(at);
         return GridStroke {
             model: StrokeModel::Shadow,
             pad_extra: [0.0; 4],
-            shadow_offsets: [layer(t, (0.0, t)), layer(r, (-r, 0.0)), layer(b, (0.0, -b)), layer(l, (l, 0.0))],
+            shadow_offsets: [layer(0, t, (0.0, t)), layer(1, r, (-r, 0.0)), layer(2, b, (0.0, -b)), layer(3, l, (l, 0.0))],
+            shadow_width_keys,
+            clamp_padding: true,
         };
     }
-    GridStroke { model: StrokeModel::Border, pad_extra: std::array::from_fn(|i| reserved[i] - widths[i].max(0.0)), shadow_offsets: none }
+    GridStroke {
+        model: StrokeModel::Border,
+        pad_extra: std::array::from_fn(|i| reserved[i] - widths[i].max(0.0)),
+        shadow_offsets: none,
+        shadow_width_keys: [None; 4],
+        clamp_padding: true,
+    }
 }
 
 /// [`grid_stroke`] for any node: `None` unless `n` is a grid container (a frame, component, component

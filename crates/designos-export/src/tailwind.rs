@@ -90,6 +90,8 @@ fn spaced_plus(prefix: &str, px: f32, var: Option<&Variable>, extra: f32, clamp:
             format!("{prefix}-[calc({name}+{}px)]", num(extra))
         } else if extra < 0.0 {
             format!("{prefix}-[max(0px,calc({name}-{}px))]", num(-extra))
+        } else if clamp {
+            format!("{prefix}-[max(0px,{name})]")
         } else {
             format!("{prefix}-[{name}]")
         };
@@ -232,7 +234,19 @@ fn shadow_value(doc: &Document, n: &Node, stroke: Option<GridStroke>, fmt: Color
             (None, PaintKind::Solid(c)) => tailwind_solid_color(doc.color_profile, fmt, c, p.opacity),
             _ => "transparent".to_string(),
         };
-        parts.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset_{}px_{}px_0px_0px_{color}", num(*x), num(*y))));
+        parts.extend(g.shadow_offsets.iter().enumerate().filter_map(|(i, offsets)| {
+            let (x, y) = *offsets.as_ref()?;
+            let width = g.shadow_width_keys[i].and_then(|key| bound(doc, n, key).map(css_var));
+            let (x, y) = match (i, width) {
+                (0, Some(w)) => ("0px".into(), w),
+                (1, Some(w)) => (format!("calc(-1*{w})"), "0px".into()),
+                (2, Some(w)) => ("0px".into(), format!("calc(-1*{w})")),
+                (3, Some(w)) => (w, "0px".into()),
+                (_, None) => (format!("{}px", num(x)), format!("{}px", num(y))),
+                _ => unreachable!(),
+            };
+            Some(format!("inset_{x}_{y}_0px_0px_{color}"))
+        }));
     }
     for e in &n.effects {
         match e {

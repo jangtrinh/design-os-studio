@@ -236,7 +236,21 @@ pub fn css_for_with(doc: &Document, node: NodeId, fmt: ColorFormat) -> String {
     let mut text_shadows = Vec::new();
     if let (Some(g), Some(p)) = (grid_stroke.filter(|g| g.model == StrokeModel::Shadow), crate::grid_stroke::drawn_paint(&n.stroke)) {
         let color = crate::codegen::stroke_color_token(doc, n, fmt).unwrap_or_else(|| solid_or_first(p, profile, fmt));
-        shadows.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset {}px {}px 0 0 {color}", num(*x), num(*y))));
+        shadows.extend(g.shadow_offsets.iter().enumerate().filter_map(|(i, offsets)| {
+            let (x, y) = *offsets.as_ref()?;
+            let width = g.shadow_width_keys[i].and_then(|key| {
+                crate::codegen::bound(doc, n, key).map(|v| crate::codegen::css_var_with_fallback(doc, n, v, crate::codegen::Fallback::Px, fmt))
+            });
+            let (x, y) = match (i, width) {
+                (0, Some(w)) => ("0px".into(), w),
+                (1, Some(w)) => (format!("calc(-1 * {w})"), "0px".into()),
+                (2, Some(w)) => ("0px".into(), format!("calc(-1 * {w})")),
+                (3, Some(w)) => (w, "0px".into()),
+                (_, None) => (format!("{}px", num(x)), format!("{}px", num(y))),
+                _ => unreachable!(),
+            };
+            Some(format!("inset {x} {y} 0 0 {color}"))
+        }));
     }
     for e in &n.effects {
         match e {

@@ -380,6 +380,8 @@ The Variables view lists a file's collections, groups and modes in one table, wi
 
 Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect a layer: its Ready for dev status, annotations, dev links, a CSS box-model diagram, resolved variables, and copy-ready code in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, **Android XML** and **HTML**. This capture shows the top of the panel. From a terminal, `designos <file> --select <layer> --codegen <language>` prints the same code, and `--dev <language>` opens Dev Mode on that language. Both take `css`, `tailwind`, `react`, `swiftui`, `uikit`, `compose`, `android-xml` or `html`.
 
+Per-side Inside grid strokes with width variables export as inset shadows in CSS and Tailwind, so their widths do not move grid content. Dashed and gradient per-side strokes still use the border fallback; give those grids at least as much padding as their stroke widths when exported, because CSS cannot express those paints as geometry-preserving inset shadows yet.
+
 ### Pillar 4 — Declarative `NodeSpec` JSON -> Auto-Layout 5.0 -> `.fig` export
 
 AI agents author compact, diffable `NodeSpec` JSON and apply it with `--apply-spec your-screen.spec.json` (any NodeSpec JSON you or your agent write) rather than guessing pixel coordinates. `designos-doc` computes recursive Auto-Layout 5.0 geometry (`relayout_subtree`), and `designos-fig` exports the result as a `.fig` file (`export_fig`, container version 106):

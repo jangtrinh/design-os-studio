@@ -177,7 +177,7 @@ pub fn css_var(v: &Variable) -> String {
 
 /// How a bound variable's resolved value is spelled as the `var()` fallback.
 #[derive(Clone, Copy)]
-enum Fallback {
+pub(crate) enum Fallback {
     Color,
     /// A length in pixels.
     Px,
@@ -206,7 +206,7 @@ pub fn css_var_display(v: &Variable) -> String {
 
 /// [`css_var_display`] plus, when there is no code syntax, the value `v` resolves to at `n` as the
 /// fallback: `var(--Color-Primary, #0D99FF)`.
-fn css_var_with_fallback(doc: &Document, n: &Node, v: &Variable, fmt: Fallback, color_fmt: ColorFormat) -> String {
+pub(crate) fn css_var_with_fallback(doc: &Document, n: &Node, v: &Variable, fmt: Fallback, color_fmt: ColorFormat) -> String {
     if let Some(code) = v.code_syntax_for(CodeSyntaxPlatform::Web) {
         return code.to_string();
     }
@@ -1251,7 +1251,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>, 
                 .iter()
                 .enumerate()
                 .map(|(i, k)| match b(k, Fallback::Px) {
-                    Some(v) => padding_with_extra(&v, extra[i]),
+                    Some(v) => padding_with_extra(&v, extra[i], stroke.is_some_and(|g| g.clamp_padding && extra[i] == 0.0)),
                     None if stroke.is_some_and(|g| g.adjusts_padding(i)) => format!("{}px", num((al.padding[i] + extra[i]).max(0.0))),
                     None => format!("{}px", num(al.padding[i])),
                 })
@@ -1285,11 +1285,13 @@ pub(crate) fn stroke_color_token(doc: &Document, n: &Node, color_fmt: ColorForma
 }
 
 /// A bound padding side plus the pixels the stroke model of a grid frame asks of it.
-fn padding_with_extra(var: &str, extra: f32) -> String {
+fn padding_with_extra(var: &str, extra: f32, clamp_zero: bool) -> String {
     if extra > 0.0 {
         format!("calc({var} + {}px)", num(extra))
     } else if extra < 0.0 {
         format!("max(0px, calc({var} - {}px))", num(-extra))
+    } else if clamp_zero {
+        format!("max(0px, {var})")
     } else {
         var.to_string()
     }
