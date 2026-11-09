@@ -11,7 +11,7 @@ use crate::text::{text_geometry, text_line_box};
 use designos_doc as d;
 use designos_doc::{
     Affine, ArcData, Color, ConnectorCap, Document, Effect, FrameProps, Node, NodeId, NodeKind, Paint, Path, PathCmd, Rect, ShapeKind, StampLayer, StickyProps,
-    StrokeAlign, StrokeCap, StrokeJoin, TableProps, TextAlignH, TextAlignV, TextAutoResize, TextProps, Vec2, TABLE_CELL_PADDING,
+    StrokeAlign, StrokeCap, StrokeJoin, TableProps, TextAlignH, TextAlignV, TextAutoResize, TextProps, Vec2,
 };
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -391,8 +391,7 @@ fn lower_table_cell(n: &Node, body: &mut Node, extras: &mut Vec<Node>) {
     body.stroke.paints.clear();
     body.stroke.weight = 0.0;
     body.stroke.side_weights = None;
-    let (px, py) = TABLE_CELL_PADDING;
-    let bx = Rect::new(px, py, (n.size.x - 2.0 * px).max(1.0), (n.size.y - 2.0 * py).max(1.0));
+    let bx = d::table::table_cell_text_rect(n.size);
     // wraps at the cell width, the width the table layout measures with
     let mut props = c.text.clone();
     props.auto_resize = TextAutoResize::Height;

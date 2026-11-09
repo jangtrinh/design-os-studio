@@ -13,6 +13,14 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Cell text inset as `(horizontal, vertical)` px (owner question OQ-2, recommended option).
 pub const TABLE_CELL_PADDING: (f32, f32) = (12.0, 8.0);
+
+/// The text area of a cell of `size`, in the cell's own space: inside [`TABLE_CELL_PADDING`] on every
+/// side and never narrower or shorter than 1 px. The renderer fits the text into it and the editor lays the
+/// text out in it, so both read it from here.
+pub fn table_cell_text_rect(size: Vec2) -> Rect {
+    let (px, py) = TABLE_CELL_PADDING;
+    Rect::new(px, py, (size.x - 2.0 * px).max(1.0), (size.y - 2.0 * py).max(1.0))
+}
 /// Smallest track size a repair writes (owner question OQ-1, recommended option).
 pub const TABLE_MIN_TRACK: f32 = 24.0;
 /// Width of a new column (OQ-1, recommended option).

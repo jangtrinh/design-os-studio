@@ -6010,7 +6010,7 @@
       "widgets/kit/field.rs::property_field_look"
     ],
     "Select/Trigger": [
-      "widgets/menu.rs::dropdown_items",
+      "widgets/menu.rs::dropdown_items_mixed",
       "widgets/kit/field.rs::select_look"
     ],
     "Panel/Header": [

@@ -70,6 +70,16 @@ EXAMPLES_ALLOWED_HITS: List[Tuple[str, str, str]] = [
         "--apply-spec examples/specs/designos-studio-landing.spec.json",
         "Test fixture moved from examples/landing/ per #1212; contains sample CLI text inside a serialized Text node",
     ),
+    (
+        "crates/designos-doc/tests/fixtures/release-0.4-landing.designos",
+        "--apply-spec examples/specs/designos-studio-landing.spec.json",
+        "Byte copy of the landing file as release 0.4 saved it (#1701); the same sample CLI text inside a serialized Text node",
+    ),
+    (
+        "crates/designos-doc/tests/fixtures/release-0.6-landing.designos",
+        "--apply-spec examples/specs/designos-studio-landing.spec.json",
+        "Byte copy of the landing file as release 0.6 saved it (#1701); the same sample CLI text inside a serialized Text node",
+    ),
 ]
 
 
