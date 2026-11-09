@@ -165,6 +165,21 @@ impl LibrariesState {
         self.pending.values().map(|(_, p)| p.clone()).collect()
     }
 
+    /// Hashes the cached latest and pending library versions without allocating.
+    pub fn hash_versions(&self, h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        self.latest.len().hash(h);
+        for (id, ver) in &self.latest {
+            id.hash(h);
+            ver.hash(h);
+        }
+        self.pending.len().hash(h);
+        for (id, (_, p)) in &self.pending {
+            id.hash(h);
+            p.version.hash(h);
+        }
+    }
+
     /// Forces the next frame to re-check enabled libraries.
     pub fn invalidate(&mut self) {
         self.next_check = 0.0;
