@@ -214,7 +214,7 @@ impl Clone for DerivedId {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct DirtyLog {
     runtime_id: u64,
     epoch: u64,
