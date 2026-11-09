@@ -432,7 +432,9 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let name;
     let block;
     if let Some((al, ref grid)) = grid_opt {
-        let mut grid_h = grid.rows.iter().sum::<f32>() + grid.row_gap * (grid.rows.len().saturating_sub(1) as f32) + al.padding[0] + al.padding[2];
+        let native_al = crate::codegen::native_grid_layout(doc, n, al);
+        let mut grid_h =
+            grid.rows.iter().sum::<f32>() + grid.row_gap * (grid.rows.len().saturating_sub(1) as f32) + native_al.padding[0] + native_al.padding[2];
         if al.counter_sizing == Sizing::Fixed {
             grid_h = n.size.y;
         }
@@ -449,6 +451,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     size_mods(doc, n, &sz, parent, &mut mods);
     style_mods(doc, n, &mut mods);
     if let Some((al, grid)) = grid_opt {
+        let native_al = crate::codegen::native_grid_layout(doc, n, al);
         let split = split_overlay_children(&kids);
         let behind = split.behind;
         // Children the grid does not place paint over it in child order: absolute ones, and ones a
@@ -467,10 +470,10 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                 emit(doc, k.id, me, depth + 1, o);
             }
             let mut grid_mods: Vec<String> = fill_frame_mod(&sz).map(String::from).into_iter().collect();
-            padding_mods(doc, n, al, &mut grid_mods);
+            padding_mods(doc, n, &native_al, &mut grid_mods);
             args.extend(modifier_arg(o, Parent { al: None, root: false }, &grid_mods));
         } else {
-            padding_mods(doc, n, al, &mut mods);
+            padding_mods(doc, n, &native_al, &mut mods);
             finish_mods(doc, n, rot, &mut mods);
             args.extend(modifier_arg(o, parent, &mods));
         }

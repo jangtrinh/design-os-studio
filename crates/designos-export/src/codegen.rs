@@ -741,6 +741,44 @@ fn solver_layout(doc: &Document, n: &Node, al: &AutoLayout) -> AutoLayout {
     resolved_al.with_stroke(&resolved.stroke)
 }
 
+/// Padding emitted for a legacy grid whose inward stroke participates in layout.
+/// Static dimensions can carry the solver's stroke inset directly. Variable-backed
+/// dimensions stay on their existing token path because targets do not share a
+/// common token-plus-inset expression.
+pub(crate) fn native_grid_layout(doc: &Document, n: &Node, al: &AutoLayout) -> AutoLayout {
+    if al.direction != LayoutDirection::Grid || al.layout_version != 0 || !al.stroke_included {
+        return al.clone();
+    }
+    if native_grid_needs_pixel_tracks(doc, n, al) {
+        return al.clone();
+    }
+    solver_layout(doc, n, al)
+}
+
+/// Whether a legacy included-stroke grid has a bound inset that cannot be expressed as one
+/// portable native padding expression. Native generators use the resolved pixel widths in this
+/// case instead of weighted tracks; otherwise a token-backed inset would be omitted from the
+/// available width and every weighted column would be too wide. The widths are a snapshot of the
+/// document's currently resolved variable mode; re-exporting after a mode change refreshes them.
+fn native_grid_needs_pixel_tracks(doc: &Document, n: &Node, al: &AutoLayout) -> bool {
+    al.direction == LayoutDirection::Grid
+        && al.layout_version == 0
+        && al.stroke_included
+        && [
+            "paddingTop",
+            "paddingRight",
+            "paddingBottom",
+            "paddingLeft",
+            "strokeWeight",
+            "strokeTopWeight",
+            "strokeRightWeight",
+            "strokeBottomWeight",
+            "strokeLeftWeight",
+        ]
+        .iter()
+        .any(|key| bound(doc, n, key).is_some())
+}
+
 pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<SolvedGrid> {
     if al.direction != LayoutDirection::Grid {
         return None;
@@ -764,7 +802,14 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     let row_gap = designos_doc::layout_solver::grid_row_gap(&al_s);
     let placed = designos_doc::layout_solver::place_children(&kids, widths.len());
     let children = ids.into_iter().zip(placed).collect();
-    let cols = native_col_kinds(&al_s, n.size.x, &widths);
+    let mut cols = native_col_kinds(&al_s, n.size.x, &widths);
+    if native_grid_needs_pixel_tracks(doc, n, al) {
+        for (kind, &px) in cols.iter_mut().zip(&widths) {
+            if matches!(kind, ColKind::Flex { .. }) {
+                *kind = ColKind::Fixed(px);
+            }
+        }
+    }
     Some(SolvedGrid { widths, cols, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), pad_x: al_s.padding[1] + al_s.padding[3], children })
 }
 
@@ -1836,5 +1881,109 @@ mod tests {
         }
         let row1 = sg.children.iter().find(|(_, p)| p.row == 1).expect("second row");
         assert!((sg.cell_origin(&row1.1).1 - 42.0).abs() < 1e-4, "second row at {}", sg.cell_origin(&row1.1).1);
+    }
+
+    #[test]
+    fn native_generators_preserve_legacy_included_stroke_inset() {
+        let al = AutoLayout {
+            direction: LayoutDirection::Grid,
+            layout_version: 0,
+            stroke_included: true,
+            grid_columns: 2,
+            grid_col_tracks: vec![GridTrack::Flex(1.0), GridTrack::Flex(1.0)].into(),
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..Default::default()
+        };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(400.0, 100.0));
+        let n = d.get_mut(grid).unwrap();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 6.0;
+        n.stroke.align = StrokeAlign::Inside;
+        for _ in 0..2 {
+            let child = fixture::add_rect(&mut d, grid, Vec2::new(40.0, 20.0));
+            d.get_mut(child).unwrap().layout_child.align_self = AlignSelf::Stretch;
+        }
+        d.relayout_subtree(grid);
+
+        let android = crate::android_xml_for(&d, grid);
+        assert!(android.contains("android:padding=\"6dp\""), "{android}");
+        let compose = crate::compose_for(&d, grid);
+        assert!(compose.contains(".padding(6.dp)"), "{compose}");
+        let swiftui = crate::swiftui_for(&d, grid);
+        assert!(swiftui.contains(".padding(6)"), "{swiftui}");
+        let uikit = crate::uikit_for(&d, grid);
+        assert!(uikit.contains("UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)"), "{uikit}");
+    }
+
+    #[test]
+    fn bound_legacy_included_stroke_uses_resolved_pixel_tracks() {
+        let al = AutoLayout {
+            direction: LayoutDirection::Grid,
+            layout_version: 0,
+            stroke_included: true,
+            grid_columns: 2,
+            grid_col_tracks: vec![GridTrack::Flex(1.0), GridTrack::Flex(1.0)].into(),
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..Default::default()
+        };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(400.0, 100.0));
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "m".into(), name: "Mode".into() }],
+                default_mode: "m".into(),
+                variables: vec!["stroke".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "stroke".into(),
+            Variable {
+                id: "stroke".into(),
+                name: "Stroke/Width".into(),
+                collection: "c".into(),
+                kind: VariableKind::Number,
+                values: [("m".to_string(), VariableValue::Number(6.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let n = d.get_mut(grid).unwrap();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 2.0;
+        n.stroke.align = StrokeAlign::Inside;
+        n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
+        n.variables.bindings.insert("paddingLeft".into(), "stroke".into());
+        for _ in 0..2 {
+            let child = fixture::add_rect(&mut d, grid, Vec2::new(40.0, 20.0));
+            d.get_mut(child).unwrap().layout_child.align_self = AlignSelf::Stretch;
+        }
+        d.relayout_subtree(grid);
+
+        let n = d.get(grid).unwrap();
+        let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        let sg = solved_grid(&d, n, al).expect("grid has flow children");
+        assert_eq!(sg.widths, vec![191.0, 191.0]);
+        assert!(sg.cols.iter().all(|kind| matches!(kind, ColKind::Fixed(_))), "{sg:?}");
+
+        let android = crate::android_xml_for(&d, grid);
+        assert!(!android.contains("layout_columnWeight"), "{android}");
+        let compose = crate::compose_for(&d, grid);
+        assert!(compose.contains("listOf(191.dp, 191.dp)"), "{compose}");
+        let swiftui = crate::swiftui_for(&d, grid);
+        assert!(!swiftui.contains("maxWidth: .infinity"), "{swiftui}");
+        let uikit = crate::uikit_for(&d, grid);
+        assert!(!uikit.contains("colUnit"), "{uikit}");
     }
 }

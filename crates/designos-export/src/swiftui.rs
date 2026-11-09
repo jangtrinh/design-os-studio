@@ -466,13 +466,14 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             mods.push(f);
         }
     } else if let Some((al, grid)) = own_al.filter(|_| site.is_none()).and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
+        let native_al = crate::codegen::native_grid_layout(doc, n, al);
         let col_gap_s = dimension(doc, n, "itemSpacing", grid.col_gap);
         let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
         let split = split_overlay_children(&kids);
         behind_ids = split.behind.iter().map(|k| k.id).collect();
         front_ids = split.front.iter().map(|k| k.id).collect();
         let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
-        let (outer, inner) = layout_frame_mods(doc, n, al, &sz, layout_frame_align(al, true), overlay);
+        let (outer, inner) = layout_frame_mods(doc, n, &native_al, &sz, layout_frame_align(al, true), overlay);
         mods.extend(outer);
         inner_mods = inner;
         grid_body = Some((al, grid, col_gap_s, row_gap_s));
