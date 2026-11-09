@@ -3,6 +3,7 @@
 //! components and binding a layer to a property.
 
 use super::properties::{row_end, section_sep, sublabel, title, Pane};
+use super::var_bind;
 use crate::app::App;
 use crate::icons::Icon;
 use crate::theme;
@@ -326,6 +327,21 @@ fn render_instance_prop_rows(
         if record_bare && key != bare_key {
             widgets::record(ui, &bare_key, ctl);
         }
+        // Boolean, text and variant properties of the instance itself take a variable: a pill in place of the
+        // control while bound, else the control with the same bind button the other fields have.
+        let bind_kind = if nested_scope.is_none() { bindable_prop_kind(&def.kind) } else { None };
+        let bind_key = prop_binding_key(&def.name);
+        let bind_keys = [bind_key.as_str()];
+        let sel = [target_inst];
+        if bind_kind.is_some() && var_bind::pill_field(app, ui, ctl, &sel, &bind_keys) {
+            row_end(pane);
+            continue;
+        }
+        let ctl_full = ctl;
+        let ctl = match bind_kind {
+            Some(kind) => var_bind::value_rect(app, ui, ctl, &sel, &bind_keys, kind),
+            None => ctl,
+        };
         match (&def.kind, &value) {
             (PropKind::Boolean, PropValue::Bool(b)) => {
                 if record_bare && key != bare_key {
@@ -366,6 +382,9 @@ fn render_instance_prop_rows(
                 }
             }
             _ => {}
+        }
+        if let Some(kind) = bind_kind {
+            var_bind::hover_button(app, ui, ctl_full, &sel, &bind_keys, kind);
         }
         row_end(pane);
     }

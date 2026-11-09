@@ -689,6 +689,7 @@ pub fn resolve_variable_ref_of_kind(
                 continue;
             };
             if snap.variables.contains_key(raw_id) {
+                check_library_variable_kind(index, snap, raw_id, kind, field_name, spec_path)?;
                 let cmd = crate::import_asset(doc, snap, &format!("var:{raw_id}"), None);
                 let _ = cmd.apply(doc);
                 *index = SpecBindIndex::build(doc);
@@ -703,6 +704,7 @@ pub fn resolve_variable_ref_of_kind(
                 continue;
             }
             if snap.variables.contains_key(id_part) {
+                check_library_variable_kind(index, snap, id_part, kind, field_name, spec_path)?;
                 let asset_key = format!("var:{id_part}");
                 let cmd = crate::import_asset(doc, snap, &asset_key, None);
                 let _ = cmd.apply(doc);
@@ -806,12 +808,15 @@ pub fn resolve_variable_ref_of_kind(
         }
         let (s_idx, vid, _) = &hits[0];
         let snap = &libraries[*s_idx];
+        check_library_variable_kind(index, snap, vid, kind, field_name, spec_path)?;
         let asset_key = format!("var:{vid}");
         let cmd = crate::import_asset(doc, snap, &asset_key, None);
         let _ = cmd.apply(doc);
         *index = SpecBindIndex::build(doc);
         let local_id = crate::local_key(&snap.library_id, vid);
-        return Ok(local_id);
+        if doc.variables.contains_key(&local_id) {
+            return Ok(local_id);
+        }
     }
 
     let valid_options = index.closest_variables(body, 5, kind);
@@ -826,6 +831,33 @@ pub fn resolve_variable_ref_of_kind(
         corrected_example,
         safe_to_retry: true,
     })
+}
+
+fn check_library_variable_kind(
+    index: &SpecBindIndex,
+    snap: &LibrarySnapshot,
+    raw_id: &str,
+    expected_kind: Option<VariableKind>,
+    field_name: &str,
+    spec_path: &str,
+) -> Result<(), SpecBindError> {
+    if let (Some(expected), Some(var)) = (expected_kind, snap.variables.get(raw_id)) {
+        if var.kind != expected {
+            let valid_options = index.variables_of_kind(expected, 5);
+            let corrected_example = valid_options.first().map(|first| serde_json::json!({ field_name: first }));
+            return Err(SpecBindError {
+                code: "VARIABLE_TYPE_MISMATCH".to_string(),
+                message: format!("Property '{field_name}' expects a {expected:?} variable, but '{}' has kind {:?}.", var.name, var.kind),
+                path: spec_path.to_string(),
+                received: Some(format!("{:?}", var.kind)),
+                expected: Some(format!("{expected:?}")),
+                valid_options,
+                corrected_example,
+                safe_to_retry: true,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// `options` are references that each resolve to exactly one of the matching variables (see [`SpecBindIndex::pasteable_ref`]).
@@ -2429,5 +2461,58 @@ mod tests {
         let left: Vec<&str> = node.variables.bindings.keys().map(String::as_str).collect();
         assert_eq!(left, ["fills/0", "width"]);
         assert_eq!(node.style_refs.keys().map(String::as_str).collect::<Vec<_>>(), ["fill"]);
+    }
+
+    #[test]
+    fn resolve_variable_ref_of_kind_rejects_library_path_when_import_leaves_variable_absent() {
+        let mut lib_doc = Document::new("Library");
+        lib_doc.variable_collections.insert(
+            "theme".to_string(),
+            VariableCollection {
+                id: "theme".to_string(),
+                name: "Theme".to_string(),
+                modes: vec![VariableMode { id: "light".to_string(), name: "Light".to_string() }],
+                default_mode: "light".to_string(),
+                variables: vec!["title".to_string()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        lib_doc.variables.insert(
+            "title".to_string(),
+            Variable {
+                id: "title".to_string(),
+                name: "title".to_string(),
+                collection: "theme".to_string(),
+                kind: VariableKind::String,
+                values: [("light".to_string(), VariableValue::String("Pay".to_string()))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let snap = crate::snapshot(&lib_doc, "lib-theme", "Theme", 1);
+
+        let mut doc = Document::new("Host");
+        doc.library.enabled.push(crate::LibraryRef { id: "lib-theme".to_string(), name: "Theme".to_string(), version: 1 });
+        doc.library.external.insert(
+            crate::local_key("lib-theme", "var:title"),
+            crate::ExternalAsset {
+                library_id: "lib-theme".to_string(),
+                version: 1,
+                kind: crate::LibraryAssetKind::Variable,
+                node: None,
+                local_key: Some(crate::local_key("lib-theme", "title")),
+            },
+        );
+        let mut index = SpecBindIndex::build(&doc);
+        let err = resolve_variable_ref_of_kind(&mut doc, &mut index, &[snap], "var:Theme/title", "Label", "/prop_vars/Label", Some(VariableKind::String))
+            .expect_err("must reject library variable reference when import leaves doc.variables without the variable");
+        assert_eq!(err.code, "UNKNOWN_VARIABLE");
     }
 }

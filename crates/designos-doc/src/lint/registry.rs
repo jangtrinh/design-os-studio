@@ -256,6 +256,15 @@ pub const RULES: &[RuleSpec] = &[
         needs: Geometry,
         presets: &[CheckDesigns, Recommended, Strict],
     },
+    RuleSpec {
+        id: "component-property-variable",
+        aliases: &["bound-component-property"],
+        category: Components,
+        default_severity: Warning,
+        fixable: false,
+        needs: Geometry,
+        presets: &[Agent, CheckDesigns, Recommended, Strict],
+    },
     // --- Existing rules moved into the unified registry ---
     RuleSpec {
         id: "default-layer-name",

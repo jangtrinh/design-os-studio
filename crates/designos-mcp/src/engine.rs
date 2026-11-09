@@ -1603,22 +1603,164 @@ impl Engine {
             },
         )?;
         let id = node.id;
+        let prop_map = a.prop_vars.as_ref().filter(|m| !m.is_empty());
+        let saved_data = prop_map.is_some().then(|| designos_doc::SpecDataSnapshot::of(&self.doc));
+        let restore_data = |doc: &mut Document, saved: Option<designos_doc::SpecDataSnapshot>| {
+            if let Some(data) = saved {
+                data.restore(doc);
+            }
+        };
+        let take_data_cmds = |doc: &mut Document, saved: Option<designos_doc::SpecDataSnapshot>| -> Vec<Command> {
+            match saved {
+                Some(before) => {
+                    let after = designos_doc::SpecDataSnapshot::of(doc);
+                    let cmds = before.commands_to(&after);
+                    before.restore(doc);
+                    cmds
+                }
+                None => Vec::new(),
+            }
+        };
+        let resolved_props: Option<Vec<(String, Option<String>)>> = match prop_map {
+            Some(map) => match self.resolve_prop_vars(id, map) {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    restore_data(&mut self.doc, saved_data);
+                    return Err(e);
+                }
+            },
+            None => None,
+        };
+        let planned_bind = match (&resolved_props, changed) {
+            (None, _) => None,
+            (Some(resolved), false) => match self.plan_prop_vars_cmd(id, resolved) {
+                Ok(bind_cmd) => {
+                    let mut cmds = take_data_cmds(&mut self.doc, saved_data);
+                    match bind_cmd {
+                        Command::Batch(v) => cmds.extend(v),
+                        other => cmds.push(other),
+                    }
+                    Some(if cmds.len() == 1 { cmds.remove(0) } else { Command::Batch(cmds) })
+                }
+                Err(e) => {
+                    restore_data(&mut self.doc, saved_data);
+                    return Err(e);
+                }
+            },
+            (Some(resolved), true) => {
+                let field_cmd = designos_doc::writer_command(&self.doc, Command::Update { node: Box::new(node.clone()) }).cmd;
+                let field_inv = match field_cmd.clone().apply(&mut self.doc) {
+                    Ok(inv) => inv,
+                    Err(e) => {
+                        restore_data(&mut self.doc, saved_data);
+                        return Err(ToolError::new(ErrorCode::InternalError, "", e.to_string()));
+                    }
+                };
+                let bind_res = self.plan_prop_vars_cmd(id, resolved);
+                let _ = field_inv.apply(&mut self.doc);
+                let bind_cmd = match bind_res {
+                    Ok(cmd) => cmd,
+                    Err(e) => {
+                        restore_data(&mut self.doc, saved_data);
+                        return Err(e);
+                    }
+                };
+                let mut cmds = take_data_cmds(&mut self.doc, saved_data);
+                match field_cmd {
+                    Command::Batch(v) => cmds.extend(v),
+                    other => cmds.push(other),
+                }
+                match bind_cmd {
+                    Command::Batch(v) => cmds.extend(v),
+                    other => cmds.push(other),
+                }
+                Some(if cmds.len() == 1 { cmds.remove(0) } else { Command::Batch(cmds) })
+            }
+        };
         let before_doc = a.diff_image.then(|| self.doc.clone());
         let baseline = crate::tools::issues::PreCallBaseline::capture(&self.doc, &[id], &self.session_options.issues, a.lint, self.lint_env());
-        if changed {
-            let affects_layout = self.doc.get(id).is_some_and(|old| crate::tools::relayout_scope::update_affects_layout(&self.doc, old, &node));
-            self.exec(Command::Update { node: Box::new(node) })?;
-            if affects_layout {
-                self.relayout(id);
+        let bound = match (changed, resolved_props, planned_bind) {
+            (false, None, _) => None,
+            (true, None, _) => {
+                let affects_layout = self.doc.get(id).is_some_and(|old| crate::tools::relayout_scope::update_affects_layout(&self.doc, old, &node));
+                self.exec(Command::Update { node: Box::new(node) })?;
+                if affects_layout {
+                    self.relayout(id);
+                }
+                None
             }
+            (_, Some(resolved), Some(cmd)) => {
+                self.exec(cmd)?;
+                self.relayout(id);
+                Some(self.prop_vars_issues(id, &resolved))
+            }
+            (_, Some(_), None) => unreachable!(),
+        };
+        let mut out = json!({"node":self.node_reply_json(NodeId(a.node_id)),"changed":changed || bound.is_some()});
+        if let Some(issues) = bound.filter(|i| !i.is_empty()) {
+            out["property_binding_issues"] = Value::Array(issues);
         }
-        let mut out = json!({"node":self.node_reply_json(NodeId(a.node_id)),"changed":changed});
         attach_warnings(&mut out, &warnings);
         crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
         }
         Ok(out)
+    }
+
+    fn resolve_prop_vars(&mut self, id: NodeId, map: &std::collections::BTreeMap<String, Option<String>>) -> Result<Vec<(String, Option<String>)>, ToolError> {
+        let comp = self
+            .doc
+            .get(id)
+            .and_then(designos_doc::instance_component)
+            .ok_or_else(|| ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/prop_vars", format!("node {} is not an instance", id.0)))?;
+        let defs = designos_doc::prop_defs(&self.doc, comp);
+        let libraries = crate::tools::library_source::load_enabled_snapshots(&self.doc);
+        let mut index = designos_doc::SpecBindIndex::build(&self.doc);
+        let mut resolved: Vec<(String, Option<String>)> = Vec::with_capacity(map.len());
+        for (name, reference) in map {
+            let path = format!("/prop_vars/{name}");
+            let def = defs
+                .iter()
+                .find(|d| d.name == *name)
+                .ok_or_else(|| ToolError::new(ErrorCode::UnknownComponentProperty, &path, format!("the component has no property \"{name}\"")))?;
+            let var = match reference {
+                None => None,
+                Some(r) => {
+                    let kind = designos_doc::bindable_prop_kind(&def.kind).ok_or_else(|| {
+                        ToolError::new(
+                            ErrorCode::PropertyTypeMismatch,
+                            &path,
+                            format!("property \"{name}\" takes no variable: only boolean, text and variant properties do"),
+                        )
+                    })?;
+                    let var_id = designos_doc::resolve_variable_ref_of_kind(&mut self.doc, &mut index, &libraries, r, name, &path, Some(kind))
+                        .map_err(|e| crate::tools::errors::from_spec_error(designos_doc::SpecError::from(e), &path))?;
+                    Some(var_id)
+                }
+            };
+            resolved.push((def.name.clone(), var));
+        }
+        Ok(resolved)
+    }
+
+    fn plan_prop_vars_cmd(&mut self, id: NodeId, resolved: &[(String, Option<String>)]) -> Result<Command, ToolError> {
+        use designos_doc::PropBindError;
+        let edits: Vec<(&str, Option<&str>)> = resolved.iter().map(|(n, v)| (n.as_str(), v.as_deref())).collect();
+        designos_doc::bind_prop_variables(&mut self.doc, id, &edits).map_err(|e| match e {
+            PropBindError::NoSuchVariable(_) => ToolError::new(ErrorCode::UnknownVariable, "/prop_vars", e.to_string()),
+            PropBindError::KindMismatch { .. } | PropBindError::NotBindable(_) => ToolError::new(ErrorCode::VariableTypeMismatch, "/prop_vars", e.to_string()),
+            PropBindError::NoSuchProperty(_) => ToolError::new(ErrorCode::UnknownComponentProperty, "/prop_vars", e.to_string()),
+            PropBindError::NotAnInstance(_) => ToolError::new(ErrorCode::OverrideFieldNotApplicable, "/prop_vars", e.to_string()),
+        })
+    }
+
+    fn prop_vars_issues(&self, id: NodeId, resolved: &[(String, Option<String>)]) -> Vec<Value> {
+        resolved
+            .iter()
+            .filter(|(_, v)| v.is_some())
+            .filter_map(|(name, _)| designos_doc::prop_binding_problem(&self.doc, id, name).map(|p| json!({"property": name, "problem": p.to_string()})))
+            .collect()
     }
 }
 
@@ -1807,6 +1949,9 @@ struct UpdateArgs {
     fill: Option<String>,
     #[serde(default)]
     fills: Option<Vec<designos_doc::Paint>>,
+    /// Component properties of an instance bound to variables: `{property: "var:Collection/Name"}`; `null` unbinds.
+    #[serde(default)]
+    prop_vars: Option<std::collections::BTreeMap<String, Option<String>>>,
     #[serde(default)]
     diff_image: bool,
     #[serde(default)]
@@ -2415,7 +2560,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "update_node",
         "Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"prop_vars":{"type":"object","description":"Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.","additionalProperties":{"type":["string","null"]}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["node_id"],
         json!({
             "node": {"type": "object"},
@@ -4182,6 +4327,7 @@ mod tests {
         e.doc.insert(page, btn).unwrap();
 
         bind_style_to_missing_variable(&mut e);
+        bind_property_to_missing_variable(&mut e, page);
         let res = e.call("designos_lint", json!({"preset": "strict", "limit": 500})).unwrap();
         assert!(res.get("passed").is_none(), "old two-rule `passed` field must be gone");
         let by_rule = res["by_rule"].as_object().expect("by_rule map");
@@ -4301,6 +4447,19 @@ mod tests {
 
         let catalog = tools();
         assert!(catalog.iter().any(|t| t["name"] == "designos_lint_fix" && t["annotations"]["readOnlyHint"] == false));
+    }
+
+    /// An instance whose boolean property is bound to a variable the document does not hold.
+    fn bind_property_to_missing_variable(e: &mut Engine, page: NodeId) {
+        use designos_doc::{add_prop, create_component, create_instance, ComponentPropDef, PropKind, PropValue, Rect, Vec2};
+        let d = &mut e.doc;
+        let id = d.alloc_id();
+        let comp = d.insert(page, Node::frame(id, Rect::new(2000.0, 0.0, 40.0, 40.0))).unwrap();
+        create_component(d, comp).apply(d).unwrap();
+        add_prop(d, comp, ComponentPropDef { name: "Show".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) }).apply(d).unwrap();
+        create_instance(d, comp, page, Vec2::new(2100.0, 0.0)).apply(d).unwrap();
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        d.get_mut(inst).unwrap().variables.bindings.insert(designos_doc::prop_binding_key("Show"), "var-deleted".into());
     }
 
     fn bind_style_to_missing_variable(e: &mut Engine) {

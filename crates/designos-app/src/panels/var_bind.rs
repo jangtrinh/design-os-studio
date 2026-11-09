@@ -640,19 +640,38 @@ fn open_style_picker(app: &mut App, style_key: &str, prop: &str, kind: VariableK
 /// on the first selected node. Returns whether it did.
 pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str]) -> bool {
     let Some(first) = sel.first() else { return false };
-    let Some(var) = app.doc.get(*first).and_then(|n| n.variables.bindings.get(keys[0])).and_then(|id| app.doc.variables.get(id)).cloned() else {
-        return false;
+    let k0 = keys[0];
+    // Only the node's own binding draws a detachable pill here; a binding that comes from a linked style is shown elsewhere.
+    let node_var = app.doc.get(*first).and_then(|n| n.variables.bindings.get(k0)).and_then(|id| app.doc.variables.get(id)).cloned();
+    let (label, kind) = match node_var {
+        Some(var) => (var.name.clone(), var.kind),
+        None => {
+            let Some(prop) = k0.strip_prefix(PROP_BINDING_PREFIX) else { return false };
+            let Some(vid) = app.doc.get(*first).and_then(|n| n.variables.bindings.get(k0)).cloned() else { return false };
+            let kind = app
+                .doc
+                .get(*first)
+                .and_then(instance_component)
+                .and_then(|c| prop_defs(&app.doc, c).into_iter().find(|d| d.name == prop))
+                .and_then(|d| bindable_prop_kind(&d.kind))
+                .unwrap_or(VariableKind::String);
+            (format!("{vid} (missing)"), kind)
+        }
     };
-    let swatch = match app.doc.bound_value(*first, keys[0]) {
+    let swatch = match app.doc.bound_value(*first, k0) {
         Some(VariableValue::Color(c)) => Some(to_c32(c)),
         _ => None,
     };
-    let k0 = keys[0];
-    let r = draw_pill(ui, rect, || format!("bound:{k0}"), ("bound", k0), &var.name, swatch);
+    let r = draw_pill(ui, rect, || format!("bound:{k0}"), ("bound", k0), &label, swatch);
+    if let Some(prop) = k0.strip_prefix(PROP_BINDING_PREFIX) {
+        if let Some(problem) = prop_binding_problem(&app.doc, *first, prop) {
+            r.body.clone().on_hover_text(problem.to_string());
+        }
+    }
     if r.detach {
         app.detach_variable(sel, keys);
     } else if r.body.clicked() {
-        open_picker(app, sel, keys, var.kind, rect);
+        open_picker(app, sel, keys, kind, rect);
     }
     true
 }

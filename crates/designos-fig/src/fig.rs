@@ -2270,7 +2270,9 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
         let Some((key, ty)) = a.get("defID").and_then(guid_str).and_then(|id| lk.prop_defs.get(&id)) else { continue };
         let scid = (*ty == "SLOT").then(|| slot_content_id_of(a, "value")).flatten();
         let v = held(a, "value");
-        if v.is_none() && scid.is_none() {
+        // A bound property: `varValue` holds the variable's alias instead of a value.
+        let bound_alias = a.get("varValue").and_then(|d| d.get("value")).and_then(|x| x.get("alias")).map(|al| lk.variable_identity(al));
+        if v.is_none() && scid.is_none() && bound_alias.is_none() {
             continue;
         }
         let mut entry = Map::new();
@@ -2280,6 +2282,9 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
         }
         if let Some(scid) = scid {
             entry.insert("slotContentId".into(), Value::String(scid));
+        }
+        if let Some(var) = bound_alias {
+            entry.insert("boundVariables".into(), json!({"value": {"type": "VARIABLE_ALIAS", "id": var}}));
         }
         vals.insert(key.clone(), Value::Object(entry));
     }

@@ -1668,7 +1668,7 @@ impl Document {
         Ok(var_id)
     }
 
-    fn export_var_ref(&self, index: &SpecBindIndex, var_id: &str) -> Option<String> {
+    pub(crate) fn export_var_ref(&self, index: &SpecBindIndex, var_id: &str) -> Option<String> {
         index.format_variable_ref(self, var_id)
     }
 

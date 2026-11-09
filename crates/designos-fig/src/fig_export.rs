@@ -1519,7 +1519,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push(("stateGroupPropertyValueOrders", V::Array(variant_orders)));
         }
     }
-    if !node.component.values.is_empty() || (!node.component.slot_content_ids.is_empty() && node.component.props.is_empty()) {
+    if !node.component.values.is_empty() || has_prop_binding(&node) || (!node.component.slot_content_ids.is_empty() && node.component.props.is_empty()) {
         let mut prop_assigns = Vec::new();
         for (prop_name, pval) in &node.component.values {
             let def_g = cx.resolve_prop_guid(id, prop_name);
@@ -1541,8 +1541,19 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     "varValue",
                     msg(vec![("dataType", en("SLOT_CONTENT_ID")), ("value", msg(vec![("slotContentIdValue", msg(vec![("guid", guid(g.0, g.1))]))]))]),
                 ));
+            } else if let Some(alias) = prop_alias(cx, &node, prop_name) {
+                assign.push(("varValue", alias));
             }
             prop_assigns.push(msg(assign));
+        }
+        // A bound property whose value the instance does not store still names its variable.
+        for (prop_name, _) in prop_bindings_of(&node) {
+            if node.component.values.contains_key(prop_name) {
+                continue;
+            }
+            let Some(alias) = prop_alias(cx, &node, prop_name) else { continue };
+            let def_g = cx.resolve_prop_guid(id, prop_name);
+            prop_assigns.push(msg(vec![("defID", guid(def_g.0, def_g.1)), ("varValue", alias)]));
         }
         if node.component.props.is_empty() {
             for (prop_name, scid) in &node.component.slot_content_ids {
@@ -2689,6 +2700,23 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
 
 /// Preferred components of an instance-swap or slot property: Figma lists them as `COMPONENT` entries keyed by
 /// the component's library key. A component of this file has no library key, so its key is its GUID as `"s:l"`.
+/// `varValue` of a component property assignment bound to a variable: the alias, with the type the property takes.
+fn prop_alias(cx: &ExportCtx, node: &Node, prop_name: &str) -> Option<V> {
+    let var = cx.doc.variables.get(bound_prop_variable_of(node, prop_name)?)?;
+    let vg = cx.resolve_var_guid(&var.id)?;
+    let resolved = match var.kind {
+        VariableKind::Boolean => "BOOLEAN",
+        VariableKind::String => "STRING",
+        VariableKind::Number => "FLOAT",
+        VariableKind::Color => "COLOR",
+    };
+    Some(msg(vec![("dataType", en("ALIAS")), ("resolvedDataType", en(resolved)), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))]))
+}
+
+fn bound_prop_variable_of<'a>(node: &'a Node, prop_name: &str) -> Option<&'a str> {
+    node.variables.bindings.get(&prop_binding_key(prop_name)).map(String::as_str)
+}
+
 fn alias_var_data(vg: (u32, u32)) -> V {
     msg(vec![("dataType", en("ALIAS")), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))])
 }

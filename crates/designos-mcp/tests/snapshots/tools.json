@@ -440,6 +440,16 @@
           "minimum": 0,
           "type": "number"
         },
+        "prop_vars": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": "Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.",
+          "type": "object"
+        },
         "text": {
           "description": "Plain text; limited to 100000 UTF-8 bytes.",
           "maxLength": 100000,
