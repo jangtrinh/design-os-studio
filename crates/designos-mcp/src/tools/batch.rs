@@ -2358,9 +2358,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             }
             ParsedOp::SetVariables(a) => {
                 check_document_lease_guard(engine.owned_frames.as_deref(), op_idx, op_name)?;
-                let written: Vec<&str> = a.upsert_variables.iter().map(|v| v.id.as_str()).chain(a.delete_variables.iter().map(String::as_str)).collect();
-                let written_collections: Vec<&str> = a.upsert_collections.iter().map(|c| c.id.as_str()).collect();
-                let before_vars = VariablesBefore::capture(&trial, &written, &written_collections);
+                let mut before_vars = VariablesBefore::capture(&trial);
                 let (cmd_opt, count) = apply_set_variables_op(&trial, a, op_idx)?;
                 if let Some(cmd) = cmd_opt {
                     if recording_live {
@@ -2368,7 +2366,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         recorded_live_ops.extend(ops);
                     }
                     cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
-                    let extras = bound_text.remeasure_after(&trial, &before_vars);
+                    let extras = bound_text.remeasure_after(&mut trial, &mut before_vars);
                     for extra in &extras {
                         if recording_live {
                             let ops =
@@ -2377,7 +2375,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         }
                         extra.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                     }
-                    let mut bound_nodes = before_vars.layout_bound_nodes(&trial);
+                    let mut bound_nodes = before_vars.layout_bound_nodes(&mut trial);
                     bound_nodes.extend(updated_node_ids(&extras));
                     relayout_containers_of(&mut trial, &bound_nodes, &mut relayout_targets);
                     collected_cmds.push(cmd);

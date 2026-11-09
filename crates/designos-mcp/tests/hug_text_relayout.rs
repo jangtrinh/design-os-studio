@@ -489,6 +489,126 @@ fn pinned_mode_parent_keeps_bound_text_untouched_on_default_mode_switch() {
     assert_eq!(e.doc.get(pinned_lbl).unwrap(), &pinned_lbl_before);
 }
 
+/// Deleting a parent mode (`m2`) unmaps the extended collection mode (`brand -> e1`) that pointed
+/// to it, so a frame pinning `brand -> e1` falls back to the parent default mode (`m1`: 28 -> 14)
+/// and its bound hug text and hug container remeasure while preserving unchanged text runs.
+#[test]
+fn deleting_parent_mode_mapped_by_extended_collection_remeasures_pinned_hug_text() {
+    let mut e = Engine::new();
+    let page = default_page(&e);
+    let (button, label) = bound_label_with_bold_run(&mut e, page, "ExtButton", "Delete");
+
+    e.doc.variable_collections.get_mut("type").unwrap().set_extendable(true);
+    let mut brand = designos_doc::VariableCollection {
+        id: "brand".into(),
+        name: "Brand".into(),
+        modes: vec![designos_doc::VariableMode { id: "e1".into(), name: "Brand A".into() }],
+        default_mode: "e1".into(),
+        variables: Vec::new(),
+        key: None,
+        source_library_key: None,
+        extensions: Default::default(),
+    };
+    brand.set_extension(&designos_doc::CollectionExtension {
+        parent: designos_doc::ParentCollection { collection: "type".into(), set_key: None },
+        mode_map: [("e1".to_string(), "m2".to_string())].into_iter().collect(),
+        overrides: Default::default(),
+    });
+    e.doc.variable_collections.insert("brand".into(), brand);
+
+    // Pin `brand -> e1` on the button so `type/size` resolves through the extension to `m2` (28 px).
+    e.doc.get_mut(button).unwrap().variables.modes.insert("brand".into(), "e1".into());
+    e.doc.get_mut(button).unwrap().variables.bindings.insert("paddingLeft".into(), "type/size".into());
+    designos_doc::set_bound_property(e.doc.get_mut(button).unwrap(), "paddingLeft", &designos_doc::VariableValue::Number(28.0));
+    let mut updated_lbl = e.doc.get(label).unwrap().clone();
+    designos_doc::set_bound_property(&mut updated_lbl, "fontSize", &designos_doc::VariableValue::Number(28.0));
+    updated_lbl.size = drawn_measure(&e, label);
+    *e.doc.get_mut(label).unwrap() = updated_lbl;
+    e.doc.relayout_subtree(button);
+    e.doc.flush_pending_relayout();
+
+    let before = [size(&e, button), size(&e, label)];
+    assert_eq!(e.doc.resolve_variable(label, "type/size"), Some(designos_doc::VariableValue::Number(28.0)));
+    assert_eq!(before[0].x, 28.0 + 12.0 + before[1].x, "initial button width includes 28px bound left padding + 12px right padding");
+
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables", "upsert_collections": [
+            {"id": "type", "modes": [{"id": "m1", "name": "Small"}], "default_mode": "m1"}
+        ]}]}),
+    )
+    .unwrap();
+
+    assert_eq!(e.doc.resolve_variable(label, "type/size"), Some(designos_doc::VariableValue::Number(14.0)));
+    let after = [size(&e, button), size(&e, label)];
+    assert!(after[1].x < before[1].x && after[1].y < before[1].y, "unmapped extension mode must shrink bound text from 28px to 14px ({before:?} -> {after:?})");
+    assert_eq!(after[1], drawn_measure(&e, label), "stored box must match the 14px drawn measure");
+    assert_eq!(after[0].x, 14.0 + 12.0 + after[1].x, "hug parent with bound paddingLeft must re-lay out to 14 + 12 + label width");
+
+    let NodeKind::Text(tp) = &e.doc.get(label).unwrap().kind else { panic!("expected text") };
+    assert_eq!(tp.runs.len(), 1, "bold run over unchanged bound characters must survive");
+    assert_eq!(tp.runs[0].style.font_weight, 700);
+    assert_eq!(tp.runs[0].style.font_size, 14.0);
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!([size(&e, button), size(&e, label)], before, "undo restores 28px extended-mode layout");
+    e.call("designos_redo", json!({})).unwrap();
+    assert_eq!([size(&e, button), size(&e, label)], after, "redo restores 14px unmapped layout");
+}
+
+/// When a variable has multi-axis values (`m1+compact: 14`, `m2+compact: 28`) whose single-axis
+/// entries (`m1: 28`, `m2: 28`) are equal, switching `type`'s default mode from `m1` to `m2`
+/// changes the resolved value from 14 to 28 and must grow the bound hug text and its parent.
+#[test]
+fn multi_axis_default_mode_switch_remeasures_hug_text() {
+    let mut e = Engine::new();
+    let page = default_page(&e);
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables",
+        "upsert_collections": [
+            {"id": "type", "name": "Type", "modes": [{"id": "m1", "name": "Small"}, {"id": "m2", "name": "Large"}], "default_mode": "m1"},
+            {"id": "density", "name": "Density", "modes": [{"id": "compact", "name": "Compact"}], "default_mode": "compact"}
+        ],
+        "upsert_variables": [
+            {"id": "type/size", "name": "Size", "collection": "type", "kind": "number", "values": {"m1": 14.0, "m2": 28.0}}
+        ]}]}),
+    )
+    .unwrap();
+    let (button, label) = hug_button(&mut e, page, "MultiAxisBtn", json!("var:Type/Size"));
+    {
+        let v = e.doc.variables.get_mut("type/size").unwrap();
+        v.values.insert("m1".into(), designos_doc::VariableValue::Number(28.0));
+        v.values.insert("m2".into(), designos_doc::VariableValue::Number(28.0));
+        v.values.insert("m1+compact".into(), designos_doc::VariableValue::Number(14.0));
+        v.values.insert("m2+compact".into(), designos_doc::VariableValue::Number(28.0));
+    }
+    let before = [size(&e, button), size(&e, label)];
+    assert_eq!(e.doc.resolve_variable(label, "type/size"), Some(designos_doc::VariableValue::Number(14.0)));
+
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables", "upsert_collections": [
+            {"id": "type", "default_mode": "m2"}
+        ]}]}),
+    )
+    .unwrap();
+
+    assert_eq!(e.doc.resolve_variable(label, "type/size"), Some(designos_doc::VariableValue::Number(28.0)));
+    let after = [size(&e, button), size(&e, label)];
+    assert!(
+        after[1].x > before[1].x && after[1].y > before[1].y,
+        "multi-axis m1+compact (14) -> m2+compact (28) must grow bound text ({before:?} -> {after:?})"
+    );
+    assert_eq!(after[1], drawn_measure(&e, label));
+    assert_eq!(after[0].x, 24.0 + after[1].x, "hug parent must follow the grown multi-axis label");
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!([size(&e, button), size(&e, label)], before, "undo restores 14px multi-axis layout");
+    e.call("designos_redo", json!({})).unwrap();
+    assert_eq!([size(&e, button), size(&e, label)], after, "redo restores 28px multi-axis layout");
+}
+
 /// The batch `apply_spec` op sizes hug text with the renderer, not the estimate.
 #[test]
 fn batch_apply_spec_op_measures_hug_text() {
