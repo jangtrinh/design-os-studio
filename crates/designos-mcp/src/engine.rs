@@ -2712,7 +2712,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "get_variables",
-        "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. A collection that extends another has an `extension` block (parent_collection_id, mode_map, inherited_variable_ids, overrides with value and parent_value); `extendable` marks a collection others may extend. Set an override with designos_apply_batch set_variables, using the extension's own mode id; a null value there resets the override.",
+        "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. A collection that extends another has an `extension` block (parent_collection_id, mode_map, inherited_variable_ids, overrides with value and parent_value); `extendable` marks a collection others may extend. Set an override with designos_apply_batch set_variables, using the extension's own mode id; a null value there resets the override. Subscribed library variables and collections are read-only to set_variables; refused writes report 'library variables are read-only'.",
         json!({"node_id":id}),
         vec![],
         json!({
@@ -3396,6 +3396,39 @@ mod tests {
         e.doc.variables = store.variables.clone();
         e.doc.variable_collections = store.collections.clone();
         (theme, light, bg, brand, brand_light)
+    }
+
+    fn subscribed_library_variable() -> (Engine, String, String) {
+        use designos_doc::{VariableKind, VariableStore};
+        let mut engine = Engine::default();
+        let mut store = VariableStore::default();
+        let collection = store.add_collection("Library");
+        let mode = store.collections[&collection].default_mode.clone();
+        let variable = store.add_variable(&collection, "token", VariableKind::Number).unwrap();
+        assert!(store.set_value(&variable, &mode, designos_doc::VariableValue::Number(8.0)));
+        store.collections.get_mut(&collection).unwrap().source_library_key = Some("library-key".into());
+        engine.doc.variables = store.variables;
+        engine.doc.variable_collections = store.collections;
+        (engine, collection, variable)
+    }
+
+    #[test]
+    fn set_variables_refuses_every_write_to_subscribed_library_data_with_a_specific_error() {
+        for index in 0..5 {
+            let (mut engine, collection, variable) = subscribed_library_variable();
+            let before = (engine.doc.variables.clone(), engine.doc.variable_collections.clone());
+            let op = match index {
+                0 => json!({"upsert_variables": [{"id": variable, "name": "renamed"}]}),
+                1 => json!({"delete_variables": [variable]}),
+                2 => json!({"upsert_collections": [{"id": collection, "name": "renamed"}]}),
+                3 => json!({"upsert_variables": [{"id": "new", "collection": collection, "kind": "number", "values": {"light": 3}}]}),
+                _ => json!({"upsert_collections": [{"id": "new-library", "source_library_key": "library-key"}]}),
+            };
+            let error = set_variables(&mut engine, op).expect_err("library write must be refused");
+            assert_eq!(error.code, ErrorCode::BatchOpFailed, "case {index}: {error}");
+            assert_eq!(error.cause.as_deref().map(|cause| cause.message.as_str()), Some("library variables are read-only"), "case {index}: {error}");
+            assert_eq!((engine.doc.variables, engine.doc.variable_collections), before, "case {index} must be atomic");
+        }
     }
 
     #[test]

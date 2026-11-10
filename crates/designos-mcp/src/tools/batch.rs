@@ -200,7 +200,7 @@ pub fn tool_descriptor() -> Value {
     });
     json!({
         "name": "designos_apply_batch",
-        "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}; (5) table: {\"ops\":[{\"op\":\"table\",\"as\":\"t\",\"action\":\"create\",\"parent\":1,\"rows\":3,\"cols\":3},{\"op\":\"table\",\"node\":\"@t\",\"action\":\"set_cell_text\",\"row\":0,\"col\":0,\"text\":\"Header\"}]}.",
+        "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress, connect, table) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Library variables and collections are read-only; set_variables refuses writes with \"library variables are read-only\". Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}; (5) table: {\"ops\":[{\"op\":\"table\",\"as\":\"t\",\"action\":\"create\",\"parent\":1,\"rows\":3,\"cols\":3},{\"op\":\"table\",\"node\":\"@t\",\"action\":\"set_cell_text\",\"row\":0,\"col\":0,\"text\":\"Header\"}]}.",
         "inputSchema": {
             "type": "object",
             "required": ["ops"],
@@ -1549,6 +1549,9 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
             return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "collection id must not be empty"));
         }
         let existing = collections.get(&c_in.id).cloned();
+        if existing.as_ref().is_some_and(VariableCollection::is_library) || c_in.source_library_key.is_some() {
+            return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "library variables are read-only"));
+        }
         if existing.as_ref().is_some_and(|e| e.is_extension()) && (!c_in.modes.is_empty() || c_in.default_mode.is_some()) {
             return Err(op_failed_error(
                 op_idx,
@@ -1629,6 +1632,11 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
                 format!("variable collection '{collection_id}' not found"),
             ));
         }
+        if existing.as_ref().is_some_and(|v| collections.get(&v.collection).is_some_and(VariableCollection::is_library))
+            || collections.get(&collection_id).is_some_and(VariableCollection::is_library)
+        {
+            return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "library variables are read-only"));
+        }
         // values are written below through the variable store (set_value, set_alias, reset_override), which owns the
         // rules for extended collections and alias cycles; this record only keeps what the variable already has
         let values = existing.as_ref().map(|e| e.values.clone()).unwrap_or_default();
@@ -1666,6 +1674,9 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
     let rules_before = VariableStore { variables: doc.variables.clone(), collections: doc.variable_collections.clone() }.extension_violations();
     let mut store = VariableStore { variables, collections };
     for del_id in &op.delete_variables {
+        if store.variables.get(del_id).is_some_and(|v| store.collections.get(&v.collection).is_some_and(VariableCollection::is_library)) {
+            return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "library variables are read-only"));
+        }
         store.forget_overrides_of(del_id);
         store.variables.remove(del_id);
         for col in store.collections.values_mut() {
