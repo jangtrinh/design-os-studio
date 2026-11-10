@@ -1,6 +1,6 @@
 """The harness fails closed: a drift that is expected must happen, and a pixel check needs Pillow.
 
-Run from the repo root: python3 scripts/qa/grid_chrome/test_fail_closed.py
+Run from the repo root: python3 -m unittest scripts.tests.test_grid_chrome_fail_closed
 """
 
 from pathlib import Path
@@ -8,7 +8,7 @@ import sys
 import unittest
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "qa"))
 
 from grid_chrome import screenshot  # noqa: E402
 
