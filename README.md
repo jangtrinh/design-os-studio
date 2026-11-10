@@ -169,7 +169,7 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.10. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.11. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
 
 <a id="new-in-v0710"></a>
 ### 0.7.10
@@ -732,7 +732,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.7. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.11. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.11 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
