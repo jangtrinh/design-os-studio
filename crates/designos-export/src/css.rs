@@ -380,6 +380,15 @@ fn linear_css(handles: &[Vec2; 3], stops: &[GradientStop], size: Vec2, opacity: 
     format!("linear-gradient({}deg, {})", num2(deg), stop_list(stops, opacity, profile, fmt, pos))
 }
 
+/// Whether a stroke is a CSS border (it takes layout space) rather than an outline.
+///
+/// A grid frame follows [`GridStroke::border`]. Every other node uses one rule: an Inside stroke is
+/// a border, and a Center or Outside stroke is an outline. The outline keeps the box size, so the
+/// stroke sits where the canvas draws it and the content does not shift.
+pub(crate) fn stroke_as_border(n: &Node, grid: Option<GridStroke>) -> bool {
+    grid.map_or(n.stroke.align == StrokeAlign::Inside, |g| g.border())
+}
+
 /// Stroke declarations. `grid` carries the model chosen for a grid frame (see [`GridStroke`]); every
 /// other node keeps one rule: an Inside stroke is a border, a Center or Outside one an outline.
 fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>, profile: ColorProfile, fmt: ColorFormat) {
@@ -405,7 +414,7 @@ fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>, profile: Co
         return;
     }
     let side_bindings = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
-    let as_border = grid.map_or(st.align == StrokeAlign::Inside, |g| g.border());
+    let as_border = stroke_as_border(n, grid);
     if as_border && st.align == StrokeAlign::Inside && (st.side_weights.is_some() || side_bindings.iter().any(|key| n.variables.bindings.contains_key(*key))) {
         let [t, r, b, l] = st.side_weights.unwrap_or([st.weight; 4]);
         push("border-width", box_shorthand(t, r, b, l));
