@@ -1,7 +1,6 @@
-//! Strokes and padding of nodes that are not grid frames export exactly as they always did: a Center or
-//! Outside stroke is an `outline` (CSS) over a `border` class (Tailwind), an Inside stroke a `border`,
-//! and the padding written is the stored padding. Only a grid frame folds its stroke into its padding.
-//! Each golden below was captured from the exporter before grid strokes were changed.
+//! Strokes and padding of nodes that are not grid frames: a Center or Outside stroke is an `outline`
+//! in both CSS and Tailwind, an Inside stroke a `border`, and the padding written is the stored
+//! padding. Only a grid frame folds its stroke into its padding.
 
 use designos_doc::*;
 use designos_export::{css_for, tailwind_for};
@@ -76,12 +75,12 @@ const GOLDEN: &[Case] = &[
     Case {
         label: "flex row, Center stroke",
         css: "display: flex;\nwidth: 200px;\nheight: 100px;\npadding: 8px;\nalign-items: flex-start;\noutline: 2px solid #333;\noutline-offset: -1px;",
-        tailwind: "<div class=\"flex items-start p-2 w-[200px] h-[100px] border-2 border-[#333333] outline-offset-[-1px]\"></div>",
+        tailwind: "<div class=\"flex items-start p-2 w-[200px] h-[100px] outline outline-2 outline-[#333333] outline-offset-[-1px]\"></div>",
     },
     Case {
         label: "flex column, Outside stroke",
         css: "display: flex;\nwidth: 200px;\nheight: 100px;\npadding: 8px;\nflex-direction: column;\nalign-items: flex-start;\noutline: 2px solid #333;",
-        tailwind: "<div class=\"flex flex-col items-start p-2 w-[200px] h-[100px] border-2 border-[#333333] outline-offset-[0px]\"></div>",
+        tailwind: "<div class=\"flex flex-col items-start p-2 w-[200px] h-[100px] outline outline-2 outline-[#333333]\"></div>",
     },
     Case {
         label: "flex row, Inside stroke",
@@ -101,12 +100,12 @@ const GOLDEN: &[Case] = &[
     Case {
         label: "flex column, dashed Center stroke",
         css: "display: flex;\nwidth: 200px;\nheight: 100px;\npadding: 8px;\nflex-direction: column;\nalign-items: flex-start;\noutline: 2px dashed #333;\noutline-offset: -1px;",
-        tailwind: "<div class=\"flex flex-col items-start p-2 w-[200px] h-[100px] border-2 border-dashed border-[#333333] outline-offset-[-1px]\"></div>",
+        tailwind: "<div class=\"flex flex-col items-start p-2 w-[200px] h-[100px] outline outline-2 outline-dashed outline-[#333333] outline-offset-[-1px]\"></div>",
     },
     Case {
         label: "rectangle, Center stroke",
         css: "width: 40px;\nheight: 40px;\noutline: 3px solid #333;\noutline-offset: -1.5px;",
-        tailwind: "<div class=\"w-10 h-10 border-[3px] border-[#333333] outline-offset-[-1.5px]\"></div>",
+        tailwind: "<div class=\"w-10 h-10 outline outline-[3px] outline-[#333333] outline-offset-[-1.5px]\"></div>",
     },
     Case {
         label: "flex row, negative padding",

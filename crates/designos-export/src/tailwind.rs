@@ -1,7 +1,7 @@
 //! Tailwind CSS output: markup with utility classes.
 
 use crate::codegen::*;
-use crate::css::paint_css_with;
+use crate::css::{paint_css_with, stroke_as_border};
 use crate::grid_stroke::{GridStroke, StrokeModel};
 use crate::slots::*;
 use crate::util::{css_color_in, num, num2, ColorFormat};
@@ -280,9 +280,9 @@ fn stroke_width_class(prefix: &str, px: f32, var: Option<&Variable>) -> String {
     }
 }
 
-/// A grid frame's stroke drawn as an outline, which takes no layout space: `outline outline-2
+/// A stroke drawn as an outline, which takes no layout space: `outline outline-2
 /// outline-[#333333] outline-offset-[-1px]`. Inside and Center strokes are offset inward by their
-/// width and half of it; an Outside stroke is not offset.
+/// width and half of it; an Outside stroke is not offset. Used when [`stroke_as_border`] is false.
 fn outline_classes(doc: &Document, n: &Node, p: &Paint, fmt: ColorFormat) -> Vec<String> {
     let width = match bound(doc, n, "strokeWeight") {
         Some(v) => format!("outline-[length:{}]", css_var(v)),
@@ -576,13 +576,11 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>, fmt: ColorFormat) -> Ve
         .find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
         .filter(|_| text_of(n).is_none() && has_stroke_width)
     {
-        let w = n.stroke.weight;
-        let grid_model = grid_stroke.map(|g| g.model);
-        if grid_model == Some(StrokeModel::Shadow) {
+        // Same order as CSS: a shadow stroke is drawn with the effects, a line is always
+        // `border-top`, and every other stroke is a border or an outline via `stroke_as_border`.
+        if grid_stroke.is_some_and(|g| g.model == StrokeModel::Shadow) {
             // drawn as inset shadows with the other effects
-        } else if grid_model == Some(StrokeModel::Outline) {
-            c.extend(outline_classes(doc, n, p, fmt));
-        } else {
+        } else if matches!(n.kind, NodeKind::Line) || stroke_as_border(n, grid_stroke) {
             let side_prefixes = ["border-t", "border-r", "border-b", "border-l"];
             let stored = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
             let has_side_width = n.stroke.side_weights.is_some() || side_keys.iter().any(|key| bound(doc, n, key).is_some());
@@ -603,16 +601,8 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>, fmt: ColorFormat) -> Ve
                 c.push("border-dashed".into());
             }
             c.push(color_class(doc, n, "strokes/0", "border", p, false, fmt));
-            if n.stroke.align != StrokeAlign::Inside {
-                let offset = match n.stroke.align {
-                    StrokeAlign::Center => {
-                        bound(doc, n, "strokeWeight").map(|v| format!("calc(-0.5*{})", css_var(v))).unwrap_or_else(|| format!("{}px", num(-w / 2.0)))
-                    }
-                    StrokeAlign::Outside => "0px".into(),
-                    StrokeAlign::Inside => unreachable!(),
-                };
-                c.push(format!("outline-offset-[{offset}]"));
-            }
+        } else {
+            c.extend(outline_classes(doc, n, p, fmt));
         }
     }
     // shape
@@ -982,10 +972,9 @@ mod tests {
         n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
         let id = d.insert(page, n).unwrap();
         let out = tailwind_for(&d, id);
-        assert!(out.contains("border-[length:var(--Stroke-Width)]"), "{out}");
+        assert!(out.contains("outline-[length:var(--Stroke-Width)]"), "{out}");
         assert!(out.contains("outline-offset-[calc(-0.5*var(--Stroke-Width))]"), "{out}");
-        assert!(!out.contains("border-t-"), "center strokes use one outline: {out}");
-        assert!(!out.contains("border-r-"), "center strokes use one outline: {out}");
+        assert!(!out.contains("border"), "center strokes use one outline: {out}");
     }
 
     #[test]
