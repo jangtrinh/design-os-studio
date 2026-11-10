@@ -80,8 +80,10 @@ pub struct Options {
     pub export_spec: Option<PathBuf>,
     /// Headless agent CLI: export the document to a native `.fig` binary file (`fig-kiwi` + ZIP).
     pub export_fig: Option<PathBuf>,
-    /// With `--export-fig`: replace the output file when it already exists. Without it an existing file is refused. Only a
-    /// regular file is ever replaced, never a symbolic link or a directory.
+    /// Headless agent CLI: write the design-system scan (components, tokens, styles, page frames) to a `.json` file and exit.
+    pub scan_design_system: Option<PathBuf>,
+    /// With `--export-fig` or `--scan-design-system`: replace the output file when it already exists. Without it an existing
+    /// file is refused. Only a regular file is ever replaced, never a symbolic link or a directory.
     pub overwrite: bool,
     /// Headless agent CLI: generate code for `--select` (or first screen/page) in the given target language and print to stdout.
     pub codegen: Option<String>,
@@ -140,6 +142,7 @@ impl Options {
             || self.apply_spec.is_some()
             || self.export_spec.is_some()
             || self.export_fig.is_some()
+            || self.scan_design_system.is_some()
             || self.codegen.is_some()
             || (self.import_capture.is_some() && self.screenshot.is_none() && (self.out.is_some() || self.file.is_some() || self.open_id.is_some()))
             || self.import_variables.is_some()
@@ -400,6 +403,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--apply-spec" => o.apply_spec = Some(it.next().ok_or("--apply-spec needs a spec JSON path")?.into()),
             "--export-spec" => o.export_spec = Some(it.next().ok_or("--export-spec needs an output JSON path")?.into()),
             "--export-fig" => o.export_fig = Some(it.next().ok_or("--export-fig needs an output .fig path")?.into()),
+            "--scan-design-system" => o.scan_design_system = Some(it.next().ok_or("--scan-design-system needs an output .json path")?.into()),
             "--overwrite" => o.overwrite = true,
             "--import-capture" | "--import-web-capture" => o.import_capture = Some(it.next().ok_or("--import-capture needs a capture JSON path")?.into()),
             "--out" => o.out = Some(it.next().ok_or("--out needs an output path")?.into()),
@@ -466,7 +470,7 @@ pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
     designos_mcp::tools::errors::parse_spec_json(raw)
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout-json OUT.json] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|comments|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|text-style-overrides|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report|export-toast]\n               [--zoom PERCENT|fit] [--pointer X,Y] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout-json OUT.json] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|comments|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|text-style-overrides|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report|export-toast]\n               [--zoom PERCENT|fit] [--pointer X,Y] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--scan-design-system OUT.json [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
   --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number that is both a layer name and a node id exits 2 (use id:<n> or name:<n>). Ids of expanded instance content are per session: use fig:<id> or a name for those. A selector that matches nothing exits 2 and changes nothing
   --pointer  window pixels of the pointer for a capture (hover states), only with --screenshot
@@ -485,6 +489,7 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
   --fixture  open a sample document instead of the demo (showcase|proto-vars|no-selection|variables|comments|board|board-empty)
   --export-fig  headless Agent CLI: write the document to OUT.fig. The path must end in .fig and must not exist yet; --overwrite replaces an existing regular file. A symbolic link is never written through
+  --scan-design-system  headless Agent CLI: write the design-system scan of the file to OUT.json, the file `ui ingest-figma-ds` reads (components with their bound variables and the components they use, tokens of local collections, styles, page frames with the components they use), so a design system can be onboarded from a .fig without the Figma app. Figma ids are kept. Variables reached only through a style, overrides inside nested instances and variable-bound defaults of component properties are not sensed. The path must end in .json and must not exist yet; --overwrite replaces an existing regular file. A symbolic link is never written through
   --import-variables  headless Agent CLI: read variables from FILE (.json or .zip) into the document
   --export-variables  headless Agent CLI: write the document's variables to PATH (a .json or .zip file, or a folder)
   --format   variable format for --import-variables and --export-variables (auto|figma-rest|figma-native|dtcg)
@@ -492,7 +497,7 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout
   --collection  with --mode: narrow single-mode DTCG export to collection NAME or id:<collection_id> (repeatable)
   --resolve-aliases  with --mode: replace DTCG {Group.token} alias strings with resolved literal values
   --color-format  with --export-variables --format dtcg: colour $value encoding (hex|object, default object)
-  --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --codegen / --import-capture  headless Agent CLI inspection and mutation";
+  --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --scan-design-system / --codegen / --import-capture  headless Agent CLI inspection and mutation";
 
 #[cfg(test)]
 mod tests {
@@ -705,6 +710,33 @@ mod tests {
         assert!(USAGE.contains("[--export-fig OUT.fig [--overwrite]]"));
         assert!(USAGE.contains("--overwrite replaces an existing regular file"), "the help says what --overwrite does");
         assert!(USAGE.contains("never written through"), "the help says a symbolic link is refused");
+    }
+
+    #[test]
+    fn the_scan_design_system_flag_is_a_headless_agent_command() {
+        let o = p(&["kit.fig", "--scan-design-system", "ds.json"]).unwrap();
+        assert_eq!(o.scan_design_system, Some("ds.json".into()));
+        assert!(o.is_agent_cli(), "it never opens a window");
+        assert!(!o.wants_home());
+        assert!(!o.overwrite);
+        assert!(p(&["kit.fig", "--scan-design-system", "ds.json", "--overwrite"]).unwrap().overwrite);
+        assert!(p(&["kit.fig", "--scan-design-system"]).is_err(), "the flag needs an output path");
+    }
+
+    #[test]
+    fn the_help_text_names_the_scan_design_system_rules() {
+        assert!(USAGE.contains("[--scan-design-system OUT.json [--overwrite]]"));
+        let line = USAGE.lines().find(|l| l.trim_start().starts_with("--scan-design-system")).expect("--help has a line for --scan-design-system");
+        for part in [
+            "ui ingest-figma-ds",
+            "Figma ids are kept",
+            "must end in .json",
+            "--overwrite replaces an existing regular file",
+            "never written through",
+            "not sensed",
+        ] {
+            assert!(line.contains(part), "the help line says `{part}`: {line}");
+        }
     }
 
     #[test]

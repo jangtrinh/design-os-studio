@@ -19,6 +19,13 @@ designos app.designos --export-fig out.fig
 
 # 3. Export any canvas frame back to a clean, diffable NodeSpec JSON
 designos app.designos --select "EaseUI — Agent-First Spec Console" --export-spec out.spec.json
+
+# 4. Write the design-system scan of a .fig for the DESIGN:OS kernel (`ui ingest-figma-ds`), without the Figma app.
+#    The path must end in .json and must not exist yet; add --overwrite to replace an existing regular file.
+#    Components (with the variables they bind and the components they use), tokens of local collections, styles
+#    and page frames (with the components they use) keep the Figma ids of the file. Not sensed: variables reached
+#    only through a style, overrides inside nested instances, and variable-bound defaults of component properties.
+designos kit.fig --scan-design-system ds.json
 ```
 
 ---

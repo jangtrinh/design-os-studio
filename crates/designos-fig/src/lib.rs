@@ -14,6 +14,8 @@ mod board;
 mod clipboard;
 mod component_fingerprint;
 pub mod container;
+mod design_system_scan;
+mod design_system_scan_sensing;
 mod dev;
 mod effect_units;
 mod export;
@@ -38,6 +40,7 @@ mod vecnet;
 pub mod web_capture;
 
 pub use clipboard::{import_figma_clipboard, looks_like_figma_clipboard, parse_figma_clipboard_html, FigClipboard};
+pub use design_system_scan::{scan_design_system, DesignSystemScan, ScanError};
 pub use designos_doc::Document;
 pub use export::export_rest_json;
 pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig, import_fig_node_changes_with_report, import_fig_with_budget, import_fig_with_report};
