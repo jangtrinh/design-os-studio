@@ -286,7 +286,7 @@ pub fn export_variables_meta(doc: &Document) -> Value {
         m.insert("variableCollectionId".into(), v.collection.clone().into());
         m.insert("resolvedType".into(), type_name(v.kind).into());
         m.insert("valuesByMode".into(), Value::Object(v.values.iter().map(|(k, x)| (k.clone(), value_json(x))).collect()));
-        m.insert("remote".into(), false.into());
+        m.insert("remote".into(), doc.variable_collections.get(&v.collection).is_some_and(VariableCollection::is_library).into());
         m.insert("description".into(), v.description.clone().into());
         m.insert("hiddenFromPublishing".into(), v.hidden_from_publishing.into());
         if v.is_soft_deleted() {
@@ -914,6 +914,23 @@ mod tests {
         let mut again = Document::new("d2");
         import_variables_value(&mut again, &json!({ "variables": meta }));
         assert_eq!(again.variable_collections, doc.variable_collections);
+    }
+
+    #[test]
+    fn exported_variables_in_subscribed_collections_are_remote() {
+        let mut doc = Document::new("d");
+        let local = fig_set(5, "Local", "K_LOCAL", None);
+        let library = fig_set(20, "Library", "K_LIB", Some("lk-83c0"));
+        let local_var = json!({"type": "VARIABLE", "guid": {"sessionID": 1, "localID": 9}, "name": "local", "variableResolvedType": "FLOAT",
+            "variableSetID": {"guid": {"sessionID": 1, "localID": 5}}, "variableDataValues": {"entries": []}});
+        let library_var = json!({"type": "VARIABLE", "guid": {"sessionID": 1, "localID": 30}, "name": "library", "variableResolvedType": "FLOAT",
+            "variableSetID": {"assetRef": {"key": "K_LIB"}}, "variableDataValues": {"entries": []}});
+        let payload = from_fig_entries(&[&local, &library, &local_var, &library_var]).unwrap();
+        import_variables_value(&mut doc, &json!({"variables": payload}));
+
+        let meta = export_variables_meta(&doc);
+        assert_eq!(meta["variables"]["VariableID:1:9"]["remote"], false);
+        assert_eq!(meta["variables"]["VariableID:1:30"]["remote"], true);
     }
 
     #[test]
