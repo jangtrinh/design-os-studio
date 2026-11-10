@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DESIGN:OS Studio: a native design editor for Figma files and coding agents</title>
-<meta name="description" content="A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code or Codex edit your canvas. Source-available under PolyForm Shield 1.0.0.">
+<meta name="description" content="Free native design editor in Rust. Open and save Figma .fig files; coding agents edit via designos-mcp (39 tools). Source-available (PolyForm Shield 1.0.0).">
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#121215">
@@ -41,8 +41,35 @@
       "codeRepository": "https://github.com/jangtrinh/design-os-studio",
       "programmingLanguage": "Rust",
       "license": "https://polyformproject.org/licenses/shield/1.0.0",
-      "author": { "@type": "Person", "name": "jangtrinh", "url": "https://github.com/jangtrinh" },
-      "keywords": "design editor, figma fig files, mcp server, claude code, codex, grok, antigravity, gemini cli, wgpu, rust"
+      "author": {
+        "@type": "Person",
+        "name": "jangtrinh",
+        "url": "https://github.com/jangtrinh"
+      },
+      "keywords": "design editor, figma fig files, mcp server, claude code, codex, grok, antigravity, gemini cli, wgpu, rust",
+      "@id": "https://jangtrinh.github.io/design-os-studio/#source",
+      "targetProduct": {
+        "@id": "https://jangtrinh.github.io/design-os-studio/#app"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "name": "DESIGN:OS Studio",
+      "applicationCategory": "DesignApplication",
+      "operatingSystem": "macOS, Windows, Linux",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "license": "https://polyformproject.org/licenses/shield/1.0.0",
+      "url": "https://jangtrinh.github.io/design-os-studio/",
+      "downloadUrl": "https://github.com/jangtrinh/design-os-studio/releases",
+      "softwareVersion": "0.7.11",
+      "@id": "https://jangtrinh.github.io/design-os-studio/#app",
+      "isBasedOn": {
+        "@id": "https://jangtrinh.github.io/design-os-studio/#source"
+      }
     },
     {
       "@type": "FAQPage",
@@ -50,27 +77,42 @@
         {
           "@type": "Question",
           "name": "What is DESIGN:OS Studio?",
-          "acceptedAnswer": { "@type": "Answer", "text": "A native desktop design editor written in Rust. It draws on the GPU with wgpu, opens and saves Figma .fig files, and bundles a local server so coding agents can edit the open document." }
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "A native desktop design editor written in Rust. It draws on the GPU with wgpu, opens and saves Figma .fig files, and bundles a local server so coding agents can edit the open document."
+          }
         },
         {
           "@type": "Question",
           "name": "Can I use my Figma files?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Studio opens and saves .fig files. You can also copy layers in Figma desktop and paste them onto the Studio canvas with Cmd+V. They land centered in the view as one undo step, images included." }
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Studio opens and saves .fig files. You can also copy layers in Figma desktop and paste them onto the Studio canvas with Cmd+V. They land centered in the view as one undo step, images included."
+          }
         },
         {
           "@type": "Question",
           "name": "How do coding agents work with it?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Studio bundles designos-mcp, a local MCP server, and an Agents panel with built-in presets for Claude Code, Codex, Grok, Antigravity and Gemini CLI. Agent edits replay into your open document, wait while you drag, and each one is its own undo step." }
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Studio bundles designos-mcp, a local MCP server, and an Agents panel with built-in presets for Claude Code, Codex, Grok, Antigravity and Gemini CLI. Agent edits replay into your open document, wait while you drag, and each one is its own undo step."
+          }
         },
         {
           "@type": "Question",
           "name": "Which systems does it run on?",
-          "acceptedAnswer": { "@type": "Answer", "text": "macOS, Windows and Linux. Releases are verified on macOS; the Windows and Linux packages are built by the same release workflow but are not verified before release. On a Mac, the first launch needs Open Anyway once." }
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "macOS, Windows and Linux. Releases are verified on macOS; the Windows and Linux packages are built by the same release workflow but are not verified before release. On a Mac, the first launch needs Open Anyway once."
+          }
         },
         {
           "@type": "Question",
           "name": "What is the license?",
-          "acceptedAnswer": { "@type": "Answer", "text": "PolyForm Shield 1.0.0: free to use and modify, including for commercial work, but you may not resell it or offer a product that competes with it. The source is on GitHub." }
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "PolyForm Shield 1.0.0: free to use and modify, including for commercial work, but you may not resell it or offer a product that competes with it. The source is on GitHub."
+          }
         }
       ]
     }
@@ -326,7 +368,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
        In motion mode the Tenant engine pins it and the cards flip on scroll.
        Source ledger (every number traces to a file):
          207,601  node_count from `designos --inspect-json` on the Untitled UI PRO v8.0 kit (113 pages; README.md)
-         36       assert_eq!(tools.len(), snapshot.len()) (36 tools) in crates/designos-mcp/tests/stdio.rs
+         39       assert_eq!(tools.len(), snapshot.len()) (39 tools) in crates/designos-mcp/tests/stdio.rs
          8        css, tailwind, react, swiftui, uikit, compose, android_xml, html: golden tests in crates/designos-export/src/*.rs -->
   <section id="proof" class="proof" aria-labelledby="proof-h">
     <div class="proof__scene sec">
@@ -347,16 +389,16 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
               </figure>
             </article>
           </li>
-          <li class="proof-slot" data-source="assert_eq!(tools.len(), snapshot.len()) (36 tools) in crates/designos-mcp/tests/stdio.rs">
+          <li class="proof-slot" data-source="assert_eq!(tools.len(), snapshot.len()) (39 tools) in crates/designos-mcp/tests/stdio.rs">
             <article class="proof-card" style="--tint:13 153 255">
               <div class="proof-face proof-face--front">
-                <p class="proof-num">36</p>
+                <p class="proof-num">39</p>
                 <p class="proof-label"><i aria-hidden="true"></i>MCP tools</p>
                 <p class="proof-note">Coding agents edit the document you have open through <code>designos-mcp</code>. Built-in presets: Claude Code, Codex, Grok, Antigravity and Gemini CLI.</p>
               </div>
               <figure class="proof-face proof-face--back">
                 <img src="images/designos-agent-spec.png" width="2880" height="1800" loading="lazy" decoding="async" alt="DESIGN:OS Studio with the Untitled UI PRO v8.0 kit open: a Metric group frame built from a NodeSpec is selected on the canvas, with its auto layout, wrap and dimensions in the Design panel">
-                <figcaption>36 MCP tools</figcaption>
+                <figcaption>39 MCP tools</figcaption>
               </figure>
             </article>
           </li>
@@ -409,7 +451,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
        pins the section, the three stills crossfade on one stage and the chapter copy follows progress.
        The chapter ids keep the #figma, #agents and #code anchors.
        Source ledger:
-         36  assert_eq!(tools.len(), snapshot.len()) (36 tools) in crates/designos-mcp/tests/stdio.rs
+         39  assert_eq!(tools.len(), snapshot.len()) (39 tools) in crates/designos-mcp/tests/stdio.rs
          8   css, tailwind, react, swiftui, uikit, compose, android_xml, html: golden tests in crates/designos-export/src/*.rs -->
   <section id="workflow" class="workflow" aria-label="Workflow">
     <div class="wf__scene sec wrap">
@@ -428,7 +470,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
           <p class="wf__kicker"><i aria-hidden="true"></i>02 Agents</p>
           <h2 id="agents-h">Let an agent build with you.</h2>
           <ul class="wf__facts">
-            <li><strong>36 tools through <code>designos-mcp</code>.</strong> <span class="wf__nb">Built-in</span> presets for Claude Code, Codex, Grok, Antigravity and Gemini CLI.</li>
+            <li><strong>39 tools through <code>designos-mcp</code>.</strong> <span class="wf__nb">Built-in</span> presets for Claude Code, Codex, Grok, Antigravity and Gemini CLI.</li>
             <li><strong>Live sessions in the Agents panel.</strong> Each CLI uses its own sign-in, keeps its sessions across restarts, and asks before acting by default.</li>
             <li><strong>Every agent turn is one undo step.</strong> Review what changed and keep it or revert it, while your view stays where it was.</li>
           </ul>
@@ -804,7 +846,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
           .fig read and write&#160;&#160;·&#160;&#160;
           GPU canvas&#160;&#160;·&#160;&#160;
           designos-mcp&#160;&#160;·&#160;&#160;
-          36 MCP tools&#160;&#160;·&#160;&#160;
+          39 MCP tools&#160;&#160;·&#160;&#160;
           Dev Mode&#160;&#160;·&#160;&#160;
           CSS&#160;&#160;·&#160;&#160;
           Tailwind&#160;&#160;·&#160;&#160;
