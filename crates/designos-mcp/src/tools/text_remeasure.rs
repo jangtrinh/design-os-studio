@@ -2,7 +2,7 @@
 //! linked to (`set_style`) or a variable it is bound to (`set_variables`). The box follows
 //! what the renderer draws: bindings and linked-style bindings applied, runs included.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use designos_doc::{
     resolve_node, set_bound_property, Command, Document, Node, NodeId, NodeKind, TextAutoResize, Variable, VariableCollection, VariableKind, VariableValue,
@@ -40,58 +40,95 @@ pub(crate) fn resize_hug_text(doc: &Document, node: &mut Node) {
     node.size = size;
 }
 
-/// The variables and collections a `set_variables` op writes or deletes, as they were before it ran.
+/// Snapshot of the document's variable and collection maps before a `set_variables` op runs,
+/// including collections that `unmap_parent_mode` or override edits rewrite.
 pub(crate) struct VariablesBefore {
-    variables: Vec<(String, Option<Variable>)>,
-    collections: Vec<(String, Option<VariableCollection>)>,
+    variables: BTreeMap<String, Variable>,
+    collections: BTreeMap<String, VariableCollection>,
 }
 
 impl VariablesBefore {
-    pub(crate) fn capture(doc: &Document, written_variables: &[&str], written_collections: &[&str]) -> Self {
-        Self {
-            variables: written_variables.iter().map(|id| ((*id).to_string(), doc.variables.get(*id).cloned())).collect(),
-            collections: written_collections.iter().map(|id| ((*id).to_string(), doc.variable_collections.get(*id).cloned())).collect(),
-        }
+    pub(crate) fn capture(doc: &Document) -> Self {
+        Self { variables: doc.variables.clone(), collections: doc.variable_collections.clone() }
+    }
+
+    /// Resolves `variable` at `node` with [`Document::resolve_variable`] against the pre-op
+    /// `variables` and `variable_collections` maps.
+    fn resolve_in_pre_op(&mut self, doc: &mut Document, node: NodeId, variable: &str) -> Option<VariableValue> {
+        std::mem::swap(&mut doc.variables, &mut self.variables);
+        std::mem::swap(&mut doc.variable_collections, &mut self.collections);
+        let value = doc.resolve_variable(node, variable);
+        std::mem::swap(&mut doc.variables, &mut self.variables);
+        std::mem::swap(&mut doc.variable_collections, &mut self.collections);
+        value
     }
 
     /// Ids of the variables of one of `kinds` whose resolved value can have changed in this op: the
-    /// written ones whose value changed, every variable of a collection whose default mode or mode
-    /// list changed (they pick which value each variable resolves to), and every variable whose
-    /// alias chain reaches one of those.
+    /// written ones whose value changed, every variable of a collection whose default mode, mode
+    /// list, or extension state changed (they pick which value each variable resolves to), and every
+    /// variable whose alias chain reaches one of those.
     fn changed_variables(&self, doc: &Document, kinds: &[VariableKind]) -> HashSet<String> {
         let mut changed: HashSet<String> = HashSet::new();
-        for (id, before) in &self.variables {
-            let after = doc.variables.get(id);
-            if after == before.as_ref() {
-                continue;
-            }
-            if after.or(before.as_ref()).is_some_and(|v| kinds.contains(&v.kind)) {
+        for (id, after) in &doc.variables {
+            if self.variables.get(id) != Some(after) && kinds.contains(&after.kind) {
                 changed.insert(id.clone());
             }
         }
-        for (id, before) in &self.collections {
-            let modes_of = |c: &VariableCollection| (c.default_mode.clone(), c.modes.clone());
-            if doc.variable_collections.get(id).map(modes_of) == before.as_ref().map(modes_of) {
+        for (id, before) in &self.variables {
+            if !doc.variables.contains_key(id) && kinds.contains(&before.kind) {
+                changed.insert(id.clone());
+            }
+        }
+        let all_collections: HashSet<&String> = self.collections.keys().chain(doc.variable_collections.keys()).collect();
+        for id in all_collections {
+            fn modes_of(c: &VariableCollection) -> (&str, Vec<&str>, &designos_doc::FigmaExtensions) {
+                (&c.default_mode, c.modes.iter().map(|m| m.id.as_str()).collect(), &c.extensions)
+            }
+            let before = self.collections.get(id);
+            let after = doc.variable_collections.get(id);
+            if after.map(modes_of) == before.map(modes_of) {
                 continue;
             }
-            changed.extend(doc.variables.values().filter(|v| v.collection == *id && kinds.contains(&v.kind)).map(|v| v.id.clone()));
+            let is_ext = before.is_some_and(VariableCollection::is_extension) || after.is_some_and(VariableCollection::is_extension);
+            for var_id in after.into_iter().chain(before).flat_map(|c| c.variables.iter().cloned()).chain(doc.inherited_variable_ids(id)) {
+                if doc.variables.get(&var_id).or_else(|| self.variables.get(&var_id)).is_some_and(|v| kinds.contains(&v.kind)) {
+                    changed.insert(var_id);
+                }
+            }
+            changed.extend(
+                doc.variables
+                    .values()
+                    .filter(|v| (v.collection == *id || is_ext || v.values.keys().any(|k| k.contains('+'))) && kinds.contains(&v.kind))
+                    .map(|v| v.id.clone()),
+            );
         }
         if changed.is_empty() {
             return changed;
         }
-        let mut aliased_by: HashMap<&str, Vec<&str>> = HashMap::new();
-        for (id, v) in &doc.variables {
+        let mut aliased_by: HashMap<String, Vec<String>> = HashMap::new();
+        for (id, v) in doc.variables.iter().chain(self.variables.iter()) {
             for value in v.values.values() {
                 if let VariableValue::Alias(target) = value {
-                    aliased_by.entry(target.as_str()).or_default().push(id.as_str());
+                    aliased_by.entry(target.clone()).or_default().push(id.clone());
+                }
+            }
+        }
+        for c in doc.variable_collections.values().chain(self.collections.values()) {
+            if let Some(ext) = c.extension() {
+                for (var_id, by_mode) in ext.overrides {
+                    for value in by_mode.into_values() {
+                        if let VariableValue::Alias(target) = value {
+                            aliased_by.entry(target).or_default().push(var_id.clone());
+                        }
+                    }
                 }
             }
         }
         let mut stack: Vec<String> = changed.iter().cloned().collect();
         while let Some(id) = stack.pop() {
-            for dependent in aliased_by.get(id.as_str()).into_iter().flatten() {
-                if changed.insert((*dependent).to_string()) {
-                    stack.push((*dependent).to_string());
+            for dependent in aliased_by.get(&id).into_iter().flatten() {
+                if changed.insert(dependent.clone()) {
+                    stack.push(dependent.clone());
                 }
             }
         }
@@ -104,22 +141,34 @@ impl VariablesBefore {
     }
 
     /// Nodes whose layout-affecting variable bindings reference a variable changed in this op
-    /// (numbers and booleans).
-    pub(crate) fn layout_bound_nodes(&self, doc: &Document) -> Vec<NodeId> {
+    /// (numbers and booleans) whose resolved value at the node actually changed.
+    pub(crate) fn layout_bound_nodes(&mut self, doc: &mut Document) -> Vec<NodeId> {
         let changed = self.changed_variables(doc, &[VariableKind::Number, VariableKind::Boolean]);
         if changed.is_empty() {
             return Vec::new();
         }
-        doc.nodes
+        let candidates: Vec<(NodeId, Vec<String>)> = doc
+            .nodes
             .values()
-            .filter(|n| {
-                n.variables.bindings.iter().any(|(k, v)| {
-                    (LAYOUT_BOX_KEYS.contains(&k.as_str())
-                        || (STROKE_WEIGHT_KEYS.contains(&k.as_str()) && crate::tools::relayout_scope::stroke_inset_read_by_solver(n).is_some()))
-                        && changed.contains(v.as_str())
-                })
+            .filter_map(|n| {
+                let vars: Vec<String> = n
+                    .variables
+                    .bindings
+                    .iter()
+                    .filter(|(k, v)| {
+                        (LAYOUT_BOX_KEYS.contains(&k.as_str())
+                            || (STROKE_WEIGHT_KEYS.contains(&k.as_str()) && crate::tools::relayout_scope::stroke_inset_read_by_solver(n).is_some()))
+                            && changed.contains(v.as_str())
+                    })
+                    .map(|(_, v)| v.clone())
+                    .collect();
+                (!vars.is_empty()).then_some((n.id, vars))
             })
-            .map(|n| n.id)
+            .collect();
+        candidates
+            .into_iter()
+            .filter(|(id, vars)| vars.iter().any(|v| self.resolve_in_pre_op(doc, *id, v) != doc.resolve_variable(*id, v)))
+            .map(|(id, _)| id)
             .collect()
     }
 }
@@ -164,25 +213,37 @@ impl BoundTextIndex {
     }
 
     /// One `Update` per hug text whose box changes because a variable it is bound to changed
-    /// in the `set_variables` op that `before` was captured for. `doc` is the document after
-    /// that op. Colour and boolean variables, and no-op upserts, cost nothing.
-    pub(crate) fn remeasure_after(&mut self, doc: &Document, before: &VariablesBefore) -> Vec<Command> {
+    /// its resolved value at the node in the `set_variables` op that `before` was captured for.
+    /// `doc` is the document after that op. Colour and boolean variables, and no-op upserts, cost nothing.
+    pub(crate) fn remeasure_after(&mut self, doc: &mut Document, before: &mut VariablesBefore) -> Vec<Command> {
         let changed = before.changed_text_variables(doc);
         if changed.is_empty() {
             return Vec::new();
         }
+        let ids = self.ids(doc).to_vec();
         let mut cmds = Vec::new();
-        for &id in self.ids(doc) {
+        for id in ids {
             let Some(node) = doc.get(id) else { continue };
-            let hits: Vec<(&str, &str)> = text_box_bindings(doc, node).into_iter().filter(|(_, var)| changed.contains(*var)).collect();
+            let bindings: Vec<(String, String)> =
+                text_box_bindings(doc, node).into_iter().filter(|(_, var)| changed.contains(*var)).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            if bindings.is_empty() {
+                continue;
+            }
+            let hits: Vec<(String, VariableValue)> = bindings
+                .into_iter()
+                .filter_map(|(key, var)| {
+                    let after = doc.resolve_variable(id, &var)?;
+                    let before_val = before.resolve_in_pre_op(doc, id, &var);
+                    (before_val.as_ref() != Some(&after)).then_some((key, after))
+                })
+                .collect();
             if hits.is_empty() {
                 continue;
             }
+            let Some(node) = doc.get(id) else { continue };
             let mut updated = node.clone();
-            for (key, var) in hits {
-                if let Some(value) = doc.resolve_variable(id, var) {
-                    set_bound_property(&mut updated, key, &value);
-                }
+            for (key, value) in &hits {
+                set_bound_property(&mut updated, key, value);
             }
             resize_hug_text(doc, &mut updated);
             if &updated != node {
