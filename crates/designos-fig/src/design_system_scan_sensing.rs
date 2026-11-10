@@ -16,13 +16,14 @@
 //! - **No self-reference.** A component or set never lists itself in its own `instances` (a variant using a sibling
 //!   variant of its set resolves to the set): the count carries nothing for the closure and would only make a cycle.
 //! - **Resolving an instance.** A local main component gives the id of its set when it is a variant, else its own
-//!   id; a library main component gives the key of its set when known, else its own key. An instance whose main
+//!   id; a library main component gives the key of its set when known, else its own key, or its Figma id when it is an
+//!   unpublished symbol on the file's internal canvas. An instance whose main
 //!   component cannot be resolved has no `component` and is counted in `unresolvedInstances`.
 //!
 //! The functions return `Err(reason)` instead of a partial answer: a half-walked tree would assert a list the scan
 //! never fully saw. The caller then leaves every sensed field out.
 
-use crate::design_system_scan::{component_key, figma_id, page_ref, PageRef};
+use crate::design_system_scan::{component_key, figma_id, is_missing_symbol_stand_in, page_ref, PageRef};
 use designos_doc::{is_library_node, Document, Node, NodeId, NodeKind};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -108,8 +109,15 @@ fn resolve_instance(doc: &Document, inst: &Node) -> Result<Option<String>, Strin
     }
     let set = main.parent.and_then(|p| doc.get(p)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)));
     if is_library_node(doc, main.id) {
-        let own = || component_key(doc, main).or_else(|| if let NodeKind::Instance { component_key, .. } = &inst.kind { component_key.clone() } else { None });
-        return Ok(set.and_then(|s| component_key(doc, s)).or_else(own));
+        let inst_key = || match &inst.kind {
+            NodeKind::Instance { component_key: Some(k), .. } if !k.is_empty() && !is_missing_symbol_stand_in(main, k) => Some(k.clone()),
+            _ => None,
+        };
+        let own = || component_key(doc, main).or_else(inst_key);
+        if let Some(key) = set.and_then(|s| component_key(doc, s)).or_else(own) {
+            return Ok(Some(key));
+        }
+        return Ok(set.unwrap_or(main).source_id.clone().filter(|s| !s.is_empty()));
     }
     // A local component with no parent was removed from the document: it names nothing.
     if main.parent.is_none() {

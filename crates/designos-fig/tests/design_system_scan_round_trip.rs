@@ -116,3 +116,68 @@ fn the_round_tripped_scan_ties_each_instance_to_a_figma_id_of_the_file_itself() 
     }
     assert_eq!(scan["sensing"], serde_json::json!({"status": "complete"}));
 }
+
+fn encode_fig(changes: Vec<designos_fig::kiwi::KiwiValue>) -> Vec<u8> {
+    use designos_fig::container::{self, Compression};
+    use designos_fig::kiwi::KiwiValue as V;
+    use designos_fig::testkit::{figma_like_schema, msg};
+    let schema = figma_like_schema();
+    let root = schema.find("Message").expect("Message in schema");
+    let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).unwrap();
+    container::write_container(&schema.encode(), &body, Compression::Zstd, 106)
+}
+
+#[test]
+fn an_unpublished_symbol_on_the_internal_canvas_of_a_fig_file_resolves_to_its_set_or_own_figma_id() {
+    use designos_fig::kiwi::KiwiValue as V;
+    use designos_fig::testkit::{guid, msg, node, vec2};
+
+    let bytes = encode_fig(vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Screens", vec![]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", vec![("internalOnly", V::Bool(true))]),
+        node((10, 50), (0, 2), "a", "SYMBOL", "InternalIcon", vec![("size", vec2(24.0, 24.0))]),
+        node((10, 60), (0, 2), "b", "FRAME", "InternalButton", vec![("isStateGroup", V::Bool(true)), ("size", vec2(120.0, 48.0))]),
+        node((10, 61), (10, 60), "a", "SYMBOL", "Size=M", vec![("size", vec2(120.0, 48.0))]),
+        node((1, 1), (0, 1), "a", "FRAME", "Home", vec![("size", vec2(375.0, 812.0))]),
+        node((1, 2), (1, 1), "a", "INSTANCE", "Icon copy", vec![("size", vec2(24.0, 24.0)), ("symbolData", msg(vec![("symbolID", guid(10, 50))]))]),
+        node((1, 3), (1, 1), "b", "INSTANCE", "Button copy", vec![("size", vec2(120.0, 48.0)), ("symbolData", msg(vec![("symbolID", guid(10, 61))]))]),
+    ]);
+    let reopened = import_fig(&bytes).unwrap();
+    let scan: serde_json::Value = serde_json::from_str(&scan_design_system(&reopened).unwrap().to_json_text()).unwrap();
+    let home = &scan["frames"][0];
+    assert_eq!(home["instances"], serde_json::json!([{"component": "10:50", "count": 1}, {"component": "10:60", "count": 1}]));
+    assert!(home.get("unresolvedInstances").is_none(), "{home}");
+}
+
+#[test]
+fn an_instance_whose_symbol_is_absent_from_a_fig_file_counts_in_unresolved_instances_while_a_real_library_key_resolves() {
+    use designos_fig::kiwi::KiwiValue as V;
+    use designos_fig::testkit::{guid, msg, node, vec2};
+
+    let bytes = encode_fig(vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Screens", vec![]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", vec![("internalOnly", V::Bool(true))]),
+        node(
+            (10, 70),
+            (0, 2),
+            "a",
+            "SYMBOL",
+            "PublishedIcon",
+            vec![("size", vec2(24.0, 24.0)), ("componentKey", V::String("lib-key-real".into())), ("sourceLibraryKey", V::String("remote-lib".into()))],
+        ),
+        node((1, 1), (0, 1), "a", "FRAME", "Home", vec![("size", vec2(375.0, 812.0))]),
+        node((1, 2), (1, 1), "a", "INSTANCE", "Published copy", vec![("size", vec2(24.0, 24.0)), ("symbolData", msg(vec![("symbolID", guid(10, 70))]))]),
+        node((1, 3), (1, 1), "b", "INSTANCE", "Missing symbol copy", vec![("size", vec2(24.0, 24.0)), ("symbolData", msg(vec![("symbolID", guid(999, 999))]))]),
+    ]);
+    let reopened = import_fig(&bytes).unwrap();
+    assert!(
+        reopened.library.external.keys().any(|k| k.ends_with("/999:999")),
+        "precondition: link_remote_components built a synthetic stand-in keyed by the missing guid"
+    );
+    let scan: serde_json::Value = serde_json::from_str(&scan_design_system(&reopened).unwrap().to_json_text()).unwrap();
+    let home = &scan["frames"][0];
+    assert_eq!(home["instances"], serde_json::json!([{"component": "lib-key-real", "count": 1}]));
+    assert_eq!(home["unresolvedInstances"], serde_json::json!(1));
+}

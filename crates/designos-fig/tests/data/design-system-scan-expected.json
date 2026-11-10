@@ -9,6 +9,8 @@
         "id": "1:1",
         "name": "Design system"
       },
+      "section": "Atoms",
+      "width": 24,
       "boundVariables": [],
       "instances": []
     },
@@ -27,6 +29,8 @@
           "L"
         ]
       },
+      "section": "Atoms",
+      "width": 264,
       "boundVariables": [
         "VariableID:3:20"
       ],

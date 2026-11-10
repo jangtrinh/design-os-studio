@@ -3,7 +3,7 @@
 //! module writes it from a [`Document`], with no window and no network.
 //!
 //! ```text
-//! components[]  { id, key?, name, type, page, variantAxes?, boundVariables, instances, unresolvedInstances? }
+//! components[]  { id, key?, name, type, page, variantAxes?, section?, width?, boundVariables, instances, unresolvedInstances? }
 //! tokens[]      { id, name, type, collection, valuesByMode }
 //! styles[]      { id, name, type }
 //! frames[]      { id, name, page, section?, w, h, instances, unresolvedInstances? }
@@ -66,6 +66,10 @@ pub struct ScanComponent {
     pub page: PageRef,
     #[serde(rename = "variantAxes", skip_serializing_if = "Option::is_none")]
     pub variant_axes: Option<Ordered<Vec<String>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<Value>,
     #[serde(rename = "boundVariables", skip_serializing_if = "Option::is_none")]
     pub bound_variables: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,8 +132,8 @@ impl DesignSystemScan {
     }
 }
 
-/// Scans `doc`. Fails only when a component, a page or a variable the scan must name has no Figma id. A failure of
-/// the sensing step does not fail the scan: those fields are left out and `sensing` says why.
+/// Scans `doc`. Fails only when a component or its page has no Figma id. A failure of the sensing step does not fail
+/// the scan: those fields are left out and `sensing` says why.
 pub fn scan_design_system(doc: &Document) -> Result<DesignSystemScan, ScanError> {
     let roots = component_roots(doc);
     let mut components = roots.iter().map(|&id| base_component(doc, id)).collect::<Result<Vec<_>, _>>()?;
@@ -188,6 +192,19 @@ fn component_roots(doc: &Document) -> Vec<NodeId> {
     out
 }
 
+/// Name of the innermost enclosing section of `id`, or `None` when it is not inside a section.
+fn enclosing_section(doc: &Document, id: NodeId) -> Option<String> {
+    let mut cur = doc.get(id)?.parent;
+    for _ in 0..=doc.nodes.len() {
+        let p = doc.get(cur?)?;
+        if matches!(p.kind, NodeKind::Section) {
+            return Some(p.name.clone());
+        }
+        cur = p.parent;
+    }
+    None
+}
+
 fn base_component(doc: &Document, id: NodeId) -> Result<ScanComponent, ScanError> {
     let n = doc.get(id).expect("component_roots lists existing nodes");
     let is_set = matches!(n.kind, NodeKind::ComponentSet(_));
@@ -208,10 +225,22 @@ fn base_component(doc: &Document, id: NodeId) -> Result<ScanComponent, ScanError
         kind: if is_set { "COMPONENT_SET" } else { "COMPONENT" },
         page: page_ref(doc, page)?,
         variant_axes: (!axes.is_empty()).then_some(Ordered(axes)),
+        section: enclosing_section(doc, id),
+        width: Some(json_number(n.size.x)),
         bound_variables: None,
         instances: None,
         unresolved_instances: None,
     })
+}
+
+/// Whether `n` is the synthetic stand-in `link_remote_components` builds for an instance whose symbol is absent from
+/// the file: `link_remote_component` leaves `source_id` empty and stores the missing `<session>:<local>` guid as its key.
+pub(crate) fn is_missing_symbol_stand_in(n: &Node, key: &str) -> bool {
+    n.source_id.is_none()
+        && !n.fig_metadata.contains_key("componentKey")
+        && key
+            .split_once(':')
+            .is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.bytes().all(|c| c.is_ascii_digit()) && b.bytes().all(|c| c.is_ascii_digit()))
 }
 
 /// The publish key of a component or set: the one the file wrote, else the key of the library asset it stands in for.
@@ -221,7 +250,8 @@ pub(crate) fn component_key(doc: &Document, n: &Node) -> Option<String> {
     }
     let (ekey, asset) = library_asset_of_component(doc, n.id).filter(|(_, e)| e.node == Some(n.id))?;
     let prefix = format!("{}/", asset.library_id);
-    Some(ekey.strip_prefix(&prefix).unwrap_or(ekey).to_string())
+    let key = ekey.strip_prefix(&prefix).unwrap_or(ekey);
+    (!is_missing_symbol_stand_in(n, key)).then(|| key.to_string())
 }
 
 /// Shortest decimal text of a float, as a JSON number (an integral value is written without a fraction).

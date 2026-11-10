@@ -149,3 +149,63 @@ fn a_document_whose_nodes_have_no_figma_id_is_refused_with_the_way_forward() {
     assert!(err.contains("Button") && err.contains(".fig"), "{err}");
     assert!(!target.exists(), "nothing is written when the scan is refused");
 }
+
+#[test]
+fn deferred_pages_are_loaded_before_scanning_so_overrides_on_page_three_apply() {
+    use designos_fig::container::{self, Compression};
+    use designos_fig::kiwi::KiwiValue as V;
+    use designos_fig::testkit::{figma_like_schema, guid, msg, node, vec2};
+
+    let s = Scratch::new("deferred-pages");
+    let fig_path = s.path("deferred.fig");
+    let mut changes = vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Cover", vec![]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Page 2", vec![]),
+        node((0, 3), (0, 0), "c", "CANVAS", "Page 3", vec![]),
+        node((1, 10), (0, 1), "a", "SYMBOL", "Icon A", vec![("size", vec2(24.0, 24.0))]),
+        node((1, 11), (0, 1), "b", "SYMBOL", "Icon B", vec![("size", vec2(24.0, 24.0))]),
+        node((3, 1), (0, 3), "a", "FRAME", "Deferred screen", vec![("size", vec2(375.0, 812.0))]),
+        node(
+            (3, 2),
+            (3, 1),
+            "a",
+            "INSTANCE",
+            "Swapped",
+            vec![
+                ("size", vec2(24.0, 24.0)),
+                (
+                    "symbolData",
+                    msg(vec![
+                        ("symbolID", guid(1, 10)),
+                        (
+                            "symbolOverrides",
+                            V::Array(vec![msg(vec![("guidPath", msg(vec![("guids", V::Array(vec![guid(3, 2)]))])), ("overriddenSymbolID", guid(1, 11))])]),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    ];
+    for i in 0..25_000u32 {
+        changes.push(node((9, i + 1), (0, 1), "!", "ROUNDED_RECTANGLE", "F", vec![("size", vec2(4.0, 4.0))]));
+    }
+    let schema = figma_like_schema();
+    let root = schema.find("Message").expect("Message in schema");
+    let body = schema.encode_message(root, &msg(vec![("nodeChanges", V::Array(changes))])).unwrap();
+    let bytes = container::write_container(&schema.encode(), &body, Compression::Zstd, 106);
+    std::fs::write(&fig_path, bytes).unwrap();
+
+    let loaded_for_inspect = crate::io::load_path(&fig_path).unwrap();
+    assert!(loaded_for_inspect.has_pending_pages(), "the load path used by --inspect-json leaves page 3 deferred");
+
+    let target = s.path("ds.json");
+    scan(&fig_path, &target, &[]).unwrap();
+    let written: serde_json::Value = serde_json::from_slice(&std::fs::read(&target).unwrap()).unwrap();
+    assert_eq!(written["frames"][0]["name"], "Deferred screen");
+    assert_eq!(
+        written["frames"][0]["instances"],
+        serde_json::json!([{"component": "1:11", "count": 1}]),
+        "the root override on page 3 swaps 1:10 to 1:11 once deferred pages are loaded"
+    );
+}

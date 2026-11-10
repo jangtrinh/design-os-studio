@@ -576,6 +576,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     }
 
     if let Some(out_path) = &opts.scan_design_system {
+        doc.load_pending_pages().map_err(|e| format!("Cannot scan the design system: {e}"))?;
         let report = cli_scan_design_system::run(&doc, out_path, opts.overwrite)?;
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     }

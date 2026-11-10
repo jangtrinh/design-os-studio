@@ -332,10 +332,15 @@ fn a_library_component_resolves_to_the_key_of_its_set_else_its_own_key() {
         local_key("remote:file", "eeee-remote"),
         ExternalAsset { library_id: "remote:file".into(), version: 0, kind: LibraryAssetKind::Component, node: Some(stand_in), local_key: None },
     );
-    // A library component with no key anywhere cannot be named.
-    let nameless = w.component(lib, "Nameless", "7:7");
-    let home = w.frame(screens, "Home", "7:8");
-    for (i, main) in [variant, keyless_variant, plain, stand_in, nameless].into_iter().enumerate() {
+    // An unpublished symbol or set on the internal canvas has no component key, so it resolves to its Figma source id.
+    let unpub_set = w.component_set(lib, "InternalSet", "7:7");
+    let unpub_variant = w.component(unpub_set, "Size=M", "7:8");
+    let unpub_plain = w.component(lib, "InternalPlain", "7:9");
+    // A library component with neither a key nor a Figma source id cannot be named.
+    let nameless = w.component(lib, "Nameless", "7:10");
+    w.doc.get_mut(nameless).unwrap().source_id = None;
+    let home = w.frame(screens, "Home", "7:11");
+    for (i, main) in [variant, keyless_variant, plain, stand_in, unpub_variant, unpub_plain, nameless].into_iter().enumerate() {
         w.instance(home, "i", &format!("7:{}", 20 + i), Some(main));
     }
     let scan = scan_json(&w.doc);
@@ -343,6 +348,8 @@ fn a_library_component_resolves_to_the_key_of_its_set_else_its_own_key() {
     assert_eq!(
         home["instances"],
         json!([
+            {"component": "7:7", "count": 1},
+            {"component": "7:9", "count": 1},
             {"component": "aaaa-set", "count": 1},
             {"component": "cccc-variant", "count": 1},
             {"component": "dddd-plain", "count": 1},
@@ -417,14 +424,40 @@ fn the_fields_the_plugin_already_writes_keep_their_names_and_shape() {
         json!({
             "components": [
                 {"id": "8:1", "key": "key-set", "name": "Button", "type": "COMPONENT_SET", "page": {"id": "0:1", "name": "Kit"},
-                 "variantAxes": {"Size": ["Small", "Large"]}},
-                {"id": "8:3", "name": "Icon", "type": "COMPONENT", "page": {"id": "0:1", "name": "Kit"}},
+                 "variantAxes": {"Size": ["Small", "Large"]}, "width": 100},
+                {"id": "8:3", "name": "Icon", "type": "COMPONENT", "page": {"id": "0:1", "name": "Kit"}, "width": 100},
             ],
             "tokens": [{"id": "v1", "name": "space/4", "type": "FLOAT", "collection": "Tokens", "valuesByMode": {"Light": 4}}],
             "styles": [],
             "counts": {"components": 2, "tokens": 1, "styles": 0},
         })
     );
+}
+
+#[test]
+fn components_carry_their_width_and_their_innermost_enclosing_section_when_inside_one() {
+    let mut w = World::new();
+    let page = w.page("Kit", "0:1");
+    let top = w.component(page, "Hero", "8:10");
+    w.doc.get_mut(top).unwrap().size = Vec2::new(1440.0, 900.0);
+    let outer = w.section(page, "01 · Atoms", "8:11");
+    let in_outer = w.component(outer, "Badge", "8:12");
+    w.doc.get_mut(in_outer).unwrap().size = Vec2::new(64.5, 24.0);
+    let inner = w.section(outer, "00 · Icons", "8:13");
+    let holder = w.frame(inner, "Grid", "8:14");
+    let in_inner = w.component(holder, "Arrow", "8:15");
+    w.doc.get_mut(in_inner).unwrap().size = Vec2::new(24.0, 24.0);
+    let set = w.component_set(inner, "Button", "8:16");
+    w.doc.get_mut(set).unwrap().size = Vec2::new(240.0, 48.0);
+    w.component(set, "Size=M", "8:17");
+
+    let scan = scan_json(&w.doc);
+    let hero = component(&scan, "Hero");
+    assert!(hero.get("section").is_none(), "omitted when not inside a section: {hero}");
+    assert_eq!(hero["width"], json!(1440));
+    assert_eq!((component(&scan, "Badge")["section"].clone(), component(&scan, "Badge")["width"].clone()), (json!("01 · Atoms"), json!(64.5)));
+    assert_eq!((component(&scan, "Arrow")["section"].clone(), component(&scan, "Arrow")["width"].clone()), (json!("00 · Icons"), json!(24)));
+    assert_eq!((component(&scan, "Button")["section"].clone(), component(&scan, "Button")["width"].clone()), (json!("00 · Icons"), json!(240)));
 }
 
 #[test]
