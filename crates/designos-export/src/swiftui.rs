@@ -354,7 +354,7 @@ fn layout_frame_mods(doc: &Document, n: &Node, al: &AutoLayout, sz: &Sizes, alig
 }
 
 fn padding_mods(doc: &Document, n: &Node, al: &AutoLayout, m: &mut Vec<String>) {
-    let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+    let keys = crate::codegen::native_padding_keys(doc, n, al);
     let p = al.padding;
     let val = |i: usize| dimension(doc, n, keys[i], p[i]);
     let same = |a: usize, b: usize| p[a] == p[b] && bound(doc, n, keys[a]).map(|v| &v.id) == bound(doc, n, keys[b]).map(|v| &v.id);

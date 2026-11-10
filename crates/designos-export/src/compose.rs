@@ -256,7 +256,7 @@ fn style_mods(doc: &Document, n: &Node, m: &mut Vec<String>) {
 }
 
 fn padding_mods(doc: &Document, n: &Node, al: &AutoLayout, m: &mut Vec<String>) {
-    let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+    let keys = crate::codegen::native_padding_keys(doc, n, al);
     let p = al.padding;
     let any = |i: usize| p[i] > 0.0 || bound(doc, n, keys[i]).is_some();
     if !(0..4).any(any) {

@@ -129,17 +129,12 @@ impl Cx<'_> {
 
     fn stack_padding(&mut self, v: &str, n: &Node, al: &AutoLayout) {
         let doc = self.doc;
+        let keys = crate::codegen::native_padding_keys(doc, n, al);
         let p = al.padding;
-        if p.iter().any(|x| *x > 0.0) || ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].iter().any(|k| bound(doc, n, k).is_some()) {
-            let side = |i: usize, key: &str| dimension(doc, n, key, p[i]);
+        if p.iter().any(|x| *x > 0.0) || keys.iter().any(|k| bound(doc, n, k).is_some()) {
+            let side = |i: usize| dimension(doc, n, keys[i], p[i]);
             self.line(format!("{v}.isLayoutMarginsRelativeArrangement = true"));
-            self.line(format!(
-                "{v}.layoutMargins = UIEdgeInsets(top: {}, left: {}, bottom: {}, right: {})",
-                side(0, "paddingTop"),
-                side(3, "paddingLeft"),
-                side(2, "paddingBottom"),
-                side(1, "paddingRight")
-            ));
+            self.line(format!("{v}.layoutMargins = UIEdgeInsets(top: {}, left: {}, bottom: {}, right: {})", side(0), side(3), side(2), side(1)));
         }
     }
 

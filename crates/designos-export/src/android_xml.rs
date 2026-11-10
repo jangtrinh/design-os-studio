@@ -537,7 +537,7 @@ impl Cx<'_> {
 
     fn padding(&self, n: &Node, al: &AutoLayout, attrs: &mut Attrs) {
         let doc = self.doc;
-        let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+        let keys = crate::codegen::native_padding_keys(doc, n, al);
         let p = al.padding;
         let bound_any = keys.iter().any(|k| bound(doc, n, k).is_some());
         if !bound_any && p.iter().all(|v| *v == p[0]) {
