@@ -9,6 +9,10 @@ default-run = "designos-studio"
 [[bin]]
 name = "designos-studio"
 path = "src/main.rs"
+# Same src/main.rs as `designos`. Unit tests stay on `designos` only: the layout
+# gate runs fully when CARGO_BIN_NAME == "designos", and a second harness would
+# run the app suite twice.
+test = false
 
 [[bin]]
 name = "designos"

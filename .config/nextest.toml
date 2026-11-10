@@ -86,3 +86,9 @@ test-group = "quarantine"
 filter = "test(=terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized)"
 retries = 4
 test-group = "quarantine"
+
+# Load-sensitive tests. They stay in the run (retries = 4, serialized in `quarantine`).
+[[profile.default.overrides]]
+filter = "test(=terminal::delayed_enter_tests::the_delayed_enter_is_not_sent_when_a_record_says_the_agent_waits_whatever_the_version) | test(=terminal::delayed_enter_tests::the_delayed_enter_is_not_sent_to_a_claude_tab_that_began_to_wait_after_the_paste) | test(=terminal::delayed_enter_tests::a_codex_tab_whose_echo_of_the_prompt_reads_as_a_question_still_gets_its_enter) | test(=terminal::delayed_enter_tests::a_tab_with_the_output_heuristic_on_still_gets_its_enter_when_its_status_reads_as_a_question) | test(=terminal::delayed_enter_tests::a_tab_that_read_as_waiting_before_the_paste_is_still_refused_at_send_time_whatever_the_source) | test(=terminal::tests::banner_clears_on_the_next_turn) | test(=shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required)"
+retries = 4
+test-group = "quarantine"
