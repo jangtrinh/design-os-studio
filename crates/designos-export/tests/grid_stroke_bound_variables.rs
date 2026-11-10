@@ -262,6 +262,9 @@ fn dashed_and_gradient_per_side_strokes_keep_the_documented_border_fallback() {
     dashed.get_mut(dashed_id).unwrap().stroke.dashes = vec![4.0, 2.0];
     let dashed_css = css_for(&dashed, dashed_id);
     assert!(dashed_css.contains("border-width:") && !dashed_css.contains("box-shadow:"), "{dashed_css}");
+    let dashed_tw = tailwind_for(&dashed, dashed_id);
+    assert!(dashed_tw.contains("border-dashed") && dashed_tw.contains("border-t-"), "{dashed_tw}");
+    assert!(!dashed_tw.contains("shadow-[inset_"), "{dashed_tw}");
 
     let (mut gradient, gradient_id) = sided_grid(0.0);
     let gradient_node = gradient.get_mut(gradient_id).unwrap();
@@ -275,4 +278,7 @@ fn dashed_and_gradient_per_side_strokes_keep_the_documented_border_fallback() {
     }];
     let gradient_css = css_for(&gradient, gradient_id);
     assert!(gradient_css.contains("border-width:") && gradient_css.contains("border-image-source:"), "{gradient_css}");
+    let gradient_tw = tailwind_for(&gradient, gradient_id);
+    assert!(gradient_tw.contains("border-t-"), "{gradient_tw}");
+    assert!(!gradient_tw.contains("shadow-[inset_"), "{gradient_tw}");
 }
