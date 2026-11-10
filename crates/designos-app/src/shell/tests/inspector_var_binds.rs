@@ -1416,3 +1416,115 @@ fn inspector_var_binds_weight_menu_checks_current_weight_and_guards_apply_variab
     assert!(!has_test_rect(&s, "menu-row-0-9"), "weight menu must not offer Apply variable when no String variable matches fontStyle");
     assert!(!sim_has_text(&s, "Apply variable\u{2026}"), "Apply variable item must not be painted when no String variable matches fontStyle");
 }
+
+#[test]
+fn gradient_picker_stop_bind_button_appears_on_library_tick_and_style_bound_pill_stays_read_only() {
+    let root = tmp_lib_dir("picker-stop-lib-tick-and-style-pill");
+
+    // 1. Publish library v1 with no colour variables (only a Number variable).
+    let mut lib_sim = Sim::new();
+    lib_sim.shell.app.libs.set_root(root.clone());
+    clear_all_variables_and_bindings(&mut lib_sim.shell.app);
+    let mut lstore = VariableStore::default();
+    let lcoll = lstore.add_collection("SharedTokens");
+    let lmode = lstore.collections[&lcoll].default_mode.clone();
+    let lnum = lstore.add_variable(&lcoll, "Space/Unit", VariableKind::Number).unwrap();
+    lstore.set_value(&lnum, &lmode, VariableValue::Number(8.0));
+    lib_sim.shell.app.commit_store(lstore.clone(), &[], &[]);
+    assert!(lib_sim.shell.app.publish_file(), "publish library v1 with no colour variables");
+    let lib_id = lib_sim.app().doc.library.published.as_ref().unwrap().library_id.clone();
+
+    // 2. Consumer file has no local colour variables and enables library v1.
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    s.shell.app.libs.set_root(root.clone());
+    clear_all_variables_and_bindings(&mut s.shell.app);
+    s.shell.app.set_library_enabled(&lib_id, true);
+    assert_eq!(s.app().doc.library.enabled[0].version, 1);
+
+    let hero = s.by_name("Hero");
+    let grad_paint = Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    s.shell.app.edit_nodes(&[hero], |n| n.fills = vec![grad_paint.clone()]);
+    s.frame(vec![]);
+
+    // Open the linear-gradient fill picker and hover the stop colour row.
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let stop_color_row = Pos2::new(picker.left() + 100.0, picker.top() + 423.0);
+    s.mv(stop_color_row);
+    s.frame(vec![]);
+    assert!(!has_test_rect(&s, "bind:fills/0/stops/0"), "stop bind button must stay hidden when neither file nor library v1 has a colour variable");
+
+    // 3. Publish library v2 with an ALL_FILLS colour variable; on the next libs_tick (leaving enabled pinned at v1),
+    //    the stop bind button becomes visible.
+    let lcol = lstore.add_variable(&lcoll, "Color/BrandStop", VariableKind::Color).unwrap();
+    lstore.set_value(&lcol, &lmode, VariableValue::Color(Color::rgb(0x33, 0x66, 0xFF)));
+    lstore.variables.get_mut(&lcol).unwrap().scopes = vec!["ALL_FILLS".into()];
+    lib_sim.shell.app.commit_store(lstore, &[], &[]);
+    assert!(lib_sim.shell.app.publish_file(), "publish library v2 with ALL_FILLS colour variable");
+
+    s.shell.app.now += 10.0;
+    s.shell.app.libs_tick();
+    assert_eq!(s.app().doc.library.enabled[0].version, 1, "enabled library pin must stay at v1");
+    s.mv(stop_color_row);
+    s.frame(vec![]);
+    assert!(has_test_rect(&s, "bind:fills/0/stops/0"), "next libs_tick after publishing v2 colour variable must reveal bind:fills/0/stops/0");
+
+    // 4. With the picker still open and cached, apply a shared gradient fill style with a style-bound stop,
+    //    then run multiple frames so sync_picker_context first invalidates on the style edit and then serves
+    //    the style-bound pill from its cache.
+    let mut store = VariableStore::default();
+    let coll = store.add_collection("Theme");
+    let mode = store.collections[&coll].default_mode.clone();
+    let style_stop_var = store.add_variable(&coll, "Grad/StyleStopStart", VariableKind::Color).unwrap();
+    store.set_value(&style_stop_var, &mode, VariableValue::Color(Color::rgb(0xFF, 0x11, 0x22)));
+    store.variables.get_mut(&style_stop_var).unwrap().scopes = vec!["ALL_FILLS".into()];
+    s.shell.app.commit_store(store, &[], &[]);
+
+    s.shell.app.doc.styles.insert("Grad/BrandFill".into(), Style::Fill(vec![grad_paint]));
+    s.shell.app.doc.style_meta.insert(
+        "Grad/BrandFill".into(),
+        designos_doc::StyleMeta { name: "Grad/BrandFill".into(), property: designos_doc::StyleProperty::Fill, ..Default::default() },
+    );
+    assert!(s.shell.app.bind_style_variable("Grad/BrandFill", "fills/0/stops/0", &style_stop_var));
+    s.shell.app.apply_style(&[hero], "Grad/BrandFill");
+    s.frame(vec![]);
+    // Run additional unchanged frames so sync_picker_context serves the cached PickerStopBindState.
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    let pill0 = s.rect_of("bound:fills/0/stops/0");
+    let before_node = s.app().doc.get(hero).unwrap().clone();
+    let undo_before = s.app().hist.undo_depth();
+
+    let detach_slot = Pos2::new(pill0.right() - 13.0, pill0.center().y);
+    s.mv(detach_slot);
+    s.frame(vec![]);
+    s.click(detach_slot);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "clicking detach area of cached style-bound stop pill must push no history");
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "clicking detach area of cached style-bound stop pill must not change node");
+    assert!(s.app().vars.bind_picker.is_none(), "clicking cached style-bound stop pill must not open bind picker");
+
+    s.click(pill0.center());
+    s.frame(vec![]);
+    assert!(s.app().vars.bind_picker.is_none(), "clicking body of cached style-bound stop pill must not open bind picker");
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "clicking body of cached style-bound stop pill must push no history");
+
+    s.mv(pill0.center() + Vec2::new(0.0, 1.0));
+    s.mv(pill0.center());
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(sim_has_text(&s, "Bound in style Grad/BrandFill"), "hovering cached style-bound stop pill must show 'Bound in style Grad/BrandFill'");
+
+    let _ = std::fs::remove_dir_all(root);
+}
