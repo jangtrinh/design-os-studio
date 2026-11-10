@@ -2391,6 +2391,7 @@ impl Shell {
             self.app.set_tool(Tool::Move);
         }
         self.handle_keys(&ctx);
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
         if !self.app.plugins.open {
             self.handle_drops(&ctx);
         }

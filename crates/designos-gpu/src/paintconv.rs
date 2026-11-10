@@ -4,7 +4,7 @@
 use crate::frame::*;
 use designos_doc as d;
 use designos_doc::{Document, PaintKind, Vec2};
-use designos_render::decoded_image;
+use designos_render::decoded_image_shared;
 use designos_render::tiny_skia as sk;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -111,7 +111,7 @@ impl PaintCache {
                 return img.clone();
             }
         }
-        let img = decoded_image(doc, image_ref)
+        let img = decoded_image_shared(doc, image_ref)
             .map(|pm| Arc::new(ImageData { id: NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed), w: pm.width(), h: pm.height(), rgba: pm.data().to_vec() }));
         if self.images.len() > 2048 {
             self.images.clear();

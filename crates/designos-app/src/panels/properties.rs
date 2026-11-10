@@ -640,6 +640,7 @@ fn page_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
         }
     }
     let sw = Rect::from_center_size(Pos2::new(g.left() + theme::PAGE_SWATCH_CX, g.center().y), Vec2::splat(theme::PAGE_SWATCH));
+    widgets::record(ui, "page-swatch", sw);
     let swr = ui.interact(sw.expand(2.0), ui.id().with("page-swatch"), Sense::click());
     widgets::swatch(ui.painter(), sw, to_c32(bg, 1.0));
     if swr.clicked() || settings {

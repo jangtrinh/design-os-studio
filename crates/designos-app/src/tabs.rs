@@ -774,9 +774,17 @@ impl TabsState {
     /// Closes `entries[idx]` unless it is `pinned`. If `entries` becomes empty, opens `Home`;
     /// otherwise activates the nearest remaining tab.
     pub fn close_tab(&mut self, idx: usize, app: &mut App) -> bool {
+        let closed_document = if idx == self.active_idx && !self.parked_in_home && app.home.is_none() {
+            Some(app.doc.derived_id())
+        } else {
+            self.entries.get(idx).map(|tab| tab.doc.derived_id())
+        };
         let closed_paths: Vec<_> = self.disk_path_of_tab(idx, app).into_iter().collect();
         let closed = self.close_tab_entry(idx, app);
         if closed {
+            if let Some(document) = closed_document {
+                designos_render::release_document_image_cache(document);
+            }
             self.release_closed_paths(app, &closed_paths);
         }
         closed
@@ -862,11 +870,13 @@ impl TabsState {
         }
         let keep_id = self.entries[keep_idx].id;
         let mut closed_paths = Vec::new();
+        let mut closed_documents = Vec::new();
         for idx in 0..self.entries.len() {
             if self.entries[idx].id != keep_id && !self.entries[idx].pinned {
                 if let Some(p) = self.disk_path_of_tab(idx, app) {
                     closed_paths.push(p);
                 }
+                closed_documents.push(self.entries[idx].doc.derived_id());
             }
         }
         for t in &mut self.entries {
@@ -876,6 +886,9 @@ impl TabsState {
             }
         }
         self.entries.retain(|t| t.id == keep_id || t.pinned);
+        for document in closed_documents {
+            designos_render::release_document_image_cache(document);
+        }
         self.project_states.retain(|id, _| self.entries.iter().any(|t| t.id == *id));
         if let Some(new_idx) = self.entries.iter().position(|t| t.id == keep_id) {
             let tab_id = self.entries[new_idx].id;

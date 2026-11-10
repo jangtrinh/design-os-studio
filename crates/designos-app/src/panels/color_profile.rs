@@ -36,6 +36,7 @@ impl App {
         if let Err(e) = self.hist.exec(&mut self.doc, Command::SetColorProfile { profile }) {
             self.show_toast(format!("Edit failed: {e}"), true);
         }
+        crate::widgets::set_document_profile(self.doc.color_profile);
         self.changed();
     }
 }

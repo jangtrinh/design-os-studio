@@ -11,6 +11,7 @@ use crate::{text, Renderer};
 use designos_doc as d;
 use designos_doc::{resolve_node, Document, Node, NodeId, NodeKind, TextProps, Vec2};
 use std::rc::Rc;
+use std::sync::Arc;
 use tiny_skia as sk;
 
 /// Fill/stroke geometry of a node in local space (see [`outline_of`]).
@@ -54,6 +55,11 @@ pub fn node_margin(n: &Node) -> f32 {
 
 /// Decoded, premultiplied RGBA8 image of a document image ref (cached per thread).
 pub fn decoded_image(doc: &Document, image_ref: &str) -> Option<Rc<sk::Pixmap>> {
+    crate::paint::load_image_rc(doc, image_ref)
+}
+
+/// Decoded, premultiplied RGBA8 image shared with renderers that cross thread boundaries.
+pub fn decoded_image_shared(doc: &Document, image_ref: &str) -> Option<Arc<sk::Pixmap>> {
     crate::paint::load_image(doc, image_ref, None)
 }
 

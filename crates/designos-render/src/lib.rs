@@ -24,6 +24,11 @@ mod outline;
 mod paint;
 #[doc(hidden)]
 pub use paint::image_conversions;
+
+/// Release converted image pixels when a document closes.
+pub fn release_document_image_cache(document_id: u64) {
+    paint::release_document_image_cache(document_id);
+}
 mod shadow;
 #[cfg(test)]
 mod shadow_tests;
@@ -40,8 +45,8 @@ pub use index::SceneIndex;
 pub use lint_env::RenderLintEnv;
 pub use mask::{apply_luminance_mask, mask_frame_box, mask_stencil, vector_mask_descendant_stencil, LUMINANCE_MASK_COEFFS};
 pub use outline::{
-    dashed_rect_stroke_path, decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan,
-    text_outlines, NodeShape, StrokeClip, StrokePlan, TextOutline,
+    dashed_rect_stroke_path, decoded_image, decoded_image_shared, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline,
+    stroke_plan, text_outlines, NodeShape, StrokeClip, StrokePlan, TextOutline,
 };
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
 pub use text::{

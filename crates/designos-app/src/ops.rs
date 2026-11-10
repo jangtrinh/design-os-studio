@@ -2418,6 +2418,7 @@ impl App {
     }
 
     pub fn replace_document(&mut self, doc: Document, path: Option<PathBuf>) {
+        let release_image_cache = (!self.tabs.parked_in_home && self.home.is_none() && self.tabs.is_hist_in_app()).then_some(self.doc.derived_id());
         crate::decks::ui::flush_notes(self);
         self.stop_plugin();
         if !self.tabs.parked_in_home && self.home.is_none() && self.tabs.is_hist_in_app() {
@@ -2445,6 +2446,9 @@ impl App {
         doc.ensure_page_hydrated(first_page);
         self.page = first_page;
         self.doc = doc;
+        if let Some(document) = release_image_cache {
+            designos_render::release_document_image_cache(document);
+        }
         self.decks = Default::default();
         self.hist = History::default();
         self.history.reset();

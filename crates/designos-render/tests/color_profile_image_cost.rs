@@ -37,6 +37,39 @@ fn render(d: &Document, page: NodeId, w: u32) {
     render_page_native(d, page, &Viewport::default(), &mut pm);
 }
 
+fn many_unique_images(count: usize) -> (Document, NodeId, usize) {
+    let mut d = Document::new("many images");
+    let page = d.add_page("p");
+    d.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+    for i in 0..count {
+        let image_ref = format!("photo-{i}");
+        let img = image::RgbaImage::from_pixel(4, 4, image::Rgba([i as u8, 60, 90, 255]));
+        let mut png = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        d.images.insert(image_ref.clone(), png.into_inner());
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(i as f32 * 12.0, 0.0, 40.0, 40.0));
+        n.fills = vec![Paint {
+            kind: PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Fill, params: ImageParams::default() },
+            ..Paint::solid(Color::WHITE)
+        }];
+        d.insert(page, n).unwrap();
+    }
+    d.color_profile = ColorProfile::DisplayP3;
+    (d, page, count * 12 + 40)
+}
+
+#[test]
+fn more_than_32_images_stay_cached_when_they_fit_the_cache_budget() {
+    let (d, page, width) = many_unique_images(40);
+    let before = image_conversions();
+    render(&d, page, width as u32);
+    assert_eq!(image_conversions() - before, 40, "the first render converts each image once");
+    let after_first = image_conversions();
+    render(&d, page, width as u32);
+    assert_eq!(image_conversions() - after_first, 0, "the second render reuses all 40 converted images");
+}
+
 #[test]
 fn a_second_native_render_of_an_unchanged_p3_image_converts_nothing() {
     let (d, page) = doc(ColorProfile::DisplayP3, 1);

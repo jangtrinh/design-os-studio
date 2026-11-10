@@ -7,6 +7,7 @@ use designos_doc::{Document, PaintKind, Vec2};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex, OnceLock};
 use tiny_skia as sk;
 
 pub fn sk_color(c: &d::Color, alpha: f32) -> sk::Color {
@@ -124,14 +125,15 @@ impl<'a> PaintEnv<'a> {
     /// when drawing for the screen; in a native render of a Display P3 document the pixels are
     /// converted from sRGB to Display P3 so the file's profile tag is true for photos too.
     ///
-    /// The converted pixmap is cached per (image, size, profile): converting is a pass over every pixel,
+    /// The converted pixmap is cached per (document, image, size, profile): converting is a pass over every pixel,
     /// and the eyedropper loupe and an export with many layers on one photo ask for it again and again.
-    pub(crate) fn image(&self, img: Rc<sk::Pixmap>, key: ImgKey) -> Rc<sk::Pixmap> {
+    pub(crate) fn image(&self, img: Arc<sk::Pixmap>, key: ImgKey) -> Arc<sk::Pixmap> {
         if self.to_srgb || self.doc.color_profile.is_srgb() {
             return img;
         }
         let profile = self.doc.color_profile;
-        if let Some(hit) = CONVERTED_IMAGES.with(|c| c.borrow().get(&(key, profile)).cloned()) {
+        let cache_key = (self.doc.derived_id(), key, profile);
+        if let Some(hit) = converted_images().lock().unwrap_or_else(|p| p.into_inner()).get(&cache_key) {
             return hit;
         }
         CONVERSIONS.with(|c| c.set(c.get() + 1));
@@ -142,14 +144,8 @@ impl<'a> PaintEnv<'a> {
             let [r, g, b] = converter.convert([c.red(), c.green(), c.blue()]);
             *px = sk::ColorU8::from_rgba(r, g, b, c.alpha()).premultiply();
         }
-        let out = Rc::new(out);
-        CONVERTED_IMAGES.with(|c| {
-            let mut c = c.borrow_mut();
-            if c.len() >= 32 {
-                c.clear();
-            }
-            c.insert((key, profile), out.clone());
-        });
+        let out = Arc::new(out);
+        converted_images().lock().unwrap_or_else(|p| p.into_inner()).insert(cache_key, out.clone(), CONVERTED_IMAGE_CACHE_BYTES);
         out
     }
 
@@ -175,11 +171,75 @@ impl<'a> PaintEnv<'a> {
 
 type ImgKey = (u64, u32, u32);
 
+type ConvertedImageKey = (u64, ImgKey, d::ColorProfile);
+
+const CONVERTED_IMAGE_CACHE_BYTES: usize = 256 * 1024 * 1024;
+const CONVERTED_IMAGE_CACHE_ENTRIES: usize = 4096;
+
+#[derive(Default)]
+struct ConvertedImageCache {
+    // Accounts for cache-owned pixels; active renderers may retain an Arc after eviction.
+    entries: HashMap<ConvertedImageKey, (Arc<sk::Pixmap>, usize, u64)>,
+    bytes: usize,
+    clock: u64,
+}
+
+impl ConvertedImageCache {
+    fn get(&mut self, key: &ConvertedImageKey) -> Option<Arc<sk::Pixmap>> {
+        let hit = self.entries.get(key)?.0.clone();
+        self.clock = self.clock.wrapping_add(1);
+        if let Some((_, _, last_used)) = self.entries.get_mut(key) {
+            *last_used = self.clock;
+        }
+        Some(hit)
+    }
+
+    fn insert(&mut self, key: ConvertedImageKey, image: Arc<sk::Pixmap>, byte_budget: usize) {
+        let bytes = image.data().len();
+        if bytes > byte_budget {
+            return;
+        }
+        if let Some((_, old_bytes, _)) = self.entries.remove(&key) {
+            self.bytes -= old_bytes;
+        }
+        while self.bytes + bytes > byte_budget || self.entries.len() >= CONVERTED_IMAGE_CACHE_ENTRIES {
+            let oldest = self.entries.iter().min_by_key(|(_, (_, _, last_used))| last_used).map(|(key, _)| *key);
+            let Some(oldest) = oldest else { break };
+            if let Some((_, size, _)) = self.entries.remove(&oldest) {
+                self.bytes -= size;
+            }
+        }
+        self.bytes += bytes;
+        self.clock = self.clock.wrapping_add(1);
+        self.entries.insert(key, (image, bytes, self.clock));
+    }
+
+    fn remove_document(&mut self, document: u64) {
+        self.entries.retain(|(id, _, _), (_, bytes, _)| {
+            if *id == document {
+                self.bytes -= *bytes;
+                false
+            } else {
+                true
+            }
+        });
+    }
+}
+
+fn converted_images() -> &'static Mutex<ConvertedImageCache> {
+    static CACHE: OnceLock<Mutex<ConvertedImageCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(ConvertedImageCache::default()))
+}
+
+/// Drops converted pixels owned by a document that has been closed.
+pub(crate) fn release_document_image_cache(document: u64) {
+    converted_images().lock().unwrap_or_else(|p| p.into_inner()).remove_document(document);
+}
+
 thread_local! {
-    /// Images already converted to a document profile, by (image, size) and profile.
-    static CONVERTED_IMAGES: RefCell<HashMap<(ImgKey, d::ColorProfile), Rc<sk::Pixmap>>> = RefCell::new(HashMap::new());
     static CONVERSIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static IMAGES: RefCell<HashMap<ImgKey, Option<Rc<sk::Pixmap>>>> = RefCell::new(HashMap::new());
+    static IMAGES: RefCell<HashMap<ImgKey, Option<Arc<sk::Pixmap>>>> = RefCell::new(HashMap::new());
+    static RC_IMAGES: RefCell<HashMap<ImgKey, Option<Rc<sk::Pixmap>>>> = RefCell::new(HashMap::new());
 }
 
 /// How many image pixmaps this thread has converted to a document profile (a counter for tests: a
@@ -212,7 +272,7 @@ fn premultiplied_pixmap(img: &image::RgbaImage) -> Option<sk::Pixmap> {
 }
 
 /// Decoded image, optionally reduced to `want` size (cached).
-pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32)>) -> Option<Rc<sk::Pixmap>> {
+pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32)>) -> Option<Arc<sk::Pixmap>> {
     let data = doc.images.get(image_ref)?;
     let id = hash_bytes(image_ref, data);
     let (kw, kh) = want.unwrap_or((0, 0));
@@ -223,7 +283,7 @@ pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32
     let full = match full {
         Some(f) => f,
         None => {
-            let decoded = image::load_from_memory(data).ok().and_then(|i| premultiplied_pixmap(&i.to_rgba8())).map(Rc::new);
+            let decoded = image::load_from_memory(data).ok().and_then(|i| premultiplied_pixmap(&i.to_rgba8())).map(Arc::new);
             IMAGES.with(|c| {
                 let mut c = c.borrow_mut();
                 if c.len() > 1024 {
@@ -241,7 +301,7 @@ pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32
             let small = image::imageops::resize(&src, w.max(1), h.max(1), image::imageops::FilterType::Triangle);
             let mut pm = sk::Pixmap::new(small.width(), small.height())?;
             pm.data_mut().copy_from_slice(small.as_raw());
-            Some(Rc::new(pm))
+            Some(Arc::new(pm))
         }
         _ => Some(full),
     };
@@ -253,6 +313,25 @@ pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32
         c.insert((id, kw, kh), result.clone());
     });
     result
+}
+
+/// Decoded image for the stable `Rc` helper API. Keeps its per-thread cache so callers do not
+/// pay a full pixel-buffer clone on every lookup while renderer internals use the shared `Arc` path.
+pub(crate) fn load_image_rc(doc: &Document, image_ref: &str) -> Option<Rc<sk::Pixmap>> {
+    let data = doc.images.get(image_ref)?;
+    let key = (hash_bytes(image_ref, data), 0, 0);
+    if let Some(hit) = RC_IMAGES.with(|cache| cache.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let decoded = image::load_from_memory(data).ok().and_then(|image| premultiplied_pixmap(&image.to_rgba8())).map(Rc::new);
+    RC_IMAGES.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() > 1024 {
+            cache.clear();
+        }
+        cache.insert(key, decoded.clone());
+    });
+    decoded
 }
 
 fn gradient_stops(env: &PaintEnv, stops: &[d::GradientStop], alpha: f32) -> Vec<sk::GradientStop> {
@@ -552,4 +631,50 @@ pub fn stroke_paths(
             target.stroke_path(path, sp, stroke, ts, clip);
         }
     });
+}
+
+#[cfg(test)]
+mod converted_image_cache_tests {
+    use super::*;
+
+    fn key(document: u64, image: u64) -> ConvertedImageKey {
+        (document, (image, 0, 0), d::ColorProfile::DisplayP3)
+    }
+
+    fn image() -> Arc<sk::Pixmap> {
+        Arc::new(sk::Pixmap::new(2, 2).unwrap())
+    }
+
+    #[test]
+    fn evicts_the_oldest_entry_to_stay_within_the_byte_budget() {
+        let mut cache = ConvertedImageCache::default();
+        cache.insert(key(1, 1), image(), 32);
+        cache.insert(key(1, 2), image(), 32);
+        assert!(cache.get(&key(1, 1)).is_some());
+        cache.insert(key(1, 3), image(), 32);
+        assert!(cache.entries.contains_key(&key(1, 1)));
+        assert!(!cache.entries.contains_key(&key(1, 2)));
+        assert!(cache.entries.contains_key(&key(1, 3)));
+        assert_eq!(cache.bytes, 32);
+    }
+
+    #[test]
+    fn an_image_larger_than_the_cache_budget_is_not_retained() {
+        let mut cache = ConvertedImageCache::default();
+        cache.insert(key(1, 1), image(), 15);
+        assert!(cache.entries.is_empty());
+        assert_eq!(cache.bytes, 0);
+    }
+
+    #[test]
+    fn closing_a_document_releases_only_its_converted_images() {
+        let mut cache = ConvertedImageCache::default();
+        cache.insert(key(1, 1), image(), 64);
+        cache.insert(key(2, 1), image(), 64);
+        cache.remove_document(1);
+        assert!(!cache.entries.contains_key(&key(1, 1)));
+        assert!(cache.entries.contains_key(&key(2, 1)));
+        assert_eq!(cache.bytes, 16);
+        assert_eq!(cache.entries[&key(2, 1)].1, 16);
+    }
 }
