@@ -704,6 +704,15 @@ impl Schema {
         Some((f.name.clone(), kv))
     }
 
+    /// Reconstructs a typed `(field_name, KiwiValue)` pair for field `field_name` of
+    /// definition `def_idx` directly from a `serde_json::Value`.
+    pub fn def_field_from_json(&self, def_idx: usize, field_name: &str, v: &serde_json::Value) -> Option<(Arc<str>, KiwiValue)> {
+        let def = self.defs.get(def_idx)?;
+        let f = def.fields.iter().find(|f| &*f.name == field_name)?;
+        let kv = self.field_from_json(f, v, 0)?;
+        Some((f.name.clone(), kv))
+    }
+
     fn field_from_metadata(&self, f: &Field, raw_str: &str, depth: usize) -> Option<KiwiValue> {
         if depth > MAX_DEPTH {
             return None;
