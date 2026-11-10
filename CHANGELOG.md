@@ -2,6 +2,54 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.11] - 2026-11-10
+
+A feature release from `main`: tables on the canvas, Display P3 colour, extended variable collections, instance properties bound to variables, text styles that survive weight and italic overrides, and a `.fig` save that keeps the overrides of instances nested in a main component, plus fixes carried from @NamAIEngineer.
+
+### Added
+- **Tables.**
+  - A document can hold a table: ordered rows and columns with stable ids, sizes and merged cells, repaired on load and readable over MCP (PR #1742). Each table edit is one undo step (PR #1745).
+  - Tables draw on the CPU and GPU renderers and in PNG, SVG and PDF exports (PR #1773).
+  - Tables can be edited on the canvas: select a cell and type, Tab and Shift+Tab between cells, row and column grips to select and reorder, a "+" on a line to insert, drag a line to resize, and a right-click menu to add, remove, merge and unmerge (PR #1815).
+  - Cell text grows its row, clips on the line box and survives fonts that load late (PR #1814).
+  - Agents can create, fill, edit and style a table with the `table` op of `designos_apply_batch`, in one batch and one undo step (PR #1797), and their table edits replay into the same table in a live session (#1796, PR #1822).
+- **Colour.**
+  - A document can be set to Display P3 colour from the Page title row. Colours are stored as authored, shown converted to sRGB on screen, and tagged as Display P3 in PNG, JPEG, SVG and PDF exports (#136, PR #1812).
+  - One Colour format export setting (Hex, RGB or OKLCH) drives CSS, Tailwind, React, HTML and Dev Mode; Hex stays the default. In a Display P3 document, a colour outside sRGB is written as `color(display-p3 …)`. The colour picker can show and edit OKLCH (#137, PR #1827).
+- **Variables.** Extended variable collections: a collection can extend an extendable parent and override any of its variables per mode, as in Figma. The panel, canvas, code generation, `.fig` and Figma REST import and export, and MCP `set_variables` all follow the same rules (#135, PR #1813).
+- **Components.**
+  - Boolean, text and variant properties of an instance can be bound to variables from the inspector, and by agents with `prop_vars` on `designos_update_node` (#134, PR #1833).
+  - Swapping an instance or switching its variant carries your overrides into the new component the way Figma does, including nested swaps and a single text label (#1433, PR #1831).
+  - Create component says "Create multiple components" when several layers are selected (#1472, PR #1825).
+- **Text styles.** A text layer keeps its text style when you change its weight, italic or underline, or add a hyperlink, and shows a count pill on the style row. "Reapply style" restores the style's values in one undo step, and `.fig` round trips keep the style link and the overrides (#1448, PR #1749).
+- **Export.** Native grid code for Android XML, Compose, SwiftUI and UIKit writes flexible columns as weights instead of fixed widths (#1456, PR #1828).
+- **Motion.** The document gains a Motion model of timelines, tracks and keyframes, and timelines can be evaluated at a given time. There is no Motion UI yet (#140, PR #1811; #142, PR #1826).
+- **Dev Mode and inspector.** Dev mode, the right panel header and its Inspect and Prototype tabs move onto the Untitled UI dark kit's roles and sizes (PR #1714, PR #1794, PR #1763, PR #1768).
+
+### Fixed
+- **`.fig` save.**
+  - A `.fig` save keeps the overrides of instances nested inside a main component, including instances on pages that were never opened (#1649, PR #1664).
+  - Effect style links on instances are kept through import and save; builds on PR #1685 by @NamAIEngineer (#1494, PR #1810).
+  - A slot that lists only preferred components no longer gets an empty config on save, and a detached preferred component is saved (PR #1750).
+  - A resized imported line keeps its stroke band instead of jumping down by half its stroke width (#953, PR #1752).
+- **Rendering.** Imported inside strokes, stars, polygons and rings draw like Figma (#952, PR #1734).
+- **Layout.** Content that overflows an End- or Center-aligned auto layout frame keeps the place Figma stores, and an MCP edit re-solves only the frames it touches (#1665, PR #1667).
+- **Export.** Exported CSS and Tailwind grids put strokes, padding and tracks where the layout solver puts them (PR #1793).
+- **Text styles.**
+  - Typography variable bindings are kept when a text style is applied or created; carried from PR #1677 by @NamAIEngineer (PR #1733).
+  - K scale, paste properties and re-picking a value detach the text style by the same rule as the other typography controls (#1432, PR #1830).
+- **Canvas.**
+  - Drag edits such as corner radius, spacing and padding are kept when a release and the next press land in the same frame (PR #1732).
+  - Moving a layer that has an export row no longer redraws its export preview, which froze the canvas on large files (PR #1739).
+  - Selection chrome no longer runs through connector labels and magnet dots (PR #1751).
+  - A slot's dashed box and plus button stop at its clipping frame (#1583, PR #1760).
+  - Board popovers, the Zoom menu and the layer picker pick on release, like the other menus (#904, PR #1708).
+  - Whiteboard items on Design pages keep their kind and content through load, lint and save (PR #1701).
+- **Colour picker.** Gradient stops bound through a style are locked, with a read-only pill (#1446, PR #1832). An open picker shows the document's colour after undo or redo; carried from PR #1630 by @NamAIEngineer (PR #1688).
+- **App.** Toasts with an action are queued instead of replaced, and a failed Show in folder says so (#937, PR #1767).
+- **Windows.** A save no longer fails when antivirus, an indexer or another save briefly holds the file; carried from PR #1646 by @NamAIEngineer (PR #1688).
+- **Effects.** Background blur at the canvas edge no longer shows a smeared stripe on the GPU; carried from PR #1683 by @NamAIEngineer (PR #1688).
+
 ## [0.7.10] - 2026-11-07
 
 A hotfix release from `main`: a save no longer writes a file that is missing the content of pages that were never opened, and it also brings live connectors to design files, a more faithful `.fig` save, and fixes carried from @NamAIEngineer.
