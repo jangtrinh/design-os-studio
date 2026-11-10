@@ -1418,7 +1418,13 @@ impl Document {
     }
 
     /// Prunes any [`InProgress`] entries whose target node no longer exists or that are stale at [`now_ms`].
+    ///
+    /// With no entries there is nothing to prune, so the clock and the staleness setting are not read: every
+    /// committed edit calls this, and reading `DESIGNOS_IN_PROGRESS_STALE_MINUTES` allocates on Windows.
     pub fn prune_in_progress(&mut self) -> Vec<NodeId> {
+        if self.in_progress.is_empty() {
+            return Vec::new();
+        }
         self.clear_stale_in_progress(now_ms(), default_in_progress_stale_ms())
     }
 

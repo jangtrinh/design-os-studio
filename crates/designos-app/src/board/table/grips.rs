@@ -14,6 +14,8 @@ pub const GRIP_AREA: f32 = 24.0;
 pub const GRIP_GAP: f32 = 16.0;
 /// Pointer reach, in screen px, of a track line.
 const LINE_REACH: f32 = 4.0;
+/// How far, in screen px, the grip and "+" lanes reach out before the table's top-left corner.
+const CHROME_REACH: f32 = 3.0 * GRIP_AREA;
 
 /// What the pointer is over on a selected table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,8 +94,8 @@ pub fn areas(app: &App, geo: &TableGeo, pos: Pos2) -> Vec<(Hover, Rect)> {
     let (rows, cols) = (geo.props.rows.len(), geo.props.cols.len());
     let tl = screen(app, geo, 0.0, 0.0);
     let br = screen(app, geo, *geo.col_x.last().unwrap_or(&0.0), *geo.row_y.last().unwrap_or(&0.0));
-    let near_x = pos.x >= tl.x - 3.0 * GRIP_AREA && pos.x <= br.x + 4.0;
-    let near_y = pos.y >= tl.y - 3.0 * GRIP_AREA && pos.y <= br.y + 4.0;
+    let near_x = pos.x >= tl.x - CHROME_REACH && pos.x <= br.x + LINE_REACH;
+    let near_y = pos.y >= tl.y - CHROME_REACH && pos.y <= br.y + LINE_REACH;
     if !(near_x && near_y) {
         return Vec::new();
     }
