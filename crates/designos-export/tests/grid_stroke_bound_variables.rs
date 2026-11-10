@@ -225,10 +225,14 @@ fn bound_per_side_inside_stroke_uses_geometry_preserving_shadows() {
     let css = css_for(&doc, g);
     assert!(css.contains("box-shadow: inset"), "bound per-side strokes must not consume layout space: {css}");
     assert!(css.contains("var(--Stroke-Top-Weight"), "top side variable must reach the shadow: {css}");
+    assert!(css.contains("calc(0px - var(--Stroke-Right-Weight"), "right width must use valid CSS length subtraction: {css}");
+    assert!(css.contains("calc(0px - var(--Stroke-Bottom-Weight"), "bottom width must use valid CSS length subtraction: {css}");
     assert!(!css.lines().any(|line| line.starts_with("border-width")), "{css}");
 
     let tw = tailwind_for(&doc, g);
     assert!(tw.contains("shadow-[inset_0px_var(--Stroke-Top-Weight)"), "{tw}");
+    assert!(tw.contains("calc(0px_-_var(--Stroke-Right-Weight))"), "right width must use valid CSS length subtraction: {tw}");
+    assert!(tw.contains("calc(0px_-_var(--Stroke-Bottom-Weight))"), "bottom width must use valid CSS length subtraction: {tw}");
     assert!(!tw.contains("border-t-"), "{tw}");
 }
 

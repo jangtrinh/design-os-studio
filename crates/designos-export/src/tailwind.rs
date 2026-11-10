@@ -239,8 +239,8 @@ fn shadow_value(doc: &Document, n: &Node, stroke: Option<GridStroke>, fmt: Color
             let width = g.shadow_width_keys[i].and_then(|key| bound(doc, n, key).map(css_var));
             let (x, y) = match (i, width) {
                 (0, Some(w)) => ("0px".into(), w),
-                (1, Some(w)) => (format!("calc(-1*{w})"), "0px".into()),
-                (2, Some(w)) => ("0px".into(), format!("calc(-1*{w})")),
+                (1, Some(w)) => (format!("calc(0px_-_{w})"), "0px".into()),
+                (2, Some(w)) => ("0px".into(), format!("calc(0px_-_{w})")),
                 (3, Some(w)) => (w, "0px".into()),
                 (_, None) => (format!("{}px", num(x)), format!("{}px", num(y))),
                 _ => unreachable!(),

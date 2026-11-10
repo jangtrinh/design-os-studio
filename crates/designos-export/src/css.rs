@@ -243,8 +243,8 @@ pub fn css_for_with(doc: &Document, node: NodeId, fmt: ColorFormat) -> String {
             });
             let (x, y) = match (i, width) {
                 (0, Some(w)) => ("0px".into(), w),
-                (1, Some(w)) => (format!("calc(-1 * {w})"), "0px".into()),
-                (2, Some(w)) => ("0px".into(), format!("calc(-1 * {w})")),
+                (1, Some(w)) => (format!("calc(0px - {w})"), "0px".into()),
+                (2, Some(w)) => ("0px".into(), format!("calc(0px - {w})")),
                 (3, Some(w)) => (w, "0px".into()),
                 (_, None) => (format!("{}px", num(x)), format!("{}px", num(y))),
                 _ => unreachable!(),
