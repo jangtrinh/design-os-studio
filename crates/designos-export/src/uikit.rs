@@ -129,17 +129,12 @@ impl Cx<'_> {
 
     fn stack_padding(&mut self, v: &str, n: &Node, al: &AutoLayout) {
         let doc = self.doc;
+        let keys = crate::codegen::native_padding_keys(doc, n, al);
         let p = al.padding;
-        if p.iter().any(|x| *x > 0.0) || ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].iter().any(|k| bound(doc, n, k).is_some()) {
-            let side = |i: usize, key: &str| dimension(doc, n, key, p[i]);
+        if p.iter().any(|x| *x > 0.0) || keys.iter().any(|k| bound(doc, n, k).is_some()) {
+            let side = |i: usize| dimension(doc, n, keys[i], p[i]);
             self.line(format!("{v}.isLayoutMarginsRelativeArrangement = true"));
-            self.line(format!(
-                "{v}.layoutMargins = UIEdgeInsets(top: {}, left: {}, bottom: {}, right: {})",
-                side(0, "paddingTop"),
-                side(3, "paddingLeft"),
-                side(2, "paddingBottom"),
-                side(1, "paddingRight")
-            ));
+            self.line(format!("{v}.layoutMargins = UIEdgeInsets(top: {}, left: {}, bottom: {}, right: {})", side(0), side(3), side(2), side(1)));
         }
     }
 
@@ -175,12 +170,13 @@ impl Cx<'_> {
             self.line(format!("let {v} = UILabel()"));
             self.label(&v, n, t);
         } else if let Some((al, grid)) = own_al.and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
+            let native_al = crate::codegen::native_grid_layout(doc, n, al);
             self.line(format!("let {v} = UIStackView()"));
             self.line(format!("{v}.axis = .vertical"));
             let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
             self.line(format!("{v}.spacing = {row_gap_s}"));
             self.line(format!("{v}.alignment = .leading"));
-            self.stack_padding(&v, n, al);
+            self.stack_padding(&v, n, &native_al);
             grid_body = Some((al, grid));
         } else if let Some(al) = own_al.filter(|_| !kids.is_empty()) {
             let horizontal = al.direction == LayoutDirection::Horizontal;

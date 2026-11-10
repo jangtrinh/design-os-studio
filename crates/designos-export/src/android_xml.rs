@@ -364,6 +364,7 @@ impl Cx<'_> {
             self.style(n, &mut attrs);
             self.open(depth, "TextView", &attrs, true);
         } else if let Some((al, sg)) = own_al.and_then(|al| solved_grid(doc, n, al).map(|sg| (al, sg))) {
+            let native_al = crate::codegen::native_grid_layout(doc, n, al);
             let out_of_flow: Vec<&Node> = kids.iter().copied().filter(|k| !sg.children.iter().any(|(cid, _)| *cid == k.id)).collect();
             let has_oof = !out_of_flow.is_empty();
             let g_depth = if has_oof { depth + 1 } else { depth };
@@ -375,12 +376,12 @@ impl Cx<'_> {
                 attr(&mut g_attrs, "layout_height", if sz.h == Dim::Hug { "wrap_content" } else { "match_parent" });
                 attr(&mut g_attrs, "columnCount", sg.widths.len().to_string());
                 attr(&mut g_attrs, "rowCount", sg.rows.len().to_string());
-                self.padding(n, al, &mut g_attrs);
+                self.padding(n, &native_al, &mut g_attrs);
                 self.open(g_depth, "GridLayout", &g_attrs, false);
             } else {
                 attr(&mut attrs, "columnCount", sg.widths.len().to_string());
                 attr(&mut attrs, "rowCount", sg.rows.len().to_string());
-                self.padding(n, al, &mut attrs);
+                self.padding(n, &native_al, &mut attrs);
                 self.style(n, &mut attrs);
                 self.open(depth, "GridLayout", &attrs, false);
             }
@@ -536,7 +537,7 @@ impl Cx<'_> {
 
     fn padding(&self, n: &Node, al: &AutoLayout, attrs: &mut Attrs) {
         let doc = self.doc;
-        let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+        let keys = crate::codegen::native_padding_keys(doc, n, al);
         let p = al.padding;
         let bound_any = keys.iter().any(|k| bound(doc, n, k).is_some());
         if !bound_any && p.iter().all(|v| *v == p[0]) {
