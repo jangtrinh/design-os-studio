@@ -1,0 +1,125 @@
+{
+  "components": [
+    {
+      "id": "1:4",
+      "key": "1:4",
+      "name": "Icon",
+      "type": "COMPONENT",
+      "page": {
+        "id": "1:1",
+        "name": "Design system"
+      },
+      "section": "Atoms",
+      "width": 24,
+      "boundVariables": [],
+      "instances": []
+    },
+    {
+      "id": "1:7",
+      "key": "1:7",
+      "name": "Button",
+      "type": "COMPONENT_SET",
+      "page": {
+        "id": "1:1",
+        "name": "Design system"
+      },
+      "variantAxes": {
+        "Size": [
+          "S",
+          "L"
+        ]
+      },
+      "section": "Atoms",
+      "width": 264,
+      "boundVariables": [
+        "VariableID:3:20"
+      ],
+      "instances": [
+        {
+          "component": "1:4",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "tokens": [
+    {
+      "id": "VariableID:3:20",
+      "name": "color/brand",
+      "type": "COLOR",
+      "collection": "Theme",
+      "valuesByMode": {
+        "Light": {
+          "a": 1,
+          "b": 1,
+          "g": 0.4,
+          "r": 0.2
+        },
+        "Dark": {
+          "a": 1,
+          "b": 1,
+          "g": 0.73333335,
+          "r": 0.6
+        }
+      }
+    },
+    {
+      "id": "VariableID:3:21",
+      "name": "space/gap",
+      "type": "FLOAT",
+      "collection": "Theme",
+      "valuesByMode": {
+        "Light": 8,
+        "Dark": 12
+      }
+    }
+  ],
+  "styles": [],
+  "frames": [
+    {
+      "id": "1:9",
+      "name": "Home",
+      "page": {
+        "id": "1:2",
+        "name": "Screens"
+      },
+      "w": 375,
+      "h": 812,
+      "instances": [
+        {
+          "component": "1:4",
+          "count": 2
+        },
+        {
+          "component": "1:7",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "id": "1:14",
+      "name": "Login",
+      "page": {
+        "id": "1:2",
+        "name": "Screens"
+      },
+      "section": "Flows",
+      "w": 390,
+      "h": 844,
+      "instances": [
+        {
+          "component": "1:7",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "components": 2,
+    "tokens": 2,
+    "styles": 0
+  },
+  "sensing": {
+    "status": "complete"
+  }
+}

@@ -282,3 +282,4 @@ pub fn assert_rich_survived(rt: &Document) {
 
 pub mod deferred_fig;
 pub mod fig_fixture;
+pub mod scan_world;

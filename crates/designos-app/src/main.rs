@@ -6,6 +6,8 @@ pub mod agent_cli_catalog;
 #[cfg(test)]
 mod agent_cli_export_fig_tests;
 #[cfg(test)]
+mod agent_cli_scan_design_system_tests;
+#[cfg(test)]
 mod agent_cli_select_tests;
 pub mod agent_composer;
 mod agent_composer_buttons;
@@ -46,6 +48,7 @@ mod check_designs;
 mod cli;
 pub(crate) mod cli_export_write;
 pub mod cli_resolve;
+mod cli_scan_design_system;
 mod clipboard;
 mod cmdk;
 mod comments;
@@ -411,6 +414,10 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     if let Some(out_path) = &opts.export_fig {
         cli_export_write::check_target(out_path, "fig", opts.overwrite)?;
     }
+    // Same for --scan-design-system: an unusable target stops the command before the file is read.
+    if let Some(out_path) = &opts.scan_design_system {
+        cli_scan_design_system::check_target(out_path, opts.overwrite)?;
+    }
     let (mut doc, save_target) = if let Some(id) = &opts.open_id {
         let root = opts.library.clone().unwrap_or_else(designos_library::Library::default_root);
         let lib = designos_library::Library::open(&root).map_err(|e| format!("Cannot open library at {}: {e}", root.display()))?;
@@ -566,6 +573,12 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             "omitted_comment_threads": doc.comments.len(),
         });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    }
+
+    if let Some(out_path) = &opts.scan_design_system {
+        doc.load_pending_pages().map_err(|e| format!("Cannot scan the design system: {e}"))?;
+        let report = cli_scan_design_system::run(&doc, out_path, opts.overwrite)?;
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
     }
 
     if let Some(var_path) = &opts.import_variables {
