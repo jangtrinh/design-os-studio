@@ -51,14 +51,18 @@ pub(crate) struct GridStroke {
     /// Short note emitted as a code comment when CSS has no border-free primitive for a dashed or
     /// gradient per-side stroke whose padding is smaller than the stroke width.
     pub limit_note: Option<&'static str>,
+    /// Whether every padding side is written from the stored padding plus [`Self::pad_extra`] and kept at 0 or
+    /// more, even with nothing to add: set for every drawn stroke, so a negative stored side cannot make the
+    /// whole `padding` shorthand invalid. A stroke that is not exported leaves the padding as stored.
+    pub clamp_padding: bool,
 }
 
 impl GridStroke {
     /// Whether padding side `i` is written from the stored padding plus [`Self::pad_extra`] and kept at 0 or
-    /// more. Every drawn grid stroke clamps every side: a negative side would make the whole `padding`
-    /// shorthand invalid in CSS and drop the other sides with it.
-    pub fn adjusts_padding(&self, _i: usize) -> bool {
-        true
+    /// more. A shadow stroke and every drawn stroke ([`Self::clamp_padding`]) clamp every side: a negative
+    /// side would make the whole `padding` shorthand invalid in CSS and drop the other sides with it.
+    pub fn adjusts_padding(&self, i: usize) -> bool {
+        self.pad_extra[i] != 0.0 || self.model == StrokeModel::Shadow || self.clamp_padding
     }
 
     /// The stroke is a CSS `border` and takes layout space.
@@ -80,7 +84,7 @@ impl GridStroke {
         self.shadow_offsets.into_iter().enumerate().filter_map(move |(i, off)| {
             let (x, y) = off?;
             let var = crate::codegen::bound(doc, n, SIDE_WEIGHT_KEYS[i])
-                .or_else(|| (!any_side_bound).then(|| crate::codegen::bound(doc, n, "strokeWeight")).flatten());
+                .or_else(|| (!any_side_bound && n.stroke.side_weights.is_none()).then(|| crate::codegen::bound(doc, n, "strokeWeight")).flatten());
             if let Some(v) = var {
                 let token = if css_fallback { crate::codegen::stroke_width_var_css(doc, n, v, color_fmt) } else { crate::codegen::css_var(v) };
                 let neg = if css_fallback { format!("calc(-1 * {token})") } else { format!("calc(-1*{token})") };
@@ -118,7 +122,7 @@ pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStro
         std::array::from_fn::<f32, 4, _>(|i| effective[i] - resolved_al.padding[i])
     };
     let none = [None; 4];
-    let outline = GridStroke { model: StrokeModel::Outline, pad_extra: reserved, shadow_offsets: none, limit_note: None };
+    let outline = GridStroke { model: StrokeModel::Outline, pad_extra: reserved, shadow_offsets: none, limit_note: None, clamp_padding: stroke_is_drawn(n) };
     if !stroke_is_drawn(n) || st.align != StrokeAlign::Inside {
         return outline;
     }
@@ -131,7 +135,7 @@ pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStro
     let widths = st.side_weights.unwrap_or([st.weight; 4]);
     let dashed = st.dashes.iter().any(|d| *d > 0.0);
     let fits_in_padding = (0..4).all(|i| resolved_al.padding[i].max(0.0) + reserved[i] >= widths[i].max(0.0));
-    if !reserves && ((!gradient && !dashed) || !fits_in_padding) {
+    if sided && !reserves && ((!gradient && !dashed) || !fits_in_padding) {
         let [t, r, b, l] = widths.map(|w| w.max(0.0));
         let side_bound: [bool; 4] = std::array::from_fn(|i| crate::codegen::bound(doc, n, SIDE_WEIGHT_KEYS[i]).is_some());
         let limit_note = match (dashed, gradient) {
@@ -154,16 +158,23 @@ pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStro
                 (l > 0.0 || side_bound[3]).then_some((l, 0.0)),
             ],
             limit_note,
+            clamp_padding: true,
         };
     }
-    GridStroke { model: StrokeModel::Border, pad_extra: std::array::from_fn(|i| reserved[i] - widths[i].max(0.0)), shadow_offsets: none, limit_note: None }
+    GridStroke {
+        model: StrokeModel::Border,
+        pad_extra: std::array::from_fn(|i| reserved[i] - widths[i].max(0.0)),
+        shadow_offsets: none,
+        limit_note: None,
+        clamp_padding: true,
+    }
 }
 
 /// [`grid_stroke`] for any node: `None` unless `n` is a grid container (a frame, component, component
-/// set or instance with a Grid auto layout) that has a drawn stroke.
+/// set or instance with a Grid auto layout).
 pub(crate) fn grid_stroke_of(doc: &Document, n: &Node) -> Option<GridStroke> {
     let al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref())?;
-    (al.direction == designos_doc::LayoutDirection::Grid && stroke_is_drawn(n)).then(|| grid_stroke(doc, n, al))
+    (al.direction == designos_doc::LayoutDirection::Grid).then(|| grid_stroke(doc, n, al))
 }
 
 #[cfg(test)]

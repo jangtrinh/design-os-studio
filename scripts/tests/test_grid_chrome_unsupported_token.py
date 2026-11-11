@@ -1,6 +1,6 @@
 """An untranslatable Tailwind token must fail only its own scene, never abort the run.
 
-Run from the repo root: python3 scripts/tests/test_unsupported_token.py
+Run from the repo root: python3 scripts/tests/test_grid_chrome_unsupported_token.py
 """
 
 from pathlib import Path

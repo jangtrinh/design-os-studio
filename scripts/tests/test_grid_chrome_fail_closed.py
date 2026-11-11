@@ -1,6 +1,6 @@
 """The harness fails closed: a drift that is expected must happen, and a pixel check needs Pillow.
 
-Run from the repo root: python3 scripts/tests/test_fail_closed.py
+Run from the repo root: python3 scripts/tests/test_grid_chrome_fail_closed.py
 """
 
 from pathlib import Path
