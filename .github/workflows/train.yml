@@ -1,0 +1,117 @@
+name: Batch train
+
+# Builds `train/<UTC ts>` from `origin/main` + up to `max_batch` eligible `train:ready` PRs,
+# waits for the 4 required checks (`Check`, `Test (macos-15)`, `Clippy`, `Rustfmt`) on that SHA,
+# and squash-merges each PR in order with `--match-head-commit`.
+#
+# Safety gates:
+# - Never uses `pull_request_target`; always checks out `main`.
+# - Scheduled and label-triggered runs stay in dry-run mode until the repository variable
+#   `TRAIN_LIVE` is set to `'true'`.
+# - All writes (pushing `train/<ts>`, merging PRs, editing labels, commenting) require
+#   `secrets.TRAIN_TOKEN` (a PAT with `contents: write` and `pull-requests: write` so pushing
+#   `train/<ts>` triggers the `CI` workflow).
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run only (print selection, order and planned merges; push/merge/label nothing)"
+        required: false
+        default: true
+        type: boolean
+      max_batch:
+        description: "Maximum number of PRs to combine into one train batch"
+        required: false
+        default: "5"
+        type: string
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+
+concurrency:
+  group: train
+  cancel-in-progress: false
+
+jobs:
+  train:
+    name: Batch merge train
+    if: github.event_name != 'pull_request' || github.event.label.name == 'train:ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    env:
+      GH_REPO: ${{ github.repository }}
+      TRAIN_TOKEN: ${{ secrets.TRAIN_TOKEN }}
+      FALLBACK_READ_TOKEN: ${{ github.token }}
+      TRAIN_LIVE: ${{ vars.TRAIN_LIVE }}
+      EVENT_NAME: ${{ github.event_name }}
+      INPUT_DRY_RUN: ${{ inputs.dry_run }}
+      INPUT_MAX_BATCH: ${{ inputs.max_batch }}
+    steps:
+      - name: Resolve train mode and validate token
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_batch="${INPUT_MAX_BATCH:-5}"
+          if ! [[ "$max_batch" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Invalid max_batch '$max_batch' (expected a positive integer)"
+            exit 1
+          fi
+
+          # Scheduled and pull_request (labeled) runs stay dry-run until vars.TRAIN_LIVE == 'true'.
+          # workflow_dispatch defaults to dry_run=true; a live run requires both dry_run=false and TRAIN_LIVE == 'true'.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "${INPUT_DRY_RUN:-true}" = "false" ] && [ "${TRAIN_LIVE:-}" = "true" ]; then
+              dry_run=0
+            elif [ "${INPUT_DRY_RUN:-true}" = "false" ] && [ "${TRAIN_LIVE:-}" != "true" ]; then
+              echo "::notice::workflow_dispatch requested dry_run=false, but vars.TRAIN_LIVE is not 'true'; forcing DRY_RUN=1 so nothing merges before TRAIN_LIVE=true."
+              dry_run=1
+            else
+              dry_run=1
+            fi
+          else
+            if [ "${TRAIN_LIVE:-}" = "true" ]; then
+              dry_run=0
+            else
+              dry_run=1
+            fi
+          fi
+
+          if [ "$dry_run" = "0" ] && [ -z "${TRAIN_TOKEN:-}" ]; then
+            echo "::error::Missing repository secret TRAIN_TOKEN. Configure a PAT with 'contents: write' and 'pull-requests: write' as secrets.TRAIN_TOKEN before running the train with TRAIN_LIVE=true."
+            exit 1
+          fi
+
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+          echo "max_batch=$max_batch" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.TRAIN_TOKEN || github.token }}
+
+      - name: Run batch merge train
+        shell: bash
+        env:
+          DRY_RUN: ${{ steps.mode.outputs.dry_run }}
+          MAX_BATCH: ${{ steps.mode.outputs.max_batch }}
+          GH_TOKEN: ${{ secrets.TRAIN_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "0" ] && [ -z "${TRAIN_TOKEN:-}" ]; then
+            echo "::error::Missing repository secret TRAIN_TOKEN; refusing to run live train writes without secrets.TRAIN_TOKEN."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ./scripts/ci/train.sh

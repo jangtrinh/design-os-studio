@@ -53,6 +53,23 @@ Work ships in **packs**. A pack is one theme a user can describe in one sentence
 
 If a gate fails, the release task files a blocker issue in the same milestone, and the pack stays open. Never tag over a red gate.
 
+## Batch train
+
+`.github/workflows/train.yml` (`scripts/ci/train.sh`) batches up to 5 open, non-draft, non-stacked PRs targeting `main` into a temporary `train/<UTC ts>` branch, waits for the 4 required checks (`Check`, `Test (macos-15)`, `Clippy`, `Rustfmt`) on that combined SHA, and squash-merges each PR in order with `gh pr merge N --squash --match-head-commit <sha>`.
+
+- **Labels:**
+  - `train:ready` — PR is reviewed, has green required checks on its own head, and is queued for the next batch. Removed automatically once the PR lands (or when dropped with `train:conflict` / `train:failed`).
+  - `hotfix` — ordered at the front of the train ahead of normal `train:ready` PRs.
+  - `train:solo` — runs alone in a 1-PR batch (also implied when a PR title starts with `release:`), freezing other merges while the release PR lands.
+  - `train:conflict` — applied when `git merge --no-ff` onto the train branch conflicts; rebase on `main` and re-add `train:ready`.
+  - `train:failed` — applied when the required checks fail on the train branch (either to the single PR whose changed files intersect the failing crate, after which the remaining batch reruns once, or to the whole batch when the failure spans multiple or unknown crates).
+- **Configuration:**
+  - `TRAIN_LIVE` (repository variable): scheduled (`*/15 * * * *`) and label-triggered runs stay in dry-run mode until `vars.TRAIN_LIVE` is `'true'` and the `main` ruleset's "Require branches to be up to date before merging" setting is turned OFF.
+  - `TRAIN_TOKEN` (repository secret): PAT with `contents: write` and `pull-requests: write` (plus `workflows` if workflow files ride the train) so pushing `train/<ts>` triggers `CI` and the job can squash-merge PRs and update labels.
+- **Dry run:**
+  - In GitHub Actions: `gh workflow run train.yml -f dry_run=true`
+  - Locally (read-only `gh` calls): `DRY_RUN=1 ./scripts/ci/train.sh`
+
 ## Checklist
 
 1. Make sure `main` is green. macOS tests and Clippy must pass; we verify releases on macOS, and the Windows and Linux packages are not verified before release.
