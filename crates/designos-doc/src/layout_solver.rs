@@ -354,12 +354,14 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
             let c = if kid.stretches_cross() { ax.clamp_cross(&kid.limits, (line_cross[li] - c_margin).max(0.0)) } else { nat_cross(kid) };
             let outer_c = c + c_margin;
             let off = match kid.align_self {
-                AlignSelf::Start | AlignSelf::Stretch => 0.0,
+                AlignSelf::Start => 0.0,
                 AlignSelf::Center => (line_cross[li] - outer_c) / 2.0,
                 AlignSelf::End => line_cross[li] - outer_c,
+                // A stretched child fills the line unless a max (or min) size clamps it; the clamped remainder is placed by the
+                // frame's counter_align like any other child (an unclamped one has no slack, so its offset is 0).
                 // Baseline is stored (and round-trips through .fig) but baselines are not aligned yet:
                 // it behaves like Auto and inherits the frame's counter_align.
-                AlignSelf::Auto | AlignSelf::Baseline => match al.counter_align {
+                AlignSelf::Auto | AlignSelf::Stretch | AlignSelf::Baseline => match al.counter_align {
                     LayoutAlign::Center => (line_cross[li] - outer_c) / 2.0,
                     LayoutAlign::End => line_cross[li] - outer_c,
                     _ => 0.0,
@@ -659,5 +661,77 @@ mod tests {
             assert_eq!(d.get(c1).unwrap().transform.ty, 0.0, "{align:?}: first child stays at start");
             assert_eq!(d.get(c2).unwrap().transform.ty, 80.0, "{align:?}: gap collapses to 0 when overflowing");
         }
+    }
+
+    /// A 1440 x 1440 fixed frame (direction `dir`, counter alignment `align`) holding one rectangle whose cross-axis
+    /// size is `Fill`, `align_self` as given and cross-axis limits `(min, max)`. Returns the document and the child's id
+    /// after one relayout.
+    fn frame_with_cross_fill_child(dir: LayoutDirection, align: LayoutAlign, align_self: AlignSelf, limits: (Option<f32>, Option<f32>)) -> (Document, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let frame_id = d.alloc_id();
+        let mut frame = Node::frame(frame_id, Rect::new(0.0, 0.0, 1440.0, 1440.0));
+        frame.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: dir,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                counter_align: align,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let frame = d.insert(page, frame).unwrap();
+        let kid_id = d.alloc_id();
+        let mut kid = Node::rectangle(kid_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        kid.layout_child = LayoutChild { align_self, ..Default::default() };
+        if dir == LayoutDirection::Vertical {
+            kid.layout_child.horizontal = Sizing::Fill;
+            (kid.layout_child.min_w, kid.layout_child.max_w) = limits;
+        } else {
+            kid.layout_child.vertical = Sizing::Fill;
+            (kid.layout_child.min_h, kid.layout_child.max_h) = limits;
+        }
+        let kid = d.insert(frame, kid).unwrap();
+        d.relayout_subtree(frame);
+        (d, kid)
+    }
+
+    /// Offset and size of a node along the frame's cross axis.
+    fn cross_span(d: &Document, id: NodeId, dir: LayoutDirection) -> (f32, f32) {
+        let n = d.get(id).unwrap();
+        if dir == LayoutDirection::Vertical {
+            (n.transform.tx, n.size.x)
+        } else {
+            (n.transform.ty, n.size.y)
+        }
+    }
+
+    #[test]
+    fn a_stretched_child_clamped_by_its_max_size_follows_the_frames_counter_alignment() {
+        for dir in [LayoutDirection::Vertical, LayoutDirection::Horizontal] {
+            for (align, offset) in [(LayoutAlign::Start, 0.0), (LayoutAlign::Center, 80.0), (LayoutAlign::End, 160.0)] {
+                for align_self in [AlignSelf::Stretch, AlignSelf::Auto] {
+                    let (d, kid) = frame_with_cross_fill_child(dir, align, align_self, (None, Some(1280.0)));
+                    assert_eq!(cross_span(&d, kid, dir), (offset, 1280.0), "{dir:?} {align:?} {align_self:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_stretched_child_below_its_max_size_fills_the_frame_whatever_the_alignment() {
+        for dir in [LayoutDirection::Vertical, LayoutDirection::Horizontal] {
+            for align in [LayoutAlign::Start, LayoutAlign::Center, LayoutAlign::End] {
+                let (d, kid) = frame_with_cross_fill_child(dir, align, AlignSelf::Stretch, (None, Some(2000.0)));
+                assert_eq!(cross_span(&d, kid, dir), (0.0, 1440.0), "{dir:?} {align:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_explicit_start_align_self_still_pins_a_clamped_child_to_the_start() {
+        let (d, kid) = frame_with_cross_fill_child(LayoutDirection::Vertical, LayoutAlign::Center, AlignSelf::Start, (None, Some(1280.0)));
+        assert_eq!(cross_span(&d, kid, LayoutDirection::Vertical), (0.0, 1280.0));
     }
 }
