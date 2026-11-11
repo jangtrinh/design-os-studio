@@ -1284,6 +1284,11 @@ pub(crate) fn stroke_color_token(doc: &Document, n: &Node, color_fmt: ColorForma
     bound(doc, n, "strokes/0").map(|v| css_var_with_fallback(doc, n, v, Fallback::Color, color_fmt))
 }
 
+/// A number variable `v` bound to a stroke width on `n` as CSS: `var(--Border-Top, 4px)`.
+pub(crate) fn stroke_width_var_css(doc: &Document, n: &Node, v: &Variable, color_fmt: ColorFormat) -> String {
+    css_var_with_fallback(doc, n, v, Fallback::Px, color_fmt)
+}
+
 /// A bound padding side plus the pixels the stroke model of a grid frame asks of it.
 fn padding_with_extra(var: &str, extra: f32) -> String {
     if extra > 0.0 {
