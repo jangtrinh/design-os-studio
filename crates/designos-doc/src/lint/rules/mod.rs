@@ -130,6 +130,7 @@ pub struct ActiveRules {
     pub detached_text_style: bool,
     pub detached_instance: bool,
     pub component_property_variable: bool,
+    pub easing_variable: bool,
     pub default_layer_name: bool,
     pub deeply_nested: bool,
     pub empty_container: bool,
@@ -160,6 +161,7 @@ impl ActiveRules {
             detached_text_style: config.is_enabled("detached-text-style"),
             detached_instance: config.is_enabled("detached-instance"),
             component_property_variable: config.is_enabled("component-property-variable"),
+            easing_variable: config.is_enabled("easing-variable"),
             default_layer_name: config.is_enabled("default-layer-name"),
             deeply_nested: config.is_enabled("deeply-nested"),
             empty_container: config.is_enabled("empty-container"),
@@ -258,6 +260,23 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
                     n,
                     ctx.page_bounds,
                     format!("Property \"{name}\" keeps its last value: {problem}"),
+                    None,
+                    false,
+                );
+            }
+        }
+    }
+
+    // An easing variable bound to an unknown preset keeps its stored easing.
+    if active.easing_variable {
+        for key in n.variables.bindings.keys() {
+            if let Some(problem) = crate::easing_binding_problem(doc, n.id, key) {
+                emit(
+                    "easing-variable",
+                    Category::Tokens,
+                    n,
+                    ctx.page_bounds,
+                    format!("Easing binding \"{key}\" keeps its stored easing: {problem}"),
                     None,
                     false,
                 );

@@ -4344,6 +4344,30 @@ mod tests {
             },
         );
 
+        // easing-variable: an easing binding whose variable names an unknown preset
+        e.doc.variables.insert(
+            "v_bad_ease".into(),
+            Variable {
+                id: "v_bad_ease".into(),
+                name: "Motion/Easing".into(),
+                collection: "c1".into(),
+                kind: VariableKind::String,
+                values: [("default".to_string(), VariableValue::String("no-such-curve".into()))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let ease_node = e.doc.alloc_id();
+        let mut ease_f = Node::frame(ease_node, Rect::new(300.0, 0.0, 40.0, 40.0));
+        ease_f.name = "EasingBound".into();
+        ease_f.variables.bindings.insert("easingData".into(), "v_bad_ease".into());
+        e.doc.insert(page, ease_f).unwrap();
+
         // 1. overflow-parent: non-clipping frame with overflowing child
         let ov_parent = e.doc.alloc_id();
         let mut ov_f = Node::frame(ov_parent, Rect::new(0.0, 0.0, 100.0, 100.0));
@@ -6559,5 +6583,73 @@ mod tests {
         let res_updated_box = designos_doc::resolve_node(&e.doc, updated_box);
         assert_eq!(res_updated_box.layout_child.min_w, Some(60.0));
         assert_eq!(res_updated_box.layout_child.max_w, Some(90.0));
+    }
+
+    #[test]
+    fn apply_spec_and_update_node_bind_easing_and_duration_variables() {
+        use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+        e.doc.variable_collections.insert(
+            "c_motion".into(),
+            VariableCollection {
+                id: "c_motion".into(),
+                name: "Motion".into(),
+                modes: vec![VariableMode { id: "m_a".into(), name: "Calm".into() }, VariableMode { id: "m_b".into(), name: "Snappy".into() }],
+                default_mode: "m_a".into(),
+                variables: vec![],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for (vid, vname, kind, a, b) in [
+            ("v_ease", "Easing", VariableKind::String, VariableValue::String("ease-in-out".into()), VariableValue::String("linear".into())),
+            ("v_dur", "Duration", VariableKind::Number, VariableValue::Number(300.0), VariableValue::Number(120.0)),
+        ] {
+            e.doc.variables.insert(
+                vid.into(),
+                Variable {
+                    id: vid.into(),
+                    name: vname.into(),
+                    collection: "c_motion".into(),
+                    kind,
+                    values: [("m_a".into(), a), ("m_b".into(), b)].into_iter().collect(),
+                    description: String::new(),
+                    scopes: vec![],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "Animated",
+                        "width": 100.0,
+                        "height": 100.0,
+                        "bindings": { "easingData": "var:Motion/Easing" }
+                    }
+                }),
+            )
+            .unwrap();
+        let id = NodeId(res["root_node_id"].as_u64().unwrap());
+        assert_eq!(e.doc.get(id).unwrap().variables.bindings.get("easingData").map(String::as_str), Some("v_ease"));
+
+        e.call("designos_update_node", json!({ "node_id": id.0, "bindings": { "timelineDuration": "var:Motion/Duration" } })).unwrap();
+        assert_eq!(e.doc.get(id).unwrap().variables.bindings.get("timelineDuration").map(String::as_str), Some("v_dur"));
+
+        // An easing binding must point at a string variable, a duration at a number variable.
+        assert!(e.call("designos_update_node", json!({ "node_id": id.0, "bindings": { "easingData": "var:Motion/Duration" } })).is_err());
+        assert!(e.call("designos_update_node", json!({ "node_id": id.0, "bindings": { "timelineDuration": "var:Motion/Easing" } })).is_err());
     }
 }

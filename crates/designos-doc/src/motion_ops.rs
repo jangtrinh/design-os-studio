@@ -42,10 +42,10 @@ pub enum MotionError {
 /// Every timeline, track and assignment of a document, found in one pass over the layers that carry Motion.
 #[derive(Debug, Default)]
 pub struct MotionIndex<'a> {
-    timelines: BTreeMap<&'a str, (NodeId, &'a Timeline)>,
-    tracks: BTreeMap<&'a str, Vec<(NodeId, &'a Track)>>,
+    timelines: BTreeMap<&'a str, (NodeId, Timeline)>,
+    tracks: BTreeMap<&'a str, Vec<(NodeId, Track)>>,
     track_ids: BTreeSet<&'a str>,
-    assignments: Vec<(NodeId, &'a TimelineAssignment)>,
+    assignments: Vec<(NodeId, TimelineAssignment)>,
     duplicate_ids: Vec<&'a str>,
 }
 
@@ -55,22 +55,30 @@ impl<'a> MotionIndex<'a> {
     /// repeat is listed in [`Self::duplicate_ids`] instead of silently replacing it.
     pub fn build(doc: &'a Document) -> Self {
         let mut ix = Self::default();
-        for node in doc.nodes.values() {
-            let Some(m) = node.motion.as_deref() else { continue };
-            for t in &m.timelines {
-                if ix.timelines.contains_key(t.id.as_str()) {
-                    ix.duplicate_ids.push(t.id.as_str());
+        for raw_node in doc.nodes.values() {
+            let Some(raw_motion) = raw_node.motion.as_deref() else { continue };
+            let resolved = crate::resolve_node(doc, raw_node);
+            let m = resolved.motion.as_deref().unwrap_or(raw_motion);
+            for (idx, raw_t) in raw_motion.timelines.iter().enumerate() {
+                let id = raw_t.id.as_str();
+                let t = m.timelines.get(idx).unwrap_or(raw_t);
+                if ix.timelines.contains_key(id) {
+                    ix.duplicate_ids.push(id);
                 } else {
-                    ix.timelines.insert(t.id.as_str(), (node.id, t));
+                    ix.timelines.insert(id, (raw_node.id, t.clone()));
                 }
             }
-            for t in &m.tracks {
-                if !ix.track_ids.insert(t.id.as_str()) {
-                    ix.duplicate_ids.push(t.id.as_str());
+            for (idx, raw_t) in raw_motion.tracks.iter().enumerate() {
+                let id = raw_t.id.as_str();
+                let t = m.tracks.get(idx).unwrap_or(raw_t);
+                if !ix.track_ids.insert(id) {
+                    ix.duplicate_ids.push(id);
                 }
-                ix.tracks.entry(t.timeline.as_str()).or_default().push((node.id, t));
+                ix.tracks.entry(raw_t.timeline.as_str()).or_default().push((raw_node.id, t.clone()));
             }
-            ix.assignments.extend(m.assignments.iter().map(|a| (node.id, a)));
+            for a in &m.assignments {
+                ix.assignments.push((raw_node.id, a.clone()));
+            }
         }
         ix
     }
@@ -87,33 +95,33 @@ impl<'a> MotionIndex<'a> {
     }
 
     /// The layer that owns timeline `id`, and the timeline.
-    pub fn timeline(&self, id: &str) -> Option<(NodeId, &'a Timeline)> {
-        self.timelines.get(id).copied()
+    pub fn timeline(&self, id: &str) -> Option<(NodeId, &Timeline)> {
+        self.timelines.get(id).map(|(nid, t)| (*nid, t))
     }
 
     /// All timelines, in id order.
-    pub fn timelines(&self) -> impl Iterator<Item = (NodeId, &'a Timeline)> + '_ {
-        self.timelines.values().copied()
+    pub fn timelines(&self) -> impl Iterator<Item = (NodeId, &Timeline)> + '_ {
+        self.timelines.values().map(|(nid, t)| (*nid, t))
     }
 
     /// The tracks that run on `timeline`, with the layer each animates.
-    pub fn tracks_on(&self, timeline: &str) -> &[(NodeId, &'a Track)] {
+    pub fn tracks_on(&self, timeline: &str) -> &[(NodeId, Track)] {
         self.tracks.get(timeline).map(Vec::as_slice).unwrap_or(&[])
     }
 
     /// Every assignment in the document with the layer it plays on.
-    pub fn assignments(&self) -> &[(NodeId, &'a TimelineAssignment)] {
+    pub fn assignments(&self) -> &[(NodeId, TimelineAssignment)] {
         &self.assignments
     }
 
     /// The assignments nested inside `containing`.
-    pub fn assignments_in<'s>(&'s self, containing: &'s str) -> impl Iterator<Item = (NodeId, &'a TimelineAssignment)> + 's {
-        self.assignments.iter().copied().filter(move |(_, a)| a.containing == containing)
+    pub fn assignments_in<'s>(&'s self, containing: &'s str) -> impl Iterator<Item = (NodeId, &'s TimelineAssignment)> + 's {
+        self.assignments.iter().map(|(nid, a)| (*nid, a)).filter(move |(_, a)| a.containing == containing)
     }
 
     /// The timelines `id` is nested in through its `parent` chain, nearest first. Stops at a missing parent or
     /// a repeat, so a hand-edited file with a loop cannot hang the caller.
-    pub fn ancestors(&self, id: &str) -> Vec<&'a Timeline> {
+    pub fn ancestors(&self, id: &str) -> Vec<&Timeline> {
         let mut out: Vec<&Timeline> = Vec::new();
         let mut cur = self.timeline(id).and_then(|(_, t)| t.parent.as_deref());
         while let Some(pid) = cur {

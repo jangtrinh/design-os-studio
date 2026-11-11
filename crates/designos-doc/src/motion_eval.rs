@@ -53,17 +53,60 @@ pub struct PropertyOverride {
 /// and is not serialized.
 pub fn evaluate_motion(doc: &Document, t_us: i64) -> Vec<PropertyOverride> {
     let index = MotionIndex::build(doc);
-    let mut stack = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
     let mut out = Vec::new();
-    for node in doc.nodes.values() {
-        let Some(motion) = node.motion.as_deref() else { continue };
-        if !motion.assignments.iter().any(|a| !a.disabled) {
+    for raw_node in doc.nodes.values() {
+        let Some(raw_motion) = raw_node.motion.as_deref() else { continue };
+        if !raw_motion.assignments.iter().any(|a| !a.disabled) {
             continue;
         }
-        for track in &motion.tracks {
+        let resolved = crate::resolve_node(doc, raw_node);
+        let node = resolved.as_ref();
+        let Some(motion) = node.motion.as_deref() else { continue };
+        for mut track in motion.tracks.clone() {
+            let node_has_dur_var = raw_node.variables.bindings.keys().any(|k| crate::is_duration_binding_key(k));
+            let (tl_owner_id, tl_has_dur_var, raw_tl_dur_us) = if let Some((owner_id, _)) = index.timeline(&track.timeline) {
+                let owner_has_dur = doc.get(owner_id).is_some_and(|on| on.variables.bindings.keys().any(|k| crate::is_duration_binding_key(k)));
+                let raw_dur = doc
+                    .get(owner_id)
+                    .and_then(|on| on.motion.as_deref())
+                    .and_then(|m| m.timelines.iter().find(|t| t.id == track.timeline))
+                    .map(|t| t.duration_us)
+                    .unwrap_or(0);
+                (Some(owner_id), owner_has_dur, raw_dur)
+            } else {
+                (None, false, 0)
+            };
+
+            if !node_has_dur_var && tl_has_dur_var {
+                if let Some((_, resolved_tl)) = index.timeline(&track.timeline) {
+                    crate::retime_track_keyframes(&mut track, resolved_tl.duration_us, raw_tl_dur_us);
+                }
+            }
+
+            let node_has_ease_var = raw_node.variables.bindings.keys().any(|k| crate::is_easing_binding_key(k));
+            if !node_has_ease_var {
+                if let Some(owner_id) = tl_owner_id {
+                    if let Some(owner_node) = doc.get(owner_id) {
+                        for (k, var_id) in &owner_node.variables.bindings {
+                            if crate::is_easing_binding_key(k) {
+                                if let Some(crate::VariableValue::String(s)) = doc.resolve_variable(owner_id, var_id) {
+                                    if let Some((interp, key_easing)) = crate::parse_key_easing_preset(&s) {
+                                        for kf in &mut track.keyframes {
+                                            kf.interpolation = interp;
+                                            kf.easing = Some(key_easing);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             stack.clear();
             let Some(local) = timeline_local(&index, node, track.timeline.as_str(), t_us, &mut stack) else { continue };
-            let Some(sampled) = sample_track(track, loop_time(track, local)) else { continue };
+            let Some(sampled) = sample_track(&track, loop_time(&track, local)) else { continue };
             let base = static_motion_value(node, &track.property);
             let value = apply_operation(track.operation, base.as_ref(), sampled.clone());
             out.push(PropertyOverride {
@@ -117,14 +160,14 @@ pub fn static_motion_value(node: &Node, property: &TrackProperty) -> Option<KeyV
     })
 }
 
-fn timeline_local<'a>(index: &MotionIndex<'a>, node: &'a Node, timeline_id: &'a str, t_us: i64, stack: &mut Vec<&'a str>) -> Option<i64> {
-    if stack.len() >= MAX_NEST || stack.contains(&timeline_id) {
+fn timeline_local(index: &MotionIndex, node: &Node, timeline_id: &str, t_us: i64, stack: &mut Vec<String>) -> Option<i64> {
+    if stack.len() >= MAX_NEST || stack.iter().any(|s| s == timeline_id) {
         return None;
     }
     if index.timeline(timeline_id).is_none() {
         return None;
     }
-    stack.push(timeline_id);
+    stack.push(timeline_id.to_string());
     let raw = raw_clock(index, node, timeline_id, t_us, stack);
     stack.pop();
     let raw = raw?;
@@ -132,7 +175,7 @@ fn timeline_local<'a>(index: &MotionIndex<'a>, node: &'a Node, timeline_id: &'a 
     Some(map_playback(timeline, raw))
 }
 
-fn raw_clock<'a>(index: &MotionIndex<'a>, node: &'a Node, timeline_id: &'a str, t_us: i64, stack: &mut Vec<&'a str>) -> Option<i64> {
+fn raw_clock(index: &MotionIndex, node: &Node, timeline_id: &str, t_us: i64, stack: &mut Vec<String>) -> Option<i64> {
     let motion = node.motion.as_deref()?;
     if let Some(a) = motion.assignments.iter().find(|a| !a.disabled && a.timeline == timeline_id) {
         let offset = a.offset_us;

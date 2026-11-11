@@ -265,6 +265,15 @@ pub const RULES: &[RuleSpec] = &[
         needs: Geometry,
         presets: &[Agent, CheckDesigns, Recommended, Strict],
     },
+    RuleSpec {
+        id: "easing-variable",
+        aliases: &["invalid-easing-variable", "unknown-easing-variable"],
+        category: Tokens,
+        default_severity: Warning,
+        fixable: false,
+        needs: Geometry,
+        presets: &[Agent, CheckDesigns, Recommended, Strict],
+    },
     // --- Existing rules moved into the unified registry ---
     RuleSpec {
         id: "default-layer-name",

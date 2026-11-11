@@ -28,6 +28,8 @@ fn unit_or_pct(x: f32) -> f32 {
 /// Kind of variable a binding key accepts, or `None` for unknown keys.
 pub fn property_kind(key: &str) -> Option<VariableKind> {
     Some(match key {
+        k if is_easing_binding_key(k) => VariableKind::String,
+        k if is_duration_binding_key(k) => VariableKind::Number,
         k if paint_opacity_key(k).is_some() => VariableKind::Number,
         k if paint_stop_key(k).is_some() => VariableKind::Color,
         k if k.starts_with("fills/") || k.starts_with("strokes/") => {
@@ -57,6 +59,7 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
     }
     let has = |names: &[&str]| scopes.iter().any(|s| names.contains(&s.as_str()));
     match key {
+        k if is_easing_binding_key(k) || is_duration_binding_key(k) => true,
         k if paint_opacity_key(k).is_some() => has(&["COLOR_OPACITY"]),
         k if k.starts_with("fills/") => {
             let specific = match kind {
@@ -104,6 +107,9 @@ pub fn bindable_keys(kind: &NodeKind) -> Vec<&'static str> {
     if matches!(kind, NodeKind::Text(_)) {
         v.extend(["characters", "fontFamily", "fontStyle", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent"]);
     }
+    if !matches!(kind, NodeKind::Page { .. }) {
+        v.extend(["easingData", "timelineDuration"]);
+    }
     v
 }
 
@@ -113,6 +119,91 @@ pub fn is_key_bindable_on_node(key: &str, kind: &NodeKind) -> bool {
         || paint_stop_key(key).is_some()
         || effect_field_key(key).is_some()
         || ((key.starts_with("effects/") || key.starts_with("fills/") || key.starts_with("strokes/")) && key.ends_with("/opacity"))
+        || (!matches!(kind, NodeKind::Page { .. }) && (is_easing_binding_key(key) || is_duration_binding_key(key)))
+}
+
+/// Whether `key` is an easing binding key (canonical `easingData` or an alias).
+pub fn is_easing_binding_key(key: &str) -> bool {
+    if matches!(key, "easingData" | "transition/easing" | "easing") {
+        return true;
+    }
+    if let Some(rest) = key.strip_prefix("reactions/") {
+        if let Some((idx_str, "easing")) = rest.split_once('/') {
+            return idx_str.parse::<usize>().is_ok();
+        }
+    }
+    if let Some(rest) = key.strip_prefix("tracks/") {
+        if let Some((idx_str, "easing")) = rest.split_once('/') {
+            return idx_str.parse::<usize>().is_ok();
+        }
+    }
+    false
+}
+
+/// Whether `key` is a duration binding key (canonical `timelineDuration` or an alias).
+pub fn is_duration_binding_key(key: &str) -> bool {
+    if matches!(key, "timelineDuration" | "transition/duration" | "duration") {
+        return true;
+    }
+    if let Some(rest) = key.strip_prefix("reactions/") {
+        if let Some((idx_str, "duration")) = rest.split_once('/') {
+            return idx_str.parse::<usize>().is_ok();
+        }
+    }
+    if let Some(rest) = key.strip_prefix("timelines/") {
+        if let Some((idx_str, "duration")) = rest.split_once('/') {
+            return idx_str.parse::<usize>().is_ok();
+        }
+    }
+    if let Some(rest) = key.strip_prefix("tracks/") {
+        if let Some((idx_str, "duration")) = rest.split_once('/') {
+            return idx_str.parse::<usize>().is_ok();
+        }
+    }
+    false
+}
+
+/// Retimes a track's keyframes from old span (`fallback_old_us` or max keyframe time) to `new_us`.
+pub fn retime_track_keyframes(track: &mut Track, new_us: u64, fallback_old_us: u64) {
+    if track.keyframes.is_empty() {
+        return;
+    }
+    let old_us = if fallback_old_us > 0 { fallback_old_us } else { track.keyframes.iter().map(|k| k.time_us).filter(|&t| t > 0).max().unwrap_or(0) as u64 };
+    if old_us == 0 {
+        return;
+    }
+    let ratio = new_us as f64 / old_us as f64;
+    for kf in &mut track.keyframes {
+        kf.time_us = (kf.time_us as f64 * ratio).round() as i64;
+    }
+    track.keyframes.sort_by_key(|k| k.time_us);
+}
+
+/// Why an easing variable binding cannot resolve to a known easing preset, or `None` when valid.
+pub fn easing_binding_problem(doc: &Document, node_id: NodeId, key: &str) -> Option<String> {
+    if !is_easing_binding_key(key) {
+        return None;
+    }
+    let node = doc.get(node_id)?;
+    let var_id = node.variables.bindings.get(key)?;
+    let var = match doc.variables.get(var_id) {
+        Some(v) => v,
+        None => return Some(format!("Variable \"{var_id}\" not found")),
+    };
+    if var.kind != VariableKind::String {
+        return Some(format!("Variable \"{}\" has kind {:?}, expected String", var.name, var.kind));
+    }
+    match doc.resolve_variable(node_id, var_id) {
+        Some(VariableValue::String(s)) => {
+            if parse_easing_preset(&s).is_none() {
+                Some(format!("Unknown easing preset \"{s}\""))
+            } else {
+                None
+            }
+        }
+        Some(_) => Some(format!("Variable \"{}\" resolved to non-string value", var.name)),
+        None => Some(format!("Variable \"{}\" cannot be resolved", var.name)),
+    }
 }
 
 /// Which list a composed-opacity binding key (`fills/N/opacity`, `strokes/N/opacity`,
@@ -335,6 +426,126 @@ fn paint_at<'a>(paints: &'a mut [Paint], key: &str, prefix: &str) -> Option<&'a 
 /// Writes `value` into the node property named by `key`; mismatched types and
 /// unknown keys are ignored.
 pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
+    if is_easing_binding_key(key) {
+        if let VariableValue::String(s) = value {
+            if let Some(easing) = parse_easing_preset(s) {
+                if let Some(rest) = key.strip_prefix("reactions/") {
+                    if let Some((idx_str, "easing")) = rest.split_once('/') {
+                        if let Ok(idx) = idx_str.parse::<usize>() {
+                            if let Some(r) = n.prototype.reactions.get_mut(idx) {
+                                if let Some(ref mut tr) = r.transition {
+                                    tr.easing = easing;
+                                }
+                            }
+                        }
+                    }
+                } else if key == "easingData" || key == "transition/easing" || key == "easing" {
+                    for r in &mut n.prototype.reactions {
+                        if let Some(ref mut tr) = r.transition {
+                            tr.easing = easing;
+                        }
+                    }
+                }
+
+                if let Some((interp, key_easing)) = parse_key_easing_preset(s) {
+                    if let Some(rest) = key.strip_prefix("tracks/") {
+                        if let Some((idx_str, "easing")) = rest.split_once('/') {
+                            if let Ok(idx) = idx_str.parse::<usize>() {
+                                if let Some(ref mut m) = n.motion {
+                                    if let Some(tr) = m.tracks.get_mut(idx) {
+                                        for kf in &mut tr.keyframes {
+                                            kf.interpolation = interp;
+                                            kf.easing = Some(key_easing);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if key == "easingData" || key == "transition/easing" || key == "easing" {
+                        if let Some(ref mut m) = n.motion {
+                            for tr in &mut m.tracks {
+                                for kf in &mut tr.keyframes {
+                                    kf.interpolation = interp;
+                                    kf.easing = Some(key_easing);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
+    if is_duration_binding_key(key) {
+        if let Some(x) = number_of(value) {
+            let dur_ms = x.max(0.0).round() as u32;
+            let dur_us = (x.max(0.0) * 1000.0).round() as u64;
+
+            if let Some(rest) = key.strip_prefix("reactions/") {
+                if let Some((idx_str, "duration")) = rest.split_once('/') {
+                    if let Ok(idx) = idx_str.parse::<usize>() {
+                        if let Some(r) = n.prototype.reactions.get_mut(idx) {
+                            if let Some(ref mut tr) = r.transition {
+                                tr.duration_ms = dur_ms;
+                            }
+                        }
+                    }
+                }
+            } else if key == "timelineDuration" || key == "transition/duration" || key == "duration" {
+                for r in &mut n.prototype.reactions {
+                    if let Some(ref mut tr) = r.transition {
+                        tr.duration_ms = dur_ms;
+                    }
+                }
+            }
+
+            if let Some(ref mut m) = n.motion {
+                if let Some(rest) = key.strip_prefix("timelines/") {
+                    if let Some((idx_str, "duration")) = rest.split_once('/') {
+                        if let Ok(idx) = idx_str.parse::<usize>() {
+                            if let Some(tl) = m.timelines.get_mut(idx) {
+                                let old_us = tl.duration_us;
+                                tl.duration_us = dur_us;
+                                let tid = tl.id.clone();
+                                for tr in &mut m.tracks {
+                                    if tr.timeline == tid {
+                                        retime_track_keyframes(tr, dur_us, old_us);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if let Some(rest) = key.strip_prefix("tracks/") {
+                    if let Some((idx_str, "duration")) = rest.split_once('/') {
+                        if let Ok(idx) = idx_str.parse::<usize>() {
+                            if let Some(tr) = m.tracks.get_mut(idx) {
+                                let old_us = m.timelines.iter().find(|t| t.id == tr.timeline).map(|t| t.duration_us).unwrap_or(0);
+                                retime_track_keyframes(tr, dur_us, old_us);
+                            }
+                        }
+                    }
+                } else if key == "timelineDuration" || key == "transition/duration" || key == "duration" {
+                    if m.timelines.is_empty() {
+                        for tr in &mut m.tracks {
+                            retime_track_keyframes(tr, dur_us, 0);
+                        }
+                    } else {
+                        for tl in &mut m.timelines {
+                            let old_us = tl.duration_us;
+                            tl.duration_us = dur_us;
+                            let tid = tl.id.clone();
+                            for tr in &mut m.tracks {
+                                if tr.timeline == tid {
+                                    retime_track_keyframes(tr, dur_us, old_us);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
     if let Some(target) = paint_opacity_key(key) {
         if let Some(x) = number_of(value) {
             compose_opacity(n, target, x);
@@ -1367,5 +1578,65 @@ mod tests {
         assert!(tp_b.style.italic);
         assert_eq!(tp_b.style.paragraph_spacing, 16.0);
         assert_eq!(tp_b.paragraph.indent, 24.0);
+    }
+
+    #[test]
+    fn easing_and_duration_binding_keys_and_properties() {
+        assert!(is_easing_binding_key("easingData"));
+        assert!(is_easing_binding_key("transition/easing"));
+        assert!(is_easing_binding_key("easing"));
+        assert!(is_easing_binding_key("reactions/0/easing"));
+        assert!(is_easing_binding_key("tracks/2/easing"));
+        assert!(!is_easing_binding_key("other"));
+
+        assert!(is_duration_binding_key("timelineDuration"));
+        assert!(is_duration_binding_key("transition/duration"));
+        assert!(is_duration_binding_key("duration"));
+        assert!(is_duration_binding_key("reactions/0/duration"));
+        assert!(is_duration_binding_key("timelines/0/duration"));
+        assert!(is_duration_binding_key("tracks/1/duration"));
+        assert!(!is_duration_binding_key("other"));
+
+        assert_eq!(property_kind("easingData"), Some(VariableKind::String));
+        assert_eq!(property_kind("timelineDuration"), Some(VariableKind::Number));
+
+        let frame_kind = NodeKind::Frame(FrameProps::default());
+        assert!(is_key_bindable_on_node("easingData", &frame_kind));
+        assert!(is_key_bindable_on_node("timelineDuration", &frame_kind));
+        assert!(scope_allows(&[], "easingData", &frame_kind));
+        assert!(scope_allows(&[], "timelineDuration", &frame_kind));
+    }
+
+    #[test]
+    fn retime_track_keyframes_scales_proportionally() {
+        let mut track = Track::new("tr", "tl", TrackProperty::Opacity);
+        track.keyframes.push(Keyframe::new(0, KeyValue::Float(0.0)));
+        track.keyframes.push(Keyframe::new(250_000, KeyValue::Float(0.5)));
+        track.keyframes.push(Keyframe::new(1_000_000, KeyValue::Float(1.0)));
+
+        retime_track_keyframes(&mut track, 2_000_000, 1_000_000);
+        assert_eq!(track.keyframes[0].time_us, 0);
+        assert_eq!(track.keyframes[1].time_us, 500_000);
+        assert_eq!(track.keyframes[2].time_us, 2_000_000);
+    }
+
+    #[test]
+    fn easing_binding_problem_reports_unknown_preset_or_missing() {
+        let (mut d, _p, fid, _) = setup();
+        d.variables.insert(
+            "bad-ease".into(),
+            var("bad-ease", VariableKind::String, VariableValue::String("not-a-curve".into()), VariableValue::String("not-a-curve".into())),
+        );
+        d.variables.insert(
+            "good-ease".into(),
+            var("good-ease", VariableKind::String, VariableValue::String("ease-in-out".into()), VariableValue::String("linear".into())),
+        );
+        d.get_mut(fid).unwrap().variables.bindings.insert("easingData".into(), "bad-ease".into());
+        let prob = easing_binding_problem(&d, fid, "easingData");
+        assert!(prob.is_some());
+        assert!(prob.unwrap().contains("Unknown easing preset"));
+
+        d.get_mut(fid).unwrap().variables.bindings.insert("easingData".into(), "good-ease".into());
+        assert_eq!(easing_binding_problem(&d, fid, "easingData"), None);
     }
 }
