@@ -107,3 +107,39 @@ impl App {
         None
     }
 }
+
+/// A frame named `name` on `parent`, made into a main component when `main` is set.
+fn preset_frame(app: &mut App, parent: NodeId, rect: designos_doc::Rect, name: &str, main: bool) -> Option<NodeId> {
+    let id = app.doc.alloc_id();
+    let frame = app.doc.insert(parent, designos_doc::Node::frame(id, rect)).ok()?;
+    app.doc.get_mut(frame)?.name = name.into();
+    if main {
+        designos_doc::create_component(&mut app.doc, frame).apply(&mut app.doc).ok()?;
+    }
+    Some(frame)
+}
+
+/// `--panel cycle-refusal-toast`: Row holds an instance of Card, and an icon inside Card is swapped to Row, which the
+/// guard refuses. The toast is the real one that the swap raises.
+pub fn apply_toast_preset(app: &mut App) {
+    use designos_doc::{create_instance, Command, Rect, Vec2};
+    let page = app.page;
+    let (Some(card), Some(row), Some(icon)) = (
+        preset_frame(app, page, Rect::new(0.0, 0.0, 240.0, 160.0), "Card", true),
+        preset_frame(app, page, Rect::new(320.0, 0.0, 240.0, 160.0), "Row", true),
+        preset_frame(app, page, Rect::new(0.0, 240.0, 48.0, 48.0), "Icon", true),
+    ) else {
+        return;
+    };
+    let place = |app: &mut App, component: NodeId, parent: NodeId, at: Vec2| -> Option<NodeId> {
+        let Command::Insert { nodes, .. } = create_instance(&mut app.doc, component, parent, at) else { return None };
+        let id = nodes.first()?.id;
+        let index = app.doc.get(parent)?.children.len();
+        Command::Insert { parent, index, nodes }.apply(&mut app.doc).ok()?;
+        Some(id)
+    };
+    place(app, card, row, Vec2::new(16.0, 16.0));
+    let Some(inside_card) = place(app, icon, card, Vec2::new(16.0, 16.0)) else { return };
+    app.selection = vec![inside_card];
+    app.swap_instance(inside_card, row);
+}

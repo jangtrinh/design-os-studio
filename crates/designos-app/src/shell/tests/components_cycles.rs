@@ -137,6 +137,14 @@ fn an_instance_swap_property_that_would_make_a_main_hold_itself_changes_nothing(
     s.frame(vec![]);
 }
 
+#[test]
+fn the_screenshot_preset_raises_the_refusal_of_the_swap_it_stages() {
+    let mut s = main_sim();
+    crate::comp_cycle_refusal::apply_toast_preset(&mut s.shell.app);
+    assert_cycle_toast(&s, "swap", "Card");
+    assert!(self_holding(&s).is_empty());
+}
+
 // ---------- a document that already holds itself
 
 #[test]
