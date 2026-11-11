@@ -251,14 +251,15 @@ pub fn bind_style_property(doc: &Document, key: &str, property: &str, variable: 
                     }
                 }
             }
-            // A text layer that overrides this property keeps its own value.
-            let overridden = n.style_refs.get("text").is_some_and(|k| k == key)
-                && OwnedField::from_binding_key(property).is_some_and(|f| n.text_style_overrides.contains(f));
-            if n.style_refs.get("fill").is_some_and(|k| k == key)
-                || n.style_refs.get("text").is_some_and(|k| k == key)
-                || n.style_refs.get("effect").is_some_and(|k| k == key)
-            {
-                if !copy.variables.bindings.contains_key(property) && !overridden {
+            if n.style_refs.get("text").is_some_and(|k| k == key) {
+                if !copy.variables.bindings.contains_key(property) {
+                    with_kept_text_style_overrides(&mut copy, Some(stored), |copy| {
+                        set_bound_property(copy, property, &val);
+                    });
+                }
+            }
+            if n.style_refs.get("fill").is_some_and(|k| k == key) || n.style_refs.get("effect").is_some_and(|k| k == key) {
+                if !copy.variables.bindings.contains_key(property) {
                     set_bound_property(&mut copy, property, &val);
                 }
             }

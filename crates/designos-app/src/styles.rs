@@ -126,33 +126,17 @@ impl App {
                 }
                 n.style_refs.insert("fill".into(), key.into());
             }
-            Style::Text(ts) => {
+            Style::Text(_) => {
                 if matches!(&n.kind, NodeKind::Text(_)) {
                     detach_text_style_bindings(n);
-                }
-                if let NodeKind::Text(t) = &mut n.kind {
-                    // A text style carries no colour or alignment: keep the
-                    // node's own values. Paragraph values are canonical on
-                    // TextProps but are owned by the shared style.
-                    let (align_h, align_v) = (t.style.align_h, t.style.align_v);
-                    t.style = TextStyle { fills: t.style.fills.clone(), align_h, align_v, ..ts.clone() };
-                    if paragraph_fields.is_none_or(|bits| bits & 1 != 0) {
-                        t.paragraph.indent = ts.paragraph_indent;
+                    if n.style_refs.get("text").is_some_and(|k| k == key) {
+                        n.hyperlink = None;
                     }
-                    if paragraph_fields.is_none_or(|bits| bits & 2 != 0) {
-                        t.paragraph.list_spacing = ts.list_spacing;
-                    }
-                    if paragraph_fields.is_none_or(|bits| bits & 4 != 0) {
-                        t.paragraph.leading_trim = ts.leading_trim;
-                    }
-                    for r in &mut t.runs {
-                        let (align_h, align_v) = (r.style.align_h, r.style.align_v);
-                        r.style = TextStyle { fills: r.style.fills.clone(), align_h, align_v, ..ts.clone() };
-                    }
-                    n.size = layout::fit_text(t, n.size);
                     n.style_refs.insert("text".into(), key.into());
-                    // Every value is the style's now.
-                    n.text_style_overrides = designos_doc::OwnedFieldSet::default();
+                    apply_style_values_with_fields(n, &style, key, paragraph_fields);
+                    if let NodeKind::Text(t) = &mut n.kind {
+                        n.size = layout::fit_text(t, n.size);
+                    }
                 }
             }
             Style::Effect(fx) => {
