@@ -1244,6 +1244,7 @@ pub fn style_property(doc: &Document, key: &str) -> StyleProperty {
         Some(Style::Text(_)) => StyleProperty::Text,
         Some(Style::Effect(_)) => StyleProperty::Effect,
         Some(Style::Grid(_)) => StyleProperty::Grid,
+        Some(Style::Animation(_)) => StyleProperty::Animation,
         _ => StyleProperty::Fill,
     })
 }
@@ -1316,6 +1317,47 @@ pub fn apply_style_values_with_fields(n: &mut Node, style: &Style, key: &str, pa
             if n.style_refs.get("grid").is_some_and(|k| k == key) {
                 if let Some(f) = n.kind.frame_props_mut() {
                     f.grids = g.clone();
+                }
+            }
+        }
+        Style::Animation(timelines) => {
+            if n.style_refs.get("animation").is_some_and(|k| k == key) {
+                let m = n.motion.get_or_insert_with(|| Box::new(crate::NodeMotion::default()));
+                let id_map: Vec<(String, String)> =
+                    m.timelines.iter().zip(timelines.iter()).filter(|(old, new)| old.id != new.id).map(|(old, new)| (old.id.clone(), new.id.clone())).collect();
+                for (old_id, new_id) in &id_map {
+                    for track in &mut m.tracks {
+                        if &track.timeline == old_id {
+                            track.timeline = new_id.clone();
+                        }
+                    }
+                    for a in &mut m.assignments {
+                        if &a.timeline == old_id {
+                            a.timeline = new_id.clone();
+                        }
+                        if &a.containing == old_id {
+                            a.containing = new_id.clone();
+                        }
+                    }
+                }
+                let old_tl_ids: Vec<String> = m.timelines.iter().map(|t| t.id.clone()).collect();
+                m.timelines = timelines.clone();
+                m.assignments.retain(|a| !old_tl_ids.contains(&a.timeline) || m.timelines.iter().any(|t| t.id == a.timeline));
+                for tl in timelines {
+                    if let Some(a) = m.assignments.iter_mut().find(|a| a.timeline == tl.id) {
+                        a.autoplay = tl.autoplay;
+                    } else {
+                        m.assignments.push(crate::TimelineAssignment {
+                            timeline: tl.id.clone(),
+                            containing: tl.parent.clone().unwrap_or_else(|| tl.id.clone()),
+                            offset_us: 0,
+                            disabled: false,
+                            autoplay: tl.autoplay,
+                        });
+                    }
+                }
+                if m.is_empty() {
+                    n.motion = None;
                 }
             }
         }

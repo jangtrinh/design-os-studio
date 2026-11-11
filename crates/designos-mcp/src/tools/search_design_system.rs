@@ -328,6 +328,7 @@ impl SearchIndex {
                     Style::Text(_) => StyleProperty::Text,
                     Style::Effect(_) => StyleProperty::Effect,
                     Style::Grid(_) => StyleProperty::Grid,
+                    Style::Animation(_) => StyleProperty::Animation,
                     Style::Fill(_) => StyleProperty::Fill,
                 });
                 items.push(build_style_item(
@@ -788,6 +789,7 @@ fn build_style_item(
         StyleProperty::Text => "text",
         StyleProperty::Effect => "effect",
         StyleProperty::Grid => "grid",
+        StyleProperty::Animation => "animation",
     };
     let summary = summarize_style(style);
     let named_ref = if collides { ref_str.as_str() } else { name };
@@ -795,6 +797,7 @@ fn build_style_item(
         StyleProperty::Text => json!({"text_style": named_ref}),
         StyleProperty::Effect => json!({"effect_style": named_ref}),
         StyleProperty::Grid => json!({"grid_style": named_ref}),
+        StyleProperty::Animation => json!({"animation_style": named_ref}),
         StyleProperty::Stroke => json!({"stroke": ref_str}),
         StyleProperty::Fill => json!({"fill": ref_str}),
     };
@@ -901,6 +904,7 @@ fn summarize_style(style: &Style) -> String {
         Style::Text(ts) => format!("{} {}px/{}", ts.font_family, ts.font_size, ts.font_weight),
         Style::Effect(fx) => format!("{} effect(s)", fx.len()),
         Style::Grid(grids) => format!("{} grid(s)", grids.len()),
+        Style::Animation(timelines) => format!("{} timeline(s)", timelines.len()),
     }
 }
 

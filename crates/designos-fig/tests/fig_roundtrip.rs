@@ -5048,3 +5048,104 @@ fn fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value() {
         assert_eq!(imported_tile_scale(&back), expected, ".fig scale {stored} imports as {expected}");
     }
 }
+
+#[test]
+fn animation_style_and_style_ids_for_animation_roundtrip() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 120.0, "y": 60.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+
+    let changes = json!([
+        node((0, 0), (0, 0), "", "DOCUMENT", "AnimStyleDoc", json!({})),
+        node((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        node((0, 2), (0, 0), "\"", "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        node(
+            (2, 100),
+            (0, 2),
+            "!",
+            "FRAME",
+            "Motion / Pulse",
+            json!({
+                "styleType": "ANIMATION",
+                "styleDescription": "Card entrance pulse",
+                "key": "anim_pulse_key",
+                "timelineDefinitions": {
+                    "entries": [
+                        {
+                            "id": g(3, 10),
+                            "data": {"durationUs": 1200000, "defaultTimeline": true, "autoplay": true}
+                        }
+                    ]
+                }
+            })
+        ),
+        node(
+            (1, 10),
+            (0, 1),
+            "!",
+            "FRAME",
+            "AnimatedCard",
+            json!({
+                "styleIdsForAnimation": [
+                    {
+                        "id": g(4, 1),
+                        "timelineDefId": g(3, 10),
+                        "animationStyleId": {"guid": g(2, 100)},
+                        "timelineOffset": 150000,
+                        "sortPosition": "!"
+                    }
+                ]
+            })
+        ),
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "AnimStyleDoc").expect("import animation style doc");
+    let Style::Animation(timelines) = doc.styles.get("2:100").expect("2:100 in doc.styles") else {
+        panic!("expected Style::Animation, got {:?}", doc.styles.get("2:100"));
+    };
+    assert_eq!(timelines.len(), 1);
+    assert_eq!(timelines[0].id, "3:10");
+    assert_eq!(timelines[0].duration_us, 1_200_000);
+    assert!(timelines[0].autoplay);
+    let meta = doc.style_meta.get("2:100").expect("2:100 in doc.style_meta");
+    assert_eq!(meta.property, StyleProperty::Animation);
+    assert_eq!(meta.name, "Motion / Pulse");
+    assert_eq!(meta.description, "Card entrance pulse");
+    assert_eq!(meta.key.as_deref(), Some("anim_pulse_key"));
+
+    let card = find(&doc, "AnimatedCard");
+    assert_eq!(card.style_refs.get("animation").map(String::as_str), Some("2:100"));
+    assert_eq!(card.motion.as_deref().map(|m| m.timelines.as_slice()), Some(timelines.as_slice()));
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let raw = decode_fig_to_json(&bytes).expect("decode_fig_to_json");
+    let ncs = raw["message"]["nodeChanges"].as_array().expect("nodeChanges");
+    let raw_style = ncs.iter().find(|n| n["name"] == "Motion / Pulse").expect("style node in nodeChanges");
+    assert_eq!(raw_style["styleType"], json!("ANIMATION"));
+    assert!(raw_style["timelineDefinitions"]["entries"].as_array().is_some_and(|e| !e.is_empty()));
+    let raw_card = ncs.iter().find(|n| n["name"] == "AnimatedCard").expect("AnimatedCard in nodeChanges");
+    assert_eq!(raw_card["styleIdsForAnimation"][0]["animationStyleId"]["guid"], g(2, 100));
+
+    let rt = import_fig(&bytes).expect("re-import .fig");
+    assert_eq!(rt.styles.get("2:100"), doc.styles.get("2:100"));
+    assert_eq!(rt.style_meta.get("2:100").map(|m| m.property), Some(StyleProperty::Animation));
+    assert_eq!(rt.style_meta.get("2:100").map(|m| m.name.as_str()), Some("Motion / Pulse"));
+    let rt_card = find(&rt, "AnimatedCard");
+    assert_eq!(rt_card.style_refs.get("animation").map(String::as_str), Some("2:100"));
+    assert_eq!(rt_card.motion.as_deref().map(|m| m.timelines.as_slice()), Some(timelines.as_slice()));
+}

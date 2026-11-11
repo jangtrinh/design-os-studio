@@ -28,11 +28,19 @@ pub enum StyleKind {
     Color,
     Effect,
     Grid,
+    Animation,
 }
 
 impl StyleKind {
     fn holds(self, s: &Style) -> bool {
-        matches!((self, s), (Self::Text, Style::Text(_)) | (Self::Color, Style::Fill(_)) | (Self::Effect, Style::Effect(_)) | (Self::Grid, Style::Grid(_)))
+        matches!(
+            (self, s),
+            (Self::Text, Style::Text(_))
+                | (Self::Color, Style::Fill(_))
+                | (Self::Effect, Style::Effect(_))
+                | (Self::Grid, Style::Grid(_))
+                | (Self::Animation, Style::Animation(_))
+        )
     }
 
     /// Key of the `style_refs` entry a node links to a style of this kind with.
@@ -42,6 +50,7 @@ impl StyleKind {
             Self::Color => "fill",
             Self::Effect => "effect",
             Self::Grid => "grid",
+            Self::Animation => "animation",
         }
     }
 }
@@ -151,6 +160,10 @@ impl App {
                     f.grids = g.clone();
                     n.style_refs.insert("grid".into(), key.into());
                 }
+            }
+            Style::Animation(_) => {
+                n.style_refs.insert("animation".into(), key.into());
+                apply_style_values_with_fields(n, &style, key, None);
             }
         };
         for id in sel {

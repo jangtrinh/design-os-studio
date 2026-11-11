@@ -79,6 +79,7 @@ fn item_count(style: &Style) -> usize {
         Style::Fill(p) => p.len(),
         Style::Effect(e) => e.len(),
         Style::Grid(g) => g.len(),
+        Style::Animation(tls) => tls.len(),
         Style::Text(_) => 1,
     }
 }
@@ -106,6 +107,7 @@ fn kind_rows(style: &Style, item: usize) -> usize {
             Some(_) => 6,
             None => 0,
         },
+        Style::Animation(_) => 0,
     }
 }
 
@@ -165,6 +167,7 @@ fn body_ui(app: &mut App, ui: &mut Ui, body: Rect, key: &str, style: &Style, ite
             Style::Grid(g) => {
                 ("Guide", g.iter().enumerate().map(|(i, g)| format!("{} \u{b7} {}", i + 1, layoutguide::KINDS[layoutguide::kind_index(g)])).collect())
             }
+            Style::Animation(tls) => ("Timeline", tls.iter().enumerate().map(|(i, t)| format!("{} \u{b7} {}", i + 1, t.id)).collect()),
             Style::Text(_) => ("", Vec::new()),
         };
         popover::row(ui, body, first, label, |ui, rc| {
@@ -189,6 +192,7 @@ fn body_ui(app: &mut App, ui: &mut Ui, body: Rect, key: &str, style: &Style, ite
                 grid_rows::grid_rows(app, ui, body, g, item, first);
             }
         }
+        Style::Animation(_) => {}
     }
 }
 

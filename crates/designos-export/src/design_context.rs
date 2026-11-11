@@ -402,6 +402,7 @@ pub fn style_summary(style: &Style) -> String {
         }
         Style::Effect(effs) => format!("{} effect{}", effs.len(), if effs.len() == 1 { "" } else { "s" }),
         Style::Grid(grids) => format!("{} grid{}", grids.len(), if grids.len() == 1 { "" } else { "s" }),
+        Style::Animation(timelines) => format!("{} timeline{}", timelines.len(), if timelines.len() == 1 { "" } else { "s" }),
     }
 }
 

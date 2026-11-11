@@ -607,7 +607,7 @@ pub fn set_bound_style_property(style: &mut Style, key: &str, value: &VariableVa
                 }
             }
         }
-        Style::Grid(_) => {}
+        Style::Grid(_) | Style::Animation(_) => {}
     }
 }
 

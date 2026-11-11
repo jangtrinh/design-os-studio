@@ -952,6 +952,7 @@ impl Document {
             StyleProperty::Text => "Unnamed text style",
             StyleProperty::Effect => "Unnamed effect style",
             StyleProperty::Grid => "Unnamed grid style",
+            StyleProperty::Animation => "Unnamed animation style",
         }
     }
 
@@ -1818,6 +1819,7 @@ pub enum StyleProperty {
     Text,
     Effect,
     Grid,
+    Animation,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -1870,6 +1872,7 @@ pub enum Style {
     Text(TextStyle),
     Effect(Vec<Effect>),
     Grid(Vec<LayoutGrid>),
+    Animation(Vec<Timeline>),
 }
 
 std::thread_local! {
@@ -1919,7 +1922,7 @@ struct NotedStyle(Style, Option<u8>);
 
 impl<'de> Deserialize<'de> for NotedStyle {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_enum("Style", &["Fill", "Text", "Effect", "Grid"], NotedStyleVisitor)
+        deserializer.deserialize_enum("Style", &["Fill", "Text", "Effect", "Grid", "Animation"], NotedStyleVisitor)
     }
 }
 
@@ -1929,6 +1932,7 @@ enum StyleKind {
     Text,
     Effect,
     Grid,
+    Animation,
 }
 
 struct NotedStyleVisitor;
@@ -1947,6 +1951,7 @@ impl<'de> serde::de::Visitor<'de> for NotedStyleVisitor {
             StyleKind::Fill => NotedStyle(Style::Fill(variant.newtype_variant()?), None),
             StyleKind::Effect => NotedStyle(Style::Effect(variant.newtype_variant()?), None),
             StyleKind::Grid => NotedStyle(Style::Grid(variant.newtype_variant()?), None),
+            StyleKind::Animation => NotedStyle(Style::Animation(variant.newtype_variant()?), None),
             StyleKind::Text => {
                 let (style, bits) = variant.newtype_variant_seed(NotingTextStyle)?;
                 NotedStyle(Style::Text(style), Some(bits))

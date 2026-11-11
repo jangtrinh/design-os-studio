@@ -700,15 +700,20 @@ fn styles_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     section_sep(ui, pane, false);
 }
 
-const STYLE_GROUP_KINDS: [(&str, StyleKind); 4] =
-    [("Text styles", StyleKind::Text), ("Color styles", StyleKind::Color), ("Effect styles", StyleKind::Effect), ("Grid styles", StyleKind::Grid)];
+const STYLE_GROUP_KINDS: [(&str, StyleKind); 5] = [
+    ("Text styles", StyleKind::Text),
+    ("Color styles", StyleKind::Color),
+    ("Effect styles", StyleKind::Effect),
+    ("Grid styles", StyleKind::Grid),
+    ("Animation styles", StyleKind::Animation),
+];
 
 fn target_accepts_style_kind(doc: &Document, target: &[NodeId], kind: StyleKind) -> bool {
     if target.is_empty() {
         return true;
     }
     match kind {
-        StyleKind::Color | StyleKind::Effect => true,
+        StyleKind::Color | StyleKind::Effect | StyleKind::Animation => true,
         StyleKind::Text => target.iter().any(|id| doc.get(*id).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)))),
         StyleKind::Grid => target.iter().any(|id| doc.get(*id).is_some_and(|n| n.kind.frame_props().is_some())),
     }
@@ -720,6 +725,7 @@ fn style_kind_of(style: &Style) -> StyleKind {
         Style::Fill(_) => StyleKind::Color,
         Style::Effect(_) => StyleKind::Effect,
         Style::Grid(_) => StyleKind::Grid,
+        Style::Animation(_) => StyleKind::Animation,
     }
 }
 
@@ -838,9 +844,10 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
             } else if resp.hovered() {
                 ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
-            if matches!(kind, StyleKind::Effect | StyleKind::Grid) {
+            if matches!(kind, StyleKind::Effect | StyleKind::Grid | StyleKind::Animation) {
                 let icon = match app.doc.styles.get(&e.key) {
                     Some(Style::Effect(fx)) => fx.first().map_or(Icon::DropShadow, |f| super::effects::KINDS[super::effects::kind_of(f)].1),
+                    Some(Style::Animation(_)) => Icon::Play,
                     _ => Icon::Grid2x2,
                 };
                 icons::paint(
@@ -958,10 +965,11 @@ fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[No
                         let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 130.0);
                         ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
                     }
-                    Style::Grid(_) => {
+                    Style::Grid(_) | Style::Animation(_) => {
+                        let icon = if matches!(s.style, Style::Animation(_)) { Icon::Play } else { Icon::Grid2x2 };
                         icons::paint(
                             ui.painter(),
-                            Icon::Grid2x2,
+                            icon,
                             Pos2::new(r.left() + theme::STYLE_SWATCH_CX, r.center().y),
                             theme::STYLE_SWATCH,
                             theme::ICON_SECONDARY,
@@ -1536,6 +1544,21 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     if is_frame && !multi {
         if let Some(fp) = n0.kind.frame_props() {
             super::layoutguide::section(app, ui, pane, sel, &fp.grids);
+        }
+    }
+
+    // ---- Animation (layers with timelines or animation styles)
+    let anim_linked = super::style_picker::linked_style(app, sel, StyleProperty::Animation);
+    let has_anim_timelines = n0.motion.as_deref().is_some_and(|m| !m.timelines.is_empty());
+    let has_anim_styles = !crate::styles::style_entries_of(&app.doc, StyleKind::Animation).is_empty();
+    if has_anim_timelines || anim_linked.is_some() || has_anim_styles || app.props.style_menu == Some(StyleProperty::Animation) {
+        section_sep(ui, pane, false);
+        title(ui, pane, "Animation", None, !has_anim_timelines && anim_linked.is_none());
+        super::style_picker::header_button(app, ui, pane, sel, StyleProperty::Animation);
+        if let Some(key) = anim_linked {
+            pane.y += 4.0;
+            super::style_picker::linked_row(app, ui, pane, sel, StyleProperty::Animation, &key);
+            pane.y += 4.0;
         }
     }
 
