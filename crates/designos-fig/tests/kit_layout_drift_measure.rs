@@ -251,14 +251,26 @@ fn kit_layout_drift_measure() {
     let mut frames = String::from(
         "frame_id,frame_source,name,page,in_instance,frame_kind,dir,wrap,primary_align,counter_align,primary_sizing,counter_sizing,gap,counter_gap,pad_t,pad_r,pad_b,pad_l,stroke_included,layout_version,own_limits,n_children,n_flow,n_absolute,n_hidden,n_text,n_instance,n_frame,n_fill_main,n_fill_cross,n_limits,n_margin,n_align_self,n_rotated,imp_w,imp_h,solved_w,solved_h,direct_moved,direct_moved_pos,max_delta,root_subtree_moved,nearest_subtree_moved,v_imported_sizes,v_fixed_frame,v_both,v_no_refit,v_no_limits,v_all,v_counter_gap,v_stretch_auto,v_cg_stretch\n",
     );
-    let mut kids_csv = String::from("frame_id,frame_source,page,child_id,child_source,child_name,child_kind,imp_x,imp_y,imp_w,imp_h,new_x,new_y,new_w,new_h,delta\n");
+    let mut kids_csv =
+        String::from("frame_id,frame_source,page,child_id,child_source,child_name,child_kind,imp_x,imp_y,imp_w,imp_h,new_x,new_y,new_w,new_h,delta\n");
     let mut summary_total = 0usize;
     for (fid, (rc, rmax)) in &root_count {
         summary_total += rc;
         let Some(n) = doc.get(*fid) else { continue };
         let Some(s) = base.get(fid) else {
             let (page, ii) = page_of(&doc, *fid);
-            let _ = writeln!(frames, "{},{},{},{},{},{},NOT_AUTOLAYOUT,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,{},{},,,,,,,", fid.0, q(n.source_id.as_deref().unwrap_or("")), q(&n.name), q(&page), ii, kind_label(n), rc, nearest_count.get(fid).unwrap_or(&0));
+            let _ = writeln!(
+                frames,
+                "{},{},{},{},{},{},NOT_AUTOLAYOUT,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,{},{},,,,,,,",
+                fid.0,
+                q(n.source_id.as_deref().unwrap_or("")),
+                q(&n.name),
+                q(&page),
+                ii,
+                kind_label(n),
+                rc,
+                nearest_count.get(fid).unwrap_or(&0)
+            );
             let _ = rmax;
             continue;
         };
@@ -267,7 +279,8 @@ fn kit_layout_drift_measure() {
         let own = layout_solver::SizeLimits::from(&n.layout_child);
         let (page, ii) = page_of(&doc, *fid);
         let (dm, dmp, mx) = moved_direct(&doc, s);
-        let (mut n_abs, mut n_hid, mut n_text, mut n_inst, mut n_frame, mut n_fm, mut n_fc, mut n_lim, mut n_mar, mut n_as, mut n_rot) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        let (mut n_abs, mut n_hid, mut n_text, mut n_inst, mut n_frame, mut n_fm, mut n_fc, mut n_lim, mut n_mar, mut n_as, mut n_rot) =
+            (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         for cid in &n.children {
             let c = doc.get(*cid).unwrap();
             if c.layout_child.absolute {
@@ -326,7 +339,26 @@ fn kit_layout_drift_measure() {
             let t = c.transform.translation();
             let d = edge_diff(&[t.x, t.y, t.x + c.size.x, t.y + c.size.y], &[r.x, r.y, r.x + r.w, r.y + r.h]);
             if d > 0.5 {
-                let _ = writeln!(kids_csv, "{},{},{},{},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2}", fid.0, q(n.source_id.as_deref().unwrap_or("")), q(&page), cid.0, q(c.source_id.as_deref().unwrap_or("")), q(&c.name), kind_label(c), t.x, t.y, c.size.x, c.size.y, r.x, r.y, r.w, r.h, d);
+                let _ = writeln!(
+                    kids_csv,
+                    "{},{},{},{},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2}",
+                    fid.0,
+                    q(n.source_id.as_deref().unwrap_or("")),
+                    q(&page),
+                    cid.0,
+                    q(c.source_id.as_deref().unwrap_or("")),
+                    q(&c.name),
+                    kind_label(c),
+                    t.x,
+                    t.y,
+                    c.size.x,
+                    c.size.y,
+                    r.x,
+                    r.y,
+                    r.w,
+                    r.h,
+                    d
+                );
             }
         }
     }
@@ -346,7 +378,8 @@ fn kit_layout_drift_measure() {
                 let _ = writeln!(regress, "{},{},{},{},{},{},{},{}", fid.0, q(n.source_id.as_deref().unwrap_or("")), q(&n.name), q(&page), b0, a, b, c);
             }
         }
-        let has_rot = n.children.iter().any(|c| doc.get(*c).is_some_and(|c| c.transform.a.abs() < 0.999 || c.transform.d.abs() < 0.999 || c.transform.b.abs() > 1e-3));
+        let has_rot =
+            n.children.iter().any(|c| doc.get(*c).is_some_and(|c| c.transform.a.abs() < 0.999 || c.transform.d.abs() < 0.999 || c.transform.b.abs() > 1e-3));
         if has_rot {
             let ab = moved_direct_aabb(&doc, s0);
             let ar = solve(&doc, *fid, Opts { rot_bbox: true, ..Default::default() }).map_or(usize::MAX, |s| moved_direct_aabb(&doc, &s));
@@ -384,7 +417,43 @@ fn kit_layout_drift_measure() {
                 mw = mw.max(c.size.x);
                 mh = mh.max(c.size.y);
             }
-            let _ = writeln!(selfsz, "{},{},{},{},{},{:?},{},{:?},{:?},{},{},{},{},{},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{:.1},{:.1}", fid.0, q(n.source_id.as_deref().unwrap_or("")), q(&n.name), q(&page), ii, al.direction, al.wrap, al.primary_sizing, al.counter_sizing, s0.1.len(), hid, txt, abs, own.min_w.is_some() || own.max_w.is_some() || own.min_h.is_some() || own.max_h.is_some(), n.size.x, n.size.y, s0.0.x, s0.0.y, s0.0.x - n.size.x, s0.0.y - n.size.y, sub, al.padding[0], al.padding[1], al.padding[2], al.padding[3], al.item_spacing, al.stroke_included, al.layout_version, inset.iter().sum::<f32>(), sw, sh, mw, mh);
+            let _ = writeln!(
+                selfsz,
+                "{},{},{},{},{},{:?},{},{:?},{:?},{},{},{},{},{},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{:.1},{:.1}",
+                fid.0,
+                q(n.source_id.as_deref().unwrap_or("")),
+                q(&n.name),
+                q(&page),
+                ii,
+                al.direction,
+                al.wrap,
+                al.primary_sizing,
+                al.counter_sizing,
+                s0.1.len(),
+                hid,
+                txt,
+                abs,
+                own.min_w.is_some() || own.max_w.is_some() || own.min_h.is_some() || own.max_h.is_some(),
+                n.size.x,
+                n.size.y,
+                s0.0.x,
+                s0.0.y,
+                s0.0.x - n.size.x,
+                s0.0.y - n.size.y,
+                sub,
+                al.padding[0],
+                al.padding[1],
+                al.padding[2],
+                al.padding[3],
+                al.item_spacing,
+                al.stroke_included,
+                al.layout_version,
+                inset.iter().sum::<f32>(),
+                sw,
+                sh,
+                mw,
+                mh
+            );
         }
     }
     std::fs::create_dir_all(&out_dir).unwrap();
