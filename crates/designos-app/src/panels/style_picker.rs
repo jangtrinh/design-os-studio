@@ -57,6 +57,7 @@ fn kind_of(prop: StyleProperty) -> StyleKind {
     match prop {
         StyleProperty::Effect => StyleKind::Effect,
         StyleProperty::Text => StyleKind::Text,
+        StyleProperty::Animation => StyleKind::Animation,
         _ => StyleKind::Grid,
     }
 }
@@ -66,6 +67,7 @@ fn tag(prop: StyleProperty) -> &'static str {
     match prop {
         StyleProperty::Effect => "effect-style",
         StyleProperty::Text => "text-style",
+        StyleProperty::Animation => "animation-style",
         _ => "grid-style",
     }
 }
@@ -74,6 +76,7 @@ fn button_key(prop: StyleProperty) -> &'static str {
     match prop {
         StyleProperty::Effect => "effect-style-button",
         StyleProperty::Text => "text-style-button",
+        StyleProperty::Animation => "animation-style-button",
         _ => "grid-style-button",
     }
 }
@@ -94,6 +97,7 @@ fn has_values(app: &App, sel: &[NodeId], prop: StyleProperty) -> bool {
     let Some(n) = sel.first().and_then(|id| app.doc.get(*id)) else { return false };
     match prop {
         StyleProperty::Effect => !n.effects.is_empty(),
+        StyleProperty::Animation => n.motion.as_deref().is_some_and(|m| !m.timelines.is_empty()),
         _ => n.kind.frame_props().is_some_and(|f| !f.grids.is_empty()),
     }
 }
@@ -129,6 +133,7 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     let (none, create) = match prop {
         StyleProperty::Effect => ("No effect styles", "Create effect style"),
         StyleProperty::Text => ("No text styles", "Create text style"),
+        StyleProperty::Animation => ("No animation styles", "Create animation style"),
         _ => ("No grid styles", "Create grid style"),
     };
     let mut items = Vec::new();
@@ -424,6 +429,7 @@ mod tests {
             (StyleProperty::Effect, "No effect styles", "Create effect style"),
             (StyleProperty::Text, "No text styles", "Create text style"),
             (StyleProperty::Grid, "No grid styles", "Create grid style"),
+            (StyleProperty::Animation, "No animation styles", "Create animation style"),
         ] {
             let (items, picks) = menu_model(&app, &[], prop);
             assert_eq!(items[0].label, empty);

@@ -197,7 +197,7 @@ fn validate_shader_refs(doc: &Document, schema: &crate::kiwi::Schema) -> Result<
             Style::Fill(paints) => validate_paint_list(schema, name, paints)?,
             Style::Text(ts) => validate_paint_list(schema, name, &ts.fills)?,
             Style::Effect(effects) => validate_effect_list(schema, name, effects)?,
-            Style::Grid(_) => {}
+            Style::Grid(_) | Style::Animation(_) => {}
         }
     }
     Ok(())
@@ -496,6 +496,20 @@ impl<'a> ExportCtx<'a> {
                 }
             }
         }
+        for style in doc.styles.values() {
+            let Style::Animation(timelines) = style else { continue };
+            for tid in timelines.iter().flat_map(|t| std::iter::once(t.id.as_str()).chain(t.parent.as_deref())) {
+                if tid.is_empty() || cx.timeline_guids.contains_key(tid) {
+                    continue;
+                }
+                if let Some(g) = parse_guid_pair(tid) {
+                    if cx.used_guids.insert(g) {
+                        bump_next_local(&mut cx.next_local, g.1);
+                        cx.timeline_guids.insert(tid.to_string(), g);
+                    }
+                }
+            }
+        }
         for n in doc.nodes.values() {
             if let Some(raw_tm) = n.fig_metadata.get("_motionTrackMeta") {
                 if let Ok(serde_json::Value::Object(tm_map)) = serde_json::from_str::<serde_json::Value>(raw_tm) {
@@ -526,7 +540,7 @@ impl<'a> ExportCtx<'a> {
                     }
                 }
             }
-            for key in ["timelineDefinitions", "timelineAssignments", "parameterConsumptionMap"] {
+            for key in ["timelineDefinitions", "timelineAssignments", "parameterConsumptionMap", "styleIdsForAnimation"] {
                 if let Some(raw) = n.fig_metadata.get(key) {
                     if let Ok(val) = serde_json::from_str::<serde_json::Value>(raw) {
                         let mut guids = Vec::new();
@@ -671,6 +685,17 @@ impl<'a> ExportCtx<'a> {
                     if !tr.id.is_empty() {
                         cx.track_guids_by_id.insert(tr.id.clone(), g);
                     }
+                }
+            }
+        }
+        for style in doc.styles.values() {
+            let Style::Animation(timelines) = style else { continue };
+            let tl_ids: Vec<&str> = timelines.iter().flat_map(|t| std::iter::once(t.id.as_str()).chain(t.parent.as_deref())).collect();
+            for tid in tl_ids {
+                if !tid.is_empty() && !cx.timeline_guids.contains_key(tid) {
+                    let s = crate::motion::guid_session_hint(tid, 3);
+                    let g = cx.alloc_guid(s);
+                    cx.timeline_guids.insert(tid.to_string(), g);
                 }
             }
         }
@@ -1262,6 +1287,7 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
             Style::Text(_) => ("TEXT", "TEXT"),
             Style::Effect(_) => ("RECTANGLE", "EFFECT"),
             Style::Grid(_) => ("FRAME", "GRID"),
+            Style::Animation(_) => ("FRAME", "ANIMATION"),
         };
         let mut fields = vec![
             ("guid", guid(sguid.0, sguid.1)),
@@ -1314,6 +1340,14 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
             }
             Style::Grid(grids) => {
                 fields.push(("layoutGrids", V::Array(grids.iter().map(encode_grid).collect())));
+            }
+            Style::Animation(timelines) => {
+                if !timelines.is_empty() {
+                    let tl_json = crate::motion::timelines_to_kiwi_with(timelines, |tid| cx.timeline_guid_or_alloc(tid));
+                    if let Some((_, val)) = cx.schema.def_field_from_json(cx.nc_def, "timelineDefinitions", &tl_json) {
+                        fields.push(("timelineDefinitions", val));
+                    }
+                }
             }
         }
         cx.changes.push(msg(fields));
@@ -2179,6 +2213,45 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 }
             }
             if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "timelineAssignments", &as_json) {
+                msg_fields.push(pair);
+            }
+        }
+    }
+    if let Some(sid) = node.style_refs.get("animation") {
+        let anim_style_ref = if let Some(&sg) = cx.style_guids.get(sid) {
+            Some(serde_json::json!({"guid": crate::motion::guid_pair_json(sg)}))
+        } else {
+            sid.strip_prefix("key:").map(|k| serde_json::json!({"assetRef": {"key": k}}))
+        };
+        if let Some(sr) = anim_style_ref {
+            let existing_arr =
+                node.fig_metadata.get("styleIdsForAnimation").and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok()).and_then(|v| match v {
+                    serde_json::Value::Array(arr) if !arr.is_empty() => Some(arr),
+                    _ => None,
+                });
+            let val = if let Some(mut arr) = existing_arr {
+                if let Some(first) = arr.first_mut().and_then(serde_json::Value::as_object_mut) {
+                    first.insert("animationStyleId".into(), sr);
+                }
+                serde_json::Value::Array(arr)
+            } else {
+                let mut entry = serde_json::Map::new();
+                entry.insert("id".into(), crate::motion::guid_pair_json(cx.alloc_guid(4)));
+                entry.insert("animationStyleId".into(), sr);
+                let first_tl = node.motion.as_deref().and_then(|m| m.timelines.first()).or_else(|| match cx.doc.styles.get(sid) {
+                    Some(Style::Animation(tls)) => tls.first(),
+                    _ => None,
+                });
+                if let Some(tl) = first_tl {
+                    let tg = cx.timeline_guid_or_alloc(&tl.id);
+                    entry.insert("timelineDefId".into(), crate::motion::guid_pair_json(tg));
+                }
+                let offset_us = node.motion.as_deref().and_then(|m| m.assignments.first().map(|a| a.offset_us)).unwrap_or(0);
+                entry.insert("timelineOffset".into(), serde_json::json!(offset_us));
+                entry.insert("sortPosition".into(), serde_json::json!("!"));
+                serde_json::Value::Array(vec![serde_json::Value::Object(entry)])
+            };
+            if let Some(pair) = cx.schema.def_field_from_json(cx.nc_def, "styleIdsForAnimation", &val) {
                 msg_fields.push(pair);
             }
         }

@@ -139,6 +139,7 @@ pub fn default_style_property(style: &Style) -> StyleProperty {
         Style::Text(_) => StyleProperty::Text,
         Style::Effect(_) => StyleProperty::Effect,
         Style::Grid(_) => StyleProperty::Grid,
+        Style::Animation(_) => StyleProperty::Animation,
     }
 }
 
@@ -764,7 +765,7 @@ pub fn style_matches_node(_doc: &Document, n: &Node, s: &Style, property: StyleP
             _ => false,
         },
         Style::Effect(fx) => !n.style_refs.contains_key("effect") && !n.effects.is_empty() && n.effects == *fx,
-        Style::Grid(_) => false,
+        Style::Grid(_) | Style::Animation(_) => false,
     }
 }
 

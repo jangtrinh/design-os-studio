@@ -930,7 +930,7 @@ fn style_table(entries: &[Entry], lk: &Lk) -> Value {
         if style_soft_deleted(j) {
             continue;
         }
-        let Some(ty) = fstr(j, "styleType").filter(|t| matches!(*t, "FILL" | "STROKE" | "TEXT" | "EFFECT" | "GRID")) else { continue };
+        let Some(ty) = fstr(j, "styleType").filter(|t| matches!(*t, "FILL" | "STROKE" | "TEXT" | "EFFECT" | "GRID" | "ANIMATION")) else { continue };
         let key = fstr(j, "key").unwrap_or("");
         let mut m = Map::new();
         if !key.is_empty() {
@@ -961,6 +961,12 @@ fn style_table(entries: &[Entry], lk: &Lk) -> Value {
             }
             "GRID" => {
                 m.insert("layoutGrids".into(), convert_grids(j).unwrap_or_else(|| Value::Array(Vec::new())));
+            }
+            "ANIMATION" => {
+                let timelines = crate::motion::timelines_from_kiwi(j.get("timelineDefinitions"));
+                if let Ok(val) = serde_json::to_value(timelines) {
+                    m.insert("timelines".into(), val);
+                }
             }
             _ => {}
         }
@@ -2107,6 +2113,11 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     ] {
         if let Some(g) = lk.style_id_of(nc, src, legacy) {
             styles.insert(dst.into(), g.into());
+        }
+    }
+    if let Some(entries) = nc.get("styleIdsForAnimation").and_then(|v| v.as_array()) {
+        if let Some(g) = entries.iter().find_map(|entry| entry.get("animationStyleId").and_then(|v| lk.style_id(v))) {
+            styles.insert("animation".into(), g.into());
         }
     }
     if !styles.is_empty() {

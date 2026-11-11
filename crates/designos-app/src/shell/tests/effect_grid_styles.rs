@@ -653,3 +653,43 @@ fn style_picker_deduplicates_interleaved_fallback_nodes_by_set() {
     let interleaved = vec![(first, "effects/0/opacity".to_string()), (second, "effects/0/opacity".to_string()), (first, "effects/0/opacity".to_string())];
     assert_eq!(style_picker::fallback_layer_count(&interleaved), 2, "interleaved fallback pairs from two nodes must count as 2 unique layers");
 }
+
+#[test]
+fn creating_listing_applying_and_detaching_an_animation_style() {
+    use designos_doc::{NodeMotion, Timeline};
+
+    let (mut s, welcome) = welcome_sim();
+    let card = s.by_name("Card");
+    let tl = Timeline::new("tl:1", 1_000_000);
+    s.shell.app.doc.get_mut(welcome).unwrap().motion = Some(Box::new(NodeMotion { timelines: vec![tl.clone()], ..Default::default() }));
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+    pick(&mut s, "animation-style-button", 1, 1);
+    let key = s.app().doc.get(welcome).unwrap().style_refs.get("animation").cloned().expect("linked to the new animation style");
+    assert_eq!(key, "Animation style 1");
+    assert!(matches!(&s.app().doc.styles[&key], Style::Animation(tls) if tls == &vec![tl.clone()]));
+    assert_eq!(s.app().doc.style_meta[&key].property, StyleProperty::Animation);
+
+    s.frame(vec![]);
+    let detach = s.rect_of("animation-style-detach");
+    s.click(detach.center());
+    assert!(!s.app().doc.get(welcome).unwrap().style_refs.contains_key("animation"));
+    assert_eq!(s.app().doc.get(welcome).unwrap().motion.as_deref().unwrap().timelines, vec![tl.clone()]);
+
+    s.shell.app.selection = vec![card];
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let style_row = s.rect_of("style:Animation style 1");
+    s.click(style_row.center());
+    assert_eq!(s.app().doc.get(card).unwrap().style_refs.get("animation").map(String::as_str), Some("Animation style 1"));
+    assert_eq!(s.app().doc.get(card).unwrap().motion.as_deref().unwrap().timelines, vec![tl.clone()]);
+
+    s.frame(vec![]);
+    let card_detach = s.rect_of("animation-style-detach");
+    s.click(card_detach.center());
+    assert!(!s.app().doc.get(card).unwrap().style_refs.contains_key("animation"));
+    s.scroll_inspector_down();
+    pick(&mut s, "animation-style-button", 0, 0);
+    assert_eq!(s.app().doc.get(card).unwrap().style_refs.get("animation").map(String::as_str), Some("Animation style 1"));
+}

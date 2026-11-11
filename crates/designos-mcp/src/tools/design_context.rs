@@ -314,6 +314,7 @@ fn collect_styles(doc: &Document, root: NodeId) -> (Vec<Value>, usize) {
             StyleProperty::Text => "text",
             StyleProperty::Effect => "effect",
             StyleProperty::Grid => "grid",
+            StyleProperty::Animation => "animation",
         };
         let summary = style.map(style_summary).unwrap_or_default();
         out.push(json!({

@@ -891,6 +891,7 @@ pub fn export_rest_json(doc: &Document) -> Value {
             Style::Text(_) => "TEXT",
             Style::Effect(_) => "EFFECT",
             Style::Grid(_) => "GRID",
+            Style::Animation(_) => "ANIMATION",
         };
         let mut e = Map::new();
         let meta = doc.style_meta.get(id);

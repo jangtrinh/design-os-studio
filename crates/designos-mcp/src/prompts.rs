@@ -708,6 +708,7 @@ fn format_style_value(style: &Style) -> String {
         Style::Text(ts) => format_text_style(ts),
         Style::Effect(effects) => format_effects(effects),
         Style::Grid(grids) => format_grids(grids),
+        Style::Animation(timelines) => format!("{} timeline{}", timelines.len(), if timelines.len() == 1 { "" } else { "s" }),
     }
 }
 

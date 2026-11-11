@@ -231,6 +231,7 @@ fn style_property_label(prop: StyleProperty) -> &'static str {
         StyleProperty::Text => "Text style",
         StyleProperty::Effect => "Effect style",
         StyleProperty::Grid => "Grid style",
+        StyleProperty::Animation => "Animation style",
     }
 }
 

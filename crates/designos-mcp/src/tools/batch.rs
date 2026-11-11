@@ -1698,6 +1698,7 @@ fn parse_style_property(s: &str) -> Result<StyleProperty, String> {
         "text" => Ok(StyleProperty::Text),
         "effect" => Ok(StyleProperty::Effect),
         "grid" => Ok(StyleProperty::Grid),
+        "animation" => Ok(StyleProperty::Animation),
         other => Err(format!("unknown style property '{other}' (expected fill, stroke, text, effect, or grid)")),
     }
 }
@@ -1763,6 +1764,7 @@ fn apply_set_style_op(
                 Style::Text(_) => StyleProperty::Text,
                 Style::Effect(_) => StyleProperty::Effect,
                 Style::Grid(_) => StyleProperty::Grid,
+                Style::Animation(_) => StyleProperty::Animation,
             }),
         };
         let name = s_in.name.clone().or_else(|| existing_meta.as_ref().map(|m| m.name.clone())).unwrap_or_else(|| key.clone());
@@ -1831,6 +1833,7 @@ fn apply_set_style_op(
             StyleProperty::Text => "text",
             StyleProperty::Effect => "effect",
             StyleProperty::Grid => "grid",
+            StyleProperty::Animation => "animation",
         };
         let cur =
             doc.get(node_id).ok_or_else(|| op_failed_error(op_idx, "set_style", ErrorCode::NodeNotFound, &path, format!("node {} not found", node_id.0)))?;

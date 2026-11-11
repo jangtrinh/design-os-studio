@@ -46,7 +46,7 @@ pub fn style_property_kind(style: &Style, property: &str) -> Option<VariableKind
             matches!(property, "fontSize" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent" | "fontWeight" | "fontFamily" | "fontStyle")
         }
         Style::Effect(_) => property.starts_with("effects/"),
-        Style::Grid(_) => false,
+        Style::Grid(_) | Style::Animation(_) => false,
     };
     valid.then_some(kind)
 }
@@ -56,6 +56,7 @@ pub fn style_ref_key(prop: StyleProperty) -> Option<&'static str> {
     match prop {
         StyleProperty::Effect => Some("effect"),
         StyleProperty::Grid => Some("grid"),
+        StyleProperty::Animation => Some("animation"),
         _ => None,
     }
 }
@@ -91,6 +92,10 @@ fn values_of_node(n: &Node, prop: StyleProperty) -> Result<Style, StyleOpError> 
             Some(_) => Err(StyleOpError::NothingToStyle(n.id)),
             None => Err(StyleOpError::WrongNodeKind(n.id)),
         },
+        StyleProperty::Animation => match n.motion.as_deref() {
+            Some(m) if !m.timelines.is_empty() => Ok(Style::Animation(m.timelines.clone())),
+            _ => Err(StyleOpError::NothingToStyle(n.id)),
+        },
         other => Err(StyleOpError::NotEffectOrGrid(other)),
     }
 }
@@ -115,7 +120,15 @@ pub fn create_style_from_node(doc: &Document, node: NodeId, prop: StyleProperty,
     let name = match name.map(str::trim) {
         Some("") => return Err(StyleOpError::EmptyName),
         Some(given) => given.to_string(),
-        None => unique_style_key(doc, if prop == StyleProperty::Effect { "Effect style" } else { "Grid style" }),
+        None => unique_style_key(
+            doc,
+            match prop {
+                StyleProperty::Effect => "Effect style",
+                StyleProperty::Grid => "Grid style",
+                StyleProperty::Animation => "Animation style",
+                _ => "Style",
+            },
+        ),
     };
     let key = if doc.styles.contains_key(&name) { unique_style_key(doc, &name) } else { name.clone() };
     let mut styles = doc.styles.clone();
@@ -157,6 +170,7 @@ fn ref_keys(style: &Style) -> &'static [&'static str] {
         Style::Text(_) => &["text"],
         Style::Effect(_) => &["effect"],
         Style::Grid(_) => &["grid"],
+        Style::Animation(_) => &["animation"],
     }
 }
 
@@ -297,6 +311,9 @@ pub fn detach_style(doc: &Document, nodes: &[NodeId], prop: StyleProperty) -> Re
         if n.style_refs.contains_key(ref_key) {
             cmds.push(updated(n, |n| {
                 n.style_refs.remove(ref_key);
+                if prop == StyleProperty::Animation {
+                    n.fig_metadata.remove("styleIdsForAnimation");
+                }
             }));
         }
     }
@@ -4264,5 +4281,74 @@ mod tests {
             "the delete-time look and the modes where the style value is 40 stay exact",
         );
         assert_eq!(visits, 8, "the style variable reaches brand through two variables by way of the hop, so the modes are crossed: 2 x 2 x 2");
+    }
+
+    #[test]
+    fn animation_style_apply_update_and_detach_links_and_updates_timelines() {
+        let mut d = Document::new("t");
+        let p = d.add_page("p");
+        let id1 = d.alloc_id();
+        let mut n1 = Node::frame(id1, Rect::new(0.0, 0.0, 100.0, 100.0));
+        let tl1 = Timeline { autoplay: false, ..Timeline::new("tl:1", 1_000_000) };
+        n1.motion = Some(Box::new(NodeMotion {
+            timelines: vec![tl1.clone()],
+            tracks: Vec::new(),
+            assignments: vec![TimelineAssignment { timeline: "tl:1".into(), containing: "tl:1".into(), offset_us: 0, disabled: false, autoplay: false }],
+        }));
+        let f1 = d.insert(p, n1).unwrap();
+        let id2 = d.alloc_id();
+        let f2 = d.insert(p, Node::frame(id2, Rect::new(120.0, 0.0, 100.0, 100.0))).unwrap();
+
+        let mut h = History::default();
+        let (key, cmd) = create_style_from_node(&d, f1, StyleProperty::Animation, Some("Motion/Pulse")).unwrap();
+        run(&mut d, &mut h, Ok(cmd));
+        assert_eq!(key, "Motion/Pulse");
+        assert_eq!(d.style_meta[&key].property, StyleProperty::Animation);
+        assert_eq!(d.get(f1).unwrap().style_refs.get("animation").map(String::as_str), Some("Motion/Pulse"));
+
+        let cmd = apply_style(&d, &[f2], &key);
+        run(&mut d, &mut h, cmd);
+        let f2_node = d.get(f2).unwrap();
+        assert_eq!(f2_node.style_refs.get("animation").map(String::as_str), Some("Motion/Pulse"));
+        let f2_motion = f2_node.motion.as_deref().expect("applying animation style populates motion on target layer");
+        assert_eq!(f2_motion.timelines, vec![tl1]);
+        assert_eq!(f2_motion.assignments.len(), 1);
+        assert_eq!(f2_motion.assignments[0].timeline, "tl:1");
+
+        let tl2 = Timeline { autoplay: true, ..Timeline::new("tl:1", 500_000) };
+        let cmd = update_style(&d, &key, Style::Animation(vec![tl2.clone()]));
+        run(&mut d, &mut h, cmd);
+        for id in [f1, f2] {
+            let m = d.get(id).unwrap().motion.as_deref().unwrap();
+            assert_eq!(m.timelines, vec![tl2.clone()]);
+            assert!(m.assignments.iter().any(|a| a.timeline == "tl:1" && a.autoplay));
+        }
+
+        let cmd = detach_style(&d, &[f2], StyleProperty::Animation);
+        run(&mut d, &mut h, cmd);
+        assert!(!d.get(f2).unwrap().style_refs.contains_key("animation"));
+        assert_eq!(d.get(f2).unwrap().motion.as_deref().unwrap().timelines, vec![tl2]);
+    }
+
+    #[test]
+    fn legacy_json_without_animation_styles_loads_unchanged() {
+        let mut old_doc = Document::new("legacy");
+        let p = old_doc.add_page("Page 1");
+        let fid = old_doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 120.0));
+        frame.effects.push(shadow(4.0));
+        let fid = old_doc.insert(p, frame).unwrap();
+        old_doc.styles.insert("fx_card".into(), Style::Effect(vec![shadow(4.0)]));
+        old_doc.style_meta.insert("fx_card".into(), StyleMeta { name: "Elevation/Card".into(), property: StyleProperty::Effect, ..Default::default() });
+        old_doc.styles.insert("grid_12".into(), Style::Grid(vec![cols(12)]));
+        old_doc.style_meta.insert("grid_12".into(), StyleMeta { name: "Layout/12 col".into(), property: StyleProperty::Grid, ..Default::default() });
+
+        let raw_json = old_doc.to_json().unwrap();
+        assert!(!raw_json.contains("Animation"), "pre-animation native JSON has no Animation variant");
+        let loaded = Document::from_json(&raw_json).unwrap();
+        assert_eq!(loaded.styles, old_doc.styles);
+        assert_eq!(loaded.style_meta, old_doc.style_meta);
+        assert_eq!(loaded.get(fid).unwrap().effects, vec![shadow(4.0)]);
+        assert!(loaded.get(fid).unwrap().motion.is_none());
     }
 }

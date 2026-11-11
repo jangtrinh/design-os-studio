@@ -1633,6 +1633,7 @@ impl<'a> Ctx<'a> {
                     "text" => "text",
                     "effect" | "effects" => "effect",
                     "grid" | "grids" => "grid",
+                    "animation" | "animations" => "animation",
                     other => other,
                 };
                 n.style_refs.insert(key.to_string(), sid.to_string());
@@ -1661,6 +1662,7 @@ impl<'a> Ctx<'a> {
                     },
                     "effect" => Some(Style::Effect(n.effects.clone())),
                     "grid" => n.kind.frame_props().map(|f| Style::Grid(f.grids.clone())),
+                    "animation" => Some(Style::Animation(n.motion.as_deref().map(|m| m.timelines.clone()).unwrap_or_default())),
                     _ => None,
                 };
                 if let Some(d) = def {
@@ -4012,6 +4014,18 @@ fn apply_style_node_values(doc: &mut Document, styles: Option<&Value>) {
             Some("EFFECT") if m.get("effects").is_some() => Style::Effect(farr(m, "effects").iter().filter_map(parse_effect).collect()),
             Some("EFFECT") if !doc.styles.contains_key(id) && m.get("boundVariables").is_some() => Style::Effect(Vec::new()),
             Some("GRID") if m.get("layoutGrids").is_some() => Style::Grid(farr(m, "layoutGrids").iter().filter_map(parse_grid).collect()),
+            Some("ANIMATION") => {
+                let timelines: Vec<designos_doc::Timeline> = m.get("timelines").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+                for n in doc.nodes.values_mut() {
+                    if n.style_refs.get("animation").is_some_and(|k| k == id)
+                        && n.motion.as_deref().is_none_or(|mo| mo.timelines.is_empty())
+                        && !timelines.is_empty()
+                    {
+                        designos_doc::apply_style_values(n, &Style::Animation(timelines.clone()), id);
+                    }
+                }
+                Style::Animation(timelines)
+            }
             _ => continue,
         };
         doc.styles.insert(id.clone(), style);
@@ -4062,6 +4076,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
             Some("TEXT") => StyleProperty::Text,
             Some("EFFECT") => StyleProperty::Effect,
             Some("GRID") => StyleProperty::Grid,
+            Some("ANIMATION") => StyleProperty::Animation,
             Some("STROKE") => StyleProperty::Stroke,
             _ if used_as_stroke.contains(id.as_str()) && !used_as_fill.contains(id.as_str()) => StyleProperty::Stroke,
             _ => StyleProperty::Fill,

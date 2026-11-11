@@ -971,6 +971,7 @@ fn snapshot_style_property(snap: &LibrarySnapshot, key: &str, style: &Style) -> 
         Style::Text(_) => StyleProperty::Text,
         Style::Effect(_) => StyleProperty::Effect,
         Style::Grid(_) => StyleProperty::Grid,
+        Style::Animation(_) => StyleProperty::Animation,
         Style::Fill(_) => StyleProperty::Fill,
     })
 }
