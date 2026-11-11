@@ -1,129 +1,210 @@
 //! How auto layout sees a child whose transform rotates or flips it.
 //!
-//! The solver works with axis-aligned slots. A rotated or flipped child occupies the slot with its
-//! bounding box (Figma lays out the same way), so the solver is fed the box's extent and its answer
-//! is written back as a local size plus a transform origin that lands the box's top-left corner on
-//! the solved slot. A child whose transform has no rotation, flip or shear skips all of this
-//! ([`bbox_applies`] is false) and keeps the plain size/translation round trip.
+//! The solver works with axis-aligned slots, and a rotated or flipped child occupies its slot with
+//! its bounding box (Figma lays out the same way). The solver is fed the box's extent; the answer
+//! is written back through [`slot_write`], the one place that turns a solved slot into a local size
+//! and a transform origin that puts the box's top-left corner on the slot. The headless solver, the
+//! instance-constraint solver and the editor solver all write through it. Transforms are rotation
+//! and flip only (no scale or shear).
 //!
-//! Sizing flags (Fill, Hug, Fixed), min/max limits and `align_self` are read as stored and apply to
-//! the bounding box along the parent's axes. A Fill that changes the box extent is traced back to
-//! a local size ([`local_size_for_extent`]); where that is not possible (a 45 degree turn maps both
-//! local axes onto one diagonal) the child keeps its size and only its position follows the slot.
+//! Three kinds of child, told apart by [`classify`]:
+//! - plain (translation only): the slot is the local box, as before;
+//! - quarter turn (90, 180, 270 degrees, any flip, within float-trigonometry error): Fill, Hug,
+//!   min/max and stretch all act on the bounding box, and the slot maps back to an exact local
+//!   size by swapping the axes when the turn does;
+//! - any other angle: the child keeps its local size and acts as Fixed ([`fix_tilted_input`]):
+//!   Fill, grow, stretch and min/max are ignored, and only its position follows the slot through
+//!   its bounding box. A bounding box cannot be traced back to one local size (it is ill
+//!   conditioned near 45 degrees and has no non-negative solution for many boxes), and solving it
+//!   anyway compounds on every relayout. Figma's behaviour for Fill on a tilted layer is unverified.
 
-use crate::{Affine, Vec2};
+use crate::layout_solver::{ChildIn, SizeLimits};
+use crate::{Affine, AlignSelf, Rect, Vec2};
 
-/// Below this the 2x2 extent system is treated as singular.
-const SINGULAR_EPS: f32 = 1e-4;
+/// Component size below which a rotation matrix entry counts as zero.
+const AXIS_EPS: f32 = 1e-4;
+
+/// How a transform places a child's box in the flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Turn {
+    /// Translation only: the local box is the slot.
+    Plain,
+    /// A multiple of 90 degrees or a flip; `swap` when the local axes land on the other page axes.
+    Quarter { swap: bool },
+    /// Any other rotation.
+    Tilted,
+}
+
+pub(crate) fn classify(tf: &Affine) -> Turn {
+    let axis_kept = tf.b.abs() <= AXIS_EPS && tf.c.abs() <= AXIS_EPS;
+    let axis_swapped = tf.a.abs() <= AXIS_EPS && tf.d.abs() <= AXIS_EPS;
+    if axis_kept {
+        if tf.a < 0.0 || tf.d < 0.0 {
+            Turn::Quarter { swap: false }
+        } else {
+            Turn::Plain
+        }
+    } else if axis_swapped {
+        Turn::Quarter { swap: true }
+    } else {
+        Turn::Tilted
+    }
+}
+
+/// Whether the local axes stay on the page axes, so a box width is still the local width.
+pub(crate) fn keeps_axes(tf: &Affine) -> bool {
+    matches!(classify(tf), Turn::Plain | Turn::Quarter { swap: false })
+}
 
 /// Whether the child's bounding box, not its local box, is what the flow positions.
 pub(crate) fn bbox_applies(tf: &Affine) -> bool {
-    tf.b.abs() > 1e-4 || tf.c.abs() > 1e-4 || tf.a < 0.0 || tf.d < 0.0
-}
-
-/// Whether the transform keeps the local axes on the page axes (flips and half turns only), so a
-/// bounding-box width is still the local width.
-pub(crate) fn keeps_axes(tf: &Affine) -> bool {
-    tf.b.abs() <= 1e-4 && tf.c.abs() <= 1e-4
+    classify(tf) != Turn::Plain
 }
 
 /// Width and height of the page-aligned box around a local `size` box under `tf`.
 pub(crate) fn extent(tf: &Affine, size: Vec2) -> Vec2 {
-    if !bbox_applies(tf) {
-        return size;
+    match classify(tf) {
+        Turn::Plain | Turn::Quarter { swap: false } => size,
+        Turn::Quarter { swap: true } => Vec2::new(size.y, size.x),
+        Turn::Tilted => Vec2::new(tf.a.abs() * size.x + tf.c.abs() * size.y, tf.b.abs() * size.x + tf.d.abs() * size.y),
     }
-    Vec2::new(tf.a.abs() * size.x + tf.c.abs() * size.y, tf.b.abs() * size.x + tf.d.abs() * size.y)
 }
 
-/// The local size whose bounding box has `target` extent. `current` is returned when it already
-/// has that extent (so an untouched child never drifts) and when the system cannot be solved.
-pub(crate) fn local_size_for_extent(tf: &Affine, target: Vec2, current: Vec2) -> Vec2 {
-    if !bbox_applies(tf) {
-        return target;
+/// The local size of a child under `tf` whose bounding box has extent `target`; `current` for a
+/// tilted child, whose local size never follows its slot.
+fn local_size(tf: &Affine, target: Vec2, current: Vec2) -> Vec2 {
+    match classify(tf) {
+        Turn::Plain | Turn::Quarter { swap: false } => target,
+        Turn::Quarter { swap: true } => Vec2::new(target.y, target.x),
+        Turn::Tilted => current,
     }
-    let have = extent(tf, current);
-    if (have.x - target.x).abs() <= 1e-3 && (have.y - target.y).abs() <= 1e-3 {
-        return current;
-    }
-    let (a, c, b, d) = (tf.a.abs(), tf.c.abs(), tf.b.abs(), tf.d.abs());
-    let det = a * d - c * b;
-    if det.abs() < SINGULAR_EPS {
-        return current;
-    }
-    Vec2::new(((d * target.x - c * target.y) / det).max(0.0), ((a * target.y - b * target.x) / det).max(0.0))
 }
 
-/// `tf` moved so the bounding box of a local `size` box has its top-left corner at `slot`.
-pub(crate) fn placed_at_slot(tf: Affine, size: Vec2, slot: Vec2) -> Affine {
+/// What the solver's slot for one child becomes in the document.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SlotWrite {
+    /// The child's transform with its origin moved so its bounding box starts at the slot corner.
+    pub transform: Affine,
+    /// The child's local size.
+    pub size: Vec2,
+    /// The bounding-box extent of `size` under `transform`, what the solver reads back next time.
+    pub extent: Vec2,
+}
+
+/// Maps the solved `slot` of a child with transform `tf` and local size `current` to what to store.
+pub fn slot_write(tf: &Affine, current: Vec2, slot: Rect) -> SlotWrite {
+    let size = local_size(tf, Vec2::new(slot.w, slot.h), current);
     let (off_x, off_y) =
-        if bbox_applies(&tf) { ((tf.a * size.x).min(0.0) + (tf.c * size.y).min(0.0), (tf.b * size.x).min(0.0) + (tf.d * size.y).min(0.0)) } else { (0.0, 0.0) };
-    Affine { tx: slot.x - off_x, ty: slot.y - off_y, ..tf }
+        if bbox_applies(tf) { ((tf.a * size.x).min(0.0) + (tf.c * size.y).min(0.0), (tf.b * size.x).min(0.0) + (tf.d * size.y).min(0.0)) } else { (0.0, 0.0) };
+    SlotWrite { transform: Affine { tx: slot.x - off_x, ty: slot.y - off_y, ..*tf }, size, extent: extent(tf, size) }
+}
+
+/// Whether the solved `slot` still differs from the box the child has, so another solve pass can
+/// change something. A tilted child never takes the slot's size, so it never counts.
+pub fn slot_drifted(tf: &Affine, size: Vec2, slot: Rect) -> bool {
+    if classify(tf) == Turn::Tilted {
+        return false;
+    }
+    let have = extent(tf, size);
+    (have.x - slot.w).abs() > 1e-3 || (have.y - slot.h).abs() > 1e-3
+}
+
+/// Makes a tilted child behave as Fixed for the solver: no Fill, grow, stretch or limits.
+pub(crate) fn fix_tilted_input(tf: &Affine, input: &mut ChildIn) {
+    if classify(tf) != Turn::Tilted {
+        return;
+    }
+    input.main_fill = false;
+    input.cross_fill = false;
+    input.grow = 0.0;
+    if input.align_self == AlignSelf::Stretch {
+        input.align_self = AlignSelf::Auto;
+    }
+    input.limits = SizeLimits::default();
+}
+
+/// A local-space size as the solver reads it: the bounding-box extent for a quarter turn or a
+/// tilted child, itself for a plain one.
+pub(crate) fn to_local(tf: &Affine, ext: Vec2, current: Vec2) -> Vec2 {
+    local_size(tf, ext, current)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn quarter(turns: i32) -> Affine {
-        let (s, c) = match turns.rem_euclid(4) {
-            0 => (0.0, 1.0),
-            1 => (1.0, 0.0),
-            2 => (0.0, -1.0),
-            _ => (-1.0, 0.0),
-        };
-        Affine { a: c, b: s, c: -s, d: c, tx: 0.0, ty: 0.0 }
+    fn turn(deg: f32) -> Affine {
+        Affine::rotate(deg.to_radians())
+    }
+
+    fn box_min(tf: Affine, size: Vec2) -> Vec2 {
+        let b = crate::lint::rules::aabb_of_transformed_rect(tf, size);
+        Vec2::new(b.x, b.y)
+    }
+
+    #[test]
+    fn classify_tells_quarter_turns_from_float_trig_noise() {
+        assert_eq!(classify(&Affine::translate(5.0, 6.0)), Turn::Plain);
+        for deg in [90.0, 270.0, -90.0] {
+            assert_eq!(classify(&turn(deg)), Turn::Quarter { swap: true }, "{deg}");
+        }
+        assert_eq!(classify(&turn(180.0)), Turn::Quarter { swap: false });
+        assert_eq!(classify(&turn(0.0)), Turn::Plain);
+        assert_eq!(classify(&Affine { a: -1.0, ..Affine::IDENTITY }), Turn::Quarter { swap: false });
+        for deg in [10.0, 30.0, 44.0, 45.0, 60.0, 150.0] {
+            assert_eq!(classify(&turn(deg)), Turn::Tilted, "{deg}");
+        }
     }
 
     #[test]
     fn plain_transform_is_untouched() {
         let tf = Affine::translate(5.0, 6.0);
-        assert!(!bbox_applies(&tf));
         assert_eq!(extent(&tf, Vec2::new(72.0, 18.0)), Vec2::new(72.0, 18.0));
-        assert_eq!(placed_at_slot(tf, Vec2::new(72.0, 18.0), Vec2::new(1.0, 2.0)).tx, 1.0);
+        let w = slot_write(&tf, Vec2::new(72.0, 18.0), Rect::new(1.0, 2.0, 30.0, 40.0));
+        assert_eq!((w.transform.tx, w.transform.ty, w.size), (1.0, 2.0, Vec2::new(30.0, 40.0)));
     }
 
     #[test]
-    fn quarter_turn_swaps_extent_and_lands_the_box_on_the_slot() {
-        for turns in 1..=3 {
-            let tf = quarter(turns);
-            let size = Vec2::new(72.0, 18.0);
-            let ext = extent(&tf, size);
-            let want = if turns == 2 { size } else { Vec2::new(18.0, 72.0) };
-            assert!((ext.x - want.x).abs() < 1e-3 && (ext.y - want.y).abs() < 1e-3, "turns {turns}: {ext:?}");
-            let placed = placed_at_slot(tf, size, Vec2::new(10.0, 20.0));
-            let p: Vec<Vec2> = [(0.0, 0.0), (72.0, 0.0), (0.0, 18.0), (72.0, 18.0)].iter().map(|&(x, y)| placed.apply(Vec2::new(x, y))).collect();
-            let min_x = p.iter().map(|v| v.x).fold(f32::MAX, f32::min);
-            let min_y = p.iter().map(|v| v.y).fold(f32::MAX, f32::min);
-            assert!((min_x - 10.0).abs() < 1e-3 && (min_y - 20.0).abs() < 1e-3, "turns {turns}: {min_x},{min_y}");
+    fn quarter_turn_slot_maps_to_an_exact_local_size_and_origin() {
+        for deg in [90.0, 180.0, 270.0, -90.0] {
+            let tf = turn(deg);
+            let w = slot_write(&tf, Vec2::new(72.0, 18.0), Rect::new(10.0, 20.0, 18.0, 300.0));
+            let swapped = deg != 180.0;
+            let want = if swapped { Vec2::new(300.0, 18.0) } else { Vec2::new(18.0, 300.0) };
+            assert_eq!(w.size, want, "{deg}");
+            let min = box_min(w.transform, w.size);
+            assert!((min.x - 10.0).abs() < 1e-3 && (min.y - 20.0).abs() < 1e-3, "{deg}: {min:?}");
+            assert_eq!(w.extent, Vec2::new(18.0, 300.0), "{deg}");
         }
     }
 
     #[test]
-    fn arbitrary_angle_box_lands_on_the_slot() {
-        let tf = Affine::rotate(30f32.to_radians());
-        let size = Vec2::new(40.0, 10.0);
-        let placed = placed_at_slot(tf, size, Vec2::new(0.0, 0.0));
-        let b = crate::lint::rules::aabb_of_transformed_rect(placed, size);
-        assert!(b.x.abs() < 1e-3 && b.y.abs() < 1e-3);
-        let ext = extent(&tf, size);
-        assert!((b.w - ext.x).abs() < 1e-3 && (b.h - ext.y).abs() < 1e-3);
+    fn tilted_child_keeps_its_size_and_the_box_lands_on_the_slot() {
+        for deg in [10.0, 30.0, 44.0, 45.0, 60.0, 150.0] {
+            let tf = turn(deg);
+            let size = Vec2::new(40.0, 10.0);
+            let w = slot_write(&tf, size, Rect::new(7.0, 9.0, 999.0, 999.0));
+            assert_eq!(w.size, size, "{deg}");
+            let min = box_min(w.transform, w.size);
+            assert!((min.x - 7.0).abs() < 1e-3 && (min.y - 9.0).abs() < 1e-3, "{deg}: {min:?}");
+            assert!(!slot_drifted(&tf, size, Rect::new(0.0, 0.0, 999.0, 999.0)), "{deg}");
+        }
     }
 
     #[test]
-    fn extent_round_trips_to_the_local_size() {
-        let tf = quarter(1);
-        let got = local_size_for_extent(&tf, Vec2::new(18.0, 300.0), Vec2::new(72.0, 18.0));
-        assert_eq!(got, Vec2::new(300.0, 18.0));
-        let tf = Affine::rotate(30f32.to_radians());
-        let got = local_size_for_extent(&tf, extent(&tf, Vec2::new(60.0, 20.0)), Vec2::new(40.0, 10.0));
-        assert!((got.x - 60.0).abs() < 1e-2 && (got.y - 20.0).abs() < 1e-2);
-    }
-
-    #[test]
-    fn unchanged_or_unsolvable_extent_keeps_the_current_size() {
-        let tf = Affine::rotate(45f32.to_radians());
-        let cur = Vec2::new(40.0, 10.0);
-        assert_eq!(local_size_for_extent(&tf, extent(&tf, cur), cur), cur);
-        assert_eq!(local_size_for_extent(&tf, Vec2::new(500.0, 500.0), cur), cur);
+    fn tilted_input_loses_fill_grow_stretch_and_limits() {
+        let mut input = ChildIn {
+            main_fill: true,
+            cross_fill: true,
+            grow: 2.0,
+            align_self: AlignSelf::Stretch,
+            limits: SizeLimits { min_w: Some(5.0), ..Default::default() },
+            ..Default::default()
+        };
+        fix_tilted_input(&turn(90.0), &mut input);
+        assert!(input.main_fill && input.cross_fill && input.limits.min_w.is_some(), "a quarter turn keeps them");
+        fix_tilted_input(&turn(30.0), &mut input);
+        assert!(!input.main_fill && !input.cross_fill && input.grow == 0.0 && input.align_self == AlignSelf::Auto);
+        assert_eq!(input.limits.min_w, None);
     }
 }

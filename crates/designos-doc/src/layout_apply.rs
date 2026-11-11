@@ -1,6 +1,6 @@
 //! Writes the shared auto-layout solver ([`crate::layout_solver`]) straight into a [`Document`].
 
-use crate::layout_rotated::{extent, keeps_axes, local_size_for_extent, placed_at_slot};
+use crate::layout_rotated::{extent, fix_tilted_input, keeps_axes, slot_write, to_local};
 use crate::layout_solver::{compute_then_refit_wrapped, hugged_axes, ChildIn, SizeLimits};
 use crate::text_measure::{height_resize_text_height, layout_measurer};
 use crate::{Document, LayoutDirection, Node, NodeId, NodeKind, Vec2};
@@ -91,11 +91,12 @@ impl Document {
             return None;
         }
         let (fit_w, fit_h) = content_sized_axes(raw);
-        // A rotated or flipped child fills the flow with its bounding box; the whole solve below
-        // works in that box's extent and `write_child_slot` maps the answer back.
+        // A rotated or flipped child fills the flow with its bounding box: the solver reads the
+        // box's extent and `slot_write` maps its answer back. `natural` stays in local axes, so a
+        // `width` / `height` binding lands on the axis it names.
         let tf = raw.transform;
-        let stored = extent(&tf, raw.size);
-        let mut natural = raw.layout_child.natural_size(stored, horiz);
+        let natural_extent = raw.layout_child.natural_size(extent(&tf, raw.size), horiz);
+        let mut natural = to_local(&tf, natural_extent, raw.size);
         if let NodeKind::Text(tp) = &bound.kind {
             let text_changed = (matches!(&bound, std::borrow::Cow::Owned(_)) && raw.kind.any_text() != Some(tp))
                 || raw.variables.bindings.keys().any(|k| {
@@ -114,29 +115,34 @@ impl Document {
                 });
             if tp.auto_resize == crate::TextAutoResize::WidthAndHeight && (bound.layout_child.max_w.is_some() || text_changed) {
                 if let Some(measure) = layout_measurer() {
-                    natural = extent(&tf, crate::text_measure::measure_hug_text_with(tp, bound.layout_child.max_w, |t, w| measure.measure(t, w)));
+                    natural = crate::text_measure::measure_hug_text_with(tp, bound.layout_child.max_w, |t, w| measure.measure(t, w));
                 }
             }
         }
         let has_w_bind = raw.variables.bindings.contains_key("width");
         let has_h_bind = raw.variables.bindings.contains_key("height");
-        let size = Vec2::new(
-            if fit_w {
-                stored.x
-            } else if has_w_bind {
-                extent(&tf, bound.size).x
-            } else {
-                natural.x
-            },
-            if fit_h {
-                stored.y
-            } else if has_h_bind {
-                extent(&tf, bound.size).y
-            } else {
-                natural.y
-            },
+        let size = extent(
+            &tf,
+            Vec2::new(
+                if fit_w {
+                    raw.size.x
+                } else if has_w_bind {
+                    bound.size.x
+                } else {
+                    natural.x
+                },
+                if fit_h {
+                    raw.size.y
+                } else if has_h_bind {
+                    bound.size.y
+                } else {
+                    natural.y
+                },
+            ),
         );
-        Some(ChildIn::from_layout_child(size, &bound.layout_child, horiz))
+        let mut input = ChildIn::from_layout_child(size, &bound.layout_child, horiz);
+        fix_tilted_input(&tf, &mut input);
+        Some(input)
     }
 
     fn relayout_bottom_up(&mut self, root: NodeId, budget: &mut usize) {
@@ -217,8 +223,8 @@ impl Document {
             fnode.size = out.frame;
         }
         for ((cid, kid), r) in flow_ids.iter().zip(&kids).zip(&out.rects) {
-            let slot_extent = Vec2::new(r.w, r.h);
-            let new_size = self.get(*cid).map_or(slot_extent, |n| local_size_for_extent(&n.transform, slot_extent, n.size));
+            let write = self.get(*cid).map_or_else(|| slot_write(&Default::default(), Vec2::new(r.w, r.h), *r), |n| slot_write(&n.transform, n.size, *r));
+            let new_size = write.size;
             let (old_size, size_changed, is_auto_layout, is_bool_op) = self
                 .get(*cid)
                 .map(|n| {
@@ -229,7 +235,7 @@ impl Document {
                 })
                 .unwrap_or((new_size, false, false, false));
             if let Some(cnode) = self.get_mut(*cid) {
-                let new_tf = placed_at_slot(cnode.transform, new_size, Vec2::new(r.x, r.y));
+                let new_tf = write.transform;
                 if size_changed
                     && matches!(
                         cnode.kind,
@@ -247,7 +253,7 @@ impl Document {
                     cnode.transform = new_tf;
                     cnode.size = new_size;
                 }
-                cnode.layout_child.record_stretched(kid.size, extent(&cnode.transform, new_size), horiz, kid.stretches_cross());
+                cnode.layout_child.record_stretched(kid.size, write.extent, horiz, kid.stretches_cross());
             }
             if size_changed && is_bool_op {
                 for (gc, gt, gs) in crate::plan_constraint_pass(self, *cid, old_size, new_size, 64) {

@@ -1,7 +1,10 @@
 //! Auto layout sizes and places a rotated or flipped child by its bounding box.
 
 use crate::lint::rules::aabb_of_transformed_rect;
-use crate::{Affine, AutoLayout, Document, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, TextStyle};
+use crate::{
+    bind_node_variable, Affine, AutoLayout, BindableProperty, Document, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, TextStyle,
+    Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+};
 
 /// A quarter turn clockwise `turns` times, with exact trigonometric values.
 fn quarter(turns: i32) -> Affine {
@@ -160,4 +163,166 @@ fn relayout_is_idempotent_for_rotated_children() {
     doc.relayout_subtree(frame);
     let twice = (doc.get(id).unwrap().transform, doc.get(id).unwrap().size, doc.get(frame).unwrap().size);
     assert_eq!(once, twice);
+}
+
+fn turn(deg: f32) -> Affine {
+    Affine::rotate(deg.to_radians())
+}
+
+fn state(doc: &Document, frame: NodeId, id: NodeId) -> (Affine, crate::Vec2, crate::Vec2) {
+    (doc.get(id).unwrap().transform, doc.get(id).unwrap().size, doc.get(frame).unwrap().size)
+}
+
+fn finite_and_sane(doc: &Document, id: NodeId, label: &str) {
+    let n = doc.get(id).unwrap();
+    assert!(
+        n.size.x.is_finite() && n.size.y.is_finite() && n.size.x > 0.0 && n.size.y > 0.0 && n.size.x < 1000.0 && n.size.y < 1000.0,
+        "{label}: {:?}",
+        n.size
+    );
+}
+
+/// Hundreds of relayouts leave the child, and the frame, exactly where the first one put them.
+fn assert_stable(doc: &mut Document, frame: NodeId, id: NodeId, label: &str) {
+    doc.relayout_subtree(frame);
+    let first = state(doc, frame, id);
+    for _ in 0..200 {
+        doc.relayout_subtree(frame);
+    }
+    assert_eq!(first, state(doc, frame, id), "{label}");
+    finite_and_sane(doc, id, label);
+}
+
+#[test]
+fn float_trig_quarter_turns_are_stable_over_200_relayouts() {
+    for deg in [90.0, 180.0, 270.0, -90.0] {
+        let mut doc = Document::new("rot");
+        let page = doc.add_page("Page 1");
+        let hug = flow_frame(&mut doc, page, LayoutDirection::Horizontal, Sizing::Hug, 3.0);
+        let a = add_rect(&mut doc, hug, 72.0, 18.0, turn(deg));
+        assert_stable(&mut doc, hug, a, &format!("hug {deg}"));
+        let b = bbox(&doc, a);
+        near(b.x, 3.0, "hug bbox x");
+        near(b.y, 3.0, "hug bbox y");
+
+        let fixed = flow_frame(&mut doc, page, LayoutDirection::Vertical, Sizing::Fixed, 0.0);
+        let f = add_rect(&mut doc, fixed, 72.0, 18.0, turn(deg));
+        doc.get_mut(f).unwrap().layout_child = LayoutChild { horizontal: Sizing::Fill, ..LayoutChild::default() };
+        doc.get_mut(f).unwrap().layout_child.vertical = Sizing::Fixed;
+        assert_stable(&mut doc, fixed, f, &format!("fill {deg}"));
+        let b = bbox(&doc, f);
+        near(b.x, 0.0, "fill bbox x");
+        let n = doc.get(f).unwrap();
+        let swapped = deg != 180.0;
+        near(if swapped { n.size.y } else { n.size.x }, 300.0, "the filled axis spans the frame");
+    }
+}
+
+#[test]
+fn flipped_child_with_fill_is_stable_and_fills() {
+    for (a, d) in [(-1.0f32, 1.0f32), (1.0, -1.0), (-1.0, -1.0)] {
+        let mut doc = Document::new("rot");
+        let page = doc.add_page("Page 1");
+        let frame = flow_frame(&mut doc, page, LayoutDirection::Vertical, Sizing::Fixed, 0.0);
+        let id = add_rect(&mut doc, frame, 50.0, 20.0, Affine { a, b: 0.0, c: 0.0, d, tx: 50.0, ty: 20.0 });
+        doc.get_mut(id).unwrap().layout_child = LayoutChild { horizontal: Sizing::Fill, ..LayoutChild::default() };
+        assert_stable(&mut doc, frame, id, "flip fill");
+        let b = bbox(&doc, id);
+        near(b.x, 0.0, "bbox x");
+        near(b.w, 300.0, "bbox w");
+    }
+}
+
+#[test]
+fn tilted_children_ignore_fill_and_limits_and_never_grow() {
+    let cases: [(&str, LayoutChild); 4] = [
+        ("fill", LayoutChild { horizontal: Sizing::Fill, ..LayoutChild::default() }),
+        ("min_w", LayoutChild { min_w: Some(200.0), ..LayoutChild::default() }),
+        ("max_w", LayoutChild { max_w: Some(20.0), ..LayoutChild::default() }),
+        ("stretch", LayoutChild { align_self: crate::AlignSelf::Stretch, vertical: Sizing::Fill, ..LayoutChild::default() }),
+    ];
+    for deg in [10.0, 30.0, 44.0, 44.99, 45.0, 45.01, 60.0, 120.0, 134.9, 150.0] {
+        for (name, lc) in cases {
+            for frame_w in [300.0, 5.0] {
+                let mut doc = Document::new("rot");
+                let page = doc.add_page("Page 1");
+                let frame = flow_frame(&mut doc, page, LayoutDirection::Vertical, Sizing::Fixed, 0.0);
+                doc.get_mut(frame).unwrap().size = crate::Vec2::new(frame_w, 300.0);
+                let id = add_rect(&mut doc, frame, 40.0, 10.0, turn(deg));
+                doc.get_mut(id).unwrap().layout_child = lc;
+                assert_stable(&mut doc, frame, id, &format!("{name} {deg} frame {frame_w}"));
+                let n = doc.get(id).unwrap();
+                assert_eq!(n.size, crate::Vec2::new(40.0, 10.0), "{name} {deg}: size untouched");
+                let b = bbox(&doc, id);
+                near(b.x, 0.0, "bbox x");
+                near(b.y, 0.0, "bbox y");
+            }
+        }
+    }
+}
+
+#[test]
+fn tilted_fill_child_does_not_squeeze_its_siblings() {
+    let mut doc = Document::new("rot");
+    let page = doc.add_page("Page 1");
+    let frame = flow_frame(&mut doc, page, LayoutDirection::Horizontal, Sizing::Fixed, 0.0);
+    let tilted = add_rect(&mut doc, frame, 40.0, 10.0, turn(30.0));
+    doc.get_mut(tilted).unwrap().layout_child = LayoutChild { horizontal: Sizing::Fill, ..LayoutChild::default() };
+    let next = add_rect(&mut doc, frame, 20.0, 20.0, Affine::IDENTITY);
+    doc.relayout_subtree(frame);
+    let (sin, cos) = 30f32.to_radians().sin_cos();
+    near(bbox(&doc, next).x, 40.0 * cos + 10.0 * sin, "the sibling sits right after the tilted box");
+}
+
+fn width_variable(doc: &mut Document, value: f32) {
+    doc.variable_collections.insert(
+        "col".into(),
+        VariableCollection {
+            id: "col".into(),
+            name: "Sizes".into(),
+            modes: vec![VariableMode { id: "m".into(), name: "M".into() }],
+            default_mode: "m".into(),
+            variables: vec!["w".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    doc.variables.insert(
+        "w".into(),
+        Variable {
+            id: "w".into(),
+            name: "size/w".into(),
+            collection: "col".into(),
+            kind: VariableKind::Number,
+            values: [("m".to_string(), VariableValue::Number(value))].into_iter().collect(),
+            description: String::new(),
+            scopes: Vec::new(),
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+}
+
+#[test]
+fn width_binding_on_a_quarter_turned_child_drives_the_local_width() {
+    for deg in [0.0, 90.0, 270.0] {
+        let mut doc = Document::new("rot");
+        let page = doc.add_page("Page 1");
+        width_variable(&mut doc, 100.0);
+        let frame = flow_frame(&mut doc, page, LayoutDirection::Horizontal, Sizing::Hug, 0.0);
+        let id = add_rect(&mut doc, frame, 72.0, 18.0, turn(deg));
+        bind_node_variable(&mut doc, id, BindableProperty::Width, "w").unwrap();
+        assert_stable(&mut doc, frame, id, &format!("bound {deg}"));
+        let n = doc.get(id).unwrap();
+        near(n.size.x, 100.0, &format!("{deg}: local width follows the variable"));
+        near(n.size.y, 18.0, &format!("{deg}: local height stays"));
+        let b = bbox(&doc, id);
+        let (ew, eh) = if deg == 0.0 { (100.0, 18.0) } else { (18.0, 100.0) };
+        near(b.w, ew, "bbox w");
+        near(b.h, eh, "bbox h");
+    }
 }
