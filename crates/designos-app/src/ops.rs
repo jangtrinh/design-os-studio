@@ -923,7 +923,11 @@ impl App {
     }
 
     fn paste_clip(&mut self, clip: clipboard::Clip) {
-        let parent = clipboard::paste_parent(&self.doc, &clip, self.container_for_insert());
+        let container = self.container_for_insert();
+        let parent = clipboard::paste_parent(&self.doc, &clip, container);
+        if let Some(notice) = self.paste_outside_notice(&clip, container, parent) {
+            self.show_toast(notice, false);
+        }
         let lists = clipboard::instantiate_linking_mains(&mut self.doc, &clip, |_, _| Some(parent));
         let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
         if !self.slot_insert_allowed(parent, &roots) {
@@ -957,6 +961,7 @@ impl App {
         // A layer that holds an instance of a main cannot go in that main: it goes beside it, as Ctrl+V does, over the
         // layer that holds the selection there.
         let parent = clipboard::paste_parent(&self.doc, &clip, container);
+        let outside = self.paste_outside_notice(&clip, container, parent);
         let over = if parent == container { self.selection.first().copied() } else { child_holding(&self.doc, parent, container) };
         let (target_local, base_idx) = if let Some(sel_id) = over {
             if sel_id == parent {
@@ -997,7 +1002,7 @@ impl App {
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         self.run_tx(tx);
         self.selection = new_sel;
-        self.show_toast("Pasted over selection", false);
+        self.show_toast(outside.unwrap_or_else(|| "Pasted over selection".into()), false);
     }
 
     /// `Cmd+Shift+R` (`PasteToReplace`): replaces each selected node in-place with the
@@ -1011,6 +1016,7 @@ impl App {
         let mut tx = Tx::new();
         let mut new_sel = Vec::new();
         let mut affected_parents = Vec::new();
+        let mut outside = None;
         for target_id in tops {
             let Some((old_parent, index, tx0, ty0)) = self.doc.get(target_id).and_then(|n| {
                 let p = n.parent?;
@@ -1022,6 +1028,9 @@ impl App {
             // A replacement that holds an instance of the main the target sits in cannot go there: it goes beside that
             // main, as Ctrl+V does, and takes its place.
             let parent = clipboard::paste_parent(&self.doc, &clip, old_parent);
+            if outside.is_none() {
+                outside = self.paste_outside_notice(&clip, old_parent, parent);
+            }
             let (index, tx0, ty0) = if parent == old_parent {
                 (index, tx0, ty0)
             } else {
@@ -1066,7 +1075,7 @@ impl App {
         self.run_tx(tx);
         if !new_sel.is_empty() {
             self.selection = new_sel;
-            self.show_toast("Pasted to replace", false);
+            self.show_toast(outside.unwrap_or_else(|| "Pasted to replace".into()), false);
         }
     }
 
@@ -1181,6 +1190,7 @@ impl App {
 
         let container = self.container_for_insert();
         let parent = clipboard::paste_parent(&self.doc, &clip, container);
+        let outside = self.paste_outside_notice(&clip, container, parent);
         let over = if parent == container { self.selection.first().copied() } else { child_holding(&self.doc, parent, container) };
         let (target_local, base_idx) = if let Some(sel_id) = over {
             if sel_id == parent {
@@ -1238,7 +1248,7 @@ impl App {
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         self.run_tx(tx);
         self.selection = new_sel;
-        self.show_toast("Pasted and matched style", false);
+        self.show_toast(outside.unwrap_or_else(|| "Pasted and matched style".into()), false);
     }
 
     /// `Shift+X` (`SwapFillAndStroke`): swaps fill and stroke paint arrays, `fills/*` <-> `strokes/*`
@@ -2034,6 +2044,8 @@ impl App {
             }
         }
         let same_parent = one_source_parent && common_parent == Some(new_parent);
+        let refusal = crate::comp_cycle_refusal::move_refusal(&self.doc, &ids, new_parent);
+        self.explain_refusal(refusal);
         if same_parent {
             let move_ids: Vec<NodeId> = ids
                 .iter()

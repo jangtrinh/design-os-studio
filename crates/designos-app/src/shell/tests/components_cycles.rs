@@ -71,6 +71,18 @@ fn cyclic(s: &mut Sim) -> (NodeId, NodeId) {
     (a, b)
 }
 
+/// The one toast a refused edit raises: an error that says what was refused, which main would contain itself, and the loop.
+pub(super) fn assert_cycle_toast(s: &Sim, action: &str, main: &str) {
+    let toast = s.app().toast.as_ref().expect("the refusal raises a toast");
+    assert!(toast.error, "an error toast: {}", toast.text);
+    assert!(toast.text.starts_with(&format!("Can't {action}: ")), "names the refused action: {}", toast.text);
+    assert!(toast.text.contains(&format!("{main} would contain itself")), "names the main: {}", toast.text);
+    assert!(toast.text.contains(&format!("({main} \u{2192} ")) && toast.text.ends_with(&format!("\u{2192} {main})")), "names the loop: {}", toast.text);
+    assert!(!toast.text.contains("INSTANCE_CYCLE"), "a code is not copy: {}", toast.text);
+    let lead = toast.text.split(" (").next().unwrap_or_default();
+    assert!(lead.split_whitespace().count() <= 8, "microcopy stays short before the loop: {}", toast.text);
+}
+
 // ---------- the Properties panel cannot make a main hold itself
 
 #[test]
@@ -94,6 +106,7 @@ fn a_variant_switch_that_would_make_a_main_hold_itself_changes_nothing() {
     let n = s.app().doc.get(i).unwrap();
     assert_eq!(instance_component(n), Some(one), "the instance stays on State=One");
     assert_eq!(n.component.values, values, "and the value it shows stays as it was");
+    assert_cycle_toast(&s, "switch variant", "B");
     assert!(self_holding(&s).is_empty());
     s.shell.app.edit_nodes(&[layer_of(&s, b)], |n| n.opacity = 0.5);
     s.frame(vec![]);
@@ -118,6 +131,7 @@ fn an_instance_swap_property_that_would_make_a_main_hold_itself_changes_nothing(
 
     assert_eq!(instance_component(s.app().doc.get(nested).unwrap()), Some(z), "the icon stays Z");
     assert_eq!(s.app().doc.get(k).unwrap().component.values, values, "and the property keeps its value");
+    assert_cycle_toast(&s, "swap", "B");
     assert!(self_holding(&s).is_empty());
     s.shell.app.edit_nodes(&[layer_of(&s, b)], |n| n.opacity = 0.5);
     s.frame(vec![]);
