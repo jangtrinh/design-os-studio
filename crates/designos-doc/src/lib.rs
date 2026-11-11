@@ -43,6 +43,9 @@ mod geom;
 mod history;
 mod layout_apply;
 pub mod layout_constraints;
+mod layout_rotated;
+#[cfg(test)]
+mod layout_rotated_tests;
 pub mod layout_solver;
 mod layout_solver_grid;
 mod layout_solver_grid_placement;

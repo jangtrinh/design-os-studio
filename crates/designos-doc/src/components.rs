@@ -2454,7 +2454,11 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
             let doc = &*c.s;
             crate::layout_solver::compute_then_refit_wrapped(&al, frame_size, own_limits, &stroke, &flow_ids, &mut kids, |id, w| {
                 let measure = measure.as_deref()?;
-                crate::text_measure::height_resize_text_height(doc.get(id)?, w, measure)
+                let child = doc.get(id)?;
+                if !crate::layout_rotated::keeps_axes(&child.transform) {
+                    return None;
+                }
+                crate::text_measure::height_resize_text_height(child, w, measure)
             })
         };
         if ((out.frame.x - frame_size.x).abs() > 1e-3 || (out.frame.y - frame_size.y).abs() > 1e-3)
@@ -2469,10 +2473,8 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
             let Some(mut cnode) = c.s.get(*cid).cloned() else { continue };
             let old_child = cnode.size;
             let is_container = cnode.kind.is_container();
-            let mut new_tf = cnode.transform;
-            new_tf.tx = r.x;
-            new_tf.ty = r.y;
-            let new_sz = Vec2::new(r.w, r.h);
+            let new_sz = crate::layout_rotated::local_size_for_extent(&cnode.transform, Vec2::new(r.w, r.h), cnode.size);
+            let new_tf = crate::layout_rotated::placed_at_slot(cnode.transform, new_sz, Vec2::new(r.x, r.y));
             let tf = if cnode.component.overrides.contains(&OverrideField::Transform) { cnode.transform } else { new_tf };
             let sz = if cnode.component.overrides.contains(&OverrideField::Size) { cnode.size } else { new_sz };
             let size_changed = (sz.x - old_child.x).abs() > 1e-3 || (sz.y - old_child.y).abs() > 1e-3;
@@ -2493,14 +2495,18 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
                 cnode.transform = tf;
                 cnode.size = sz;
             }
-            cnode.layout_child.record_stretched(kid.size, sz, horiz, kid.stretches_cross());
+            cnode.layout_child.record_stretched(kid.size, crate::layout_rotated::extent(&cnode.transform, sz), horiz, kid.stretches_cross());
             c.update(cnode);
             if size_changed && is_container {
                 apply_instance_constraints(c, *cid, old_child, sz, depth - 1);
             }
         }
-        let drifted =
-            flow_ids.iter().zip(out.rects.iter()).any(|(cid, r)| c.s.get(*cid).is_some_and(|n| (n.size.x - r.w).abs() > 1e-3 || (n.size.y - r.h).abs() > 1e-3));
+        let drifted = flow_ids.iter().zip(out.rects.iter()).any(|(cid, r)| {
+            c.s.get(*cid).is_some_and(|n| {
+                let have = crate::layout_rotated::extent(&n.transform, n.size);
+                (have.x - r.w).abs() > 1e-3 || (have.y - r.h).abs() > 1e-3
+            })
+        });
         if second_pass || !drifted {
             break;
         }
