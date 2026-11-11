@@ -412,7 +412,7 @@ impl VariableStore {
 
     /// The (variable, mode) pairs whose stored value is an alias that resolves to nothing: a cycle, or a target without
     /// a value. A variable that has no value at all in a mode is not an alias problem and is not listed.
-    fn unresolved_pairs(&self) -> BTreeSet<(String, String)> {
+    pub(crate) fn unresolved_pairs(&self) -> BTreeSet<(String, String)> {
         #[cfg(test)]
         ALIAS_CHECKS.with(|c| c.set(c.get() + 1));
         let mut out = BTreeSet::new();
