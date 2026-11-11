@@ -46,6 +46,7 @@ CANONICAL_LINT_RULE_IDS: Set[str] = {
     "default-layer-name",
     "detached-instance",
     "detached-text-style",
+    "easing-variable",
     "empty-container",
     "hardcoded-color",
     "hardcoded-value",

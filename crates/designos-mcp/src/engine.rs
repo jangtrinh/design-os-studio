@@ -4344,6 +4344,30 @@ mod tests {
             },
         );
 
+        // easing-variable: an easing binding whose variable names an unknown preset
+        e.doc.variables.insert(
+            "v_bad_ease".into(),
+            Variable {
+                id: "v_bad_ease".into(),
+                name: "Motion/Easing".into(),
+                collection: "c1".into(),
+                kind: VariableKind::String,
+                values: [("default".to_string(), VariableValue::String("no-such-curve".into()))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let ease_node = e.doc.alloc_id();
+        let mut ease_f = Node::frame(ease_node, Rect::new(300.0, 0.0, 40.0, 40.0));
+        ease_f.name = "EasingBound".into();
+        ease_f.variables.bindings.insert("easingData".into(), "v_bad_ease".into());
+        e.doc.insert(page, ease_f).unwrap();
+
         // 1. overflow-parent: non-clipping frame with overflowing child
         let ov_parent = e.doc.alloc_id();
         let mut ov_f = Node::frame(ov_parent, Rect::new(0.0, 0.0, 100.0, 100.0));
