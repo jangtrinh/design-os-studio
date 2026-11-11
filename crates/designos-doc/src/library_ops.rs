@@ -172,7 +172,8 @@ fn fp_tree(nodes: &BTreeMap<NodeId, Node>, id: NodeId, refs: &BTreeMap<NodeId, S
     for v in c.variables.bindings.values_mut() {
         *v = strip(v, prefix).to_string();
     }
-    c.variables.modes = std::mem::take(&mut c.variables.modes).into_iter().map(|(k, v)| (strip(&k, prefix).to_string(), v)).collect();
+    c.variables.modes =
+        std::mem::take(&mut c.variables.modes).into_iter().map(|(k, v)| (strip(&k, prefix).to_string(), strip(&v, prefix).to_string())).collect();
     h.write(&serde_json::to_string(&c).unwrap_or_default());
     h.write(&target);
     h.write(&kids.len().to_string());
@@ -209,9 +210,33 @@ fn variable_fingerprint(v: &Variable, prefix: &str) -> u64 {
     h.0
 }
 
-fn collection_fingerprint(c: &VariableCollection) -> u64 {
+fn collection_fingerprint(c: &VariableCollection, prefix: &str) -> u64 {
+    let modes: Vec<(&str, &str)> = c.modes.iter().map(|m| (strip(&m.id, prefix), m.name.as_str())).collect();
+    let default_mode = strip(&c.default_mode, prefix);
+    let ext = c.is_extension().then(|| {
+        let mut e = c.extension().unwrap_or_default();
+        e.parent.collection = strip(&e.parent.collection, prefix).to_string();
+        e.mode_map = e.mode_map.into_iter().map(|(k, v)| (strip(&k, prefix).to_string(), strip(&v, prefix).to_string())).collect();
+        e.overrides = e
+            .overrides
+            .into_iter()
+            .map(|(var, by_mode)| {
+                let by_mode = by_mode
+                    .into_iter()
+                    .map(|(m, mut val)| {
+                        if let VariableValue::Alias(a) = &mut val {
+                            *a = strip(a, prefix).to_string();
+                        }
+                        (strip(&m, prefix).to_string(), val)
+                    })
+                    .collect();
+                (strip(&var, prefix).to_string(), by_mode)
+            })
+            .collect();
+        e
+    });
     let mut h = Fnv::new();
-    h.write(&serde_json::to_string(&(&c.name, &c.modes, &c.default_mode)).unwrap_or_default());
+    h.write(&serde_json::to_string(&(&c.name, &modes, default_mode, &ext)).unwrap_or_default());
     h.0
 }
 
@@ -295,9 +320,7 @@ pub fn publishable_assets(doc: &Document) -> Vec<(String, LibraryAssetKind, Stri
     }
     // A soft-deleted collection or variable is not published as an asset (a variable's `is_publishable` says so);
     // `snapshot` still carries one that a published component binds to, so the component renders as it does here.
-    // An extended collection is not published: the import side does not yet carry its parent link, mode ids and
-    // override keys across documents.
-    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted() && !c.is_extension()) {
+    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted()) {
         out.push((format!("col:{id}"), LibraryAssetKind::VariableCollection, c.name.clone()));
     }
     for (id, v) in doc.variables.iter().filter(|(id, v)| !imported.contains(id.as_str()) && v.is_publishable() && !in_extension(doc, v)) {
@@ -352,11 +375,35 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
     // Styles and variables: all published ones plus whatever the nodes use.
     let mut style_keys: BTreeSet<String> = assets.iter().filter_map(|(k, _, _)| k.strip_prefix("style:").map(String::from)).collect();
     let mut var_ids: BTreeSet<String> = assets.iter().filter_map(|(k, _, _)| k.strip_prefix("var:").map(String::from)).collect();
+    let mut coll_ids: BTreeSet<String> = assets.iter().filter_map(|(k, _, _)| k.strip_prefix("col:").map(String::from)).collect();
     let mut images = BTreeSet::new();
     for n in snap.nodes.values() {
         style_keys.extend(n.style_refs.values().cloned());
         var_ids.extend(n.variables.bindings.values().cloned());
+        coll_ids.extend(n.variables.modes.keys().cloned());
         image_refs_of(n, &mut images);
+    }
+    let mut coll_queue: Vec<String> = coll_ids.iter().cloned().collect();
+    while let Some(cid) = coll_queue.pop() {
+        let Some(c) = doc.variable_collections.get(&cid) else { continue };
+        if let Some(pid) = c.extension_parent_id_in(&doc.variable_collections) {
+            if coll_ids.insert(pid.to_string()) {
+                coll_queue.push(pid.to_string());
+            }
+        }
+        if c.is_extension() {
+            var_ids.extend(doc.inherited_variable_ids(&cid));
+        }
+        if let Some(ext) = c.extension() {
+            for (vid, by_mode) in ext.overrides {
+                var_ids.insert(vid);
+                for val in by_mode.into_values() {
+                    if let VariableValue::Alias(a) = val {
+                        var_ids.insert(a);
+                    }
+                }
+            }
+        }
     }
     for k in &style_keys {
         if let Some(m) = doc.style_meta.get(k) {
@@ -383,7 +430,7 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
         }
     }
     for id in &var_ids {
-        // an extended collection, and any variable that names one, never travels: no caller can leak one through here
+        // any variable that names an extended collection never travels: no caller can leak one through here
         if let Some(v) = doc.variables.get(id).filter(|v| !in_extension(doc, v)) {
             snap.variables.insert(id.clone(), v.clone());
             if let Some(c) = doc.variable_collections.get(&v.collection) {
@@ -391,9 +438,9 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
             }
         }
     }
-    // Published collections are listed even when empty.
-    for (k, _, _) in &assets {
-        if let Some(c) = k.strip_prefix("col:").and_then(|id| doc.variable_collections.get(id)) {
+    // Published collections (and the parents they extend) are listed even when empty.
+    for cid in &coll_ids {
+        if let Some(c) = doc.variable_collections.get(cid) {
             snap.variable_collections.insert(c.id.clone(), c.clone());
         }
     }
@@ -466,7 +513,7 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
             }
             LibraryAssetKind::Variable => (None, snap.variables.get(&key["var:".len()..]).map(|v| variable_fingerprint(v, "")).unwrap_or(0), Vec::new()),
             LibraryAssetKind::VariableCollection => {
-                (None, snap.variable_collections.get(&key["col:".len()..]).map(collection_fingerprint).unwrap_or(0), Vec::new())
+                (None, snap.variable_collections.get(&key["col:".len()..]).map(|c| collection_fingerprint(c, "")).unwrap_or(0), Vec::new())
             }
         };
         snap.assets.push(SnapshotAsset { key, kind, name: aname, node, fingerprint, deps });
@@ -605,7 +652,7 @@ fn local_fingerprint(doc: &Document, lib: &str, raw_key: &str, e: &ExternalAsset
             style_fingerprint(doc.styles.get(k)?, doc.style_meta.get(k), &prefix)
         }
         LibraryAssetKind::Variable => variable_fingerprint(doc.variables.get(e.local_key.as_deref()?)?, &prefix),
-        LibraryAssetKind::VariableCollection => collection_fingerprint(doc.variable_collections.get(e.local_key.as_deref()?)?),
+        LibraryAssetKind::VariableCollection => collection_fingerprint(doc.variable_collections.get(e.local_key.as_deref()?)?, &prefix),
     })
     .filter(|_| !raw_key.is_empty())
 }
@@ -819,7 +866,17 @@ impl<'a> Trial<'a> {
             LibraryAssetKind::VariableCollection => {
                 let raw = &key["col:".len()..];
                 self.import_collection(raw);
-                let members: Vec<String> = self.snap.variable_collections.get(raw).map(|c| c.variables.clone()).unwrap_or_default();
+                let mut cur = Some(raw.to_string());
+                let mut visited = BTreeSet::new();
+                let mut members = Vec::new();
+                while let Some(cid) = cur.filter(|cid| visited.insert(cid.clone())) {
+                    if let Some(c) = self.snap.variable_collections.get(&cid) {
+                        members.extend(c.variables.iter().cloned());
+                        cur = c.extension_parent_id_in(&self.snap.variable_collections).map(String::from);
+                    } else {
+                        cur = None;
+                    }
+                }
                 for v in members.iter().filter(|v| self.snap.variables.contains_key(*v)) {
                     self.import_variable(v);
                 }
@@ -846,15 +903,76 @@ impl<'a> Trial<'a> {
             return;
         }
         let Some(c) = self.snap.variable_collections.get(raw).cloned() else { return };
+        let parent = c.extension_parent_id_in(&self.snap.variable_collections).map(String::from);
         let local = self.ns(raw);
         // the copy is a subscribed one: read-only here, edited in its library file
-        let copy = VariableCollection { id: local.clone(), variables: Vec::new(), key: None, source_library_key: Some(self.snap.library_id.clone()), ..c };
+        let copy = self.rewrite_collection(&c);
         self.edit_vars(|_, colls| {
             colls.insert(local.clone(), copy);
         });
         let version = self.snap.version;
         let library_id = self.snap.library_id.clone();
         self.register(&key, ExternalAsset { library_id, version, kind: LibraryAssetKind::VariableCollection, node: None, local_key: Some(local) });
+        if let Some(p) = parent {
+            self.import_collection(&p);
+            let local_parent = self.ns(&p);
+            self.edit_vars(|_, colls| {
+                if let Some(pc) = colls.get_mut(&local_parent).filter(|pc| !pc.is_extendable()) {
+                    pc.set_extendable(true);
+                }
+            });
+        }
+        if let Some(ext) = c.extension() {
+            for (vid, by_mode) in ext.overrides {
+                self.import_variable(&vid);
+                for val in by_mode.into_values() {
+                    if let VariableValue::Alias(a) = val {
+                        self.import_variable(&a);
+                    }
+                }
+            }
+        }
+    }
+
+    fn rewrite_collection(&self, c: &VariableCollection) -> VariableCollection {
+        let mut copy =
+            VariableCollection { id: self.ns(&c.id), variables: Vec::new(), key: None, source_library_key: Some(self.snap.library_id.clone()), ..c.clone() };
+        if c.is_extension() {
+            for m in &mut copy.modes {
+                m.id = self.ns(&m.id);
+            }
+            if !copy.default_mode.is_empty() {
+                copy.default_mode = self.ns(&copy.default_mode);
+            }
+            if let Some(mut ext) = copy.extension() {
+                let parent_in_snap = c.extension_parent_id_in(&self.snap.variable_collections);
+                let parent_is_ext = parent_in_snap.and_then(|p| self.snap.variable_collections.get(p)).is_some_and(VariableCollection::is_extension);
+                if let Some(p) = parent_in_snap {
+                    ext.parent.collection = self.ns(p);
+                } else if !ext.parent.collection.is_empty() {
+                    ext.parent.collection = self.ns(&ext.parent.collection);
+                }
+                ext.mode_map = ext.mode_map.into_iter().map(|(m, pm)| (self.ns(&m), if parent_is_ext { self.ns(&pm) } else { pm })).collect();
+                ext.overrides = ext
+                    .overrides
+                    .into_iter()
+                    .map(|(vid, by_mode)| {
+                        let by_mode = by_mode
+                            .into_iter()
+                            .map(|(m, mut val)| {
+                                if let VariableValue::Alias(a) = &mut val {
+                                    *a = self.ns(a);
+                                }
+                                (self.ns(&m), val)
+                            })
+                            .collect();
+                        (self.ns(&vid), by_mode)
+                    })
+                    .collect();
+                copy.set_extension(&ext);
+            }
+        }
+        copy
     }
 
     fn import_variable(&mut self, raw: &str) {
@@ -955,7 +1073,13 @@ impl<'a> Trial<'a> {
         for v in n.variables.bindings.values_mut() {
             *v = self.ns(v);
         }
-        n.variables.modes = std::mem::take(&mut n.variables.modes).into_iter().map(|(k, v)| (self.ns(&k), v)).collect();
+        n.variables.modes = std::mem::take(&mut n.variables.modes)
+            .into_iter()
+            .map(|(k, v)| {
+                let v = if self.snap.variable_collections.get(&k).is_some_and(VariableCollection::is_extension) { self.ns(&v) } else { v };
+                (self.ns(&k), v)
+            })
+            .collect();
         n
     }
 
@@ -1074,12 +1198,27 @@ impl<'a> Trial<'a> {
 
     fn update_collection(&mut self, raw: &str) {
         let Some(c) = self.snap.variable_collections.get(raw).cloned() else { return };
+        if let Some(p) = c.extension_parent_id_in(&self.snap.variable_collections).map(String::from) {
+            self.import_collection(&p);
+        }
+        if let Some(ext) = c.extension() {
+            for (vid, by_mode) in ext.overrides {
+                self.import_variable(&vid);
+                for val in by_mode.into_values() {
+                    if let VariableValue::Alias(a) = val {
+                        self.import_variable(&a);
+                    }
+                }
+            }
+        }
         let local = self.ns(raw);
+        let rewritten = self.rewrite_collection(&c);
         self.edit_vars(|_, colls| {
             if let Some(cur) = colls.get_mut(&local) {
-                cur.name = c.name.clone();
-                cur.modes = c.modes.clone();
-                cur.default_mode = c.default_mode.clone();
+                cur.name = rewritten.name;
+                cur.modes = rewritten.modes;
+                cur.default_mode = rewritten.default_mode;
+                cur.extensions = rewritten.extensions;
             }
         });
     }

@@ -397,6 +397,40 @@ impl<'a> ExportCtx<'a> {
                     }
                 }
             }
+            if let Some(ext) = c.extension() {
+                for pm in ext.mode_map.values() {
+                    if !cx.mode_guids.contains_key(pm) {
+                        if let Some(g) = parse_guid_pair(pm) {
+                            if cx.used_guids.insert(g) {
+                                bump_next_local(&mut cx.next_local, g.1);
+                                cx.mode_guids.insert(pm.clone(), g);
+                            }
+                        }
+                    }
+                }
+                for (vid, by_mode) in &ext.overrides {
+                    if !cx.var_guids.contains_key(vid) {
+                        if let Some(g) = parse_guid_pair(vid) {
+                            if cx.used_guids.insert(g) {
+                                bump_next_local(&mut cx.next_local, g.1);
+                                cx.var_guids.insert(vid.clone(), g);
+                            }
+                        }
+                    }
+                    for val in by_mode.values() {
+                        if let VariableValue::Alias(target) = val {
+                            if !cx.var_guids.contains_key(target) {
+                                if let Some(g) = parse_guid_pair(target) {
+                                    if cx.used_guids.insert(g) {
+                                        bump_next_local(&mut cx.next_local, g.1);
+                                        cx.var_guids.insert(target.clone(), g);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         for id in doc.variables.keys() {
             if let Some(g) = parse_guid_pair(id) {
@@ -524,6 +558,28 @@ impl<'a> ExportCtx<'a> {
                 if !cx.mode_guids.contains_key(&m.id) {
                     let g = cx.alloc_guid(3);
                     cx.mode_guids.insert(m.id.clone(), g);
+                }
+            }
+            if let Some(ext) = c.extension() {
+                for pm in ext.mode_map.values() {
+                    if !cx.mode_guids.contains_key(pm) {
+                        let g = cx.alloc_guid(3);
+                        cx.mode_guids.insert(pm.clone(), g);
+                    }
+                }
+                for (vid, by_mode) in &ext.overrides {
+                    if !cx.var_guids.contains_key(vid) {
+                        let g = cx.alloc_guid(3);
+                        cx.var_guids.insert(vid.clone(), g);
+                    }
+                    for val in by_mode.values() {
+                        if let VariableValue::Alias(target) = val {
+                            if !cx.var_guids.contains_key(target) {
+                                let g = cx.alloc_guid(3);
+                                cx.var_guids.insert(target.clone(), g);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -679,7 +735,10 @@ impl<'a> ExportCtx<'a> {
     /// `VariableSetID` of an extended collection's parent: the parent's node when this file holds it, else the
     /// library key it was imported with.
     fn extension_parent_ref(&self, parent: &ParentCollection) -> Option<V> {
-        match self.resolve_coll_guid(&parent.collection).filter(|_| !parent.collection.is_empty()) {
+        let local_guid = (!parent.collection.is_empty() && (self.doc.variable_collections.contains_key(&parent.collection) || parent.set_key.is_none()))
+            .then(|| self.resolve_coll_guid(&parent.collection))
+            .flatten();
+        match local_guid {
             Some(g) => Some(msg(vec![("guid", guid(g.0, g.1))])),
             None => parent.set_key.as_ref().map(|key| msg(vec![("assetRef", msg(vec![("key", V::String(key.clone()))]))])),
         }
@@ -984,40 +1043,46 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         *idx += 1;
     }
 
-    for (vi, v) in cx.doc.variables.values().enumerate() {
+    let encode = |cx: &ExportCtx, val: &VariableValue| match val {
+        VariableValue::Color(c) => Some(msg(vec![("dataType", en("COLOR")), ("value", msg(vec![("colorValue", color(c.r, c.g, c.b, c.a))]))])),
+        VariableValue::Number(f) => Some(msg(vec![("dataType", en("FLOAT")), ("value", msg(vec![("floatValue", fl(*f))]))])),
+        VariableValue::String(s) => Some(msg(vec![("dataType", en("STRING")), ("value", msg(vec![("textValue", V::String(s.clone()))]))])),
+        VariableValue::Boolean(b) => Some(msg(vec![("dataType", en("BOOLEAN")), ("value", msg(vec![("boolValue", V::Bool(*b))]))])),
+        VariableValue::Alias(target) => {
+            let tguid = cx.resolve_var_guid(target)?;
+            Some(msg(vec![("dataType", en("ALIAS")), ("value", msg(vec![("alias", msg(vec![("guid", guid(tguid.0, tguid.1))]))]))]))
+        }
+    };
+    let mut emitted_vars = HashSet::new();
+    let mut sort_idx = 0usize;
+    for v in cx.doc.variables.values() {
+        if !cx.doc.variable_collections.contains_key(&v.collection)
+            && cx.doc.variable_collections.values().any(|c| c.extension().is_some_and(|e| e.overrides.contains_key(&v.id) && e.parent.set_key.is_some()))
+        {
+            continue;
+        }
         let vguid = cx.var_guids[&v.id];
         let Some(cguid) = cx.resolve_coll_guid(&v.collection) else { continue };
+        emitted_vars.insert(v.id.clone());
         let rtype = match v.kind {
             VariableKind::Color => "COLOR",
             VariableKind::Number => "FLOAT",
             VariableKind::String => "STRING",
             VariableKind::Boolean => "BOOLEAN",
         };
-        let encode = |val: &VariableValue| match val {
-            VariableValue::Color(c) => Some(msg(vec![("dataType", en("COLOR")), ("value", msg(vec![("colorValue", color(c.r, c.g, c.b, c.a))]))])),
-            VariableValue::Number(f) => Some(msg(vec![("dataType", en("FLOAT")), ("value", msg(vec![("floatValue", fl(*f))]))])),
-            VariableValue::String(s) => Some(msg(vec![("dataType", en("STRING")), ("value", msg(vec![("textValue", V::String(s.clone()))]))])),
-            VariableValue::Boolean(b) => Some(msg(vec![("dataType", en("BOOLEAN")), ("value", msg(vec![("boolValue", V::Bool(*b))]))])),
-            VariableValue::Alias(target) => {
-                let tguid = cx.resolve_var_guid(target)?;
-                Some(msg(vec![("dataType", en("ALIAS")), ("value", msg(vec![("alias", msg(vec![("guid", guid(tguid.0, tguid.1))]))]))]))
-            }
-        };
         let mut val_entries = Vec::new();
         for (mode_id, val) in &v.values {
             let Some(&mguid) = cx.mode_guids.get(mode_id) else { continue };
-            let Some(vdata) = encode(val) else { continue };
+            let Some(vdata) = encode(cx, val) else { continue };
             val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
         }
         // UNVERIFIED layout (no real extended-collection `.fig` was available; the alternative is `VARIABLE_OVERRIDE`
         // nodes, which the importer counts and does not read): the overrides of an extended collection are written as
-        // extra entries on the overridden variable, keyed by the extension's own mode ids. Overrides of a variable
-        // this file does not hold are not written (see `ParentCollection::set_key`).
-        // Overrides of an extended collection sit on the overridden variable, keyed by the extension's own mode ids.
+        // extra entries on the overridden variable, keyed by the extension's own mode ids.
         for ext in cx.doc.variable_collections.values().filter(|c| c.is_extension()) {
             for (mode_id, val) in ext.extension().iter().filter_map(|e| e.overrides.get(&v.id).cloned()).flatten() {
                 let Some(&mguid) = cx.mode_guids.get(&mode_id) else { continue };
-                let Some(vdata) = encode(&val) else { continue };
+                let Some(vdata) = encode(cx, &val) else { continue };
                 val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
             }
         }
@@ -1041,11 +1106,12 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
             ("type", en("VARIABLE")),
             ("name", V::String(v.name.clone())),
             ("description", V::String(v.description.clone())),
-            ("sortPosition", V::String(pos_str(vi))),
+            ("sortPosition", V::String(pos_str(sort_idx))),
             ("variableSetID", msg(vec![("guid", guid(cguid.0, cguid.1))])),
             ("variableResolvedType", en(rtype)),
             ("variableDataValues", msg(vec![("entries", V::Array(val_entries))])),
         ];
+        sort_idx += 1;
         if !scopes.is_empty() {
             fields.push(("variableScopes", V::Array(scopes)));
         }
@@ -1071,6 +1137,68 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         }
         cx.changes.push(msg(fields));
         *idx += 1;
+    }
+
+    // Overrides of variables whose parent collection is known only by library key (`set_key`).
+    let ext_colls: Vec<CollectionExtension> = cx.doc.variable_collections.values().filter_map(VariableCollection::extension).collect();
+    for ext in &ext_colls {
+        let Some(parent_ref) = cx.extension_parent_ref(&ext.parent) else { continue };
+        for var_id in ext.overrides.keys() {
+            if !emitted_vars.insert(var_id.clone()) {
+                continue;
+            }
+            let Some(&vguid) = cx.var_guids.get(var_id) else { continue };
+            let mut val_entries = Vec::new();
+            let mut first_val = None;
+            for other in &ext_colls {
+                for (mode_id, val) in other.overrides.get(var_id).into_iter().flatten() {
+                    let Some(&mguid) = cx.mode_guids.get(mode_id) else { continue };
+                    let Some(vdata) = encode(cx, val) else { continue };
+                    if first_val.is_none() {
+                        first_val = Some(val.clone());
+                    }
+                    val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
+                }
+            }
+            if val_entries.is_empty() {
+                continue;
+            }
+            let rtype = match cx.doc.variables.get(var_id).map(|v| v.kind) {
+                Some(VariableKind::Color) => "COLOR",
+                Some(VariableKind::Number) => "FLOAT",
+                Some(VariableKind::String) => "STRING",
+                Some(VariableKind::Boolean) => "BOOLEAN",
+                None => match &first_val {
+                    Some(VariableValue::Color(_)) => "COLOR",
+                    Some(VariableValue::Number(_)) => "FLOAT",
+                    Some(VariableValue::String(_)) => "STRING",
+                    Some(VariableValue::Boolean(_)) => "BOOLEAN",
+                    Some(VariableValue::Alias(target)) => match cx.doc.variables.get(target).map(|v| v.kind) {
+                        Some(VariableKind::Number) => "FLOAT",
+                        Some(VariableKind::String) => "STRING",
+                        Some(VariableKind::Boolean) => "BOOLEAN",
+                        _ => "COLOR",
+                    },
+                    None => continue,
+                },
+            };
+            let name = cx.doc.variables.get(var_id).map(|v| v.name.clone()).unwrap_or_else(|| var_id.clone());
+            let fields = vec![
+                ("guid", guid(vguid.0, vguid.1)),
+                ("phase", en("CREATED")),
+                ("parentIndex", st(vec![("guid", guid(internal_guid.0, internal_guid.1)), ("position", V::String(pos_str(*idx)))])),
+                ("type", en("VARIABLE")),
+                ("name", V::String(name)),
+                ("description", V::String(String::new())),
+                ("sortPosition", V::String(pos_str(sort_idx))),
+                ("variableSetID", parent_ref.clone()),
+                ("variableResolvedType", en(rtype)),
+                ("variableDataValues", msg(vec![("entries", V::Array(val_entries))])),
+            ];
+            sort_idx += 1;
+            cx.changes.push(msg(fields));
+            *idx += 1;
+        }
     }
 }
 
@@ -2475,9 +2603,9 @@ fn encode_node_mode_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
 
 /// Id of the collection at the root of the chain `coll` extends.
 fn extension_root(doc: &Document, coll: &str) -> Option<String> {
-    let mut cur = doc.variable_collections.get(coll)?.extension_parent_id()?;
+    let mut cur = doc.variable_collections.get(coll)?.extension_parent_id_in(&doc.variable_collections)?;
     for _ in 0..8 {
-        match doc.variable_collections.get(cur)?.extension_parent_id() {
+        match doc.variable_collections.get(cur)?.extension_parent_id_in(&doc.variable_collections) {
             Some(next) => cur = next,
             None => return Some(cur.to_string()),
         }
