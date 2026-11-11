@@ -199,14 +199,21 @@ fn two_open_documents_sharing_one_image_keep_one_pixmap_after_one_closes() {
 }
 
 #[test]
-fn an_image_larger_than_the_byte_budget_is_never_counted_in_converted_image_bytes() {
+fn an_image_over_the_byte_budget_is_the_only_cached_entry_and_converts_once_across_samples() {
     // 4100 x 4100 RGBA8 is 67,240,000 bytes > MAX_CONVERTED_IMAGE_BYTES (67,108,864 bytes).
     let (big, page) = single_image_doc("oversized", 4100, 61);
-    let bytes_before = converted_image_bytes();
+    let (small, small_page) = single_image_doc("small-after-oversized", 64, 62);
+    retain_converted_images(std::iter::empty());
     let conv_before = image_conversions();
     render_one_px(&big, page);
-    assert_eq!(image_conversions() - conv_before, 1);
-    assert_eq!(converted_image_bytes(), bytes_before, "an image larger than the 64 MiB budget must never be stored in converted_image_bytes()");
+    render_one_px(&big, page);
+    render_one_px(&big, page);
+    assert_eq!(image_conversions() - conv_before, 1, "an eyedropper hovering an oversized image converts it once, not every frame");
+    assert_eq!(converted_image_bytes(), 4100 * 4100 * 4, "the oversized image is held alone");
+
+    render_one_px(&small, small_page);
+    assert!(converted_image_bytes() <= MAX_CONVERTED_IMAGE_BYTES, "the next image evicts the oversized one: {}", converted_image_bytes());
+    assert_eq!(converted_image_bytes(), 64 * 64 * 4);
 }
 
 /// Release timing of a 1x1 native sample over the 4000x3000 photo, as the eyedropper loupe takes it every frame:

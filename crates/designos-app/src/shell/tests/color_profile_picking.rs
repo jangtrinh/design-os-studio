@@ -225,6 +225,21 @@ fn the_page_swatch_updates_in_the_same_frame_as_the_profile_dropdown_undo_and_re
     assert!(!swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "no stale raw swatch in the Edit -> Redo frame");
     release_enter(&mut s);
 
+    // The rail File menu (right-click) runs after the right panel: its Undo and Redo redraw the frame.
+    for (target, raw) in [(ColorProfile::Srgb, true), (ColorProfile::DisplayP3, false)] {
+        s.shell.app.ui.menu = Some(crate::app::MenuKind::FileMenu);
+        s.shell.app.ui.menu_anchor = Some(egui::Rect::from_min_size(Pos2::new(8.0, 8.0), Vec2::splat(32.0)));
+        s.frame(vec![]);
+        for _ in 0..if raw { 10 } else { 1 } {
+            s.key(Key::ArrowDown);
+        }
+        press_enter(&mut s);
+        assert_eq!(s.app().doc.color_profile, target);
+        assert_eq!(swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), raw, "rail File menu Undo/Redo draws the new profile in the same frame");
+        assert_eq!(filled_near(&s, [132, 101, 211]), !raw);
+        release_enter(&mut s);
+    }
+
     // Command palette Undo and Redo also update the swatch in the same frame.
     s.cmd_key(Key::K);
     assert_eq!(s.app().ui.menu, Some(crate::app::MenuKind::Palette));
@@ -440,4 +455,93 @@ fn two_open_tabs_sharing_one_image_keep_one_pixmap_after_one_closes() {
 
     s.shell.app.replace_document(Document::new("empty"), None);
     assert_eq!(designos_render::converted_image_bytes(), base_bytes);
+}
+
+#[test]
+fn closing_a_version_tab_keeps_a_parked_tabs_converted_image() {
+    let tmp = std::env::temp_dir().join(format!("designos_1805_parked_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let mut s = Sim::new();
+    let (doc_a, page_a) = p3_doc_with_png([11, 222, 33], "parked-a-img");
+    designos_render::retain_converted_images(std::iter::empty());
+    s.shell.app.replace_document(doc_a, None);
+    let base_bytes = designos_render::converted_image_bytes();
+    let one = 8 * 8 * 4;
+    let _ = sample_page(&s.app().doc, page_a, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, one);
+
+    s.shell.app.open_new_design_tab();
+    s.shell.app.attach_library(tmp.clone());
+    s.shell.app.new_library_file(None);
+    let (ver_doc, ver_page) = p3_doc_with_png([190, 60, 70], "parked-ver-img");
+    s.shell.app.doc = ver_doc;
+    s.shell.app.page = ver_page;
+    assert!(s.shell.app.save_named_version("v1", ""));
+    let lf_id = s.app().lib_file.as_ref().unwrap().id.clone();
+    let v_n = s.app().lib.as_ref().unwrap().list_versions(&lf_id)[0].n;
+    let mut cur = Document::new("cur");
+    let cp = cur.add_page("p");
+    cur.color_profile = ColorProfile::DisplayP3;
+    s.shell.app.doc = cur;
+    s.shell.app.page = cp;
+    s.shell.app.save_library_file().unwrap();
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, one, "the parked tab is still cached before the version opens");
+
+    s.shell.app.view_version(v_n);
+    let active = s.app().tabs.active_idx;
+    s.shell.app.close_tab(active);
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, one, "the parked tab keeps its pixmap when the tab showing a version closes");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// A library tab with an edit the debounced autosave has not written yet, next to a parked tab.
+fn library_tab_with_unsaved_edit(s: &mut Sim, dir: &std::path::Path) -> (String, usize) {
+    let _ = std::fs::remove_dir_all(dir);
+    s.shell.app.replace_document(Document::new("other"), None);
+    s.shell.app.open_new_design_tab();
+    s.shell.app.attach_library(dir.to_path_buf());
+    s.shell.app.new_library_file(None);
+    s.shell.app.save_library_file().unwrap();
+    let lf_id = s.app().lib_file.as_ref().unwrap().id.clone();
+    let page = s.app().page;
+    let id = s.shell.app.doc.alloc_id();
+    let cmd = designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![DNode::rectangle(id, DRect::new(0.0, 0.0, 20.0, 20.0))] };
+    s.shell.app.hist.exec(&mut s.shell.app.doc, cmd).unwrap();
+    let on_disk = s.app().lib.as_ref().unwrap().load_file(&lf_id).unwrap().nodes.len();
+    (lf_id, on_disk)
+}
+
+#[test]
+fn closing_a_library_tab_writes_its_unsaved_edit_once() {
+    let tmp = std::env::temp_dir().join(format!("designos_1805_flush_{}", std::process::id()));
+    let mut s = Sim::new();
+    let (lf_id, before) = library_tab_with_unsaved_edit(&mut s, &tmp);
+    let lib = s.app().lib.clone().unwrap();
+    let project_id = s.app().lib_file.as_ref().unwrap().project_id.clone();
+    let path = lib.path("projects").join(&project_id).join("files").join(format!("{lf_id}.designos"));
+    let active = s.app().tabs.active_idx;
+    s.shell.app.close_tab(active);
+    let after = lib.load_file(&lf_id).unwrap().nodes.len();
+    assert_eq!(after, before + 1, "the edit the autosave had not written yet reaches the file when its tab closes");
+
+    // Nothing is left to write: a library tab whose document equals the file is not written again on close.
+    s.shell.app.open_library_file(&lf_id);
+    let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+    let active = s.app().tabs.active_idx;
+    s.shell.app.close_tab(active);
+    assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), mtime, "no second write for an unchanged tab");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn closing_a_library_tab_after_dont_save_writes_nothing() {
+    let tmp = std::env::temp_dir().join(format!("designos_1805_refused_{}", std::process::id()));
+    let mut s = Sim::new();
+    let (lf_id, before) = library_tab_with_unsaved_edit(&mut s, &tmp);
+    let lib = s.app().lib.clone().unwrap();
+    s.shell.app.autosave.edits_refused = true;
+    let active = s.app().tabs.active_idx;
+    s.shell.app.close_tab(active);
+    assert_eq!(lib.load_file(&lf_id).unwrap().nodes.len(), before, "edits the user refused to save are not written when the tab closes");
+    let _ = std::fs::remove_dir_all(&tmp);
 }

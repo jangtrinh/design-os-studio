@@ -2462,10 +2462,7 @@ impl Shell {
             self.app.in_progress_changed();
             ctx.request_repaint();
         }
-        let early_menu = self.app.ui.menu.filter(|m| matches!(m, MenuKind::Main | MenuKind::Palette));
-        if early_menu.is_some() {
-            menus::show(&mut self.app, &ctx);
-        }
+        let drawn_profile = self.app.doc.color_profile;
         if full_vars {
             // The local-variables full view replaces the left panel, canvas and right panel.
             rail::show(&mut self.app, ui, rail_rect);
@@ -2474,9 +2471,7 @@ impl Shell {
         } else if project_active {
             crate::tabs::show_active_project(&mut self.app, ui, full);
             // The rail's main menu.
-            if early_menu.is_none() || self.app.ui.menu.is_some_and(|m| Some(m) != early_menu) {
-                menus::show(&mut self.app, &ctx);
-            }
+            menus::show(&mut self.app, &ctx);
         } else {
             let specs_reader_open = false;
             if specs_reader_open {
@@ -2582,9 +2577,7 @@ impl Shell {
                 crate::history::banner::show(&mut self.app, ui, canvas_rect);
                 self.context_menu(ui, canvas_rect);
             }
-            if early_menu.is_none() || self.app.ui.menu.is_some_and(|m| Some(m) != early_menu) {
-                menus::show(&mut self.app, &ctx);
-            }
+            menus::show(&mut self.app, &ctx);
             panels::context::show(&mut self.app, &ctx);
             crate::image_jobs::show_popovers(&mut self.app, &ctx);
             panels::check_designs::show(&mut self.app, &ctx);
@@ -2619,6 +2612,12 @@ impl Shell {
         self.sync_title(&ctx);
         if self.app.ui.menu == Some(MenuKind::Main) && self.app.ui.menu_anchor.is_none() {
             self.app.ui.menu = None;
+        }
+        // A menu or palette that ran after the panels (File/Edit menu, command palette) may have undone or redone a
+        // profile change: the swatches above were painted with the old profile, so draw the frame again.
+        if self.app.doc.color_profile != drawn_profile {
+            crate::widgets::set_document_profile(self.app.doc.color_profile);
+            ctx.request_discard("document colour profile changed after the panels were drawn");
         }
     }
 }

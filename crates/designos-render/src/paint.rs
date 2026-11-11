@@ -191,18 +191,13 @@ impl ConvertedCache {
             self.bytes = self.bytes.saturating_sub(old.data().len());
             self.order.retain(|k| *k != key);
         }
-        if new_bytes > MAX_CONVERTED_IMAGE_BYTES {
-            return;
-        }
-        while self.bytes + new_bytes > MAX_CONVERTED_IMAGE_BYTES {
+        // An image over the budget is still kept (the eyedropper samples it every frame), but alone: it evicts
+        // everything else, so peak memory is max(budget, that image) and the next insert evicts it.
+        while self.bytes + new_bytes > MAX_CONVERTED_IMAGE_BYTES && !self.order.is_empty() {
             if let Some(oldest) = self.order.pop_front() {
                 if let Some(old) = self.entries.remove(&oldest) {
                     self.bytes = self.bytes.saturating_sub(old.data().len());
                 }
-            } else {
-                self.entries.clear();
-                self.bytes = 0;
-                break;
             }
         }
         self.bytes += new_bytes;
