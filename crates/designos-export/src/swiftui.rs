@@ -591,12 +591,28 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         } else {
             depth
         };
-        // `Grid` shares the width left by fixed columns equally among columns that can stretch, so only
-        // equal weights export as stretching cells; unequal weights keep the solver's widths.
+        // `Grid` shares the width left by fixed columns equally among columns that can stretch, so equal
+        // weights export as stretching cells. Unequal weights wrap the `Grid` in a `GeometryReader` and
+        // size every cell as its weight share of the width left by fixed and hug columns and the gaps.
         let stretch = grid.equal_weights();
-        if grid.has_weights() && !stretch {
-            o.line(g_depth, "// unequal column weights: Grid shares free width equally, so columns keep their solved widths");
-        }
+        let weighted = grid.has_weights() && !stretch;
+        let outer_depth = g_depth;
+        let g_depth = if weighted {
+            o.line(g_depth, "GeometryReader { geo in");
+            o.line(g_depth + 1, format!("let unit = max(0, geo.size.width - {}) / {}", num(grid.fixed_and_gap_width()), num(grid.total_weight())));
+            g_depth + 1
+        } else {
+            g_depth
+        };
+        // Width of the cell `p` in weighted mode: its weight share plus the pixels of its fixed columns and gaps.
+        let weighted_width = |p: &designos_doc::layout_solver::Placed| -> String {
+            let (w, px) = grid.span_weight_and_px(p);
+            match (w > 0.0, px > 0.0) {
+                (true, true) => format!("unit * {} + {}", num(w), num(px)),
+                (true, false) => format!("unit * {}", num(w)),
+                _ => num(px),
+            }
+        };
         if grid.has_weights() {
             for (c, k) in grid.cols.iter().enumerate() {
                 if let ColKind::Hug(px) = k {
@@ -610,12 +626,20 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                 }
             }
         }
+        // Cell width expression: the weight share in weighted mode, else the solved pixels.
+        let cell_width = |p: &designos_doc::layout_solver::Placed| -> String {
+            if weighted && grid.span_weight_and_px(p).0 > 0.0 {
+                weighted_width(p)
+            } else {
+                num(grid.cell_width(p))
+            }
+        };
         let cell_frame = |p: &designos_doc::layout_solver::Placed, h: f32, align: &str| -> String {
             if stretch && grid.span_is_all_flex(p) {
                 let (_, px) = grid.span_weight_and_px(p);
                 return format!(".frame(minWidth: {}, maxWidth: .infinity, minHeight: {}, maxHeight: {}, alignment: {align})", num(px), num(h), num(h));
             }
-            format!(".frame(width: {}, height: {}, alignment: {align})", num(grid.cell_width(p)), num(h))
+            format!(".frame(width: {}, height: {}, alignment: {align})", cell_width(p), num(h))
         };
         o.line(g_depth, format!("Grid(alignment: .topLeading, horizontalSpacing: {col_gap_s}, verticalSpacing: {row_gap_s}) {{"));
         let cols = grid.widths.len();
@@ -660,11 +684,11 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                         o.line(g_depth + 4, cell_frame(p, cell_h, &cell_align));
                         for s in &group.stacked {
                             view(doc, s.id, me, g_depth + 3, o);
-                            let sw = grid.cell_width(&s.placed);
+                            let sw = cell_width(&s.placed);
                             let sh = grid.cell_height(&s.placed, false);
                             let (sah, sav) = grid_cell_align(doc, s.id, al);
                             let s_align = cell_alignment(sah, sav);
-                            o.line(g_depth + 4, format!(".frame(width: {}, height: {}, alignment: {s_align})", num(sw), num(sh)));
+                            o.line(g_depth + 4, format!(".frame(width: {}, height: {}, alignment: {s_align})", sw, num(sh)));
                             if s.offset.0 != 0.0 || s.offset.1 != 0.0 {
                                 o.line(g_depth + 4, format!(".offset(x: {}, y: {})", num(s.offset.0), num(s.offset.1)));
                             }
@@ -680,7 +704,11 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                     if stretch && grid.weight(c).is_some() {
                         o.line(g_depth + 2, format!("Color.clear.frame(minWidth: 0, maxWidth: .infinity, minHeight: {0}, maxHeight: {0})", num(grid.rows[r])));
                     } else {
-                        o.line(g_depth + 2, format!("Color.clear.frame(width: {}, height: {})", num(grid.widths[c]), num(grid.rows[r])));
+                        let w = match grid.weight(c) {
+                            Some(wt) if weighted => format!("unit * {}", num(wt)),
+                            _ => num(grid.widths[c]),
+                        };
+                        o.line(g_depth + 2, format!("Color.clear.frame(width: {}, height: {})", w, num(grid.rows[r])));
                     }
                     c += 1;
                 }
@@ -693,8 +721,14 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             view(doc, k.id, me, g_depth + 1, o);
         }
         o.line(g_depth, "}");
+        if weighted {
+            // A `GeometryReader` takes all the height it is offered, so pin it to the rows' height.
+            let rows_h: f32 = grid.rows.iter().sum::<f32>() + grid.row_gap * (grid.rows.len().saturating_sub(1) as f32);
+            o.line(outer_depth, "}");
+            o.line(outer_depth + 1, format!(".frame(height: {})", num(rows_h)));
+        }
         for m in &inner_mods {
-            o.line(g_depth + 1, m);
+            o.line(outer_depth + 1, m);
         }
         if overlay {
             for cid in &front_ids {

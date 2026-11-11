@@ -527,9 +527,14 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
     let weights = weighted_cols(scene);
     let first_weight = weights.iter().find_map(|w| *w).unwrap_or(0.0);
     let equal_weights = weights.iter().any(Option::is_some) && weights.iter().flatten().all(|w| (w - first_weight).abs() < 1e-3);
+    // Unequal weights size weighted cells as a share of the `GeometryReader` width (`unit * weight`).
+    let weighted = weights.iter().any(Option::is_some) && !equal_weights;
     for (c, &w) in widths.iter().enumerate().filter(|(c, _)| !equal_weights || weights[*c].is_none()) {
-        let ws = fmt_num(w);
-        assert!(swift.contains(&format!("width: {ws}, height:")), "{name} SwiftUI missing column {c} width {ws}: {swift}");
+        let ws = match weights[c] {
+            Some(wt) if weighted => format!("unit * {}", fmt_num(wt)),
+            _ => fmt_num(w),
+        };
+        assert!(swift.contains(&format!("width: {ws}, height:")) || (weighted && swift.contains(&ws)), "{name} SwiftUI missing column {c} width {ws}: {swift}");
     }
     for &h in &rows {
         let hs = fmt_num(h);
@@ -552,7 +557,12 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
             (GridChildAlign::End, GridChildAlign::End) => ".bottomTrailing",
             _ => ".topLeading",
         };
-        let (_, span_px) = span_weight_and_px(&weights, &widths, col_gap, p.col, p.col_span);
+        let (span_weight, span_px) = span_weight_and_px(&weights, &widths, col_gap, p.col, p.col_span);
+        let cell_w_expr = match (weighted && span_weight > 0.0, span_px > 0.0) {
+            (true, true) => format!("unit * {} + {}", fmt_num(span_weight), fmt_num(span_px)),
+            (true, false) => format!("unit * {}", fmt_num(span_weight)),
+            _ => fmt_num(cell_w),
+        };
         let span_stretches = equal_weights && (p.col..p.col + p.col_span).all(|c| weights[c].is_some());
         let swift_frame = |h: f32| {
             if span_stretches {
@@ -563,7 +573,7 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
                     fmt_num(h)
                 )
             } else {
-                format!(".frame(width: {}, height: {}, alignment: {swift_align})", fmt_num(cell_w), fmt_num(h))
+                format!(".frame(width: {cell_w_expr}, height: {}, alignment: {swift_align})", fmt_num(h))
             }
         };
         let needle = swift_frame(cell_h_first);
