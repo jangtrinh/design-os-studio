@@ -5,6 +5,7 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
     types: [checks_requested]
 
@@ -17,6 +18,106 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    name: Detect Rust changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      reason: ${{ steps.filter.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Classify changed paths
+        id: filter
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF_NAME" == refs/tags/v* ]]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "reason=release-tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A batch train branch combines several PRs; its first push has no "before" commit, so the
+          # HEAD^1 fallback below would see only the last PR. Always run the full suite on it.
+          if [[ "$REF_NAME" == refs/heads/train/* ]]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "reason=batch-train-branch" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          diff_base=""
+          diff_head="HEAD"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if git rev-parse --verify -q HEAD^2 >/dev/null 2>&1; then
+              diff_base="HEAD^1"
+              diff_head="HEAD"
+            elif [ -n "$PR_BASE_SHA" ] && [ -n "$PR_HEAD_SHA" ]; then
+              git fetch --no-tags --depth=1 origin "$PR_BASE_SHA" "$PR_HEAD_SHA" 2>/dev/null || true
+              diff_base="$PR_BASE_SHA"
+              diff_head="$PR_HEAD_SHA"
+            fi
+          elif [ "$EVENT_NAME" = "merge_group" ] && [ -n "$MG_BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$MG_BASE_SHA" 2>/dev/null || true
+            diff_base="$MG_BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --depth=1 origin "$PUSH_BEFORE" 2>/dev/null || true
+            diff_base="$PUSH_BEFORE"
+          fi
+          if [ -z "$diff_base" ] || ! git cat-file -e "${diff_base}^{commit}" 2>/dev/null; then
+            if git rev-parse --verify -q HEAD^1 >/dev/null 2>&1; then
+              diff_base="HEAD^1"
+            fi
+          fi
+
+          if [ -z "$diff_base" ] || ! changed_files="$(git -c core.quotePath=false diff --name-only "$diff_base" "$diff_head" 2>/dev/null)"; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "reason=diff-unavailable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$changed_files" ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "reason=empty-diff" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          rust_changed="false"
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            case "$path" in
+              docs/*|plans/*|.brv/*|site/*|pages/*|llms.txt)
+                ;;
+              *.md)
+                if [[ "$path" == */* ]]; then
+                  rust_changed="true"
+                  break
+                fi
+                ;;
+              *)
+                rust_changed="true"
+                break
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          if [ "$rust_changed" = "true" ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "reason=rust-or-code-paths" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+            echo "reason=docs-only" >> "$GITHUB_OUTPUT"
+            echo "Docs/site/plans/.brv-only change set: skipping heavy macOS test shards."
+          fi
+
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -44,15 +145,143 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace --all-targets --locked
 
+  test-macos:
+    name: Test (macos-15, ${{ matrix.partition }}/3)
+    needs: changes
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && needs.changes.outputs.rust == 'true'
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Validate packaging scripts syntax
+        shell: bash
+        run: |
+          bash -n scripts/package-macos.sh scripts/package.sh scripts/build-release.sh
+          sh -n packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux/AppRun
+
+      - name: Validate eval and third-party licence register
+        run: |
+          python3 -B scripts/check_eval_licences.py
+          python3 -B -m unittest scripts/test_check_eval_licences.py
+
+      - name: Validate vendored skills (licence, pin, rules.lock, rule map)
+        run: |
+          python3 -B scripts/check_vendor_skills.py verify
+          python3 -B scripts/check_vendor_skills.py extract
+          python3 -B scripts/check_vendor_skills.py map-coverage
+          python3 -B -m unittest scripts/test_check_vendor_skills.py
+
+      # The designos-webcapture tests drive crates/designos-webcapture/js/capture.js in headless
+      # Chromium through Playwright and fail when Node or Playwright is missing.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright and Chromium for the web capture harness
+        shell: bash
+        run: |
+          harness_dir="$RUNNER_TEMP/capture-harness"
+          npm install --no-audit --no-fund --prefix "$harness_dir" playwright@1.64.1
+          node "$harness_dir/node_modules/playwright/cli.js" install chromium
+          echo "NODE_PATH=$harness_dir/node_modules" >> "$GITHUB_ENV"
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2.87.31
+        with:
+          tool: nextest@0.9.149
+
+      - name: Test workspace (shard ${{ matrix.partition }}/3)
+        run: cargo nextest run --workspace --locked --profile ci --partition hash:${{ matrix.partition }}/3
+
+      - name: Test workspace doctests
+        if: matrix.partition == 1
+        run: cargo test --workspace --doc --locked
+
+  test-macos-required:
+    name: Test (macos-15)
+    needs: [changes, test-macos, lint-budget]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Test (macos-15) shards or documented skip
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUST_CHANGED: ${{ needs.changes.outputs.rust }}
+          SHARDS_RESULT: ${{ needs.test-macos.result }}
+          LINT_RESULT: ${{ needs.lint-budget.result }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$PR_DRAFT" = "true" ]; then
+            if { [ "$SHARDS_RESULT" = "skipped" ] || [ "$SHARDS_RESULT" = "success" ]; } && { [ "$LINT_RESULT" = "skipped" ] || [ "$LINT_RESULT" = "success" ]; }; then
+              echo "skipped: draft"
+              echo "::notice::skipped: draft"
+              exit 0
+            fi
+            echo "::error::Draft PR shard matrix ended with unexpected result '$SHARDS_RESULT'"
+            exit 1
+          fi
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "::error::Path filter job 'changes' did not succeed (result: '$CHANGES_RESULT')"
+            exit 1
+          fi
+          if [ "$RUST_CHANGED" = "false" ]; then
+            if { [ "$SHARDS_RESULT" = "skipped" ] || [ "$SHARDS_RESULT" = "success" ]; } && { [ "$LINT_RESULT" = "skipped" ] || [ "$LINT_RESULT" = "success" ]; }; then
+              echo "skipped: docs-only"
+              echo "::notice::skipped: docs-only"
+              exit 0
+            fi
+            echo "::error::Docs-only PR shard matrix ended with unexpected result '$SHARDS_RESULT'"
+            exit 1
+          fi
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "::error::Test (macos-15) shards did not all succeed (result: '$SHARDS_RESULT')"
+            exit 1
+          fi
+          if [ "$LINT_RESULT" != "success" ]; then
+            echo "::error::Lint budget (macos-15) did not succeed (result: '$LINT_RESULT')"
+            exit 1
+          fi
+          echo "All 3 Test (macos-15) shards and the lint budget succeeded."
+
+  lint-budget:
+    name: Lint budget (macos-15)
+    needs: changes
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && needs.changes.outputs.rust == 'true'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
+      - name: Lint budget on a release build (large fixture)
+        run: cargo test -p designos-render --release --locked --test lint_rules large_fixture_off_thread_budget
+
   test:
     name: Test (${{ matrix.os }})
-    needs: check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         # Windows runs only for a release: a v* tag, or a pull request from a release/ branch or titled "release:".
-        os: ${{ fromJSON((startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'pull_request' && (startsWith(github.head_ref, 'release/') || startsWith(github.event.pull_request.title, 'release:')))) && '["ubuntu-latest", "windows-latest", "macos-15"]' || '["ubuntu-latest", "macos-15"]') }}
+        os: ${{ fromJSON((startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'pull_request' && (startsWith(github.head_ref, 'release/') || startsWith(github.event.pull_request.title, 'release:')))) && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -113,9 +342,6 @@ jobs:
           echo "CARGO_PROFILE_DEV_DEBUG=0" >> "$GITHUB_ENV"
           echo "CARGO_PROFILE_TEST_DEBUG=0" >> "$GITHUB_ENV"
 
-      - name: Build workspace (designos-studio, designos, designos-mcp, designos-diff)
-        run: cargo build --workspace --all-targets --locked
-
       # The designos-webcapture tests drive crates/designos-webcapture/js/capture.js in headless
       # Chromium through Playwright and fail when Node or Playwright is missing.
       - uses: actions/setup-node@v4
@@ -151,11 +377,6 @@ jobs:
 
       - name: Test workspace doctests
         run: cargo test --workspace --doc --locked
-
-      # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
-      - name: Lint budget on a release build (large fixture)
-        if: runner.os == 'macOS'
-        run: cargo test -p designos-render --release --locked --test lint_rules large_fixture_off_thread_budget
 
   lint:
     name: Clippy
