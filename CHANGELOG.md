@@ -2,6 +2,37 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.12] - 2026-11-11
+
+A patch release from `main` that finishes the Styles & Variables epic. Variables now bind to effects, glass, size limits, typography, easing and durations. Animation styles are new, and extended collections work across libraries and branch merges. It also includes fixes carried from @NamAIEngineer.
+
+### Added
+- **Variables.**
+  - Effect parameters (blur radius, spread, offset x and y, opacity) and the glass parameters (light angle, light intensity, refraction, depth, dispersion, frost) bind to number variables. They resolve per mode, round-trip through `.fig` and work from MCP. The glass popover gets a bind slot on each field (#132, PR #1869).
+  - Min and max width and height bind to number variables and feed auto layout. Font family, font style, paragraph spacing and paragraph indent can be bound on text layers, and hug text re-measures when a mode switch changes it (#133, PR #1871).
+  - Easing and duration variables bind to prototype transitions and Motion tracks. An easing names a Studio preset, and a duration is in milliseconds (#143, PR #1872).
+  - Extended collections can be published to a library and used from another file, including edits in the receiving file's own modes and `.fig` round trips (#1795, PR #1866).
+- **Styles.** Animation styles: a style holds Motion timelines, layers link to it like effect and grid styles, it round-trips through `.fig`, and the style picker lists it (#141, PR #1870).
+- **Motion.** Motion timelines and tracks import from and export to `.fig` (#209, PR #1845).
+- **CLI.** `designos FILE.fig --scan-design-system OUT.json` writes the design-system scan file from a `.fig` (#1853, PR #1855).
+
+### Fixed
+- **Text styles.**
+  - Editing a shared text style updates the properties a linked layer does not override and keeps the ones it does, as Figma does (#1728, PR #1868).
+  - Lint fix, the command menu's auto-fix and the whiteboard text size detach a linked text style by the same rule as the inspector; by @NamAIEngineer (#1747, PR #1819).
+- **Variables.**
+  - Boolean operands, background blur and connector ends draw the values their variables resolve to; by @NamAIEngineer (#1736, PR #1791).
+  - The Export preview redraws after a variable value or an ancestor's mode changes; by @NamAIEngineer (#1737, PR #1780).
+  - A batch of variable value writes is all-or-nothing, and an extension's own variable list cannot grow past its rule; by @NamAIEngineer (#1807, PR #1860).
+  - A branch merge that renames a colliding collection keeps its extensions pointing at the right parent and modes, and refuses a merge that closes a new alias cycle (#1803, PR #1867).
+  - MCP re-measures bound hug text when a collection's modes change (#1341, PR #1846).
+- **`.fig` import.** Effect style detaches on instances survive in any entry order, and a main linked to a library style the file lacks keeps its own bound effect values (#1808, PR #1865).
+- **Components.** A main sync lays out instance children by their constraints again (#1656, PR #1847).
+- **Export.**
+  - Tailwind writes Center and Outside strokes as outlines, like CSS (#1787, PR #1849).
+  - Native grid code writes an included stroke's inset as padding (#1829, PR #1851).
+- **Colour picker.** The picker caches its binding context, so it opens faster on large files (#1443, PR #1848).
+
 ## [0.7.11] - 2026-11-10
 
 A feature release from `main`: tables on the canvas, Display P3 colour, extended variable collections, instance properties bound to variables, text styles that survive weight and italic overrides, and a `.fig` save that keeps the overrides of instances nested in a main component, plus fixes carried from @NamAIEngineer.
