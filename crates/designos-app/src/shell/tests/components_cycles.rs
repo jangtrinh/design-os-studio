@@ -207,11 +207,14 @@ fn re_picking_the_current_main_in_a_file_that_already_holds_itself_says_nothing(
 
 #[test]
 fn a_plain_launch_with_a_staging_panel_leaves_the_document_alone() {
-    let plain = Sim::with(Options { fixture: Some("no-selection".into()), ..Default::default() });
-    for panel in ["cycle-refusal-toast", "export-toast", "micro-autolayout"] {
-        let s = Sim::with(Options { fixture: Some("no-selection".into()), panel: Some(panel.into()), ..Default::default() });
-        assert_eq!(s.app().doc.nodes.len(), plain.app().doc.nodes.len(), "--panel {panel} without --screenshot edits the document");
-    }
+    // "demo" has frames, so an export row or a staged layer shows in the serialised document.
+    let json = |panel: Option<&str>| {
+        let s = Sim::with(Options { fixture: Some("demo".into()), panel: panel.map(String::from), ..Default::default() });
+        s.app().doc.to_json().unwrap()
+    };
+    let plain = json(None);
+    let edited: Vec<&str> = ["cycle-refusal-toast", "export-toast", "micro-autolayout"].into_iter().filter(|panel| json(Some(panel)) != plain).collect();
+    assert!(edited.is_empty(), "--panel without --screenshot edits the document for {edited:?}");
 }
 
 // ---------- a document that already holds itself

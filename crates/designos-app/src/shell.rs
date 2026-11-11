@@ -2771,13 +2771,13 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
     }
 }
 
-/// Configures `app` with a rich, deterministic visual showcase scene for each of the 8
-/// Figma A-to-Z Micro-Interaction & Feature categories (`--panel micro-*`).
 /// `--panel` presets that build or edit layers in the open document to stage a capture.
 fn stages_document_edits(panel: &str) -> bool {
     panel.starts_with("micro-") || matches!(panel.split(':').next(), Some("export-toast" | "cycle-refusal-toast"))
 }
 
+/// Configures `app` with a rich, deterministic visual showcase scene for each of the 8
+/// Figma A-to-Z Micro-Interaction & Feature categories (`--panel micro-*`).
 pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
     use designos_doc::vector::End as VEnd;
     use designos_doc::{
