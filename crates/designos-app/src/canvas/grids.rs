@@ -4,7 +4,7 @@
 use super::*;
 use crate::theme;
 use crate::util::*;
-use designos_doc::layout_solver::{grid_column_widths, grid_row_gap, grid_row_heights, place_children, ChildIn, SizeLimits};
+use designos_doc::layout_solver::{grid_column_widths, grid_row_gap, grid_row_heights, ChildIn, SizeLimits};
 use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, MAX_GRID_TRACKS};
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
@@ -686,7 +686,13 @@ mod tests {
             ),
             // a hugging frame raised by its own minimum width hands the extra to the flex columns
             (
-                AutoLayout { direction: LayoutDirection::Grid, grid_columns: 2, item_spacing: 8.0, primary_sizing: designos_doc::Sizing::Hug, ..AutoLayout::default() },
+                AutoLayout {
+                    direction: LayoutDirection::Grid,
+                    grid_columns: 2,
+                    item_spacing: 8.0,
+                    primary_sizing: designos_doc::Sizing::Hug,
+                    ..AutoLayout::default()
+                },
                 v2(200.0, 120.0),
                 SizeLimits { min_w: Some(400.0), ..Default::default() },
             ),
