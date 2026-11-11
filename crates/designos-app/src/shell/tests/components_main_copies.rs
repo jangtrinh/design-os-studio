@@ -166,7 +166,9 @@ fn dropping_an_instance_on_its_own_main_leaves_it_beside_the_main() {
     s.drag(s.screen(from.x, from.y), s.screen(to.x, to.y));
     assert_eq!(s.app().doc.get(inst).unwrap().parent, Some(comps), "not inside the main it links to");
     assert!(designos_doc::instances_of(&s.app().doc, main).iter().all(|i| !s.app().doc.is_ancestor(main, *i)), "no instance inside the main");
-    super::components_cycles::assert_cycle_toast(&s, "move", "Primary button");
+    let toast = s.app().toast.as_ref().expect("the drop says where it went");
+    assert!(!toast.error, "the instance moved, so this is not a refusal: {}", toast.text);
+    assert_eq!(toast.text, "Moved outside Primary button, which would contain itself");
 }
 
 // ---- a component set
@@ -666,4 +668,22 @@ fn an_ordinary_paste_raises_no_cycle_toast() {
     copy_then_paste(&mut s);
     the_new_instance_of(&s, main);
     assert!(s.app().toast.as_ref().is_none_or(|t| !t.text.contains("contain itself")), "{:?}", s.app().toast.as_ref().map(|t| &t.text));
+}
+
+#[test]
+fn a_layers_drop_where_one_layer_stays_out_says_which_one_and_does_not_call_it_a_refusal() {
+    let (mut s, _) = main_sim();
+    let (a, b) = a_holds_an_instance_of_b(&mut s);
+    s.shell.app.selection.clear();
+    let page = s.app().page;
+    let inst = s.shell.app.insert_instance(a, DV::new(5000.0, 5000.0)).expect("an instance of A on the page");
+    s.shell.app.doc.get_mut(inst).unwrap().name = "Row copy".into();
+    let plain = add_frame(&mut s, page, DRect::new(5000.0, 6000.0, 50.0, 50.0), "Plain");
+    s.shell.app.toast = None;
+    s.shell.app.move_to_parent(&[plain, inst], b, 0);
+    assert_eq!(s.app().doc.get(plain).unwrap().parent, Some(b), "the plain layer moved");
+    assert_eq!(s.app().doc.get(inst).unwrap().parent, Some(page), "the instance stayed");
+    let toast = s.app().toast.as_ref().expect("the drop says what stayed");
+    assert!(!toast.error, "layers moved, so this is not a refusal: {}", toast.text);
+    assert_eq!(toast.text, "Kept Row copy out of B, which would contain itself");
 }

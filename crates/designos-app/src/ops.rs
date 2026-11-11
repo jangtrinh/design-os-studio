@@ -2045,7 +2045,6 @@ impl App {
         }
         let same_parent = one_source_parent && common_parent == Some(new_parent);
         let refusal = crate::comp_cycle_refusal::move_refusal(&self.doc, &ids, new_parent);
-        self.explain_refusal(refusal);
         if same_parent {
             let move_ids: Vec<NodeId> = ids
                 .iter()
@@ -2058,6 +2057,7 @@ impl App {
                 })
                 .collect();
             if move_ids.is_empty() {
+                self.explain_move(refusal, false);
                 return;
             }
             let mut tx = Tx::new();
@@ -2078,6 +2078,7 @@ impl App {
             Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, new_parent);
             layout::relayout_around(&mut self.doc, &mut tx.ed, new_parent);
             self.run_tx(tx);
+            self.explain_move(refusal, true);
             return;
         }
         let mut tx = Tx::new();
@@ -2123,6 +2124,7 @@ impl App {
         }
         layout::relayout_around(&mut self.doc, &mut tx.ed, new_parent);
         self.run_tx(tx);
+        self.explain_move(refusal, moved);
     }
 
     // ------------------------------------------------------------ naming / flags

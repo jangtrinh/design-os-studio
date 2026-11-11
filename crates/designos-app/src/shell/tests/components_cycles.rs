@@ -145,6 +145,75 @@ fn the_screenshot_preset_raises_the_refusal_of_the_swap_it_stages() {
     assert!(self_holding(&s).is_empty());
 }
 
+#[test]
+fn a_nested_variant_switch_that_would_make_a_main_hold_itself_says_why() {
+    let mut s = main_sim();
+    let comps = comps(&s);
+    let b = add_main(&mut s, comps, DRect::new(700.0, 0.0, 120.0, 120.0), "B");
+    let one = add_frame(&mut s, comps, DRect::new(0.0, 700.0, 60.0, 60.0), "State=One");
+    let two = add_frame(&mut s, comps, DRect::new(100.0, 700.0, 60.0, 60.0), "State=Two");
+    for m in [one, two] {
+        add_frame(&mut s, m, DRect::new(5.0, 5.0, 20.0, 20.0), "Dot");
+        create_component(&mut s.shell.app.doc, m).apply(&mut s.shell.app.doc).unwrap();
+    }
+    combine_as_variants(&mut s.shell.app.doc, &[one, two]).apply(&mut s.shell.app.doc).unwrap();
+    let i = place(&mut s, one, b);
+    place(&mut s, b, two);
+    s.shell.app.set_nested_instance_prop(i, "State", Some(PropValue::Variant("Two".into())));
+    assert_eq!(instance_component(s.app().doc.get(i).unwrap()), Some(one), "the nested instance stays on State=One");
+    assert_cycle_toast(&s, "switch variant", "B");
+}
+
+#[test]
+fn filling_a_slot_with_a_main_that_would_make_the_main_hold_itself_says_why() {
+    let mut s = main_sim();
+    let (a, b) = a_holds_b(&mut s);
+    let slot = layer_of(&s, b);
+    s.shell.app.doc.get_mut(slot).unwrap().component.is_slot = true;
+    let before = s.app().doc.to_json().unwrap();
+    assert!(s.shell.app.insert_instance_into_slot(slot, a).is_none());
+    assert_cycle_toast(&s, "add", "B");
+    assert_eq!(s.app().doc.to_json().unwrap(), before, "nothing changed");
+}
+
+#[test]
+fn a_loop_through_many_nested_layers_stays_on_one_short_line() {
+    let mut s = main_sim();
+    let (a, b) = a_holds_b(&mut s);
+    let c = comps(&s);
+    let z = add_main(&mut s, c, DRect::new(1100.0, 0.0, 60.0, 60.0), "Z");
+    let mut parent = b;
+    for n in 0..12 {
+        parent = add_frame(&mut s, parent, DRect::new(0.0, 0.0, 50.0, 50.0), &format!("Frame {n}"));
+    }
+    let inst = place(&mut s, z, parent);
+    s.shell.app.swap_instance(inst, a);
+    assert_cycle_toast(&s, "swap", "B");
+    let text = &s.app().toast.as_ref().unwrap().text;
+    assert!(text.contains(" \u{2192} \u{2026} \u{2192} "), "the middle is cut: {text}");
+    assert!(text.split_whitespace().count() <= 20, "{text}");
+}
+
+#[test]
+fn re_picking_the_current_main_in_a_file_that_already_holds_itself_says_nothing() {
+    let mut s = main_sim();
+    let (a, b) = cyclic(&mut s);
+    let doc = &s.app().doc;
+    let inside_b = *doc.get(b).unwrap().children.iter().find(|c| instance_component(doc.get(**c).unwrap()) == Some(a)).expect("an instance of A in B");
+    s.shell.app.toast = None;
+    s.shell.app.swap_instance(inside_b, a);
+    assert!(s.app().toast.is_none(), "{:?}", s.app().toast.as_ref().map(|t| &t.text));
+}
+
+#[test]
+fn a_plain_launch_with_a_staging_panel_leaves_the_document_alone() {
+    let plain = Sim::with(Options { fixture: Some("no-selection".into()), ..Default::default() });
+    for panel in ["cycle-refusal-toast", "export-toast", "micro-autolayout"] {
+        let s = Sim::with(Options { fixture: Some("no-selection".into()), panel: Some(panel.into()), ..Default::default() });
+        assert_eq!(s.app().doc.nodes.len(), plain.app().doc.nodes.len(), "--panel {panel} without --screenshot edits the document");
+    }
+}
+
 // ---------- a document that already holds itself
 
 #[test]

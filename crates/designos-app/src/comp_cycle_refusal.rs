@@ -15,12 +15,24 @@ use std::collections::BTreeMap;
 
 const ARROW: &str = " \u{2192} ";
 
+/// The loop as one line: a long one (layers nested deep inside the main) keeps its first two hops and its last.
+fn loop_text(path: &[String]) -> String {
+    const MAX_LABELS: usize = 5;
+    if path.len() <= MAX_LABELS {
+        return path.join(ARROW);
+    }
+    format!("{}{ARROW}{}{ARROW}\u{2026}{ARROW}{}", path[0], path[1], path[path.len() - 1])
+}
+
 fn refusal(doc: &Document, action: &str, held_main: NodeId, path: &[String]) -> String {
-    format!("Can't {action}: {} would contain itself ({})", cycle_node_label(doc, held_main), path.join(ARROW))
+    format!("Can't {action}: {} would contain itself ({})", cycle_node_label(doc, held_main), loop_text(path))
 }
 
 /// Why `instance` cannot show `component`, when the cause is a main that would hold itself.
 pub(crate) fn swap_refusal(doc: &Document, instance: NodeId, component: NodeId) -> Option<String> {
+    if instance_component(doc.get(instance)?) == Some(component) {
+        return None;
+    }
     let (held, path) = held_main_cycle_path_at(doc, component, instance, &[])?;
     Some(refusal(doc, "swap", held, &path))
 }
@@ -31,11 +43,25 @@ pub(crate) fn insert_refusal(doc: &Document, component: NodeId, parent: NodeId) 
     Some(refusal(doc, "add", held, &path))
 }
 
-/// Why the first of `ids` cannot move under `new_parent`.
-pub(crate) fn move_refusal(doc: &Document, ids: &[NodeId], new_parent: NodeId) -> Option<String> {
+/// What to say about the first of `ids` that cannot go under `new_parent`, by what became of the move.
+pub(crate) struct MoveRefusal {
+    /// Nothing moved.
+    pub refused: String,
+    /// Other layers moved, this one stayed out.
+    pub kept_out: String,
+    /// The layers went to another container instead.
+    pub moved_outside: String,
+}
+
+pub(crate) fn move_refusal(doc: &Document, ids: &[NodeId], new_parent: NodeId) -> Option<MoveRefusal> {
     let id = ids.iter().copied().find(|id| *id != new_parent && !doc.is_ancestor(*id, new_parent) && reparent_would_hold_itself(doc, &[*id], new_parent))?;
     let (held, path) = reparent_held_main_cycle_path(doc, &[id], new_parent)?;
-    Some(refusal(doc, "move", held, &path))
+    let main = cycle_node_label(doc, held);
+    Some(MoveRefusal {
+        refused: refusal(doc, "move", held, &path),
+        kept_out: format!("Kept {} out of {main}, which would contain itself", cycle_node_label(doc, id)),
+        moved_outside: format!("Moved outside {main}, which would contain itself"),
+    })
 }
 
 /// The sibling variant that choosing `choice` for the variant property `name` selects for `instance`, if any.
@@ -55,13 +81,19 @@ pub(crate) fn prop_refusal(doc: &Document, instance: NodeId, name: &str, value: 
     match value {
         PropValue::Variant(choice) => {
             let target = variant_choice_target(doc, instance, name, choice)?;
+            if instance_component(doc.get(instance)?) == Some(target) {
+                return None;
+            }
             let (held, path) = held_main_cycle_path_at(doc, target, instance, &[])?;
             Some(refusal(doc, "switch variant", held, &path))
         }
         PropValue::Instance(component) => {
             let mut found = None;
             doc.walk(instance, |n, _| {
-                if found.is_none() && n.component.bindings.get(&OverrideField::MainComponent).is_some_and(|p| p == name) {
+                if found.is_none()
+                    && instance_component(n) != Some(*component)
+                    && n.component.bindings.get(&OverrideField::MainComponent).is_some_and(|p| p == name)
+                {
                     found = held_main_cycle_path_at(doc, *component, n.id, &[]);
                 }
             });
@@ -73,6 +105,16 @@ pub(crate) fn prop_refusal(doc: &Document, instance: NodeId, name: &str, value: 
 }
 
 impl App {
+    /// A move that the guard held back, told by what became of it: nothing moved (error), some layers moved and this
+    /// one stayed out, or the layers went to another container.
+    pub(crate) fn explain_move(&mut self, refusal: Option<MoveRefusal>, moved_any: bool) {
+        match refusal {
+            Some(r) if moved_any => self.show_toast(r.kept_out, false),
+            Some(r) => self.show_toast(r.refused, true),
+            None => {}
+        }
+    }
+
     /// A refused edit: one error toast with the reason, when there is one.
     pub(crate) fn explain_refusal(&mut self, reason: Option<String>) {
         if let Some(reason) = reason {
@@ -138,8 +180,8 @@ pub fn apply_toast_preset(app: &mut App) {
         Command::Insert { parent, index, nodes }.apply(&mut app.doc).ok()?;
         Some(id)
     };
-    place(app, card, row, Vec2::new(16.0, 16.0));
     let Some(inside_card) = place(app, icon, card, Vec2::new(16.0, 16.0)) else { return };
+    place(app, card, row, Vec2::new(16.0, 16.0));
     app.selection = vec![inside_card];
     app.swap_instance(inside_card, row);
 }
