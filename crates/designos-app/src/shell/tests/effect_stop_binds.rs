@@ -1,4 +1,4 @@
-//! Sim tests for #132 (inspector half): variable binding on node-level effect rows
+//! Sim tests for variable binding on node-level effect rows
 //! (`effects/{i}/color`, `effects/{i}/radius`, `effects/{i}/spread`, `effects/{i}/offsetX`,
 //! `effects/{i}/offsetY`) and on gradient stops (`fills/{pi}/stops/{si}`, `strokes/{pi}/stops/{si}`).
 
@@ -1884,4 +1884,117 @@ fn picker_style_bound_stop_pill_is_read_only_while_direct_stop_pill_detaches_in_
     // One undo restores the direct stop binding.
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&direct_stop_var));
+}
+
+#[test]
+fn glass_effect_popover_rows_bind_filter_scopes_detach_and_undo() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, dark) = theme_ids(s.app());
+
+    let fx_glass_angle = store.add_variable(&coll, "Glass/Angle", VariableKind::Number).unwrap();
+    store.set_value(&fx_glass_angle, &light, VariableValue::Number(60.0));
+    store.set_value(&fx_glass_angle, &dark, VariableValue::Number(120.0));
+    set_scopes(&mut store, &fx_glass_angle, &["EFFECT_FLOAT"]);
+
+    let fx_glass_frost = store.add_variable(&coll, "Glass/Frost", VariableKind::Number).unwrap();
+    store.set_value(&fx_glass_frost, &light, VariableValue::Number(15.0));
+    store.set_value(&fx_glass_frost, &dark, VariableValue::Number(30.0));
+    set_scopes(&mut store, &fx_glass_frost, &["EFFECT_FLOAT"]);
+
+    let fx_glass_depth = store.add_variable(&coll, "Glass/Depth", VariableKind::Number).unwrap();
+    store.set_value(&fx_glass_depth, &light, VariableValue::Number(5.0));
+    set_scopes(&mut store, &fx_glass_depth, &["EFFECT_FLOAT"]);
+
+    let wrong_width = store.add_variable(&coll, "Layout/WidthOnly", VariableKind::Number).unwrap();
+    store.set_value(&wrong_width, &light, VariableValue::Number(99.0));
+    set_scopes(&mut store, &wrong_width, &["WIDTH_HEIGHT"]);
+
+    s.shell.app.commit_store(store, &[], &[]);
+
+    // Ensure Hero has a Glass effect at effects[0]
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.effects = vec![Effect::Glass(designos_doc::GlassEffect {
+            frost: 8.0,
+            light_angle: 45.0,
+            depth: 2.0,
+            refraction: 0.2,
+            light_intensity: 0.5,
+            dispersion: 0.1,
+            splay: 0.0,
+            bevel: 0.0,
+            visible: true,
+        })];
+    });
+    s.scroll_inspector_down();
+
+    // Open the Glass popover (effects[0]).
+    let minus0 = s.rect_of("fx-minus-0");
+    s.click(Pos2::new(minus0.left() - 52.0, minus0.center().y));
+    assert!(s.app().props.pop.is_some(), "effect settings popover should open");
+    s.frame(vec![]);
+
+    // 1. Bind Light angle (`effects/0/lightAngle`).
+    let angle_field = fx_field_rect(&s, "fxp-angle", 0);
+    s.mv(angle_field.center());
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:effects/0/lightAngle").center());
+    s.frame(vec![]);
+    assert!(!has_test_rect(&s, "pick:Layout/WidthOnly"), "WIDTH_HEIGHT variable must not be offered for EFFECT_FLOAT");
+    s.click(s.rect_of("pick:Glass/Angle").center());
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("effects/0/lightAngle"), Some(&fx_glass_angle));
+    let Effect::Glass(ref g) = s.app().doc.get(hero).unwrap().effects[0] else { panic!("expected Glass") };
+    assert_eq!(g.light_angle, 60.0);
+    s.rect_of("bound:effects/0/lightAngle");
+
+    // Undo removes the binding in one step; redo restores it.
+    s.cmd_key(Key::Z);
+    assert!(!s.app().doc.get(hero).unwrap().variables.bindings.contains_key("effects/0/lightAngle"));
+    let Effect::Glass(ref g) = s.app().doc.get(hero).unwrap().effects[0] else { panic!("expected Glass") };
+    assert_eq!(g.light_angle, 45.0);
+    s.mods = Modifiers::COMMAND | Modifiers::SHIFT;
+    s.key(Key::Z);
+    s.mods = Modifiers::NONE;
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("effects/0/lightAngle"), Some(&fx_glass_angle));
+
+    // 2. Bind Depth (`effects/0/depth`, which == 2)
+    let key_depth = format!("{:?}", ("fxp-glass", 0usize, 2u8));
+    let depth_field = s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", key_depth)))).unwrap();
+    s.mv(depth_field.center());
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:effects/0/depth").center());
+    s.frame(vec![]);
+    assert!(!has_test_rect(&s, "pick:Layout/WidthOnly"));
+    s.click(s.rect_of("pick:Glass/Depth").center());
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("effects/0/depth"), Some(&fx_glass_depth));
+    let Effect::Glass(ref g) = s.app().doc.get(hero).unwrap().effects[0] else { panic!("expected Glass") };
+    assert_eq!(g.depth, 5.0);
+    s.rect_of("bound:effects/0/depth");
+
+    // 3. Bind Frost (`effects/0/radius`, which == 4)
+    let key_frost = format!("{:?}", ("fxp-glass", 0usize, 4u8));
+    let frost_field = s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", key_frost)))).unwrap();
+    s.mv(frost_field.center());
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:effects/0/radius").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Glass/Frost").center());
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("effects/0/radius"), Some(&fx_glass_frost));
+    let Effect::Glass(ref g) = s.app().doc.get(hero).unwrap().effects[0] else { panic!("expected Glass") };
+    assert_eq!(g.frost, 15.0);
+
+    // Detach Frost pill
+    let pill_frost = s.rect_of("bound:effects/0/radius");
+    s.click(Pos2::new(pill_frost.right() - 13.0, pill_frost.center().y));
+    s.frame(vec![]);
+    assert!(!s.app().doc.get(hero).unwrap().variables.bindings.contains_key("effects/0/radius"));
+
+    // Undo restores Frost binding
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("effects/0/radius"), Some(&fx_glass_frost));
 }

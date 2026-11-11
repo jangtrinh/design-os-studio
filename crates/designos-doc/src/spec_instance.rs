@@ -2239,6 +2239,7 @@ impl Document {
             in_progress,
             comments,
             children: Vec::new(),
+            bindings: BTreeMap::new(),
         })
     }
 

@@ -382,6 +382,16 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": "Variable bindings keyed by property path (e.g. `effects/0/radius`, `fills/0/stops/0`). Null or empty unbinds.",
+          "type": "object"
+        },
         "diff_image": {
           "default": false,
           "type": "boolean"

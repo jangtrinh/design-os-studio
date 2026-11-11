@@ -12,7 +12,7 @@
 
 7. **Errors & retries** — `error_kind`: `retryable` = fix and retry once; `fatal` = stop; `needs_human` = stop and ask the user. Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry`; else re-read state; pass `idempotency_key` on writes.
 
-Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not gated by Studio.
+Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 
 ## Enabled MCP Tools
 
@@ -72,7 +72,7 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 
 ### `designos_update_node`
 - **Purpose:** Update specified fields of one non-page layer.
-- **Args:** required: `node_id` (optional: `diff_image`, `fill`, `fills`, `height`, `idempotency_key`, `lint`, `name`, `opacity`, `prop_vars`, `text`, `visible`, `width`, `x`, `y`)
+- **Args:** required: `node_id` (optional: `bindings`, `diff_image`, `fill`, `fills`, `height`, `idempotency_key`, `lint`, `name`, `opacity`, `prop_vars`, `text`, `visible`, `width`, `x`, `y`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `MOVE_CYCLE`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `OUTSIDE_OWNED_FRAMES`
 - **Example:** `{"node_id":2,"name":"Header","fill":"var:Color/Primary"}`
 
@@ -259,6 +259,7 @@ Declarative node specification for `apply_spec` and `export_spec`.
 | --- | --- | --- |
 | `annotation` | `string` | Single handoff annotation string. |
 | `annotations` | `[string]` | Handoff annotations attached to this node. |
+| `bindings` | `object` | Variable bindings. |
 | `children` | `[#]` | Child `NodeSpec` items. |
 | `clips_content` | `boolean` | Clip overflowing children when `true`. |
 | `col_span` | `integer` | Grid column span (`&gt;= 1`). |
@@ -275,7 +276,7 @@ Declarative node specification for `apply_spec` and `export_spec`.
 | `height` | `NumberOrVar` | Height in px (or `"var:..."` Number variable reference). |
 | `height_sizing` | `string` | `"fixed"`, `"hug"`, or `"fill"`. |
 | `id` | `integer` | Node ID (assigned on export; optional on input). |
-| `in_progress` | `InProgressSpec` | Agent `in_progress` flag: `true`, `false`, or `{run_id, agent, status, stale_after_s}`. |
+| `in_progress` | `InProgressSpec` | Agent `in_progress` flag: a bool or a status object. |
 | `kind` | `string` | `"frame"`, `"rectangle"`, `"ellipse"`, `"text"`, `"section"`, `"component"`, or `"instance"`. |
 | `layout` | `LayoutSpec` | Auto-Layout 5.0 configuration. |
 | `line_height` | `NumberOrVar` | Line height in px (or `"var:..."`). |
@@ -364,7 +365,7 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 
 - **Visual hierarchy**: One primary action per view, >= 3:1 headline-to-body.
 - **Layout rhythm & cards**: Do not wrap every group in a card or nest cards. Avoid a uniform grid of identical cards. Use the type scale and spacing scale (`var:` / `style:` tokens), <= 3 gaps, padding `page >= section >= card >= control`.
-- **Buttons & centred controls**: Buttons, pills, badges: preset `easeui-button-primary` / `easeui-button-secondary` / `easeui-badge`, or `layout` row with `justify` and `align` center (a plain `"frame"` puts labels at top-left).
+- **Buttons & centred controls**: Buttons, pills, badges: preset `easeui-button-primary` / `easeui-button-secondary` / `easeui-badge`, or `layout` row with `justify` and `align` center (plain `"frame"`: labels top-left).
 - **Surface & colour**: Restrain gradients, shadows, and corner radii. One primary accent per screen; red/amber/green for status.
 - **Icons & illustrations**: Never hand-draw logos, illustrations, or icons as vector paths. Use library instances or labelled placeholders.
 - **Typography**: <= 2 font families, <= 4 sizes, 45–75 char lines. Real copy, no lorem ipsum.

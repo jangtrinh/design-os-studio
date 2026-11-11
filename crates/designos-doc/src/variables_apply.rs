@@ -17,6 +17,14 @@
 use crate::*;
 use std::borrow::Cow;
 
+fn unit_or_pct(x: f32) -> f32 {
+    if x > 1.0 {
+        (x / 100.0).clamp(0.0, 1.0)
+    } else {
+        x.clamp(0.0, 1.0)
+    }
+}
+
 /// Kind of variable a binding key accepts, or `None` for unknown keys.
 pub fn property_kind(key: &str) -> Option<VariableKind> {
     Some(match key {
@@ -29,8 +37,7 @@ pub fn property_kind(key: &str) -> Option<VariableKind> {
         }
         k if effect_field_key(k).is_some() => match effect_field_key(k)?.1 {
             "color" => VariableKind::Color,
-            "radius" | "spread" | "offsetX" | "offsetY" => VariableKind::Number,
-            _ => return None,
+            _ => VariableKind::Number,
         },
         "width" | "height" | "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" | "itemSpacing" | "counterAxisSpacing"
         | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom" | "opacity" | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing"
@@ -63,8 +70,7 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
         k if k.starts_with("strokes/") => has(&["STROKE", "STROKE_COLOR"]),
         k if effect_field_key(k).is_some() => match effect_field_key(k).map(|(_, f)| f) {
             Some("color") => has(&["EFFECT_COLOR"]),
-            Some("radius" | "spread" | "offsetX" | "offsetY") => has(&["EFFECT_FLOAT"]),
-            _ => false,
+            _ => has(&["EFFECT_FLOAT"]),
         },
         "width" | "height" => has(&["WIDTH_HEIGHT"]),
         "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" => has(&["CORNER_RADIUS"]),
@@ -102,6 +108,14 @@ pub fn bindable_keys(kind: &NodeKind) -> Vec<&'static str> {
     v
 }
 
+/// Whether `key` can be bound on a node of `kind`.
+pub fn is_key_bindable_on_node(key: &str, kind: &NodeKind) -> bool {
+    bindable_keys(kind).contains(&key)
+        || paint_stop_key(key).is_some()
+        || effect_field_key(key).is_some()
+        || ((key.starts_with("effects/") || key.starts_with("fills/") || key.starts_with("strokes/")) && key.ends_with("/opacity"))
+}
+
 /// Which list a composed-opacity binding key (`fills/N/opacity`, `strokes/N/opacity`,
 /// `effects/N/opacity`) addresses, and the index into it.
 enum OpacityTarget {
@@ -136,7 +150,10 @@ fn paint_stop_key(key: &str) -> Option<(bool, usize, usize)> {
 fn effect_field_key(key: &str) -> Option<(usize, &str)> {
     let rest = key.strip_prefix("effects/")?;
     let (i, field) = rest.split_once('/')?;
-    if !matches!(field, "color" | "radius" | "spread" | "offsetX" | "offsetY") {
+    if !matches!(
+        field,
+        "color" | "radius" | "blur" | "frost" | "spread" | "offsetX" | "offsetY" | "lightAngle" | "lightIntensity" | "refraction" | "depth" | "dispersion"
+    ) {
         return None;
     }
     Some((i.parse().ok()?, field))
@@ -164,14 +181,21 @@ fn set_effect_field(fx: &mut Effect, field: &str, value: &VariableValue) {
                 *color = c;
             }
         }
-        "radius" => {
+        "radius" | "blur" => {
             let Some(x) = number_of(value) else { return };
             match fx {
                 Effect::DropShadow { radius, .. }
                 | Effect::InnerShadow { radius, .. }
                 | Effect::LayerBlur { radius, .. }
                 | Effect::BackgroundBlur { radius, .. } => *radius = x.max(0.0),
+                Effect::Glass(g) => g.frost = x.max(0.0),
                 _ => {}
+            }
+        }
+        "frost" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::Glass(g) = fx {
+                g.frost = x.max(0.0);
             }
         }
         "spread" => {
@@ -190,6 +214,36 @@ fn set_effect_field(fx: &mut Effect, field: &str, value: &VariableValue) {
             let Some(x) = number_of(value) else { return };
             if let Effect::DropShadow { offset, .. } | Effect::InnerShadow { offset, .. } = fx {
                 offset.y = x;
+            }
+        }
+        "lightAngle" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::Glass(g) = fx {
+                g.light_angle = x;
+            }
+        }
+        "lightIntensity" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::Glass(g) = fx {
+                g.light_intensity = unit_or_pct(x);
+            }
+        }
+        "refraction" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::Glass(g) = fx {
+                g.refraction = unit_or_pct(x);
+            }
+        }
+        "depth" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::Glass(g) = fx {
+                g.depth = x.max(0.0);
+            }
+        }
+        "dispersion" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::Glass(g) = fx {
+                g.dispersion = unit_or_pct(x);
             }
         }
         _ => {}
@@ -1092,5 +1146,80 @@ mod tests {
         let NodeKind::Text(t) = &n.kind else { panic!("expected text") };
         assert_eq!(t.content, "Confirm");
         assert!(t.runs.is_empty(), "changing characters content must clear stale byte runs");
+    }
+
+    #[test]
+    fn glass_property_kind_and_scopes() {
+        assert_eq!(property_kind("effects/0/color"), Some(VariableKind::Color));
+        assert_eq!(property_kind("effects/0/radius"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/blur"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/frost"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/spread"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/offsetX"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/offsetY"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/lightAngle"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/lightIntensity"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/refraction"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/depth"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/0/dispersion"), Some(VariableKind::Number));
+
+        let rect_kind = NodeKind::Rectangle;
+        let s = |scopes: &[&str]| scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        assert!(scope_allows(&s(&["EFFECT_FLOAT"]), "effects/0/lightAngle", &rect_kind));
+        assert!(scope_allows(&s(&["EFFECT_FLOAT"]), "effects/0/refraction", &rect_kind));
+        assert!(scope_allows(&s(&["EFFECT_FLOAT"]), "effects/0/frost", &rect_kind));
+        assert!(!scope_allows(&s(&["WIDTH_HEIGHT"]), "effects/0/lightAngle", &rect_kind));
+
+        assert!(scope_allows(&s(&["EFFECT_COLOR"]), "effects/0/color", &rect_kind));
+        assert!(!scope_allows(&s(&["STROKE_COLOR"]), "effects/0/color", &rect_kind));
+
+        assert!(is_key_bindable_on_node("effects/0/lightAngle", &rect_kind));
+        assert!(is_key_bindable_on_node("effects/0/frost", &rect_kind));
+        assert!(is_key_bindable_on_node("effects/0/opacity", &rect_kind));
+        assert!(!is_key_bindable_on_node("unknown_key_xyz", &rect_kind));
+    }
+
+    #[test]
+    fn resolve_node_applies_glass_bindings_per_mode() {
+        let (mut d, _, frame, _) = setup();
+        let cid = d.alloc_id();
+        let mut node = Node::rectangle(cid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        node.effects = vec![Effect::Glass(GlassEffect {
+            frost: 10.0,
+            light_angle: 45.0,
+            light_intensity: 0.5,
+            refraction: 0.2,
+            depth: 2.0,
+            dispersion: 0.1,
+            splay: 0.0,
+            bevel: 0.0,
+            visible: true,
+        })];
+
+        d.variables.insert("frost-var".into(), var("frost-var", VariableKind::Number, VariableValue::Number(10.0), VariableValue::Number(25.0)));
+        d.variables.insert("angle-var".into(), var("angle-var", VariableKind::Number, VariableValue::Number(45.0), VariableValue::Number(90.0)));
+        d.variables.insert("depth-var".into(), var("depth-var", VariableKind::Number, VariableValue::Number(2.0), VariableValue::Number(8.0)));
+
+        node.variables.bindings.insert("effects/0/frost".into(), "frost-var".into());
+        node.variables.bindings.insert("effects/0/lightAngle".into(), "angle-var".into());
+        node.variables.bindings.insert("effects/0/depth".into(), "depth-var".into());
+
+        let node_id = d.insert(frame, node).unwrap();
+
+        // Light mode
+        let resolved_light = resolve_node(&d, d.get(node_id).unwrap());
+        let Effect::Glass(ref g_light) = resolved_light.effects[0] else { panic!("expected Glass") };
+        assert_eq!(g_light.frost, 10.0);
+        assert_eq!(g_light.light_angle, 45.0);
+        assert_eq!(g_light.depth, 2.0);
+
+        // Switch to Dark mode
+        d.get_mut(frame).unwrap().variables.modes.insert("c".into(), "dark".into());
+        let resolved_dark = resolve_node(&d, d.get(node_id).unwrap());
+        let Effect::Glass(ref g_dark) = resolved_dark.effects[0] else { panic!("expected Glass") };
+        assert_eq!(g_dark.frost, 25.0);
+        assert_eq!(g_dark.light_angle, 90.0);
+        assert_eq!(g_dark.depth, 8.0);
     }
 }

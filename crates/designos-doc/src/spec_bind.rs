@@ -925,7 +925,7 @@ pub fn validate_variable_binding_for_keys(
                 safe_to_retry: true,
             });
         }
-        if !allowed_keys.contains(&key) {
+        if !crate::is_key_bindable_on_node(key, node_kind) {
             return Err(SpecBindError {
                 code: "OVERRIDE_FIELD_NOT_APPLICABLE".to_string(),
                 message: format!("Property '{key}' (from '{field_name}') is not applicable to {} nodes.", node_kind.default_name()),

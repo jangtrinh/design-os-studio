@@ -10845,5 +10845,18 @@
     "dy": -8,
     "spec": "F",
     "reason": "header: the header row grows 8 px (24 to 32) but the tab strip and the content under it keep their place, so the derived downward shift is cancelled"
+  },
+  {
+    "case": "effect-glass",
+    "region": "overlay:Foreground/0",
+    "h_base": 24,
+    "x_band": [
+      1250.0,
+      1300.0
+    ],
+    "min_dw": -25,
+    "max_dw": -25,
+    "spec": "F",
+    "reason": "rule 5 (R5): the glass light angle and parameter fields reserve a variable bind slot on their right edge, 25 px narrower, so each binds like every other numeric field"
   }
 ]

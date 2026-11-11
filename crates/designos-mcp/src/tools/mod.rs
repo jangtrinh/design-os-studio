@@ -226,6 +226,8 @@ pub(crate) struct UpdateFields {
     pub opacity: Option<f32>,
     pub fill: Option<String>,
     pub fills: Option<Vec<Paint>>,
+    /// Variable bindings to set or clear keyed by property path.
+    pub bindings: Option<std::collections::BTreeMap<String, Option<String>>>,
 }
 
 pub(crate) fn validate_update_fields(u: &UpdateFields) -> Result<(), ToolError> {
@@ -368,6 +370,30 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
                         node.size.y = measure_text(props, Some(node.size.x.max(20.0))).y;
                     }
                     TextAutoResize::None | TextAutoResize::Truncate => {}
+                }
+            }
+        }
+    }
+    if let Some(bindings) = u.bindings {
+        let kind = node.kind.clone();
+        let mut index = designos_doc::SpecBindIndex::build(doc);
+        for (prop_key, raw_opt) in bindings {
+            let fpath = format!("/bindings/{prop_key}");
+            match raw_opt {
+                None => {
+                    node.variables.bindings.remove(&prop_key);
+                }
+                Some(ref raw) if raw.trim().is_empty() => {
+                    node.variables.bindings.remove(&prop_key);
+                }
+                Some(raw) => {
+                    let expected_kind = designos_doc::property_kind(&prop_key);
+                    let var_id = designos_doc::resolve_variable_ref_of_kind(doc, &mut index, &[], &raw, "bindings", &fpath, expected_kind)
+                        .map_err(|e| crate::tools::errors::from_spec_error(designos_doc::SpecError::from(e), ""))?;
+                    designos_doc::validate_variable_binding_for_keys(doc, &index, &var_id, &[prop_key.as_str()], &kind, &raw, "bindings", &fpath)
+                        .map_err(|e| crate::tools::errors::from_spec_error(designos_doc::SpecError::from(e), ""))?;
+                    let val = designos_doc::resolve_variable_with_fallback_warning(doc, id, &var_id, &fpath, &mut warnings);
+                    designos_doc::bind_variable_on_node(&mut node, &[prop_key.as_str()], &var_id, val.as_ref());
                 }
             }
         }

@@ -353,18 +353,7 @@ fn count_variable_override_nodes(entries: &[Entry]) -> usize {
 /// Effect fields whose variable binding Studio does not carry: the glass fields other than the frost radius,
 /// and the noise size (both sides), density and second colour. The noise colour, its opacity and the radius,
 /// spread and offsets of the other effects are carried as bindings (`bound_variables`).
-const UNCARRIED_EFFECT_BINDINGS: [&str; 10] = [
-    "refractionRadiusVar",
-    "specularAngleVar",
-    "specularIntensityVar",
-    "chromaticAberrationVar",
-    "splayVar",
-    "refractionIntensityVar",
-    "noiseSizeXVar",
-    "noiseSizeYVar",
-    "densityVar",
-    "secondaryColorVar",
-];
+const UNCARRIED_EFFECT_BINDINGS: [&str; 5] = ["splayVar", "noiseSizeXVar", "noiseSizeYVar", "densityVar", "secondaryColorVar"];
 
 /// How many bindings of [`UNCARRIED_EFFECT_BINDINGS`] the effects of `entries` (layers and effect styles) hold.
 fn dropped_effect_variable_bindings(entries: &[Entry]) -> usize {
@@ -2357,6 +2346,11 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
                 ("spreadVar", "spread"),
                 ("xVar", "offsetX"),
                 ("yVar", "offsetY"),
+                ("specularAngleVar", "lightAngle"),
+                ("specularIntensityVar", "lightIntensity"),
+                ("refractionIntensityVar", "refraction"),
+                ("refractionRadiusVar", "depth"),
+                ("chromaticAberrationVar", "dispersion"),
             ] {
                 if let Some(a) = e.get(kiwi_key).and_then(alias) {
                     bound.insert(rest_key.into(), a);
@@ -3485,7 +3479,19 @@ fn convert_effect(e: &Value) -> Option<Value> {
 const MAX_ALIAS_DEPTH: usize = 256;
 
 /// Variable keys an effect can bind.
-const EFFECT_VARIABLE_KEYS: [&str; 6] = ["colorVar", "effectOpacityVar", "radiusVar", "spreadVar", "xVar", "yVar"];
+const EFFECT_VARIABLE_KEYS: [&str; 11] = [
+    "colorVar",
+    "effectOpacityVar",
+    "radiusVar",
+    "spreadVar",
+    "xVar",
+    "yVar",
+    "specularAngleVar",
+    "specularIntensityVar",
+    "refractionIntensityVar",
+    "refractionRadiusVar",
+    "chromaticAberrationVar",
+];
 
 /// Id of every variable the `effects` bind (the alias text when it names no variable of the file).
 fn effect_variables(lk: &Lk, effects: &[Value]) -> HashSet<String> {
