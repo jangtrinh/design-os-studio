@@ -168,17 +168,7 @@ pub fn retime_track_keyframes(track: &mut Track, new_us: u64, fallback_old_us: u
     if track.keyframes.is_empty() {
         return;
     }
-    let old_us = if fallback_old_us > 0 {
-        fallback_old_us
-    } else {
-        track
-            .keyframes
-            .iter()
-            .map(|k| k.time_us)
-            .filter(|&t| t > 0)
-            .max()
-            .unwrap_or(0) as u64
-    };
+    let old_us = if fallback_old_us > 0 { fallback_old_us } else { track.keyframes.iter().map(|k| k.time_us).filter(|&t| t > 0).max().unwrap_or(0) as u64 };
     if old_us == 0 {
         return;
     }

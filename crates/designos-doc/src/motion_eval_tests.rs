@@ -191,10 +191,7 @@ fn setup_variables(doc: &mut Document) {
         VariableCollection {
             id: "col".into(),
             name: "Collection".into(),
-            modes: vec![
-                VariableMode { id: "light".into(), name: "Light".into() },
-                VariableMode { id: "dark".into(), name: "Dark".into() },
-            ],
+            modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
             default_mode: "light".into(),
             variables: vec![],
             key: None,
@@ -208,15 +205,8 @@ fn setup_variables(doc: &mut Document) {
 fn bound_easing_switches_per_mode_on_transition_and_track() {
     let mut doc = Document::new("easing_test");
     setup_variables(&mut doc);
-    doc.variables.insert(
-        "v_ease".into(),
-        var_def(
-            "v_ease",
-            VariableKind::String,
-            VariableValue::String("linear".into()),
-            VariableValue::String("ease-in-out".into()),
-        ),
-    );
+    doc.variables
+        .insert("v_ease".into(), var_def("v_ease", VariableKind::String, VariableValue::String("linear".into()), VariableValue::String("ease-in-out".into())));
 
     let page = doc.add_page("Page 1");
     let nid = doc.alloc_id();
@@ -224,11 +214,7 @@ fn bound_easing_switches_per_mode_on_transition_and_track() {
     node.prototype.reactions.push(Reaction {
         trigger: Trigger::OnClick,
         actions: vec![Action::Navigate { dest: nid, preserve_scroll: false }],
-        transition: Some(Transition {
-            kind: TransitionKind::SmartAnimate,
-            easing: Easing::Linear,
-            duration_ms: 1000,
-        }),
+        transition: Some(Transition { kind: TransitionKind::SmartAnimate, easing: Easing::Linear, duration_ms: 1000 }),
     });
 
     let track = float_track("tr", "tl", TrackProperty::Opacity, KeyframeOperation::Set, &[(0, 0.0), (1_000_000, 100.0)]);
@@ -261,15 +247,7 @@ fn bound_easing_switches_per_mode_on_transition_and_track() {
 fn bound_duration_retimes_transition_and_motion_tracks() {
     let mut doc = Document::new("duration_test");
     setup_variables(&mut doc);
-    doc.variables.insert(
-        "v_dur".into(),
-        var_def(
-            "v_dur",
-            VariableKind::Number,
-            VariableValue::Number(1000.0),
-            VariableValue::Number(2000.0),
-        ),
-    );
+    doc.variables.insert("v_dur".into(), var_def("v_dur", VariableKind::Number, VariableValue::Number(1000.0), VariableValue::Number(2000.0)));
 
     let page = doc.add_page("Page 1");
     let nid = doc.alloc_id();
@@ -277,11 +255,7 @@ fn bound_duration_retimes_transition_and_motion_tracks() {
     node.prototype.reactions.push(Reaction {
         trigger: Trigger::OnClick,
         actions: vec![Action::Navigate { dest: nid, preserve_scroll: false }],
-        transition: Some(Transition {
-            kind: TransitionKind::SmartAnimate,
-            easing: Easing::Linear,
-            duration_ms: 1000,
-        }),
+        transition: Some(Transition { kind: TransitionKind::SmartAnimate, easing: Easing::Linear, duration_ms: 1000 }),
     });
 
     let track = float_track("tr", "tl", TrackProperty::Opacity, KeyframeOperation::Set, &[(0, 0.0), (1_000_000, 100.0)]);
@@ -318,12 +292,7 @@ fn lint_reports_unknown_easing_presets_and_clears_on_valid() {
     setup_variables(&mut doc);
     doc.variables.insert(
         "v_ease".into(),
-        var_def(
-            "v_ease",
-            VariableKind::String,
-            VariableValue::String("invalid-curve-xyz".into()),
-            VariableValue::String("ease-in-out".into()),
-        ),
+        var_def("v_ease", VariableKind::String, VariableValue::String("invalid-curve-xyz".into()), VariableValue::String("ease-in-out".into())),
     );
 
     let page = doc.add_page("Page 1");
@@ -344,4 +313,37 @@ fn lint_reports_unknown_easing_presets_and_clears_on_valid() {
     let findings_valid = lint::lint_single_node(&doc, nid, &config, &env);
     let easing_findings_valid: Vec<_> = findings_valid.iter().filter(|f| f.rule == "easing-variable").collect();
     assert!(easing_findings_valid.is_empty(), "valid preset must produce zero findings");
+}
+
+#[test]
+fn unbound_document_evaluates_and_serializes_without_binding_keys() {
+    let track = float_track("tr", "tl", TrackProperty::Opacity, KeyframeOperation::Set, &[(0, 0.0), (D as i64, 80.0)]);
+    let (doc, _) = playing(PlaybackStyle::Loop, D, track);
+    let json = doc.to_json().unwrap();
+    assert!(!json.contains("easingData") && !json.contains("timelineDuration"), "no binding keys appear for a file that never bound them");
+
+    // A native file written before easing and duration bindings existed loads and samples the same.
+    let reloaded = Document::from_json(&json).unwrap();
+    for t in [0, 250_000, 500_000, 900_000] {
+        assert_eq!(float_at(&reloaded, t, TrackProperty::Opacity), float_at(&doc, t, TrackProperty::Opacity));
+    }
+    assert_eq!(float_at(&reloaded, 500_000, TrackProperty::Opacity), 40.0);
+}
+
+#[test]
+fn unknown_easing_name_keeps_the_stored_easing() {
+    let mut doc = Document::new("unknown_ease");
+    setup_variables(&mut doc);
+    doc.variables.insert(
+        "v_ease".into(),
+        var_def("v_ease", VariableKind::String, VariableValue::String("no-such-curve".into()), VariableValue::String("no-such-curve".into())),
+    );
+    let page = doc.add_page("Page 1");
+    let id = doc.alloc_id();
+    let mut node = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    node.variables.bindings.insert("easingData".into(), "v_ease".into());
+    let track = float_track("tr", "tl", TrackProperty::Opacity, KeyframeOperation::Set, &[(0, 0.0), (D as i64, 100.0)]);
+    install(&mut node, vec![Timeline::new("tl", D)], vec![assign("tl", "tl", 0)], vec![track]);
+    doc.insert(page, node).unwrap();
+    assert_eq!(float_at(&doc, 500_000, TrackProperty::Opacity), 50.0, "linear stored easing survives an unknown preset name");
 }

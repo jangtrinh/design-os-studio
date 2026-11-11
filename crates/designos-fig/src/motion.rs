@@ -501,10 +501,7 @@ pub fn reconstruct_pcm_variable_entries(
     }
 
     if !skip_fields.contains("EASING_DATA") {
-        let ease_vid = bindings
-            .get("easingData")
-            .or_else(|| bindings.get("transition/easing"))
-            .or_else(|| bindings.get("easing"));
+        let ease_vid = bindings.get("easingData").or_else(|| bindings.get("transition/easing")).or_else(|| bindings.get("easing"));
         if let Some(vid) = ease_vid {
             if let Some(vg) = resolve_var_guid(vid) {
                 out_entries.push(json!({
@@ -525,10 +522,7 @@ pub fn reconstruct_pcm_variable_entries(
     }
 
     if !skip_fields.contains("TIMELINE_DURATION") {
-        let dur_vid = bindings
-            .get("timelineDuration")
-            .or_else(|| bindings.get("transition/duration"))
-            .or_else(|| bindings.get("duration"));
+        let dur_vid = bindings.get("timelineDuration").or_else(|| bindings.get("transition/duration")).or_else(|| bindings.get("duration"));
         if let Some(vid) = dur_vid {
             if let Some(vg) = resolve_var_guid(vid) {
                 out_entries.push(json!({

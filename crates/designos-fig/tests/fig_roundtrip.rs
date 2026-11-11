@@ -5326,3 +5326,77 @@ fn roundtrip_preserves_size_limit_and_typography_variable_bindings() {
     assert_eq!(tp_b.style.paragraph_spacing, 16.0);
     assert_eq!(tp_b.paragraph.indent, 24.0);
 }
+
+#[test]
+fn roundtrip_preserves_easing_and_duration_variable_bindings() {
+    let mut doc = Document::new("EasingDurationBindings");
+    let page_id = doc.add_page("Page 1");
+
+    let coll_id = "VariableCollectionId:20:1";
+    let (mode_a, mode_b) = ("20:0", "20:1");
+    let (var_ease, var_dur) = ("VariableID:20:1", "VariableID:20:2");
+
+    doc.variable_collections.insert(
+        coll_id.into(),
+        VariableCollection {
+            id: coll_id.into(),
+            name: "Motion".into(),
+            modes: vec![VariableMode { id: mode_a.into(), name: "Calm".into() }, VariableMode { id: mode_b.into(), name: "Snappy".into() }],
+            default_mode: mode_a.into(),
+            variables: vec![var_ease.into(), var_dur.into()],
+            key: Some("motion_coll_key".into()),
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    let mk = |id: &str, name: &str, kind: VariableKind, a: VariableValue, b: VariableValue| Variable {
+        id: id.into(),
+        name: name.into(),
+        collection: coll_id.into(),
+        kind,
+        values: [(mode_a.to_string(), a), (mode_b.to_string(), b)].into_iter().collect(),
+        description: String::new(),
+        scopes: vec![],
+        hidden_from_publishing: false,
+        key: Some(format!("key_{id}")),
+        code_syntax: Default::default(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
+    };
+    doc.variables.insert(
+        var_ease.into(),
+        mk(var_ease, "motion/easing", VariableKind::String, VariableValue::String("ease-in-out".into()), VariableValue::String("linear".into())),
+    );
+    doc.variables.insert(var_dur.into(), mk(var_dur, "motion/duration", VariableKind::Number, VariableValue::Number(300.0), VariableValue::Number(120.0)));
+
+    let frame_id = doc.alloc_id();
+    let mut frame = Node::frame(frame_id, Rect::new(0.0, 0.0, 200.0, 200.0));
+    frame.name = "Animated".into();
+    frame.variables.bindings.insert("easingData".into(), var_ease.into());
+    frame.variables.bindings.insert("timelineDuration".into(), var_dur.into());
+    doc.insert(page_id, frame).unwrap();
+
+    let bytes1 = export_fig(&doc).expect("first export_fig");
+    let doc2 = import_fig(&bytes1).expect("first import_fig");
+    let bytes2 = export_fig(&doc2).expect("second export_fig");
+    let doc3 = import_fig(&bytes2).expect("second import_fig");
+
+    let find_var = |d: &Document, name: &str| d.variables.values().find(|v| v.name == name).expect(name).id.clone();
+    let node = find(&doc3, "Animated");
+    assert_eq!(node.variables.bindings.get("easingData"), Some(&find_var(&doc3, "motion/easing")));
+    assert_eq!(node.variables.bindings.get("timelineDuration"), Some(&find_var(&doc3, "motion/duration")));
+
+    let (coll, snappy) = {
+        let c = doc3.variable_collections.values().find(|c| c.name == "Motion").expect("Motion collection");
+        (c.id.clone(), c.modes.iter().find(|m| m.name == "Snappy").expect("Snappy").id.clone())
+    };
+    let id = node.id;
+    let ease_var = find_var(&doc3, "motion/easing");
+    let dur_var = find_var(&doc3, "motion/duration");
+    assert_eq!(doc3.resolve_variable(id, &ease_var), Some(VariableValue::String("ease-in-out".into())));
+    assert_eq!(doc3.resolve_variable(id, &dur_var), Some(VariableValue::Number(300.0)));
+    let mut doc3 = doc3;
+    doc3.get_mut(id).unwrap().variables.modes.insert(coll, snappy);
+    assert_eq!(doc3.resolve_variable(id, &ease_var), Some(VariableValue::String("linear".into())));
+    assert_eq!(doc3.resolve_variable(id, &dur_var), Some(VariableValue::Number(120.0)));
+}

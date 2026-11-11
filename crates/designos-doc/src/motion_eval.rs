@@ -66,10 +66,9 @@ pub fn evaluate_motion(doc: &Document, t_us: i64) -> Vec<PropertyOverride> {
         for mut track in motion.tracks.clone() {
             let node_has_dur_var = raw_node.variables.bindings.keys().any(|k| crate::is_duration_binding_key(k));
             let (tl_owner_id, tl_has_dur_var, raw_tl_dur_us) = if let Some((owner_id, _)) = index.timeline(&track.timeline) {
-                let owner_has_dur = doc.get(owner_id).is_some_and(|on| {
-                    on.variables.bindings.keys().any(|k| crate::is_duration_binding_key(k))
-                });
-                let raw_dur = doc.get(owner_id)
+                let owner_has_dur = doc.get(owner_id).is_some_and(|on| on.variables.bindings.keys().any(|k| crate::is_duration_binding_key(k)));
+                let raw_dur = doc
+                    .get(owner_id)
                     .and_then(|on| on.motion.as_deref())
                     .and_then(|m| m.timelines.iter().find(|t| t.id == track.timeline))
                     .map(|t| t.duration_us)

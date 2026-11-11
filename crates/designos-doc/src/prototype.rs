@@ -453,24 +453,15 @@ pub fn parse_key_easing_preset(name: &str) -> Option<(crate::InterpolationType, 
     match norm.as_str() {
         "linear" => Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::Linear))),
         "ease-in" | "in-cubic" => Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::InCubic))),
-        "css-ease-in" => Some((
-            crate::InterpolationType::Bezier,
-            crate::KeyEasing {
-                easing_type: EasingType::EaseIn,
-                bezier: Some(CSS_EASE_IN),
-                spring: None,
-            },
-        )),
+        "css-ease-in" => {
+            Some((crate::InterpolationType::Bezier, crate::KeyEasing { easing_type: EasingType::EaseIn, bezier: Some(CSS_EASE_IN), spring: None }))
+        }
         "ease-out" | "out-cubic" => Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::OutCubic))),
         "ease-in-out" | "ease-in-and-out" | "inout-cubic" | "in-out-cubic" => {
             Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::InOutCubic)))
         }
-        "ease-in-back" | "in-back" | "in-back-cubic" => {
-            Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::InBackCubic)))
-        }
-        "ease-out-back" | "out-back" | "out-back-cubic" => {
-            Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::OutBackCubic)))
-        }
+        "ease-in-back" | "in-back" | "in-back-cubic" => Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::InBackCubic))),
+        "ease-out-back" | "out-back" | "out-back-cubic" => Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::OutBackCubic))),
         "ease-in-out-back" | "ease-in-and-out-back" | "inout-back" | "in-out-back" | "inout-back-cubic" => {
             Some((crate::InterpolationType::Bezier, crate::KeyEasing::new(EasingType::InOutBackCubic)))
         }
@@ -479,12 +470,7 @@ pub fn parse_key_easing_preset(name: &str) -> Option<(crate::InterpolationType, 
             crate::KeyEasing {
                 easing_type: EasingType::SpringPresetOne,
                 bezier: None,
-                spring: Some(crate::SpringParams {
-                    mass: 1.0,
-                    stiffness: 300.0,
-                    damping: 20.0,
-                    normalized: false,
-                }),
+                spring: Some(crate::SpringParams { mass: 1.0, stiffness: 300.0, damping: 20.0, normalized: false }),
             },
         )),
         "gentle" | "gentle-spring" => Some((
@@ -492,12 +478,7 @@ pub fn parse_key_easing_preset(name: &str) -> Option<(crate::InterpolationType, 
             crate::KeyEasing {
                 easing_type: EasingType::GentleSpring,
                 bezier: None,
-                spring: Some(crate::SpringParams {
-                    mass: 1.0,
-                    stiffness: 100.0,
-                    damping: 15.0,
-                    normalized: false,
-                }),
+                spring: Some(crate::SpringParams { mass: 1.0, stiffness: 100.0, damping: 15.0, normalized: false }),
             },
         )),
         "bouncy" | "spring-preset-two" => Some((
@@ -505,12 +486,7 @@ pub fn parse_key_easing_preset(name: &str) -> Option<(crate::InterpolationType, 
             crate::KeyEasing {
                 easing_type: EasingType::SpringPresetTwo,
                 bezier: None,
-                spring: Some(crate::SpringParams {
-                    mass: 1.0,
-                    stiffness: 600.0,
-                    damping: 15.0,
-                    normalized: false,
-                }),
+                spring: Some(crate::SpringParams { mass: 1.0, stiffness: 600.0, damping: 15.0, normalized: false }),
             },
         )),
         "slow" | "spring-preset-three" => Some((
@@ -518,12 +494,7 @@ pub fn parse_key_easing_preset(name: &str) -> Option<(crate::InterpolationType, 
             crate::KeyEasing {
                 easing_type: EasingType::SpringPresetThree,
                 bezier: None,
-                spring: Some(crate::SpringParams {
-                    mass: 1.0,
-                    stiffness: 80.0,
-                    damping: 20.0,
-                    normalized: false,
-                }),
+                spring: Some(crate::SpringParams { mass: 1.0, stiffness: 80.0, damping: 20.0, normalized: false }),
             },
         )),
         "hold" => Some((crate::InterpolationType::Hold, crate::KeyEasing::new(EasingType::Hold))),
@@ -862,11 +833,7 @@ mod tests {
 
     #[test]
     fn transition_effective_duration_and_evaluate_at() {
-        let tr = Transition {
-            kind: TransitionKind::SmartAnimate,
-            easing: Easing::Linear,
-            duration_ms: 500,
-        };
+        let tr = Transition { kind: TransitionKind::SmartAnimate, easing: Easing::Linear, duration_ms: 500 };
         assert_eq!(tr.effective_duration_ms(), 500);
         assert_eq!(tr.duration_us(), 500_000);
         assert_eq!(tr.evaluate_at_ms(0.0), 0.0);
