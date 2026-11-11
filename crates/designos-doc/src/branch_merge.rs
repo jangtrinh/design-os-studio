@@ -88,6 +88,8 @@ pub enum MergeError {
     Apply { step: usize, reason: String },
     /// The merged working tree would make a component hold an instance of itself.
     InstanceCycle(String),
+    /// The merged variable store would add unresolved aliases (including alias cycles).
+    InvalidVariableAliases(Vec<(String, String)>),
     /// Attempted to merge an archived or already-merged branch (`T10.3 §8.6`).
     BranchArchived(String),
 }
@@ -107,6 +109,7 @@ impl std::fmt::Display for MergeError {
                 write!(f, "merge command failed at step {step}: {reason}")
             }
             Self::InstanceCycle(message) => write!(f, "{message}"),
+            Self::InvalidVariableAliases(aliases) => write!(f, "invalid variable aliases after branch merge: {aliases:?}"),
             Self::BranchArchived(name) => {
                 write!(f, "branch '{name}' is archived or already merged")
             }
@@ -240,6 +243,13 @@ pub fn merge(base: &Document, main: &Document, branch: &Document, diff: &Diff3, 
         return Err(MergeError::InstanceCycle(format!(
             "INSTANCE_CYCLE: cannot merge branch because main component '{comp_name}' would hold an instance of itself (cycle path: {path_text})"
         )));
+    }
+
+    let aliases_after = crate::VariableStore::from_doc(&working).unresolved_alias_targets();
+    let aliases_before = crate::VariableStore::from_doc(main).unresolved_alias_targets();
+    let invalid_aliases: Vec<_> = aliases_after.into_iter().filter(|(key, target)| aliases_before.get(key) != Some(target)).map(|(key, _)| key).collect();
+    if !invalid_aliases.is_empty() {
+        return Err(MergeError::InvalidVariableAliases(invalid_aliases));
     }
 
     // 6. Validate all references in the merged document (`T10.3 §2`, `§3.7`, `§8.1`, `§8.2`).
@@ -411,6 +421,20 @@ fn rewrite_document_ids(
         let new_id = remap_str(&old_id, collection_map);
         col.id = new_id.clone();
         col.variables = col.variables.into_iter().map(|v| remap_str(&v, variable_map)).collect();
+        if let Some(mut extension) = col.extension() {
+            extension.parent.collection = remap_str(&extension.parent.collection, collection_map);
+            let mut overrides = BTreeMap::new();
+            for (variable, mut modes) in extension.overrides {
+                for value in modes.values_mut() {
+                    if let VariableValue::Alias(target) = value {
+                        *target = remap_str(target, variable_map);
+                    }
+                }
+                overrides.insert(remap_str(&variable, variable_map), modes);
+            }
+            extension.overrides = overrides;
+            col.set_extension(&extension);
+        }
         doc.variable_collections.insert(new_id, col);
     }
 
@@ -1855,7 +1879,7 @@ mod tests {
     use super::*;
     use crate::{
         Color, ComponentPropDef, ConnectorCap, ConnectorEnd, ConnectorLine, ConnectorProps, FrameProps, Guide, GuideAxis, Magnet, Paint, Reaction, Rect,
-        SlotPropConfig, Style, StyleMeta, StyleProperty, Trigger, Variable, VariableCollection, VariableKind, VariableMode, VariableValue, Vec2,
+        SlotPropConfig, Style, StyleMeta, StyleProperty, Trigger, Variable, VariableCollection, VariableKind, VariableMode, VariableStore, VariableValue, Vec2,
     };
 
     fn new_doc_with_page() -> (Document, NodeId) {
@@ -2537,5 +2561,176 @@ mod tests {
 
         let (merged, _) = merge_branch(&base, &main, &branch, &Resolution::default()).expect("existing cycle in file must not block an unrelated branch merge");
         assert!(merged.get(rect_id).is_some(), "unrelated branch change must be applied");
+    }
+
+    #[test]
+    fn branch_collection_remap_rewrites_extended_collection_references() {
+        let (base, _) = new_doc_with_page();
+        let mut main = base.clone();
+        let mut branch = base.clone();
+        let collection_id = "collection:tokens";
+        let branch_mode = "mode:branch";
+        let branch_variable = "variable:shared";
+        let branch_alias_target = "variable:alias-target";
+
+        main.variable_collections.insert(
+            collection_id.into(),
+            VariableCollection {
+                id: collection_id.into(),
+                name: "Main tokens".into(),
+                modes: vec![VariableMode { id: "mode:main".into(), name: "Default".into() }],
+                default_mode: "mode:main".into(),
+                variables: vec![branch_variable.into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        main.variables.insert(
+            branch_variable.into(),
+            Variable {
+                id: branch_variable.into(),
+                name: "main-number".into(),
+                collection: collection_id.into(),
+                kind: VariableKind::Number,
+                values: BTreeMap::from([("mode:main".into(), VariableValue::Number(1.0))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        main.variables.insert(
+            branch_alias_target.into(),
+            Variable {
+                id: branch_alias_target.into(),
+                name: "main-alias-target".into(),
+                collection: collection_id.into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("mode:main".into(), VariableValue::Color(Color::rgb(1, 2, 3)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+
+        branch.variable_collections.insert(
+            collection_id.into(),
+            VariableCollection {
+                id: collection_id.into(),
+                name: "Branch tokens".into(),
+                modes: vec![VariableMode { id: branch_mode.into(), name: "Default".into() }],
+                default_mode: branch_mode.into(),
+                variables: vec![branch_variable.into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        branch.variables.insert(
+            branch_variable.into(),
+            Variable {
+                id: branch_variable.into(),
+                name: "branch-color".into(),
+                collection: collection_id.into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([(branch_mode.into(), VariableValue::Color(Color::rgb(10, 200, 20)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        branch.variables.insert(
+            branch_alias_target.into(),
+            Variable {
+                id: branch_alias_target.into(),
+                name: "branch-alias-target".into(),
+                collection: collection_id.into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([(branch_mode.into(), VariableValue::Color(Color::rgb(40, 50, 60)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+
+        let extension_id = "collection:extension";
+        let inherited_mode = "mode:extension-inherited";
+        let override_mode = "mode:extension-override";
+        let mut extension = VariableCollection {
+            id: extension_id.into(),
+            name: "Extension".into(),
+            modes: vec![
+                VariableMode { id: inherited_mode.into(), name: "Inherited".into() },
+                VariableMode { id: override_mode.into(), name: "Override".into() },
+            ],
+            default_mode: inherited_mode.into(),
+            variables: Vec::new(),
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        };
+        extension.set_extension(&crate::CollectionExtension {
+            parent: crate::ParentCollection { collection: collection_id.into(), set_key: None },
+            mode_map: BTreeMap::from([(inherited_mode.into(), branch_mode.into()), (override_mode.into(), branch_mode.into())]),
+            overrides: BTreeMap::from([(branch_variable.into(), BTreeMap::from([(override_mode.into(), VariableValue::Alias(branch_alias_target.into()))]))]),
+        });
+        branch.variable_collections.insert(extension_id.into(), extension);
+
+        let (merged, plan) = merge_branch(&base, &main, &branch, &Resolution::default()).expect("branch entity collisions auto-remap");
+        let remapped_collection = plan.report.remapped_collections.get(collection_id).expect("parent collection collision remapped");
+        let remapped_variable = plan.report.remapped_variables.get(branch_variable).expect("variable collision remapped");
+        let merged_extension = &merged.variable_collections[extension_id];
+        let typed = merged_extension.extension().expect("extension metadata survives merge");
+        assert_eq!(typed.parent.collection, *remapped_collection, "parent collection reference follows branch remap");
+        assert_eq!(typed.mode_map[inherited_mode], branch_mode, "extension mode maps to the branch parent's mode");
+        let remapped_alias_target = plan.report.remapped_variables.get(branch_alias_target).expect("alias target collision remapped");
+        assert_eq!(typed.overrides[remapped_variable][override_mode], VariableValue::Alias(remapped_alias_target.clone()));
+
+        let store = VariableStore::from_doc(&merged);
+        assert_eq!(store.resolve(remapped_variable, inherited_mode), Some(VariableValue::Color(Color::rgb(10, 200, 20))));
+        assert_eq!(store.resolve(remapped_variable, override_mode), Some(VariableValue::Color(Color::rgb(40, 50, 60))));
+    }
+
+    #[test]
+    fn branch_merge_rejects_alias_cycle_created_by_independent_changes() {
+        let (mut base, _) = new_doc_with_page();
+        let mut store = VariableStore::default();
+        let collection = store.add_collection("Tokens");
+        let mode = store.collections[&collection].default_mode.clone();
+        let first = store.add_variable(&collection, "First", VariableKind::Color).unwrap();
+        let second = store.add_variable(&collection, "Second", VariableKind::Color).unwrap();
+        assert!(store.set_value(&first, &mode, VariableValue::Color(Color::WHITE)));
+        assert!(store.set_value(&second, &mode, VariableValue::Color(Color::BLACK)));
+        base.variables = store.variables.clone();
+        base.variable_collections = store.collections.clone();
+
+        let mut main = base.clone();
+        let mut main_store = VariableStore::from_doc(&main);
+        assert!(main_store.set_alias(&first, &mode, &second), "main-side alias is individually valid");
+        main.variables = main_store.variables;
+
+        let mut branch = base.clone();
+        let mut branch_store = VariableStore::from_doc(&branch);
+        assert!(branch_store.set_alias(&second, &mode, &first), "branch-side alias is individually valid");
+        branch.variables = branch_store.variables;
+
+        let err = merge_branch(&base, &main, &branch, &Resolution::default()).expect_err("combined alias cycle must be refused");
+        assert!(matches!(err, MergeError::InvalidVariableAliases(ref aliases) if aliases.contains(&(first, mode))));
     }
 }
