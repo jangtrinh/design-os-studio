@@ -833,29 +833,20 @@ fn bake_unrecognized_style_binding(node: &mut Node, slot: &str, key: &str, val: 
         "individualStrokeWeights/right" => set_bound_property(node, "strokeRightWeight", val),
         "individualStrokeWeights/bottom" => set_bound_property(node, "strokeBottomWeight", val),
         "individualStrokeWeights/left" => set_bound_property(node, "strokeLeftWeight", val),
-        "minWidth" => {
-            if let VariableValue::Number(x) = *val {
-                node.layout_child.min_w = Some(x.max(0.0));
-            }
-        }
-        "maxWidth" => {
-            if let VariableValue::Number(x) = *val {
-                node.layout_child.max_w = Some(x.max(0.0));
-            }
-        }
-        "minHeight" => {
-            if let VariableValue::Number(x) = *val {
-                node.layout_child.min_h = Some(x.max(0.0));
-            }
-        }
-        "maxHeight" => {
-            if let VariableValue::Number(x) = *val {
-                node.layout_child.max_h = Some(x.max(0.0));
-            }
-        }
+        "minWidth" | "maxWidth" | "minHeight" | "maxHeight" => set_bound_property(node, key, val),
         _ => {
             set_bound_property(node, key, val);
         }
+    }
+}
+
+fn is_style_binding_for_slot(slot: &str, node_key: &str) -> bool {
+    match slot {
+        "fill" => node_key.starts_with("fills/"),
+        "stroke" => node_key.starts_with("strokes/"),
+        "text" => crate::text_style_overrides::TEXT_STYLE_BINDING_KEYS.contains(&node_key),
+        "effect" => node_key.starts_with("effects/"),
+        _ => false,
     }
 }
 
@@ -911,7 +902,7 @@ pub fn delete_style_with_fallbacks(doc: &Document, key: &str) -> Result<(Command
                             continue;
                         }
                         StyleBindingOverride::KeepBindingWithFallback => {
-                            if property_kind(&node_key).is_some() {
+                            if is_style_binding_for_slot(slot, &node_key) && property_kind(&node_key).is_some() {
                                 copy.variables.bindings.insert(node_key.clone(), variable.clone());
                             } else if let Some(val) = doc.resolve_variable(id, variable) {
                                 bake_unrecognized_style_binding(&mut copy, slot, &node_key, &val);
@@ -921,7 +912,7 @@ pub fn delete_style_with_fallbacks(doc: &Document, key: &str) -> Result<(Command
                         }
                         StyleBindingOverride::None => {}
                     }
-                    if property_kind(&node_key).is_some() {
+                    if is_style_binding_for_slot(slot, &node_key) && property_kind(&node_key).is_some() {
                         copy.variables.bindings.insert(node_key, variable.clone());
                     } else if let Some(val) = doc.resolve_variable(id, variable) {
                         bake_unrecognized_style_binding(&mut copy, slot, &node_key, &val);

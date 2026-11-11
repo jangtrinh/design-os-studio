@@ -39,11 +39,10 @@ pub fn property_kind(key: &str) -> Option<VariableKind> {
             "color" => VariableKind::Color,
             _ => VariableKind::Number,
         },
-        "width" | "height" | "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" | "itemSpacing" | "counterAxisSpacing"
-        | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom" | "opacity" | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing"
-        | "paragraphSpacing" | "paragraphIndent" | "strokeWeight" | "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight" => {
-            VariableKind::Number
-        }
+        "width" | "height" | "minWidth" | "maxWidth" | "minHeight" | "maxHeight" | "topLeftRadius" | "topRightRadius" | "bottomLeftRadius"
+        | "bottomRightRadius" | "itemSpacing" | "counterAxisSpacing" | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom" | "opacity"
+        | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent" | "strokeWeight" | "strokeTopWeight"
+        | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight" => VariableKind::Number,
         "visible" => VariableKind::Boolean,
         "characters" | "fontFamily" | "fontStyle" => VariableKind::String,
         _ => return None,
@@ -72,7 +71,7 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
             Some("color") => has(&["EFFECT_COLOR"]),
             _ => has(&["EFFECT_FLOAT"]),
         },
-        "width" | "height" => has(&["WIDTH_HEIGHT"]),
+        "width" | "height" | "minWidth" | "maxWidth" | "minHeight" | "maxHeight" => has(&["WIDTH_HEIGHT"]),
         "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" => has(&["CORNER_RADIUS"]),
         "itemSpacing" | "counterAxisSpacing" | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom" => has(&["GAP"]),
         "opacity" => has(&["OPACITY"]),
@@ -95,7 +94,7 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
 
 /// Binding keys that make sense for a node (what the inspector can bind).
 pub fn bindable_keys(kind: &NodeKind) -> Vec<&'static str> {
-    let mut v = vec!["width", "height", "opacity", "visible", "fills/0", "strokes/0", "strokeWeight"];
+    let mut v = vec!["width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight", "opacity", "visible", "fills/0", "strokes/0", "strokeWeight"];
     if !matches!(kind, NodeKind::Text(_)) {
         v.extend(["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"]);
     }
@@ -103,7 +102,7 @@ pub fn bindable_keys(kind: &NodeKind) -> Vec<&'static str> {
         v.extend(["itemSpacing", "counterAxisSpacing", "paddingLeft", "paddingRight", "paddingTop", "paddingBottom"]);
     }
     if matches!(kind, NodeKind::Text(_)) {
-        v.extend(["characters", "fontSize", "fontWeight", "lineHeight", "letterSpacing"]);
+        v.extend(["characters", "fontFamily", "fontStyle", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent"]);
     }
     v
 }
@@ -460,6 +459,10 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 n.stroke_geometry = None;
             }
         }
+        "minWidth" => n.layout_child.min_w = Some(x.max(0.0)),
+        "maxWidth" => n.layout_child.max_w = Some(x.max(0.0)),
+        "minHeight" => n.layout_child.min_h = Some(x.max(0.0)),
+        "maxHeight" => n.layout_child.max_h = Some(x.max(0.0)),
         "opacity" => n.opacity = (x / 100.0).clamp(0.0, 1.0),
         "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius" => {
             let i = match key {
@@ -1221,5 +1224,148 @@ mod tests {
         assert_eq!(g_dark.frost, 25.0);
         assert_eq!(g_dark.light_angle, 90.0);
         assert_eq!(g_dark.depth, 8.0);
+    }
+
+    #[test]
+    fn bind_size_limits_and_typography_keys_metadata_and_resolution() {
+        assert_eq!(property_kind("minWidth"), Some(VariableKind::Number));
+        assert_eq!(property_kind("maxWidth"), Some(VariableKind::Number));
+        assert_eq!(property_kind("minHeight"), Some(VariableKind::Number));
+        assert_eq!(property_kind("maxHeight"), Some(VariableKind::Number));
+        assert_eq!(property_kind("fontFamily"), Some(VariableKind::String));
+        assert_eq!(property_kind("fontStyle"), Some(VariableKind::String));
+        assert_eq!(property_kind("paragraphSpacing"), Some(VariableKind::Number));
+        assert_eq!(property_kind("paragraphIndent"), Some(VariableKind::Number));
+
+        let frame_kind = NodeKind::Frame(FrameProps::default());
+        let text_kind = NodeKind::Text(TextProps::default());
+
+        assert!(scope_allows(&["WIDTH_HEIGHT".into()], "minWidth", &frame_kind));
+        assert!(scope_allows(&["WIDTH_HEIGHT".into()], "maxWidth", &frame_kind));
+        assert!(scope_allows(&["WIDTH_HEIGHT".into()], "minHeight", &frame_kind));
+        assert!(scope_allows(&["WIDTH_HEIGHT".into()], "maxHeight", &frame_kind));
+        assert!(!scope_allows(&["GAP".into()], "minWidth", &frame_kind));
+
+        assert!(scope_allows(&["FONT_FAMILY".into()], "fontFamily", &text_kind));
+        assert!(scope_allows(&["FONT_STYLE".into()], "fontStyle", &text_kind));
+        assert!(scope_allows(&["PARAGRAPH_SPACING".into()], "paragraphSpacing", &text_kind));
+        assert!(scope_allows(&["PARAGRAPH_INDENT".into()], "paragraphIndent", &text_kind));
+
+        let frame_keys = bindable_keys(&frame_kind);
+        for k in ["minWidth", "maxWidth", "minHeight", "maxHeight"] {
+            assert!(frame_keys.contains(&k), "frame_keys missing {k}");
+            assert!(is_key_bindable_on_node(k, &frame_kind), "is_key_bindable_on_node failed for {k} on frame");
+        }
+
+        let text_keys = bindable_keys(&text_kind);
+        for k in ["minWidth", "maxWidth", "minHeight", "maxHeight", "fontFamily", "fontStyle", "paragraphSpacing", "paragraphIndent"] {
+            assert!(text_keys.contains(&k), "text_keys missing {k}");
+            assert!(is_key_bindable_on_node(k, &text_kind), "is_key_bindable_on_node failed for {k} on text");
+        }
+
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        d.variable_collections.insert(
+            "col".into(),
+            VariableCollection {
+                id: "col".into(),
+                name: "Col".into(),
+                modes: vec![VariableMode { id: "mode_a".into(), name: "Mode A".into() }, VariableMode { id: "mode_b".into(), name: "Mode B".into() }],
+                default_mode: "mode_a".into(),
+                variables: vec![],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+
+        let n = |x: f32| VariableValue::Number(x);
+        let s = |x: &str| VariableValue::String(x.into());
+
+        let make_num_var = |id: &str, a: f32, b: f32| Variable {
+            id: id.into(),
+            name: id.into(),
+            collection: "col".into(),
+            kind: VariableKind::Number,
+            values: [("mode_a".to_string(), n(a)), ("mode_b".to_string(), n(b))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        };
+        let make_str_var = |id: &str, a: &str, b: &str| Variable {
+            id: id.into(),
+            name: id.into(),
+            collection: "col".into(),
+            kind: VariableKind::String,
+            values: [("mode_a".to_string(), s(a)), ("mode_b".to_string(), s(b))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        };
+
+        d.variables.insert("var_min_w".into(), make_num_var("var_min_w", 50.0, 70.0));
+        d.variables.insert("var_max_w".into(), make_num_var("var_max_w", 150.0, 250.0));
+        d.variables.insert("var_min_h".into(), make_num_var("var_min_h", 30.0, 40.0));
+        d.variables.insert("var_max_h".into(), make_num_var("var_max_h", 120.0, 220.0));
+
+        d.variables.insert("var_ff".into(), make_str_var("var_ff", "Inter", "Roboto Mono"));
+        d.variables.insert("var_fs".into(), make_str_var("var_fs", "Regular", "Bold Italic"));
+        d.variables.insert("var_ps".into(), make_num_var("var_ps", 8.0, 16.0));
+        d.variables.insert("var_pi".into(), make_num_var("var_pi", 12.0, 24.0));
+
+        let fid = d.alloc_id();
+        let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        f.variables.bindings.insert("minWidth".into(), "var_min_w".into());
+        f.variables.bindings.insert("maxWidth".into(), "var_max_w".into());
+        f.variables.bindings.insert("minHeight".into(), "var_min_h".into());
+        f.variables.bindings.insert("maxHeight".into(), "var_max_h".into());
+        let frame_id = d.insert(page, f).unwrap();
+
+        let tid = d.alloc_id();
+        let mut t = Node::text(tid, Rect::new(0.0, 0.0, 100.0, 30.0), "Hello", TextStyle::default());
+        t.variables.bindings.insert("fontFamily".into(), "var_ff".into());
+        t.variables.bindings.insert("fontStyle".into(), "var_fs".into());
+        t.variables.bindings.insert("paragraphSpacing".into(), "var_ps".into());
+        t.variables.bindings.insert("paragraphIndent".into(), "var_pi".into());
+        let text_id = d.insert(frame_id, t).unwrap();
+
+        // Default mode: mode_a
+        let resolved_f = resolve_node(&d, d.get(frame_id).unwrap());
+        assert_eq!(resolved_f.layout_child.min_w, Some(50.0));
+        assert_eq!(resolved_f.layout_child.max_w, Some(150.0));
+        assert_eq!(resolved_f.layout_child.min_h, Some(30.0));
+        assert_eq!(resolved_f.layout_child.max_h, Some(120.0));
+
+        let resolved_t = resolve_node(&d, d.get(text_id).unwrap());
+        let NodeKind::Text(tp_a) = &resolved_t.kind else { panic!("expected text") };
+        assert_eq!(tp_a.style.font_family, "Inter");
+        assert_eq!(tp_a.style.font_weight, 400);
+        assert!(!tp_a.style.italic);
+        assert_eq!(tp_a.style.paragraph_spacing, 8.0);
+        assert_eq!(tp_a.paragraph.indent, 12.0);
+
+        // Switch to mode_b
+        d.get_mut(frame_id).unwrap().variables.modes.insert("col".into(), "mode_b".into());
+        let resolved_f_b = resolve_node(&d, d.get(frame_id).unwrap());
+        assert_eq!(resolved_f_b.layout_child.min_w, Some(70.0));
+        assert_eq!(resolved_f_b.layout_child.max_w, Some(250.0));
+        assert_eq!(resolved_f_b.layout_child.min_h, Some(40.0));
+        assert_eq!(resolved_f_b.layout_child.max_h, Some(220.0));
+
+        let resolved_t_b = resolve_node(&d, d.get(text_id).unwrap());
+        let NodeKind::Text(tp_b) = &resolved_t_b.kind else { panic!("expected text") };
+        assert_eq!(tp_b.style.font_family, "Roboto Mono");
+        assert_eq!(tp_b.style.font_weight, 700);
+        assert!(tp_b.style.italic);
+        assert_eq!(tp_b.style.paragraph_spacing, 16.0);
+        assert_eq!(tp_b.paragraph.indent, 24.0);
     }
 }
