@@ -7706,6 +7706,125 @@ mod tests {
         assert_eq!(d.get(bg).unwrap().size.x, widened);
     }
 
+    fn plain_card_with_stretch_btn(d: &mut Document, page: NodeId, btn: NodeId) -> (NodeId, NodeId, NodeId) {
+        let id = d.alloc_id();
+        let card = d.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        d.get_mut(card).unwrap().name = "Card".into();
+        let c = create_component(d, card);
+        apply(d, c);
+        let c = create_instance(d, btn, card, Vec2::new(10.0, 10.0));
+        apply(d, c);
+        let slot = d.get(card).unwrap().children[0];
+        let mut sn = d.get(slot).unwrap().clone();
+        sn.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Min };
+        apply(d, Command::Update { node: Box::new(sn) });
+        let c = create_instance(d, card, page, Vec2::new(400.0, 0.0));
+        apply(d, c);
+        let ci = *d.get(page).unwrap().children.last().unwrap();
+        let si = d.get(ci).unwrap().children[0];
+        let mut cn = d.get(ci).unwrap().clone();
+        cn.size = Vec2::new(300.0, 100.0);
+        cn.component.overrides.insert(OverrideField::Size);
+        apply(d, Command::Update { node: Box::new(cn) });
+        for (cid, tf, sz) in crate::layout_constraints::plan_constraint_pass(d, ci, Vec2::new(100.0, 100.0), Vec2::new(300.0, 100.0), 8) {
+            let mut n = d.get(cid).unwrap().clone();
+            crate::layout_constraints::apply_constrained_geometry(&mut n, tf, sz);
+            apply(d, Command::Update { node: Box::new(n) });
+        }
+        (card, ci, si)
+    }
+
+    #[test]
+    fn plain_nested_stretch_instance_keeps_width_when_card_main_syncs() {
+        let mut d = Document::new("plain-nested");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, ci, si) = plain_card_with_stretch_btn(&mut d, page, btn);
+        let widened = d.get(si).unwrap().size.x;
+        assert!(widened > 200.0, "fixture must widen the nested instance, got {widened}");
+        d.get_mut(card).unwrap().opacity = 0.5;
+        for _ in 0..2 {
+            let c = sync_instances(&mut d, card);
+            apply(&mut d, c);
+        }
+        assert_eq!(d.get(ci).unwrap().opacity, 0.5);
+        assert_eq!(d.get(si).unwrap().size.x, widened);
+    }
+
+    #[test]
+    fn plain_nested_stretch_instance_keeps_width_when_btn_main_syncs() {
+        let mut d = Document::new("plain-nested-btn");
+        let page = d.add_page("P");
+        let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+        let (card, _ci, si) = plain_card_with_stretch_btn(&mut d, page, btn);
+        let widened = d.get(si).unwrap().size.x;
+        d.get_mut(btn).unwrap().opacity = 0.5;
+        for m in [btn, card, btn] {
+            let c = sync_instances(&mut d, m);
+            apply(&mut d, c);
+        }
+        assert_eq!(d.get(si).unwrap().opacity, 0.5);
+        assert_eq!(d.get(si).unwrap().size.x, widened, "btn main sync");
+    }
+
+    #[test]
+    fn swapped_nested_stretch_instance_keeps_width_across_syncs_like_an_unswapped_one() {
+        let mut d = Document::new("swap-sync");
+        let page = d.add_page("P");
+        let ba = mkbtn_stretch(&mut d, page, "Btn/A", 0.0, 32.0);
+        let bb = mkbtn_stretch(&mut d, page, "Btn/B", 100.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![ba, bb], true);
+        let c = set_instance_prop(&mut d, ci, "Btn", Some(PropValue::Instance(bb)));
+        apply(&mut d, c);
+        let widened = d.get(si).unwrap().size.x;
+        assert!(widened > 200.0, "fixture must widen the swapped nested instance, got {widened}");
+        d.get_mut(card).unwrap().opacity = 0.5;
+        for m in [card, bb, card] {
+            let c = sync_instances(&mut d, m);
+            apply(&mut d, c);
+        }
+        let bg = d.get(si).unwrap().children[0];
+        assert_eq!((d.get(si).unwrap().size.x, d.get(bg).unwrap().size.x), (widened, widened));
+    }
+
+    #[test]
+    fn nested_instance_geometry_is_stable_across_syncs_for_every_horizontal_constraint() {
+        for h in [Constraint::Stretch, Constraint::Scale, Constraint::Max, Constraint::Center, Constraint::Min] {
+            let mut d = Document::new("constraint-sweep");
+            let page = d.add_page("P");
+            let btn = mkbtn_stretch(&mut d, page, "Btn", 0.0, 40.0);
+            let (card, ci, si) = plain_card_with_stretch_btn(&mut d, page, btn);
+            let slot_main = d.get(card).unwrap().children[0];
+            let mut sn = d.get(slot_main).unwrap().clone();
+            sn.constraints = Constraints { horizontal: h, vertical: Constraint::Min };
+            apply(&mut d, Command::Update { node: Box::new(sn) });
+            // Re-run the outer resize from the original size so the new constraint decides the nested geometry.
+            let mut cn = d.get(ci).unwrap().clone();
+            cn.size = Vec2::new(100.0, 100.0);
+            apply(&mut d, Command::Update { node: Box::new(cn) });
+            let c = sync_instances(&mut d, card);
+            apply(&mut d, c);
+            let mut cn = d.get(ci).unwrap().clone();
+            cn.size = Vec2::new(300.0, 100.0);
+            apply(&mut d, Command::Update { node: Box::new(cn) });
+            for (cid, tf, sz) in crate::layout_constraints::plan_constraint_pass(&d, ci, Vec2::new(100.0, 100.0), Vec2::new(300.0, 100.0), 8) {
+                let mut n = d.get(cid).unwrap().clone();
+                crate::layout_constraints::apply_constrained_geometry(&mut n, tf, sz);
+                apply(&mut d, Command::Update { node: Box::new(n) });
+            }
+            let bg = d.get(si).unwrap().children[0];
+            let before = (d.get(si).unwrap().size, d.get(si).unwrap().transform, d.get(bg).unwrap().size, d.get(bg).unwrap().transform);
+            d.get_mut(card).unwrap().opacity = 0.5;
+            d.get_mut(btn).unwrap().opacity = 0.5;
+            for m in [card, btn, card, btn] {
+                let c = sync_instances(&mut d, m);
+                apply(&mut d, c);
+            }
+            let after = (d.get(si).unwrap().size, d.get(si).unwrap().transform, d.get(bg).unwrap().size, d.get(bg).unwrap().transform);
+            assert_eq!(before, after, "{h:?}: syncs must not move or resize the nested instance");
+        }
+    }
+
     #[test]
     fn nested_fixed_instance_takes_main_size_when_parent_syncs() {
         let mut d = Document::new("nested-fixed-sync");

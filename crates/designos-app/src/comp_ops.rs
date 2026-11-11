@@ -758,6 +758,53 @@ mod tests {
         (App::new(doc), main, instances)
     }
 
+    /// A Card main holding a Stretch button instance, plus one Card instance
+    /// widened to 300 through the editor. Returns (button main, card main,
+    /// card instance, nested button instance).
+    fn app_with_widened_card_instance() -> (App, NodeId, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("nested-stretch");
+        let page = doc.add_page("Page 1");
+        let id = doc.alloc_id();
+        let btn = doc.insert(page, Node::frame(id, designos_doc::Rect::new(0.0, 300.0, 80.0, 40.0))).unwrap();
+        create_component(&mut doc, btn).apply(&mut doc).unwrap();
+        let id = doc.alloc_id();
+        let card = doc.insert(page, Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        create_component(&mut doc, card).apply(&mut doc).unwrap();
+        create_instance(&mut doc, btn, card, Vec2::new(10.0, 10.0)).apply(&mut doc).unwrap();
+        let slot = doc.get(card).unwrap().children[0];
+        let mut sn = doc.get(slot).unwrap().clone();
+        sn.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Min };
+        Command::Update { node: Box::new(sn) }.apply(&mut doc).unwrap();
+        create_instance(&mut doc, card, page, Vec2::new(400.0, 0.0)).apply(&mut doc).unwrap();
+        let ci = *doc.get(page).unwrap().children.last().unwrap();
+        let si = doc.get(ci).unwrap().children[0];
+        let mut app = App::new(doc);
+        let transform = app.doc.get(ci).unwrap().transform;
+        let mut tx = Tx::new();
+        crate::ops::apply_resize(&mut app.doc, &mut tx.ed, ci, Vec2::new(300.0, 100.0), transform, true);
+        app.run_tx(tx);
+        (app, btn, card, ci, si)
+    }
+
+    #[test]
+    fn a_nested_stretch_instance_keeps_its_width_when_the_card_main_syncs() {
+        let (mut app, _btn, card, ci, si) = app_with_widened_card_instance();
+        let widened = app.doc.get(si).unwrap().size.x;
+        assert!(widened > 200.0, "fixture must widen the nested instance, got {widened}");
+        app.edit_nodes(&[card], |n| n.opacity = 0.5);
+        assert_eq!(app.doc.get(ci).unwrap().opacity, 0.5);
+        assert_eq!(app.doc.get(si).unwrap().size.x, widened, "an unrelated Card main edit must not reset the nested width");
+    }
+
+    #[test]
+    fn a_nested_stretch_instance_keeps_its_width_when_the_button_main_syncs() {
+        let (mut app, btn, _card, _ci, si) = app_with_widened_card_instance();
+        let widened = app.doc.get(si).unwrap().size.x;
+        app.edit_nodes(&[btn], |n| n.opacity = 0.5);
+        assert_eq!(app.doc.get(si).unwrap().opacity, 0.5);
+        assert_eq!(app.doc.get(si).unwrap().size.x, widened, "a Button main edit must not reset the nested width");
+    }
+
     fn aspect_locked(app: &App, id: NodeId) -> bool {
         app.doc.get(id).unwrap().lock_aspect
     }
