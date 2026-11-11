@@ -190,7 +190,14 @@ fn end_aligned_row_with_only_horizontal_padding_keeps_child_at_stored_x_after_re
             "b",
             "SYMBOL",
             "RowComp",
-            vec![("size", vec2(352.0, 64.0)), ("stackMode", en("HORIZONTAL")), ("stackPrimarySizing", en("FIXED")), ("stackPrimaryAlignItems", en("MAX"))],
+            vec![
+                ("size", vec2(352.0, 64.0)),
+                ("stackMode", en("HORIZONTAL")),
+                ("stackPrimarySizing", en("FIXED")),
+                ("stackPrimaryAlignItems", en("MAX")),
+                ("stackVerticalPadding", fl(6.0)),
+                ("stackPaddingBottom", fl(7.0)),
+            ],
         ),
         node((1, 11), (1, 10), "a", "RECTANGLE", "CompMsg", vec![("size", vec2(272.0, 40.0)), ("transform", matrix(80.0, 0.0))]),
         node(
@@ -229,7 +236,7 @@ fn end_aligned_row_with_only_horizontal_padding_keeps_child_at_stored_x_after_re
     let inst_child = doc.get(inst.children[0]).unwrap();
     assert_eq!(inst_child.transform.tx, 80.0);
     let inst_al = inst.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
-    assert_eq!(inst_al.padding, [0.0, 0.0, 0.0, 32.0]);
+    assert_eq!(inst_al.padding, [6.0, 0.0, 7.0, 32.0], "override sets left only; the component's top/bottom stay inherited");
 }
 
 #[test]
@@ -256,7 +263,14 @@ fn end_aligned_column_with_only_vertical_padding_keeps_child_at_stored_y_after_r
             "b",
             "SYMBOL",
             "ColComp",
-            vec![("size", vec2(64.0, 352.0)), ("stackMode", en("VERTICAL")), ("stackPrimarySizing", en("FIXED")), ("stackPrimaryAlignItems", en("MAX"))],
+            vec![
+                ("size", vec2(64.0, 352.0)),
+                ("stackMode", en("VERTICAL")),
+                ("stackPrimarySizing", en("FIXED")),
+                ("stackPrimaryAlignItems", en("MAX")),
+                ("stackHorizontalPadding", fl(6.0)),
+                ("stackPaddingRight", fl(7.0)),
+            ],
         ),
         node((1, 11), (1, 10), "a", "RECTANGLE", "CompMsg", vec![("size", vec2(40.0, 272.0)), ("transform", matrix(0.0, 80.0))]),
         node(
@@ -295,7 +309,7 @@ fn end_aligned_column_with_only_vertical_padding_keeps_child_at_stored_y_after_r
     let inst_child = doc.get(inst.children[0]).unwrap();
     assert_eq!(inst_child.transform.ty, 80.0);
     let inst_al = inst.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
-    assert_eq!(inst_al.padding, [32.0, 0.0, 0.0, 0.0]);
+    assert_eq!(inst_al.padding, [32.0, 7.0, 0.0, 6.0], "override sets top only; the component's left/right stay inherited");
 }
 
 #[test]
@@ -350,4 +364,34 @@ fn frame_with_all_four_padding_sides_set_imports_all_four() {
 
     let inst_al = find(&doc, "FourInst").kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
     assert_eq!(inst_al.padding, [11.0, 22.0, 33.0, 44.0]);
+}
+
+#[test]
+fn uniform_stack_padding_alone_applies_to_all_four_sides() {
+    let doc = import_encoded_nodes(vec![
+        node((1, 1), (0, 1), "a", "FRAME", "Uniform", vec![("size", vec2(200.0, 100.0)), ("stackMode", en("HORIZONTAL")), ("stackPadding", fl(10.0))]),
+        node((1, 10), (0, 1), "b", "SYMBOL", "UniComp", vec![("size", vec2(200.0, 100.0)), ("stackMode", en("HORIZONTAL"))]),
+        node(
+            (1, 20),
+            (0, 1),
+            "c",
+            "INSTANCE",
+            "UniInst",
+            vec![
+                ("size", vec2(200.0, 100.0)),
+                (
+                    "symbolData",
+                    msg(vec![
+                        ("symbolID", guid(1, 10)),
+                        ("symbolOverrides", V::Array(vec![msg(vec![("guidPath", msg(vec![("guids", V::Array(vec![]))])), ("stackPadding", fl(12.0))])])),
+                    ]),
+                ),
+            ],
+        ),
+    ]);
+
+    let al = find(&doc, "Uniform").kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(al.padding, [10.0, 10.0, 10.0, 10.0]);
+    let inst_al = find(&doc, "UniInst").kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(inst_al.padding, [12.0, 12.0, 12.0, 12.0]);
 }
