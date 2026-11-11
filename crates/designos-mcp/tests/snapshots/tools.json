@@ -389,7 +389,7 @@
               "null"
             ]
           },
-          "description": "Variable bindings keyed by property path (e.g. `effects/0/radius`, `fills/0/stops/0`, `fills/0/stops/0/position`). Null or empty unbinds.",
+          "description": "Variable bindings keyed by property path (e.g. `effects/0/radius`, `fills/0/stops/0`). Null or empty unbinds.",
           "type": "object"
         },
         "diff_image": {

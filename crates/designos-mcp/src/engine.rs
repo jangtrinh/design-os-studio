@@ -2569,7 +2569,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "update_node",
         "Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"prop_vars":{"type":"object","description":"Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.","additionalProperties":{"type":["string","null"]}},"bindings":{"type":"object","description":"Variable bindings keyed by property path (e.g. `effects/0/radius`, `fills/0/stops/0`, `fills/0/stops/0/position`). Null or empty unbinds.","additionalProperties":{"type":["string","null"]}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"prop_vars":{"type":"object","description":"Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.","additionalProperties":{"type":["string","null"]}},"bindings":{"type":"object","description":"Variable bindings keyed by property path (e.g. `effects/0/radius`, `fills/0/stops/0`). Null or empty unbinds.","additionalProperties":{"type":["string","null"]}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["node_id"],
         json!({
             "node": {"type": "object"},
@@ -2997,13 +2997,12 @@ mod tests {
             },
         );
 
-        // Variables: Frost, Depth, Angle, StopColor, StopPos
+        // Variables: Frost, Depth, Angle, StopColor
         for (vid, vname, kind, scopes, val) in [
             ("v_frost", "Frost", VariableKind::Number, vec!["EFFECT_FLOAT"], VariableValue::Number(16.0)),
             ("v_depth", "Depth", VariableKind::Number, vec!["EFFECT_FLOAT"], VariableValue::Number(6.0)),
             ("v_angle", "Angle", VariableKind::Number, vec!["EFFECT_FLOAT"], VariableValue::Number(45.0)),
             ("v_color", "StopColor", VariableKind::Color, vec!["ALL_FILLS"], VariableValue::Color(Color::rgb(0x12, 0x34, 0x56))),
-            ("v_pos", "StopPos", VariableKind::Number, vec!["ALL_FILLS"], VariableValue::Number(0.4)),
         ] {
             e.doc.variables.insert(
                 vid.into(),
@@ -3094,7 +3093,6 @@ mod tests {
                 "bindings": {
                     "effects/0/lightAngle": "var:Theme/Angle",
                     "fills/0/stops/0": "var:Theme/StopColor",
-                    "fills/0/stops/0/position": "var:Theme/StopPos",
                     "effects/0/frost": null
                 }
             }),
@@ -3104,7 +3102,6 @@ mod tests {
         let node = e.doc.get(NodeId(node_id)).unwrap();
         assert_eq!(node.variables.bindings.get("effects/0/lightAngle"), Some(&"v_angle".to_string()));
         assert_eq!(node.variables.bindings.get("fills/0/stops/0"), Some(&"v_color".to_string()));
-        assert_eq!(node.variables.bindings.get("fills/0/stops/0/position"), Some(&"v_pos".to_string()));
         assert!(!node.variables.bindings.contains_key("effects/0/frost"));
 
         let resolved = designos_doc::resolve_node(&e.doc, node);
@@ -3112,7 +3109,6 @@ mod tests {
         assert_eq!(g.light_angle, 45.0);
         let PaintKind::LinearGradient { stops: ref st, .. } = resolved.fills[0].kind else { panic!("expected LinearGradient") };
         assert_eq!(st[0].color, Color::rgb(0x12, 0x34, 0x56));
-        assert_eq!(st[0].pos, 0.4);
     }
     #[test]
     fn get_variables_reports_the_parent_and_overrides_of_an_extended_collection() {
