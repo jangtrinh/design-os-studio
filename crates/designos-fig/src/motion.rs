@@ -319,6 +319,8 @@ pub fn pcm_variable_keys_for_field(field: &str) -> &'static [&'static str] {
         "LETTER_SPACING" => &["letterSpacing"],
         "PARAGRAPH_SPACING" => &["paragraphSpacing"],
         "PARAGRAPH_INDENT" => &["paragraphIndent"],
+        "EASING_DATA" => &["easingData"],
+        "TIMELINE_DURATION" => &["timelineDuration"],
         _ => &[],
     }
 }
@@ -384,15 +386,10 @@ pub fn reconstruct_pcm_variable_entries(
 ) -> (Vec<Value>, std::collections::HashSet<String>) {
     let mut out_entries = Vec::new();
     let mut skip_fields = std::collections::HashSet::new();
-    let Some(raw) = pcm_var_fields_json else {
-        return (out_entries, skip_fields);
-    };
-    let Ok(val) = serde_json::from_str::<Value>(raw) else {
-        return (out_entries, skip_fields);
-    };
-    let Some(templates) = val.get("entries").and_then(Value::as_array) else {
-        return (out_entries, skip_fields);
-    };
+    let templates: Vec<Value> = pcm_var_fields_json
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .and_then(|val| val.get("entries").and_then(Value::as_array).cloned())
+        .unwrap_or_default();
 
     let mut lookup_binding = |key: &str| -> Option<(u32, u32)> {
         let vid = bindings.get(key).or_else(|| match key {
@@ -502,6 +499,55 @@ pub fn reconstruct_pcm_variable_entries(
             }
         }
     }
+
+    if !skip_fields.contains("EASING_DATA") {
+        let ease_vid = bindings
+            .get("easingData")
+            .or_else(|| bindings.get("transition/easing"))
+            .or_else(|| bindings.get("easing"));
+        if let Some(vid) = ease_vid {
+            if let Some(vg) = resolve_var_guid(vid) {
+                out_entries.push(json!({
+                    "variableField": "EASING_DATA",
+                    "variableData": {
+                        "dataType": "ALIAS",
+                        "resolvedDataType": "STRING",
+                        "value": {
+                            "alias": {
+                                "guid": guid_pair_json(vg)
+                            }
+                        }
+                    }
+                }));
+                skip_fields.insert("EASING_DATA".into());
+            }
+        }
+    }
+
+    if !skip_fields.contains("TIMELINE_DURATION") {
+        let dur_vid = bindings
+            .get("timelineDuration")
+            .or_else(|| bindings.get("transition/duration"))
+            .or_else(|| bindings.get("duration"));
+        if let Some(vid) = dur_vid {
+            if let Some(vg) = resolve_var_guid(vid) {
+                out_entries.push(json!({
+                    "variableField": "TIMELINE_DURATION",
+                    "variableData": {
+                        "dataType": "ALIAS",
+                        "resolvedDataType": "FLOAT",
+                        "value": {
+                            "alias": {
+                                "guid": guid_pair_json(vg)
+                            }
+                        }
+                    }
+                }));
+                skip_fields.insert("TIMELINE_DURATION".into());
+            }
+        }
+    }
+
     (out_entries, skip_fields)
 }
 

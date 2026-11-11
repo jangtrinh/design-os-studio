@@ -296,7 +296,11 @@ fn scan_stack_slice<'a>(
         let node_world = item.parent_world * n.transform;
         let page_bounds = aabb_of_transformed_rect(node_world, n.size);
 
-        if !is_instance_mirror || config.include_instances || (active.component_property_variable && crate::has_prop_binding(n)) {
+        if !is_instance_mirror
+            || config.include_instances
+            || (active.component_property_variable && crate::has_prop_binding(n))
+            || (active.easing_variable && n.variables.bindings.keys().any(|k| crate::is_easing_binding_key(k)))
+        {
             scanned += 1;
             let node_in_comp = item.in_component || matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_));
             let ctx = NodeEvalCtx {
@@ -383,7 +387,11 @@ impl<'a> SingleNodeLinter<'a> {
             return Vec::new();
         }
         let is_instance_mirror = n.component.source.is_some() && n.component.overrides.is_empty();
-        if is_instance_mirror && !config.include_instances && !(active.component_property_variable && crate::has_prop_binding(n)) {
+        if is_instance_mirror
+            && !config.include_instances
+            && !(active.component_property_variable && crate::has_prop_binding(n))
+            && !(active.easing_variable && n.variables.bindings.keys().any(|k| crate::is_easing_binding_key(k)))
+        {
             return Vec::new();
         }
         let (parent, parent_world, depth, in_component) = ancestor_state(doc, node_id, active);

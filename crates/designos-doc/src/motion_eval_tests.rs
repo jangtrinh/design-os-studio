@@ -167,3 +167,181 @@ fn nested_timeline_time_is_parent_local_minus_start() {
     assert_eq!(float_at(&doc, 200_000, TrackProperty::Opacity), 0.0, "the child starts when the parent reaches the offset");
     assert_eq!(float_at(&doc, 700_000, TrackProperty::Opacity), 50.0, "parent local 700_000 minus start 200_000 is halfway");
 }
+
+fn var_def(id: &str, kind: VariableKind, light: VariableValue, dark: VariableValue) -> Variable {
+    Variable {
+        id: id.into(),
+        name: id.into(),
+        collection: "col".into(),
+        kind,
+        values: [("light".to_string(), light), ("dark".to_string(), dark)].into_iter().collect(),
+        description: String::new(),
+        scopes: vec![],
+        hidden_from_publishing: false,
+        key: None,
+        code_syntax: Default::default(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
+    }
+}
+
+fn setup_variables(doc: &mut Document) {
+    doc.variable_collections.insert(
+        "col".into(),
+        VariableCollection {
+            id: "col".into(),
+            name: "Collection".into(),
+            modes: vec![
+                VariableMode { id: "light".into(), name: "Light".into() },
+                VariableMode { id: "dark".into(), name: "Dark".into() },
+            ],
+            default_mode: "light".into(),
+            variables: vec![],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+}
+
+#[test]
+fn bound_easing_switches_per_mode_on_transition_and_track() {
+    let mut doc = Document::new("easing_test");
+    setup_variables(&mut doc);
+    doc.variables.insert(
+        "v_ease".into(),
+        var_def(
+            "v_ease",
+            VariableKind::String,
+            VariableValue::String("linear".into()),
+            VariableValue::String("ease-in-out".into()),
+        ),
+    );
+
+    let page = doc.add_page("Page 1");
+    let nid = doc.alloc_id();
+    let mut node = Node::frame(nid, Rect::new(0.0, 0.0, 100.0, 100.0));
+    node.prototype.reactions.push(Reaction {
+        trigger: Trigger::OnClick,
+        actions: vec![Action::Navigate { dest: nid, preserve_scroll: false }],
+        transition: Some(Transition {
+            kind: TransitionKind::SmartAnimate,
+            easing: Easing::Linear,
+            duration_ms: 1000,
+        }),
+    });
+
+    let track = float_track("tr", "tl", TrackProperty::Opacity, KeyframeOperation::Set, &[(0, 0.0), (1_000_000, 100.0)]);
+    let timeline = Timeline::new("tl", 1_000_000);
+    install(&mut node, vec![timeline], vec![assign("tl", "tl", 0)], vec![track]);
+
+    node.variables.bindings.insert("easingData".into(), "v_ease".into());
+    let id = doc.insert(page, node).unwrap();
+
+    // Mode: Light (linear)
+    let tr_progress_light = evaluate_transition(&doc, id, 0, 250.0).unwrap();
+    assert_eq!(tr_progress_light, 0.25);
+
+    let motion_sample_light = float_at(&doc, 250_000, TrackProperty::Opacity);
+    assert_eq!(motion_sample_light, 25.0);
+
+    // Switch to Dark mode (ease-in-out)
+    doc.get_mut(page).unwrap().variables.modes.insert("col".into(), "dark".into());
+
+    let expected_eased = ease(&Easing::EaseInOut, 0.25);
+    let tr_progress_dark = evaluate_transition(&doc, id, 0, 250.0).unwrap();
+    assert!((tr_progress_dark - expected_eased).abs() < 1e-4);
+    assert!((tr_progress_dark - 0.25).abs() > 0.05, "must differ from linear");
+
+    let motion_sample_dark = float_at(&doc, 250_000, TrackProperty::Opacity);
+    assert!((motion_sample_dark - expected_eased * 100.0).abs() < 1e-3);
+}
+
+#[test]
+fn bound_duration_retimes_transition_and_motion_tracks() {
+    let mut doc = Document::new("duration_test");
+    setup_variables(&mut doc);
+    doc.variables.insert(
+        "v_dur".into(),
+        var_def(
+            "v_dur",
+            VariableKind::Number,
+            VariableValue::Number(1000.0),
+            VariableValue::Number(2000.0),
+        ),
+    );
+
+    let page = doc.add_page("Page 1");
+    let nid = doc.alloc_id();
+    let mut node = Node::frame(nid, Rect::new(0.0, 0.0, 100.0, 100.0));
+    node.prototype.reactions.push(Reaction {
+        trigger: Trigger::OnClick,
+        actions: vec![Action::Navigate { dest: nid, preserve_scroll: false }],
+        transition: Some(Transition {
+            kind: TransitionKind::SmartAnimate,
+            easing: Easing::Linear,
+            duration_ms: 1000,
+        }),
+    });
+
+    let track = float_track("tr", "tl", TrackProperty::Opacity, KeyframeOperation::Set, &[(0, 0.0), (1_000_000, 100.0)]);
+    let timeline = Timeline::new("tl", 1_000_000);
+    install(&mut node, vec![timeline], vec![assign("tl", "tl", 0)], vec![track]);
+
+    node.variables.bindings.insert("timelineDuration".into(), "v_dur".into());
+    let id = doc.insert(page, node).unwrap();
+
+    // In Light mode (1000 ms duration):
+    // Transition at 500 ms should be 500 / 1000 = 0.5
+    assert_eq!(evaluate_transition(&doc, id, 0, 500.0).unwrap(), 0.5);
+    // Motion track at 500_000 us should be 50.0
+    assert_eq!(float_at(&doc, 500_000, TrackProperty::Opacity), 50.0);
+    // Motion track at 1_000_000 us should be 100.0
+    assert_eq!(float_at(&doc, 1_000_000, TrackProperty::Opacity), 100.0);
+
+    // Switch to Dark mode (2000 ms duration):
+    doc.get_mut(page).unwrap().variables.modes.insert("col".into(), "dark".into());
+
+    // Transition at 500 ms is now 500 / 2000 = 0.25
+    assert_eq!(evaluate_transition(&doc, id, 0, 500.0).unwrap(), 0.25);
+    // Transition at 1000 ms is now 1000 / 2000 = 0.5
+    assert_eq!(evaluate_transition(&doc, id, 0, 1000.0).unwrap(), 0.5);
+    // Motion track at 500_000 us is now 500_000 / 2_000_000 * 100 = 25.0
+    assert_eq!(float_at(&doc, 500_000, TrackProperty::Opacity), 25.0);
+    // Motion track at 1_000_000 us is now 1_000_000 / 2_000_000 * 100 = 50.0
+    assert_eq!(float_at(&doc, 1_000_000, TrackProperty::Opacity), 50.0);
+}
+
+#[test]
+fn lint_reports_unknown_easing_presets_and_clears_on_valid() {
+    let mut doc = Document::new("lint_ease");
+    setup_variables(&mut doc);
+    doc.variables.insert(
+        "v_ease".into(),
+        var_def(
+            "v_ease",
+            VariableKind::String,
+            VariableValue::String("invalid-curve-xyz".into()),
+            VariableValue::String("ease-in-out".into()),
+        ),
+    );
+
+    let page = doc.add_page("Page 1");
+    let nid = doc.alloc_id();
+    let mut node = Node::frame(nid, Rect::new(0.0, 0.0, 100.0, 100.0));
+    node.variables.bindings.insert("easingData".into(), "v_ease".into());
+    doc.insert(page, node).unwrap();
+
+    let config = lint::config::LintConfig::default();
+    let env = lint::NoLintEnv;
+    let findings = lint::lint_single_node(&doc, nid, &config, &env);
+    let easing_findings: Vec<_> = findings.iter().filter(|f| f.rule == "easing-variable").collect();
+    assert_eq!(easing_findings.len(), 1, "must report unknown easing preset");
+    assert!(easing_findings[0].message.contains("Unknown easing preset"));
+
+    // Switch to Dark mode (valid preset "ease-in-out")
+    doc.get_mut(page).unwrap().variables.modes.insert("col".into(), "dark".into());
+    let findings_valid = lint::lint_single_node(&doc, nid, &config, &env);
+    let easing_findings_valid: Vec<_> = findings_valid.iter().filter(|f| f.rule == "easing-variable").collect();
+    assert!(easing_findings_valid.is_empty(), "valid preset must produce zero findings");
+}

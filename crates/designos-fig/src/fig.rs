@@ -2308,6 +2308,8 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
             "LETTER_SPACING" => &["letterSpacing"],
             "PARAGRAPH_SPACING" => &["paragraphSpacing"],
             "PARAGRAPH_INDENT" => &["paragraphIndent"],
+            "EASING_DATA" => &["easingData"],
+            "TIMELINE_DURATION" => &["timelineDuration"],
             _ => &[],
         };
         for k in keys {
