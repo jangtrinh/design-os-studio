@@ -547,7 +547,7 @@ impl Transition {
 pub fn resolve_transition(doc: &crate::Document, node_id: crate::NodeId, reaction_index: usize) -> Option<Transition> {
     let node = doc.get(node_id)?;
     let resolved = crate::resolve_node(doc, node);
-    resolved.prototype.reactions.get(reaction_index)?.transition.clone()
+    resolved.prototype.reactions.get(reaction_index)?.transition
 }
 
 /// Evaluates progress `0.0..=1.0` of a node's prototype reaction transition at time `t_ms`.
