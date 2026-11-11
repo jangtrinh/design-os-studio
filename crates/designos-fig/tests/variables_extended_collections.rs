@@ -114,14 +114,15 @@ fn fig_round_trip_keeps_a_parent_the_file_does_not_hold() {
     let brand = doc.variable_collections.get_mut(EXT).unwrap();
     let mut ext = brand.extension().unwrap();
     ext.parent.collection = String::new();
-    ext.overrides.clear();
-    ext.mode_map.clear();
     brand.set_extension(&ext);
 
     let back = import_fig(&export_fig(&doc).expect("export")).expect("re-import");
-    let ext = named(&back, "Brand").extension().expect("Brand still extends");
+    let brand = named(&back, "Brand");
+    let ext = brand.extension().expect("Brand still extends");
     assert_eq!(ext.parent.set_key.as_deref(), Some("SET_THEME"), "the library parent is kept by key");
     assert!(ext.parent.collection.is_empty());
+    assert_eq!(ext.mode_map, [("10:4".to_string(), "10:0".to_string()), ("10:6".to_string(), "10:3".to_string())].into());
+    assert_eq!(ext.overrides, [(BG.to_string(), [("10:6".to_string(), color(255, 0, 0))].into())].into());
 }
 
 #[test]
@@ -182,4 +183,87 @@ fn an_imported_extension_makes_its_parent_extendable_even_without_the_flag() {
     let mut back = Document::new("d");
     import_variables_value(&mut back, &payload);
     assert!(back.variable_collections[PARENT].is_extendable(), "lookups rely on the parent's flag to skip the extension scan");
+}
+
+#[test]
+fn publishing_an_extension_from_file_a_and_using_it_in_file_b_survives_edits_and_fig_round_trip() {
+    // File A: Theme (Light = White, Dark = Black) and Brand extending Theme (Dark overridden to Red).
+    let mut store_a = VariableStore::default();
+    let theme_a = store_a.add_collection("Theme");
+    let light_a = store_a.collections[&theme_a].modes[0].id.clone();
+    store_a.rename_mode(&theme_a, &light_a, "Light");
+    let dark_a = store_a.add_mode(&theme_a, "Dark").unwrap();
+    let bg_a = store_a.add_variable(&theme_a, "bg", VariableKind::Color).unwrap();
+    assert!(store_a.set_value(&bg_a, &light_a, color(255, 255, 255)));
+    assert!(store_a.set_value(&bg_a, &dark_a, color(0, 0, 0)));
+    let brand_a = store_a.extend_collection(&theme_a, "Brand").unwrap();
+    let b_light_a = store_a.collections[&brand_a].modes[0].id.clone();
+    let b_dark_a = store_a.collections[&brand_a].modes[1].id.clone();
+    assert!(store_a.set_value(&bg_a, &b_dark_a, color(255, 0, 0)));
+
+    let mut file_a = Document::new("File A");
+    file_a.add_page("Page 1");
+    store_a.command().apply(&mut file_a).unwrap();
+    let published_keys: Vec<String> = publishable_assets(&file_a).into_iter().map(|(k, _, _)| k).collect();
+    assert!(published_keys.contains(&format!("col:{brand_a}")), "the extension collection is published: {published_keys:?}");
+    let snap = snapshot(&file_a, "L1", "Lib A", 1);
+
+    // File B: has its own collection and extension (reusing Studio ids like VariableCollectionId:d1 / VariableModeId:d2),
+    // and imports File A's extension collection.
+    let mut store_b = VariableStore::default();
+    let own_col = store_b.add_collection("Local");
+    let own_mode = store_b.collections[&own_col].modes[0].id.clone();
+    let own_var = store_b.add_variable(&own_col, "tint", VariableKind::Color).unwrap();
+    assert!(store_b.set_value(&own_var, &own_mode, color(10, 20, 30)));
+    let own_ext = store_b.extend_collection(&own_col, "LocalExt").unwrap();
+    let own_ext_mode = store_b.collections[&own_ext].modes[0].id.clone();
+
+    let mut file_b = Document::new("File B");
+    let page_b = file_b.add_page("Page 1");
+    store_b.command().apply(&mut file_b).unwrap();
+    import_asset(&mut file_b, &snap, &format!("col:{brand_a}"), None).apply(&mut file_b).unwrap();
+
+    let lib_brand = format!("L1/{brand_a}");
+    let lib_bg = format!("L1/{bg_a}");
+    let lib_b_light = format!("L1/{b_light_a}");
+    let lib_b_dark = format!("L1/{b_dark_a}");
+
+    let place_bound_rect = |doc: &mut Document, name: &str, coll: &str, mode: &str, var: &str| -> NodeId {
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 20.0, 20.0));
+        frame.name = name.into();
+        frame.variables.modes.insert(coll.into(), mode.into());
+        doc.insert(page_b, frame).unwrap();
+        let rid = doc.alloc_id();
+        let mut rect = Node::rectangle(rid, Rect::new(0.0, 0.0, 10.0, 10.0));
+        rect.name = format!("{name}_rect");
+        rect.variables.bindings.insert("fills/0".into(), var.into());
+        doc.insert(fid, rect).unwrap();
+        rid
+    };
+
+    let r_light = place_bound_rect(&mut file_b, "BrandLight", &lib_brand, &lib_b_light, &lib_bg);
+    let r_dark = place_bound_rect(&mut file_b, "BrandDark", &lib_brand, &lib_b_dark, &lib_bg);
+    let r_own = place_bound_rect(&mut file_b, "OwnBase", &own_col, &own_mode, &own_var);
+    let r_own_ext = place_bound_rect(&mut file_b, "OwnExt", &own_ext, &own_ext_mode, &own_var);
+
+    // 1. Resolved values from the imported extension collection.
+    assert_eq!(file_b.bound_value(r_light, "fills/0"), Some(color(255, 255, 255)));
+    assert_eq!(file_b.bound_value(r_dark, "fills/0"), Some(color(255, 0, 0)));
+
+    // 2. Edit in B's own modes (both base mode and B's own extension mode).
+    let mut edit_b = VariableStore::from_doc(&file_b);
+    assert!(edit_b.set_value(&own_var, &own_mode, color(1, 2, 3)), "edit in B's own base mode is accepted");
+    assert!(edit_b.set_value(&own_var, &own_ext_mode, color(4, 5, 6)), "edit in B's own extension mode is accepted");
+    edit_b.command().apply(&mut file_b).unwrap();
+    assert_eq!(file_b.bound_value(r_own, "fills/0"), Some(color(1, 2, 3)));
+    assert_eq!(file_b.bound_value(r_own_ext, "fills/0"), Some(color(4, 5, 6)));
+
+    // 3. `.fig` round-trip of File B keeps all resolved values.
+    let back = import_fig(&export_fig(&file_b).expect("export")).expect("re-import");
+    let rect_by_name = |name: &str| back.nodes.values().find(|n| n.name == name).unwrap_or_else(|| panic!("missing {name}")).id;
+    assert_eq!(back.bound_value(rect_by_name("BrandLight_rect"), "fills/0"), Some(color(255, 255, 255)));
+    assert_eq!(back.bound_value(rect_by_name("BrandDark_rect"), "fills/0"), Some(color(255, 0, 0)));
+    assert_eq!(back.bound_value(rect_by_name("OwnBase_rect"), "fills/0"), Some(color(1, 2, 3)));
+    assert_eq!(back.bound_value(rect_by_name("OwnExt_rect"), "fills/0"), Some(color(4, 5, 6)));
 }

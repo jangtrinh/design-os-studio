@@ -83,6 +83,25 @@ impl VariableCollection {
         self.extensions.get(EXTENSION_KEY)?.get("parent")?.get("collection")?.as_str().filter(|s| !s.is_empty())
     }
 
+    /// Figma library key of the parent collection (`parent.set_key`), read straight from the stored JSON.
+    pub fn extension_parent_key(&self) -> Option<&str> {
+        self.extensions.get(EXTENSION_KEY)?.get("parent")?.get("set_key")?.as_str().filter(|s| !s.is_empty())
+    }
+
+    /// Id of the parent collection in `collections`: `parent.collection` when present in `collections`, else the
+    /// collection whose library `key` matches `parent.set_key`.
+    pub fn extension_parent_id_in<'a>(&'a self, collections: &'a BTreeMap<String, VariableCollection>) -> Option<&'a str> {
+        if let Some(id) = self.extension_parent_id().filter(|id| collections.contains_key(*id)) {
+            return Some(id);
+        }
+        if let Some(key) = self.extension_parent_key() {
+            if let Some(c) = collections.values().find(|c| c.key.as_deref() == Some(key)) {
+                return Some(c.id.as_str());
+            }
+        }
+        self.extension_parent_id()
+    }
+
     /// The parent mode shown for own `mode` when nothing overrides it.
     fn extension_parent_mode(&self, mode: &str) -> Option<&str> {
         self.extensions.get(EXTENSION_KEY)?.get("mode_map")?.get(mode)?.as_str()
@@ -116,7 +135,7 @@ pub fn extension_value(
         if let Some(own) = c.extension_override(variable, &mode) {
             return Some(own);
         }
-        let parent_id = c.extension_parent_id()?;
+        let parent_id = c.extension_parent_id_in(collections)?;
         let parent = collections.get(parent_id)?;
         mode = match c.extension_parent_mode(&mode) {
             Some(m) if parent.modes.iter().any(|x| x.id == m) => m.to_string(),
@@ -134,7 +153,7 @@ fn extends(collections: &BTreeMap<String, VariableCollection>, coll: &str, ances
         if cur == ancestor {
             return true;
         }
-        match collections.get(cur).and_then(VariableCollection::extension_parent_id) {
+        match collections.get(cur).and_then(|c| c.extension_parent_id_in(collections)) {
             Some(p) => cur = p,
             None => return false,
         }
@@ -147,7 +166,8 @@ impl Document {
     /// (an import, an older build) is normalised on open, so the canvas, which skips the extension lookup for a
     /// collection that is not extendable, resolves what the panel resolves.
     pub fn normalize_extensions(&mut self) {
-        let parents: BTreeSet<String> = self.variable_collections.values().filter_map(|c| c.extension_parent_id().map(String::from)).collect();
+        let parents: BTreeSet<String> =
+            self.variable_collections.values().filter_map(|c| c.extension_parent_id_in(&self.variable_collections).map(String::from)).collect();
         for id in parents {
             if let Some(parent) = self.variable_collections.get_mut(&id) {
                 if !parent.is_extendable() {
@@ -220,7 +240,7 @@ fn inherited_ids(collections: &BTreeMap<String, VariableCollection>, variables: 
     let mut cur = coll;
     for _ in 0..MAX_EXTENSION_DEPTH {
         let Some(c) = collections.get(cur) else { return Vec::new() };
-        let Some(parent) = c.extension_parent_id() else {
+        let Some(parent) = c.extension_parent_id_in(collections) else {
             return c.variables.iter().filter(|id| variables.get(*id).is_some_and(|v| !v.is_soft_deleted())).cloned().collect();
         };
         cur = parent;
@@ -587,7 +607,11 @@ impl VariableStore {
     }
 
     fn edit_direct_extensions_of(&mut self, parent: &str, mut f: impl FnMut(&mut CollectionExtension) -> bool) {
-        for c in self.collections.values_mut().filter(|c| c.extension_parent_id() == Some(parent)) {
+        let parent_key = self.collections.get(parent).and_then(|c| c.key.clone());
+        for c in self.collections.values_mut().filter(|c| {
+            c.extension_parent_id() == Some(parent)
+                || (c.extension_parent_id().is_none() && parent_key.as_deref().is_some() && c.extension_parent_key() == parent_key.as_deref())
+        }) {
             if let Some(mut e) = c.extension() {
                 if f(&mut e) {
                     c.set_extension(&e);
@@ -895,16 +919,94 @@ mod tests {
     }
 
     #[test]
-    fn extension_collections_are_not_published() {
-        let (mut s, theme, _, _, _) = base();
+    fn extension_collections_are_published() {
+        let (mut s, theme, bg, _, _) = base();
         let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_dark = s.collections[&brand].modes[1].id.clone();
+        assert!(s.set_value(&bg, &b_dark, VariableValue::Color(Color::rgb(255, 0, 0))));
         let (d, _, _) = doc_with(&s);
         let keys: Vec<String> = publishable_assets(&d).into_iter().map(|(k, _, _)| k).collect();
-        assert!(keys.contains(&format!("col:{theme}")), "the parent still publishes");
-        assert!(!keys.contains(&format!("col:{brand}")), "the extension does not: {keys:?}");
+        assert!(keys.contains(&format!("col:{theme}")), "the parent publishes");
+        assert!(keys.contains(&format!("col:{brand}")), "the extension publishes: {keys:?}");
         let snap = snapshot(&d, "L1", "Lib", 1);
         assert!(snap.variable_collections.contains_key(&theme));
-        assert!(!snap.variable_collections.contains_key(&brand));
+        assert!(snap.variable_collections.contains_key(&brand));
+    }
+
+    #[test]
+    fn importing_an_extension_from_a_library_prefixes_its_parent_link_and_modes_and_leaves_the_consumer_modes_editable() {
+        let (mut lib_store, theme, bg, _, [light, _]) = base();
+        let brand = lib_store.extend_collection(&theme, "Brand").unwrap();
+        let b_light = lib_store.collections[&brand].modes[0].id.clone();
+        let b_dark = lib_store.collections[&brand].modes[1].id.clone();
+        assert!(lib_store.set_value(&bg, &b_dark, VariableValue::Color(Color::rgb(255, 0, 0))));
+        let (mut lib, _, _) = doc_with(&lib_store);
+        let lib_page = lib.pages[0];
+        let cid = lib.alloc_id();
+        let mut comp = Node::new(cid, NodeKind::Component(FrameProps::default()));
+        comp.name = "Card".into();
+        comp.variables.bindings.insert("fills/0".into(), bg.clone());
+        comp.variables.modes.insert(brand.clone(), b_dark.clone());
+        lib.insert(lib_page, comp).unwrap();
+        let snap = snapshot(&lib, "L1", "Lib", 1);
+
+        // Consumer file has its own collections and modes with the same Studio-allocated ids.
+        let (mut own_store, own_theme, own_bg, _, [own_light, own_dark]) = base();
+        let own_brand = own_store.extend_collection(&own_theme, "OwnBrand").unwrap();
+        let own_b_dark = own_store.collections[&own_brand].modes[1].id.clone();
+        let (mut d, _, _) = doc_with(&own_store);
+        let page = d.pages[0];
+        let cmd = import_asset(&mut d, &snap, &format!("col:{brand}"), None);
+        cmd.apply(&mut d).unwrap();
+        let comp_key = format!("c{}", cid.0);
+        let cmd = import_asset(&mut d, &snap, &comp_key, Some(Placement { parent: page, at: Vec2::ZERO }));
+        cmd.apply(&mut d).unwrap();
+
+        let lib_brand = format!("L1/{brand}");
+        let lib_theme = format!("L1/{theme}");
+        let lib_bg = format!("L1/{bg}");
+        let lib_b_light = format!("L1/{b_light}");
+        let lib_b_dark = format!("L1/{b_dark}");
+        let imported = &d.variable_collections[&lib_brand];
+        assert_eq!(imported.extension_parent_id(), Some(lib_theme.as_str()));
+        assert_eq!(imported.modes.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec![lib_b_light.as_str(), lib_b_dark.as_str()]);
+        assert_eq!(imported.default_mode, lib_b_light);
+        assert_eq!(d.extended_value(&lib_brand, &lib_bg, &lib_b_dark), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+        assert_eq!(d.extended_value(&lib_brand, &lib_bg, &lib_b_light), lib.variables[&bg].values.get(&light).cloned());
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        assert_eq!(d.bound_value(inst, "fills/0"), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+        assert_eq!(pending_updates(&d, &snap), vec![]);
+
+        let mut store = VariableStore::from_doc(&d);
+        assert!(store.set_value(&own_bg, &own_light, VariableValue::Color(Color::rgb(1, 2, 3))), "consumer base mode 1 remains editable");
+        assert!(store.set_value(&own_bg, &own_dark, VariableValue::Color(Color::rgb(4, 5, 6))), "consumer base mode 2 remains editable");
+        assert!(store.set_value(&own_bg, &own_b_dark, VariableValue::Color(Color::rgb(7, 8, 9))), "consumer extension mode remains editable");
+    }
+
+    #[test]
+    fn an_extension_whose_parent_is_known_only_by_set_key_resolves_through_that_key() {
+        let (mut s, theme, bg, gap, [light, _]) = base();
+        s.collections.get_mut(&theme).unwrap().key = Some("SET_THEME".into());
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let b_light = s.collections[&brand].modes[0].id.clone();
+        let b_dark = s.collections[&brand].modes[1].id.clone();
+        assert!(s.set_value(&bg, &b_dark, VariableValue::Color(Color::rgb(255, 0, 0))));
+        let mut ext = s.collections[&brand].extension().unwrap();
+        ext.parent = ParentCollection { collection: String::new(), set_key: Some("SET_THEME".into()) };
+        s.collections.get_mut(&brand).unwrap().set_extension(&ext);
+
+        assert_eq!(s.inherited_variable_ids(&brand), vec![bg.clone(), gap]);
+        assert_eq!(s.extended_value(&brand, &bg, &b_dark), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+        assert_eq!(s.extended_value(&brand, &bg, &b_light), s.variables[&bg].values.get(&light).cloned());
+        assert_eq!(s.resolve(&bg, &b_dark), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+        assert_eq!(s.resolve(&bg, &b_light), s.variables[&bg].values.get(&light).cloned());
+
+        let (mut d, frame, rect) = doc_with(&s);
+        d.get_mut(frame).unwrap().variables.modes.insert(brand.clone(), b_dark);
+        d.get_mut(rect).unwrap().variables.bindings.insert("fills/0".into(), bg.clone());
+        assert_eq!(d.bound_value(rect, "fills/0"), Some(VariableValue::Color(Color::rgb(255, 0, 0))));
+        d.get_mut(frame).unwrap().variables.modes.insert(brand, b_light);
+        assert_eq!(d.bound_value(rect, "fills/0"), s.variables[&bg].values.get(&light).cloned());
     }
 
     #[test]
@@ -982,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn the_snapshot_never_carries_an_extension_or_a_variable_that_names_one() {
+    fn the_snapshot_never_carries_a_variable_that_names_an_extension() {
         let (mut s, theme, _, _, _) = base();
         let brand = s.extend_collection(&theme, "Brand").unwrap();
         let stray = "stray".to_string();
@@ -1008,7 +1110,7 @@ mod tests {
         assert!(!keys.contains(&"var:stray".to_string()), "{keys:?}");
         let snap = snapshot(&d, "L1", "Lib", 1);
         assert!(!snap.variables.contains_key("stray"));
-        assert!(!snap.variable_collections.contains_key(&brand), "no collection is inserted through a variable either");
+        assert!(snap.variable_collections.contains_key(&brand));
     }
 
     #[test]

@@ -193,7 +193,7 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
     // An extension of a library collection also remembers the library collection's key.
     let library_keys: BTreeMap<String, String> = collections.values().filter(|c| c.is_library()).filter_map(|c| Some((c.id.clone(), c.key.clone()?))).collect();
     // A parent that is extended allows it: lookups skip the extension scan for a collection that is not extendable.
-    let parents: BTreeSet<String> = collections.values().filter_map(|c| c.extension_parent_id().map(String::from)).collect();
+    let parents: BTreeSet<String> = collections.values().filter_map(|c| c.extension_parent_id_in(&collections).map(String::from)).collect();
     for id in &parents {
         if let Some(parent) = collections.get_mut(id) {
             parent.set_extendable(true);
@@ -336,9 +336,9 @@ fn insert_extension_fields(doc: &Document, c: &VariableCollection, ext: &Collect
     if let Some(key) = &ext.parent.set_key {
         m.insert(PARENT_KEY_FIELD.into(), key.clone().into());
     }
-    let mut root = ext.parent.collection.clone();
+    let mut root = c.extension_parent_id_in(&doc.variable_collections).unwrap_or(ext.parent.collection.as_str()).to_string();
     for _ in 0..8 {
-        match doc.variable_collections.get(&root).and_then(VariableCollection::extension_parent_id) {
+        match doc.variable_collections.get(&root).and_then(|rc| rc.extension_parent_id_in(&doc.variable_collections)) {
             Some(next) => root = next.to_string(),
             None => break,
         }
@@ -738,13 +738,11 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
         }
         if let Some(parent) = farr(e, "variableSetModes").iter().find_map(|m| m.get("parentVariableSetId")) {
             c["isExtension"] = true.into();
-            match refs.set(parent) {
-                Some(parent_id) => c["parentVariableCollectionId"] = parent_id.into(),
-                None => {
-                    if let Some(key) = crate::fig::asset_key(parent) {
-                        c[PARENT_KEY_FIELD] = key.into();
-                    }
-                }
+            if let Some(parent_id) = refs.set(parent) {
+                c["parentVariableCollectionId"] = parent_id.into();
+            }
+            if let Some(key) = crate::fig::asset_key(parent) {
+                c[PARENT_KEY_FIELD] = key.into();
             }
         }
         colls.insert(id, c);
@@ -778,18 +776,23 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
         if !active(e) && vars.contains_key(&id) {
             continue;
         }
-        let cid = e
-            .get("variableSetID")
-            .and_then(|s| refs.set(s))
-            .or_else(|| e.get("parentIndex").and_then(|p| p.get("guid")).and_then(guid).map(|g| format!("VariableCollectionId:{g}")));
-        let Some(cid) = cid else { continue };
+        let cid = match e.get("variableSetID") {
+            Some(s) => refs.set(s),
+            None => e.get("parentIndex").and_then(|p| p.get("guid")).and_then(guid).map(|g| format!("VariableCollectionId:{g}")),
+        };
         let Some(ty) = fstr(e, "variableResolvedType").or_else(|| fstr(e, "variableDataType")) else { continue };
         let mut by_mode = Map::new();
         let list = e.get("variableDataValues").map(|d| farr(d, "entries")).unwrap_or(&[]);
         for ent in list {
             let (Some(mode), Some(data)) = (ent.get("modeID").and_then(guid), ent.get("variableData")) else { continue };
             let Some(val) = data.get("value").and_then(|x| fig_value(ty, x, &refs)) else { continue };
-            match extension_of_mode.get(&mode) {
+            let is_own_mode = cid
+                .as_ref()
+                .and_then(|c| colls.get(c))
+                .and_then(|c| c.get("modes"))
+                .and_then(Value::as_array)
+                .is_some_and(|ms| ms.iter().any(|m| fstr(m, "modeId") == Some(mode.as_str())));
+            match (!is_own_mode).then(|| extension_of_mode.get(&mode)).flatten() {
                 Some(ext) => {
                     let by_var = overrides.entry(ext.clone()).or_default().entry(id.clone()).or_insert_with(|| Value::Object(Map::new()));
                     if let Some(o) = by_var.as_object_mut() {
@@ -801,6 +804,7 @@ pub(crate) fn from_fig_entries_with_refs(entries: &[&Value], referenced_vars: &s
                 }
             }
         }
+        let Some(cid) = cid else { continue };
         let Some(listed) = colls.get_mut(&cid).and_then(|c| c.get_mut("variableIds")).and_then(Value::as_array_mut) else { continue };
         // A soft-deleted variable is kept so the layers, styles and aliases that use it resolve, but it is not one of
         // its collection's variables: it stays out of the list.
