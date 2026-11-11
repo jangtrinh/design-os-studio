@@ -4431,11 +4431,16 @@ fn frame_props(v: &Value) -> FrameProps {
         let grid_columns = v.get("gridColumns").and_then(Value::as_u64).map(|x| x as u32).filter(|&x| x > 0).unwrap_or(sizing_cols);
         let grid_rows = v.get("gridRows").and_then(Value::as_u64).map(|x| x as u32).filter(|&x| x > 0).unwrap_or(sizing_rows);
         let grid_auto_tracks = fstr(v, "gridAutoTracks").map(parse_grid_auto_tracks).unwrap_or_default();
+        let wrap = fstr(v, "layoutWrap") == Some("WRAP");
+        let item_spacing = p("itemSpacing");
+        // An absent counter gap on a wrap frame is Figma's "Auto" line gap: it follows the item spacing.
+        // An explicit value, zero included, is kept.
+        let counter_spacing = fnum(v, "counterAxisSpacing").unwrap_or(if wrap { item_spacing } else { 0.0 });
         AutoLayout {
             direction,
-            wrap: fstr(v, "layoutWrap") == Some("WRAP"),
-            item_spacing: p("itemSpacing"),
-            counter_spacing: p("counterAxisSpacing"),
+            wrap,
+            item_spacing,
+            counter_spacing,
             padding: [p("paddingTop"), p("paddingRight"), p("paddingBottom"), p("paddingLeft")],
             primary_align: align(fstr(v, "primaryAxisAlignItems")),
             counter_align: align(fstr(v, "counterAxisAlignItems")),
