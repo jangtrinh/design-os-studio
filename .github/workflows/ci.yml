@@ -126,7 +126,12 @@ jobs:
 
       - name: Install Linux system libraries
         run: |
-          sudo apt-get update
+          # The runner's Azure apt mirror sometimes stops resolving; fall back to the main archive.
+          if ! sudo apt-get update --error-on=any -o Acquire::Retries=3; then
+            echo "::warning::apt mirror unreachable; retrying with archive.ubuntu.com"
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|' /etc/apt/sources.list.d/ubuntu.sources
+            sudo apt-get update -o Acquire::Retries=3 || true
+          fi
           sudo apt-get install -y --no-install-recommends \
             pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
             libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
@@ -288,7 +293,12 @@ jobs:
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
+          # The runner's Azure apt mirror sometimes stops resolving; fall back to the main archive.
+          if ! sudo apt-get update --error-on=any -o Acquire::Retries=3; then
+            echo "::warning::apt mirror unreachable; retrying with archive.ubuntu.com"
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|' /etc/apt/sources.list.d/ubuntu.sources
+            sudo apt-get update -o Acquire::Retries=3 || true
+          fi
           sudo apt-get install -y --no-install-recommends \
             pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
             libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
@@ -387,7 +397,12 @@ jobs:
 
       - name: Install Linux system libraries
         run: |
-          sudo apt-get update
+          # The runner's Azure apt mirror sometimes stops resolving; fall back to the main archive.
+          if ! sudo apt-get update --error-on=any -o Acquire::Retries=3; then
+            echo "::warning::apt mirror unreachable; retrying with archive.ubuntu.com"
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|' /etc/apt/sources.list.d/ubuntu.sources
+            sudo apt-get update -o Acquire::Retries=3 || true
+          fi
           sudo apt-get install -y --no-install-recommends \
             pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
             libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
@@ -437,7 +452,12 @@ jobs:
 
       - name: Install Linux system libraries
         run: |
-          sudo apt-get update
+          # The runner's Azure apt mirror sometimes stops resolving; fall back to the main archive.
+          if ! sudo apt-get update --error-on=any -o Acquire::Retries=3; then
+            echo "::warning::apt mirror unreachable; retrying with archive.ubuntu.com"
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|' /etc/apt/sources.list.d/ubuntu.sources
+            sudo apt-get update -o Acquire::Retries=3 || true
+          fi
           sudo apt-get install -y --no-install-recommends \
             pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
             libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
@@ -496,7 +516,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
+          # The runner's Azure apt mirror sometimes stops resolving; fall back to the main archive.
+          if ! sudo apt-get update --error-on=any -o Acquire::Retries=3; then
+            echo "::warning::apt mirror unreachable; retrying with archive.ubuntu.com"
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|' /etc/apt/sources.list.d/ubuntu.sources
+            sudo apt-get update -o Acquire::Retries=3 || true
+          fi
           sudo apt-get install -y --no-install-recommends \
             unzip pkg-config libfontconfig1-dev
           KOTLIN_ZIP="${RUNNER_TEMP}/kotlin-compiler.zip"
