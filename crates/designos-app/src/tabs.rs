@@ -260,13 +260,21 @@ impl TabsState {
         terminal
     }
 
+    fn exit_version_view(&mut self, app: &mut App) {
+        if app.history.viewing.is_some() {
+            std::mem::swap(&mut app.tabs.entries, &mut self.entries);
+            app.exit_version_view();
+            std::mem::swap(&mut app.tabs.entries, &mut self.entries);
+        }
+    }
+
     /// Parks the active tab's state (moving `app.doc`, `app.hist`, `app.terminal`, and `app.image_jobs` into `entries[active_idx]`).
     pub(crate) fn park_active_from_app(&mut self, app: &mut App) {
         if self.entries.is_empty() {
             app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
-            app.exit_version_view();
+            self.exit_version_view(app);
             app.flush_autosave();
             let id = self.alloc_id();
             let sid = self.session_id_for_tab(id);
@@ -307,7 +315,7 @@ impl TabsState {
             app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
-            app.exit_version_view();
+            self.exit_version_view(app);
             app.flush_autosave();
             let active_id = self.entries[self.active_idx].id;
             let sid = self.session_id_for_tab(active_id);
@@ -331,7 +339,7 @@ impl TabsState {
         }
         crate::decks::ui::flush_notes(app);
         app.stop_plugin();
-        app.exit_version_view();
+        self.exit_version_view(app);
         app.flush_autosave();
 
         let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty, tab_disk, tab_load_next_id) = {
@@ -429,6 +437,7 @@ impl TabsState {
             // The closing version needs the live document and its file, which parking detaches.
             app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
+            self.exit_version_view(app);
             app.save_close_version();
             self.park_active_from_app(app);
         }
@@ -718,7 +727,9 @@ impl TabsState {
         if app.home.is_none() {
             self.park_active_from_app(app);
         }
+        std::mem::swap(&mut app.tabs.entries, &mut self.entries);
         app.open_library_file(file_id);
+        std::mem::swap(&mut app.tabs.entries, &mut self.entries);
         if app.lib_file.as_ref().is_some_and(|lf| lf.id == file_id) {
             let id = self.alloc_id();
             let sid = self.session_id_for_tab(id);
@@ -771,12 +782,13 @@ impl TabsState {
         }
     }
 
-    /// Drops any cached profile-converted images of closed tabs no remaining tab holds.
-    pub(crate) fn release_closed_doc_images(&self, app: &App, closed: &[Document]) {
-        for doc in closed {
-            let open = (!self.parked_in_home && app.home.is_none()).then_some(&app.doc).into_iter().chain(self.entries.iter().map(|t| &t.doc));
-            designos_render::drop_converted_images_except(doc, open);
-        }
+    /// Keeps only cached profile-converted images still held by a surviving document, snapshot, or undo/redo history.
+    pub(crate) fn retain_converted_images(&self, app: &App) {
+        let extra = (!std::ptr::eq(self, &app.tabs)).then_some(app.tabs.entries.as_slice()).unwrap_or(&[]);
+        let surviving = std::iter::once((&app.doc, Some(&app.hist)))
+            .chain(self.entries.iter().chain(extra.iter()).map(|t| (&t.doc, Some(&t.hist))))
+            .chain(app.history.parked_snapshots());
+        designos_render::retain_converted_images(surviving);
     }
 
     /// Closes `entries[idx]` unless it is `pinned`. If `entries` becomes empty, opens `Home`;
@@ -786,8 +798,9 @@ impl TabsState {
         let Some(closed_doc) = self.close_tab_entry(idx, app) else {
             return false;
         };
+        drop(closed_doc);
         self.release_closed_paths(app, &closed_paths);
-        self.release_closed_doc_images(app, &[closed_doc]);
+        self.retain_converted_images(app);
         true
     }
 
@@ -815,6 +828,7 @@ impl TabsState {
             self.hist_in_app = false;
             self.parked_in_home = true;
             if !was_home {
+                self.exit_version_view(app);
                 if app.lib.is_some() {
                     // Saves the file being left before detaching it so `go_home` does not re-park a closed tab.
                     crate::decks::ui::flush_notes(app);
@@ -828,6 +842,8 @@ impl TabsState {
                     app.home = Some(crate::home::Home::new());
                 }
                 removed.doc = Self::take_live_doc(app);
+                removed.hist = std::mem::take(&mut app.hist);
+                app.history.reset();
             }
             app.file_path = None;
             app.lib_file = None;
@@ -849,9 +865,11 @@ impl TabsState {
         }
         crate::decks::ui::flush_notes(app);
         app.stop_plugin();
-        app.exit_version_view();
+        self.exit_version_view(app);
         app.flush_autosave();
         removed.doc = Self::take_live_doc(app);
+        removed.hist = std::mem::take(&mut app.hist);
+        app.history.reset();
         let next_idx = idx.min(self.entries.len() - 1);
         self.active_idx = next_idx;
         self.parked_in_home = false;
@@ -890,14 +908,7 @@ impl TabsState {
                 t.terminal.shutdown();
             }
         }
-        let mut closed_docs = Vec::new();
-        self.entries.retain_mut(|t| {
-            let keep = t.id == keep_id || t.pinned;
-            if !keep {
-                closed_docs.push(std::mem::take(&mut t.doc));
-            }
-            keep
-        });
+        self.entries.retain(|t| t.id == keep_id || t.pinned);
         self.project_states.retain(|id, _| self.entries.iter().any(|t| t.id == *id));
         if let Some(new_idx) = self.entries.iter().position(|t| t.id == keep_id) {
             let tab_id = self.entries[new_idx].id;
@@ -913,7 +924,7 @@ impl TabsState {
             self.hist_in_app = true;
         }
         self.release_closed_paths(app, &closed_paths);
-        self.release_closed_doc_images(app, &closed_docs);
+        self.retain_converted_images(app);
     }
 
     /// Whether the document of tab `idx` still has pages that wait for their content. The open tab's document is on

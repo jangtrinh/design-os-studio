@@ -210,16 +210,16 @@ impl ConvertedCache {
         self.order.push_back(key);
     }
 
-    fn drop_ids(&mut self, ids: &HashSet<u64>) {
+    fn retain_ids(&mut self, keep: &HashSet<u64>) {
         self.entries.retain(|((id, _, _), _), pm| {
-            if ids.contains(id) {
+            if keep.contains(id) {
+                true
+            } else {
                 self.bytes = self.bytes.saturating_sub(pm.data().len());
                 false
-            } else {
-                true
             }
         });
-        self.order.retain(|((id, _, _), _)| !ids.contains(id));
+        self.order.retain(|((id, _, _), _)| keep.contains(id));
     }
 }
 
@@ -243,29 +243,24 @@ pub fn converted_image_bytes() -> usize {
     CONVERTED_IMAGES.with(|c| c.borrow().bytes)
 }
 
-/// Drops any cached profile-converted pixmaps that belong to `doc`.
-pub fn drop_converted_images(doc: &Document) {
-    drop_converted_images_except(doc, std::iter::empty());
-}
-
-/// Drops any cached profile-converted pixmaps that belong to `closed` and are not still held by any
-/// document in `still_open`.
-pub fn drop_converted_images_except<'a>(closed: &Document, still_open: impl IntoIterator<Item = &'a Document>) {
-    if closed.images.is_empty() {
+/// Keeps only cached profile-converted pixmaps whose image hash is held by a surviving document or
+/// its undo/redo history, dropping every other entry.
+pub fn retain_converted_images<'a>(surviving: impl IntoIterator<Item = (&'a Document, Option<&'a d::History>)>) {
+    if CONVERTED_IMAGES.with(|c| c.borrow().entries.is_empty()) {
         return;
     }
-    let mut ids: HashSet<u64> = closed.images.iter().map(|(k, v)| hash_bytes(k, v)).collect();
-    for open in still_open {
-        if ids.is_empty() {
-            return;
+    let mut keep = HashSet::new();
+    for (doc, hist) in surviving {
+        for (k, v) in &doc.images {
+            keep.insert(hash_bytes(k, v));
         }
-        for (k, v) in &open.images {
-            ids.remove(&hash_bytes(k, v));
+        if let Some(h) = hist {
+            h.for_each_image(|k, v| {
+                keep.insert(hash_bytes(k, v));
+            });
         }
     }
-    if !ids.is_empty() {
-        CONVERTED_IMAGES.with(|c| c.borrow_mut().drop_ids(&ids));
-    }
+    CONVERTED_IMAGES.with(|c| c.borrow_mut().retain_ids(&keep));
 }
 
 fn hash_bytes(key: &str, data: &[u8]) -> u64 {

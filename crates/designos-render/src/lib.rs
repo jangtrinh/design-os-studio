@@ -24,7 +24,7 @@ mod outline;
 mod paint;
 #[doc(hidden)]
 pub use paint::{converted_image_bytes, image_conversions};
-pub use paint::{drop_converted_images, drop_converted_images_except, MAX_CONVERTED_IMAGE_BYTES};
+pub use paint::{retain_converted_images, MAX_CONVERTED_IMAGE_BYTES};
 mod shadow;
 #[cfg(test)]
 mod shadow_tests;

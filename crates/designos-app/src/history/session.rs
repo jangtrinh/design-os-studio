@@ -29,6 +29,7 @@ impl App {
         self.doc = doc;
         self.decks = Default::default();
         self.hist = hist;
+        self.tabs.retain_converted_images(self);
         self.selection = selection;
         self.selection.retain(|id| self.doc.get(*id).is_some());
         self.hover = None;
@@ -71,8 +72,8 @@ impl App {
             }
         };
         let page = Some(self.page);
-        self.install(doc, History::default(), page, vec![]);
         self.history.viewing = Some(Viewing { n, title, saved });
+        self.install(doc, History::default(), page, vec![]);
     }
 
     /// "Back to current": drops the read-only view.
@@ -101,9 +102,9 @@ impl App {
         }
         let before = self.take_snapshot();
         let page = Some(before.page);
-        self.install(old, History::default(), page, vec![]);
         self.history.restore_undo = Some(before);
         self.history.restore_redo = None;
+        self.install(old, History::default(), page, vec![]);
         self.history.dirty = true;
         self.history.last_version_hash = doc_hash(&self.doc);
         self.write_after_restore();
@@ -125,9 +126,11 @@ impl App {
         }
         let Some(snap) = self.history.restore_undo.take() else { return false };
         let now = self.take_snapshot();
+        self.history.restore_redo = Some((now, 0));
         self.install_snapshot(snap);
-        let expected = doc_hash(&self.doc);
-        self.history.restore_redo = Some((now, expected));
+        if let Some((_, expected)) = self.history.restore_redo.as_mut() {
+            *expected = doc_hash(&self.doc);
+        }
         self.write_after_restore();
         true
     }
@@ -139,11 +142,12 @@ impl App {
         }
         let Some((snap, expected)) = self.history.restore_redo.take() else { return false };
         if doc_hash(&self.doc) != expected {
+            self.tabs.retain_converted_images(self);
             return false;
         }
         let before = self.take_snapshot();
-        self.install_snapshot(snap);
         self.history.restore_undo = Some(before);
+        self.install_snapshot(snap);
         self.write_after_restore();
         true
     }

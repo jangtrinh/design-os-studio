@@ -1140,7 +1140,7 @@ impl App {
 
     /// "Use file": the answer that drops the edits. Loads the file again (it may have changed once more) and
     /// shows it with a fresh history: undo steps of the document it replaces do not apply to it.
-    pub(super) fn use_disk_version(&mut self, ctx: &egui::Context) {
+    pub(crate) fn use_disk_version(&mut self, ctx: &egui::Context) {
         let (Some(asked), None) = (self.autosave.conflict_mtime.take(), self.lib_file.as_ref()) else { return };
         let Some(path) = self.file_path.clone() else { return };
         let mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok()).or(Some(asked));
@@ -1149,8 +1149,8 @@ impl App {
                 self.autosave.disk_mtime = mtime;
                 self.autosave.note_known_mtime(mtime);
                 let new_hash = doc_hash(&new_doc);
-                self.install_disk_document(ctx, new_doc, new_hash, warning);
                 self.hist = designos_doc::History::default();
+                self.install_disk_document(ctx, new_doc, new_hash, warning);
                 self.mark_saved();
             }
             Err(e) => {
@@ -1177,6 +1177,7 @@ impl App {
         let old_sel = self.selection.clone();
         self.load_next_id = new_doc.peek_next_id();
         self.doc = new_doc;
+        self.tabs.retain_converted_images(self);
         self.agent_presence.reset();
         self.agent_changes_chip.clear();
         if !self.doc.pages.contains(&old_page) {
@@ -1200,8 +1201,8 @@ impl App {
         let (Some(lib), Some(lf)) = (self.lib.clone(), self.lib_file.clone()) else { return Err("This file is not in the library".to_string()) };
         match saved_library_document(&lib, &lf) {
             Ok((doc, hash, mtime)) => {
-                self.swap_in_disk_document(doc, hash);
                 self.hist = designos_doc::History::default();
+                self.swap_in_disk_document(doc, hash);
                 self.autosave.disk_mtime = mtime;
                 self.autosave.note_known_mtime(mtime);
             }

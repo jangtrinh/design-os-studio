@@ -3,7 +3,7 @@
 
 use designos_doc::*;
 use designos_render::{
-    converted_image_bytes, drop_converted_images, image_conversions, render_page_native, tiny_skia::Pixmap, Viewport, MAX_CONVERTED_IMAGE_BYTES,
+    converted_image_bytes, image_conversions, render_page_native, retain_converted_images, tiny_skia::Pixmap, Viewport, MAX_CONVERTED_IMAGE_BYTES,
 };
 
 const W: u32 = 4000;
@@ -165,19 +165,48 @@ fn converted_image_cache_stays_within_byte_budget_and_evicts_oldest_first() {
 fn dropping_a_closed_document_releases_its_converted_images() {
     let (d0, p0) = single_image_doc("open", 64, 41);
     let (d1, p1) = single_image_doc("closed", 64, 42);
+    retain_converted_images(std::iter::empty());
     render_one_px(&d0, p0);
     render_one_px(&d1, p1);
-    let bytes_before = converted_image_bytes();
-    assert!(bytes_before >= 2 * 64 * 64 * 4);
+    assert_eq!(converted_image_bytes(), 2 * 64 * 64 * 4);
 
-    drop_converted_images(&d1);
-    assert_eq!(converted_image_bytes(), bytes_before - 64 * 64 * 4, "closing d1 drops its converted pixmap bytes");
+    retain_converted_images([(&d0, None)]);
+    assert_eq!(converted_image_bytes(), 64 * 64 * 4, "closing d1 drops its converted pixmap bytes");
 
     let before = image_conversions();
     render_one_px(&d0, p0);
     assert_eq!(image_conversions() - before, 0, "the still-open document keeps its converted image");
     render_one_px(&d1, p1);
     assert_eq!(image_conversions() - before, 1, "the closed document's image was dropped from the cache");
+}
+
+#[test]
+fn two_open_documents_sharing_one_image_keep_one_pixmap_after_one_closes() {
+    let (d0, p0) = single_image_doc("shared-0", 64, 51);
+    let (d1, p1) = single_image_doc("shared-1", 64, 51);
+    retain_converted_images(std::iter::empty());
+
+    let base_conv = image_conversions();
+    render_one_px(&d0, p0);
+    render_one_px(&d1, p1);
+    assert_eq!(image_conversions() - base_conv, 1, "two documents sharing one (key, bytes) convert once");
+    assert_eq!(converted_image_bytes(), 64 * 64 * 4, "two documents sharing one image keep one pixmap");
+
+    retain_converted_images([(&d0, None)]);
+    assert_eq!(converted_image_bytes(), 64 * 64 * 4, "closing one document keeps the shared pixmap");
+    render_one_px(&d0, p0);
+    assert_eq!(image_conversions() - base_conv, 1, "surviving document reuses the shared pixmap");
+}
+
+#[test]
+fn an_image_larger_than_the_byte_budget_is_never_counted_in_converted_image_bytes() {
+    // 4100 x 4100 RGBA8 is 67,240,000 bytes > MAX_CONVERTED_IMAGE_BYTES (67,108,864 bytes).
+    let (big, page) = single_image_doc("oversized", 4100, 61);
+    let bytes_before = converted_image_bytes();
+    let conv_before = image_conversions();
+    render_one_px(&big, page);
+    assert_eq!(image_conversions() - conv_before, 1);
+    assert_eq!(converted_image_bytes(), bytes_before, "an image larger than the 64 MiB budget must never be stored in converted_image_bytes()");
 }
 
 /// Release timing of a 1x1 native sample over the 4000x3000 photo, as the eyedropper loupe takes it every frame:

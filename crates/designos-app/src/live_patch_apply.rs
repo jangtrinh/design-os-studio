@@ -52,8 +52,7 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
     } else {
         let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
         app.load_next_id = new_doc.peek_next_id();
-        let old_doc = std::mem::replace(&mut app.doc, new_doc);
-        app.tabs.release_closed_doc_images(app, &[old_doc]);
+        app.doc = new_doc;
         app.page = keep_page;
         app.file_path = None;
         app.lib_file = None;
@@ -62,6 +61,7 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
         // share an id with the ones they changed, so the agent's document starts a history of its own, as when a file is opened.
         app.hist = designos_doc::History::default();
         app.history.reset();
+        app.tabs.retain_converted_images(app);
         app.selection.clear();
         app.decks = Default::default();
     }

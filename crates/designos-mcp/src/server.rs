@@ -882,9 +882,9 @@ impl Session {
     }
 
     fn reset_closed_session(&mut self) {
-        designos_render::drop_converted_images(&self.engine.doc);
         let next_rev = self.engine.revision.wrapping_add(1);
         self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
+        designos_render::retain_converted_images(std::iter::empty());
         self.save_session_options();
         self.record_live_ops();
         self.dirty = false;
@@ -1356,6 +1356,7 @@ impl Session {
                     enabled_tools: self.enabled_tools_config.enabled.clone(),
                     ..Engine::default()
                 };
+                designos_render::retain_converted_images([(&self.engine.doc, Some(&self.engine.history))]);
                 self.save_session_options();
                 self.record_live_ops();
                 self.dirty = false;
@@ -1409,6 +1410,7 @@ impl Session {
                 self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
                 self.engine.doc.name = a.name;
                 self.engine.file_path = None;
+                designos_render::retain_converted_images(std::iter::empty());
                 self.save_session_options();
                 self.record_live_ops();
                 self.dirty = true;

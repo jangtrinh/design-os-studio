@@ -165,6 +165,14 @@ fn press_cmd_z(s: &mut Sim, shift: bool) {
     s.frame(vec![Event::Key { key: Key::Z, physical_key: Some(Key::Z), pressed: true, repeat: false, modifiers }]);
 }
 
+fn press_enter(s: &mut Sim) {
+    s.frame(vec![Event::Key { key: Key::Enter, physical_key: Some(Key::Enter), pressed: true, repeat: false, modifiers: Modifiers::NONE }]);
+}
+
+fn release_enter(s: &mut Sim) {
+    s.frame(vec![Event::Key { key: Key::Enter, physical_key: Some(Key::Enter), pressed: false, repeat: false, modifiers: Modifiers::NONE }]);
+}
+
 fn swatch_filled_with(s: &Sim, c: egui::Color32) -> bool {
     s.shapes.iter().any(|cs| matches!(&cs.shape, egui::Shape::Rect(r) if r.rect.size() == Vec2::splat(theme::PAGE_SWATCH) && r.fill == c))
 }
@@ -192,6 +200,52 @@ fn the_page_swatch_updates_in_the_same_frame_as_the_profile_dropdown_undo_and_re
     assert_eq!(s.app().doc.color_profile, ColorProfile::DisplayP3);
     assert!(filled_near(&s, [132, 101, 211]), "the redo frame already draws the converted swatch");
     assert!(!swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "no stale raw swatch in the redo frame");
+
+    // Edit -> Undo and Edit -> Redo from the main menu also update the swatch in the same frame.
+    s.click(Pos2::new(28.0, 24.0));
+    assert_eq!(s.app().ui.menu, Some(crate::app::MenuKind::Main));
+    for _ in 0..4 {
+        s.key(Key::ArrowDown);
+    }
+    s.key(Key::ArrowRight);
+    press_enter(&mut s);
+    assert_eq!(s.app().doc.color_profile, ColorProfile::Srgb);
+    assert!(swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "Edit -> Undo updates the swatch in the same frame");
+    assert!(!filled_near(&s, [132, 101, 211]), "no stale converted swatch in the Edit -> Undo frame");
+    release_enter(&mut s);
+
+    s.click(Pos2::new(28.0, 24.0));
+    for _ in 0..4 {
+        s.key(Key::ArrowDown);
+    }
+    s.key(Key::ArrowRight);
+    press_enter(&mut s);
+    assert_eq!(s.app().doc.color_profile, ColorProfile::DisplayP3);
+    assert!(filled_near(&s, [132, 101, 211]), "Edit -> Redo updates the swatch in the same frame");
+    assert!(!swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "no stale raw swatch in the Edit -> Redo frame");
+    release_enter(&mut s);
+
+    // Command palette Undo and Redo also update the swatch in the same frame.
+    s.cmd_key(Key::K);
+    assert_eq!(s.app().ui.menu, Some(crate::app::MenuKind::Palette));
+    s.frame(vec![]);
+    s.type_text("Undo");
+    s.frame(vec![]);
+    press_enter(&mut s);
+    assert_eq!(s.app().doc.color_profile, ColorProfile::Srgb);
+    assert!(swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "palette Undo updates the swatch in the same frame");
+    assert!(!filled_near(&s, [132, 101, 211]), "no stale converted swatch in the palette Undo frame");
+    release_enter(&mut s);
+
+    s.cmd_key(Key::K);
+    s.frame(vec![]);
+    s.type_text("Redo");
+    s.frame(vec![]);
+    press_enter(&mut s);
+    assert_eq!(s.app().doc.color_profile, ColorProfile::DisplayP3);
+    assert!(filled_near(&s, [132, 101, 211]), "palette Redo updates the swatch in the same frame");
+    assert!(!swatch_filled_with(&s, egui::Color32::from_rgb(128, 102, 204)), "no stale raw swatch in the palette Redo frame");
+    release_enter(&mut s);
 }
 
 fn p3_doc_with_png(rgb: [u8; 3], key: &str) -> (Document, NodeId) {
@@ -212,8 +266,7 @@ fn closing_a_tab_drops_its_converted_images_and_keeps_open_tabs() {
     let mut s = Sim::new();
     let (doc_a, page_a) = p3_doc_with_png([210, 50, 40], "tab-a");
     let (doc_b, page_b) = p3_doc_with_png([40, 180, 90], "tab-b");
-    designos_render::drop_converted_images(&doc_a);
-    designos_render::drop_converted_images(&doc_b);
+    designos_render::retain_converted_images(std::iter::empty());
 
     s.shell.app.replace_document(doc_a, None);
     let base_bytes = designos_render::converted_image_bytes();
@@ -236,6 +289,155 @@ fn closing_a_tab_drops_its_converted_images_and_keeps_open_tabs() {
     assert_eq!(designos_render::image_conversions() - base_conv, 2, "the remaining open tab's image stays cached");
 
     // Replacing the remaining document drops its converted image too.
+    s.shell.app.replace_document(Document::new("empty"), None);
+    assert_eq!(designos_render::converted_image_bytes(), base_bytes);
+}
+
+#[test]
+fn version_view_exit_and_tab_close_drop_converted_images_of_the_version() {
+    let tmp = std::env::temp_dir().join(format!("designos_1805_ver_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let mut s = Sim::new();
+    s.shell.app.attach_library(tmp.clone());
+    s.shell.app.new_library_file(None);
+    let (ver_doc, ver_page) = p3_doc_with_png([190, 60, 70], "ver-only-img");
+    let (cur_doc, cur_page) = p3_doc_with_png([60, 120, 210], "cur-only-img");
+    designos_render::retain_converted_images(std::iter::empty());
+
+    s.shell.app.doc = ver_doc;
+    s.shell.app.page = ver_page;
+    assert!(s.shell.app.save_named_version("v1", ""));
+    let lf_id = s.app().lib_file.as_ref().unwrap().id.clone();
+    let v_n = s.app().lib.as_ref().unwrap().list_versions(&lf_id)[0].n;
+
+    s.shell.app.doc = cur_doc;
+    s.shell.app.page = cur_page;
+    s.shell.app.save_library_file().unwrap();
+
+    let base_bytes = designos_render::converted_image_bytes();
+    let one_img_bytes = 8 * 8 * 4;
+    let _ = sample_page(&s.app().doc, cur_page, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, one_img_bytes);
+
+    // Open the version whose only image is `ver-only-img`, convert it, then go back to current.
+    s.shell.app.view_version(v_n);
+    let _ = sample_page(&s.app().doc, ver_page, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 2 * one_img_bytes);
+    s.shell.app.exit_version_view();
+    assert_eq!(
+        designos_render::converted_image_bytes() - base_bytes,
+        one_img_bytes,
+        "leaving version view drops the version's converted image and keeps the current document's"
+    );
+
+    // Open the version again, convert its image, then close the tab while the version is shown.
+    s.shell.app.view_version(v_n);
+    let _ = sample_page(&s.app().doc, ver_page, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 2 * one_img_bytes);
+    let active = s.app().tabs.active_idx;
+    s.shell.app.close_tab(active);
+    assert_eq!(
+        designos_render::converted_image_bytes(),
+        base_bytes,
+        "closing a tab while a version is shown drops both the version's and the tab's converted images"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn use_disk_version_drops_converted_images_only_the_unsaved_doc_had() {
+    let path = std::env::temp_dir().join(format!("designos_1805_disk_{}.designos", std::process::id()));
+    let (unsaved_doc, unsaved_page) = p3_doc_with_png([220, 90, 30], "unsaved-only-img");
+    designos_render::retain_converted_images(std::iter::empty());
+    let mut disk_doc = Document::new("on-disk");
+    disk_doc.add_page("Page 1");
+    std::fs::write(&path, disk_doc.to_json().unwrap()).unwrap();
+
+    let mut s = Sim::new();
+    s.shell.app.replace_document(unsaved_doc, Some(path.clone()));
+    let base_bytes = designos_render::converted_image_bytes();
+    let _ = sample_page(&s.app().doc, unsaved_page, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 8 * 8 * 4);
+
+    s.shell.app.autosave.conflict_mtime = Some(std::time::SystemTime::UNIX_EPOCH);
+    s.shell.app.use_disk_version(&s.ctx);
+    assert_eq!(
+        designos_render::converted_image_bytes(),
+        base_bytes,
+        "choosing the on-disk file drops converted images that only the discarded unsaved document had"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn undoing_an_added_image_and_closing_the_tab_drops_its_converted_pixmap() {
+    let mut s = Sim::new();
+    let (img_doc, _) = p3_doc_with_png([140, 200, 50], "undone-tab-img");
+    designos_render::retain_converted_images(std::iter::empty());
+    let img_bytes = img_doc.images.get("undone-tab-img").unwrap().clone();
+
+    let mut doc = Document::new("undo-tab");
+    let page = doc.add_page("Page 1");
+    doc.color_profile = ColorProfile::DisplayP3;
+    s.shell.app.replace_document(doc, None);
+    let base_bytes = designos_render::converted_image_bytes();
+
+    let rect_id = s.shell.app.doc.alloc_id();
+    let mut node = DNode::rectangle(rect_id, DRect::new(0.0, 0.0, 20.0, 20.0));
+    node.fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: "undone-tab-img".into(), scale_mode: ImageScaleMode::Fill, params: ImageParams::default() },
+        ..Paint::solid(DColor::WHITE)
+    }];
+    let mut add = std::collections::BTreeMap::new();
+    add.insert("undone-tab-img".to_string(), img_bytes);
+    let cmd = designos_doc::Command::Batch(vec![
+        designos_doc::Command::SetImages { add, remove: vec![] },
+        designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![node] },
+    ]);
+    s.shell.app.hist.exec(&mut s.shell.app.doc, cmd).unwrap();
+
+    let _ = sample_page(&s.app().doc, page, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 8 * 8 * 4);
+
+    // Undo removes the image from `doc.images` and moves its bytes onto `hist`'s redo stack.
+    s.shell.app.undo();
+    assert!(!s.app().doc.images.contains_key("undone-tab-img"));
+
+    // While the tab is still open, closing another tab keeps the redo-owned image pixmap cached.
+    s.shell.app.open_new_design_tab();
+    s.shell.app.close_tab(1);
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 8 * 8 * 4, "surviving tab's redo stack still owns the image bytes");
+
+    let active = s.app().tabs.active_idx;
+    s.shell.app.close_tab(active);
+    assert_eq!(designos_render::converted_image_bytes(), base_bytes, "closing the tab after undoing its image addition drops the converted pixmap");
+}
+
+#[test]
+fn two_open_tabs_sharing_one_image_keep_one_pixmap_after_one_closes() {
+    let mut s = Sim::new();
+    let (doc_a, page_a) = p3_doc_with_png([95, 150, 215], "shared-img");
+    let (doc_b, page_b) = p3_doc_with_png([95, 150, 215], "shared-img");
+    designos_render::retain_converted_images(std::iter::empty());
+
+    s.shell.app.replace_document(doc_a, None);
+    let base_bytes = designos_render::converted_image_bytes();
+    let base_conv = designos_render::image_conversions();
+    let _ = sample_page(&s.app().doc, page_a, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 8 * 8 * 4);
+    assert_eq!(designos_render::image_conversions() - base_conv, 1);
+
+    s.shell.app.open_new_design_tab();
+    s.shell.app.replace_document(doc_b, None);
+    let _ = sample_page(&s.app().doc, page_b, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 8 * 8 * 4, "shared image stores only one pixmap");
+    assert_eq!(designos_render::image_conversions() - base_conv, 1);
+
+    s.shell.app.close_tab(1);
+    assert_eq!(designos_render::converted_image_bytes() - base_bytes, 8 * 8 * 4, "closing one tab keeps the shared pixmap");
+    let _ = sample_page(&s.app().doc, page_a, designos_doc::Vec2::new(4.0, 4.0));
+    assert_eq!(designos_render::image_conversions() - base_conv, 1, "remaining tab reuses the shared pixmap without reconverting");
+
     s.shell.app.replace_document(Document::new("empty"), None);
     assert_eq!(designos_render::converted_image_bytes(), base_bytes);
 }

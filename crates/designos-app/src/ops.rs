@@ -2460,11 +2460,11 @@ impl App {
         self.load_next_id = doc.peek_next_id();
         doc.ensure_page_hydrated(first_page);
         self.page = first_page;
-        let old_doc = std::mem::replace(&mut self.doc, doc);
-        self.tabs.release_closed_doc_images(self, &[old_doc]);
+        self.doc = doc;
         self.decks = Default::default();
         self.hist = History::default();
         self.history.reset();
+        self.tabs.retain_converted_images(self);
         self.comments.close_popovers();
         self.selection.clear();
         self.hover = None;
