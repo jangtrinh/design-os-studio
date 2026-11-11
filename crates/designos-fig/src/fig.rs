@@ -681,9 +681,10 @@ impl<'a> Lk<'a> {
     }
 
     /// Whether the effects an override entry restates are a stale copy that the linked `style` replaces: they bind
-    /// no variable the style lacks. A library style the file does not carry (`None`) has no values to compare.
+    /// no variable the style lacks. A library style the file does not carry (`None`) carries no variables of the file,
+    /// so an entry that binds a variable keeps its own list.
     fn style_replaces_entry_effects(&self, own: &[Value], style: Option<&Value>) -> bool {
-        style.is_none_or(|s| !effects_bind_foreign_variable(self, own, rest_import::farr(s, "effects")))
+        !effects_bind_foreign_variable(self, own, style.map_or(&[], |s| rest_import::farr(s, "effects")))
     }
 
     /// Resolves a preferred-value component key: literal `comp_by_key` match wins first; otherwise
@@ -3109,11 +3110,12 @@ fn keep_symbol_overrides(instance: &Value, sd: Option<&Value>, lk: &Lk) -> Optio
     let mut blobs = Map::new();
     let mut props = Map::new();
     let main = sd.get("symbolID").and_then(guid_str);
+    let instance_guid = instance.get("guid").and_then(guid_str).unwrap_or_default();
     let mut own_keys: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for e in entries {
         if main.as_ref().is_some_and(|m| guid_path(e) == std::slice::from_ref(m)) {
             // A stale copy under an inherited link is not an override of the instance: it states no effects.
-            let stale_copy = drops_copy_under_inherited_link(instance, e, lk);
+            let stale_copy = drops_copy_under_inherited_link(instance, &instance_guid, e, lk);
             own_keys.extend(e.as_object().into_iter().flat_map(|o| o.keys().map(String::as_str)).filter(|k| !(stale_copy && *k == "effects")));
         }
         for key in ["fillGeometry", "strokeGeometry"] {
@@ -3145,13 +3147,14 @@ fn keep_symbol_overrides(instance: &Value, sd: Option<&Value>, lk: &Lk) -> Optio
 /// Whether the self entry `o` of `instance` restates effects without naming a style, while the instance only inherits
 /// the effect link of its main (no link keys of its own) and the linked style replaces the restated list. Such an entry
 /// is a stale copy: the record keeps the effects Figma cached for it and nothing is overridden.
-fn drops_copy_under_inherited_link(instance: &Value, o: &Value, lk: &Lk) -> bool {
+fn drops_copy_under_inherited_link(instance: &Value, instance_guid: &str, o: &Value, lk: &Lk) -> bool {
     if o.get("styleIdForEffect").is_some() || o.get("effects").is_none() {
         return false;
     }
-    let instance_guid = instance.get("guid").and_then(guid_str).unwrap_or_default();
-    let inherits =
-        !lk.effect_linked.contains_key(&instance_guid) && instance.get("styleIdForEffect").is_none() && instance.get("inheritEffectStyleID").is_none();
+    let inherits = !lk.effect_linked.contains_key(instance_guid)
+        && lk.own_effect_link_entry(instance).is_none()
+        && instance.get("styleIdForEffect").is_none()
+        && instance.get("inheritEffectStyleID").is_none();
     let Some(style) = inherits.then(|| instance.get("symbolData")?.get("symbolID").and_then(guid_str)).flatten().and_then(|m| lk.effect_linked.get(&m)) else {
         return false;
     };
@@ -3175,8 +3178,9 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
     let a: Vec<&Value> = carried.iter().map(|c| &**c).collect();
     let mut restated = RestatedTracks::new();
     let mut out = Vec::new();
+    let sym_id = instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str);
+    let instance_guid = instance.get("guid").and_then(guid_str);
     if !derived {
-        let sym_id = instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str);
         for (path, owner) in std::iter::once((Vec::new(), instance)).chain(a.iter().map(|&o| (guid_path(o), o))) {
             let (cols, rows) = (grid_position_guids(owner, "gridColumns"), grid_position_guids(owner, "gridRows"));
             if !cols.is_empty() || !rows.is_empty() {
@@ -3205,19 +3209,15 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
             out.push(json!({"path": Vec::<String>::new(), "set": Value::Object(inst_grid)}));
         }
     }
+    let instance_guid_str = instance_guid.as_deref().unwrap_or_default();
     out.extend(a.iter().filter_map(|o| {
         let mut set = if derived { convert_derived_override(o, lk) } else { convert_override(o, lk) };
         if set.is_empty() {
             return None;
         }
         let path = guid_path(o);
-        let is_self = path.len() == 1
-            && [instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str), instance.get("guid").and_then(guid_str)]
-                .iter()
-                .flatten()
-                .any(|g| *g == path[0]);
+        let is_self = path.len() == 1 && [sym_id.as_deref(), instance_guid.as_deref()].into_iter().flatten().any(|g| g == path[0]);
         let restates_effects_without_style = !derived && o.get("styleIdForEffect").is_none();
-        let instance_guid = instance.get("guid").and_then(guid_str).unwrap_or_default();
         let own_effects = rest_import::farr(o, "effects");
         if !derived && is_self {
             // A self entry that restates paints without a style key keeps the style the instance itself names.
@@ -3235,11 +3235,12 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                 // the link stays, as it does on a node: the instance's own
                 // link, or the one it inherits from its main.
                 if restates_effects_without_style {
-                    let own_link = lk.effect_linked.get(&instance_guid);
-                    let inherited = own_link.is_none() && instance.get("styleIdForEffect").is_none() && instance.get("inheritEffectStyleID").is_none();
-                    let link = own_link.or_else(|| {
-                        inherited.then(|| instance.get("symbolData")?.get("symbolID").and_then(guid_str)).flatten().and_then(|m| lk.effect_linked.get(&m))
-                    });
+                    let own_link = lk.effect_linked.get(instance_guid_str);
+                    let inherited = own_link.is_none()
+                        && lk.own_effect_link_entry(instance).is_none()
+                        && instance.get("styleIdForEffect").is_none()
+                        && instance.get("inheritEffectStyleID").is_none();
+                    let link = own_link.or_else(|| inherited.then_some(sym_id.as_deref()).flatten().and_then(|m| lk.effect_linked.get(m)));
                     if let Some(style) = link {
                         let replaces = lk.style_replaces_entry_effects(own_effects, lk.style_by_id.get(style));
                         if set.remove("_clearEffectStyle").is_some() {
@@ -3252,7 +3253,7 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                             // Marking it as one would pin the record on save and restate a list that the reopen reads
                             // as a stale copy again.
                             insert_effect_link(&mut set, Some(style.clone()));
-                            if drops_copy_under_inherited_link(instance, o, lk) {
+                            if drops_copy_under_inherited_link(instance, instance_guid_str, o, lk) {
                                 set.insert("_inheritedEffectLink".into(), Value::Bool(true));
                             }
                         }

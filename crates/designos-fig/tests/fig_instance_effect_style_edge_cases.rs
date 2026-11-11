@@ -2,7 +2,7 @@
 //! instance, nested override entries, a legacy-only link, a master that links a style with an empty
 //! cache, variable-bound copies, and a nested relink through a `.fig` save.
 use designos_doc::*;
-use designos_fig::{export_fig, import_fig, import_fig_node_changes};
+use designos_fig::{decode_fig_to_json, export_fig, import_fig, import_fig_node_changes};
 use serde_json::{json, Value};
 
 const DETACHED: u32 = u32::MAX;
@@ -126,6 +126,18 @@ fn import(changes: &Value) -> Document {
 
 fn reopened(doc: &Document) -> Document {
     import_fig(&export_fig(doc).expect("export")).expect("reopen")
+}
+
+fn saved_record(doc: &Document, name: &str) -> Value {
+    let saved = export_fig(doc).expect("export");
+    let decoded = decode_fig_to_json(&saved).expect("decode");
+    decoded["message"]["nodeChanges"]
+        .as_array()
+        .expect("nodeChanges")
+        .iter()
+        .find(|nc| nc["name"].as_str() == Some(name))
+        .unwrap_or_else(|| panic!("no saved record named {name}"))
+        .clone()
 }
 
 #[test]
@@ -480,9 +492,29 @@ fn a_root_instance_that_inherits_its_link_keeps_it_with_a_foreign_binding() {
     let doc = import(&doc_json(card_binding_7_1(), linked.clone(), linked, vec![inst(1, "Inherits", json!({}), vec![entry])]));
     let n = named(&doc, "Inherits");
     assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![2.0], Some("Shadow/Card")));
+    assert_eq!(saved_record(&doc, "Inherits")["styleIdForEffect"], link(1));
     let again = reopened(&doc);
     let n = named(&again, "Inherits");
     assert_eq!((radii(n), style_of(&again, n).as_deref()), (vec![2.0], Some("Shadow/Card")), "the save writes no detach marker");
+}
+
+#[test]
+fn two_self_entries_without_record_link_keep_a_detach_in_either_order() {
+    let linked = json!({"styleIdForEffect": link(1), "effects": [bound(shadow(8.0), (7, 1))]});
+    let detach = root_entry(json!({"styleIdForEffect": {"guid": g(DETACHED, DETACHED)}}));
+    let gone = root_entry(json!({"styleIdForEffect": link(77)}));
+    for (kind, clear) in [("detached", detach), ("gone style", gone)] {
+        for (row, fx) in [("stale", shadow(3.0)), ("copy of style variable", bound(shadow(3.0), (7, 1))), ("foreign variable", bound(shadow(3.0), (7, 99)))] {
+            let restate = root_entry(json!({"effects": [fx]}));
+            for (order, entries) in [("detach first", vec![clear.clone(), restate.clone()]), ("restate first", vec![restate, clear.clone()])] {
+                let doc = import(&doc_json(card_binding_7_1(), linked.clone(), linked.clone(), vec![inst(1, "Detached two", json!({}), entries)]));
+                for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
+                    let n = named(&doc, "Detached two");
+                    assert_eq!((radii(n), style_of(&doc, n)), (vec![3.0], None), "{kind}, {row}, {order}, {stage}");
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -538,12 +570,15 @@ fn a_scaled_record_cache_under_an_inherited_link_survives_saves() {
         let mut doc = inherited_cached(master.clone(), cache, entry, "Scaled");
         let n = named(&doc, "Scaled");
         assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![4.0], Some("Shadow/Card")), "{tag}, import");
+        assert!(saved_record(&doc, "Scaled").get("styleIdForEffect").is_none(), "{tag}: record keeps no styleIdForEffect pin");
         for round in 1..=3 {
             doc = reopened(&doc);
             let n = named(&doc, "Scaled");
             assert_eq!((radii(n), style_of(&doc, n).as_deref()), (vec![4.0], Some("Shadow/Card")), "{tag}, save {round}");
         }
     }
+    let foreign_cache = inherited_cached(master, json!({"effects": [bound(shadow(4.0), (7, 99))]}), vec![shadow(8.0)], "Foreign cache");
+    assert_eq!(saved_record(&foreign_cache, "Foreign cache")["styleIdForEffect"], link(1), "a foreign-bound record cache keeps its pin");
 }
 
 /// The same in a file big enough to defer its pages, which flags an instance's overrides from the keys of its own
@@ -590,11 +625,34 @@ fn a_copy_of_the_styles_own_variable_under_an_inherited_link_keeps_the_mains_lin
 
 #[test]
 fn a_main_linked_to_a_library_style_keeps_that_link_under_a_foreign_binding() {
-    let master = json!({"styleIdForEffect": {"assetRef": {"key": "absent-lib"}}, "effects": [shadow(8.0)]});
-    let doc = inherited(master, vec![bound(shadow(2.0), (7, 99))], "Inherited library");
-    for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
-        let n = named(&doc, "Inherited library");
-        assert_eq!(n.style_refs.get("effect").map(String::as_str), Some("key:absent-lib"), "{stage}");
+    let lib = json!({"assetRef": {"key": "absent-lib"}});
+    let master = json!({"styleIdForEffect": lib.clone(), "effects": [shadow(8.0)]});
+    let entry = root_entry(json!({"effects": [bound(shadow(2.0), (7, 99))]}));
+    let own_doc = import(&doc_json(
+        card_binding_7_1(),
+        master.clone(),
+        master.clone(),
+        vec![inst(1, "Own library", json!({"styleIdForEffect": lib.clone(), "effects": [shadow(8.0)]}), vec![entry])],
+    ));
+    let inh_doc = inherited(master, vec![bound(shadow(2.0), (7, 99))], "Inherited library");
+    let want = vec![Effect::DropShadow {
+        color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.25 },
+        offset: Vec2::new(0.0, 2.0),
+        radius: 2.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: BlendMode::Normal,
+    }];
+    for (name, doc) in [("Inherited library", inh_doc), ("Own library", own_doc)] {
+        assert_eq!(saved_record(&doc, name)["styleIdForEffect"], lib);
+        for (stage, doc) in [("import", doc.clone()), ("reopen", reopened(&doc))] {
+            let n = named(&doc, name);
+            assert_eq!(n.style_refs.get("effect").map(String::as_str), Some("key:absent-lib"), "{name}, {stage}: link");
+            assert_eq!(radii(n), vec![2.0], "{name}, {stage}: radii");
+            assert_eq!(n.effects, want, "{name}, {stage}: effects");
+            assert_eq!(n.variables.bindings.get("effects/0/color").map(String::as_str), Some("VariableID:7:99"), "{name}, {stage}: binding");
+        }
     }
 }
 
