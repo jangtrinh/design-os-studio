@@ -182,7 +182,7 @@ pub struct NodeSpec {
     /// Handoff annotations attached to this node.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<String>,
-    /// Agent `in_progress` flag: `true`, `false`, or `{run_id, agent, status, stale_after_s}`.
+    /// Agent `in_progress` flag: a bool or a status object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_progress: Option<InProgressSpec>,
     /// Resolved canvas comment threads on export.
@@ -191,6 +191,9 @@ pub struct NodeSpec {
     /// Child `NodeSpec` items.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<NodeSpec>,
+    /// Variable bindings.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bindings: BTreeMap<String, String>,
 }
 
 /// Literal `false` used by [`SlotFillSpec::Disabled`] (`slots: {"Actions": false}`).
@@ -1360,6 +1363,11 @@ impl Document {
             }
         }
 
+        for (prop_key, raw_ref) in &spec.bindings {
+            let fpath = format!("{path}.bindings.{prop_key}");
+            self.bind_variable_ref(id, &node_kind, raw_ref, &[prop_key.as_str()], "bindings", &fpath, index, libraries, report)?;
+        }
+
         // 7. Font size, line height and weight on Text nodes (or when spec.text is None)
         if is_text_kind || spec.text.is_none() {
             self.apply_text_overrides(id, &node_kind, spec, path, index, libraries, report)?;
@@ -1868,6 +1876,14 @@ impl Document {
                 children.push(cs);
             }
         }
+        let mut bindings = BTreeMap::new();
+        for (k, vid) in &n.variables.bindings {
+            if k.starts_with("effects/") || k.contains("/stops/") {
+                if let Some(formatted) = self.export_var_ref(index, vid) {
+                    bindings.insert(k.clone(), formatted);
+                }
+            }
+        }
         Ok(NodeSpec {
             id: Some(id.0),
             kind: n.kind.default_name().to_ascii_lowercase(),
@@ -1915,6 +1931,7 @@ impl Document {
             in_progress,
             comments,
             children,
+            bindings,
         })
     }
 

@@ -487,7 +487,9 @@ pub(crate) fn parse_node_variables(v: &Value) -> NodeVariables {
     if let Some(arr) = v.get("effects").and_then(Value::as_array) {
         for (i, e) in arr.iter().enumerate() {
             if let Some(bv) = e.get("boundVariables") {
-                for prop in ["color", "opacity", "radius", "spread", "offsetX", "offsetY"] {
+                for prop in
+                    ["color", "radius", "spread", "offsetX", "offsetY", "opacity", "lightAngle", "lightIntensity", "refraction", "depth", "dispersion", "frost"]
+                {
                     if let Some(id) = bv.get(prop).and_then(|a| fstr(a, "id")) {
                         nv.bindings.entry(format!("effects/{i}/{prop}")).or_insert_with(|| id.to_string());
                     }

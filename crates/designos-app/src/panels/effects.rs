@@ -790,7 +790,17 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 let dial_r = Rect::from_min_size(rc.min, Vec2::splat(24.0));
                 let num_r = Rect::from_min_max(Pos2::new(rc.left() + 32.0, rc.top()), rc.right_bottom());
                 let mut v = popover::dial(ui, dial_r, ("fxp-dial", i), g.light_angle);
-                if let Some(n) = field::num_field(ui, num_r, ("fxp-angle", i), Prefix::Icon(Icon::Rotation), Some(g.light_angle), "°") {
+                let angle_prop = format!("effects/{i}/lightAngle");
+                let n = match (&style_key, tgt) {
+                    (Some(sk), _) => super::var_bind::style_numeric(app, ui, num_r, sk, &angle_prop, |ui, r| {
+                        field::num_field(ui, r, ("fxp-angle", i), Prefix::Icon(Icon::Rotation), Some(g.light_angle), "°")
+                    }),
+                    (None, FxTarget::Nodes(ids)) => super::var_bind::numeric(app, ui, num_r, ids, &[angle_prop.as_str()], |ui, r| {
+                        field::num_field(ui, r, ("fxp-angle", i), Prefix::Icon(Icon::Rotation), Some(g.light_angle), "°")
+                    }),
+                    (None, FxTarget::Style) => field::num_field(ui, num_r, ("fxp-angle", i), Prefix::Icon(Icon::Rotation), Some(g.light_angle), "°"),
+                };
+                if let Some(n) = n {
                     v = Some(n.rem_euclid(360.0));
                 }
                 if let Some(v) = v {
@@ -803,7 +813,30 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
             });
             for (label, icon, suffix, which) in GLASS_ROWS {
                 popover::row(ui, body, next(), label, |ui, rc| {
-                    if let Some(v) = num(ui, rc, ("fxp-glass", i, which), Prefix::Icon(icon), glass_value(g, which), suffix) {
+                    let prop = match which {
+                        0 => Some(format!("effects/{i}/lightIntensity")),
+                        1 => Some(format!("effects/{i}/refraction")),
+                        2 => Some(format!("effects/{i}/depth")),
+                        3 => Some(format!("effects/{i}/dispersion")),
+                        4 => Some(format!("effects/{i}/radius")),
+                        _ => None,
+                    };
+                    let v = match (prop, &style_key, tgt) {
+                        (Some(ref p), Some(sk), _) => super::var_bind::style_numeric(app, ui, rc, sk, p, |ui, r| {
+                            num(ui, r, ("fxp-glass", i, which), Prefix::Icon(icon), glass_value(g, which), suffix)
+                        }),
+                        (Some(ref p), None, FxTarget::Nodes(ids)) if which == 4 => {
+                            let frost_prop = format!("effects/{i}/frost");
+                            super::var_bind::numeric(app, ui, rc, ids, &[p.as_str(), frost_prop.as_str()], |ui, r| {
+                                num(ui, r, ("fxp-glass", i, which), Prefix::Icon(icon), glass_value(g, which), suffix)
+                            })
+                        }
+                        (Some(ref p), None, FxTarget::Nodes(ids)) => super::var_bind::numeric(app, ui, rc, ids, &[p.as_str()], |ui, r| {
+                            num(ui, r, ("fxp-glass", i, which), Prefix::Icon(icon), glass_value(g, which), suffix)
+                        }),
+                        _ => num(ui, rc, ("fxp-glass", i, which), Prefix::Icon(icon), glass_value(g, which), suffix),
+                    };
+                    if let Some(v) = v {
                         edit_effect(app, tgt, i, |e| {
                             if let Effect::Glass(g) = e {
                                 set_glass_value(g, which, v);

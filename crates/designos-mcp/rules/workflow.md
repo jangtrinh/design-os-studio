@@ -10,4 +10,4 @@
 {{/if}}
 7. **Errors & retries** — `error_kind`: `retryable` = fix and retry once; `fatal` = stop; `needs_human` = stop and ask the user. Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry`; else re-read state{{#if write_tools}}; pass `idempotency_key` on writes{{/if}}{{#unless write_tools}}{{#if tool:designos_lint}}, and run {{tool:designos_lint}} (`preset: "agent"`) when auditing screens{{/if}}{{/unless}}.
 
-Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not gated by Studio.
+Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.

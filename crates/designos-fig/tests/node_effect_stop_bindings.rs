@@ -211,3 +211,171 @@ fn node_effect_and_gradient_stop_bindings_round_trip_and_resolve_per_mode() {
     };
     assert_eq!(stroke_stops_dark[0].color, stroke_dark);
 }
+
+#[test]
+fn fig_roundtrip_preserves_glass_effect_variable_bindings_per_mode() {
+    let mut doc = Document::new("GlassEffectBindings");
+    let page = doc.add_page("Page 1");
+    add_two_mode_collection(&mut doc);
+
+    let v_depth = "VariableID:3:40".to_string();
+    let v_angle = "VariableID:3:41".to_string();
+    let v_intensity = "VariableID:3:42".to_string();
+    let v_dispersion = "VariableID:3:43".to_string();
+    let v_refraction = "VariableID:3:44".to_string();
+    let v_frost = "VariableID:3:45".to_string();
+
+    insert_var(&mut doc, &v_depth, "glass/depth", VariableKind::Number, &["EFFECT_FLOAT"], VariableValue::Number(4.0), VariableValue::Number(16.0));
+    insert_var(&mut doc, &v_angle, "glass/angle", VariableKind::Number, &["EFFECT_FLOAT"], VariableValue::Number(30.0), VariableValue::Number(120.0));
+    insert_var(&mut doc, &v_intensity, "glass/intensity", VariableKind::Number, &["EFFECT_FLOAT"], VariableValue::Number(40.0), VariableValue::Number(80.0));
+    insert_var(&mut doc, &v_dispersion, "glass/dispersion", VariableKind::Number, &["EFFECT_FLOAT"], VariableValue::Number(15.0), VariableValue::Number(50.0));
+    insert_var(&mut doc, &v_refraction, "glass/refraction", VariableKind::Number, &["EFFECT_FLOAT"], VariableValue::Number(20.0), VariableValue::Number(60.0));
+    insert_var(&mut doc, &v_frost, "glass/frost", VariableKind::Number, &["EFFECT_FLOAT"], VariableValue::Number(10.0), VariableValue::Number(30.0));
+
+    let frame_id = doc.alloc_id();
+    let mut frame = Node::frame(frame_id, Rect::new(0.0, 0.0, 400.0, 300.0));
+    frame.name = "ModeContainer".into();
+    let frame_id = doc.insert(page, frame).unwrap();
+
+    let card_id = doc.alloc_id();
+    let mut card = Node::rectangle(card_id, Rect::new(20.0, 20.0, 200.0, 120.0));
+    card.name = "GlassCard".into();
+    card.effects = vec![Effect::Glass(GlassEffect {
+        depth: 4.0,
+        light_angle: 30.0,
+        light_intensity: 0.4,
+        dispersion: 0.15,
+        refraction: 0.2,
+        frost: 10.0,
+        splay: 0.0,
+        bevel: 0.0,
+        visible: true,
+    })];
+    card.variables.bindings.insert("effects/0/depth".into(), v_depth.clone());
+    card.variables.bindings.insert("effects/0/lightAngle".into(), v_angle.clone());
+    card.variables.bindings.insert("effects/0/lightIntensity".into(), v_intensity.clone());
+    card.variables.bindings.insert("effects/0/dispersion".into(), v_dispersion.clone());
+    card.variables.bindings.insert("effects/0/refraction".into(), v_refraction.clone());
+    card.variables.bindings.insert("effects/0/frost".into(), v_frost.clone());
+    doc.insert(frame_id, card).unwrap();
+
+    let bytes = export_fig(&doc).expect("export .fig");
+    let mut doc2 = import_fig(&bytes).expect("import .fig");
+
+    let imported = find(&doc2, "GlassCard");
+    assert_eq!(imported.variables.bindings.get("effects/0/depth"), Some(&v_depth));
+    assert_eq!(imported.variables.bindings.get("effects/0/lightAngle"), Some(&v_angle));
+    assert_eq!(imported.variables.bindings.get("effects/0/lightIntensity"), Some(&v_intensity));
+    assert_eq!(imported.variables.bindings.get("effects/0/dispersion"), Some(&v_dispersion));
+    assert_eq!(imported.variables.bindings.get("effects/0/refraction"), Some(&v_refraction));
+    assert_eq!(imported.variables.bindings.get("effects/0/radius"), Some(&v_frost), "the frost binding comes back as the glass blur radius");
+
+    // Resolve in Light mode
+    let resolved_light = resolve_node(&doc2, imported);
+    let Effect::Glass(ref g_light) = resolved_light.effects[0] else { panic!("expected Glass") };
+    assert_eq!(g_light.depth, 4.0);
+    assert_eq!(g_light.light_angle, 30.0);
+    assert!((g_light.light_intensity - 0.4).abs() < 1e-4);
+    assert!((g_light.dispersion - 0.15).abs() < 1e-4);
+    assert!((g_light.refraction - 0.2).abs() < 1e-4);
+    assert_eq!(g_light.frost, 10.0);
+
+    // Switch container to Dark mode
+    let container_id = find(&doc2, "ModeContainer").id;
+    doc2.get_mut(container_id).unwrap().variables.modes.insert("VariableCollectionId:3:1".into(), "3:11".into());
+    let imported = find(&doc2, "GlassCard");
+    let resolved_dark = resolve_node(&doc2, imported);
+    let Effect::Glass(ref g_dark) = resolved_dark.effects[0] else { panic!("expected Glass") };
+    assert_eq!(g_dark.depth, 16.0);
+    assert_eq!(g_dark.light_angle, 120.0);
+    assert!((g_dark.light_intensity - 0.8).abs() < 1e-4);
+    assert!((g_dark.dispersion - 0.5).abs() < 1e-4);
+    assert!((g_dark.refraction - 0.6).abs() < 1e-4);
+    assert_eq!(g_dark.frost, 30.0);
+}
+
+fn test_glass_effect(frost: f32) -> GlassEffect {
+    GlassEffect { frost, light_angle: 0.0, light_intensity: 0.0, refraction: 0.0, depth: 0.0, dispersion: 0.0, splay: 0.0, bevel: 0.0, visible: true }
+}
+
+#[test]
+fn fig_roundtrip_preserves_overridden_instance_effect_and_gradient_stop_bindings() {
+    let mut doc = Document::new("InstanceBindings");
+    let page = doc.add_page("Page 1");
+    add_two_mode_collection(&mut doc);
+
+    let v_frost = "VariableID:3:50".to_string();
+    let v_stop = "VariableID:3:51".to_string();
+    insert_var(&mut doc, &v_frost, "glass/frost", VariableKind::Number, &["EFFECT_FLOAT"], VariableValue::Number(12.0), VariableValue::Number(24.0));
+    insert_var(
+        &mut doc,
+        &v_stop,
+        "fill/stop",
+        VariableKind::Color,
+        &["ALL_FILLS"],
+        VariableValue::Color(Color::rgb(255, 0, 0)),
+        VariableValue::Color(Color::rgb(0, 0, 255)),
+    );
+
+    // Create a component
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::frame(comp_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    comp.kind = NodeKind::Component(FrameProps::default());
+    comp.name = "GlassComp".into();
+    let comp_id = doc.insert(page, comp).unwrap();
+
+    let inner_id = doc.alloc_id();
+    let mut inner = Node::rectangle(inner_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    inner.name = "InnerLayer".into();
+    inner.effects = vec![Effect::Glass(test_glass_effect(5.0))];
+    inner.fills = vec![Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: Color::BLACK }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    doc.insert(comp_id, inner).unwrap();
+
+    // Create an instance of GlassComp
+    let inst_id = doc.alloc_id();
+    let mut inst = Node::frame(inst_id, Rect::new(120.0, 0.0, 100.0, 100.0));
+    inst.kind = NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None };
+    inst.name = "GlassInstance".into();
+    let inst_id = doc.insert(page, inst).unwrap();
+
+    // The expanded instance child layer
+    let inst_child_id = doc.alloc_id();
+    let mut inst_child = Node::rectangle(inst_child_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    inst_child.name = "InnerLayer".into();
+    inst_child.component.source = Some(inner_id);
+    inst_child.effects = vec![Effect::Glass(test_glass_effect(12.0))];
+    inst_child.fills = vec![Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::rgb(255, 0, 0) }, GradientStop { pos: 1.0, color: Color::BLACK }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    inst_child.variables.bindings.insert("effects/0/frost".into(), v_frost.clone());
+    inst_child.variables.bindings.insert("fills/0/stops/0".into(), v_stop.clone());
+    doc.insert(inst_id, inst_child).unwrap();
+
+    let bytes = export_fig(&doc).expect("export .fig");
+    let doc2 = import_fig(&bytes).expect("import .fig");
+
+    // Check that the instance's inner layer preserved its effect and stop bindings
+    let inst = find(&doc2, "GlassInstance");
+    let child_id = inst.children.first().copied().expect("instance child");
+    let child = doc2.get(child_id).expect("child exists");
+    assert!(
+        child.variables.bindings.get("effects/0/frost") == Some(&v_frost) || child.variables.bindings.get("effects/0/radius") == Some(&v_frost),
+        "expected effect frost/radius variable binding on overridden instance child, got: {:?}",
+        child.variables.bindings
+    );
+    assert_eq!(child.variables.bindings.get("fills/0/stops/0"), Some(&v_stop), "expected gradient stop variable binding on overridden instance child");
+}

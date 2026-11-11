@@ -533,6 +533,8 @@ pub fn record_override(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
                 s.insert(if is_text { OverrideField::TextStyle } else { OverrideField::Fills });
             } else if key.starts_with("strokes/") || key == "strokeWeight" {
                 s.insert(OverrideField::Stroke);
+            } else if key.starts_with("effects/") {
+                s.insert(OverrideField::Effects);
             } else if matches!(key.as_str(), "fontSize" | "fontFamily" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent")
             {
                 s.insert(OverrideField::TextStyle);

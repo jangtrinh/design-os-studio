@@ -721,13 +721,6 @@ impl<'a> ExportCtx<'a> {
         idx
     }
 
-    /// `Paint.opacityVar` / `Effect.effectOpacityVar` for the composed-opacity binding `key`
-    /// (`fills/0/opacity`, `strokes/0/opacity`, `effects/0/opacity`).
-    fn opacity_var_data(&self, vars: &NodeVariables, key: &str) -> Option<V> {
-        let vg = self.resolve_var_guid(vars.bindings.get(key)?)?;
-        Some(alias_var_data(vg))
-    }
-
     fn resolve_var_guid(&self, id: &str) -> Option<(u32, u32)> {
         self.var_guids.get(id).copied().or_else(|| self.var_guids.get(&format!("VariableID:{id}")).copied()).or_else(|| parse_guid_pair(id))
     }
@@ -2766,6 +2759,25 @@ fn strokes_differ_from_source(doc: &Document, n: &Node, src: Option<&Node>) -> b
     false
 }
 
+fn effect_bindings_match(n: &Node, sn: &Node) -> bool {
+    let n_iter = n.variables.bindings.iter().filter(|(k, _)| *k == "effects/" || k.starts_with("effects/"));
+    let s_iter = sn.variables.bindings.iter().filter(|(k, _)| *k == "effects/" || k.starts_with("effects/"));
+    n_iter.eq(s_iter)
+}
+
+fn effects_differ_from_source(_doc: &Document, n: &Node, src: Option<&Node>) -> bool {
+    let Some(sn) = src else {
+        return n.component.overrides.contains(&OverrideField::Effects) || has_prefix_binding(n, "effects/");
+    };
+    if n.style_refs.get("effect") != sn.style_refs.get("effect") {
+        return true;
+    }
+    if !effect_bindings_match(n, sn) {
+        return true;
+    }
+    n.effects != sn.effects
+}
+
 fn overridden_node_bindings(n: &Node, src: Option<&Node>) -> BTreeMap<String, String> {
     let Some(sn) = src else {
         return n.variables.bindings.clone();
@@ -2880,9 +2892,12 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
 
         let fill_differs = fills_differ_from_source(cx.doc, n, inherited_src);
         let stroke_differs = strokes_differ_from_source(cx.doc, n, inherited_src);
+        let effect_differs = effects_differ_from_source(cx.doc, n, inherited_src);
         let has_fill_var = !own && (has_prefix_binding(n, "fills/") || inherited_src.is_some_and(|sn| has_prefix_binding(sn, "fills/"))) && fill_differs;
         let has_stroke_var =
             !own && (has_prefix_binding(n, "strokes/") || inherited_src.is_some_and(|sn| has_prefix_binding(sn, "strokes/"))) && stroke_differs;
+        let has_effect_var =
+            !own && (has_prefix_binding(n, "effects/") || inherited_src.is_some_and(|sn| has_prefix_binding(sn, "effects/"))) && effect_differs;
         let ve = if own { Vec::new() } else { encode_var_entries_from_bindings(cx, &overridden_node_bindings(n, inherited_src)) };
         let me = if own {
             Vec::new()
@@ -2906,6 +2921,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             || (!own
                 && (has_fill_var
                     || has_stroke_var
+                    || has_effect_var
                     || !ve.is_empty()
                     || !me.is_empty()
                     || n.component.override_level.is_some()
@@ -2997,16 +3013,8 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                     ov.push(("borderLeftWeight", fl(left)));
                 }
             }
-            if ovs.contains(&OverrideField::Effects) {
-                let fx: Vec<V> = n
-                    .effects
-                    .iter()
-                    .enumerate()
-                    .map(|(i, e)| {
-                        let cv = n.variables.bindings.get(&format!("effects/{i}/color")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
-                        encode_effect(e, cv, cx.opacity_var_data(&n.variables, &format!("effects/{i}/opacity")))
-                    })
-                    .collect();
+            if ovs.contains(&OverrideField::Effects) || has_effect_var {
+                let fx: Vec<V> = n.effects.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, &n.variables.bindings)).collect();
                 if let Some(style_override) = instance_style_override(cx, n, "effect") {
                     ov.push(("styleIdForEffect", style_override));
                 }
@@ -3506,17 +3514,26 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
     out
 }
 
-fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V {
-    encode_effect_full(e, color_var, opacity_var, None, None, None, None)
-}
-
 fn encode_effect_with_bindings(cx: &ExportCtx, e: &Effect, idx: usize, bindings: &BTreeMap<String, String>) -> V {
     let var_data = |prop: &str| -> Option<V> {
         let vid = bindings.get(&format!("effects/{idx}/{prop}"))?;
         let vg = cx.resolve_var_guid(vid)?;
         Some(alias_var_data(vg))
     };
-    encode_effect_full(e, var_data("color"), var_data("opacity"), var_data("radius"), var_data("spread"), var_data("offsetX"), var_data("offsetY"))
+    encode_effect_full(
+        e,
+        var_data("color"),
+        var_data("opacity"),
+        var_data("radius").or_else(|| var_data("frost")),
+        var_data("spread"),
+        var_data("offsetX"),
+        var_data("offsetY"),
+        var_data("lightAngle"),
+        var_data("lightIntensity"),
+        var_data("refraction"),
+        var_data("depth"),
+        var_data("dispersion"),
+    )
 }
 
 /// The stored `noiseSize` vector of a noise or texture size.
@@ -3525,6 +3542,7 @@ fn noise_size_vec(size: f32, size_y: Option<f32>) -> V {
     vec2(x, y)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_effect_full(
     e: &Effect,
     color_var: Option<V>,
@@ -3533,6 +3551,11 @@ fn encode_effect_full(
     spread_var: Option<V>,
     x_var: Option<V>,
     y_var: Option<V>,
+    specular_angle_var: Option<V>,
+    specular_intensity_var: Option<V>,
+    refraction_intensity_var: Option<V>,
+    refraction_radius_var: Option<V>,
+    chromatic_aberration_var: Option<V>,
 ) -> V {
     let mut fields = match e {
         Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind, blend } => vec![
@@ -3621,6 +3644,21 @@ fn encode_effect_full(
     }
     if let Some(yv) = y_var {
         fields.push(("yVar", yv));
+    }
+    if let Some(av) = specular_angle_var {
+        fields.push(("specularAngleVar", av));
+    }
+    if let Some(iv) = specular_intensity_var {
+        fields.push(("specularIntensityVar", iv));
+    }
+    if let Some(rv) = refraction_intensity_var {
+        fields.push(("refractionIntensityVar", rv));
+    }
+    if let Some(dv) = refraction_radius_var {
+        fields.push(("refractionRadiusVar", dv));
+    }
+    if let Some(cv) = chromatic_aberration_var {
+        fields.push(("chromaticAberrationVar", cv));
     }
     let mut out = msg(fields);
     if let (Effect::Shader { shader, .. }, V::Message(ref mut out_fields)) = (e, &mut out) {

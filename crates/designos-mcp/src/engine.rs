@@ -1605,6 +1605,7 @@ impl Engine {
                 opacity: a.opacity,
                 fill: a.fill,
                 fills: a.fills,
+                bindings: a.bindings,
             },
         )?;
         let id = node.id;
@@ -1957,6 +1958,9 @@ struct UpdateArgs {
     /// Component properties of an instance bound to variables: `{property: "var:Collection/Name"}`; `null` unbinds.
     #[serde(default)]
     prop_vars: Option<std::collections::BTreeMap<String, Option<String>>>,
+    /// Variable bindings to set or clear keyed by property path (e.g. `{"effects/0/radius": "var:Effect/Blur", "fills/0/stops/0": null}`).
+    #[serde(default)]
+    bindings: Option<std::collections::BTreeMap<String, Option<String>>>,
     #[serde(default)]
     diff_image: bool,
     #[serde(default)]
@@ -2565,7 +2569,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "update_node",
         "Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"prop_vars":{"type":"object","description":"Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.","additionalProperties":{"type":["string","null"]}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024,"description":FILL_DESCRIPTION},"fills":{"type":"array","items":{"type":"object"}},"prop_vars":{"type":"object","description":"Component properties of an instance bound to variables: {property: \"var:Collection/Name\"}; null unbinds. Boolean, text and variant properties take a boolean or string variable.","additionalProperties":{"type":["string","null"]}},"bindings":{"type":"object","description":"Variable bindings keyed by property path (e.g. `effects/0/radius`, `fills/0/stops/0`, `fills/0/stops/0/position`). Null or empty unbinds.","additionalProperties":{"type":["string","null"]}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["node_id"],
         json!({
             "node": {"type": "object"},
@@ -2968,6 +2972,147 @@ mod tests {
         let svg = e.call("designos_generate_code", json!({"node_id":id,"language":"svg"})).unwrap();
         assert!(svg["code"].as_str().unwrap().contains("width=\"240\""));
         assert_eq!(e.doc.to_json().unwrap(), before);
+    }
+
+    #[test]
+    fn apply_spec_and_update_node_bind_effect_glass_and_gradient_stop_variables() {
+        use designos_doc::{
+            Color, Effect, GlassEffect, GradientStop, Paint, PaintKind, Variable, VariableCollection, VariableKind, VariableMode, VariableValue, Vec2,
+        };
+        let mut e = Engine::default();
+        let page = e.doc.pages[0];
+
+        // Insert variable collection "Theme"
+        e.doc.variable_collections.insert(
+            "c_theme".into(),
+            VariableCollection {
+                id: "c_theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "m_default".into(), name: "Default".into() }],
+                default_mode: "m_default".into(),
+                variables: vec![],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+
+        // Variables: Frost, Depth, Angle, StopColor, StopPos
+        for (vid, vname, kind, scopes, val) in [
+            ("v_frost", "Frost", VariableKind::Number, vec!["EFFECT_FLOAT"], VariableValue::Number(16.0)),
+            ("v_depth", "Depth", VariableKind::Number, vec!["EFFECT_FLOAT"], VariableValue::Number(6.0)),
+            ("v_angle", "Angle", VariableKind::Number, vec!["EFFECT_FLOAT"], VariableValue::Number(45.0)),
+            ("v_color", "StopColor", VariableKind::Color, vec!["ALL_FILLS"], VariableValue::Color(Color::rgb(0x12, 0x34, 0x56))),
+            ("v_pos", "StopPos", VariableKind::Number, vec!["ALL_FILLS"], VariableValue::Number(0.4)),
+        ] {
+            e.doc.variables.insert(
+                vid.into(),
+                Variable {
+                    id: vid.into(),
+                    name: vname.into(),
+                    collection: "c_theme".into(),
+                    kind,
+                    values: [("m_default".into(), val)].into_iter().collect(),
+                    description: String::new(),
+                    scopes: scopes.into_iter().map(String::from).collect(),
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+
+        // Create a style with Glass effect
+        let glass_style_key = "style_glass".to_string();
+        e.doc.styles.insert(
+            glass_style_key.clone(),
+            designos_doc::Style::Effect(vec![Effect::Glass(GlassEffect {
+                frost: 4.0,
+                depth: 1.0,
+                light_angle: 0.0,
+                light_intensity: 0.0,
+                refraction: 0.0,
+                dispersion: 0.0,
+                splay: 0.0,
+                bevel: 0.0,
+                visible: true,
+            })]),
+        );
+        e.doc.style_meta.insert(
+            glass_style_key.clone(),
+            designos_doc::StyleMeta { name: "GlassStyle".into(), property: designos_doc::StyleProperty::Effect, ..Default::default() },
+        );
+
+        // 1. apply_spec with bindings
+        let spec_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "rectangle",
+                        "name": "GlassNode",
+                        "width": 100.0,
+                        "height": 100.0,
+                        "effect_style": "style:GlassStyle",
+                        "bindings": {
+                            "effects/0/frost": "var:Theme/Frost",
+                            "effects/0/depth": "var:Theme/Depth"
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+
+        let node_id = spec_res["root_node_id"].as_u64().unwrap();
+        let node = e.doc.get(NodeId(node_id)).unwrap();
+        assert_eq!(node.variables.bindings.get("effects/0/frost"), Some(&"v_frost".to_string()));
+        assert_eq!(node.variables.bindings.get("effects/0/depth"), Some(&"v_depth".to_string()));
+        let resolved = designos_doc::resolve_node(&e.doc, node);
+        let Effect::Glass(ref g) = resolved.effects[0] else { panic!("expected Glass") };
+        assert_eq!(g.frost, 16.0);
+        assert_eq!(g.depth, 6.0);
+
+        // Add a gradient fill to the node directly so we can test update_node with bindings
+        e.doc.get_mut(NodeId(node_id)).unwrap().fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: Color::BLACK }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: designos_doc::BlendMode::Normal,
+        }];
+
+        // 2. update_node with bindings
+        e.call(
+            "designos_update_node",
+            json!({
+                "node_id": node_id,
+                "bindings": {
+                    "effects/0/lightAngle": "var:Theme/Angle",
+                    "fills/0/stops/0": "var:Theme/StopColor",
+                    "fills/0/stops/0/position": "var:Theme/StopPos",
+                    "effects/0/frost": null
+                }
+            }),
+        )
+        .unwrap();
+
+        let node = e.doc.get(NodeId(node_id)).unwrap();
+        assert_eq!(node.variables.bindings.get("effects/0/lightAngle"), Some(&"v_angle".to_string()));
+        assert_eq!(node.variables.bindings.get("fills/0/stops/0"), Some(&"v_color".to_string()));
+        assert_eq!(node.variables.bindings.get("fills/0/stops/0/position"), Some(&"v_pos".to_string()));
+        assert!(!node.variables.bindings.contains_key("effects/0/frost"));
+
+        let resolved = designos_doc::resolve_node(&e.doc, node);
+        let Effect::Glass(ref g) = resolved.effects[0] else { panic!("expected Glass") };
+        assert_eq!(g.light_angle, 45.0);
+        let PaintKind::LinearGradient { stops: ref st, .. } = resolved.fills[0].kind else { panic!("expected LinearGradient") };
+        assert_eq!(st[0].color, Color::rgb(0x12, 0x34, 0x56));
+        assert_eq!(st[0].pos, 0.4);
     }
     #[test]
     fn get_variables_reports_the_parent_and_overrides_of_an_extended_collection() {

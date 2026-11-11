@@ -788,7 +788,11 @@ fn bake_unrecognized_style_binding(node: &mut Node, slot: &str, key: &str, val: 
             set_bound_property(node, "strokes/0/opacity", val);
             return;
         }
-        ("effect", "color" | "opacity" | "radius" | "spread" | "offsetX" | "offsetY") => {
+        (
+            "effect",
+            "color" | "opacity" | "radius" | "blur" | "spread" | "offsetX" | "offsetY" | "lightAngle" | "lightIntensity" | "refraction" | "depth"
+            | "dispersion" | "frost",
+        ) => {
             set_bound_property(node, &format!("effects/0/{key}"), val);
             return;
         }

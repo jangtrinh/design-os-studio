@@ -83,7 +83,7 @@ fn dropped_variable_bindings_of_glass_and_noise_are_counted() {
 
 #[test]
 fn every_glass_and_noise_binding_field_studio_does_not_carry_is_counted_once() {
-    let glass_vars = ["refractionRadiusVar", "specularAngleVar", "specularIntensityVar", "chromaticAberrationVar", "splayVar", "refractionIntensityVar"];
+    let glass_vars = ["splayVar"];
     let noise_vars = ["noiseSizeXVar", "noiseSizeYVar", "densityVar", "secondaryColorVar"];
     let effects = vec![glass(glass_vars.iter().map(|k| (*k, alias(1))).collect()), noise(noise_vars.iter().map(|k| (*k, alias(2))).collect())];
     let (_, report) = import_fig_with_report(&fig_with_effects(effects)).unwrap();
@@ -92,7 +92,17 @@ fn every_glass_and_noise_binding_field_studio_does_not_carry_is_counted_once() {
 
 #[test]
 fn bindings_studio_carries_are_not_counted_as_dropped() {
-    let effects = vec![glass(vec![("radiusVar", alias(1))]), noise(vec![("colorVar", alias(2)), ("effectOpacityVar", alias(3))])];
+    let effects = vec![
+        glass(vec![
+            ("radiusVar", alias(1)),
+            ("specularAngleVar", alias(4)),
+            ("specularIntensityVar", alias(5)),
+            ("refractionIntensityVar", alias(6)),
+            ("refractionRadiusVar", alias(7)),
+            ("chromaticAberrationVar", alias(8)),
+        ]),
+        noise(vec![("colorVar", alias(2)), ("effectOpacityVar", alias(3))]),
+    ];
     let (_, report) = import_fig_with_report(&fig_with_effects(effects)).unwrap();
     assert_eq!(report.dropped_variable_bindings, 0);
 }

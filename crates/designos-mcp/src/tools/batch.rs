@@ -968,6 +968,7 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                     opacity: a.opacity,
                     fill: a.fill.clone(),
                     fills: a.fills.clone(),
+                    bindings: None,
                 })
                 .map_err(|e| wrap_op_err(idx, "update", &op_path, e))?;
                 has_prev = true;
@@ -2214,6 +2215,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         opacity: a.opacity,
                         fill: a.fill.clone(),
                         fills: a.fills.clone(),
+                        bindings: None,
                     },
                 )
                 .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
