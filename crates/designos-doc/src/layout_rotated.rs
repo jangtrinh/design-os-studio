@@ -72,7 +72,7 @@ pub(crate) fn extent(tf: &Affine, size: Vec2) -> Vec2 {
 
 /// The local size of a child under `tf` whose bounding box has extent `target`; `current` for a
 /// tilted child, whose local size never follows its slot.
-fn local_size(tf: &Affine, target: Vec2, current: Vec2) -> Vec2 {
+pub(crate) fn local_size(tf: &Affine, target: Vec2, current: Vec2) -> Vec2 {
     match classify(tf) {
         Turn::Plain | Turn::Quarter { swap: false } => target,
         Turn::Quarter { swap: true } => Vec2::new(target.y, target.x),
@@ -121,12 +121,6 @@ pub(crate) fn fix_tilted_input(tf: &Affine, input: &mut ChildIn) {
         input.align_self = AlignSelf::Auto;
     }
     input.limits = SizeLimits::default();
-}
-
-/// A local-space size as the solver reads it: the bounding-box extent for a quarter turn or a
-/// tilted child, itself for a plain one.
-pub(crate) fn to_local(tf: &Affine, ext: Vec2, current: Vec2) -> Vec2 {
-    local_size(tf, ext, current)
 }
 
 #[cfg(test)]

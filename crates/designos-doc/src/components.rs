@@ -2454,11 +2454,7 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
             let doc = &*c.s;
             crate::layout_solver::compute_then_refit_wrapped(&al, frame_size, own_limits, &stroke, &flow_ids, &mut kids, |id, w| {
                 let measure = measure.as_deref()?;
-                let child = doc.get(id)?;
-                if !crate::layout_rotated::keeps_axes(&child.transform) {
-                    return None;
-                }
-                crate::text_measure::height_resize_text_height(child, w, measure)
+                crate::text_measure::height_resize_text_height(doc.get(id)?, w, measure)
             })
         };
         if ((out.frame.x - frame_size.x).abs() > 1e-3 || (out.frame.y - frame_size.y).abs() > 1e-3)

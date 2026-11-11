@@ -1,6 +1,6 @@
 //! Writes the shared auto-layout solver ([`crate::layout_solver`]) straight into a [`Document`].
 
-use crate::layout_rotated::{extent, fix_tilted_input, keeps_axes, slot_write, to_local};
+use crate::layout_rotated::{extent, fix_tilted_input, local_size, slot_write};
 use crate::layout_solver::{compute_then_refit_wrapped, hugged_axes, ChildIn, SizeLimits};
 use crate::text_measure::{height_resize_text_height, layout_measurer};
 use crate::{Document, LayoutDirection, Node, NodeId, NodeKind, Vec2};
@@ -96,7 +96,7 @@ impl Document {
         // `width` / `height` binding lands on the axis it names.
         let tf = raw.transform;
         let natural_extent = raw.layout_child.natural_size(extent(&tf, raw.size), horiz);
-        let mut natural = to_local(&tf, natural_extent, raw.size);
+        let mut natural = local_size(&tf, natural_extent, raw.size);
         if let NodeKind::Text(tp) = &bound.kind {
             let text_changed = (matches!(&bound, std::borrow::Cow::Owned(_)) && raw.kind.any_text() != Some(tp))
                 || raw.variables.bindings.keys().any(|k| {
@@ -211,10 +211,6 @@ impl Document {
             compute_then_refit_wrapped(&al, frame, own_limits, &stroke, &flow_ids, &mut kids, |id, w| {
                 let measure = measure.as_deref()?;
                 let resolved_child = crate::resolve_node(doc, doc.get(id)?);
-                // A turned child's box width is not its text width, so it keeps the stored height.
-                if !keeps_axes(&resolved_child.transform) {
-                    return None;
-                }
                 height_resize_text_height(&resolved_child, w, measure)
             })
         };
@@ -223,7 +219,7 @@ impl Document {
             fnode.size = out.frame;
         }
         for ((cid, kid), r) in flow_ids.iter().zip(&kids).zip(&out.rects) {
-            let write = self.get(*cid).map_or_else(|| slot_write(&Default::default(), Vec2::new(r.w, r.h), *r), |n| slot_write(&n.transform, n.size, *r));
+            let Some(write) = self.get(*cid).map(|n| slot_write(&n.transform, n.size, *r)) else { continue };
             let new_size = write.size;
             let (old_size, size_changed, is_auto_layout, is_bool_op) = self
                 .get(*cid)

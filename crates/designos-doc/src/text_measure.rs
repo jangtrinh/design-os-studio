@@ -74,9 +74,14 @@ pub fn measure_hug_text_with(tp: &TextProps, max_w: Option<f32>, mut measure: im
 }
 
 /// Height of wrapping `TextAutoResize::Height` text (or `TextAutoResize::WidthAndHeight` text
-/// clamped by `max_w`) at `width`, or `None` when `n` does not wrap its height.
+/// clamped by `max_w`) at `width`, or `None` when `n` does not wrap its height. A text turned off
+/// the page axes (quarter turn or tilt) is never refit: the solved box width is not its text
+/// width, so it keeps the stored height. Every solver measures through here.
 pub fn height_resize_text_height(n: &Node, width: f32, measure: &dyn TextMeasure) -> Option<f32> {
     let NodeKind::Text(t) = &n.kind else { return None };
+    if !crate::layout_rotated::keeps_axes(&n.transform) {
+        return None;
+    }
     match t.auto_resize {
         TextAutoResize::Height => Some(measure.measure(t, Some(width.max(1.0))).y),
         TextAutoResize::WidthAndHeight if n.layout_child.max_w.is_some() => {

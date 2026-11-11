@@ -1858,3 +1858,52 @@ fn editor_relayout_of_a_rotated_child_is_stable_over_ten_passes() {
         }
     }
 }
+
+#[test]
+fn turned_auto_height_text_keeps_its_stored_height_in_every_solver() {
+    crate::textmeasure::install_layout_measurer();
+    let body = "The quick brown fox jumps over the lazy dog and keeps running across the field until nightfall.";
+    for deg in [0.0f32, 90.0, 270.0, 30.0] {
+        let build = || {
+            let mut d = Document::new("t");
+            let page = d.add_page("p");
+            let fid = d.alloc_id();
+            let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 10.0));
+            let al = AutoLayout { primary_sizing: Sizing::Hug, ..auto(LayoutDirection::Vertical, LayoutAlign::Start) };
+            f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+            let f = d.insert(page, f).unwrap();
+            let id = d.alloc_id();
+            let mut t = Node::text(id, Rect::new(0.0, 0.0, 120.0, 20.0), body, designos_doc::TextStyle { font_size: 14.0, ..Default::default() });
+            if let NodeKind::Text(tp) = &mut t.kind {
+                tp.auto_resize = designos_doc::TextAutoResize::Height;
+            }
+            t.transform = Affine::rotate(deg.to_radians());
+            d.insert(f, t).unwrap();
+            (d, f, id)
+        };
+        let mut results = Vec::new();
+        for entry in ENTRIES {
+            let (mut d, f, id) = build();
+            let mut states = Vec::new();
+            for _ in 0..10 {
+                match entry {
+                    Entry::Editor => layout_node(&mut d, &mut Edit::new(), f),
+                    Entry::Spec => d.relayout_subtree(f),
+                    Entry::Changelog => designos_doc::relayout_subtree(&mut d, f),
+                }
+                let n = d.get(id).unwrap();
+                states.push((n.transform, n.size, d.get(f).unwrap().size));
+            }
+            assert!(states.iter().all(|s| *s == states[0]), "{entry:?} {deg}: not stable over 10 passes");
+            results.push(states[0]);
+        }
+        assert!(results.iter().all(|r| *r == results[0]), "{deg}: solvers disagree: {results:?}");
+        let (_, size, frame) = results[0];
+        if deg != 0.0 {
+            assert_eq!(size, Vec2::new(120.0, 20.0), "{deg}: stored text box untouched");
+            let (sin, cos) = deg.to_radians().sin_cos();
+            let want = if deg == 30.0 { 120.0 * sin + 20.0 * cos } else { 120.0 };
+            assert!((frame.y - want).abs() < 0.01, "{deg}: the Hug parent wraps the turned box, got {} want {want}", frame.y);
+        }
+    }
+}
