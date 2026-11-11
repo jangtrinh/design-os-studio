@@ -396,6 +396,25 @@ pub fn keep_overridden_fields(new: &mut Node, old: &Node) {
     new.text_style_overrides = old.text_style_overrides;
 }
 
+/// Runs `apply` to write a text style's values onto `n`, while keeping every property `n`
+/// overrides (layer-wide [`Node::text_style_overrides`] and character-range overrides). A
+/// stored override whose value equals `old_style` (a bold turned off again) is dropped first
+/// so the style write reaches it.
+pub fn with_kept_text_style_overrides(n: &mut Node, old_style: Option<&Style>, apply: impl FnOnce(&mut Node)) -> bool {
+    let before = n.clone();
+    if raw_text_style_overrides(n).is_empty() {
+        apply(n);
+        return *n != before;
+    }
+    let mut kept = n.clone();
+    if let Some(Style::Text(old)) = old_style {
+        drop_overrides_equal_to_style(&mut kept, old);
+    }
+    apply(n);
+    keep_overridden_fields(n, &kept);
+    *n != before
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

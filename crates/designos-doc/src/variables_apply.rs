@@ -587,12 +587,15 @@ pub fn resolve_node<'a>(doc: &Document, node: &'a Node) -> Cow<'a, Node> {
             if node.variables.bindings.contains_key(node_key.as_ref()) {
                 continue;
             }
-            // A property the layer overrides keeps its own value: the style's variable must not redraw it.
-            if slot == "text" && OwnedField::from_binding_key(bkey).is_some_and(|f| node.text_style_overrides.contains(f)) {
-                continue;
-            }
             if let Some(v) = doc.resolve_variable(node.id, var) {
-                set_bound_property(out.get_or_insert_with(|| node.clone()), &node_key, &v);
+                let target = out.get_or_insert_with(|| node.clone());
+                if slot == "text" {
+                    with_kept_text_style_overrides(target, doc.styles.get(sk), |n| {
+                        set_bound_property(n, &node_key, &v);
+                    });
+                } else {
+                    set_bound_property(target, &node_key, &v);
+                }
             }
         }
     }

@@ -262,3 +262,60 @@ fn a_hyperlink_on_a_linked_text_is_an_override_and_reapply_removes_it() {
     assert!(app.reapply_text_style(&[a]));
     assert!(app.doc.get(a).unwrap().hyperlink.is_none() && overrides(&app, a).is_empty());
 }
+
+#[test]
+fn applying_the_linked_style_clears_hyperlink_range_and_binding_overrides() {
+    let (mut app, a, _) = linked_layers();
+    edit(&mut app, a, |s| s.set_font_weight(700));
+    app.bind_variable(&[a], &["fontWeight"], "weight");
+    if let NodeKind::Text(tp) = &mut app.doc.get_mut(a).unwrap().kind {
+        tp.runs.push(TextRun { start: 0, end: 2, style: TextStyle { italic: true, ..tp.style.clone() } });
+    }
+    app.doc.get_mut(a).unwrap().hyperlink = Some("https://example.com".into());
+    assert_eq!(overrides(&app, a), vec!["Weight", "Italic", "Hyperlink"]);
+
+    app.apply_style(&[a], "Body");
+    let n = app.doc.get(a).unwrap();
+    assert!(overrides(&app, a).is_empty(), "re-applying the linked style clears all overrides");
+    assert!(n.hyperlink.is_none(), "hyperlink override is cleared");
+    assert!(!n.variables.bindings.contains_key("fontWeight"), "owned typography binding is cleared");
+    assert_eq!(style_of(&app, a).font_weight, 400);
+    assert!(!n.kind.any_text().unwrap().runs[0].style.italic, "range override is cleared");
+}
+
+#[test]
+fn undoing_a_style_edit_restores_every_linked_layer_and_its_overrides_as_it_was() {
+    let (mut app, a, b) = linked_layers();
+    edit(&mut app, a, |s| {
+        s.set_font_weight(700);
+        s.italic = true;
+    });
+    if let NodeKind::Text(tp) = &mut app.doc.get_mut(a).unwrap().kind {
+        tp.runs.push(TextRun { start: 0, end: 3, style: TextStyle { decoration: TextDecoration::Underline, ..tp.style.clone() } });
+    }
+    app.doc.get_mut(a).unwrap().hyperlink = Some("https://example.com".into());
+
+    // `b` had bold toggled on and off again.
+    edit(&mut app, b, |s| s.set_font_weight(700));
+    edit(&mut app, b, |s| s.set_font_weight(400));
+
+    let before_a = app.doc.get(a).unwrap().clone();
+    let before_b = app.doc.get(b).unwrap().clone();
+
+    assert!(app.update_style_values("Body", Style::Text(TextStyle { font_size: 22.0, font_weight: 500, ..Default::default() })));
+    assert_eq!((style_of(&app, a).font_size, style_of(&app, a).font_weight, style_of(&app, a).italic), (22.0, 700, true));
+    assert_eq!(app.doc.get(a).unwrap().kind.any_text().unwrap().runs[0].style.decoration, TextDecoration::Underline);
+    assert_eq!((style_of(&app, b).font_size, style_of(&app, b).font_weight), (22.0, 500));
+
+    app.undo();
+    assert_eq!(app.doc.get(a).unwrap(), &before_a);
+    assert_eq!(app.doc.get(b).unwrap(), &before_b);
+
+    assert!(app.bind_style_variable("Body", "fontWeight", "weight"));
+    assert_eq!(style_of(&app, a).font_weight, 700, "a keeps its overridden weight");
+    assert_eq!(style_of(&app, b).font_weight, 800, "b (in Dark mode, with turned-off bold) takes the bound weight");
+
+    app.undo();
+    assert_eq!(app.doc.get(a).unwrap(), &before_a);
+    assert_eq!(app.doc.get(b).unwrap(), &before_b);
+}

@@ -242,8 +242,15 @@ impl BoundTextIndex {
             }
             let Some(node) = doc.get(id) else { continue };
             let mut updated = node.clone();
+            let old_style = updated.style_refs.get("text").and_then(|k| doc.styles.get(k));
             for (key, value) in &hits {
-                set_bound_property(&mut updated, key, value);
+                if updated.variables.bindings.contains_key(key.as_str()) {
+                    set_bound_property(&mut updated, key, value);
+                } else {
+                    designos_doc::with_kept_text_style_overrides(&mut updated, old_style, |n| {
+                        set_bound_property(n, key, value);
+                    });
+                }
             }
             resize_hug_text(doc, &mut updated);
             if &updated != node {

@@ -1799,6 +1799,7 @@ fn apply_set_style_op(
     let mut first_applied_node = None;
     // Node -> index in `cmds` of the `Update` this op already built for it.
     let mut pending_updates: BTreeMap<NodeId, usize> = BTreeMap::new();
+    let mut applied_text_nodes: BTreeSet<NodeId> = BTreeSet::new();
     for (link_idx, link) in op.apply.iter().enumerate() {
         let node_id = resolve_node_ref(doc, alias_roots, prev_node, &link.node, op_idx, "set_style", &format!("apply/{link_idx}/node"))?;
         check_lease_guard(doc, owned_frames, node_id, op_idx, "set_style")?;
@@ -1837,6 +1838,13 @@ fn apply_set_style_op(
             // The style's paints replace the node's, so a variable bound to the old ones would keep drawing over them.
             designos_doc::detach_fill_paints(&mut updated);
         }
+        if prop == StyleProperty::Text && matches!(&updated.kind, NodeKind::Text(_)) {
+            designos_doc::detach_text_style_bindings(&mut updated);
+            if cur.style_refs.get("text") == Some(&resolved_key) {
+                updated.hyperlink = None;
+            }
+            applied_text_nodes.insert(node_id);
+        }
         updated.style_refs.insert(ref_slot.into(), resolved_key.clone());
         apply_style_values_with_fields(&mut updated, st, &resolved_key, style_meta.get(&resolved_key).and_then(|m| m.text_paragraph_fields));
         if prop == StyleProperty::Text {
@@ -1856,6 +1864,9 @@ fn apply_set_style_op(
             continue;
         }
         for nid in designos_doc::linked_style_nodes(doc, key) {
+            if applied_text_nodes.contains(&nid) {
+                continue;
+            }
             let pending = pending_updates.get(&nid).copied();
             let base = match pending {
                 Some(i) => match &cmds[i] {
@@ -5903,5 +5914,147 @@ mod tests {
         let json = err.to_json_value();
         let options = json["valid_options"].as_array().unwrap_or_else(|| panic!("valid_options expected: {json}"));
         assert!(options.iter().any(|o| o == "connect"), "valid_options must list connect: {json}");
+    }
+
+    #[test]
+    fn mcp_set_style_keeps_text_layer_overrides_clears_them_on_reapply_and_undoes_cleanly() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let ts_16 = serde_json::to_value(TextStyle { font_size: 16.0, font_weight: 400, ..Default::default() }).unwrap();
+        let ts_24 = serde_json::to_value(TextStyle { font_size: 24.0, font_weight: 500, ..Default::default() }).unwrap();
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        {
+                            "op": "set_style",
+                            "upsert": [{
+                                "key": "Body",
+                                "name": "Body",
+                                "text_style": ts_16
+                            }]
+                        },
+                        { "op": "insert", "as": "plain", "parent": page.0, "kind": "text", "name": "Plain", "text": "Hello world", "x": 0.0, "y": 0.0 },
+                        { "op": "insert", "as": "over", "parent": page.0, "kind": "text", "name": "Over", "text": "Hello world", "x": 0.0, "y": 40.0 },
+                        {
+                            "op": "set_style",
+                            "apply": [
+                                { "node": "@plain", "style": "Body" },
+                                { "node": "@over", "style": "Body" }
+                            ]
+                        }
+                    ]
+                }),
+            )
+            .expect("setup linked text layers");
+        let plain = NodeId(setup["name_to_id"]["plain"].as_u64().unwrap());
+        let over = NodeId(setup["name_to_id"]["over"].as_u64().unwrap());
+
+        // Give `over` a layer-wide weight override, a range italic override, and a hyperlink.
+        {
+            let n = engine.doc.get_mut(over).unwrap();
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.style.set_font_weight(700);
+                tp.runs.push(designos_doc::TextRun { start: 0, end: 5, style: TextStyle { italic: true, ..tp.style.clone() } });
+            }
+            n.text_style_overrides.insert(designos_doc::OwnedField::Weight);
+            n.hyperlink = Some("https://example.com".into());
+        }
+        let before_plain = engine.doc.get(plain).unwrap().clone();
+        let before_over = engine.doc.get(over).unwrap().clone();
+
+        // 1. Editing the shared text style via `set_style` upsert keeps overrides and updates non-overridden properties.
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [{
+                        "op": "set_style",
+                        "upsert": [{
+                            "key": "Body",
+                            "name": "Body",
+                            "text_style": ts_24
+                        }]
+                    }]
+                }),
+            )
+            .expect("edit Body style");
+
+        let plain_tp = engine.doc.get(plain).unwrap().kind.any_text().unwrap();
+        assert_eq!((plain_tp.style.font_size, plain_tp.style.font_weight), (24.0, 500));
+        let over_node = engine.doc.get(over).unwrap();
+        let over_tp = over_node.kind.any_text().unwrap();
+        assert_eq!((over_tp.style.font_size, over_tp.style.font_weight), (24.0, 700), "overridden weight stays while size updates");
+        assert!(over_tp.runs[0].style.italic && over_tp.runs[0].style.font_size == 24.0, "range italic override stays while size updates");
+        assert_eq!(over_node.hyperlink.as_deref(), Some("https://example.com"));
+
+        // 2. Undo of the style edit restores every layer as it was.
+        engine.call("designos_undo", json!({})).expect("undo style edit");
+        assert_eq!(engine.doc.get(plain).unwrap(), &before_plain);
+        assert_eq!(engine.doc.get(over).unwrap(), &before_over);
+        engine.call("designos_redo", json!({})).expect("redo style edit");
+
+        // 3. Updating a variable bound on the text style keeps the layer's overridden weight and range italic.
+        engine.doc.variable_collections.insert(
+            "typo".into(),
+            designos_doc::VariableCollection {
+                id: "typo".into(),
+                name: "Typo".into(),
+                modes: vec![designos_doc::VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["w".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        engine.doc.variables.insert(
+            "w".into(),
+            designos_doc::Variable {
+                id: "w".into(),
+                name: "Weight".into(),
+                collection: "typo".into(),
+                kind: designos_doc::VariableKind::Number,
+                values: [("default".into(), designos_doc::VariableValue::Number(500.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        engine.doc.style_meta.get_mut("Body").unwrap().bindings.insert("fontWeight".into(), "w".into());
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [{
+                        "op": "set_variables",
+                        "upsert_variables": [{ "id": "w", "name": "Weight", "collection": "typo", "kind": "number", "values": { "default": 600.0 } }]
+                    }]
+                }),
+            )
+            .expect("update style weight variable");
+        assert_eq!(engine.doc.get(plain).unwrap().kind.any_text().unwrap().style.font_weight, 600, "plain layer follows the style variable");
+        assert_eq!(engine.doc.get(over).unwrap().kind.any_text().unwrap().style.font_weight, 700, "overridden layer keeps its weight");
+        assert!(engine.doc.get(over).unwrap().kind.any_text().unwrap().runs[0].style.italic, "overridden layer keeps its italic range");
+
+        // 4. Reapplying the style via `set_style` `apply` clears all overrides (values, range, binding, hyperlink).
+        engine.doc.get_mut(over).unwrap().variables.bindings.insert("fontWeight".into(), "w".into());
+        let before_reapply = engine.doc.get(over).unwrap().clone();
+        engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "set_style", "apply": [{ "node": over.0, "style": "Body" }] }] }))
+            .expect("reapply Body style");
+        let reapplied = engine.doc.get(over).unwrap();
+        assert!(designos_doc::text_style_overrides(&engine.doc, reapplied).is_empty(), "reapply clears overrides");
+        assert!(reapplied.hyperlink.is_none(), "reapply clears hyperlink");
+        assert!(!reapplied.variables.bindings.contains_key("fontWeight"), "reapply clears owned typography binding");
+        assert!(!reapplied.kind.any_text().unwrap().runs[0].style.italic, "reapply clears range override");
+
+        engine.call("designos_undo", json!({})).expect("undo reapply");
+        assert_eq!(engine.doc.get(over).unwrap(), &before_reapply);
     }
 }

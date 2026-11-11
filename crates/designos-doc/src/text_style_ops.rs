@@ -535,4 +535,99 @@ mod tests {
         let node: Node = serde_json::from_value(serde_json::to_value(d.get(t).unwrap()).unwrap()).unwrap();
         assert_eq!(node.text_style_overrides.labels(), vec!["Weight"]);
     }
+
+    #[test]
+    fn binding_a_style_weight_or_font_style_keeps_layer_and_range_overrides_and_reaches_a_turned_off_bold() {
+        let (mut d, t, u) = linked_pair();
+        let v = add_text_like(&mut d, t, "Third");
+        d.get_mut(v).unwrap().style_refs.insert("text".into(), "Body".into());
+
+        // `t` overrides Italic on the layer and Weight on a character range.
+        if let NodeKind::Text(tp) = &mut d.get_mut(t).unwrap().kind {
+            tp.style.italic = true;
+            tp.runs.push(TextRun { start: 0, end: 3, style: TextStyle { font_weight: 700, italic: true, ..tp.style.clone() } });
+        }
+        d.get_mut(t).unwrap().text_style_overrides.insert(OwnedField::Italic);
+
+        // `u` had bold turned on and off again, so its stored bit equals the style's 400.
+        set_weight_override(&mut d, u, 700);
+        set_weight_override(&mut d, u, 400);
+
+        // `v` overrides Weight on the whole layer.
+        set_weight_override(&mut d, v, 700);
+
+        d.variable_collections.insert(
+            "typo".into(),
+            VariableCollection {
+                id: "typo".into(),
+                name: "Typo".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["w".into(), "fs".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "w".into(),
+            Variable {
+                id: "w".into(),
+                name: "Weight".into(),
+                collection: "typo".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(500.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "fs".into(),
+            Variable {
+                id: "fs".into(),
+                name: "Style".into(),
+                collection: "typo".into(),
+                kind: VariableKind::String,
+                values: [("default".into(), VariableValue::String("SemiBold".into()))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+
+        let before_t = d.get(t).unwrap().clone();
+        let before_u = d.get(u).unwrap().clone();
+        let before_v = d.get(v).unwrap().clone();
+        let mut hist = History::default();
+
+        let cmd = bind_style_property(&d, "Body", "fontStyle", "fs").unwrap();
+        hist.exec(&mut d, cmd).unwrap();
+
+        let tp_t = d.get(t).unwrap().kind.any_text().unwrap();
+        assert_eq!(tp_t.style.font_weight, 600, "base weight follows the bound style");
+        assert!(tp_t.style.italic, "layer Italic override stays when fontStyle is bound");
+        assert_eq!(tp_t.runs[0].style.font_weight, 700, "character-range weight override stays");
+        assert!(tp_t.runs[0].style.italic, "character-range italic follows the layer's Italic override");
+        let drawn_t = resolve_node(&d, d.get(t).unwrap());
+        let drawn_tp_t = drawn_t.kind.any_text().unwrap();
+        assert!(drawn_tp_t.style.italic && drawn_tp_t.runs[0].style.font_weight == 700, "resolve_node keeps layer and range overrides");
+
+        assert_eq!(weight_of(&d, u), 600, "a bold turned off again follows the newly bound style weight");
+        assert!(d.get(u).unwrap().text_style_overrides.is_empty(), "stale override bit is dropped");
+        assert_eq!(weight_of(&d, v), 700, "layer-wide weight override stays");
+
+        assert!(hist.undo(&mut d).unwrap());
+        assert_eq!(d.get(t).unwrap(), &before_t);
+        assert_eq!(d.get(u).unwrap(), &before_u);
+        assert_eq!(d.get(v).unwrap(), &before_v);
+    }
 }

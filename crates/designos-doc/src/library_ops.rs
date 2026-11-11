@@ -1328,17 +1328,12 @@ pub fn apply_style_values_with_fields(n: &mut Node, style: &Style, key: &str, pa
 /// rest. A stored override that equals the old style's value is not one (a bold turned off again), so
 /// the edit reaches it. Any other style kind behaves like the plain apply.
 pub fn propagate_style_values_with_fields(n: &mut Node, old_style: Option<&Style>, style: &Style, key: &str, paragraph_fields: Option<u8>) -> bool {
-    if raw_text_style_overrides(n).is_empty() || !matches!(style, Style::Text(_)) {
+    if !matches!(style, Style::Text(_)) {
         return apply_style_values_with_fields(n, style, key, paragraph_fields);
     }
-    let before = n.clone();
-    let mut kept = n.clone();
-    if let Some(Style::Text(old)) = old_style {
-        drop_overrides_equal_to_style(&mut kept, old);
-    }
-    apply_style_values_with_fields(n, style, key, paragraph_fields);
-    keep_overridden_fields(n, &kept);
-    *n != before
+    with_kept_text_style_overrides(n, old_style, |n| {
+        apply_style_values_with_fields(n, style, key, paragraph_fields);
+    })
 }
 
 /// Where to put an instance of an imported component.
@@ -2142,5 +2137,53 @@ mod tests {
         assert_eq!(d.get(ids[0]).unwrap().stroke.paints, vec![blue.clone()], "stroke-only link");
         assert_eq!(d.get(ids[1]).unwrap().stroke.paints, vec![blue.clone()], "stroke side of a fill + stroke link");
         assert_eq!(d.get(ids[1]).unwrap().fills, vec![blue]);
+    }
+
+    #[test]
+    fn text_style_update_keeps_layer_overrides_and_undoes_cleanly() {
+        let mut lib = lib_doc();
+        lib.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, font_weight: 400, ..Default::default() }));
+        lib.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+        let snap1 = snapshot(&lib, "L1", "Lib", 1);
+
+        let mut d = consumer();
+        let p = d.pages[0];
+        let c = import_asset(&mut d, &snap1, "style:Body", None);
+        run(&mut d, c);
+
+        let plain = d.alloc_id();
+        let mut plain_node =
+            Node::text(plain, Rect::new(0.0, 0.0, 100.0, 20.0), "Plain", TextStyle { font_size: 16.0, font_weight: 400, ..Default::default() });
+        plain_node.style_refs.insert("text".into(), "L1/Body".into());
+        d.insert(p, plain_node).unwrap();
+
+        let over = d.alloc_id();
+        let mut over_node =
+            Node::text(over, Rect::new(0.0, 30.0, 100.0, 20.0), "Overridden", TextStyle { font_size: 16.0, font_weight: 700, ..Default::default() });
+        if let NodeKind::Text(tp) = &mut over_node.kind {
+            tp.runs.push(TextRun { start: 0, end: 4, style: TextStyle { italic: true, ..tp.style.clone() } });
+        }
+        over_node.style_refs.insert("text".into(), "L1/Body".into());
+        over_node.text_style_overrides.insert(OwnedField::Weight);
+        d.insert(p, over_node).unwrap();
+
+        let before_plain = d.get(plain).unwrap().clone();
+        let before_over = d.get(over).unwrap().clone();
+
+        lib.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 20.0, font_weight: 500, ..Default::default() }));
+        let snap2 = snapshot(&lib, "L1", "Lib", 2);
+        let mut h = History::default();
+        let c = apply_updates(&mut d, &snap2, &["style:Body".into()]);
+        h.exec(&mut d, c).unwrap();
+
+        let plain_tp = d.get(plain).unwrap().kind.any_text().unwrap();
+        assert_eq!((plain_tp.style.font_size, plain_tp.style.font_weight), (20.0, 500));
+        let over_tp = d.get(over).unwrap().kind.any_text().unwrap();
+        assert_eq!((over_tp.style.font_size, over_tp.style.font_weight), (20.0, 700), "weight override survives library update");
+        assert!(over_tp.runs[0].style.italic && over_tp.runs[0].style.font_size == 20.0, "range italic override survives library update");
+
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.get(plain).unwrap(), &before_plain);
+        assert_eq!(d.get(over).unwrap(), &before_over);
     }
 }
