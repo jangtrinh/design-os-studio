@@ -19,6 +19,7 @@ Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU re
 
 ## Core Documentation
 
+- [Full documentation (llms-full.txt)](https://jangtrinh.github.io/design-os-studio/llms-full.txt): Concatenated overview, install guide, MCP server with the 39-tool list, CLI cookbook and changelog highlights, for agents
 - [README](https://github.com/jangtrinh/design-os-studio#readme): Project overview and visual proof matrix
 - [Cross-Platform Installation Guide](https://github.com/jangtrinh/design-os-studio/blob/main/docs/install.md): Install packages for macOS, Windows and Linux
 - [Prompt & CLI Cookbook](https://github.com/jangtrinh/design-os-studio/blob/main/docs/cookbook.md): CLI and agent recipes
