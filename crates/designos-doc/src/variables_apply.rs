@@ -589,7 +589,8 @@ pub fn resolve_node<'a>(doc: &Document, node: &'a Node) -> Cow<'a, Node> {
             }
             if let Some(v) = doc.resolve_variable(node.id, var) {
                 let target = out.get_or_insert_with(|| node.clone());
-                if slot == "text" {
+                // Render path: a layer without overrides takes the plain write and skips the helper's node clones.
+                if slot == "text" && !raw_text_style_overrides(target).is_empty() {
                     with_kept_text_style_overrides(target, doc.styles.get(sk), |n| {
                         set_bound_property(n, &node_key, &v);
                     });
