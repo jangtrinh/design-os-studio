@@ -108,6 +108,120 @@ fn background_blur_on_a_group_uses_the_child_footprint_mask() {
 }
 
 #[test]
+fn background_blur_descendant_uses_resolved_radius_in_gpu_compile() {
+    for masked in [false, true] {
+        let Some(mut g) = common::gpu() else { return };
+        let Some(mut expected_gpu) = common::gpu() else { return };
+        let mut t = common::T::new();
+        t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), BLACK);
+        let group = t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(40.0, 40.0);
+            n.opacity = if masked { 1.0 } else { 0.9 };
+            n
+        });
+        if masked {
+            t.add(Some(group), |id| {
+                let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+                n.fills = vec![Paint::solid(Color::WHITE)];
+                n.is_mask = true;
+                n
+            });
+        }
+        let pane = t.add(Some(group), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills = vec![Paint::solid(Color::TRANSPARENT)];
+            n.effects = vec![Effect::BackgroundBlur { radius: 0.0, visible: true }];
+            n.visible = false;
+            n.variables.bindings.insert("effects/0/radius".into(), "blur-radius".into());
+            n.variables.bindings.insert("visible".into(), "blur-visible".into());
+            n
+        });
+        t.doc.variable_collections.insert(
+            "theme".into(),
+            VariableCollection {
+                id: "theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["blur-radius".into(), "blur-visible".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        t.doc.variables.insert(
+            "blur-visible".into(),
+            Variable {
+                id: "blur-visible".into(),
+                name: "blur-visible".into(),
+                collection: "theme".into(),
+                kind: VariableKind::Boolean,
+                values: [("light".into(), VariableValue::Boolean(false)), ("dark".into(), VariableValue::Boolean(true))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                extensions: Default::default(),
+                code_syntax: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        t.doc.variables.insert(
+            "blur-radius".into(),
+            Variable {
+                id: "blur-radius".into(),
+                name: "blur-radius".into(),
+                collection: "theme".into(),
+                kind: VariableKind::Number,
+                values: [("light".into(), VariableValue::Number(0.0)), ("dark".into(), VariableValue::Number(8.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                extensions: Default::default(),
+                code_syntax: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        t.node(group).variables.modes.insert("theme".into(), "dark".into());
+        t.node(group).variables.modes.insert("theme".into(), "light".into());
+        let light_frame = g.compile(&t.doc, t.page, 1, &Viewport::default(), (60, 40));
+        let light = g.render_frame(&light_frame, (60, 40));
+        assert_eq!(light.pixel(15, 20).unwrap().red(), 0, "light mode keeps the hidden pane sharp");
+        t.node(group).variables.modes.insert("theme".into(), "dark".into());
+        let resolved = designos_doc::apply_bound_variables(&t.doc);
+        let mut cpu_expected = designos_render::tiny_skia::Pixmap::new(60, 40).unwrap();
+        designos_render::render_page(&resolved, resolved.pages[0], &Viewport::default(), &mut cpu_expected);
+        let frame = g.compile(&t.doc, t.page, 2, &Viewport::default(), (60, 40));
+        let actual = g.render_frame(&frame, (60, 40));
+        // Use a fresh compiler for the fully resolved document. HeadlessGpu caches its
+        // SceneIndex by revision; both documents use rev=0 in the convenience API.
+        let expected = expected_gpu.render_page(&resolved, resolved.pages[0], &Viewport::default(), (60, 40));
+        if let Ok(dir) = std::env::var("DESIGNOS_BLUR_EVIDENCE_DIR") {
+            std::fs::create_dir_all(&dir).unwrap();
+            actual.save_png(std::path::Path::new(&dir).join(format!("gpu-actual-masked-{masked}.png"))).unwrap();
+            expected.save_png(std::path::Path::new(&dir).join(format!("gpu-resolved-expected-masked-{masked}.png"))).unwrap();
+        }
+        let edge = ((20 * 60 + 9) * 4) as usize;
+        let edge_value = cpu_expected.data()[edge];
+        assert!(edge_value > 0 && edge_value < 255, "fixture must visibly blur at stripe edge, got {edge_value}");
+        assert!(expected.data()[edge] < 255, "the GPU reference must visibly blur the stripe edge");
+        assert!(
+            actual.data() == expected.data(),
+            "GPU descendant backdrop must use resolved radius and visibility (edge actual={}, expected={})",
+            actual.data()[edge],
+            expected.data()[edge]
+        );
+
+        t.node(pane).variables.bindings.clear();
+        let unbound_frame = g.compile(&t.doc, t.page, 3, &Viewport::default(), (60, 40));
+        let unbound = g.render_frame(&unbound_frame, (60, 40));
+        assert_eq!(unbound.pixel(15, 20).unwrap().red(), 0, "unbound hidden pane retains its stored visibility");
+    }
+}
+
+#[test]
 fn background_blur_at_the_canvas_edge_matches_the_cpu_reference() {
     let Some(mut g) = common::gpu() else { return };
     let t = group_over_translucent_child_at_edge(Effect::BackgroundBlur { radius: 8.0, visible: true });

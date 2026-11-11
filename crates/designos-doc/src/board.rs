@@ -1163,8 +1163,9 @@ pub fn cap_path(cap: ConnectorCap, tip: Vec2, dir: Vec2, weight: f32) -> Option<
 /// Bounding box (in the parent's space) of `id`'s transformed local box.
 fn rect_in_parent(doc: &Document, id: NodeId, parent_inv: Affine) -> Option<Rect> {
     let n = doc.get(id)?;
+    let resolved = resolve_node(doc, n);
     let m = parent_inv * doc.world_transform(id);
-    let corners = [m.apply(v(0.0, 0.0)), m.apply(v(n.size.x, 0.0)), m.apply(v(n.size.x, n.size.y)), m.apply(v(0.0, n.size.y))];
+    let corners = [m.apply(v(0.0, 0.0)), m.apply(v(resolved.size.x, 0.0)), m.apply(v(resolved.size.x, resolved.size.y)), m.apply(v(0.0, resolved.size.y))];
     let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
     for c in corners {
         x0 = x0.min(c.x);
@@ -1563,6 +1564,96 @@ mod tests {
         d.remove(b).unwrap();
         let r = connector_route(&d, c).unwrap();
         assert_eq!(r.end(), v(350.0, 400.0));
+    }
+
+    #[test]
+    fn connector_anchors_use_resolved_attached_node_size_without_mutating_document() {
+        let mut d = Document::new("resolved connector size");
+        let page = d.add_page("p");
+        let frame_id = d.alloc_id();
+        let frame = d.insert(page, Node::frame(frame_id, Rect::new(0.0, 0.0, 500.0, 300.0))).unwrap();
+
+        let group_id = d.alloc_id();
+        let mut group = Node::new(group_id, NodeKind::Group);
+        group.transform = Affine::translate(10.0, 5.0);
+        let group = d.insert(frame, group).unwrap();
+        let target_id = d.alloc_id();
+        let mut target = Node::rectangle(target_id, Rect::new(10.0, 25.0, 40.0, 50.0));
+        target.variables.bindings.insert("width".into(), "target-width".into());
+        target.variables.bindings.insert("height".into(), "target-height".into());
+        let target = d.insert(group, target).unwrap();
+        let peer_id = d.alloc_id();
+        let peer = d.insert(frame, Node::rectangle(peer_id, Rect::new(300.0, 30.0, 40.0, 50.0))).unwrap();
+
+        d.variable_collections.insert(
+            "viewport".into(),
+            VariableCollection {
+                id: "viewport".into(),
+                name: "Viewport".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec![],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        let number = |id: &str, light: f32, dark: f32| Variable {
+            id: id.into(),
+            name: id.into(),
+            collection: "viewport".into(),
+            kind: VariableKind::Number,
+            values: [("light".into(), VariableValue::Number(light)), ("dark".into(), VariableValue::Number(dark))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        };
+        d.variables.insert("target-width".into(), number("target-width", 40.0, 80.0));
+        d.variables.insert("target-height".into(), number("target-height", 50.0, 100.0));
+        d.get_mut(frame).unwrap().variables.modes.insert("viewport".into(), "dark".into());
+
+        let connector_id = d.alloc_id();
+        let connector = d
+            .insert(
+                frame,
+                Node::connector(
+                    connector_id,
+                    ConnectorProps {
+                        start: ConnectorEnd::attached(target, Magnet::Right),
+                        end: ConnectorEnd::attached(peer, Magnet::Left),
+                        line: ConnectorLine::Straight,
+                        ..Default::default()
+                    },
+                ),
+            )
+            .unwrap();
+        let free_id = d.alloc_id();
+        let free = d
+            .insert(
+                frame,
+                Node::connector(
+                    free_id,
+                    ConnectorProps {
+                        start: ConnectorEnd::attached(target, Magnet::Bottom),
+                        end: ConnectorEnd::free(v(450.0, 150.0)),
+                        line: ConnectorLine::Straight,
+                        ..Default::default()
+                    },
+                ),
+            )
+            .unwrap();
+        let before = d.clone();
+        let (start, end) = connector_anchors(&d, connector).unwrap();
+        assert_eq!(start.pos, v(100.0, 80.0), "right anchor must use dark-mode width and height");
+        assert_eq!(end.pos, v(300.0, 55.0), "peer anchor remains based on its stored size");
+        let (bottom, free_end) = connector_anchors(&d, free).unwrap();
+        assert_eq!(bottom.pos, v(60.0, 130.0), "bottom anchor must use resolved width and height through nested transforms");
+        assert_eq!(free_end.pos, v(450.0, 150.0), "free endpoint keeps its parent-space point");
+        assert_eq!(d.to_json().unwrap(), before.to_json().unwrap(), "resolving connector anchors must not mutate the document");
     }
 
     #[test]
