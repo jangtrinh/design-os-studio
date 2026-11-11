@@ -1,27 +1,29 @@
 # DESIGN:OS Studio (design-os-studio)
 
-> Local-first Rust/wgpu interface design studio with native Figma `.fig` v106 binary read/write, Figma-style micro-interactions, a native Agentic PTY Chat UI for Claude Code, Codex, Antigravity and Grok, Live Variables Mode Switching & Multi-Edit, and an MCP server.
+> Free, local-first Rust/wgpu interface design studio with native Figma `.fig` v106 binary read/write, Figma-style micro-interactions, a native Agentic PTY Chat UI for Claude Code, Codex, Antigravity, Grok and Gemini CLI, Live Variables Mode Switching & Multi-Edit, and an MCP server with 39 tools. Source-available under PolyForm Shield 1.0.0.
 
-Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU renderer; Metal is verified on macOS, Direct3D 12 and Vulkan on Windows and Linux are not verified before release), enterprise Figma `.fig` v106 binary read/write engine, Figma-style micro-interactions, native Agentic PTY Chat UI (`Claude Code` · `Codex` · `Antigravity CLI` · `Grok CLI`), Live Variables Mode Switching & Multi-Edit (`Q`), multi-target Dev Mode code generator (CSS, Tailwind, React, SwiftUI, UIKit, Jetpack Compose, Android XML), and a Model Context Protocol server (`designos-mcp`) written in Rust.
+Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU renderer; Metal is verified on macOS, Direct3D 12 and Vulkan on Windows and Linux are not verified before release), enterprise Figma `.fig` v106 binary read/write engine, Figma-style micro-interactions, native Agentic PTY Chat UI (`Claude Code` · `Codex` · `Antigravity CLI` · `Grok CLI` · `Gemini CLI`), Live Variables Mode Switching & Multi-Edit (`Q`), multi-target Dev Mode code generator (CSS, Tailwind, React, SwiftUI, UIKit, Jetpack Compose, Android XML, HTML), and a Model Context Protocol server (`designos-mcp`, 39 tools) written in Rust.
 
 ## Key Facts & Verification Metrics
 
-- **Overview & Live Visual Proof Gallery**: https://jangtrinh.github.io/design-os-studio/
-- **Repository**: https://github.com/jangtrinh/design-os-studio
-- **Canonical Agent Skill**: `skills/design-os-studio/SKILL.md`
-- **Diagnostics**: `python3 scripts/self_check.py` and `/doctor` (`commands/doctor.md`)
-- **Quality gates**: `14 / 14` Zero-Fake-UI invariants (`python3 scripts/zero_fake_ui_gate.py`) and more than `2,800` automated tests (`cargo test --workspace`, passing in macOS CI)
-- **Enterprise Scale (`VSF - PCP.fig`)**: Reference benchmark file with `112,474` scene nodes (`723,136` Kiwi records). The GPU canvas culls with a uniform spatial grid and zoom-based level of detail, and re-blits the cached frame without requesting repaints while the view is idle
-- **Release packages**: macOS `.dmg` + `.tar.gz` (Apple Silicon and Intel, verified), Windows `.zip` with `install.ps1`, Linux `.deb` + `.tar.gz` (x64). The Windows and Linux packages are built by the same release workflow but are not verified before release. Every package bundles all 4 binaries (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`)
-- **Privacy & License**: Zero telemetry. The Studio uses the network only to download missing fonts, import from the Figma REST API with your own token, and install plugins (`PRIVACY.md`). Source-available under PolyForm Shield 1.0.0 (`LICENSE`): free to use and modify; no resale or competing products
+- [Overview & Live Visual Proof Gallery](https://jangtrinh.github.io/design-os-studio/): Live documentation and visual proof for DESIGN:OS Studio
+- [Repository](https://github.com/jangtrinh/design-os-studio): Source repository on GitHub
+- [Canonical Agent Skill](https://github.com/jangtrinh/design-os-studio/blob/main/skills/design-os-studio/SKILL.md): Agent skill entry point (`skills/design-os-studio/SKILL.md`)
+- [Diagnostics](https://github.com/jangtrinh/design-os-studio/blob/main/commands/doctor.md): `python3 scripts/self_check.py` and `/doctor`
+- [Quality gates](https://github.com/jangtrinh/design-os-studio/blob/main/scripts/zero_fake_ui_gate.py): `14 / 14` Zero-Fake-UI invariants (`python3 scripts/zero_fake_ui_gate.py`) and more than `2,800` automated tests (`cargo test --workspace`, passing in macOS CI)
+- [CHANGELOG 0.7.10](https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md): Untitled UI PRO v8.0 Save As `.designos` now holds all 877,261 nodes (was 207,601)
+- [Enterprise Scale benchmark (customer benchmark file)](https://github.com/jangtrinh/design-os-studio/blob/main/AGENTS.md?plain=1#L55): A customer's benchmark `.fig` file with `112,474` scene nodes (`723,136` Kiwi records). The GPU canvas culls with a uniform spatial grid and zoom-based level of detail, and re-blits the cached frame without requesting repaints while the view is idle
+- [Release packages](https://github.com/jangtrinh/design-os-studio/releases): macOS `.dmg` + `.tar.gz` (Apple Silicon and Intel, verified), Windows `.zip` with `install.ps1`, Linux `.deb` + `.tar.gz` (x64). The Windows and Linux packages are built by the same release workflow but are not verified before release. Every package bundles all 4 binaries (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`)
+- [Privacy](https://github.com/jangtrinh/design-os-studio/blob/main/PRIVACY.md): Zero telemetry. The Studio uses the network only to download missing fonts, import from the Figma REST API with your own token, and install plugins
+- [License](https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE): Source-available under PolyForm Shield 1.0.0; free to use and modify; no resale or competing products
 
 ## Core Documentation
 
-- [README](https://github.com/jangtrinh/design-os-studio#readme)
-- [Cross-Platform Installation Guide](https://github.com/jangtrinh/design-os-studio/blob/main/docs/install.md)
-- [Prompt & CLI Cookbook](https://github.com/jangtrinh/design-os-studio/blob/main/docs/cookbook.md)
-- [Release & Packaging Guide](https://github.com/jangtrinh/design-os-studio/blob/main/docs/releasing.md)
-- [MCP Server (22 Tools)](https://github.com/jangtrinh/design-os-studio/blob/main/crates/designos-mcp/README.md)
+- [README](https://github.com/jangtrinh/design-os-studio#readme): Project overview and visual proof matrix
+- [Cross-Platform Installation Guide](https://github.com/jangtrinh/design-os-studio/blob/main/docs/install.md): Install packages for macOS, Windows and Linux
+- [Prompt & CLI Cookbook](https://github.com/jangtrinh/design-os-studio/blob/main/docs/cookbook.md): CLI and agent recipes
+- [Release & Packaging Guide](https://github.com/jangtrinh/design-os-studio/blob/main/docs/releasing.md): How releases are built and published
+- [MCP Server](https://github.com/jangtrinh/design-os-studio/blob/main/crates/designos-mcp/README.md): Local `designos-mcp` server (39 tools)
 
 ## DESIGN:OS Ecosystem
 
