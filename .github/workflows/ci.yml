@@ -46,6 +46,13 @@ jobs:
             echo "reason=release-tag" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A batch train branch combines several PRs; its first push has no "before" commit, so the
+          # HEAD^1 fallback below would see only the last PR. Always run the full suite on it.
+          if [[ "$REF_NAME" == refs/heads/train/* ]]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "reason=batch-train-branch" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           diff_base=""
           diff_head="HEAD"
