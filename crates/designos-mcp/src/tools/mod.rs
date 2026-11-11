@@ -397,6 +397,13 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
                 }
             }
         }
+        if size_omitted {
+            if let NodeKind::Text(tp) = &node.kind {
+                if matches!(tp.auto_resize, designos_doc::TextAutoResize::WidthAndHeight | designos_doc::TextAutoResize::Height) {
+                    crate::tools::text_remeasure::resize_hug_text(doc, &mut node);
+                }
+            }
+        }
     }
     let changed = doc.get(id) != Some(&node);
     Ok((node, changed, warnings))

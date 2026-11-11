@@ -10,12 +10,36 @@ use designos_doc::{
 };
 
 /// Bound properties that change the size of a text box.
-const TEXT_BOX_KEYS: [&str; 10] =
-    ["fontSize", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "listSpacing", "characters", "fontFamily", "fontStyle"];
+const TEXT_BOX_KEYS: [&str; 11] = [
+    "fontSize",
+    "fontWeight",
+    "lineHeight",
+    "letterSpacing",
+    "paragraphSpacing",
+    "paragraphIndent",
+    "listSpacing",
+    "characters",
+    "fontFamily",
+    "fontStyle",
+    "maxWidth",
+];
 
 /// Bound properties on a node that the auto-layout solver reads directly.
-const LAYOUT_BOX_KEYS: [&str; 9] =
-    ["width", "height", "visible", "itemSpacing", "counterAxisSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+const LAYOUT_BOX_KEYS: [&str; 13] = [
+    "width",
+    "height",
+    "minWidth",
+    "maxWidth",
+    "minHeight",
+    "maxHeight",
+    "visible",
+    "itemSpacing",
+    "counterAxisSpacing",
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+];
 
 /// Bound stroke widths. The solver reads them only on a frame that
 /// [`crate::tools::relayout_scope::stroke_inset_read_by_solver`] names.

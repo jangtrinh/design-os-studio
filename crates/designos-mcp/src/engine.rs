@@ -6364,4 +6364,200 @@ mod tests {
         let after_batch = engine.doc.get(bubble).unwrap().transform;
         assert_eq!((after_batch.tx, after_batch.ty), (80.0, 12.0), "apply_batch update on sibling frame must not re-solve chat's children");
     }
+
+    #[test]
+    fn apply_spec_and_update_node_bind_size_limits_and_typography_variables() {
+        use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+
+        // 1. Create collection "Theme" with 2 modes: "m_a" (Mode A) and "m_b" (Mode B)
+        e.doc.variable_collections.insert(
+            "c_theme".into(),
+            VariableCollection {
+                id: "c_theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "m_a".into(), name: "ModeA".into() }, VariableMode { id: "m_b".into(), name: "ModeB".into() }],
+                default_mode: "m_a".into(),
+                variables: vec![],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+
+        let n = |x: f32| VariableValue::Number(x);
+        let s = |x: &str| VariableValue::String(x.into());
+
+        for (vid, vname, kind, scopes, val_a, val_b) in [
+            ("v_min_w", "MinWidth", VariableKind::Number, vec!["WIDTH_HEIGHT"], n(60.0), n(90.0)),
+            ("v_max_w", "MaxWidth", VariableKind::Number, vec!["WIDTH_HEIGHT"], n(140.0), n(260.0)),
+            ("v_min_h", "MinHeight", VariableKind::Number, vec!["WIDTH_HEIGHT"], n(40.0), n(50.0)),
+            ("v_max_h", "MaxHeight", VariableKind::Number, vec!["WIDTH_HEIGHT"], n(100.0), n(180.0)),
+            ("v_ff", "FontFamily", VariableKind::String, vec!["FONT_FAMILY"], s("Inter"), s("Roboto Mono")),
+            ("v_fs", "FontStyle", VariableKind::String, vec!["FONT_STYLE"], s("Regular"), s("Bold Italic")),
+            ("v_ps", "ParagraphSpacing", VariableKind::Number, vec!["PARAGRAPH_SPACING"], n(8.0), n(16.0)),
+            ("v_pi", "ParagraphIndent", VariableKind::Number, vec!["PARAGRAPH_INDENT"], n(12.0), n(24.0)),
+        ] {
+            e.doc.variables.insert(
+                vid.into(),
+                Variable {
+                    id: vid.into(),
+                    name: vname.into(),
+                    collection: "c_theme".into(),
+                    kind,
+                    values: [("m_a".into(), val_a), ("m_b".into(), val_b)].into_iter().collect(),
+                    description: String::new(),
+                    scopes: scopes.into_iter().map(String::from).collect(),
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+
+        // 2. designos_apply_spec with auto-layout container, a fill child and a hug text child
+        let spec_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "AutoLayoutCard",
+                        "width": 400.0,
+                        "height": 200.0,
+                        "layout": {
+                            "direction": "horizontal",
+                            "gap": 16.0,
+                            "padding": [16.0, 16.0, 16.0, 16.0]
+                        },
+                        "children": [
+                            {
+                                "kind": "frame",
+                                "name": "FillBox",
+                                "width_sizing": "fill",
+                                "height_sizing": "fill",
+                                "bindings": {
+                                    "minWidth": "var:Theme/MinWidth",
+                                    "maxWidth": "var:Theme/MaxWidth",
+                                    "minHeight": "var:Theme/MinHeight",
+                                    "maxHeight": "var:Theme/MaxHeight"
+                                }
+                            },
+                            {
+                                "kind": "text",
+                                "name": "HugText",
+                                "text": "Card description line",
+                                "font_family": "var:Theme/FontFamily",
+                                "bindings": {
+                                    "fontStyle": "var:Theme/FontStyle",
+                                    "paragraphSpacing": "var:Theme/ParagraphSpacing",
+                                    "paragraphIndent": "var:Theme/ParagraphIndent"
+                                }
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+
+        let root_id = spec_res["root_node_id"].as_u64().unwrap();
+        let root_node = e.doc.get(NodeId(root_id)).unwrap();
+        assert_eq!(root_node.children.len(), 2);
+        let box_id = root_node.children[0];
+        let text_id = root_node.children[1];
+
+        let box_node = e.doc.get(box_id).unwrap();
+        assert_eq!(box_node.variables.bindings.get("minWidth").map(String::as_str), Some("v_min_w"));
+        assert_eq!(box_node.variables.bindings.get("maxWidth").map(String::as_str), Some("v_max_w"));
+        assert_eq!(box_node.variables.bindings.get("minHeight").map(String::as_str), Some("v_min_h"));
+        assert_eq!(box_node.variables.bindings.get("maxHeight").map(String::as_str), Some("v_max_h"));
+
+        let text_node = e.doc.get(text_id).unwrap();
+        assert_eq!(text_node.variables.bindings.get("fontFamily").map(String::as_str), Some("v_ff"));
+        assert_eq!(text_node.variables.bindings.get("fontStyle").map(String::as_str), Some("v_fs"));
+        assert_eq!(text_node.variables.bindings.get("paragraphSpacing").map(String::as_str), Some("v_ps"));
+        assert_eq!(text_node.variables.bindings.get("paragraphIndent").map(String::as_str), Some("v_pi"));
+
+        // Verify resolve_node in Mode A
+        let res_box_a = designos_doc::resolve_node(&e.doc, box_node);
+        assert_eq!(res_box_a.layout_child.min_w, Some(60.0));
+        assert_eq!(res_box_a.layout_child.max_w, Some(140.0));
+        assert_eq!(res_box_a.layout_child.min_h, Some(40.0));
+        assert_eq!(res_box_a.layout_child.max_h, Some(100.0));
+
+        let res_text_a = designos_doc::resolve_node(&e.doc, text_node);
+        let NodeKind::Text(tp_a) = &res_text_a.kind else { panic!("expected text") };
+        assert_eq!(tp_a.style.font_family, "Inter");
+        assert_eq!(tp_a.style.font_weight, 400);
+        assert!(!tp_a.style.italic);
+        assert_eq!(tp_a.style.paragraph_spacing, 8.0);
+        assert_eq!(tp_a.paragraph.indent, 12.0);
+
+        let measured_a = designos_render::measure_text_box(tp_a, None);
+        assert_eq!(text_node.size, measured_a);
+
+        // Switch to Mode B on the root container and relayout
+        e.doc.get_mut(NodeId(root_id)).unwrap().variables.modes.insert("c_theme".into(), "m_b".into());
+        e.doc.relayout_subtree(NodeId(root_id));
+
+        let box_node_b = e.doc.get(box_id).unwrap();
+        let res_box_b = designos_doc::resolve_node(&e.doc, box_node_b);
+        assert_eq!(res_box_b.layout_child.min_w, Some(90.0));
+        assert_eq!(res_box_b.layout_child.max_w, Some(260.0));
+        assert_eq!(res_box_b.layout_child.min_h, Some(50.0));
+        assert_eq!(res_box_b.layout_child.max_h, Some(180.0));
+
+        let text_node_b = e.doc.get(text_id).unwrap();
+        let res_text_b = designos_doc::resolve_node(&e.doc, text_node_b);
+        let NodeKind::Text(tp_b) = &res_text_b.kind else { panic!("expected text") };
+        assert_eq!(tp_b.style.font_family, "Roboto Mono");
+        assert_eq!(tp_b.style.font_weight, 700);
+        assert!(tp_b.style.italic);
+        assert_eq!(tp_b.style.paragraph_spacing, 16.0);
+        assert_eq!(tp_b.paragraph.indent, 24.0);
+
+        let measured_b = designos_render::measure_text_box(tp_b, None);
+        assert_eq!(text_node_b.size, measured_b);
+
+        // 3. update_node with bindings
+        e.call(
+            "designos_update_node",
+            json!({
+                "node_id": text_id.0,
+                "bindings": {
+                    "maxWidth": "var:Theme/MaxWidth"
+                }
+            }),
+        )
+        .unwrap();
+
+        let updated_text = e.doc.get(text_id).unwrap();
+        assert_eq!(updated_text.variables.bindings.get("maxWidth").map(String::as_str), Some("v_max_w"));
+        let res_updated_text = designos_doc::resolve_node(&e.doc, updated_text);
+        assert_eq!(res_updated_text.layout_child.max_w, Some(260.0));
+
+        e.call(
+            "designos_update_node",
+            json!({
+                "node_id": box_id.0,
+                "bindings": {
+                    "minWidth": null,
+                    "maxWidth": "var:Theme/MinWidth"
+                }
+            }),
+        )
+        .unwrap();
+
+        let updated_box = e.doc.get(box_id).unwrap();
+        assert!(!updated_box.variables.bindings.contains_key("minWidth"));
+        assert_eq!(updated_box.variables.bindings.get("maxWidth").map(String::as_str), Some("v_min_w"));
+        let res_updated_box = designos_doc::resolve_node(&e.doc, updated_box);
+        assert_eq!(res_updated_box.layout_child.min_w, Some(60.0));
+        assert_eq!(res_updated_box.layout_child.max_w, Some(90.0));
+    }
 }

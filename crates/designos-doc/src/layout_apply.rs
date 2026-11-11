@@ -92,7 +92,22 @@ impl Document {
         let (fit_w, fit_h) = content_sized_axes(raw);
         let mut natural = raw.layout_child.natural_size(raw.size, horiz);
         if let NodeKind::Text(tp) = &bound.kind {
-            if tp.auto_resize == crate::TextAutoResize::WidthAndHeight && bound.layout_child.max_w.is_some() {
+            let text_changed = (matches!(&bound, std::borrow::Cow::Owned(_)) && raw.kind.any_text() != Some(tp))
+                || raw.variables.bindings.keys().any(|k| {
+                    matches!(
+                        k.as_str(),
+                        "characters"
+                            | "fontFamily"
+                            | "fontStyle"
+                            | "fontSize"
+                            | "fontWeight"
+                            | "lineHeight"
+                            | "letterSpacing"
+                            | "paragraphSpacing"
+                            | "paragraphIndent"
+                    )
+                });
+            if tp.auto_resize == crate::TextAutoResize::WidthAndHeight && (bound.layout_child.max_w.is_some() || text_changed) {
                 if let Some(measure) = layout_measurer() {
                     natural = crate::text_measure::measure_hug_text_with(tp, bound.layout_child.max_w, |t, w| measure.measure(t, w));
                 }
@@ -167,7 +182,7 @@ impl Document {
             return;
         }
         let frame = root_node.size;
-        let own_limits = SizeLimits::from(&root_node.layout_child);
+        let own_limits = SizeLimits::from(&resolved.layout_child);
         let stroke = resolved.stroke.clone();
         let horiz = al.direction != LayoutDirection::Vertical;
         for cid in &children {
@@ -184,7 +199,8 @@ impl Document {
             let doc = &*self;
             compute_then_refit_wrapped(&al, frame, own_limits, &stroke, &flow_ids, &mut kids, |id, w| {
                 let measure = measure.as_deref()?;
-                height_resize_text_height(doc.get(id)?, w, measure)
+                let resolved_child = crate::resolve_node(doc, doc.get(id)?);
+                height_resize_text_height(&resolved_child, w, measure)
             })
         };
         self.note_layout_written_outside_history();
@@ -374,8 +390,9 @@ pub(crate) fn solve_calls() -> usize {
 mod tests {
     use super::*;
     use crate::{
-        apply_variable_mode_to_subtree, bind_node_variable, combine_as_variants, create_instance, swap_instance_variant, AutoLayout, BindableProperty,
-        FrameProps, LayoutChild, Node, NodeKind, Rect, Sizing, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+        apply_variable_mode_to_subtree, bind_node_variable, combine_as_variants, create_instance, resolve_node, swap_instance_variant, AutoLayout,
+        BindableProperty, FrameProps, LayoutChild, Node, NodeKind, Rect, Sizing, TextProps, TextStyle, Variable, VariableCollection, VariableKind,
+        VariableMode, VariableValue,
     };
     use std::time::Instant;
 
@@ -904,5 +921,200 @@ mod tests {
         doc.insert(instance, Node::rectangle(child, Rect::new(0.0, 0.0, 375.0, 200.0))).unwrap();
         doc.relayout_subtree(column);
         assert_eq!(doc.get(instance).unwrap().size.y, 200.0, "an expanded instance hugs its children");
+    }
+
+    #[test]
+    fn bound_min_max_dimensions_clamp_hug_and_fill_children_per_mode() {
+        let mut doc = Document::new("min-max-test");
+        let page = doc.add_page("P");
+
+        doc.variable_collections.insert(
+            "col-layout".into(),
+            VariableCollection {
+                id: "col-layout".into(),
+                name: "Layout".into(),
+                modes: vec![VariableMode { id: "compact".into(), name: "Compact".into() }, VariableMode { id: "wide".into(), name: "Wide".into() }],
+                default_mode: "compact".into(),
+                variables: vec!["max-hug".into(), "max-fill".into(), "min-fill".into(), "min-h-fill".into(), "max-h-fill".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+
+        let n = |x: f32| VariableValue::Number(x);
+        let make_var = |id: &str, c: f32, w: f32| Variable {
+            id: id.into(),
+            name: id.into(),
+            collection: "col-layout".into(),
+            kind: VariableKind::Number,
+            values: [("compact".to_string(), n(c)), ("wide".to_string(), n(w))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec!["WIDTH_HEIGHT".into()],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        };
+
+        doc.variables.insert("max-hug".into(), make_var("max-hug", 80.0, 240.0));
+        doc.variables.insert("max-fill".into(), make_var("max-fill", 120.0, 260.0));
+        doc.variables.insert("min-fill".into(), make_var("min-fill", 60.0, 100.0));
+        doc.variables.insert("min-h-fill".into(), make_var("min-h-fill", 30.0, 40.0));
+        doc.variables.insert("max-h-fill".into(), make_var("max-h-fill", 50.0, 80.0));
+
+        let parent_id = doc.alloc_id();
+        let mut parent = Node::frame(parent_id, Rect::new(0.0, 0.0, 300.0, 100.0));
+        if let NodeKind::Frame(fp) = &mut parent.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::default()
+            });
+        }
+        doc.insert(page, parent).unwrap();
+
+        // Hug child with natural width 160.0
+        let hug_id = doc.alloc_id();
+        let mut hug = Node::frame(hug_id, Rect::new(0.0, 0.0, 160.0, 40.0));
+        if let NodeKind::Frame(fp) = &mut hug.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::default()
+            });
+        }
+        hug.layout_child = LayoutChild { horizontal: Sizing::Hug, vertical: Sizing::Fixed, ..LayoutChild::default() };
+        hug.variables.bindings.insert("maxWidth".into(), "max-hug".into());
+        doc.insert(parent_id, hug).unwrap();
+
+        // Inside hug frame, add a 160x40 rectangle to give it natural content width of 160.0
+        let inner_id = doc.alloc_id();
+        let inner = Node::rectangle(inner_id, Rect::new(0.0, 0.0, 160.0, 40.0));
+        doc.insert(hug_id, inner).unwrap();
+
+        // Fill child
+        let fill_id = doc.alloc_id();
+        let mut fill = Node::frame(fill_id, Rect::new(0.0, 0.0, 50.0, 50.0));
+        fill.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fill, ..LayoutChild::default() };
+        fill.variables.bindings.insert("minWidth".into(), "min-fill".into());
+        fill.variables.bindings.insert("maxWidth".into(), "max-fill".into());
+        fill.variables.bindings.insert("minHeight".into(), "min-h-fill".into());
+        fill.variables.bindings.insert("maxHeight".into(), "max-h-fill".into());
+        doc.insert(parent_id, fill).unwrap();
+
+        // 1. In compact mode
+        apply_variable_mode_to_subtree(&mut doc, parent_id, "col-layout", "compact").unwrap();
+        let hug_compact = doc.get(hug_id).unwrap();
+        assert_eq!(hug_compact.size.x, 80.0, "hug child should be clamped by maxWidth in compact mode");
+
+        let fill_compact = doc.get(fill_id).unwrap();
+        // 300 - 80 = 220, clamped by max_w_fill 120.0
+        assert_eq!(fill_compact.size.x, 120.0, "fill child should be clamped by maxWidth in compact mode");
+        // height is 100.0, clamped by max_h_fill 50.0
+        assert_eq!(fill_compact.size.y, 50.0, "fill child height should be clamped by maxHeight in compact mode");
+
+        // 2. In wide mode
+        apply_variable_mode_to_subtree(&mut doc, parent_id, "col-layout", "wide").unwrap();
+        let hug_wide = doc.get(hug_id).unwrap();
+        // natural is 160.0 <= 240.0
+        assert_eq!(hug_wide.size.x, 160.0, "hug child should keep natural width when within maxWidth in wide mode");
+
+        let fill_wide = doc.get(fill_id).unwrap();
+        // 300 - 160 = 140, within [100.0, 260.0]
+        assert_eq!(fill_wide.size.x, 140.0, "fill child should take remaining 140px in wide mode");
+        // height is 100.0, clamped by max_h_fill 80.0
+        assert_eq!(fill_wide.size.y, 80.0, "fill child height should be clamped by maxHeight in wide mode");
+    }
+
+    struct MockFamilyMeasurer;
+    impl crate::text_measure::TextMeasure for MockFamilyMeasurer {
+        fn measure(&self, tp: &TextProps, _wrap_width: Option<f32>) -> Vec2 {
+            if tp.style.font_family == "Roboto Mono" {
+                Vec2::new(140.0, 24.0)
+            } else {
+                Vec2::new(70.0, 20.0)
+            }
+        }
+    }
+
+    #[test]
+    fn bound_font_family_switches_per_mode_in_resolve_and_text_layout() {
+        use std::sync::Arc;
+        let _guard = crate::text_measure::ThreadLayoutMeasurerGuard::install(Arc::new(MockFamilyMeasurer));
+
+        let mut doc = Document::new("font-family-mode-test");
+        let page = doc.add_page("P");
+
+        doc.variable_collections.insert(
+            "col-font".into(),
+            VariableCollection {
+                id: "col-font".into(),
+                name: "Font".into(),
+                modes: vec![VariableMode { id: "mode_inter".into(), name: "Inter".into() }, VariableMode { id: "mode_mono".into(), name: "Mono".into() }],
+                default_mode: "mode_inter".into(),
+                variables: vec!["var-ff".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+
+        let make_str_var = |id: &str, a: &str, b: &str| Variable {
+            id: id.into(),
+            name: id.into(),
+            collection: "col-font".into(),
+            kind: VariableKind::String,
+            values: [("mode_inter".to_string(), VariableValue::String(a.into())), ("mode_mono".to_string(), VariableValue::String(b.into()))]
+                .into_iter()
+                .collect(),
+            description: String::new(),
+            scopes: vec!["FONT_FAMILY".into()],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        };
+
+        doc.variables.insert("var-ff".into(), make_str_var("var-ff", "Inter", "Roboto Mono"));
+
+        let parent_id = doc.alloc_id();
+        let mut parent = Node::frame(parent_id, Rect::new(0.0, 0.0, 200.0, 50.0));
+        if let NodeKind::Frame(fp) = &mut parent.kind {
+            fp.auto_layout =
+                Some(AutoLayout { direction: LayoutDirection::Horizontal, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..AutoLayout::default() });
+        }
+        doc.insert(page, parent).unwrap();
+
+        let text_id = doc.alloc_id();
+        let mut text = Node::text(text_id, Rect::new(0.0, 0.0, 50.0, 20.0), "Hello", TextStyle::default());
+        text.variables.bindings.insert("fontFamily".into(), "var-ff".into());
+        doc.insert(parent_id, text).unwrap();
+
+        // 1. Mode Inter
+        apply_variable_mode_to_subtree(&mut doc, parent_id, "col-font", "mode_inter").unwrap();
+        let resolved_inter = resolve_node(&doc, doc.get(text_id).unwrap());
+        assert_eq!(resolved_inter.kind.any_text().unwrap().style.font_family, "Inter");
+        assert_eq!(doc.get(text_id).unwrap().size, Vec2::new(70.0, 20.0));
+        assert_eq!(doc.get(parent_id).unwrap().size, Vec2::new(70.0, 20.0));
+
+        // 2. Mode Mono
+        apply_variable_mode_to_subtree(&mut doc, parent_id, "col-font", "mode_mono").unwrap();
+        let resolved_mono = resolve_node(&doc, doc.get(text_id).unwrap());
+        assert_eq!(resolved_mono.kind.any_text().unwrap().style.font_family, "Roboto Mono");
+        assert_eq!(doc.get(text_id).unwrap().size, Vec2::new(140.0, 24.0));
+        assert_eq!(doc.get(parent_id).unwrap().size, Vec2::new(140.0, 24.0));
+
+        // 3. Switch back to Mode Inter via parent variable mode override + relayout_subtree
+        doc.get_mut(parent_id).unwrap().variables.modes.insert("col-font".into(), "mode_inter".into());
+        doc.relayout_subtree(parent_id);
+        let resolved_inter2 = resolve_node(&doc, doc.get(text_id).unwrap());
+        assert_eq!(resolved_inter2.kind.any_text().unwrap().style.font_family, "Inter");
+        assert_eq!(doc.get(text_id).unwrap().size, Vec2::new(70.0, 20.0));
+        assert_eq!(doc.get(parent_id).unwrap().size, Vec2::new(70.0, 20.0));
     }
 }

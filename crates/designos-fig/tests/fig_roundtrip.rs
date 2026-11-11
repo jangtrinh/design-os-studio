@@ -5149,3 +5149,180 @@ fn animation_style_and_style_ids_for_animation_roundtrip() {
     assert_eq!(rt_card.style_refs.get("animation").map(String::as_str), Some("2:100"));
     assert_eq!(rt_card.motion.as_deref().map(|m| m.timelines.as_slice()), Some(timelines.as_slice()));
 }
+
+#[test]
+fn roundtrip_preserves_size_limit_and_typography_variable_bindings() {
+    let mut doc = Document::new("VariableBindingsRoundtrip");
+    let page_id = doc.add_page("Page 1");
+
+    let coll_id = "VariableCollectionId:10:1";
+    let mode_a = "10:0";
+    let mode_b = "10:1";
+
+    let var_min_w = "VariableID:10:1";
+    let var_max_w = "VariableID:10:2";
+    let var_min_h = "VariableID:10:3";
+    let var_max_h = "VariableID:10:4";
+    let var_font_fam = "VariableID:10:5";
+    let var_font_sty = "VariableID:10:6";
+    let var_p_spacing = "VariableID:10:7";
+    let var_p_indent = "VariableID:10:8";
+
+    doc.variable_collections.insert(
+        coll_id.into(),
+        VariableCollection {
+            id: coll_id.into(),
+            name: "Tokens".into(),
+            modes: vec![VariableMode { id: mode_a.into(), name: "ModeA".into() }, VariableMode { id: mode_b.into(), name: "ModeB".into() }],
+            default_mode: mode_a.into(),
+            variables: vec![
+                var_min_w.into(),
+                var_max_w.into(),
+                var_min_h.into(),
+                var_max_h.into(),
+                var_font_fam.into(),
+                var_font_sty.into(),
+                var_p_spacing.into(),
+                var_p_indent.into(),
+            ],
+            key: Some("tokens_coll_key".into()),
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+
+    let num_var = |id: &str, name: &str, scope: &str, val_a: f32, val_b: f32| {
+        let mut vals = BTreeMap::new();
+        vals.insert(mode_a.into(), VariableValue::Number(val_a));
+        vals.insert(mode_b.into(), VariableValue::Number(val_b));
+        Variable {
+            id: id.into(),
+            name: name.into(),
+            collection: coll_id.into(),
+            kind: VariableKind::Number,
+            values: vals,
+            description: String::new(),
+            scopes: vec![scope.into()],
+            hidden_from_publishing: false,
+            key: Some(format!("key_{id}")),
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        }
+    };
+
+    let str_var = |id: &str, name: &str, scope: &str, val_a: &str, val_b: &str| {
+        let mut vals = BTreeMap::new();
+        vals.insert(mode_a.into(), VariableValue::String(val_a.into()));
+        vals.insert(mode_b.into(), VariableValue::String(val_b.into()));
+        Variable {
+            id: id.into(),
+            name: name.into(),
+            collection: coll_id.into(),
+            kind: VariableKind::String,
+            values: vals,
+            description: String::new(),
+            scopes: vec![scope.into()],
+            hidden_from_publishing: false,
+            key: Some(format!("key_{id}")),
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        }
+    };
+
+    doc.variables.insert(var_min_w.into(), num_var(var_min_w, "size/min_w", "WIDTH_HEIGHT", 50.0, 70.0));
+    doc.variables.insert(var_max_w.into(), num_var(var_max_w, "size/max_w", "WIDTH_HEIGHT", 150.0, 250.0));
+    doc.variables.insert(var_min_h.into(), num_var(var_min_h, "size/min_h", "WIDTH_HEIGHT", 30.0, 40.0));
+    doc.variables.insert(var_max_h.into(), num_var(var_max_h, "size/max_h", "WIDTH_HEIGHT", 120.0, 220.0));
+    doc.variables.insert(var_font_fam.into(), str_var(var_font_fam, "font/family", "FONT_FAMILY", "Inter", "Roboto Mono"));
+    doc.variables.insert(var_font_sty.into(), str_var(var_font_sty, "font/style", "FONT_STYLE", "Regular", "Bold Italic"));
+    doc.variables.insert(var_p_spacing.into(), num_var(var_p_spacing, "para/spacing", "PARAGRAPH_SPACING", 8.0, 16.0));
+    doc.variables.insert(var_p_indent.into(), num_var(var_p_indent, "para/indent", "PARAGRAPH_INDENT", 12.0, 24.0));
+
+    let frame_id = doc.alloc_id();
+    let mut frame = Node::frame(frame_id, Rect::new(0.0, 0.0, 200.0, 200.0));
+    frame.name = "SizeLimitFrame".into();
+    frame.variables.bindings.insert("minWidth".into(), var_min_w.into());
+    frame.variables.bindings.insert("maxWidth".into(), var_max_w.into());
+    frame.variables.bindings.insert("minHeight".into(), var_min_h.into());
+    frame.variables.bindings.insert("maxHeight".into(), var_max_h.into());
+    doc.insert(page_id, frame).unwrap();
+
+    let text_id = doc.alloc_id();
+    let mut text = Node::text(text_id, Rect::new(0.0, 0.0, 100.0, 50.0), "Hello world", TextStyle::default());
+    text.name = "TypographyText".into();
+    text.variables.bindings.insert("fontFamily".into(), var_font_fam.into());
+    text.variables.bindings.insert("fontStyle".into(), var_font_sty.into());
+    text.variables.bindings.insert("paragraphSpacing".into(), var_p_spacing.into());
+    text.variables.bindings.insert("paragraphIndent".into(), var_p_indent.into());
+    doc.insert(frame_id, text).unwrap();
+
+    // Double round-trip: export -> import -> export -> import
+    let bytes1 = export_fig(&doc).expect("first export_fig");
+    let doc2 = import_fig(&bytes1).expect("first import_fig");
+    let bytes2 = export_fig(&doc2).expect("second export_fig");
+    let mut doc3 = import_fig(&bytes2).expect("second import_fig");
+
+    let imp_frame = find(&doc3, "SizeLimitFrame");
+    let find_var = |d: &Document, name: &str| d.variables.values().find(|v| v.name == name).expect(name).id.clone();
+
+    let rt_min_w = find_var(&doc3, "size/min_w");
+    let rt_max_w = find_var(&doc3, "size/max_w");
+    let rt_min_h = find_var(&doc3, "size/min_h");
+    let rt_max_h = find_var(&doc3, "size/max_h");
+    let rt_ff = find_var(&doc3, "font/family");
+    let rt_fs = find_var(&doc3, "font/style");
+    let rt_ps = find_var(&doc3, "para/spacing");
+    let rt_pi = find_var(&doc3, "para/indent");
+
+    assert_eq!(imp_frame.variables.bindings.get("minWidth"), Some(&rt_min_w));
+    assert_eq!(imp_frame.variables.bindings.get("maxWidth"), Some(&rt_max_w));
+    assert_eq!(imp_frame.variables.bindings.get("minHeight"), Some(&rt_min_h));
+    assert_eq!(imp_frame.variables.bindings.get("maxHeight"), Some(&rt_max_h));
+
+    let imp_text = find(&doc3, "TypographyText");
+    assert_eq!(imp_text.variables.bindings.get("fontFamily"), Some(&rt_ff));
+    assert_eq!(imp_text.variables.bindings.get("fontStyle"), Some(&rt_fs));
+    assert_eq!(imp_text.variables.bindings.get("paragraphSpacing"), Some(&rt_ps));
+    assert_eq!(imp_text.variables.bindings.get("paragraphIndent"), Some(&rt_pi));
+
+    // Verify resolve_node in default Mode A
+    let res_frame_a = resolve_node(&doc3, imp_frame);
+    assert_eq!(res_frame_a.layout_child.min_w, Some(50.0));
+    assert_eq!(res_frame_a.layout_child.max_w, Some(150.0));
+    assert_eq!(res_frame_a.layout_child.min_h, Some(30.0));
+    assert_eq!(res_frame_a.layout_child.max_h, Some(120.0));
+
+    let res_text_a = resolve_node(&doc3, imp_text);
+    let NodeKind::Text(tp_a) = &res_text_a.kind else { panic!("expected text") };
+    assert_eq!(tp_a.style.font_family, "Inter");
+    assert_eq!(tp_a.style.font_weight, 400);
+    assert!(!tp_a.style.italic);
+    assert_eq!(tp_a.style.paragraph_spacing, 8.0);
+    assert_eq!(tp_a.paragraph.indent, 12.0);
+
+    // Verify resolve_node in Mode B via mode override on frame
+    let imp_frame_id = imp_frame.id;
+    let imp_text_id = imp_text.id;
+    let (imp_coll_id, mode_b_id) = {
+        let c = doc3.variable_collections.values().find(|c| c.name == "Tokens").expect("Tokens collection");
+        let m = c.modes.iter().find(|m| m.name == "ModeB").expect("ModeB mode");
+        (c.id.clone(), m.id.clone())
+    };
+    doc3.get_mut(imp_frame_id).unwrap().variables.modes.insert(imp_coll_id, mode_b_id);
+
+    let res_frame_b = resolve_node(&doc3, doc3.get(imp_frame_id).unwrap());
+    assert_eq!(res_frame_b.layout_child.min_w, Some(70.0));
+    assert_eq!(res_frame_b.layout_child.max_w, Some(250.0));
+    assert_eq!(res_frame_b.layout_child.min_h, Some(40.0));
+    assert_eq!(res_frame_b.layout_child.max_h, Some(220.0));
+
+    let res_text_b = resolve_node(&doc3, doc3.get(imp_text_id).unwrap());
+    let NodeKind::Text(tp_b) = &res_text_b.kind else { panic!("expected text") };
+    assert_eq!(tp_b.style.font_family, "Roboto Mono");
+    assert_eq!(tp_b.style.font_weight, 700);
+    assert!(tp_b.style.italic);
+    assert_eq!(tp_b.style.paragraph_spacing, 16.0);
+    assert_eq!(tp_b.paragraph.indent, 24.0);
+}

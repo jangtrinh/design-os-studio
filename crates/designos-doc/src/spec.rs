@@ -1398,7 +1398,7 @@ impl Document {
                         n.size.y = ctx.text_size(tp, Some(n.size.x.max(20.0))).y;
                     }
                 } else {
-                    let sz = crate::text_measure::measure_hug_text_with(tp, hugs_h.then_some(spec.max_width).flatten(), |t, w| ctx.text_size(t, w));
+                    let sz = crate::text_measure::measure_hug_text_with(tp, hugs_h.then_some(n.layout_child.max_w).flatten(), |t, w| ctx.text_size(t, w));
                     if spec.width.is_none() {
                         n.size.x = sz.x;
                     }
@@ -1574,11 +1574,16 @@ impl Document {
                 }
             }
         }
-        if let Some(ff) = &spec.font_family {
-            if !ff.trim().is_empty() {
-                if let Some(n) = self.get_mut(id) {
-                    if let NodeKind::Text(tp) = &mut n.kind {
-                        tp.style.font_family = ff.trim().to_string();
+        if let Some(ref f) = spec.font_family {
+            let trimmed = f.trim();
+            if trimmed.starts_with("var:") {
+                self.bind_variable_ref(id, node_kind, trimmed, &["fontFamily"], "font_family", &format!("{path}.font_family"), index, libraries, report)?;
+                detach_path = detach_path.or(Some("font_family"));
+            } else if let Some(n) = self.get_mut(id) {
+                if let Some(tp) = n.kind.any_text_mut() {
+                    if !trimmed.is_empty() && tp.style.font_family != trimmed {
+                        detach_path = detach_path.or(Some("font_family"));
+                        tp.style.font_family = trimmed.to_string();
                     }
                 }
             }
