@@ -1925,7 +1925,7 @@ mod tests {
 
     /// The overlay of an empty grid with the given tracks (columns/rows as set on `al`).
     fn bare_overlay(al: &designos_doc::AutoLayout) -> super::super::grids::CssGridOverlay {
-        super::super::grids::compute_css_grid_overlay(al, DV::new(2000.0, 2000.0), &[])
+        super::super::grids::compute_css_grid_overlay(al, DV::new(2000.0, 2000.0), Default::default(), &[])
     }
 
     fn disjoint_per_axis(pills: &[(bool, usize, ERect, ERect)]) -> bool {
