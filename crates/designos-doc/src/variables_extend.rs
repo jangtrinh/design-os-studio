@@ -372,6 +372,21 @@ impl VariableStore {
         out
     }
 
+    pub(crate) fn unresolved_alias_targets(&self) -> BTreeMap<(String, String), String> {
+        let mut out = BTreeMap::new();
+        for (variable, mode) in self.unresolved_pairs() {
+            let value = if self.is_own_mode(&variable, &mode) {
+                self.variables.get(&variable).and_then(|v| v.values.get(&mode)).cloned()
+            } else {
+                self.extended_value_of(&mode, &variable)
+            };
+            if let Some(VariableValue::Alias(target)) = value {
+                out.insert((variable, mode), target);
+            }
+        }
+        out
+    }
+
     fn extended_value_of(&self, mode: &str, variable: &str) -> Option<VariableValue> {
         let ext = self.extension_owning_mode(mode, variable)?;
         self.extended_value(&ext, variable, mode)
