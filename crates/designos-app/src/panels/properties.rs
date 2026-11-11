@@ -1556,9 +1556,9 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         title(ui, pane, "Animation", None, !has_anim_timelines && anim_linked.is_none());
         super::style_picker::header_button(app, ui, pane, sel, StyleProperty::Animation);
         if let Some(key) = anim_linked {
-            pane.y += 4.0;
+            pane.y += theme::SPACE_ROW;
             super::style_picker::linked_row(app, ui, pane, sel, StyleProperty::Animation, &key);
-            pane.y += 4.0;
+            pane.y += theme::SPACE_ROW;
         }
     }
 
