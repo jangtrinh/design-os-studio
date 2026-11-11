@@ -3178,6 +3178,17 @@ mod tests {
     }
 
     #[test]
+    fn adding_another_imported_extension_local_variable_is_refused() {
+        let mut e = imported_extension_with_a_local_variable();
+        let before = e.doc.variable_collections["C:2"].variables.clone();
+        let mut variables = before.clone();
+        variables.push("V:another".into());
+        let result = set_variables(&mut e, json!({"upsert_collections": [{"id": "C:2", "variables": variables}]}));
+        assert!(result.is_err(), "adding a second extension-owned variable adds a new violation: {result:?}");
+        assert_eq!(e.doc.variable_collections["C:2"].variables, before, "refusal leaves the document unchanged");
+    }
+
+    #[test]
     fn a_stray_extension_mode_key_on_one_variable_does_not_lock_writes_to_another() {
         use designos_doc::{VariableKind, VariableStore, VariableValue};
         let mut e = Engine::default();

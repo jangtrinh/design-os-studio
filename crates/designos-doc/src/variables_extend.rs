@@ -257,10 +257,18 @@ pub(crate) fn alias_check_count() -> usize {
 impl VariableStore {
     /// Applies a batch of value writes (variable, mode, value; `None` resets an override) and checks once, after the
     /// last one, that no alias left a variable without a value. The aliases of a batch may come before the values they
-    /// point to; a cycle closed anywhere in the batch is refused. Per-write checks are quadratic in the batch size.
+    /// point to; a cycle closed anywhere in the batch is refused. The batch commits only when every write and the final
+    /// resolution check succeeds. Only variables and extension collections touched by the batch are snapshotted.
+    /// Per-write checks are quadratic in the batch size.
     pub fn apply_value_writes(&mut self, writes: Vec<(String, String, Option<VariableValue>)>) -> Result<(), String> {
         let before = self.unresolved_pairs();
+        let mut variables_before = BTreeMap::new();
+        let mut collections_before = BTreeMap::new();
         for (variable, mode, value) in writes {
+            variables_before.entry(variable.clone()).or_insert_with(|| self.variables.get(&variable).cloned());
+            if let Some(ext) = self.extension_owning_mode(&mode, &variable) {
+                collections_before.entry(ext.clone()).or_insert_with(|| self.collections.get(&ext).cloned());
+            }
             let ok = match &value {
                 Some(VariableValue::Alias(target)) => self.set_alias_with(&variable, &mode, target, false),
                 Some(literal) => self.set_value(&variable, &mode, literal.clone()),
@@ -278,13 +286,38 @@ impl VariableStore {
                 } else {
                     "refused: a library variable, a value of the wrong kind, an alias to a missing variable or a variable of another kind, or a mode of an extended collection that does not extend the variable's collection"
                 };
+                self.restore_value_write_batch(variables_before, collections_before);
                 return Err(format!("value for variable '{variable}' in mode '{mode}' {why}"));
             }
         }
         if self.unresolved_pairs().is_subset(&before) {
             Ok(())
         } else {
+            self.restore_value_write_batch(variables_before, collections_before);
             Err("an alias in this batch would leave a variable without a value (a cycle, or an alias to a variable with no value)".into())
+        }
+    }
+
+    fn restore_value_write_batch(&mut self, variables: BTreeMap<String, Option<Variable>>, collections: BTreeMap<String, Option<VariableCollection>>) {
+        for (id, variable) in variables {
+            match variable {
+                Some(variable) => {
+                    self.variables.insert(id, variable);
+                }
+                None => {
+                    self.variables.remove(&id);
+                }
+            }
+        }
+        for (id, collection) in collections {
+            match collection {
+                Some(collection) => {
+                    self.collections.insert(id, collection);
+                }
+                None => {
+                    self.collections.remove(&id);
+                }
+            }
         }
     }
 
@@ -294,8 +327,10 @@ impl VariableStore {
     /// an edit is judged by what it adds (see [`VariableStore::check_extension_rules`]), never by what was there.
     pub fn extension_violations(&self) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
-        for c in self.collections.values().filter(|c| c.is_extension() && !c.variables.is_empty()) {
-            out.insert(format!("collection '{}' extends another collection and lists variables of its own", c.id));
+        for c in self.collections.values().filter(|c| c.is_extension()) {
+            for variable in &c.variables {
+                out.insert(format!("collection '{}' extends another collection and lists variable '{variable}' of its own", c.id));
+            }
         }
         for v in self.variables.values() {
             if self.collections.get(&v.collection).is_some_and(VariableCollection::is_extension) {
@@ -1042,6 +1077,31 @@ mod tests {
     }
 
     #[test]
+    fn adding_another_extension_owned_variable_is_a_new_rule_violation() {
+        let (mut s, theme, ..) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        s.collections.get_mut(&brand).unwrap().variables.push("imported-own-variable".into());
+        let before = s.extension_violations();
+        s.collections.get_mut(&brand).unwrap().variables.push("new-own-variable".into());
+        assert!(s.rules_added_since(&before).is_err(), "the second listed variable adds a separate violation");
+    }
+
+    #[test]
+    fn a_failed_value_write_batch_leaves_the_store_unchanged() {
+        let (mut s, theme, bg, _, [light, _]) = base();
+        let brand = s.extend_collection(&theme, "Brand").unwrap();
+        let brand_light = s.collections[&brand].modes[0].id.clone();
+        let before = s.clone();
+        let writes = vec![
+            (bg.clone(), light.clone(), Some(VariableValue::Color(Color::rgb(1, 2, 3)))),
+            (bg.clone(), brand_light, Some(VariableValue::Color(Color::rgb(4, 5, 6)))),
+            ("missing-variable".into(), light, Some(VariableValue::Color(Color::BLACK))),
+        ];
+        assert!(s.apply_value_writes(writes).is_err(), "the final write targets no variable");
+        assert_eq!(s, before, "a refused batch commits no earlier writes");
+    }
+
+    #[test]
     fn a_batch_of_aliases_runs_the_resolution_check_twice_not_once_per_alias() {
         let mut s = VariableStore::default();
         let c = s.add_collection("C");
@@ -1071,6 +1131,8 @@ mod tests {
         assert_eq!(s.resolve(&fg, &light), Some(VariableValue::Color(Color::rgb(1, 2, 3))));
         let cycle =
             vec![(bg.clone(), light.clone(), Some(VariableValue::Alias(fg.clone()))), (prim.clone(), light.clone(), Some(VariableValue::Alias(bg.clone())))];
+        let before_cycle = s.clone();
         assert!(s.apply_value_writes(cycle).is_err(), "a cycle closed inside one batch is refused");
+        assert_eq!(s, before_cycle, "a refused alias batch commits no writes");
     }
 }
