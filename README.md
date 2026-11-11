@@ -169,21 +169,41 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.11. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.12, and it has captures from the release build. Older releases are short lists.
 
-<a id="new-in-v0710"></a>
-### 0.7.10
+<a id="new-in-v0712"></a>
+### 0.7.12
 
-Captured with the 0.7.10 release build, headlessly with `designos-studio --screenshot` (2x), on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click the image for full size. The page is a scratch page of the copy, and the connector was drawn with the published `designos-mcp` (`designos_apply_batch`, `connect` op).
+Captured with the 0.7.12 release build, headlessly with `designos-studio --screenshot` (2x), on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click the image for full size. The page is the kit's Dropdowns page of the copy, and `--panel effect-glass` adds a default glass effect to the selected Menu layer for the capture.
 
 <table>
   <tr>
     <td align="center">
-      <a href="docs/images/v0.7.10/connector-two-layers.png"><img src="docs/images/v0.7.10/connector-two-layers.png" alt="DESIGN:OS Studio 0.7.10 on a scratch page of a copy of the Untitled UI PRO v8.0 Figma kit: a Connector layer is selected, an elbow line with an arrowhead runs from the purple Save button to the white Share button, and the Design pane shows the Connector layer" width="640"></a><br>
-      <sub><b>Connector</b><br>It sticks to two layers and re-routes when one moves.<br>Command: <code>designos-studio kit-connector.designos --select id:210264 --zoom 100 --size 1440x900 --scale 2 --no-toast --screenshot docs/images/v0.7.10/connector-two-layers.png</code></sub>
+      <a href="docs/images/v0.7.12/glass-variable-slots.png"><img src="docs/images/v0.7.12/glass-variable-slots.png" alt="DESIGN:OS Studio 0.7.12 on the Dropdowns page of a copy of the Untitled UI PRO v8.0 Figma kit: the Menu layer with Cut, Copy, Paste, Edit, Duplicate, Delete and View details is selected, and a Glass popover lists Light angle, Light intensity, Refraction, Depth, Dispersion, Splay, Bevel and Frost, with a small variable bind button beside every value except Splay and Bevel" width="640"></a><br>
+      <sub><b>Glass popover</b><br>Light angle, light intensity, refraction, depth, dispersion and frost each get a bind button, so a number variable can drive them.<br>Command: <code>designos-studio dropdowns.designos --select id:27478 --panel effect-glass --zoom 100 --size 1440x900 --scale 2 --no-toast --screenshot docs/images/v0.7.12/glass-variable-slots.png</code></sub>
     </td>
   </tr>
 </table>
+
+- **Variables on effects.** Blur radius, spread, offset and opacity of an effect, and the glass settings, bind to number variables. They resolve per mode, survive `.fig` and work from MCP.
+- **Size limits and type.** Min and max width and height bind to number variables and feed auto layout. Font family, font style, paragraph spacing and paragraph indent bind on text layers.
+- **Motion.** Easing and duration variables bind to prototype transitions and Motion tracks, and Motion timelines import from and export to `.fig`.
+- **Animation styles.** A style holds Motion timelines, layers link to it like effect and grid styles, and the style picker lists it.
+- **Extended collections.** Publish an extended collection to a library and use it from another file, with edits in the receiving file's own modes.
+- **Fixes.** Editing a shared text style keeps the properties a linked layer overrides, and a branch merge keeps extensions pointing at the right parent. Several fixes were carried from pull requests by @NamAIEngineer.
+
+<a id="new-in-v0711"></a>
+### 0.7.11
+
+- **Tables.** A document can hold a table that you edit on the canvas: type in a cell, Tab between cells, drag a line to resize, merge and unmerge from the right-click menu. Agents build tables with the `table` op of `designos_apply_batch`.
+- **Colour.** Set a document to Display P3 from the Page title row, and pick one Colour format export setting (Hex, RGB or OKLCH) for CSS, Tailwind, React, HTML and Dev Mode.
+- **Extended collections.** A variable collection can extend a parent and override its variables per mode, as in Figma, through the panel, `.fig`, Figma REST JSON and MCP.
+- **Instance properties.** Bind boolean, text and variant properties of an instance to variables, and keep your overrides when you swap an instance or switch its variant.
+- **Text styles.** A text layer keeps its style when you change weight, italic or underline, shows a count pill, and "Reapply style" restores the style in one undo step.
+- **`.fig` save.** A save keeps the overrides of instances nested inside a main component, including pages that were never opened.
+
+<a id="new-in-v0710"></a>
+### 0.7.10
 
 - **Save keeps every page.** A save of a large `.fig` no longer drops the content of pages that were never opened. Files imported before this fix: import them again from the original `.fig`.
 - **Connectors.** Draw a live connector with the Connector tool (X). It sticks to two layers and re-routes when one moves. Agents draw one with the `connect` op of `designos_apply_batch`.
@@ -732,7 +752,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.11. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.11 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.12. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.12 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use

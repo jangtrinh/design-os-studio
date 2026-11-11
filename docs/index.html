@@ -65,7 +65,7 @@
       "license": "https://polyformproject.org/licenses/shield/1.0.0",
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "downloadUrl": "https://github.com/jangtrinh/design-os-studio/releases",
-      "softwareVersion": "0.7.11",
+      "softwareVersion": "0.7.12",
       "@id": "https://jangtrinh.github.io/design-os-studio/#app",
       "isBasedOn": {
         "@id": "https://jangtrinh.github.io/design-os-studio/#source"
@@ -518,20 +518,42 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.11. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.12, and it has captures from the release build. Older releases are short lists.</p>
       </div>
       <div class="new-grid">
-        <article class="new-release new-release--0710" id="new-in-v0710" aria-labelledby="v0710-h">
-          <h3 id="v0710-h" class="new-ver">0.7.10</h3>
-          <p class="new-note">Captured with the 0.7.10 release build, headlessly with <code>designos-studio --screenshot</code> (2x), on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click the image for full size. The connector was drawn with the published <code>designos-mcp</code> (<code>designos_apply_batch</code>, <code>connect</code> op).</p>
+        <article class="new-release new-release--0712" id="new-in-v0712" aria-labelledby="v0712-h">
+          <h3 id="v0712-h" class="new-ver">0.7.12</h3>
+          <p class="new-note">Captured with the 0.7.12 release build, headlessly with <code>designos-studio --screenshot</code> (2x), on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click the image for full size. The page is the kit's Dropdowns page of the copy, and <code>--panel effect-glass</code> adds a default glass effect to the selected Menu layer for the capture.</p>
           <div class="new-shots">
             <figure class="new-shot">
-              <a class="new-shot__link" href="images/v0.7.10/connector-two-layers.png">
-                <img class="new-img" src="images/v0.7.10/connector-two-layers.png" width="2880" height="1800" decoding="async" alt="DESIGN:OS Studio 0.7.10 on a scratch page of a copy of the Untitled UI PRO v8.0 Figma kit: a Connector layer is selected, an elbow line with an arrowhead runs from the purple Save button to the white Share button, and the Design pane shows the Connector layer">
+              <a class="new-shot__link" href="images/v0.7.12/glass-variable-slots.png">
+                <img class="new-img" src="images/v0.7.12/glass-variable-slots.png" width="2880" height="1800" decoding="async" alt="DESIGN:OS Studio 0.7.12 on the Dropdowns page of a copy of the Untitled UI PRO v8.0 Figma kit: the Menu layer with Cut, Copy, Paste, Edit, Duplicate, Delete and View details is selected, and a Glass popover lists Light angle, Light intensity, Refraction, Depth, Dispersion, Splay, Bevel and Frost, with a small variable bind button beside every value except Splay and Bevel">
               </a>
-              <figcaption><strong>Connector</strong> It sticks to two layers and re-routes when one moves.</figcaption>
+              <figcaption><strong>Glass popover</strong> Light angle, light intensity, refraction, depth, dispersion and frost each get a bind button, so a number variable can drive them.</figcaption>
             </figure>
           </div>
+          <ul class="new-bullets">
+            <li><strong>Variables on effects.</strong> Blur radius, spread, offset and opacity of an effect, and the glass settings, bind to number variables. They resolve per mode, survive <code>.fig</code> and work from MCP.</li>
+            <li><strong>Size limits and type.</strong> Min and max width and height bind to number variables and feed auto layout. Font family, font style, paragraph spacing and paragraph indent bind on text layers.</li>
+            <li><strong>Motion.</strong> Easing and duration variables bind to prototype transitions and Motion tracks, and Motion timelines import from and export to <code>.fig</code>.</li>
+            <li><strong>Animation styles.</strong> A style holds Motion timelines, layers link to it like effect and grid styles, and the style picker lists it.</li>
+            <li><strong>Extended collections.</strong> Publish an extended collection to a library and use it from another file, with edits in the receiving file's own modes.</li>
+            <li><strong>Fixes.</strong> Editing a shared text style keeps the properties a linked layer overrides, and a branch merge keeps extensions pointing at the right parent. Several fixes were carried from pull requests by @NamAIEngineer.</li>
+          </ul>
+        </article>
+        <article class="new-release new-release--0711" id="new-in-v0711" aria-labelledby="v0711-h">
+          <h3 id="v0711-h" class="new-ver">0.7.11</h3>
+          <ul class="new-bullets">
+            <li><strong>Tables.</strong> A document can hold a table that you edit on the canvas: type in a cell, Tab between cells, drag a line to resize, merge and unmerge from the right-click menu. Agents build tables with the <code>table</code> op of <code>designos_apply_batch</code>.</li>
+            <li><strong>Colour.</strong> Set a document to Display P3 from the Page title row, and pick one Colour format export setting (Hex, RGB or OKLCH) for CSS, Tailwind, React, HTML and Dev Mode.</li>
+            <li><strong>Extended collections.</strong> A variable collection can extend a parent and override its variables per mode, as in Figma, through the panel, <code>.fig</code>, Figma REST JSON and MCP.</li>
+            <li><strong>Instance properties.</strong> Bind boolean, text and variant properties of an instance to variables, and keep your overrides when you swap an instance or switch its variant.</li>
+            <li><strong>Text styles.</strong> A text layer keeps its style when you change weight, italic or underline, shows a count pill, and "Reapply style" restores the style in one undo step.</li>
+            <li><strong><code>.fig</code> save.</strong> A save keeps the overrides of instances nested inside a main component, including pages that were never opened.</li>
+          </ul>
+        </article>
+        <article class="new-release new-release--0710" id="new-in-v0710" aria-labelledby="v0710-h">
+          <h3 id="v0710-h" class="new-ver">0.7.10</h3>
           <ul class="new-bullets">
             <li><strong>Save keeps every page.</strong> A save of a large <code>.fig</code> no longer drops the content of pages that were never opened. Files imported before this fix: import them again from the original <code>.fig</code>.</li>
             <li><strong>Connectors.</strong> Draw a live connector with the Connector tool (X). It sticks to two layers and re-routes when one moves. Agents draw one with the <code>connect</code> op of <code>designos_apply_batch</code>.</li>
