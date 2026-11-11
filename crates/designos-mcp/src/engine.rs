@@ -1123,13 +1123,18 @@ impl Engine {
                     let (cmds, fix_payload) = designos_doc::lint::lint_fix_commands(&self.doc, &roots, &cfg);
                     let fixed_count = fix_payload.get("fixed_count").and_then(Value::as_u64).unwrap_or(0);
                     let changes = fix_payload.get("changes").cloned().unwrap_or_else(|| json!([]));
+                    let warnings = fix_payload.get("warnings").cloned().unwrap_or_else(|| json!([]));
                     if !cmds.is_empty() {
                         let seeds = crate::tools::relayout_scope::seeds_after_commands(&self.doc, &cmds);
                         self.exec(Command::Batch(cmds))?;
                         self.relayout_seeds(&seeds.leaves, &seeds.containers);
                         self.settle_layout();
                     }
-                    return Ok(json!({ "changed": fixed_count > 0, "fixed_count": fixed_count, "changes": changes }));
+                    let mut reply = json!({ "changed": fixed_count > 0, "fixed_count": fixed_count, "changes": changes });
+                    if warnings.as_array().is_some_and(|w| !w.is_empty()) {
+                        reply["warnings"] = warnings;
+                    }
+                    return Ok(reply);
                 }
 
                 let (stack_cursor, offset_cursor) = if let Some(cur) = a.cursor.as_deref() {
@@ -2812,7 +2817,8 @@ pub fn tools() -> Vec<Value> {
         json!({
             "changed": {"type": "boolean"},
             "fixed_count": {"type": "integer"},
-            "changes": {"type": "array"}
+            "changes": {"type": "array"},
+            "warnings": {"type": "array"}
         }),
         &["changed", "fixed_count", "changes"],
     );
@@ -4400,6 +4406,27 @@ mod tests {
         assert_eq!(mcp_findings[0]["node_id"], det_id.0);
         assert_eq!(mcp_findings[0]["message"], cd_msg);
         assert_eq!(mcp_findings[0]["suggested_fix"]["to"].as_u64(), cd_reconnect.map(|id| id.0));
+    }
+
+    #[test]
+    fn lint_font_fix_warns_when_detaching_a_text_style() {
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+        let id = e.doc.alloc_id();
+        let mut text = Node::text(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 20.0), "Tiny", designos_doc::TextStyle { font_size: 9.0, ..Default::default() });
+        text.style_refs.insert("text".into(), "Body".into());
+        e.doc.insert(page, text).unwrap();
+        e.doc.styles.insert("Body".into(), designos_doc::Style::Text(designos_doc::TextStyle { font_size: 9.0, ..Default::default() }));
+        let before = e.doc.get(id).unwrap().clone();
+
+        let result = e.call("designos_lint_fix", json!({"node_id": id.0, "rules": ["tiny-text"]})).unwrap();
+        assert!(result["warnings"].as_array().is_some_and(|warnings| warnings.iter().any(|w| w["code"] == "STYLE_DETACHED_BY_LINT_FIX")), "{result}");
+        let fixed = e.doc.get(id).unwrap();
+        assert_eq!(fixed.kind.any_text().unwrap().style.font_size, 12.0);
+        assert!(!fixed.style_refs.contains_key("text"));
+        assert_eq!(fixed.kind.any_text().unwrap().content, "Tiny");
+        e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(e.doc.get(id).unwrap(), &before);
     }
 
     #[test]

@@ -134,6 +134,7 @@ pub fn edit(app: &mut App, ids: &[NodeId], mut f: impl FnMut(&mut Node)) {
 
 fn set_text_size(app: &mut App, ids: &[NodeId], size: f32) {
     edit(app, ids, |n| {
+        let before = n.kind.any_text().filter(|_| n.style_refs.contains_key("text")).cloned();
         let is_text = matches!(n.kind, NodeKind::Text(_));
         if let Some(t) = n.kind.any_text_mut() {
             t.style.font_size = size;
@@ -143,6 +144,9 @@ fn set_text_size(app: &mut App, ids: &[NodeId], size: f32) {
             if is_text {
                 n.size = layout::fit_text(t, n.size);
             }
+        }
+        if let Some(before) = before.as_ref() {
+            designos_doc::apply_text_link_rule(n, before);
         }
     });
 }
@@ -603,6 +607,56 @@ mod tests {
         assert_eq!(step_size(28.0, false), 24.0);
         assert_eq!(step_size(64.0, true), 64.0);
         assert_eq!(step_size(12.0, false), 12.0);
+    }
+
+    #[test]
+    fn text_size_control_detaches_linked_text_style() {
+        let mut doc = Document::new("linked text");
+        let page = doc.add_page("Page");
+        let id = doc.alloc_id();
+        let mut text = Node::text(id, Rect::new(0.0, 0.0, 100.0, 20.0), "Text", TextStyle { font_size: 16.0, ..Default::default() });
+        text.style_refs.insert("text".into(), "Body".into());
+        let id = doc.insert(page, text).unwrap();
+        doc.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..Default::default() }));
+        doc.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+        let mut app = App::new(doc);
+
+        set_text_size(&mut app, &[id], 24.0);
+
+        let fixed = app.doc.get(id).unwrap();
+        assert_eq!(fixed.kind.any_text().unwrap().style.font_size, 24.0);
+        assert!(!fixed.style_refs.contains_key("text"));
+    }
+
+    #[test]
+    fn text_size_control_preserves_runs_and_undo_and_keeps_unchanged_links() {
+        for linked in [false, true] {
+            let mut doc = Document::new("board text sizes");
+            let page = doc.add_page("Page");
+            let id = doc.alloc_id();
+            let mut text = Node::text(id, Rect::new(0.0, 0.0, 100.0, 20.0), "Text", TextStyle { font_size: 16.0, ..Default::default() });
+            if linked {
+                text.style_refs.insert("text".into(), "Body".into());
+            }
+            text.kind.any_text_mut().unwrap().runs.push(TextRun { start: 0, end: 4, style: TextStyle { font_size: 16.0, italic: true, ..Default::default() } });
+            doc.insert(page, text).unwrap();
+            let mut app = App::new(doc);
+            set_text_size(&mut app, &[id], 16.0);
+            assert_eq!(app.doc.get(id).unwrap().style_refs.contains_key("text"), linked, "same size keeps the link");
+            let before = app.doc.get(id).unwrap().clone();
+            set_text_size(&mut app, &[id], 24.0);
+            let after = app.doc.get(id).unwrap().clone();
+            let tp = after.kind.any_text().unwrap();
+            assert_eq!(tp.content, "Text");
+            assert_eq!(tp.style.font_size, 24.0);
+            assert_eq!(tp.runs[0].style.font_size, 24.0);
+            assert!(tp.runs[0].style.italic);
+            assert!(!after.style_refs.contains_key("text"));
+            app.undo();
+            assert_eq!(app.doc.get(id).unwrap(), &before);
+            app.redo();
+            assert_eq!(app.doc.get(id).unwrap(), &after);
+        }
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
     }
 
     let mut changes = Vec::new();
+    let mut warnings = Vec::new();
     let mut to_remove = Vec::new();
     let mut updated_nodes: BTreeMap<NodeId, crate::Node> = BTreeMap::new();
 
@@ -135,9 +136,19 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
         }
 
         if allow("tiny-text", id) && !number_inherited(&n, src, "fontSize") {
+            let before = n.kind.any_text().filter(|t| t.style.font_size < 12.0 && n.style_refs.contains_key("text")).cloned();
             if let Some(t) = n.kind.any_text_mut() {
                 if t.style.font_size < 12.0 {
                     t.style.font_size = 12.0;
+                    if let Some(before) = before.as_ref() {
+                        if crate::apply_text_link_rule(&mut n, before) == crate::LinkOutcome::Detached {
+                            warnings.push(json!({
+                                "code": "STYLE_DETACHED_BY_LINT_FIX",
+                                "path": format!("nodes[{}].font_size", id.0),
+                                "message": "A lint font-size fix detached the linked text style.",
+                            }));
+                        }
+                    }
                     modified = true;
                     changes.push(json!({
                         "rule": "tiny-text",
@@ -292,6 +303,7 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
     let summary = json!({
         "fixed_count": changes.len(),
         "changes": changes,
+        "warnings": warnings,
     });
     (cmds, summary)
 }
@@ -333,4 +345,52 @@ pub fn lint_fix_document(doc: &mut Document, page: Option<NodeId>, rules: Option
         let _ = Command::Batch(cmds).apply(doc);
     }
     summary
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Node, Rect, Style, StyleMeta, StyleProperty, TextStyle};
+
+    #[test]
+    fn tiny_text_fix_detaches_linked_text_style() {
+        let mut doc = Document::new("lint text style");
+        let page = doc.add_page("Page");
+        let id = doc.alloc_id();
+        let mut text = Node::text(id, Rect::new(0.0, 0.0, 100.0, 20.0), "Tiny", TextStyle { font_size: 9.0, ..Default::default() });
+        text.style_refs.insert("text".into(), "Body".into());
+        doc.insert(page, text).unwrap();
+        doc.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 9.0, ..Default::default() }));
+        doc.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+
+        let cfg = LintConfig::from_rule_list(&["tiny-text".into()]).unwrap();
+        let (cmds, _) = lint_fix_commands(&doc, &[page], &cfg);
+        Command::Batch(cmds).apply(&mut doc).unwrap();
+
+        let fixed = doc.get(id).unwrap();
+        assert_eq!(fixed.kind.any_text().unwrap().style.font_size, 12.0);
+        assert!(!fixed.style_refs.contains_key("text"));
+    }
+
+    #[test]
+    fn tiny_text_fix_keeps_valid_links_and_handles_unlinked_text() {
+        for (size, linked) in [(12.0, true), (16.0, true), (9.0, false)] {
+            let mut doc = Document::new("lint controls");
+            let page = doc.add_page("Page");
+            let id = doc.alloc_id();
+            let mut text = Node::text(id, Rect::new(0.0, 0.0, 100.0, 20.0), "Copy", TextStyle { font_size: size, ..Default::default() });
+            if linked {
+                text.style_refs.insert("text".into(), "Body".into());
+            }
+            doc.insert(page, text).unwrap();
+            let cfg = LintConfig::from_rule_list(&["tiny-text".into()]).unwrap();
+            let (cmds, report) = lint_fix_commands(&doc, &[page], &cfg);
+            Command::Batch(cmds).apply(&mut doc).unwrap();
+            assert!(report["warnings"].as_array().unwrap().is_empty());
+            let node = doc.get(id).unwrap();
+            assert_eq!(node.style_refs.contains_key("text"), linked);
+            assert_eq!(node.kind.any_text().unwrap().content, "Copy");
+            assert_eq!(node.kind.any_text().unwrap().style.font_size, size.max(12.0));
+        }
+    }
 }
