@@ -7,7 +7,7 @@ use crate::theme;
 use crate::widgets::field;
 use crate::widgets::menu::{dropdown, popup_menu, MenuItem, MenuResult};
 use crate::widgets::{self, elide};
-use designos_doc::{Affine, Document, ExportConstraint, ExportFileFormat, ExportPreset, Node, NodeId, NodeKind, Rect as DRect};
+use designos_doc::{Affine, Document, ExportConstraint, ExportFileFormat, ExportPreset, NodeId, NodeKind, Rect as DRect};
 use designos_export::{ExportFormat, ExportScale, ExportSetting};
 use egui::{Align2, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Ui, Vec2};
 use std::hash::{Hash, Hasher};
@@ -144,12 +144,15 @@ fn fingerprint(doc: &Document, root: NodeId) -> u64 {
         }
         let Some(n) = doc.get(id) else { continue };
         visited += 1;
-        if id == root && !matches!(n.kind, NodeKind::Connector(_)) {
-            let at_origin = Node { transform: Affine { tx: 0.0, ty: 0.0, ..n.transform }, ..n.clone() };
-            format!("{at_origin:?}").hash(&mut h);
-        } else {
-            format!("{n:?}").hash(&mut h);
+        // Export resolves variable bindings (including modes inherited from ancestors), so the
+        // cache key must describe the resolved node rather than only its stored fields.
+        let mut resolved = designos_doc::resolve_node(doc, n).into_owned();
+        if id == root && !matches!(resolved.kind, NodeKind::Connector(_)) {
+            // The export renderer draws the root at its origin; translation alone does not alter
+            // its pixels and should not force a thumbnail redraw.
+            resolved.transform = Affine { tx: 0.0, ty: 0.0, ..resolved.transform };
         }
+        format!("{resolved:?}").hash(&mut h);
         for &c in n.children.iter().rev().take(16) {
             stack.push(c);
         }
@@ -1269,6 +1272,23 @@ mod tests {
         app.doc.get_mut(c).unwrap().fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(250, 200, 0))];
         let second = draw_and_take_preview(&mut app, &ctx, &sel, 0.5).expect("the preview is still drawn");
         assert_ne!(second, first, "a changed child must redraw the preview");
+    }
+
+    #[test]
+    fn changing_a_bound_variable_redraws_the_preview() {
+        let (mut app, f, _) = bound_frame_with_export_row();
+        let before = fingerprint(&app.doc, f);
+        app.doc.variables.get_mut("brand").unwrap().values.insert("dark".into(), designos_doc::VariableValue::Color(designos_doc::Color::rgb(20, 80, 240)));
+        assert_ne!(fingerprint(&app.doc, f), before, "a changed bound variable must invalidate the preview");
+    }
+
+    #[test]
+    fn changing_an_ancestor_variable_mode_redraws_the_preview() {
+        let (mut app, f, _) = bound_frame_with_export_row();
+        let before = fingerprint(&app.doc, f);
+        let ancestor = app.doc.get(f).unwrap().parent.unwrap();
+        app.doc.get_mut(ancestor).unwrap().variables.modes.insert("tokens".into(), "light".into());
+        assert_ne!(fingerprint(&app.doc, f), before, "an ancestor mode change must invalidate the preview");
     }
 
     fn export_image(doc: &Document, node: NodeId, scale: f32) -> egui::ColorImage {
