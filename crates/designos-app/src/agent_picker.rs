@@ -142,12 +142,14 @@ pub fn composer_pill(state: &mut TerminalState) -> (&'static str, Option<AgentCl
     if !new_chat {
         if let Some(tab) = state.active_tab() {
             let preset = startable_preset(tab.spawn_preset);
-            if (tab.permission_mode != crate::terminal::PermissionMode::AskRisky || !tab.is_custom_cli())
-                && preset.is_some_and(|preset| crate::agent_permissions::preset_available_in_mode(preset, tab.permission_mode))
-            {
-                return (tab.spawn_preset.display_name(), preset);
+            // Only an agent the mode cannot run is hidden; a shell tab is not one and keeps its own name.
+            let custom_without_hook = tab.permission_mode == crate::terminal::PermissionMode::AskRisky && tab.is_custom_cli();
+            let unavailable =
+                custom_without_hook || preset.is_some_and(|preset| !crate::agent_permissions::preset_available_in_mode(preset, tab.permission_mode));
+            if unavailable {
+                return (CHOOSE_AGENT, None);
             }
-            return (CHOOSE_AGENT, None);
+            return (tab.spawn_preset.display_name(), preset);
         }
     }
     if let Some(preset) = startable_preset(state.active_runtime) {
@@ -1056,6 +1058,20 @@ mod tests {
         assert!(ask_rows.iter().find(|r| r.label == "Codex").expect("Codex").selectable, "Ask still offers Codex");
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A shell tab is no agent the mode could make unavailable: its pill keeps naming the shell in every mode.
+    #[test]
+    fn a_shell_tab_keeps_its_own_name_on_the_composer_pill_in_every_mode() {
+        for mode in [crate::terminal::PermissionMode::Ask, crate::terminal::PermissionMode::Skip, crate::terminal::PermissionMode::AskRisky] {
+            let mut st = crate::test_timing::ScopedTerminalState::default();
+            st.spawn_tab(AgentCliPreset::Shell, None).expect("shell tab");
+            st.active_tab_mut().expect("active tab").permission_mode = mode;
+            let (label, preset) = composer_pill(&mut st);
+            assert_eq!(label, AgentCliPreset::Shell.display_name(), "{mode:?}");
+            assert_eq!(preset, None, "{mode:?}");
+            st.shutdown();
+        }
     }
 
     #[test]
