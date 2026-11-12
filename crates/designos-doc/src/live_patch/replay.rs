@@ -125,6 +125,7 @@ pub fn replay_live_patch(
     }
     // A failed replay is cancelled by the caller, so the remaps it made must go too.
     let saved = state.clone();
+    let mut touched_tables = BTreeSet::new();
     if patch.base != state.base {
         // The agent reloaded a canvas the editor wrote with its own ids; earlier remaps would
         // now send its edits to the wrong node or thread.
@@ -146,6 +147,19 @@ pub fn replay_live_patch(
     let is_spec_undo = patch.ops.iter().any(|o| matches!(o, LiveOp::Remove { .. }));
     for op in &patch.ops {
         if let Some(cmd) = resolve(doc, op, is_spec_undo, state, &mut report) {
+            crate::table::touched_tables(doc, &cmd, &mut touched_tables);
+            if let Err(e) = exec(doc, cmd) {
+                *state = saved;
+                return Err(e);
+            }
+            report.applied += 1;
+        }
+    }
+    // Table commands carry geometry from the agent's snapshot. Re-solving after all ops keeps
+    // existing track sizes and user-edited widths while laying out newly inserted cells against
+    // the editor's current table state. The generated commands stay inside the same transaction.
+    for table_id in touched_tables {
+        for cmd in crate::table::relayout(doc, table_id) {
             if let Err(e) = exec(doc, cmd) {
                 *state = saved;
                 return Err(e);
@@ -164,6 +178,15 @@ pub fn replay_live_patch(
 /// applied are undone, `state` is restored and the error is returned: the patch is refused alone.
 pub fn replay_live_patch_checked(doc: &mut Document, patch: &LivePatch, state: &mut LivePatchState) -> Result<LivePatchReport, DocError> {
     let saved = state.clone();
+    // Commands undo the node graph, but replay also mutates runtime metadata that has no inverse
+    // command: id allocation, transient agent markers, and dirty/layout bookkeeping. Capture it
+    // before replay so a refused patch is observationally a no-op for the whole document.
+    let saved_next_id = doc.next_id;
+    let saved_gap_cursor = doc.gap_cursor;
+    let saved_in_progress = doc.in_progress.clone();
+    let saved_dirty = doc.dirty.clone();
+    let saved_pending_relayout = doc.pending_relayout.clone();
+    let saved_layout_epoch = doc.layout_epoch;
     let mut touched = BTreeSet::new();
     let mut inverses: Vec<Command> = Vec::new();
     let replayed = replay_live_patch(doc, patch, state, &mut |d, c| {
@@ -179,6 +202,12 @@ pub fn replay_live_patch_checked(doc: &mut Document, patch: &LivePatch, state: &
                 rollback = Err(re);
             }
         }
+        doc.next_id = saved_next_id;
+        doc.gap_cursor = saved_gap_cursor;
+        doc.in_progress = saved_in_progress;
+        doc.dirty = saved_dirty;
+        doc.pending_relayout = saved_pending_relayout;
+        doc.layout_epoch = saved_layout_epoch;
         *state = saved;
         return Err(match rollback {
             Ok(()) => e,
@@ -224,6 +253,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                     return None;
                 }
             };
+            merge_table_replay_geometry(cur, &mut merged);
             let skipped_links = filter_missing_token_links_on_update(doc, cur, &mut merged, report);
             if merged == *cur {
                 if skipped_links == 0 {
@@ -857,6 +887,29 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
     merged.parent = cur.parent;
     merged.children = cur.children.clone();
     Ok(merged)
+}
+
+/// Keep the editor's existing track sizes when a structural table patch was built from an older
+/// agent snapshot. The patch still contributes new row/column IDs and merge membership; a final
+/// relayout below recomputes table and cell geometry from the merged tracks.
+fn merge_table_replay_geometry(current: &Node, merged: &mut Node) {
+    let (NodeKind::Table(current_props), NodeKind::Table(merged_props)) = (&current.kind, &mut merged.kind) else { return };
+    let same_ids = |a: &[crate::TableTrack], b: &[crate::TableTrack]| a.iter().map(|t| t.id).eq(b.iter().map(|t| t.id));
+    let structural =
+        !same_ids(&current_props.rows, &merged_props.rows) || !same_ids(&current_props.cols, &merged_props.cols) || current_props.merges != merged_props.merges;
+    if !structural {
+        return;
+    }
+    for track in &mut merged_props.rows {
+        if let Some(old) = current_props.rows.iter().find(|t| t.id == track.id) {
+            track.size = old.size;
+        }
+    }
+    for track in &mut merged_props.cols {
+        if let Some(old) = current_props.cols.iter().find(|t| t.id == track.id) {
+            track.size = old.size;
+        }
+    }
 }
 
 fn same_props(a: &Node, b: &Node) -> bool {

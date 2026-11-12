@@ -37,6 +37,7 @@ A patch release from `main` that finishes the basics of auto layout and componen
 - A nested instance can lose its overrides when its variant is switched by hand and back (#1909). An override on a layer the other variant lacks, and a text override when the two variants hold different default text, are lost on a variant switch (#1915, #1916).
 - A main component sync with no change can resize instances imported from a `.fig` (#1919).
 - The variable-bound nested variant is checked on files made in Studio only: the kit has no bound component property, and no file authored in Figma with one was available.
+- After a `.fig` save and reopen, a change made inside a nested instance can be lost at the next edit of the main component (#1925). It also affects 0.7.12 and older files saved natively after such an import.
 
 ## [0.7.12] - 2026-11-11
 
