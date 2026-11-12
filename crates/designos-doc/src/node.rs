@@ -374,6 +374,11 @@ pub struct ComponentLink {
     /// sync of the main neither replaces it nor copies the main's over it. Resetting the copy empties it.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub own_variant_bindings: BTreeSet<String>,
+    /// Bound variant properties (by name) a person picked by hand on this instance, top-level or nested. A bound property
+    /// follows its variable unless it is in this set; a pick holds until it is reset or the property is bound again. A
+    /// property that is not bound is never recorded here: the variant the instance shows already is its pick.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub variant_picks: BTreeSet<String>,
 }
 
 fn is_false_pair(pair: &[bool; 2]) -> bool {
@@ -400,6 +405,7 @@ impl ComponentLink {
             && self.grid_align_overrides == [false, false]
             && !self.layout_cleared
             && self.own_variant_bindings.is_empty()
+            && self.variant_picks.is_empty()
     }
 }
 

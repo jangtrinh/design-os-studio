@@ -2172,6 +2172,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             carried.push(("figMetadata", json!({"strokeCap": cap})));
         }
     }
+    // The bound variant properties a person picked by hand on a top-level instance. A nested copy's ride in the entry that
+    // overrides it (see `collect_instance_overrides_for`).
+    if matches!(node.kind, NodeKind::Instance { .. }) && is_top_instance(&node) && !node.component.variant_picks.is_empty() {
+        carried.push(("variantPicks", json!(node.component.variant_picks)));
+    }
     pd_entries.extend(carrier::carrier_entries(&carried));
     if !pd_entries.is_empty() {
         fields.push(("pluginData", V::Array(pd_entries)));
@@ -2953,6 +2958,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             };
         let has_nested_prop_ov = !own && !n.component.values.is_empty() && src_node.is_none_or(|sn| sn.component.values != n.component.values);
         let has_own_variant_bindings = !own && !n.component.own_variant_bindings.is_empty();
+        let has_variant_picks = !own && !n.component.variant_picks.is_empty();
 
         // A swapped nested instance inherits its shell paints and variable bindings from the component it was swapped to.
         let inherited_src = if nested_comp_differs {
@@ -3002,7 +3008,8 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                     || n.component.detached_symbol_id.is_some()
                     || nested_comp_differs
                     || has_nested_prop_ov
-                    || has_own_variant_bindings))
+                    || has_own_variant_bindings
+                    || has_variant_picks))
         {
             let mut ov: Vec<(&'static str, V)> = Vec::new();
             let mut carried: carrier::Carried = Vec::new();
@@ -3294,6 +3301,9 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             }
             if has_own_variant_bindings {
                 carried.push(("ownVariantBindings", json!(n.component.own_variant_bindings)));
+            }
+            if has_variant_picks {
+                carried.push(("variantPicks", json!(n.component.variant_picks)));
             }
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));
