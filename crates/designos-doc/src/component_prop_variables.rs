@@ -234,6 +234,17 @@ pub(crate) fn nested_variant_follows_binding(n: &Node) -> bool {
     !n.component.overrides.contains(&OverrideField::MainComponent)
 }
 
+/// Why binding the properties of `inst` to variables as `edits` says is refused, when a bound variable names a variant
+/// whose main would hold itself where the instance sits: the sync would keep the instance on the variant it shows.
+pub fn prop_bindings_cycle_refusal(doc: &Document, inst: NodeId, edits: &[(&str, Option<&str>)]) -> Option<String> {
+    let n = doc.get(inst)?;
+    edits.iter().find_map(|&(name, var)| {
+        let def = def_of(doc, n, name)?;
+        let value = resolve_for_def(doc, inst, &def, var?).ok()?;
+        crate::prop_cycle_refusal(doc, inst, name, &value)
+    })
+}
+
 /// Binds property `name` of instance `inst` to `var`, or with `None` unbinds it; see [`bind_prop_variables`].
 pub fn bind_prop_variable(doc: &mut Document, inst: NodeId, name: &str, var: Option<&str>) -> Result<Command, PropBindError> {
     bind_prop_variables(doc, inst, &[(name, var)])

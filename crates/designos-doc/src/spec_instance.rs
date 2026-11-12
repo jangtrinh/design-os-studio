@@ -1107,6 +1107,9 @@ pub(crate) fn apply_instance_props_with_ctx(
 
         let is_text_prop = matches!(def.kind, PropKind::Text);
         let def_name = def.name.clone();
+        if let Some(message) = prop_cycle_refusal(doc, instance_id, &def_name, &pv) {
+            return Err(SpecError::named("INSTANCE_CYCLE", message, Some(format!("props.{key}")), Vec::new(), None));
+        }
         let cmd = set_instance_prop(doc, instance_id, &def_name, Some(pv));
         cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
         if is_text_prop {
@@ -1189,6 +1192,9 @@ fn bind_instance_props(
         edits.push((def.name.clone(), var_id));
     }
     let refs: Vec<(&str, Option<&str>)> = edits.iter().map(|(n, v)| (n.as_str(), Some(v.as_str()))).collect();
+    if let Some(message) = prop_bindings_cycle_refusal(doc, instance_id, &refs) {
+        return Err(SpecError::named("INSTANCE_CYCLE", message, Some("props".into()), Vec::new(), None));
+    }
     let cmd = bind_prop_variables(doc, instance_id, &refs)
         .map_err(|e| SpecError::named("PROPERTY_TYPE_MISMATCH", e.to_string(), Some("props".into()), Vec::new(), None))?;
     cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
@@ -1298,6 +1304,12 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                 .filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))))
                 .unwrap_or(cur_comp);
             let new_comp = resolve_variant_component(doc, owner, &ov.variant, Some(cur_comp), None)?;
+            if new_comp != cur_comp {
+                if let Some((held, path)) = held_main_cycle_path_at(doc, new_comp, target_id, &[]) {
+                    let message = cycle_refusal_message(CycleAction::SwitchVariant, &cycle_node_label(doc, held), &path);
+                    return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.variant".into()), Vec::new(), None));
+                }
+            }
             for (k, v) in &ov.variant {
                 let cmd = set_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;

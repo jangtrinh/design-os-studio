@@ -5,8 +5,9 @@
 //! branch merge) builds its sentence here, so the same edit reads the same everywhere. Machine clients keep their
 //! error code next to the sentence, never inside it.
 
-use crate::components::{container_labels_between, cycle_node_label};
-use crate::{Document, NodeId};
+use crate::components::{container_labels_between, cycle_node_label, held_main_cycle_path_at, instance_component, parse_variant_name};
+use crate::{Document, NodeId, NodeKind, OverrideField, PropValue};
+use std::collections::BTreeMap;
 
 const ARROW: &str = " \u{2192} ";
 
@@ -72,6 +73,46 @@ pub fn cycle_added_outside_message(main: &str) -> String {
 /// A paste that landed outside `main` instead of in it.
 pub fn cycle_pasted_outside_message(main: &str) -> String {
     format!("Pasted outside {main}, which would contain itself")
+}
+
+/// The sibling variant that choosing the given value for the variant property of an instance selects, if any.
+fn variant_choice_target(doc: &Document, instance: NodeId, name: &str, choice: &str) -> Option<NodeId> {
+    let comp = doc.get(instance_component(doc.get(instance)?)?)?;
+    let set = doc.get(comp.parent?).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)))?;
+    let mut want: BTreeMap<String, String> = parse_variant_name(&comp.name).into_iter().collect();
+    want.insert(name.to_string(), choice.to_string());
+    set.children.iter().copied().find(|k| {
+        doc.get(*k).is_some_and(|n| matches!(n.kind, NodeKind::Component(_)) && parse_variant_name(&n.name).into_iter().collect::<BTreeMap<_, _>>() == want)
+    })
+}
+
+/// Why setting the property `name` of `instance` to `value` is refused, when the cause is a main that would hold
+/// itself: a variant choice, or an instance-swap property, that would swap an instance to such a main.
+pub fn prop_cycle_refusal(doc: &Document, instance: NodeId, name: &str, value: &PropValue) -> Option<String> {
+    match value {
+        PropValue::Variant(choice) => {
+            let target = variant_choice_target(doc, instance, name, choice)?;
+            if instance_component(doc.get(instance)?) == Some(target) {
+                return None;
+            }
+            let (held, path) = held_main_cycle_path_at(doc, target, instance, &[])?;
+            Some(cycle_refusal_message(CycleAction::SwitchVariant, &cycle_node_label(doc, held), &path))
+        }
+        PropValue::Instance(component) => {
+            let mut found = None;
+            doc.walk(instance, |n, _| {
+                if found.is_none()
+                    && instance_component(n) != Some(*component)
+                    && n.component.bindings.get(&OverrideField::MainComponent).is_some_and(|p| p == name)
+                {
+                    found = held_main_cycle_path_at(doc, *component, n.id, &[]);
+                }
+            });
+            let (held, path) = found?;
+            Some(cycle_refusal_message(CycleAction::Swap, &cycle_node_label(doc, held), &path))
+        }
+        _ => None,
+    }
 }
 
 /// The path of a loop that closes on `owner` itself: `owner`, the layers down to `inside`, and `owner` again.

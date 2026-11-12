@@ -3,8 +3,8 @@
 use crate::engine::Engine;
 use crate::tools::errors::ErrorCode;
 use designos_doc::{
-    add_prop, bind_prop, create_component, create_instance, instance_component, mains_held_by, sync_instances, Command, ComponentPropDef, Document, Node,
-    NodeId, NodeKind, OverrideField, PropKind, PropValue, Rect, Vec2,
+    add_prop, bind_prop, combine_as_variants, create_component, create_instance, instance_component, mains_held_by, sync_instances, Command, ComponentPropDef,
+    Document, Node, NodeId, NodeKind, OverrideField, PropKind, PropValue, Rect, Variable, VariableCollection, VariableKind, VariableMode, VariableValue, Vec2,
 };
 use serde_json::json;
 
@@ -99,12 +99,16 @@ fn card_with_icon_prop(e: &mut Engine, page: NodeId) -> NodeId {
 }
 
 #[test]
-fn a_spec_instance_swap_property_that_would_make_a_main_hold_itself_makes_no_cycle() {
+fn a_spec_instance_swap_property_that_would_make_a_main_hold_itself_is_refused_with_the_editors_sentence() {
     let (mut e, page, _a, b) = a_holds_b();
     card_with_icon_prop(&mut e, page);
-    let res = e.call("designos_apply_spec", json!({"parent_id": b.0, "spec": {"kind": "instance", "component": "Card", "name": "K", "props": {"Icon": "A"}}}));
-    println!("apply_spec Card props Icon=A in B (A holds B): {:?}", res.as_ref().map(|_| "Ok").map_err(|e| e.to_string()));
-    assert!(self_holding(&e.doc).is_empty(), "no main holds itself after the call");
+    let before = e.doc.to_json().unwrap();
+    let err = e
+        .call("designos_apply_spec", json!({"parent_id": b.0, "spec": {"kind": "instance", "component": "Card", "name": "K", "props": {"Icon": "A"}}}))
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, "Can't swap: B would contain itself (B \u{2192} Card \u{2192} Z \u{2192} A \u{2192} B)");
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
     sync_instances(&mut e.doc, b).apply(&mut e.doc).unwrap();
     // the same props on the page, where nothing holds itself, still swap the icon
     let res =
@@ -173,5 +177,81 @@ fn a_refused_spec_swap_says_what_the_editor_says() {
         Some("Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} \u{2026} \u{2192} Row)"),
         "{err}"
     );
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
+}
+
+/// A text variable named state in a Theme collection that reads the given value in its only mode.
+fn text_variable_state(e: &mut Engine, value: &str) {
+    e.doc.variable_collections.insert(
+        "theme".into(),
+        VariableCollection {
+            id: "theme".into(),
+            name: "Theme".into(),
+            modes: vec![VariableMode { id: "light".into(), name: "Light".into() }],
+            default_mode: "light".into(),
+            variables: vec!["state".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    e.doc.variables.insert(
+        "state".into(),
+        Variable {
+            id: "state".into(),
+            name: "state".into(),
+            collection: "theme".into(),
+            kind: VariableKind::String,
+            values: [("light".to_string(), VariableValue::String(value.into()))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+}
+
+/// Binding a variant property to a variable that names a variant which would make a main hold itself is refused with
+/// the editor's sentence, and nothing changes.
+#[test]
+fn a_variable_bound_variant_that_would_make_a_main_hold_itself_is_refused_with_the_editors_sentence() {
+    let mut e = Engine::default();
+    let page = e.active_page_id.unwrap();
+    let b = main_on(&mut e, page, "B", 0.0);
+    let one = main_on(&mut e, page, "State=One", 300.0);
+    let two = main_on(&mut e, page, "State=Two", 600.0);
+    combine_as_variants(&mut e.doc, &[one, two]).apply(&mut e.doc).unwrap();
+    let i = place(&mut e, one, b);
+    place(&mut e, b, two); // State=Two holds B, so the instance of State=One inside B must not become State=Two
+    text_variable_state(&mut e, "Two");
+    let before = e.doc.to_json().unwrap();
+    let res = e.call("designos_update_node", json!({"node_id": i.0, "prop_vars": {"State": "var:Theme/state"}}));
+    let err = res.unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, "Can't switch variant: B would contain itself (B \u{2192} Component set \u{2192} State=Two \u{2192} B)");
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
+    assert_eq!(instance_component(e.doc.get(i).unwrap()), Some(one), "the instance stays on State=One");
+}
+
+/// The same variable bound through the spec of a new instance in B.
+#[test]
+fn a_spec_that_binds_a_variant_to_a_variable_that_would_make_a_main_hold_itself_is_refused_with_the_editors_sentence() {
+    let mut e = Engine::default();
+    let page = e.active_page_id.unwrap();
+    let b = main_on(&mut e, page, "B", 0.0);
+    let one = main_on(&mut e, page, "State=One", 300.0);
+    let two = main_on(&mut e, page, "State=Two", 600.0);
+    combine_as_variants(&mut e.doc, &[one, two]).apply(&mut e.doc).unwrap();
+    place(&mut e, b, two);
+    text_variable_state(&mut e, "Two");
+    let before = e.doc.to_json().unwrap();
+    let spec = json!({"kind": "instance", "component": "Component set", "props": {"State": "var:Theme/state"}});
+    let res = e.call("designos_apply_spec", json!({"parent_id": b.0, "spec": spec}));
+    let err = res.unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, "Can't switch variant: B would contain itself (B \u{2192} Component set \u{2192} State=Two \u{2192} B)");
     assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
 }

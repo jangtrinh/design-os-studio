@@ -1753,6 +1753,9 @@ impl Engine {
     fn plan_prop_vars_cmd(&mut self, id: NodeId, resolved: &[(String, Option<String>)]) -> Result<Command, ToolError> {
         use designos_doc::PropBindError;
         let edits: Vec<(&str, Option<&str>)> = resolved.iter().map(|(n, v)| (n.as_str(), v.as_deref())).collect();
+        if let Some(message) = designos_doc::prop_bindings_cycle_refusal(&self.doc, id, &edits) {
+            return Err(ToolError::new(ErrorCode::InstanceCycle, "/prop_vars", message));
+        }
         designos_doc::bind_prop_variables(&mut self.doc, id, &edits).map_err(|e| match e {
             PropBindError::NoSuchVariable(_) => ToolError::new(ErrorCode::UnknownVariable, "/prop_vars", e.to_string()),
             PropBindError::KindMismatch { .. } | PropBindError::NotBindable(_) => ToolError::new(ErrorCode::VariableTypeMismatch, "/prop_vars", e.to_string()),

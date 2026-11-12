@@ -9,10 +9,9 @@ use crate::app::App;
 use crate::clipboard::Clip;
 use designos_doc::{
     cycle_added_outside_message, cycle_kept_out_message, cycle_moved_outside_message, cycle_node_label, cycle_pasted_outside_message, cycle_refusal_message,
-    held_main_at, held_main_cycle_path_at, instance_component, mains_held_through, parse_variant_name, reparent_held_main_cycle_path,
-    reparent_would_hold_itself, CycleAction, Document, NodeId, NodeKind, OverrideField, PropValue,
+    held_main_at, held_main_cycle_path_at, instance_component, mains_held_through, reparent_held_main_cycle_path, reparent_would_hold_itself, CycleAction,
+    Document, NodeId,
 };
-use std::collections::BTreeMap;
 
 fn refusal(doc: &Document, action: CycleAction, held_main: NodeId, path: &[String]) -> String {
     cycle_refusal_message(action, &cycle_node_label(doc, held_main), path)
@@ -52,46 +51,6 @@ pub(crate) fn move_refusal(doc: &Document, ids: &[NodeId], new_parent: NodeId) -
         kept_out: cycle_kept_out_message(&cycle_node_label(doc, id), &main),
         moved_outside: cycle_moved_outside_message(&main),
     })
-}
-
-/// The sibling variant that choosing `choice` for the variant property `name` selects for `instance`, if any.
-fn variant_choice_target(doc: &Document, instance: NodeId, name: &str, choice: &str) -> Option<NodeId> {
-    let comp = doc.get(instance_component(doc.get(instance)?)?)?;
-    let set = doc.get(comp.parent?).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)))?;
-    let mut want: BTreeMap<String, String> = parse_variant_name(&comp.name).into_iter().collect();
-    want.insert(name.to_string(), choice.to_string());
-    set.children.iter().copied().find(|k| {
-        doc.get(*k).is_some_and(|n| matches!(n.kind, NodeKind::Component(_)) && parse_variant_name(&n.name).into_iter().collect::<BTreeMap<_, _>>() == want)
-    })
-}
-
-/// Why setting the property `name` of `instance` to `value` was not stored, when the cause is a main that would hold
-/// itself: a variant choice, or an instance-swap property, that would swap an instance to such a main.
-pub(crate) fn prop_refusal(doc: &Document, instance: NodeId, name: &str, value: &PropValue) -> Option<String> {
-    match value {
-        PropValue::Variant(choice) => {
-            let target = variant_choice_target(doc, instance, name, choice)?;
-            if instance_component(doc.get(instance)?) == Some(target) {
-                return None;
-            }
-            let (held, path) = held_main_cycle_path_at(doc, target, instance, &[])?;
-            Some(refusal(doc, CycleAction::SwitchVariant, held, &path))
-        }
-        PropValue::Instance(component) => {
-            let mut found = None;
-            doc.walk(instance, |n, _| {
-                if found.is_none()
-                    && instance_component(n) != Some(*component)
-                    && n.component.bindings.get(&OverrideField::MainComponent).is_some_and(|p| p == name)
-                {
-                    found = held_main_cycle_path_at(doc, *component, n.id, &[]);
-                }
-            });
-            let (held, path) = found?;
-            Some(refusal(doc, CycleAction::Swap, held, &path))
-        }
-        _ => None,
-    }
 }
 
 impl App {

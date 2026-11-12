@@ -202,6 +202,24 @@ fn apply_spec_create_refuses_a_held_main_without_mutating() {
 }
 
 #[test]
+fn apply_spec_variant_override_that_would_make_a_main_hold_itself_refuses_with_the_same_sentence() {
+    let (mut d, b, _two, i) = variant_cycle();
+    let one = instance_component(d.get(i).unwrap()).unwrap();
+    let page = d.pages[0];
+    let w = main_on(&mut d, page, "W");
+    place(&mut d, one, w);
+    let root = place(&mut d, w, b);
+    let nested = *d.get(root).unwrap().children.iter().find(|c| matches!(d.get(**c).unwrap().kind, NodeKind::Instance { .. })).unwrap();
+    let path = d.get(nested).unwrap().name.clone();
+    let before = d.to_json().unwrap();
+    let ov: OverrideSpec = serde_json::from_value(json!({"path": path, "variant": {"State": "Two"}})).unwrap();
+    let err = apply_overrides(&mut d, root, &[ov], &[]).unwrap_err();
+    assert_eq!(err.code, "INSTANCE_CYCLE");
+    assert_eq!(err.message, "Can't switch variant: B would contain itself (B \u{2192} W \u{2192} Component set \u{2192} State=Two \u{2192} B)");
+    assert_eq!(d.to_json().unwrap(), before);
+}
+
+#[test]
 fn apply_spec_create_inside_the_component_set_of_the_instance_refuses_with_the_same_sentence() {
     let mut d = crate::fixtures::button_library();
     let set = d.nodes.values().find(|n| matches!(n.kind, NodeKind::ComponentSet(_)) && n.name == "Button").map(|n| n.id).unwrap();
