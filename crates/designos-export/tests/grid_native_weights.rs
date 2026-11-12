@@ -181,17 +181,85 @@ fn swiftui_equal_flex_tracks_share_the_free_width() {
     assert_close(&[80.0, share, share, 50.0], &solver, "swiftui", &out);
 }
 
+/// The width of every cell and hole of a weighted SwiftUI grid, in order, evaluated at `width`.
+fn swiftui_weighted_cell_widths(out: &str, width: f32, pad: f32) -> Vec<f32> {
+    assert!(out.contains("GeometryReader { geo in"), "unequal weights need a GeometryReader:\n{out}");
+    let fixed_and_gaps: f32 = between(out, "let unit = max(0, geo.size.width - ", ")").parse().unwrap();
+    let total: f32 = between(out, ") / ", "\n").trim().parse().unwrap();
+    let unit = (width - 2.0 * pad - fixed_and_gaps).max(0.0) / total;
+    let eval = |expr: &str| -> f32 {
+        expr.split(" + ")
+            .map(|t| match t.strip_prefix("unit * ") {
+                Some(w) => unit * w.parse::<f32>().unwrap(),
+                None => t.parse::<f32>().unwrap(),
+            })
+            .sum()
+    };
+    // Only the cells inside the `GeometryReader`; the frame modifiers after its closing brace are the grid's own.
+    let inside = out.split("\n}\n").next().unwrap();
+    inside
+        .lines()
+        .filter(|l| l.contains("alignment: ") || l.contains("Color.clear"))
+        .filter_map(|l| l.find("frame(width: ").map(|i| &l[i + "frame(width: ".len()..]))
+        .map(|rest| eval(rest.split(", height:").next().unwrap()))
+        .collect()
+}
+
 #[test]
-fn swiftui_unequal_weights_fall_back_to_solved_pixels_with_a_comment() {
-    // `Grid` has no per-column weight, so unequal flex weights keep the solver's widths.
+fn swiftui_unequal_flex_tracks_share_the_free_width_by_weight() {
     let s = mixed(2.0, 1.0);
     let out = swiftui_for(&s.doc, s.grid);
     assert!(!out.contains("minWidth:"), "{out}");
-    for w in solver_widths(&s) {
-        let ws = format!("{}", (w * 1000.0).round() / 1000.0);
-        assert!(out.contains(&format!("width: {ws}, height:")), "missing width {ws}:\n{out}");
+    assert!(!out.contains("unequal column weights"), "{out}");
+    let widths = swiftui_weighted_cell_widths(&out, WIDTH, PAD);
+    assert_close(&widths, &solver_widths(&s), "swiftui", &out);
+}
+
+#[test]
+fn swiftui_unequal_weights_keep_spans_and_holes() {
+    // Fixed 100 + Flex 1 + Flex 2 in 400: free width 300 -> columns 100, 100, 200.
+    let tracks = [GridTrack::Fixed(100.0), GridTrack::Flex(1.0), GridTrack::Flex(2.0)];
+    let spanning = custom_grid_scene(&tracks, 400.0, 0.0, 0.0, &[(200.0, Sizing::Fill, Some(0), 2), (200.0, Sizing::Fill, Some(2), 1)]);
+    let out = swiftui_for(&spanning.doc, spanning.grid);
+    assert!(out.contains(".gridCellColumns(2)"), "{out}");
+    assert_close(&swiftui_weighted_cell_widths(&out, 400.0, 0.0), &[200.0, 200.0], "span", &out);
+
+    // The same tracks with nothing in the 1fr column: a hole keeps its share.
+    let holey = custom_grid_scene(&tracks, 400.0, 0.0, 0.0, &[(100.0, Sizing::Fixed, Some(0), 1), (200.0, Sizing::Fill, Some(2), 1)]);
+    let out = swiftui_for(&holey.doc, holey.grid);
+    assert!(out.contains("Color.clear.frame(width: unit * 1, height: 30)"), "{out}");
+    assert_close(&swiftui_weighted_cell_widths(&out, 400.0, 0.0), &[100.0, 100.0, 200.0], "hole", &out);
+}
+
+/// The weighted SwiftUI export compiles against the macOS SDK. Skipped where `xcrun` or the SDK is missing.
+#[test]
+fn swiftui_weighted_grid_typechecks_with_swiftc() {
+    let Ok(sdk) = std::process::Command::new("xcrun").args(["--sdk", "macosx", "--show-sdk-path"]).output() else {
+        eprintln!("swiftui typecheck skipped: xcrun is not installed");
+        return;
+    };
+    if !sdk.status.success() {
+        eprintln!("swiftui typecheck skipped: no macosx SDK");
+        return;
     }
-    assert!(out.contains("unequal column weights"), "{out}");
+    let sdk = String::from_utf8_lossy(&sdk.stdout).trim().to_string();
+    let dir = std::env::temp_dir().join(format!("designos-swiftui-weights-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let tracks = [GridTrack::Fixed(100.0), GridTrack::Flex(1.0), GridTrack::Flex(2.0)];
+    let scenes = [mixed(2.0, 1.0), custom_grid_scene(&tracks, 400.0, 0.0, 0.0, &[(200.0, Sizing::Fill, Some(0), 2), (200.0, Sizing::Fill, Some(2), 1)])];
+    for (i, s) in scenes.iter().enumerate() {
+        let body: String = swiftui_for(&s.doc, s.grid).lines().map(|l| format!("        {l}\n")).collect();
+        let source = format!("import SwiftUI\n\nstruct Weighted: View {{\n    var body: some View {{\n{body}    }}\n}}\n");
+        let path = dir.join(format!("weighted_grid_{i}.swift"));
+        std::fs::write(&path, &source).unwrap();
+        let out = std::process::Command::new("swiftc")
+            .args(["-typecheck", "-sdk", &sdk, "-target", "arm64-apple-macos13.0"])
+            .arg(&path)
+            .output()
+            .expect("run swiftc");
+        assert!(out.status.success(), "swiftc rejected the SwiftUI export:\n{}\n{source}", String::from_utf8_lossy(&out.stderr));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
