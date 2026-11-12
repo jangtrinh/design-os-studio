@@ -614,6 +614,160 @@ fn rects_differ_beyond_half_pt(a: [f32; 4], b: [f32; 4]) -> bool {
     !rects_match_within_half_pt(a, b)
 }
 
+/// Lexicographic assignment cost: dimensions first, then squared centre distance.
+/// Keeping two components avoids a coordinate-dependent weight or rounding threshold.
+#[derive(Clone, Copy, Default)]
+struct PairingCost(f64, f64);
+
+impl PairingCost {
+    const INFINITY: Self = Self(f64::INFINITY, 0.0);
+
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0, self.1 + other.1)
+    }
+
+    fn sub(self, other: Self) -> Self {
+        Self(self.0 - other.0, self.1 - other.1)
+    }
+
+    fn less(self, other: Self) -> bool {
+        self.0.total_cmp(&other.0).then_with(|| self.1.total_cmp(&other.1)).is_lt()
+    }
+}
+
+fn pairing_cost(base: &UnnamedWidget, current: &UnnamedWidget) -> PairingCost {
+    let b = base.rect.map(f64::from);
+    let c = current.rect.map(f64::from);
+    let dx = b[0] + b[2] * 0.5 - c[0] - c[2] * 0.5;
+    let dy = b[1] + b[3] * 0.5 - c[1] - c[3] * 0.5;
+    PairingCost((b[2] - c[2]).abs() + (b[3] - c[3]).abs(), dx * dx + dy * dy)
+}
+
+/// Minimum-cost one-to-one assignment within a single sense class (Hungarian algorithm).
+/// `base` may be shorter than `current`; every baseline row is assigned to a distinct
+/// current row. Rows/columns follow snapshot order, so equal costs have a stable
+/// tie-break. O(n²m) time and O(n+m) scratch space, used only by the offline comparer.
+fn nearest_assignment(base: &[&UnnamedWidget], current: &[&UnnamedWidget]) -> Vec<usize> {
+    let n = base.len();
+    let m = current.len();
+    assert!(n <= m, "nearest_assignment requires at least as many current rows as baseline rows");
+    let mut row_cost = vec![PairingCost::default(); n + 1];
+    let mut col_cost = vec![PairingCost::default(); m + 1];
+    let mut row_at_col = vec![0; m + 1];
+    let mut previous = vec![0; m + 1];
+    for row in 1..=n {
+        row_at_col[0] = row;
+        let mut col = 0;
+        let mut minimum = vec![PairingCost::INFINITY; m + 1];
+        let mut used = vec![false; m + 1];
+        loop {
+            used[col] = true;
+            let active_row = row_at_col[col];
+            let mut delta = PairingCost::INFINITY;
+            let mut next = 0;
+            for candidate in 1..=m {
+                if used[candidate] {
+                    continue;
+                }
+                let cost = pairing_cost(base[active_row - 1], current[candidate - 1]).sub(row_cost[active_row]).sub(col_cost[candidate]);
+                if cost.less(minimum[candidate]) {
+                    minimum[candidate] = cost;
+                    previous[candidate] = col;
+                }
+                if minimum[candidate].less(delta) {
+                    delta = minimum[candidate];
+                    next = candidate;
+                }
+            }
+            for candidate in 0..=m {
+                if used[candidate] {
+                    row_cost[row_at_col[candidate]] = row_cost[row_at_col[candidate]].add(delta);
+                    col_cost[candidate] = col_cost[candidate].sub(delta);
+                } else {
+                    minimum[candidate] = minimum[candidate].sub(delta);
+                }
+            }
+            col = next;
+            if row_at_col[col] == 0 {
+                break;
+            }
+        }
+        loop {
+            let from = previous[col];
+            row_at_col[col] = row_at_col[from];
+            col = from;
+            if col == 0 {
+                break;
+            }
+        }
+    }
+    let mut assignment = vec![0; n];
+    for col in 1..=m {
+        if row_at_col[col] != 0 {
+            assignment[row_at_col[col] - 1] = col - 1;
+        }
+    }
+    assignment
+}
+
+/// Capture sorting is deterministic, but is not an identity when groups cross in y.
+/// Pair by dimensions and distance within each sense class, then reuse that association
+/// in every geometry, derived-shift and order check. For unequal inventories, the
+/// existing `inventory_max_delta` contract treats only the sorted shared prefix as
+/// comparable; reject a sense change in that prefix before assigning the compatible
+/// maximum-cardinality subset. This keeps additions/removals explicit instead of
+/// allowing an arbitrary tail slice to hide a substitution.
+fn pair_unnamed<'a>(
+    case_id: &str,
+    region: &str,
+    baseline: &[&'a UnnamedWidget],
+    current: &[&'a UnnamedWidget],
+) -> Result<Vec<(&'a UnnamedWidget, &'a UnnamedWidget)>, String> {
+    let shared = baseline.len().min(current.len());
+    if baseline.len() != current.len() {
+        for i in 0..shared {
+            if baseline[i].sense != current[i].sense {
+                return Err(format!(
+                    "G4 unnamed widget #{i} sense mismatch in case {case_id} region '{region}': baseline={:?}, current={:?} (unequal inventories compare the shared prefix)",
+                    baseline[i].sense, current[i].sense
+                ));
+            }
+        }
+    }
+    let mut classes: BTreeMap<&[String], (Vec<usize>, Vec<usize>)> = BTreeMap::new();
+    for (i, widget) in baseline.iter().enumerate() {
+        classes.entry(&widget.sense).or_default().0.push(i);
+    }
+    for (i, widget) in current.iter().enumerate() {
+        classes.entry(&widget.sense).or_default().1.push(i);
+    }
+    let mut assignment: Vec<Option<usize>> = vec![None; baseline.len()];
+    for (sense, (base_indices, current_indices)) in classes {
+        if baseline.len() == current.len() && base_indices.len() != current_indices.len() {
+            return Err(format!(
+                "G4 unnamed widget sense mismatch in case {case_id} region '{region}': sense={sense:?}, baseline={}, current={}",
+                base_indices.len(),
+                current_indices.len()
+            ));
+        }
+        let base_class: Vec<_> = base_indices.iter().map(|&i| baseline[i]).collect();
+        let current_class: Vec<_> = current_indices.iter().map(|&i| current[i]).collect();
+        if base_class.len() <= current_class.len() {
+            for (row, col) in nearest_assignment(&base_class, &current_class).into_iter().enumerate() {
+                assignment[base_indices[row]] = Some(current_indices[col]);
+            }
+        } else {
+            // Assign the smaller current class to distinct baseline rows, then invert
+            // the result. Unmatched baseline rows are the explicit removals permitted
+            // by inventory_max_delta and never enter geometry/order checks.
+            for (current_row, baseline_col) in nearest_assignment(&current_class, &base_class).into_iter().enumerate() {
+                assignment[base_indices[baseline_col]] = Some(current_indices[current_row]);
+            }
+        }
+    }
+    Ok(baseline.iter().zip(assignment).filter_map(|(base, current_idx)| current_idx.map(|idx| (*base, current[idx]))).collect())
+}
+
 /// A widget paired across snapshots for the G3 order check: `(baseline rect, current rect, name)`.
 type OrderItem<'a> = ([f32; 4], [f32; 4], &'a str);
 
@@ -874,8 +1028,9 @@ fn compare_keyed(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList,
         }
     }
 
-    // G4 — Unnamed widgets: check per-region inventory count and sense before building rows.
+    // G4 — Unnamed widgets: check per-region inventory count, then associate by geometry.
     let all_unnamed_regs: BTreeSet<String> = base_unnamed_by_reg.keys().chain(cur_unnamed_by_reg.keys()).cloned().collect();
+    let mut unnamed_pairs_by_reg: BTreeMap<String, Vec<(&UnnamedWidget, &UnnamedWidget)>> = BTreeMap::new();
     for reg in &all_unnamed_regs {
         let b_list = base_unnamed_by_reg.get(reg).cloned().unwrap_or_default();
         let c_list = cur_unnamed_by_reg.get(reg).cloned().unwrap_or_default();
@@ -915,18 +1070,13 @@ fn compare_keyed(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList,
             }
         }
 
-        let shared_len = b_list.len().min(c_list.len());
-        for (i, (b_u, c_u)) in b_list[..shared_len].iter().zip(c_list[..shared_len].iter()).enumerate() {
-            if b_u.sense != c_u.sense {
-                return Err(format!(
-                    "G4 unnamed widget #{i} sense mismatch in case {case_id} region '{reg}': baseline={:?}, current={:?}",
-                    b_u.sense, c_u.sense
-                ));
-            }
+        let pairs = pair_unnamed(case_id, reg, &b_list, &c_list)?;
+        for (b_u, _) in &pairs {
             if let Some((idx, _)) = best_matching_entry(allow, case_id, reg, None, b_u.rect) {
                 report.matched_allow_indices.insert(idx);
             }
         }
+        unnamed_pairs_by_reg.insert(reg.clone(), pairs);
     }
 
     // Build per-region G3 rows (named + unnamed widgets), range-check each row's own `dh`, and compute derived shifts for all anchors.
@@ -950,17 +1100,9 @@ fn compare_keyed(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList,
             }
         }
     }
-    for (reg, b_list) in &base_unnamed_by_reg {
-        if let Some(c_list) = cur_unnamed_by_reg.get(reg) {
-            let shared_len = b_list.len().min(c_list.len());
-            for (i, (b_u, c_u)) in b_list[..shared_len].iter().zip(c_list[..shared_len].iter()).enumerate() {
-                paired_by_region.entry(reg.clone()).or_default().push(RowWidget {
-                    label: format!("unnamed#{i}"),
-                    name: None,
-                    b_rect: b_u.rect,
-                    c_rect: c_u.rect,
-                });
-            }
+    for (reg, pairs) in &unnamed_pairs_by_reg {
+        for (i, (b_u, c_u)) in pairs.iter().enumerate() {
+            paired_by_region.entry(reg.clone()).or_default().push(RowWidget { label: format!("unnamed#{i}"), name: None, b_rect: b_u.rect, c_rect: c_u.rect });
         }
     }
     for (reg, mut pairs) in paired_by_region {
@@ -1063,12 +1205,9 @@ fn compare_keyed(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList,
         }
     }
 
-    for reg in all_unnamed_regs {
-        let b_list = base_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
-        let c_list = cur_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
-        let shared_len = b_list.len().min(c_list.len());
-        for (i, (b_u, c_u)) in b_list[..shared_len].iter().zip(c_list[..shared_len].iter()).enumerate() {
-            let covering = best_matching_entry(allow, case_id, &reg, None, b_u.rect);
+    for (reg, pairs) in &unnamed_pairs_by_reg {
+        for (i, (b_u, c_u)) in pairs.iter().enumerate() {
+            let covering = best_matching_entry(allow, case_id, reg, None, b_u.rect);
             if rects_differ_beyond_half_pt(b_u.rect, c_u.rect) {
                 let shifts = shifts_by_widget.get(&(reg.clone(), format!("unnamed#{i}"))).copied().unwrap_or_default();
                 let size_changed = (c_u.rect[2] - b_u.rect[2]).abs() > 0.5 || (c_u.rect[3] - b_u.rect[3]).abs() > 0.5;
@@ -1084,7 +1223,8 @@ fn compare_keyed(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList,
         }
     }
 
-    // G3 Order — Per region, pair each baseline widget with its current rect (named by name, unnamed as "_" by index),
+    // G3 Order — Reuse the same association as the drift/derived-shift checks (named by name,
+    // unnamed by compatible geometry, labelled "_"),
     // verify that the name sequence per BASELINE row is equal when sorted by baseline and by current centre x, and
     // that widgets in different rows whose baseline x-extents overlap keep their vertical order.
     let mut order_regions: BTreeSet<String> = base.named.values().map(|w| w.region.clone()).collect();
@@ -1098,11 +1238,10 @@ fn compare_keyed(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList,
                 }
             }
         }
-        let b_u_list = base_unnamed_by_reg.get(&reg).map(Vec::as_slice).unwrap_or(&[]);
-        let c_u_list = cur_unnamed_by_reg.get(&reg).map(Vec::as_slice).unwrap_or(&[]);
-        let shared_len = b_u_list.len().min(c_u_list.len());
-        for (b_u, c_u) in b_u_list[..shared_len].iter().zip(c_u_list[..shared_len].iter()) {
-            items.push((b_u.rect, c_u.rect, "_"));
+        if let Some(pairs) = unnamed_pairs_by_reg.get(&reg) {
+            for (b_u, c_u) in pairs {
+                items.push((b_u.rect, c_u.rect, "_"));
+            }
         }
         let mut rows = cluster_baseline_rows(items);
         let (base_rows, cur_rows) = row_name_sequences(&mut rows);
@@ -2495,7 +2634,7 @@ mod tests {
     }
 
     #[test]
-    fn column_stops_crossing_pairs() {
+    fn nearest_pairing_keeps_column_partition_supported() {
         let mut base = sample_snapshot("k-case");
         base.named.insert("status".into(), named_in("canvas", [1300.0, 300.0, 60.0, 32.0]));
         base.unnamed.push(unnamed_in("canvas", [1375.0, 400.0, 100.0, 24.0]));
@@ -2519,9 +2658,100 @@ mod tests {
             ..Default::default()
         };
         let without = validate_allow_entries(vec![status_grow_entry("canvas"), button.clone()]).expect("valid");
-        compare(&base, &cur, &without, &[]).expect_err("index pairing crosses the dialog button and the inspector row");
+        compare_with_stale_check(&base, &cur, &without, &[]).expect("nearest pairing no longer needs a column entry to keep groups associated");
         let with = validate_allow_entries(vec![column_entry("inspector", [1300.0, 1440.0]), status_grow_entry("canvas#inspector"), button]).expect("valid");
         compare_with_stale_check(&base, &cur, &with, &[]).expect("each column pairs on its own");
+    }
+
+    #[test]
+    fn unnamed_widgets_pair_by_nearest_compatible_geometry() {
+        let mut base = sample_snapshot("k-case");
+        base.unnamed.push(unnamed_in("canvas", [1375.0, 400.0, 100.0, 24.0]));
+        base.unnamed.push(unnamed_in("canvas", [1375.0, 500.0, 100.0, 24.0]));
+        base.unnamed.push(unnamed_in("canvas", [1000.0, 510.0, 190.0, 32.0]));
+        let mut cur = base.clone();
+        cur.unnamed = vec![
+            unnamed_in("canvas", [1375.0, 440.0, 100.0, 24.0]),
+            unnamed_in("canvas", [1000.0, 506.0, 190.0, 40.0]),
+            unnamed_in("canvas", [1375.0, 540.0, 100.0, 24.0]),
+        ];
+        let allow = validate_allow_entries(vec![
+            AllowEntry {
+                case: "k-case".into(),
+                region: "canvas".into(),
+                h_base: Some(32.0),
+                anchor_y: Some(AnchorY::Centre),
+                max_dh: Some(8.0),
+                spec: "K".into(),
+                reason: "R5: dialog button 32 -> 40".into(),
+                ..Default::default()
+            },
+            AllowEntry {
+                case: "k-case".into(),
+                region: "canvas".into(),
+                h_base: Some(24.0),
+                anchor_y: Some(AnchorY::Top),
+                dy: Some(40.0),
+                spec: "K".into(),
+                reason: "R5: inspector group moves down 40".into(),
+                ..Default::default()
+            },
+        ])
+        .expect("valid");
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("nearest compatible unnamed widgets should keep the dialog allow entry valid");
+
+        let mut invalid = cur.clone();
+        invalid.unnamed[2].rect[1] += 2.0;
+        let err = compare(&base, &invalid, &allow, &[]).expect_err("pairing cannot forgive movement outside the allow entry");
+        assert!(err.contains("rect drift"), "{err}");
+    }
+
+    #[test]
+    fn unnamed_assignment_minimizes_total_distance_instead_of_greedily_stealing() {
+        let base = [unnamed_in("canvas", [4.0, 0.0, 10.0, 10.0]), unnamed_in("canvas", [6.0, 0.0, 10.0, 10.0])];
+        let cur = [unnamed_in("canvas", [0.0, 0.0, 10.0, 10.0]), unnamed_in("canvas", [5.0, 0.0, 10.0, 10.0])];
+        // Greedy 4->5 / 6->0 has squared distance 37; 4->0 / 6->5 has 17.
+        assert_eq!(nearest_assignment(&base.iter().collect::<Vec<_>>(), &cur.iter().collect::<Vec<_>>()), vec![0, 1]);
+    }
+
+    #[test]
+    fn unnamed_assignment_prefers_matching_size_before_distance_and_breaks_ties_stably() {
+        let base = [unnamed_in("canvas", [0.0, 0.0, 10.0, 10.0]), unnamed_in("canvas", [100.0, 0.0, 20.0, 20.0])];
+        let cur = [unnamed_in("canvas", [0.0, 0.0, 20.0, 20.0]), unnamed_in("canvas", [100.0, 0.0, 10.0, 10.0])];
+        assert_eq!(nearest_assignment(&base.iter().collect::<Vec<_>>(), &cur.iter().collect::<Vec<_>>()), vec![1, 0]);
+        let identical = unnamed_in("canvas", [0.0, 0.0, 10.0, 10.0]);
+        for _ in 0..3 {
+            assert_eq!(nearest_assignment(&[&identical, &identical], &[&identical, &identical]), vec![0, 1]);
+        }
+        assert!(nearest_assignment(&[], &[&identical]).is_empty());
+    }
+
+    #[test]
+    fn unnamed_inventory_delta_matches_all_candidates_and_preserves_count_and_sense_checks() {
+        let mut base = sample_snapshot("k-case");
+        base.unnamed = vec![unnamed_in("canvas", [100.0, 100.0, 10.0, 10.0]), unnamed_in("canvas", [100.0, 200.0, 10.0, 10.0])];
+        let mut cur = base.clone();
+        cur.unnamed.insert(0, unnamed_in("canvas", [100.0, 0.0, 10.0, 10.0]));
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "k-case".into(),
+            region: "canvas".into(),
+            inventory_max_delta: Some(1),
+            spec: "K".into(),
+            reason: "one virtualized row enters or leaves the inventory".into(),
+            ..Default::default()
+        }])
+        .expect("valid");
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("an added leading widget must not displace the surviving pairs");
+        compare_with_stale_check(&cur, &base, &allow, &[]).expect("removal pairs the surviving current rows against the full baseline");
+        let err = compare(&base, &cur, &AllowList::default(), &[]).expect_err("count changes still require an allowance");
+        assert!(err.contains("count mismatch"), "{err}");
+        cur.unnamed[1].sense = vec!["drag".into()];
+        let err = compare(&base, &cur, &allow, &[]).expect_err("an inventory allowance cannot forgive a changed shared-prefix sense");
+        assert!(err.contains("sense mismatch"), "{err}");
+        let mut same_count = base.clone();
+        same_count.unnamed[1].sense = vec!["drag".into()];
+        let err = compare(&base, &same_count, &AllowList::default(), &[]).expect_err("equal inventories must preserve sense counts");
+        assert!(err.contains("sense mismatch"), "{err}");
     }
 
     #[test]
@@ -3374,5 +3604,56 @@ mod tests {
         .expect("valid allow list");
         let err = compare(&base, &cur, &allow, &[]).expect_err("a sliver that passes a named widget must fail G3");
         assert!(err.contains("'dev-lang' and '_' changed vertical order"), "got: {err}");
+    }
+
+    fn inventory_allow() -> AllowList {
+        validate_allow_entries(vec![AllowEntry {
+            case: "k-case".into(),
+            region: "canvas".into(),
+            inventory_max_delta: Some(1),
+            spec: "K".into(),
+            reason: "one virtualized row enters the inventory".into(),
+            ..Default::default()
+        }])
+        .expect("valid")
+    }
+
+    fn three_rows() -> LayoutSnapshot {
+        let mut base = sample_snapshot("k-case");
+        for y in [100.0, 200.0, 300.0] {
+            base.unnamed.push(unnamed_in("canvas", [100.0, y, 80.0, 24.0]));
+        }
+        base
+    }
+
+    #[test]
+    fn inserting_an_unnamed_widget_before_others_causes_no_false_drift() {
+        let base = three_rows();
+        let mut cur = base.clone();
+        cur.unnamed.push(unnamed_in("canvas", [100.0, 40.0, 80.0, 24.0]));
+        cur.unnamed.sort_by(|a, b| a.rect[1].total_cmp(&b.rect[1]));
+        compare_with_stale_check(&base, &cur, &inventory_allow(), &[]).expect("existing rows keep their own pairs");
+    }
+
+    #[test]
+    fn one_moved_unnamed_widget_is_still_reported() {
+        let base = three_rows();
+        let mut cur = base.clone();
+        cur.unnamed[1].rect[1] += 40.0;
+        let err = compare(&base, &cur, &AllowList::default(), &[]).expect_err("a real move must be reported");
+        assert!(err.contains("rect drift"), "{err}");
+    }
+
+    #[test]
+    fn equidistant_unnamed_candidates_resolve_the_same_way_every_run() {
+        let mut base = sample_snapshot("k-case");
+        base.unnamed.push(unnamed_in("canvas", [0.0, 0.0, 10.0, 10.0]));
+        base.unnamed.push(unnamed_in("canvas", [20.0, 0.0, 10.0, 10.0]));
+        let mut cur = base.clone();
+        cur.unnamed = vec![unnamed_in("canvas", [10.0, 0.0, 10.0, 10.0]), unnamed_in("canvas", [10.0, 0.0, 10.0, 10.0])];
+        let first = compare(&base, &cur, &AllowList::default(), &[]).expect_err("both widgets moved");
+        for _ in 0..5 {
+            assert_eq!(compare(&base, &cur, &AllowList::default(), &[]).expect_err("both widgets moved"), first);
+        }
     }
 }
