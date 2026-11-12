@@ -59,14 +59,14 @@ struct Ctx<'a> {
     /// Whether a main holds an instance of itself, asked the first time a sync meets it inside its own mirror. The
     /// answer holds for the whole sync: a mirror only repeats what the main already reaches.
     holds_itself: BTreeMap<NodeId, bool>,
-    /// Number of inner instance swaps below a swapped slot dropped during this context's swap operations.
-    dropped_inner_swaps: usize,
+    /// Number of nested swaps and override fields dropped during this context's swap operations.
+    dropped_changes: usize,
 }
 
 impl<'a> Ctx<'a> {
     fn new(doc: &'a mut Document) -> Self {
         let saved_dirty = doc.dirty.clone();
-        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: Vec::new(), holds_itself: BTreeMap::new(), dropped_inner_swaps: 0 }
+        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: Vec::new(), holds_itself: BTreeMap::new(), dropped_changes: 0 }
     }
     fn push(&mut self, c: Command) {
         if let Ok(inv) = c.clone().apply(self.s) {
@@ -1894,7 +1894,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     if dropped_inner_swaps > 0 {
         eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s)");
     }
-    c.dropped_inner_swaps += dropped_inner_swaps;
+    c.dropped_changes += dropped_inner_swaps;
 
     let new_texts = text_nodes(&c.s, i);
     let single_text_pair = old_text_count == 1 && new_texts.len() == 1;
@@ -1906,6 +1906,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             let lone = new_texts.first().copied().filter(|_| single_text_pair && own_layer)?;
             (matches!(old.kind, NodeKind::Text(_)) && fields.iter().any(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle))).then_some(lone)
         }) else {
+            c.dropped_changes += fields.len();
             continue;
         };
         if !used_override_targets.insert(nid) {
@@ -2664,7 +2665,7 @@ pub(crate) fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp
     if !swap_recorded(&mut c, instance, new_comp) {
         return (nothing(), 0);
     }
-    let dropped = c.dropped_inner_swaps;
+    let dropped = c.dropped_changes;
     (c.finish(), dropped)
 }
 
@@ -2740,7 +2741,7 @@ pub(crate) fn set_instance_prop_edit_reporting(doc: &mut Document, instance: Nod
     }
     sync_one(&mut c, instance);
     let refused = std::mem::take(&mut c.refused_swap);
-    let dropped = c.dropped_inner_swaps;
+    let dropped = c.dropped_changes;
     let cmd = c.finish();
     if refused.is_empty() {
         return (cmd, dropped, Vec::new());
@@ -9600,6 +9601,26 @@ mod tests {
             assert_eq!(instance_component(d.get(inst).unwrap()), Some(target));
             assert_eq!(text_of(&d, d.get(inst).unwrap().children[0]), expect, "switch to {value}");
         }
+    }
+
+    #[test]
+    fn variant_switch_reports_override_on_child_missing_from_other_variant() {
+        let mut d = Document::new("MissingChildOverride");
+        let page = d.add_page("P");
+        let a = main_with_texts(&mut d, page, "Card/A", 0.0, &["Title", "Subtitle"]);
+        let b = main_with_texts(&mut d, page, "Card/B", 200.0, &["Title"]);
+        let _ = combine_as_variants(&mut d, &[a, b]);
+        let c = create_instance(&mut d, a, page, Vec2::new(0.0, 900.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let subtitle = child_named(&d, inst, "Subtitle");
+        override_text(&mut d, subtitle, "Custom");
+        let (c, dropped) = swap_instance_inner(&mut d, inst, b);
+        apply(&mut d, c);
+        assert_eq!(dropped, 1, "the missing Subtitle Characters override must be reported");
+        let c = swap_instance(&mut d, inst, a);
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Default");
     }
 
     #[test]
