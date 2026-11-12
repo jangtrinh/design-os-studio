@@ -225,6 +225,24 @@ fn a_spec_pinning_a_bound_property_to_the_value_it_already_shows_records_the_pic
 }
 
 #[test]
+fn picking_the_variant_a_bound_copy_already_shows_holds_it_against_the_next_mode_change() {
+    let mut f = build(&["Size"], &[]);
+    set_mode(&mut f, "dark");
+    let n = copy(&f);
+    assert_eq!(shown(&f, n), LARGE_DEFAULT, "the dark variable gives Large");
+    pick_nested(&mut f, n, "Size", "Large");
+    assert_eq!(picks(&f, n), ["Size"], "naming the variant it shows pins the bound property");
+    assert!(!f.d.get(n).unwrap().component.values.contains_key("Size"));
+    set_mode(&mut f, "light");
+    assert_eq!(shown(&f, n), LARGE_DEFAULT, "so light does not move it");
+    let before = f.d.get(n).unwrap().clone();
+    pick_nested(&mut f, n, "Size", "Large");
+    assert_eq!(*f.d.get(n).unwrap(), before, "pinning again changes nothing");
+    pick_nested(&mut f, n, "State", "Default");
+    assert_eq!(*f.d.get(n).unwrap(), before, "and naming what an unbound property shows records nothing");
+}
+
+#[test]
 fn a_spec_pin_leaves_no_stale_stored_value_behind_a_reset() {
     let mut x = card_fixture();
     let card = place_card_pinning_large(&mut x);
