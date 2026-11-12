@@ -943,7 +943,7 @@ mod tests {
 
     #[test]
     fn edits_after_a_refused_close_are_held_not_dropped() {
-        let path = temp_log("refused-close");
+        let (_dir, path) = temp_log("refused-close");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &(line(1) + &close_line() + &line(2)));
         read(&mut log);
@@ -962,7 +962,7 @@ mod tests {
 
     #[test]
     fn a_close_dropped_because_the_tab_was_hidden_stops_dropping_edits() {
-        let path = temp_log("hidden-close");
+        let (_dir, path) = temp_log("hidden-close");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &close_line());
         read(&mut log);
@@ -974,7 +974,7 @@ mod tests {
 
     #[test]
     fn a_refused_close_does_not_undo_a_drop_that_was_already_on() {
-        let path = temp_log("refused-close-while-stuck");
+        let (_dir, path) = temp_log("refused-close-while-stuck");
         let mut log = LivePatchLog::bind(path.clone());
         log.discarding = true;
         append(&path, &close_line());
