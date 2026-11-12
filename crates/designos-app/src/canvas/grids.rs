@@ -4,8 +4,8 @@
 use super::*;
 use crate::theme;
 use crate::util::*;
-use designos_doc::layout_solver::{place_children, ChildIn};
-use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, Sizing, MAX_GRID_TRACKS};
+use designos_doc::layout_solver::{grid_column_widths, grid_row_gap, grid_row_heights, ChildIn, SizeLimits};
+use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, MAX_GRID_TRACKS};
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
 /// One resolved `(row, col)` cell in a `LayoutDirection::Grid` container (frame-local coordinates).
@@ -253,110 +253,25 @@ pub fn move_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, from: usize
 
 /// Computes the 2D CSS Grid cell rects, column/row tracks, padding, and gaps for `LayoutDirection::Grid`.
 /// `kids` are the flow children as the solver sees them.
-pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, kids: &[ChildIn]) -> CssGridOverlay {
-    let [pt, pr, pb, pl] = al.padding;
-    let cols = (if al.grid_columns > 0 { al.grid_columns as usize } else { 3 }).clamp(1, designos_doc::MAX_GRID_TRACKS);
+pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, own: SizeLimits, kids: &[ChildIn]) -> CssGridOverlay {
+    let [pt, _, _, pl] = al.padding;
     let col_gap = al.item_spacing.max(0.0);
-    let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
+    let row_gap = grid_row_gap(al);
 
-    // Place the children exactly as the solver does (explicit rows and columns, spans, then auto flow), so the
-    // rows and cells drawn here are the ones the layout lays out.
-    let child_sizes: Vec<DV> = kids.iter().map(|k| k.size).collect();
-    let placements: Vec<(usize, usize, usize, usize)> = place_children(kids, cols).iter().map(|p| (p.row, p.col, p.row_span, p.col_span)).collect();
-    let max_row = placements.iter().map(|&(r, _, rs, _)| r + rs).max().unwrap_or(0);
-
-    let default_rows = if child_sizes.is_empty() { 2 } else { 1 };
-    let rows = max_row.max(al.grid_rows as usize).max(default_rows).clamp(1, designos_doc::MAX_GRID_TRACKS);
-
-    // Resolve column widths from `grid_col_tracks` + `frame_size.x`.
-    let inner_w = (frame_size.x - pl - pr - col_gap * (cols.saturating_sub(1) as f32)).max(0.0);
-    let mut col_widths = vec![0.0f32; cols];
-    let mut flex_total = 0.0f32;
-    let mut fixed_used = 0.0f32;
-
-    for (c, col_w) in col_widths.iter_mut().enumerate() {
-        let track = al.grid_col_tracks.get(c).copied().unwrap_or(GridTrack::Flex(1.0));
-        match track {
-            GridTrack::Fixed(w) => {
-                *col_w = w.max(1.0);
-                fixed_used += *col_w;
-            }
-            GridTrack::Hug => {
-                let mut max_w = 0.0f32;
-                for (i, &(_, col, _, cs)) in placements.iter().enumerate() {
-                    if col == c && cs == 1 {
-                        max_w = max_w.max(child_sizes[i].x);
-                    }
-                }
-                *col_w = max_w.max(1.0);
-                fixed_used += *col_w;
-            }
-            GridTrack::Flex(fr) => {
-                flex_total += fr.max(0.1);
-            }
-        }
+    // The solver sizes every track: this overlay only reads its output, so a rule change in the solver
+    // moves the drawn tracks with it. The solver clamps the frame to its own limits before sizing.
+    let frame = own.clamp(frame_size);
+    let col_widths = grid_column_widths(al, frame, own, kids);
+    let cols = col_widths.len();
+    let mut row_heights = grid_row_heights(al, frame, own, kids);
+    // An empty grid still shows two placeholder rows to drop children into.
+    if kids.is_empty() && row_heights.len() < 2 {
+        let mut with_rows = al.clone();
+        with_rows.grid_rows = 2;
+        row_heights = grid_row_heights(&with_rows, frame, own, kids);
     }
-    let rem_w = (inner_w - fixed_used).max(0.0);
-    for (c, col_w) in col_widths.iter_mut().enumerate() {
-        if let GridTrack::Flex(fr) = al.grid_col_tracks.get(c).copied().unwrap_or(GridTrack::Flex(1.0)) {
-            *col_w = if al.primary_sizing == Sizing::Hug && !child_sizes.is_empty() {
-                let mut max_w = 0.0f32;
-                for (i, &(_, col, _, cs)) in placements.iter().enumerate() {
-                    if col == c && cs == 1 {
-                        max_w = max_w.max(child_sizes[i].x);
-                    }
-                }
-                max_w.max(40.0)
-            } else if flex_total > 0.0 {
-                (rem_w * (fr.max(0.1) / flex_total)).max(1.0)
-            } else {
-                (rem_w / cols as f32).max(1.0)
-            };
-        }
-    }
-
-    // Resolve row heights from child heights and `grid_row_tracks`.
-    let inner_h = (frame_size.y - pt - pb - row_gap * (rows.saturating_sub(1) as f32)).max(0.0);
-    let mut row_heights = vec![0.0f32; rows];
-    for (i, &(r, _, rs, _)) in placements.iter().enumerate() {
-        let per_row = (child_sizes[i].y - row_gap * (rs.saturating_sub(1) as f32)).max(0.0) / (rs as f32);
-        for dr in 0..rs {
-            if r + dr < rows {
-                row_heights[r + dr] = row_heights[r + dr].max(per_row);
-            }
-        }
-    }
-    let mut row_flex_total = 0.0f32;
-    let mut row_fixed_used = 0.0f32;
-    for (r, row_h) in row_heights.iter_mut().enumerate() {
-        let track = al.grid_row_tracks.get(r).copied().unwrap_or(GridTrack::Flex(1.0));
-        match track {
-            GridTrack::Fixed(h) => {
-                *row_h = row_h.max(h.max(1.0));
-                row_fixed_used += *row_h;
-            }
-            GridTrack::Hug => {
-                *row_h = row_h.max(1.0);
-                row_fixed_used += *row_h;
-            }
-            GridTrack::Flex(fr) => {
-                if *row_h > 0.0 && al.counter_sizing == Sizing::Hug {
-                    row_fixed_used += *row_h;
-                } else {
-                    row_flex_total += fr.max(0.1);
-                }
-            }
-        }
-    }
-    let rem_h = (inner_h - row_fixed_used).max(0.0);
-    for (r, row_h) in row_heights.iter_mut().enumerate() {
-        if let GridTrack::Flex(fr) = al.grid_row_tracks.get(r).copied().unwrap_or(GridTrack::Flex(1.0)) {
-            if al.counter_sizing != Sizing::Hug || *row_h <= 0.0 {
-                let share = if row_flex_total > 0.0 { rem_h * (fr.max(0.1) / row_flex_total) } else { rem_h / rows as f32 };
-                *row_h = row_h.max(share).max(1.0);
-            }
-        }
-    }
+    row_heights.truncate(designos_doc::MAX_GRID_TRACKS);
+    let rows = row_heights.len();
 
     let mut col_x = vec![0.0f32; cols];
     let mut cx = pl;
@@ -393,7 +308,7 @@ pub fn node_css_grid_overlay(doc: &Document, id: NodeId) -> Option<CssGridOverla
         return None;
     }
     let kids: Vec<ChildIn> = n.children.iter().filter_map(|&cid| doc.flow_child_input(cid, true)).collect();
-    Some(compute_css_grid_overlay(al, n.size, &kids))
+    Some(compute_css_grid_overlay(al, n.size, SizeLimits::from(&n.layout_child), &kids))
 }
 
 /// Start and length of each stripe of a columns / rows grid along an extent.
@@ -736,7 +651,7 @@ mod tests {
                 ..Default::default()
             })
             .collect();
-        let ov = compute_css_grid_overlay(&al, v2(500.0, 232.0), &kids);
+        let ov = compute_css_grid_overlay(&al, v2(500.0, 232.0), SizeLimits::default(), &kids);
         assert_eq!(ov.cols, 3);
         assert_eq!(ov.rows, 2);
         assert_eq!(ov.cells.len(), 6);
@@ -750,6 +665,51 @@ mod tests {
         assert_eq!(format_grid_track(ov.col_tracks[1]), "1fr");
         assert_eq!(format_grid_track(ov.col_tracks[2]), "2fr");
         assert_eq!(format_grid_track(GridTrack::Hug), "Hug");
+    }
+
+    fn grid_kid(size: DV, row_span: u16) -> ChildIn {
+        ChildIn { size, cell: designos_doc::layout_solver::GridCell { row_span, ..Default::default() }, ..Default::default() }
+    }
+
+    /// The tracks the overlay draws are the tracks the solver lays out, for grids whose columns and rows
+    /// the solver sizes with rules the overlay once repeated by hand.
+    #[test]
+    fn overlay_tracks_match_the_solver_track_output() {
+        use designos_doc::layout_solver::{grid_column_widths, grid_row_gap, grid_row_heights, SizeLimits};
+        let tall = [grid_kid(v2(80.0, 90.0), 2), grid_kid(v2(80.0, 20.0), 1), grid_kid(v2(80.0, 20.0), 1), grid_kid(v2(80.0, 40.0), 1)];
+        let cases: Vec<(AutoLayout, DV, SizeLimits)> = vec![
+            // a spanning child over auto rows inside a taller fixed frame levels the rows
+            (
+                AutoLayout { direction: LayoutDirection::Grid, grid_columns: 2, item_spacing: 8.0, counter_spacing: 0.0, ..AutoLayout::default() },
+                v2(300.0, 400.0),
+                SizeLimits::default(),
+            ),
+            // a hugging frame raised by its own minimum width hands the extra to the flex columns
+            (
+                AutoLayout {
+                    direction: LayoutDirection::Grid,
+                    grid_columns: 2,
+                    item_spacing: 8.0,
+                    primary_sizing: designos_doc::Sizing::Hug,
+                    ..AutoLayout::default()
+                },
+                v2(200.0, 120.0),
+                SizeLimits { min_w: Some(400.0), ..Default::default() },
+            ),
+            // a frame clamped by its maximum height
+            (
+                AutoLayout { direction: LayoutDirection::Grid, grid_columns: 2, item_spacing: 8.0, counter_spacing: 12.0, ..AutoLayout::default() },
+                v2(300.0, 900.0),
+                SizeLimits { max_h: Some(250.0), ..Default::default() },
+            ),
+        ];
+        for (i, (al, frame, own)) in cases.iter().enumerate() {
+            let ov = compute_css_grid_overlay(al, *frame, *own, &tall);
+            let clamped = own.clamp(*frame);
+            assert_eq!(ov.col_widths, grid_column_widths(al, clamped, *own, &tall), "case {i}: column widths");
+            assert_eq!(ov.row_heights, grid_row_heights(al, clamped, *own, &tall), "case {i}: row heights");
+            assert_eq!(ov.row_gap, grid_row_gap(al), "case {i}: row gap");
+        }
     }
 
     fn gridded_frame(app: &mut App, parent: NodeId, rect: Rect, color: Color) -> NodeId {
