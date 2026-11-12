@@ -599,6 +599,48 @@ mod tests {
         assert!(texts.iter().any(|t| t.text.contains("Use ↑/↓ and Enter in terminal to choose")), "native CLI card hint missing: {texts:?}");
     }
 
+    /// The hint line is part of the card's height: the action button sits below it and inside the card, and the layout height
+    /// the panel reserves for the card matches what is painted.
+    #[test]
+    fn native_cli_approval_card_holds_the_hint_line_and_its_action_button() {
+        for (in_active_terminal, button) in [(true, "agent-approval-show-prompt"), (false, "agent-approval-open-tab")] {
+            let ctx = Context::default();
+            theme::install_fonts(&ctx);
+            theme::apply(&ctx);
+            let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0));
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(viewport), ..Default::default() }, |ui| {
+                let _ = paint_approval_card_for_tab(
+                    ui,
+                    viewport,
+                    AgentCliPreset::Codex,
+                    &[],
+                    3,
+                    in_active_terminal,
+                    1,
+                    "test-approval",
+                    AgentPermissionMode::Ask,
+                );
+            });
+            let rect_of = |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).unwrap_or(Rect::NOTHING);
+            let (card, action) = (rect_of("agent-approval-card"), rect_of(button));
+            assert!(card.contains_rect(action), "{button}: the action stays inside the card: action {action:?}, card {card:?}");
+            let hint = crate::lint::scan_shapes(&out.shapes).0.into_iter().find(|t| t.text.contains(NATIVE_CLI_HINT)).expect("the hint is painted");
+            assert!(hint.rect.bottom() <= action.top(), "{button}: the hint sits above the action row: hint {:?}, action {action:?}", hint.rect);
+            assert!(card.contains_rect(hint.rect), "{button}: the hint stays inside the card: hint {:?}, card {card:?}", hint.rect);
+            assert_eq!(
+                card.height() + theme::SPACE_ROW * 2.0,
+                approval_card_outer_height(AgentCliPreset::Codex),
+                "{button}: the height the panel reserves matches the painted card"
+            );
+        }
+    }
+
+    #[test]
+    fn claude_approval_card_has_no_native_cli_hint() {
+        let texts = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "node_id:2")], AgentPermissionMode::Ask);
+        assert!(!texts.iter().any(|t| t.contains(NATIVE_CLI_HINT)), "Claude answers on the card itself: {texts:?}");
+    }
+
     fn modal_texts(mode: AgentPermissionMode) -> Vec<String> {
         let ctx = Context::default();
         theme::install_fonts(&ctx);
