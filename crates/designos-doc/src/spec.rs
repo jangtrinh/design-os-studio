@@ -291,6 +291,19 @@ pub struct OverrideSpec {
     /// Slot fills `{slot: [NodeSpec...] | false}` on a nested instance.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub slots: BTreeMap<String, SlotFillSpec>,
+    /// Override arc data on a descendant ellipse. `sweep_angle` is added to `start_angle` on apply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc: Option<ArcOverrideSpec>,
+}
+
+/// Arc data carried by an instance override in a declarative spec.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ArcOverrideSpec {
+    pub start_angle: f32,
+    pub sweep_angle: f32,
+    pub inner_radius: f32,
 }
 
 fn spec_levenshtein(a: &str, b: &str) -> usize {

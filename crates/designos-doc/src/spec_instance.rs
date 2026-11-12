@@ -2,7 +2,7 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::spec::{parse_sizing, FalseLiteral, SlotFillSpec};
+use crate::spec::{parse_sizing, ArcOverrideSpec, FalseLiteral, SlotFillSpec};
 use crate::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1351,6 +1351,31 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
         }
 
         // 4. Text characters (`text`)
+        // 4a. Arc data on a descendant ellipse.
+        if let Some(arc) = &ov.arc {
+            let is_ellipse = doc.get(target_id).is_some_and(|n| matches!(n.kind, NodeKind::Ellipse(_)));
+            if !is_ellipse {
+                return Err(SpecError::named(
+                    "OVERRIDE_FIELD_NOT_APPLICABLE",
+                    format!("Cannot apply 'arc' override to non-ellipse layer '{}'", doc.get(target_id).map(|n| n.name.as_str()).unwrap_or("")),
+                    Some("overrides.arc".into()),
+                    Vec::new(),
+                    None,
+                ));
+            }
+            if let Some(node) = doc.get_mut(target_id) {
+                node.kind = NodeKind::Ellipse(ArcData {
+                    start: arc.start_angle,
+                    end: arc.start_angle + arc.sweep_angle,
+                    inner_radius: arc.inner_radius.clamp(0.0, 1.0),
+                });
+                node.fill_geometry = None;
+                node.stroke_geometry = None;
+                node.component.overrides.insert(OverrideField::Arc);
+            }
+        }
+
+        // 4b. Text characters (`text`)
         if let Some(text_val) = &ov.text {
             let is_text = doc.get(target_id).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)));
             if !is_text {
@@ -2325,6 +2350,13 @@ impl Document {
                 }
             }
 
+            if ov_set.contains(&OverrideField::Arc) {
+                if let NodeKind::Ellipse(arc) = &cn.kind {
+                    spec_ov.arc = Some(ArcOverrideSpec { start_angle: arc.start, sweep_angle: arc.end - arc.start, inner_radius: arc.inner_radius });
+                    any_field = true;
+                }
+            }
+
             if ov_set.contains(&OverrideField::Characters) {
                 if let NodeKind::Text(tp) = &cn.kind {
                     spec_ov.text = Some(tp.content.clone());
@@ -3044,6 +3076,57 @@ mod tests {
             let n2 = doc.get(resolve_override_path(&doc, inst2, rel).unwrap()).unwrap();
             assert_eq!(n1.component.overrides, n2.component.overrides, "override set mismatch on '{rel}'");
         }
+    }
+
+    #[test]
+    fn export_then_apply_round_trips_a_nested_instance_arc_override() {
+        fn has_own_arc(doc: &Document, id: NodeId) -> bool {
+            match doc.get(id).map(|n| &n.kind) {
+                Some(NodeKind::Ellipse(ArcData { start, end, inner_radius })) => {
+                    (*start + 1.5).abs() < 1e-5 && (*end - 1.0).abs() < 1e-5 && (*inner_radius - 0.7).abs() < 1e-5
+                }
+                _ => false,
+            }
+        }
+
+        let mut doc = Document::new("rings");
+        let page = doc.add_page("Page 1");
+        let component_id = doc.alloc_id();
+        let component = doc.insert(page, Node::frame(component_id, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        let ellipse_id = doc.alloc_id();
+        let mut ellipse = Node::ellipse(ellipse_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        ellipse.name = "Ring".into();
+        ellipse.kind = NodeKind::Ellipse(ArcData { start: 0.0, end: std::f32::consts::TAU, inner_radius: 0.8 });
+        let main_ellipse = doc.insert(component, ellipse).unwrap();
+        create_component(&mut doc, component).apply(&mut doc).unwrap();
+        create_instance(&mut doc, component, page, Vec2::new(140.0, 0.0)).apply(&mut doc).unwrap();
+        let source_instance = *doc.get(page).unwrap().children.last().unwrap();
+        let source_ellipse = doc.get(source_instance).unwrap().children[0];
+
+        let before = doc.get(source_ellipse).unwrap().clone();
+        let mut own = before.clone();
+        own.kind = NodeKind::Ellipse(ArcData { start: -1.5, end: 1.0, inner_radius: 0.7 });
+        own.component.overrides.extend(record_override(&before, &own));
+        Command::Update { node: Box::new(own) }.apply(&mut doc).unwrap();
+        assert!(doc.get(source_ellipse).unwrap().component.overrides.contains(&OverrideField::Arc));
+
+        let exported = doc.export_spec(source_instance).unwrap();
+        let exported_json = serde_json::to_value(&exported).unwrap();
+        let arc = exported_json["overrides"].as_array().unwrap().iter().find(|ov| ov["path"] == "Ring").unwrap();
+        assert!((arc["arc"]["start_angle"].as_f64().unwrap() + 1.5).abs() < 1e-5);
+        assert!((arc["arc"]["sweep_angle"].as_f64().unwrap() - 2.5).abs() < 1e-5);
+        assert!((arc["arc"]["inner_radius"].as_f64().unwrap() - 0.7).abs() < 1e-5);
+
+        let copy = doc.apply_spec(page, &exported).unwrap();
+        let copy_ellipse = doc.get(copy).unwrap().children[0];
+        assert!(has_own_arc(&doc, copy_ellipse));
+
+        let mut main = doc.get(main_ellipse).unwrap().clone();
+        main.kind = NodeKind::Ellipse(ArcData { start: 0.5, end: 3.0, inner_radius: 0.4 });
+        Command::Update { node: Box::new(main) }.apply(&mut doc).unwrap();
+        let sync = sync_instances(&mut doc, component);
+        sync.apply(&mut doc).unwrap();
+        assert!(has_own_arc(&doc, copy_ellipse));
     }
 
     #[test]
