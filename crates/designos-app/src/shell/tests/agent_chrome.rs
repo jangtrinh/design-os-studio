@@ -43,7 +43,12 @@ fn approval_card_height_follows_control_xs() {
     use crate::terminal::AgentCliPreset;
     assert_eq!(crate::agent_approval_card::approval_card_outer_height(AgentCliPreset::Claude), 136.0);
     for preset in [AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Gemini, AgentCliPreset::Antigravity, AgentCliPreset::Shell] {
-        assert_eq!(crate::agent_approval_card::approval_card_outer_height(preset), 96.0, "{preset:?}");
+        // The card without Claude's buttons is the 96 px card plus the keyboard-controls hint line (a caption line and the gap after it).
+        assert_eq!(
+            crate::agent_approval_card::approval_card_outer_height(preset),
+            96.0 + crate::theme::LINE_CAPTION + crate::theme::SPACE_INLINE,
+            "{preset:?}"
+        );
     }
 }
 
