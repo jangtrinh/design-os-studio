@@ -2071,6 +2071,32 @@ mod tests {
         (st, rec)
     }
 
+    /// The boundary is the approval hook: Claude has it, so Ask for risky only must not cost it its composer, and the other modes
+    /// never refuse a CLI for lacking it.
+    #[test]
+    fn ask_risky_and_the_other_modes_still_send_to_what_they_can_run() {
+        for (mode, text) in [(crate::terminal::PermissionMode::AskRisky, "risky ok"), (crate::terminal::PermissionMode::Ask, "ask ok")] {
+            let (mut st, rec) = claude_tab_with_recorder();
+            st.active_tab_mut().expect("active tab").permission_mode = mode;
+            assert_eq!(st.send_from_composer_box(text, None), SendOutcome::Written, "{mode:?}: Claude takes the prompt");
+            st.flush_pending_enter_now();
+            let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+            assert!(sent.contains(text), "{mode:?}: the prompt reached the agent: {sent:?}");
+            st.shutdown();
+        }
+        let (mut st, rec) = claude_tab_with_recorder();
+        {
+            let tab = st.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Codex;
+            tab.preset = AgentCliPreset::Codex;
+            tab.permission_mode = crate::terminal::PermissionMode::Ask;
+        }
+        assert_eq!(st.send_from_composer_box("codex in ask", None), SendOutcome::Written, "Codex in Ask mode is not refused");
+        st.flush_pending_enter_now();
+        assert!(String::from_utf8_lossy(&rec.lock().unwrap()).contains("codex in ask"));
+        st.shutdown();
+    }
+
     #[test]
     fn ask_risky_refuses_a_cli_without_the_shared_approval_hook_and_keeps_the_draft() {
         let (mut st, rec) = claude_tab_with_recorder();
