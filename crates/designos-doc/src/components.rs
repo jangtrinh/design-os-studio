@@ -1906,7 +1906,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
         let Some(mut nn) = c.s.get(nid).cloned() else { continue };
         let transfers_text = text_override_transfers(&old, &nn, matched.is_some(), single_text_pair);
-        let preserves_characters = transfers_text && matched.is_some();
+        let preserves_text_override = transfers_text && matched.is_some();
         if !transfers_text {
             fields.remove(&OverrideField::Characters);
             fields.remove(&OverrideField::TextStyle);
@@ -1928,7 +1928,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 let diff = transfer_gate_diff(&orig, &new_orig);
                 fields.retain(|f| {
                     *f == OverrideField::Name
-                        || (preserves_characters && *f == OverrideField::Characters)
+                        || (preserves_text_override && matches!(f, OverrideField::Characters | OverrideField::Size))
                         || (!same_family && *f == OverrideField::TextStyle)
                         || !diff.contains(f)
                 });
@@ -7558,6 +7558,55 @@ mod tests {
         apply(&mut d, c);
         let nl = d.get(child_named(&d, inst, "label")).unwrap();
         assert!(!nl.component.overrides.contains(&OverrideField::Size), "a re-fit text box is not a user Size override");
+    }
+
+    #[test]
+    fn variant_switch_round_trip_keeps_long_text_size_override() {
+        let mut d = Document::new("LongTextRoundTrip");
+        let page = d.add_page("P");
+        let mk = |d: &mut Document, name: &str, y: f32, text: &str| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, y, 100.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let mut t = Node::text(tid, Rect::new(4.0, 4.0, 40.0, 20.0), text, crate::TextStyle::default());
+            t.name = "label".into();
+            if let NodeKind::Text(tp) = &mut t.kind {
+                tp.auto_resize = TextAutoResize::WidthAndHeight;
+            }
+            d.insert(comp, t).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let a = mk(&mut d, "State=A", 0.0, "A");
+        let b = mk(&mut d, "State=B", 100.0, "B");
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, a, page, Vec2::new(300.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let label = child_named(&d, inst, "label");
+        let before = d.get(label).unwrap().clone();
+        let mut edited = before.clone();
+        if let NodeKind::Text(tp) = &mut edited.kind {
+            tp.content = "A much longer overridden label".into();
+            tp.auto_resize = TextAutoResize::WidthAndHeight;
+        }
+        edited.size.x = 240.0;
+        edited.component.overrides = record_override(&before, &edited);
+        assert!(edited.component.overrides.contains(&OverrideField::Characters));
+        assert!(edited.component.overrides.contains(&OverrideField::Size));
+        apply(&mut d, Command::Update { node: Box::new(edited) });
+        let kept_width = d.get(child_named(&d, inst, "label")).unwrap().size.x;
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        let after = d.get(child_named(&d, inst, "label")).unwrap();
+        assert_eq!(after.size.x, kept_width, "switching B then A must preserve the overridden text width");
+        assert_eq!(text_of(&d, after.id), "A much longer overridden label");
     }
 
     #[test]
