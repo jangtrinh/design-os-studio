@@ -991,8 +991,19 @@ pub fn update_shape_control(app: &mut App, s: &mut ShapeControlDragState, cur: D
             }
             _ => {}
         }
+        drop_baked_outline_of_parametric_shape(n);
     }
     app.changed();
+}
+
+/// A baked outline (imported from a file) is drawn in preference to the shape's own parameters, so an edit of a ring's
+/// arc or of a star's or polygon's points would not show. The outline is dropped and the shape is drawn from its
+/// parameters again. No override is recorded for it: overrides compare the parameters, not the outline.
+fn drop_baked_outline_of_parametric_shape(n: &mut designos_doc::Node) {
+    if matches!(n.kind, NodeKind::Ellipse(_) | NodeKind::Polygon { .. } | NodeKind::Star { .. }) {
+        n.fill_geometry = None;
+        n.stroke_geometry = None;
+    }
 }
 
 fn label_hit(app: &App, ctx: &egui::Context, rect: ERect, pos: Pos2) -> Option<NodeId> {
@@ -1247,6 +1258,7 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
                 } else {
                     n.corner_radii = [new_r; 4];
                 }
+                drop_baked_outline_of_parametric_shape(n);
             }
             app.changed();
         }
@@ -3554,6 +3566,225 @@ mod tests {
         app.run_tx(r.tx);
         assert_eq!(app.doc.get(frame).unwrap().size, v2(400.0, 400.0));
         assert_eq!(app.doc.get(child).unwrap().size, v2(100.0, 100.0), "Cmd+Resize on Frame must leave Scale-constrained child untouched");
+    }
+
+    /// Drags the sweep handle of ring layer `id` to `to` (local to the layer) and commits the edit like the canvas does.
+    fn drag_ring_sweep(app: &mut App, id: NodeId, to: DV) {
+        let mut drag = ShapeControlDragState {
+            tx: Tx::new(),
+            id,
+            kind: handles::ShapeControlKind::EllipseSweep,
+            start_page: to,
+            start_count: 0,
+            start_ratio: 0.0,
+            start_end_angle: std::f32::consts::TAU,
+        };
+        update_shape_control(app, &mut drag, to, false);
+        app.run_tx(drag.tx);
+    }
+
+    #[test]
+    fn components_a_sweep_drag_on_an_instance_ring_is_an_override_that_a_main_edit_keeps() {
+        let mut d = Document::new("ring");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let main = d.insert(page, designos_doc::Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        let rid = d.alloc_id();
+        let main_ring = d.insert(main, designos_doc::Node::ellipse(rid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        designos_doc::create_component(&mut d, main).apply(&mut d).unwrap();
+        let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, main, page, v2(300.0, 0.0)) else { panic!("instance") };
+        let instance = nodes[0].id;
+        designos_doc::Command::Insert { parent: page, index: 1, nodes }.apply(&mut d).unwrap();
+        let ring = d.get(instance).unwrap().children[0];
+        let mut app = App::new(d);
+        let end_of = |app: &App, id: NodeId| match app.doc.get(id).unwrap().kind {
+            NodeKind::Ellipse(arc) => arc.end,
+            _ => panic!("expected ellipse"),
+        };
+
+        // a point straight below the centre of the ring layer is 90 degrees round, in the layer's own page space
+        let below = |app: &App, id: NodeId| {
+            let w = app.doc.world_transform(id);
+            w.apply(v2(50.0, 100.0))
+        };
+        let to = below(&app, ring);
+        drag_ring_sweep(&mut app, ring, to);
+        assert!((end_of(&app, ring) - std::f32::consts::FRAC_PI_2).abs() < 1e-3, "the instance ring draws a quarter");
+        assert!(app.doc.get(ring).unwrap().component.overrides.contains(&designos_doc::OverrideField::Arc), "the drag is recorded as the ring's own arc");
+        assert!((end_of(&app, main_ring) - std::f32::consts::TAU).abs() < 1e-3, "the main ring is untouched");
+
+        // the main's ring is then dragged to a half circle: the instance keeps its quarter
+        let left = app.doc.world_transform(main_ring).apply(v2(0.0, 50.0));
+        drag_ring_sweep(&mut app, main_ring, left);
+        assert!((end_of(&app, main_ring) - std::f32::consts::PI).abs() < 1e-3, "the main ring draws a half");
+        assert!((end_of(&app, ring) - std::f32::consts::FRAC_PI_2).abs() < 1e-3, "the instance keeps its own quarter");
+    }
+
+    /// What an imported shape carries as its baked outline: a full square. It outranks the shape's own kind when drawn.
+    fn baked_square() -> Vec<designos_doc::Path> {
+        vec![designos_doc::Path {
+            cmds: vec![
+                designos_doc::PathCmd::MoveTo(v2(0.0, 0.0)),
+                designos_doc::PathCmd::LineTo(v2(100.0, 0.0)),
+                designos_doc::PathCmd::LineTo(v2(100.0, 100.0)),
+                designos_doc::PathCmd::LineTo(v2(0.0, 100.0)),
+                designos_doc::PathCmd::Close,
+            ],
+            ..Default::default()
+        }]
+    }
+
+    fn pixels_of(app: &App, id: NodeId) -> Vec<u8> {
+        designos_render::render_node(&app.doc, id, 1.0).expect("render").data().to_vec()
+    }
+
+    /// A main ring with a baked outline and an instance of it; with `own_size` the instance ring is resized (its own size)
+    /// and still holds the outline it had. Returns the app, the main's ring and the instance's ring.
+    fn baked_ring_app(own_size: bool) -> (App, NodeId, NodeId) {
+        let mut d = Document::new("ring");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let main = d.insert(page, designos_doc::Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        let rid = d.alloc_id();
+        let mut ring = designos_doc::Node::ellipse(rid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        ring.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))];
+        ring.fill_geometry = Some(baked_square());
+        let main_ring = d.insert(main, ring).unwrap();
+        designos_doc::create_component(&mut d, main).apply(&mut d).unwrap();
+        let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, main, page, v2(300.0, 0.0)) else { panic!("instance") };
+        let instance = nodes[0].id;
+        designos_doc::Command::Insert { parent: page, index: 1, nodes }.apply(&mut d).unwrap();
+        let ring = d.get(instance).unwrap().children[0];
+        if own_size {
+            let mut n = d.get(ring).unwrap().clone();
+            n.size = v2(60.0, 60.0);
+            n.component.overrides.insert(designos_doc::OverrideField::Size);
+            designos_doc::Command::Update { node: Box::new(n) }.apply(&mut d).unwrap();
+        }
+        assert!(d.get(ring).unwrap().fill_geometry.is_some(), "fixture: the instance ring holds a baked outline");
+        (App::new(d), main_ring, ring)
+    }
+
+    fn drag_control(app: &mut App, id: NodeId, kind: handles::ShapeControlKind, start_count: u32, to: DV) {
+        let mut drag = ShapeControlDragState {
+            tx: Tx::new(),
+            id,
+            kind,
+            start_page: v2(50.0, 12.0),
+            start_count,
+            start_ratio: 0.0,
+            start_end_angle: std::f32::consts::TAU,
+        };
+        update_shape_control(app, &mut drag, to, false);
+        app.run_tx(drag.tx);
+    }
+
+    #[test]
+    fn components_an_arc_drag_on_a_ring_with_a_baked_outline_redraws_it_and_records_the_arc_only() {
+        for own_size in [false, true] {
+            for (what, kind, local) in [
+                ("sweep", handles::ShapeControlKind::EllipseSweep, v2(50.0, 100.0)),
+                ("start", handles::ShapeControlKind::EllipseStartAngle, v2(50.0, 100.0)),
+                ("inner radius", handles::ShapeControlKind::EllipseInnerRadius, v2(75.0, 50.0)),
+            ] {
+                let (mut app, _, ring) = baked_ring_app(own_size);
+                let before = pixels_of(&app, ring);
+                let size_before = app.doc.get(ring).unwrap().size;
+                let mut expected = app.doc.get(ring).unwrap().component.overrides.clone();
+                expected.insert(designos_doc::OverrideField::Arc);
+                let to = app.doc.world_transform(ring).apply(local);
+                drag_control(&mut app, ring, kind, 0, to);
+                let n = app.doc.get(ring).unwrap();
+                let case = format!("{what} drag, own size {own_size}");
+                assert!(n.fill_geometry.is_none() && n.stroke_geometry.is_none(), "the old outline is gone, so the ring is drawn from its arc ({case})");
+                assert_ne!(pixels_of(&app, ring), before, "the drag shows at once ({case})");
+                assert_eq!(n.component.overrides, expected, "the drag records the arc and nothing else ({case})");
+                assert_eq!(n.size, size_before, "the drag does not resize the ring ({case})");
+            }
+        }
+    }
+
+    /// Drags `control` of a shape of `node_kind` that carries a baked outline, and checks the drag shows at once.
+    fn assert_shape_control_drag_redraws_baked_shape(what: &str, node_kind: NodeKind, control: handles::ShapeControlKind, to: DV) {
+        let (mut app, _, _) = app_with_two();
+        let id = app.doc.alloc_id();
+        let mut n = designos_doc::Node::new(id, node_kind);
+        n.size = v2(100.0, 100.0);
+        n.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))];
+        n.fill_geometry = Some(baked_square());
+        let id = app.doc.insert(app.page, n).unwrap();
+        let before = pixels_of(&app, id);
+        drag_control(&mut app, id, control, 5, to);
+        let n = app.doc.get(id).unwrap();
+        assert!(n.fill_geometry.is_none() && n.stroke_geometry.is_none(), "the old outline is gone ({what})");
+        assert_ne!(pixels_of(&app, id), before, "the drag shows at once ({what})");
+    }
+
+    #[test]
+    fn a_star_point_count_drag_with_a_baked_outline_redraws_it() {
+        assert_shape_control_drag_redraws_baked_shape(
+            "star count",
+            NodeKind::Star { count: 5, inner_ratio: 0.38 },
+            handles::ShapeControlKind::StarCount,
+            v2(50.0, -12.0),
+        );
+    }
+
+    #[test]
+    fn a_star_inner_ratio_drag_with_a_baked_outline_redraws_it() {
+        assert_shape_control_drag_redraws_baked_shape(
+            "star inner ratio",
+            NodeKind::Star { count: 5, inner_ratio: 0.38 },
+            handles::ShapeControlKind::StarInnerRatio,
+            v2(80.0, 50.0),
+        );
+    }
+
+    #[test]
+    fn a_polygon_point_count_drag_with_a_baked_outline_redraws_it() {
+        assert_shape_control_drag_redraws_baked_shape(
+            "polygon count",
+            NodeKind::Polygon { count: 5 },
+            handles::ShapeControlKind::PolygonCount,
+            v2(50.0, -12.0),
+        );
+    }
+
+    #[test]
+    fn a_corner_radius_drag_on_a_polygon_with_a_baked_outline_redraws_it() {
+        let (mut app, _, _) = app_with_two();
+        let id = app.doc.alloc_id();
+        let mut n = designos_doc::Node::new(id, NodeKind::Polygon { count: 5 });
+        n.size = v2(100.0, 100.0);
+        n.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))];
+        n.fill_geometry = Some(baked_square());
+        let id = app.doc.insert(app.page, n).unwrap();
+        let before = pixels_of(&app, id);
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: [0.0; 4] });
+        let inp = Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers::NONE,
+            space: false,
+            z_down: false,
+        };
+        let at = app.doc.world_transform(id).apply(v2(20.0, 20.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
+        let Interaction::CornerRadius(cr) = inter else { panic!("still a corner radius drag") };
+        app.run_tx(cr.tx);
+        let n = app.doc.get(id).unwrap();
+        assert_eq!(n.corner_radii, [20.0; 4], "the radius was set");
+        assert!(n.fill_geometry.is_none(), "the old outline is gone");
+        assert_ne!(pixels_of(&app, id), before, "the drag shows at once");
     }
 
     #[test]

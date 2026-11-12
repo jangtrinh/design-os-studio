@@ -17,7 +17,7 @@ use crate::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl OverrideField {
-    pub const ALL: [OverrideField; 17] = [
+    pub const ALL: [OverrideField; 18] = [
         OverrideField::Name,
         OverrideField::Visible,
         OverrideField::Locked,
@@ -35,6 +35,7 @@ impl OverrideField {
         OverrideField::MainComponent,
         OverrideField::SlotContent,
         OverrideField::LockAspect,
+        OverrideField::Arc,
     ];
 }
 
@@ -500,6 +501,9 @@ pub fn record_override(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
     add(before.stroke != after.stroke || before.style_refs.get("stroke") != after.style_refs.get("stroke"), OverrideField::Stroke);
     add(before.effects != after.effects || before.style_refs.get("effect") != after.style_refs.get("effect"), OverrideField::Effects);
     add(before.corner_radii != after.corner_radii || before.corner_smoothing != after.corner_smoothing, OverrideField::CornerRadii);
+    if let (NodeKind::Ellipse(a), NodeKind::Ellipse(b)) = (&before.kind, &after.kind) {
+        add(a != b, OverrideField::Arc);
+    }
     if let (NodeKind::Text(a), NodeKind::Text(b)) = (&before.kind, &after.kind) {
         add(a.content != b.content, OverrideField::Characters);
         add(
@@ -1375,6 +1379,11 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
             copy_style_ref_key("grid", from, to);
         }
         OverrideField::LockAspect => to.lock_aspect = from.lock_aspect,
+        OverrideField::Arc => {
+            if let (NodeKind::Ellipse(a), NodeKind::Ellipse(b)) = (&from.kind, &mut to.kind) {
+                *b = *a;
+            }
+        }
         OverrideField::MainComponent | OverrideField::SlotContent => {}
     }
     copy_variable_bindings_for_field(f, from, to);
@@ -1407,6 +1416,10 @@ pub fn size_comes_from_main(doc: &Document, id: NodeId) -> bool {
 /// Copies every field of `r` that `n` does not override onto `n`.
 fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, PropValue>) {
     let ov = n.component.overrides.clone();
+    let own_arc_before = match &n.kind {
+        NodeKind::Ellipse(a) => Some(*a),
+        _ => None,
+    };
     let own_text = keeps_own_text_size(r, n, values);
     let keep_text_fill = matches!(n.kind, NodeKind::Text(_)) && (ov.contains(&OverrideField::Fills) || ov.contains(&OverrideField::TextStyle));
     let saved_text_fill = keep_text_fill.then(|| {
@@ -1525,9 +1538,20 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         n.component.is_slot = r.component.is_slot;
         n.component.is_slot_content = r.component.is_slot_content;
     }
+    // A baked outline draws the arc it was made for and outranks the arc: one that no longer matches is dropped, so
+    // the ring is drawn from the arc and the size again.
+    if let (NodeKind::Ellipse(ra), Some(own)) = (&r.kind, own_arc_before) {
+        let arc_is_own = ov.contains(&OverrideField::Arc);
+        let outline_is_stale = if arc_is_own { !ov.contains(&OverrideField::Size) } else { ov.contains(&OverrideField::Size) && *ra != own };
+        if outline_is_stale {
+            n.fill_geometry = None;
+            n.stroke_geometry = None;
+        }
+    }
     match (&r.kind, &n.kind) {
         (NodeKind::Text(_), NodeKind::Text(_)) => {}
         (a, b) if a.frame_props().is_some() && b.frame_props().is_some() => {}
+        (NodeKind::Ellipse(_), NodeKind::Ellipse(_)) if ov.contains(&OverrideField::Arc) => {}
         (a, b) if std::mem::discriminant(a) == std::mem::discriminant(b) => n.kind = a.clone(),
         (a, _) => n.kind = a.clone(),
     }
@@ -1614,6 +1638,7 @@ fn effective_child_overrides(d: &Document, old_comp: Option<NodeId>, kn: &Node) 
                     | OverrideField::Visible
                     | OverrideField::Effects
                     | OverrideField::CornerRadii
+                    | OverrideField::Arc
                     | OverrideField::Characters
                     | OverrideField::TextStyle
             ) {

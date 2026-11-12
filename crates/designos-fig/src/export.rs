@@ -346,6 +346,7 @@ fn instance_overrides(doc: &Document, inst_id: NodeId) -> Vec<Value> {
                 OverrideField::Stroke => fields.extend(["strokes", "strokeWeight", "strokeAlign", "strokeCap", "strokeJoin", "strokeDashes"]),
                 OverrideField::Effects => fields.push("effects"),
                 OverrideField::CornerRadii => fields.push("cornerRadius"),
+                OverrideField::Arc => fields.push("arcData"),
                 OverrideField::Characters => fields.push("characters"),
                 OverrideField::TextStyle => fields.push("style"),
                 OverrideField::Layout if !(matches!(n.kind, NodeKind::Instance { .. }) && n.component.layout_cleared) => fields.push("layoutMode"),
