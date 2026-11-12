@@ -3789,8 +3789,7 @@ impl TerminalState {
                     }
                     self.unattached_composer.notice = Some("Queued message restored after tab close".into());
                     // The caption line shows a notice only beside a refused outcome, as it does for a draft returned by a failed start.
-                    self.unattached_composer.last_outcome =
-                        Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
+                    self.unattached_composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
                 }
             }
             let _ = removed.child.kill();
@@ -6019,6 +6018,31 @@ mod workspace_dir_tests {
             let status = st.status_msg.as_deref().unwrap_or_default();
             assert!(status.starts_with("Spawned Custom"), "custom status names the started CLI: {status}");
             assert!(status.contains("No design tools in this session"), "custom status preserves workspace note: {status}");
+            st.shutdown();
+        });
+    }
+
+    /// A resumed Codex session of an untitled design starts through the same function with the `codex resume` command, and
+    /// registers no design server either.
+    #[test]
+    fn a_resumed_codex_session_of_an_untitled_design_registers_no_design_server() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Skip);
+            let resume = format!("codex resume --last --dangerously-bypass-approvals-and-sandbox{}", codex_mcp_overrides!());
+            let idx = st
+                .spawn_tab_with_registration(
+                    AgentCliPreset::Codex,
+                    None,
+                    Some(&resume),
+                    None,
+                    true,
+                    None,
+                    false,
+                    crate::agent_permissions::AgentPermissionMode::Skip,
+                )
+                .expect("the resumed Codex tab starts");
+            let command = st.tabs[idx].spawned_command.as_deref().expect("launch command");
+            assert_eq!(command, "codex resume --last --dangerously-bypass-approvals-and-sandbox");
             st.shutdown();
         });
     }
