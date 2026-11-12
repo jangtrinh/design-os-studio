@@ -1924,6 +1924,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Start-window prompts come first, then the queue in order; a system job never lands in the draft; what was already typed in
+    /// the New chat composer stays and the recovered text follows it.
+    #[test]
+    fn closing_a_tab_keeps_every_waiting_user_message_in_order_after_the_unattached_draft() {
+        let dir = temp_composer_dir("close-tab-restores-order");
+        let mut st = TerminalState::new_for_session("doc-close-order", "Close Order", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.unattached_composer.draft = "typed before".into();
+        let comp = &mut st.active_tab_mut().expect("agent tab").composer;
+        comp.sent_in_start_window.push("sent while starting".into());
+        comp.pending_send.extend([QueuedSend::new("first waiting", false), QueuedSend::new("system image job", true), QueuedSend::new("second waiting", false)]);
+
+        st.close_tab(0);
+
+        assert_eq!(st.unattached_composer.draft, "typed before\n\nsent while starting\n\nfirst waiting\n\nsecond waiting");
+        assert!(!st.unattached_composer.draft.contains("system image job"), "a system job is not user text");
+        assert!(st.unattached_composer.pending_send.is_empty(), "nothing is re-queued for another agent");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A tab that holds only a system job has nothing of the person's to restore: the draft stays as it was.
+    #[test]
+    fn closing_a_tab_with_only_a_system_job_waiting_leaves_the_unattached_draft_alone() {
+        let dir = temp_composer_dir("close-tab-system-only");
+        let mut st = TerminalState::new_for_session("doc-close-system", "Close System", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab_mut().expect("agent tab").composer.pending_send.push_back(QueuedSend::new("system image job", true));
+
+        st.close_tab(0);
+
+        assert_eq!(st.unattached_composer.draft, "");
+        assert_eq!(st.unattached_composer.notice, None);
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // 8. `failed_start_returns_the_text_to_the_draft`
     #[test]
     fn failed_start_returns_the_text_to_the_draft() {
