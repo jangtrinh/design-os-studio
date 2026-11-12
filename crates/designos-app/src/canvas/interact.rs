@@ -997,10 +997,22 @@ pub fn update_shape_control(app: &mut App, s: &mut ShapeControlDragState, cur: D
 }
 
 /// A baked outline (imported from a file) is drawn in preference to the shape's own parameters, so an edit of a ring's
-/// arc or of a star's or polygon's points would not show. The outline is dropped and the shape is drawn from its
-/// parameters again. No override is recorded for it: overrides compare the parameters, not the outline.
-fn drop_baked_outline_of_parametric_shape(n: &mut designos_doc::Node) {
-    if matches!(n.kind, NodeKind::Ellipse(_) | NodeKind::Polygon { .. } | NodeKind::Star { .. }) {
+/// arc, of a star's or polygon's points, or of the corner radius of a rectangle or frame would not show. The outline is
+/// dropped and the shape is drawn from its parameters again. No override is recorded for it: overrides compare the
+/// parameters, not the outline. The canvas handles and the inspector fields both call this.
+pub(crate) fn drop_baked_outline_of_parametric_shape(n: &mut designos_doc::Node) {
+    if matches!(
+        n.kind,
+        NodeKind::Ellipse(_)
+            | NodeKind::Polygon { .. }
+            | NodeKind::Star { .. }
+            | NodeKind::Rectangle
+            | NodeKind::Frame(_)
+            | NodeKind::Component(_)
+            | NodeKind::ComponentSet(_)
+            | NodeKind::Instance { .. }
+            | NodeKind::Section
+    ) {
         n.fill_geometry = None;
         n.stroke_geometry = None;
     }
@@ -3750,17 +3762,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_corner_radius_drag_on_a_polygon_with_a_baked_outline_redraws_it() {
-        let (mut app, _, _) = app_with_two();
-        let id = app.doc.alloc_id();
-        let mut n = designos_doc::Node::new(id, NodeKind::Polygon { count: 5 });
-        n.size = v2(100.0, 100.0);
-        n.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))];
-        n.fill_geometry = Some(baked_square());
-        let id = app.doc.insert(app.page, n).unwrap();
-        let before = pixels_of(&app, id);
-        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: [0.0; 4] });
+    /// Drags the radius handle of `corner` of `id` to `local` (a point in the node's own space), with Alt held for one
+    /// corner alone, and ends the drag.
+    fn drag_corner_radius(app: &mut App, id: NodeId, corner: usize, local: DV, alt: bool) {
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner, start_radii: app.doc.get(id).unwrap().corner_radii });
         let inp = Inp {
             pos: None,
             press_pos: None,
@@ -3773,18 +3778,59 @@ mod tests {
             released: false,
             mid_pressed: false,
             mid_down: false,
-            mods: Modifiers::NONE,
+            mods: Modifiers { alt, ..Modifiers::NONE },
             space: false,
             z_down: false,
         };
-        let at = app.doc.world_transform(id).apply(v2(20.0, 20.0));
-        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
+        let at = app.doc.world_transform(id).apply(local);
+        follow_pointer(app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
         let Interaction::CornerRadius(cr) = inter else { panic!("still a corner radius drag") };
         app.run_tx(cr.tx);
+    }
+
+    /// A 100 x 100 shape of `kind` that carries the baked fill and stroke outline a `.fig` import leaves.
+    fn baked_shape(app: &mut App, kind: NodeKind) -> NodeId {
+        let id = app.doc.alloc_id();
+        let mut n = designos_doc::Node::new(id, kind);
+        n.size = v2(100.0, 100.0);
+        n.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(255, 0, 0))];
+        n.stroke.paints = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0, 0, 255))];
+        n.stroke.weight = 4.0;
+        n.fill_geometry = Some(baked_square());
+        n.stroke_geometry = Some(baked_square());
+        app.doc.insert(app.page, n).unwrap()
+    }
+
+    #[test]
+    fn a_corner_radius_drag_on_a_polygon_with_a_baked_outline_redraws_it() {
+        let (mut app, _, _) = app_with_two();
+        let id = baked_shape(&mut app, NodeKind::Polygon { count: 5 });
+        let before = pixels_of(&app, id);
+        drag_corner_radius(&mut app, id, 0, v2(20.0, 20.0), false);
         let n = app.doc.get(id).unwrap();
         assert_eq!(n.corner_radii, [20.0; 4], "the radius was set");
         assert!(n.fill_geometry.is_none(), "the old outline is gone");
         assert_ne!(pixels_of(&app, id), before, "the drag shows at once");
+    }
+
+    #[test]
+    fn a_corner_radius_drag_on_a_rectangle_or_frame_with_a_baked_outline_redraws_it() {
+        for (what, kind) in [("rectangle", NodeKind::Rectangle), ("frame", NodeKind::Frame(designos_doc::FrameProps::default()))] {
+            // every corner at once, and bottom-right alone with Alt held
+            for (corner, local, alt, want) in
+                [(0, v2(20.0, 20.0), false, [20.0; 4]), (2, v2(80.0, 80.0), true, [0.0, 0.0, 20.0, 0.0]), (1, v2(70.0, 30.0), true, [0.0, 30.0, 0.0, 0.0])]
+            {
+                let (mut app, _, _) = app_with_two();
+                let id = baked_shape(&mut app, kind.clone());
+                let before = pixels_of(&app, id);
+                drag_corner_radius(&mut app, id, corner, local, alt);
+                let n = app.doc.get(id).unwrap();
+                let case = format!("{what}, corner {corner}, alt {alt}");
+                assert_eq!(n.corner_radii, want, "the radius was set ({case})");
+                assert!(pixels_of(&app, id) != before, "the drag shows at once ({case})");
+                assert!(n.fill_geometry.is_none() && n.stroke_geometry.is_none(), "the old outline is gone, so the new radius is what draws ({case})");
+            }
+        }
     }
 
     #[test]
