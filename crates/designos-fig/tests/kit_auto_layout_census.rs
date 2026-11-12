@@ -79,6 +79,24 @@ fn frame_free_space(doc: &Document, fid: NodeId) -> Option<(AutoLayout, f32, usi
     Some((al, free, kids.len()))
 }
 
+/// Whether the layer, or an ancestor below its page, is hidden. Figma defers building invisible instance subtrees, so the
+/// stored geometry in there is not a layout result: the census reports those layers apart from the visible ones.
+fn in_hidden_subtree(doc: &Document, mut id: NodeId) -> bool {
+    loop {
+        let Some(n) = doc.get(id) else { return false };
+        if matches!(n.kind, NodeKind::Page { .. }) {
+            return false;
+        }
+        if !n.visible {
+            return true;
+        }
+        match n.parent {
+            Some(parent) => id = parent,
+            None => return false,
+        }
+    }
+}
+
 #[test]
 #[ignore = "reads kit path from DESIGNOS_KIT_PATH env var"]
 fn kit_auto_layout_relayout_census() {
@@ -221,6 +239,8 @@ fn kit_auto_layout_relayout_census() {
     eprintln!("total_auto_layout_frames_on_pages={}", frame_info.keys().filter(|id| before_bounds.contains_key(id)).count());
     eprintln!("total_end_or_center_neg_free_frames={}", total_end_center_neg_frames);
     eprintln!("total_moved_page_layers_gt_0_5px={}", moved_ids.len());
+    let moved_in_hidden_subtree = moved_ids.iter().filter(|(id, _)| in_hidden_subtree(&doc, *id)).count();
+    eprintln!("moved_in_hidden_subtree={} moved_visible={}", moved_in_hidden_subtree, moved_ids.len() - moved_in_hidden_subtree);
     eprintln!("moved_page_layers_caused_by_end_or_center_neg_free={}", moved_in_end_center_neg);
     eprintln!("direct_children_moved_in_end_or_center_neg_free={} (across {} frames)", direct_end_center_neg_children, direct_end_center_neg_frames);
     eprintln!(
