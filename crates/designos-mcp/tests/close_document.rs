@@ -543,6 +543,9 @@ fn a_stale_result_file_from_a_former_process_is_not_this_closes_answer() {
 fn stale_result_plus_editor_refusal_is_not_closed() {
     let dir = Workspace::new();
     let (session_dir, mut s) = live_session(&dir, 10);
+    // The simulated editor answers as soon as the server returns from its wait for the answer; a slow runner must not turn that
+    // into a timeout, so this test does not depend on the short acknowledgement window the other tests use.
+    s.set_close_ack_timeout(Duration::from_secs(10));
     s.call("designos_save_file", json!({"path": "design.designos"})).unwrap();
     make_dirty(&mut s);
     leave_stale_close_files(&session_dir);
