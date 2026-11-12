@@ -1967,7 +1967,11 @@ mod tests {
         st.unattached_composer.draft = "typed before".into();
         let comp = &mut st.active_tab_mut().expect("agent tab").composer;
         comp.sent_in_start_window.push("sent while starting".into());
-        comp.pending_send.extend([QueuedSend::new("first waiting", false), QueuedSend::new("system image job", true), QueuedSend::new("second waiting", false)]);
+        comp.pending_send.extend([
+            QueuedSend::new("first waiting", false),
+            QueuedSend::new("system image job", true),
+            QueuedSend::new("second waiting", false),
+        ]);
 
         st.close_tab(0);
 
