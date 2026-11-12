@@ -439,14 +439,33 @@ def record_gap_event(message: str, target: str = "crates/designos-app/src/theme.
 
 
 def parse_rust_theme_constants(theme_src: str) -> Dict[str, str]:
-    """Extracts `pub const <NAME>: Color32 = rgb(0xRRGGBB);` into lowercase `#rrggbb` strings."""
+    """Extract literal ``Color32`` constants into lowercase ``#rrggbb`` strings.
+
+    Keep both the project ``rgb(0xRRGGBB)`` helper and explicit egui
+    ``Color32::from_rgb(0xRR, 0xGG, 0xBB)`` constructors in the audit.  The
+    latter is valid Rust and must not bypass the Purple Ban or token parity
+    checks.
+    """
     pattern = re.compile(
-        r"pub\s+const\s+([A-Z0-9_]+)\s*:\s*Color32\s*=\s*rgb\(\s*0x([0-9a-fA-F]{6})\s*\)\s*;"
+        r"pub\s+const\s+(?P<name>[A-Z0-9_]+)\s*:\s*Color32\s*=\s*"
+        r"(?:(?:rgb|rgba)\(\s*0x(?P<packed>[0-9a-fA-F]{6})"
+        r"(?:\s*,\s*0x[0-9a-fA-F]{2})?\s*\)"
+        r"|Color32::from_rgb\(\s*(?P<red>0x[0-9a-fA-F]{1,2}|\d{1,3})\s*,\s*"
+        r"(?P<green>0x[0-9a-fA-F]{1,2}|\d{1,3})\s*,\s*"
+        r"(?P<blue>0x[0-9a-fA-F]{1,2}|\d{1,3})\s*\))\s*;"
     )
     extracted: Dict[str, str] = {}
+    def channel_value(token: str) -> int:
+        return int(token[2:], 16) if token.lower().startswith("0x") else int(token, 10)
     for match in pattern.finditer(theme_src):
-        name = match.group(1)
-        hex_val = f"#{match.group(2).lower()}"
+        name = match.group("name")
+        packed = match.group("packed")
+        if packed is None:
+            channels = [channel_value(match.group(channel)) for channel in ("red", "green", "blue")]
+            if any(channel > 255 for channel in channels):
+                continue
+            packed = "".join(f"{channel:02x}" for channel in channels)
+        hex_val = f"#{packed.lower()}"
         extracted[name] = hex_val
     return extracted
 
@@ -464,12 +483,13 @@ def extract_design_token_colors(tokens_data: Dict[str, Any]) -> Dict[str, str]:
 
 
 def purple_band_constants(theme_src: str) -> List[str]:
-    """Every Color32 constant except BOARD_*: an rgb()/rgba() literal with hue 255-300 deg and HSL saturation > 0.25."""
+    """Every Color32 literal except BOARD_* with hue 255-300° and HSL S > .25."""
     import colorsys
     hits: List[str] = []
-    for name, hx in re.findall(r"^pub const ([A-Z0-9_]+): Color32 = rgba?\(0x([0-9A-Fa-f]{6})", theme_src, re.M):
+    for name, hex_value in parse_rust_theme_constants(theme_src).items():
         if name.startswith("BOARD_"):
             continue
+        hx = hex_value[1:]
         r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4))
         h, _, sat = colorsys.rgb_to_hls(r, g, b)
         if 255 <= h * 360 <= 300 and sat > 0.25:
@@ -483,6 +503,12 @@ _COLOUR_CONST_RE = re.compile(r"^pub const ([A-Z0-9_]+): (Color32|\[Color32; \d+
 _COLOUR_DECL_RE = re.compile(r"^pub const ([A-Z0-9_]+)\s*:\s*\[?Color32", re.M)
 _RGB_RE = re.compile(r"rgb\(\s*0x([0-9A-Fa-f]{6})\s*\)")
 _RGBA_RE = re.compile(r"rgba\(\s*0x([0-9A-Fa-f]{6})\s*,\s*0x([0-9A-Fa-f]{2})\s*\)")
+_FROM_RGB_RE = re.compile(
+    r"Color32::from_rgb\(\s*(0x[0-9A-Fa-f]{1,2}|\d{1,3})\s*,\s*"
+    r"(0x[0-9A-Fa-f]{1,2}|\d{1,3})\s*,\s*(0x[0-9A-Fa-f]{1,2}|\d{1,3})\s*\)"
+)
+def _rgb_channel_value(token: str) -> int:
+    return int(token[2:], 16) if token.lower().startswith("0x") else int(token, 10)
 
 
 def parse_theme_colour_values(theme_src: str) -> Dict[str, Optional[str]]:
@@ -501,6 +527,11 @@ def parse_theme_colour_values(theme_src: str) -> Dict[str, Optional[str]]:
             return f"#{m.group(1).upper()}"
         if m := _RGBA_RE.fullmatch(expr):
             return f"#{m.group(1).upper()}{m.group(2).upper()}"
+        if m := _FROM_RGB_RE.fullmatch(expr):
+            channels = [_rgb_channel_value(value) for value in m.groups()]
+            if all(channel <= 255 for channel in channels):
+                return "#" + "".join(f"{channel:02X}" for channel in channels)
+            return None
         if expr in exprs and name not in seen:
             return resolve(expr, seen + (name,))
         return None
