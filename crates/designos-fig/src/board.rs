@@ -101,6 +101,92 @@ fn cap_name(c: ConnectorCap) -> &'static str {
     }
 }
 
+fn connector_extra(v: &Value) -> BTreeMap<String, Value> {
+    const KNOWN: &[&str] = &[
+        "id",
+        "type",
+        "name",
+        "visible",
+        "locked",
+        "opacity",
+        "blendMode",
+        "size",
+        "relativeTransform",
+        "absoluteBoundingBox",
+        "fills",
+        "strokes",
+        "strokeWeight",
+        "strokeAlign",
+        "strokeCap",
+        "strokeJoin",
+        "strokeDashes",
+        "effects",
+        "cornerRadius",
+        "rectangleCornerRadii",
+        "constraints",
+        "children",
+        "pluginData",
+        "connectorStart",
+        "connectorEnd",
+        "connectorLineType",
+        "connectorStartStrokeCap",
+        "connectorEndStrokeCap",
+        "characters",
+        "style",
+        "text",
+        "textAlignHorizontal",
+        "textAlignVertical",
+        "fontSize",
+        "fontFamily",
+        "fontWeight",
+    ];
+    v.as_object().into_iter().flat_map(|o| o.iter()).filter(|(k, _)| !KNOWN.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
+fn board_extra(v: &Value, known: &[&str]) -> BTreeMap<String, Value> {
+    v.as_object().into_iter().flat_map(|o| o.iter()).filter(|(k, _)| !known.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
+const STICKY_KNOWN: &[&str] = &[
+    "id",
+    "type",
+    "name",
+    "visible",
+    "locked",
+    "opacity",
+    "blendMode",
+    "size",
+    "relativeTransform",
+    "absoluteBoundingBox",
+    "fills",
+    "strokes",
+    "strokeWeight",
+    "strokeAlign",
+    "strokeCap",
+    "strokeJoin",
+    "strokeDashes",
+    "effects",
+    "cornerRadius",
+    "rectangleCornerRadii",
+    "constraints",
+    "children",
+    "pluginData",
+    "characters",
+    "style",
+    "text",
+    "textAlignHorizontal",
+    "textAlignVertical",
+    "fontSize",
+    "fontFamily",
+    "fontWeight",
+    "authorVisible",
+    "authorName",
+    "fillGeometry",
+    "strokeGeometry",
+];
+
+const SHAPE_KNOWN: &[&str] = STICKY_KNOWN;
+
 fn magnet_from_name(s: Option<&str>) -> Magnet {
     match s {
         Some("TOP") => Magnet::Top,
@@ -153,12 +239,14 @@ pub(crate) fn kind_from_json(ty: &str, v: &Value, origin: Vec2) -> Option<NodeKi
             p.text = board_text_props(v, p.text);
             p.show_author = fbool(v, "authorVisible").unwrap_or(false);
             p.author = fstr(v, "authorName").map(String::from).filter(|s| !s.is_empty());
+            p.extra = board_extra(v, STICKY_KNOWN);
             NodeKind::Sticky(p)
         }
         "SHAPE_WITH_TEXT" => {
             let shape_str = fstr(v, "shapeType").or_else(|| fstr(v, "shapeWithTextType"));
             let mut p = ShapeWithTextProps { shape: shape_str.map(shape_from_name).unwrap_or_default(), ..Default::default() };
             p.text = board_text_props(v, p.text);
+            p.extra = board_extra(v, SHAPE_KNOWN);
             NodeKind::ShapeWithText(p)
         }
         "STAMP" => NodeKind::Stamp { kind: stamp_kind(v) },
@@ -184,6 +272,7 @@ pub(crate) fn kind_from_json(ty: &str, v: &Value, origin: Vec2) -> Option<NodeKi
                 start_cap: cap_from_name(fstr(v, "connectorStartStrokeCap")),
                 end_cap: cap_from_name(fstr(v, "connectorEndStrokeCap")),
                 label: None,
+                extra: connector_extra(v),
             };
             let label = board_text_props(v, board_text(14.0, TextAlignH::Center, TextAlignV::Center));
             if !label.content.is_empty() {
@@ -413,10 +502,12 @@ pub(crate) fn export_fields(node: &Node, origin: Vec2, m: &mut Map<String, Value
                 m.insert("authorName".into(), a.clone().into());
             }
             text_fields(m, &s.text);
+            m.extend(s.extra.clone());
         }
         NodeKind::ShapeWithText(s) => {
             m.insert("shapeType".into(), shape_name(s.shape).into());
             text_fields(m, &s.text);
+            m.extend(s.extra.clone());
         }
         NodeKind::Stamp { kind } => {
             m.insert("stampType".into(), kind.clone().into());
@@ -447,6 +538,7 @@ pub(crate) fn export_fields(node: &Node, origin: Vec2, m: &mut Map<String, Value
             if let Some(l) = &c.label {
                 text_fields(m, l);
             }
+            m.extend(c.extra.clone());
         }
         _ => {}
     }

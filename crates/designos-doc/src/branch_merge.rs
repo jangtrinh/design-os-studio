@@ -2120,6 +2120,7 @@ mod tests {
                 start_cap: ConnectorCap::None,
                 end_cap: ConnectorCap::Arrow,
                 label: None,
+                ..Default::default()
             }),
         );
         conn_node.name = "Branch Connector".into();

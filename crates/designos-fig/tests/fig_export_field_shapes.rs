@@ -274,6 +274,7 @@ fn every_connector_cap_round_trips_on_figmas_stroke_cap_values() {
                 start_cap: *start,
                 end_cap: *end,
                 label: None,
+                ..Default::default()
             };
             let mut n = Node::connector(id, props);
             n.name = format!("C{i}{j}");
