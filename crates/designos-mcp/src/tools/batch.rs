@@ -2350,6 +2350,15 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 let Some(former_parent) = cur_node.parent else {
                     return Err(op_failed_error(op_idx, op_name, ErrorCode::PageRootProtected, &op_path, "page roots cannot be deleted by this tool"));
                 };
+                if crate::engine::is_protected_instance_child(&trial, cur_node, former_parent) {
+                    return Err(op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::FieldNotAllowedOnInstance,
+                        &format!("{op_path}/node"),
+                        crate::engine::INSTANCE_CHILD_DELETE_MESSAGE,
+                    ));
+                }
                 let deleted_bounds = node_page_bounds(&trial, id);
                 let parent_bounds_before = {
                     let pb = node_page_bounds(&trial, former_parent);
@@ -4630,6 +4639,36 @@ mod tests {
     #[test]
     fn move_node_unions_old_and_new_bounds() {
         move_includes_both_positions();
+    }
+
+    #[test]
+    fn batch_delete_rejects_a_linked_instance_child_and_leaves_the_document_unchanged() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let component_id = engine.doc.alloc_id();
+        let mut component = Node::new(component_id, designos_doc::NodeKind::Component(designos_doc::FrameProps::default()));
+        component.name = "Card".into();
+        engine.doc.insert(page, component).unwrap();
+        let child_id = engine.doc.alloc_id();
+        engine.doc.insert(component_id, Node::rectangle(child_id, designos_doc::Rect::new(0.0, 0.0, 80.0, 24.0))).unwrap();
+        designos_doc::create_instance(&mut engine.doc, component_id, page, designos_doc::Vec2::new(160.0, 0.0)).apply(&mut engine.doc).unwrap();
+        let instance_id = designos_doc::instances_of(&engine.doc, component_id)[0];
+        let instance_child = engine.doc.get(instance_id).unwrap().children[0];
+        let before = engine.doc.to_json().unwrap();
+
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": instance_child.0 }] }))
+            .expect_err("deleting a mirrored layer inside an instance must be refused");
+
+        assert_eq!(err.code, ErrorCode::BatchOpFailed, "{err}");
+        let cause = err.cause.as_deref().expect("the batch error names the cause");
+        assert_eq!(cause.code, ErrorCode::FieldNotAllowedOnInstance, "{err}");
+        assert_eq!(cause.path, "/ops/0/node");
+        assert_eq!(engine.doc.to_json().unwrap(), before, "a refused batch must leave the document untouched");
+        assert!(!engine.history.can_undo(), "a refused batch must not create history");
+
+        let ok = engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": instance_id.0 }] }));
+        assert!(ok.is_ok(), "deleting the instance root stays allowed: {ok:?}");
     }
 
     #[test]

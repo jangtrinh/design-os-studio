@@ -118,6 +118,15 @@ pub struct Engine {
     pub ledger_entries: usize,
 }
 
+/// Layers mirrored inside a component instance cannot be deleted one by one: the
+/// editor refuses it, and a recursive remove would leave the instance with stale
+/// geometry. Direct children of an instance slot and instance roots stay deletable.
+pub(crate) fn is_protected_instance_child(doc: &Document, node: &Node, former_parent: NodeId) -> bool {
+    designos_doc::is_linked(node) && !designos_doc::is_top_instance(node) && !designos_doc::is_instance_slot(doc, former_parent)
+}
+
+pub(crate) const INSTANCE_CHILD_DELETE_MESSAGE: &str = "layers inside an instance cannot be deleted; hide the layer or edit an instance slot instead";
+
 impl Engine {
     pub fn new() -> Self {
         Self::default()
@@ -644,12 +653,8 @@ impl Engine {
                 };
                 let id = n.id;
                 self.check_owned_frames(id, "/node_id")?;
-                if designos_doc::is_linked(n) && !designos_doc::is_top_instance(n) && !designos_doc::is_instance_slot(&self.doc, former_parent) {
-                    return Err(ToolError::new(
-                        ErrorCode::FieldNotAllowedOnInstance,
-                        "/node_id",
-                        "layers inside an instance cannot be deleted; hide the layer or edit an instance slot instead",
-                    ));
+                if is_protected_instance_child(&self.doc, n, former_parent) {
+                    return Err(ToolError::new(ErrorCode::FieldNotAllowedOnInstance, "/node_id", INSTANCE_CHILD_DELETE_MESSAGE));
                 }
                 let before_doc = a.diff_image.then(|| self.doc.clone());
                 let baseline =
