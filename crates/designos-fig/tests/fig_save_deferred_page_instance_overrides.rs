@@ -120,6 +120,83 @@ fn export_of_a_deferred_page_instance_keeps_a_component_property_it_sets_on_a_ne
 }
 
 #[test]
+fn a_main_edit_and_sync_keeps_the_deferred_instance_record() {
+    let mut live = import_fig(&deferred_fixture()).expect("import");
+    let main = live.nodes.values().find(|n| n.name == "Buttons/Button" && matches!(n.kind, NodeKind::Component(_))).expect("main").id;
+    let label = live.get(main).expect("main").children[0];
+    live.get_mut(label).expect("label").size.x += 5.0;
+    sync_instances(&mut live, main).apply(&mut live).expect("sync");
+
+    let saved = export_fig(&live).expect("export");
+    assert_eq!(reopened_label(&saved), "Go back", "sync must not replace the override record of an unopened instance");
+}
+
+fn button_main(doc: &Document) -> NodeId {
+    doc.nodes.values().find(|n| n.name == "Buttons/Button" && matches!(n.kind, NodeKind::Component(_))).expect("main").id
+}
+
+fn child_names(doc: &Document, parent: NodeId) -> Vec<String> {
+    doc.get(parent).expect("parent").children.iter().map(|&c| doc.get(c).expect("child").name.clone()).collect()
+}
+
+#[test]
+fn an_unopened_instance_gets_the_latest_main_children_and_its_record_when_the_page_opens() {
+    let mut live = import_fig(&deferred_fixture()).expect("import");
+    let page = page_named(&live, "404 pages");
+    let inst = variant_button(&live);
+    let main = button_main(&live);
+    let label = live.get(main).expect("main").children[0];
+    let icon = live.get(main).expect("main").children[1];
+
+    live.get_mut(label).expect("label").size.x += 5.0;
+    sync_instances(&mut live, main).apply(&mut live).expect("sync after a resize");
+    let nodes = duplicate_subtree(&mut live, icon);
+    let extra = nodes[0].id;
+    Command::Insert { parent: main, index: 2, nodes }.apply(&mut live).expect("insert");
+    live.get_mut(extra).expect("extra").name = "Extra".into();
+    sync_instances(&mut live, main).apply(&mut live).expect("sync after an insert");
+    if let NodeKind::Text(t) = &mut live.get_mut(label).expect("label").kind {
+        t.content = "Main text v2".into();
+        t.runs.clear();
+    }
+    sync_instances(&mut live, main).apply(&mut live).expect("sync after a text edit");
+    assert!(live.get(inst).expect("instance").children.is_empty(), "the instance stays unexpanded while its page is unopened");
+
+    assert!(live.ensure_page_hydrated(page));
+    assert_eq!(child_names(&live, inst).len(), 3, "the instance has the main's latest children");
+    assert!(child_names(&live, inst).iter().any(|n| n == "Extra"));
+    assert_eq!(label_of(&live, inst), "Go back", "the record's text override applies on open");
+    let opened_icon = live.get(inst).expect("instance").children.iter().copied().find(|&c| live.get(c).is_some_and(|n| n.name == "Icon")).expect("icon");
+    assert!((live.get(opened_icon).expect("icon").stroke.weight - 1.6666666).abs() < 1e-4, "the record's stroke override applies on open");
+    let opened_label =
+        live.get(inst).expect("instance").children.iter().copied().find(|&c| matches!(live.get(c).map(|n| &n.kind), Some(NodeKind::Text(_)))).expect("label");
+    assert!((live.get(opened_label).expect("label").size.x - live.get(label).expect("main label").size.x).abs() < 1e-3, "the width of the latest main");
+}
+
+#[test]
+fn an_unopened_instance_of_a_main_emptied_and_refilled_gets_the_current_children_on_open() {
+    let mut live = import_fig(&deferred_fixture()).expect("import");
+    let page = page_named(&live, "404 pages");
+    let inst = variant_button(&live);
+    let main = button_main(&live);
+    let kids = live.get(main).expect("main").children.clone();
+    let icon_copy = duplicate_subtree(&mut live, kids[1]);
+    for k in kids {
+        Command::Remove { id: k }.apply(&mut live).expect("remove");
+    }
+    sync_instances(&mut live, main).apply(&mut live).expect("sync the empty main");
+    assert!(live.get(inst).expect("instance").children.is_empty());
+    let only = icon_copy[0].id;
+    Command::Insert { parent: main, index: 0, nodes: icon_copy }.apply(&mut live).expect("insert");
+    live.get_mut(only).expect("copy").name = "Only".into();
+    sync_instances(&mut live, main).apply(&mut live).expect("sync the refilled main");
+    assert!(live.get(inst).expect("instance").children.is_empty(), "the instance stays unexpanded while its page is unopened");
+
+    assert!(live.ensure_page_hydrated(page));
+    assert_eq!(child_names(&live, inst), vec!["Only".to_string()]);
+}
+
+#[test]
 fn export_of_a_deferred_page_instance_points_its_geometry_at_the_blobs_of_the_saved_file() {
     // The entry names blob 3 of the file it came from; the saved file has a blob table of its own.
     let wanted = line_blob(7.0);

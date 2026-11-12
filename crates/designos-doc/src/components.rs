@@ -2271,6 +2271,14 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     apply_bindings(&mut n, &values);
     c.update(n);
 
+    // An instance on an unopened page, or one the loader left empty, has no children yet, and the page loader holds what
+    // the file recorded for them (its overrides and derived data). Filling it from the main would make the save write it
+    // from those nodes instead of from the record, so only its own properties follow the main until the page is opened.
+    let holds_record = |d: &Document| d.pending_instance_overrides(i).is_some() || d.pending_instance_derived(i).is_some();
+    if c.s.get(i).is_some_and(|x| matches!(x.kind, NodeKind::Instance { .. }) && x.children.is_empty()) && holds_record(c.s) {
+        return;
+    }
+
     // --- children ---
     // A slot the user has edited keeps its content; once the override is cleared (Reset) the slot
     // mirrors the main component's children again, including dropping anything the user added.
