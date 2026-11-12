@@ -282,13 +282,27 @@ fn saved_files_from_earlier_releases_open_clean_and_save_stable() {
         let b: serde_json::Value = serde_json::from_str(&once).unwrap();
         let mut diffs = Vec::new();
         json_diff(&a, &b, String::new(), &mut diffs);
-        // Style metadata is the one thing a load adds to older files: a record per text style
+        // Style metadata is what a load adds to older files: a record per text style
         // (paragraph fields, and the name and property of a style saved without any).
         let before = diffs.len();
         diffs.retain(|d| !d.starts_with("/style_meta/"));
-        println!("  {rel}: {} style metadata entries added, {} other differences", before - diffs.len(), diffs.len());
+        let style_entries = before - diffs.len();
+        // The other addition is the marker that says the copy layer links of the file were checked.
+        diffs.retain(|d| d != COPY_LINKS_MARKER);
+        println!("  {rel}: {style_entries} style metadata entries added, {} other differences", diffs.len());
         assert!(diffs.is_empty(), "{rel}: the saved file differs from the file that was opened at {:?}", &diffs[..diffs.len().min(10)]);
     }
+}
+
+/// The field a saved document carries once its copy layer links were checked (see `relink_copy_layers`).
+const COPY_LINKS_MARKER: &str = "/copy_links_checked";
+
+/// `saved` without the copy-links marker, which an older file does not carry.
+fn without_copy_links_marker(saved: &str) -> serde_json::Value {
+    let mut value: serde_json::Value = serde_json::from_str(saved).unwrap();
+    let removed = value.as_object_mut().unwrap().remove(&COPY_LINKS_MARKER[1..]);
+    assert_eq!(removed, Some(serde_json::Value::Bool(true)), "a saved document carries the marker");
+    value
 }
 
 /// Collects the JSON paths at which `a` and `b` differ (long values are not printed).
@@ -330,7 +344,7 @@ fn the_design_file_fixture_with_board_items_opens_clean_and_saves_the_same_data(
         assert!(names.contains(&want), "fixture lacks a {want}: {names:?}");
     }
     let before: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let after: serde_json::Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();
+    let after = without_copy_links_marker(&doc.to_json().unwrap());
     assert_eq!(before, after);
 }
 
@@ -340,7 +354,7 @@ fn the_fixture_with_fields_from_a_newer_release_keeps_them_through_load_and_save
     let (doc, report) = Document::from_json_with_report(&text).unwrap();
     assert!(report.is_clean(), "{report:?}");
     let before: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let after: serde_json::Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();
+    let after = without_copy_links_marker(&doc.to_json().unwrap());
     assert_eq!(before, after, "a field this version does not know was dropped");
     let carried = doc.nodes.values().filter(|n| matches!(&n.kind, NodeKind::Sticky(s) if s.extra.contains_key("vote_count"))).count();
     assert_eq!(carried, 1, "the top-level sticky carries its vote count");

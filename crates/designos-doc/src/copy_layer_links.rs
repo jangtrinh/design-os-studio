@@ -125,3 +125,12 @@ pub fn relink_copy_layers(doc: &mut Document) -> usize {
     }
     relinked
 }
+
+/// `json` as a release before the marker wrote it: the saved document ends with the marker, and an older file does not.
+#[cfg(test)]
+pub(crate) fn without_marker(json: &str) -> String {
+    match json.strip_suffix(",\"copy_links_checked\":true}") {
+        Some(head) => format!("{head}}}"),
+        None => json.to_string(),
+    }
+}
