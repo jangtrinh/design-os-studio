@@ -37,6 +37,7 @@ mod components;
 mod connector_home;
 mod connector_index;
 mod connector_route_cache;
+mod cycle_refusal;
 mod dev;
 pub mod diff;
 pub mod find;
@@ -129,6 +130,7 @@ pub use connector_index::*;
 pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
 #[cfg(any(test, feature = "fixtures"))]
 pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
+pub use cycle_refusal::*;
 pub use dev::*;
 pub use diff::*;
 pub use geom::*;

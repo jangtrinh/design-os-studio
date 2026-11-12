@@ -1261,29 +1261,14 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             if !ov.variant.is_empty() {
                 swapped_with_variant = true;
             }
-            if let Some(held) = held_main_at(doc, new_comp, target_id) {
-                let held_name = cycle_node_label(doc, held);
-                return Err(SpecError::named(
-                    "INSTANCE_CYCLE",
-                    format!(
-                        "Cannot swap nested instance to component '{swap_ref}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle)"
-                    ),
-                    Some("overrides.swap".into()),
-                    Vec::new(),
-                    None,
-                ));
+            if let Some((held, path)) = held_main_cycle_path_at(doc, new_comp, target_id, &[]) {
+                let message = cycle_refusal_message(CycleAction::Swap, &cycle_node_label(doc, held), &path);
+                return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.swap".into()), Vec::new(), None));
             }
             if new_comp == target_id || doc.is_ancestor(new_comp, target_id) {
-                let target_name = cycle_node_label(doc, new_comp);
-                return Err(SpecError::named(
-                    "INSTANCE_CYCLE",
-                    format!(
-                        "Cannot swap nested instance to ancestor component '{target_name}': that would make a component hold an instance of itself (cycle)"
-                    ),
-                    Some("overrides.swap".into()),
-                    Vec::new(),
-                    None,
-                ));
+                let path = nested_loop_path(doc, new_comp, doc.get(target_id).and_then(|n| n.parent));
+                let message = cycle_refusal_message(CycleAction::Swap, &cycle_node_label(doc, new_comp), &path);
+                return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.swap".into()), Vec::new(), None));
             }
             let cmd = swap_instance(doc, target_id, new_comp);
             cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
@@ -1668,9 +1653,13 @@ fn child_matches_preferred(doc: &Document, child: &Node, preferred: &[NodeId]) -
     None
 }
 
-fn has_instance_cycle(doc: &Document, parent: NodeId, resolved_id: NodeId, variant_comp_id: NodeId) -> bool {
-    if parent == variant_comp_id || doc.is_ancestor(variant_comp_id, parent) || parent == resolved_id || doc.is_ancestor(resolved_id, parent) {
-        return true;
+/// The node that an instance of `resolved_id` / `variant_comp_id` under `parent` would sit inside, when that is the
+/// component itself, its set, or an instance of either, with the path of the loop it closes.
+fn instance_cycle_path(doc: &Document, parent: NodeId, resolved_id: NodeId, variant_comp_id: NodeId) -> Option<(NodeId, Vec<String>)> {
+    for owner in [variant_comp_id, resolved_id] {
+        if parent == owner || doc.is_ancestor(owner, parent) {
+            return Some((owner, nested_loop_path(doc, owner, Some(parent))));
+        }
     }
     let mut cur = Some(parent);
     while let Some(cid) = cur {
@@ -1682,12 +1671,15 @@ fn has_instance_cycle(doc: &Document, parent: NodeId, resolved_id: NodeId, varia
                 .filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))))
                 .unwrap_or(anc_comp);
             if anc_comp == variant_comp_id || anc_comp == resolved_id || anc_owner == resolved_id || anc_owner == variant_comp_id {
-                return true;
+                let mut path = vec![cycle_node_label(doc, anc_comp)];
+                path.extend(container_labels_between(doc, cid, Some(parent)));
+                path.push(cycle_node_label(doc, anc_comp));
+                return Some((anc_comp, path));
             }
         }
         cur = cn.parent;
     }
-    false
+    None
 }
 
 /// Applies `slots` (`SlotFillSpec::Disabled` or `SlotFillSpec::Fill`) onto `instance_id` (E15-2).
@@ -1940,28 +1932,13 @@ impl Document {
         let variant_comp_id = resolve_variant_component(self, resolved_id, &spec.variant, None, Some(spec))?;
 
         // Cycle check (§8.5 / E15-2 §8.3): cannot instantiate a component inside itself, its ComponentSet, or an instance of itself
-        if let Some(held) = held_main_at(self, variant_comp_id, parent) {
-            let held_name = cycle_node_label(self, held);
-            return Err(SpecError::named(
-                "INSTANCE_CYCLE",
-                format!(
-                    "Cannot place an instance of component '{comp_ref}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle)"
-                ),
-                Some("component".into()),
-                Vec::new(),
-                None,
-            ));
+        if let Some((held, path)) = held_main_cycle_path_at(self, variant_comp_id, parent, &[]) {
+            let message = cycle_refusal_message(CycleAction::Add, &cycle_node_label(self, held), &path);
+            return Err(SpecError::named("INSTANCE_CYCLE", message, Some("component".into()), Vec::new(), None));
         }
-        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) {
-            return Err(SpecError::named(
-                "INSTANCE_CYCLE",
-                format!(
-                    "Cannot place an instance of component '{comp_ref}' inside its own definition or enclosing instance: that would make a component hold an instance of itself (cycle)"
-                ),
-                Some("component".into()),
-                Vec::new(),
-                None,
-            ));
+        if let Some((owner, path)) = instance_cycle_path(self, parent, resolved_id, variant_comp_id) {
+            let message = cycle_refusal_message(CycleAction::Add, &cycle_node_label(self, owner), &path);
+            return Err(SpecError::named("INSTANCE_CYCLE", message, Some("component".into()), Vec::new(), None));
         }
 
         let cmd = create_instance(self, variant_comp_id, parent, Vec2::new(spec.x, spec.y));

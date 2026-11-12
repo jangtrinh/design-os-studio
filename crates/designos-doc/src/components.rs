@@ -688,7 +688,7 @@ pub fn cycle_node_label(doc: &Document, id: NodeId) -> String {
     doc.get(id).map(|n| if n.name.trim().is_empty() { n.kind.default_name().to_string() } else { n.name.clone() }).unwrap_or_else(|| "Layer".to_string())
 }
 
-fn container_labels_between(doc: &Document, ancestor: NodeId, leaf_parent: Option<NodeId>) -> Vec<String> {
+pub(crate) fn container_labels_between(doc: &Document, ancestor: NodeId, leaf_parent: Option<NodeId>) -> Vec<String> {
     let mut chain = Vec::new();
     let mut cur = leaf_parent;
     let mut guard = 0usize;
@@ -704,7 +704,7 @@ fn container_labels_between(doc: &Document, ancestor: NodeId, leaf_parent: Optio
     chain
 }
 
-fn component_chain_path(doc: &Document, start_comp: NodeId, goal_comp: NodeId) -> Option<Vec<String>> {
+pub(crate) fn component_chain_path(doc: &Document, start_comp: NodeId, goal_comp: NodeId) -> Option<Vec<String>> {
     let edges_from = |m: NodeId| -> Vec<(NodeId, NodeId)> {
         let mut out = Vec::new();
         doc.walk(m, |n, _| {

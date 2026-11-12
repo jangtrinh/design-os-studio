@@ -181,10 +181,8 @@ fn apply_spec_swap_refuses_a_held_main_without_mutating() {
     let before = d.to_json().unwrap();
     let ov: OverrideSpec = serde_json::from_value(json!({"path":"B", "swap":"A"})).unwrap();
     let err = apply_overrides(&mut d, root, &[ov], &[]).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("INSTANCE_CYCLE"), "{msg}");
-    assert!(msg.contains("main component 'B'"), "{msg}");
-    assert!(msg.contains("that would make a component hold an instance of itself"), "{msg}");
+    assert_eq!(err.code, "INSTANCE_CYCLE");
+    assert_eq!(err.message, "Can't swap: B would contain itself (B \u{2192} C \u{2192} B \u{2192} A \u{2192} B)");
     assert_eq!(d.to_json().unwrap(), before);
 }
 
@@ -199,10 +197,32 @@ fn apply_spec_create_refuses_a_held_main_without_mutating() {
     let before = d.to_json().unwrap();
     let spec: crate::NodeSpec = serde_json::from_value(json!({"kind":"instance", "component":"A"})).unwrap();
     let err = d.apply_spec(parent, &spec).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("INSTANCE_CYCLE"), "{msg}");
-    assert!(msg.contains("main component 'B'"), "{msg}");
-    assert!(msg.contains("that would make a component hold an instance of itself"), "{msg}");
+    assert!(err.contains("INSTANCE_CYCLE") && err.contains("Can't add: B would contain itself (B \u{2192} Layer \u{2192} A \u{2192} B)"), "{err}");
+    assert_eq!(d.to_json().unwrap(), before);
+}
+
+#[test]
+fn apply_spec_create_inside_the_component_set_of_the_instance_refuses_with_the_same_sentence() {
+    let mut d = crate::fixtures::button_library();
+    let set = d.nodes.values().find(|n| matches!(n.kind, NodeKind::ComponentSet(_)) && n.name == "Button").map(|n| n.id).unwrap();
+    let before = d.to_json().unwrap();
+    let spec: crate::NodeSpec = serde_json::from_value(json!({"kind":"instance", "component":"Button"})).unwrap();
+    let err = d.apply_spec(set, &spec).unwrap_err();
+    assert!(err.contains("INSTANCE_CYCLE") && err.contains("Can't add: Button would contain itself (Button \u{2192} Button)"), "{err}");
+    assert_eq!(d.to_json().unwrap(), before);
+}
+
+#[test]
+fn apply_spec_create_inside_an_instance_of_the_same_main_refuses_with_the_same_sentence() {
+    let mut d = Document::new("spec nested instance cycle");
+    let page = d.add_page("P");
+    let x = main_on(&mut d, page, "X");
+    let copy = place(&mut d, x, page);
+    let inside = layer_of(&d, copy);
+    let before = d.to_json().unwrap();
+    let spec: crate::NodeSpec = serde_json::from_value(json!({"kind":"instance", "component":"X"})).unwrap();
+    let err = d.apply_spec(inside, &spec).unwrap_err();
+    assert!(err.contains("INSTANCE_CYCLE") && err.contains("Can't add: X would contain itself (X \u{2192} Layer \u{2192} X)"), "{err}");
     assert_eq!(d.to_json().unwrap(), before);
 }
 

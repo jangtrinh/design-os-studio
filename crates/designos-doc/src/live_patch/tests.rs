@@ -22,16 +22,7 @@ fn replay_reparent_refuses_a_held_main_cycle() {
     let before = d.to_json().unwrap();
     let op = LiveOp::Reparent { id: moving, parent: b, at: SiblingHint::default() };
     let report = replay(&mut d, vec![op], &mut LivePatchState::default());
-    assert!(
-        report.skipped.iter().any(|s| {
-            s.contains("MOVE_CYCLE")
-                && s.contains("cannot move 'A' into 'B'")
-                && s.contains("main component 'B'")
-                && s.contains("that would make a component hold an instance of itself")
-        }),
-        "{:?}",
-        report.skipped
-    );
+    assert_eq!(report.skipped, ["Can't move: B would contain itself (B \u{2192} A \u{2192} B)"]);
     assert_eq!(d.to_json().unwrap(), before);
 }
 
@@ -58,11 +49,7 @@ fn replay_insert_and_reparent_refuse_concurrent_component_instance_cycle() {
     let insert_ops = live_ops_for_command(&branch_a, &insert_cmd).unwrap();
 
     let report_a = replay(&mut main_a, insert_ops, &mut LivePatchState::default());
-    assert!(
-        report_a.skipped.iter().any(|s| { s.contains("INSTANCE_CYCLE") && s.contains("main component 'B'") && s.contains("B -> X -> B") }),
-        "insert replay must refuse with component name and cycle path: {:?}",
-        report_a.skipped
-    );
+    assert_eq!(report_a.skipped, ["Can't add: B would contain itself (B \u{2192} X \u{2192} B)"], "insert replay refuses with the editor's sentence");
     assert_eq!(main_a.to_json().unwrap(), main_a_before);
 
     // Direction 2: editor inserted an instance of B into X; agent moved X into B on its stale copy.
@@ -75,14 +62,7 @@ fn replay_insert_and_reparent_refuse_concurrent_component_instance_cycle() {
     let move_ops = live_ops_for_command(&branch_b, &move_cmd).unwrap();
 
     let report_b = replay(&mut main_b, move_ops, &mut LivePatchState::default());
-    assert!(
-        report_b
-            .skipped
-            .iter()
-            .any(|s| { s.contains("MOVE_CYCLE") && s.contains("INSTANCE_CYCLE") && s.contains("main component 'B'") && s.contains("B -> X -> B") }),
-        "reparent replay must refuse with component name and cycle path: {:?}",
-        report_b.skipped
-    );
+    assert_eq!(report_b.skipped, ["Can't move: B would contain itself (B \u{2192} X \u{2192} B)"], "reparent replay refuses with the editor's sentence");
     assert_eq!(main_b.to_json().unwrap(), main_b_before);
 }
 
@@ -157,10 +137,7 @@ fn replay_update_refuses_swapping_instance_into_its_own_main() {
 
     let report = replay(&mut doc, ops, &mut LivePatchState::default());
     assert_eq!(report.applied, 0);
-    assert_eq!(report.skipped.len(), 1);
-    assert!(report.skipped[0].contains("INSTANCE_CYCLE"), "{}", report.skipped[0]);
-    assert!(report.skipped[0].contains("B -> B"), "{}", report.skipped[0]);
-    assert!(!report.skipped[0].contains("node "), "{}", report.skipped[0]);
+    assert_eq!(report.skipped, ["Can't swap: B would contain itself (B \u{2192} B)"]);
 }
 
 #[test]
@@ -182,10 +159,7 @@ fn replay_update_refuses_turning_self_holding_frame_into_component() {
 
     let report = replay(&mut doc, ops, &mut LivePatchState::default());
     assert_eq!(report.applied, 0);
-    assert_eq!(report.skipped.len(), 1);
-    assert!(report.skipped[0].contains("INSTANCE_CYCLE"), "{}", report.skipped[0]);
-    assert!(report.skipped[0].contains("'B'"), "{}", report.skipped[0]);
-    assert!(!report.skipped[0].contains("node "), "{}", report.skipped[0]);
+    assert_eq!(report.skipped, ["Can't turn into a component: B would contain itself (B \u{2192} B)"]);
 }
 
 #[test]
@@ -210,9 +184,7 @@ fn replay_insert_refuses_new_main_component_holding_instance_of_itself() {
 
     let report = replay(&mut doc, ops, &mut LivePatchState::default());
     assert_eq!(report.applied, 0);
-    assert_eq!(report.skipped.len(), 1);
-    assert!(report.skipped[0].contains("INSTANCE_CYCLE"), "{}", report.skipped[0]);
-    assert!(report.skipped[0].contains("'SelfComp'"), "{}", report.skipped[0]);
+    assert_eq!(report.skipped, ["Can't add: SelfComp would contain itself (SelfComp \u{2192} SelfComp)"]);
 }
 
 /// A page with `frames` top-level frames of `kids` rectangles each, one style, one comment.

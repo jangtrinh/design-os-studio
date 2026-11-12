@@ -261,3 +261,19 @@ fn a_document_that_already_holds_itself_saves_reopens_and_edits() {
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(layer_of(&s, b)).unwrap().opacity, 0.5);
 }
+
+// ---------- the editor and the agent tools word a refusal the same way
+
+/// The same refused edits as the agent tools' tests (`designos-mcp` `component_cycle_tests`): one sentence for both.
+#[test]
+fn a_refused_move_or_add_reads_the_way_the_agent_tools_word_it() {
+    let mut s = main_sim();
+    let (a, b) = a_holds_b(&mut s);
+    let page = s.app().page;
+    let inst = place(&mut s, a, page);
+    let doc = &s.app().doc;
+    let refused = |target| crate::comp_cycle_refusal::move_refusal(doc, &[inst], target).expect("the move is refused").refused;
+    assert_eq!(refused(b), "Can't move: B would contain itself (B \u{2192} A \u{2192} B)");
+    assert_eq!(refused(layer_of(&s, b)), "Can't move: B would contain itself (B \u{2192} Layer \u{2192} A \u{2192} B)");
+    assert_eq!(crate::comp_cycle_refusal::insert_refusal(doc, a, b).as_deref(), Some("Can't add: B would contain itself (B \u{2192} A \u{2192} B)"));
+}

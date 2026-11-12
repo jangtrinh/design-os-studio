@@ -59,10 +59,11 @@ fn a_batch_move_into_a_main_the_layer_holds_an_instance_of_is_refused() {
     let (mut e, page, a, b) = a_holds_b();
     let inst = place(&mut e, a, page); // an instance of A, which holds B
     let before = e.doc.to_json().unwrap();
-    for target in [b, layer_of(&e.doc, b)] {
+    for (target, loop_text) in [(b, "B \u{2192} A \u{2192} B"), (layer_of(&e.doc, b), "B \u{2192} Layer \u{2192} A \u{2192} B")] {
         let err = e.call("designos_apply_batch", json!({"ops": [{"op": "move", "node": inst.0, "parent": target.0}]})).unwrap_err();
         assert_eq!(err.code, ErrorCode::BatchOpFailed, "{err}");
         assert_eq!(err.cause.as_ref().map(|c| c.code), Some(ErrorCode::MoveCycle), "{err}");
+        assert_eq!(err.cause.as_ref().map(|c| c.message.clone()), Some(format!("Can't move: B would contain itself ({loop_text})")), "{err}");
     }
     // main A itself holds B too
     let err = e.call("designos_apply_batch", json!({"ops": [{"op": "move", "node": a.0, "parent": b.0}]})).unwrap_err();
@@ -130,4 +131,47 @@ fn the_agent_tools_read_and_edit_a_document_that_already_holds_itself() {
     let back = Document::from_json(&e.doc.to_json().unwrap()).unwrap();
     assert_eq!(back.nodes.len(), e.doc.nodes.len());
     e.call("designos_list_nodes", json!({"limit": 100})).unwrap();
+}
+
+/// The sentence the editor shows when the same edit is refused, with the cycle path and no code.
+#[test]
+fn a_refused_spec_instance_says_what_the_editor_says() {
+    let (mut e, _page, _a, b) = a_holds_b();
+    let before = e.doc.to_json().unwrap();
+    // an instance of A inside B: A holds B, so B would contain itself
+    let err = e.call("designos_apply_spec", json!({"parent_id": b.0, "spec": {"kind": "instance", "component": "A"}})).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, "Can't add: B would contain itself (B \u{2192} A \u{2192} B)");
+    // the same spec inside a batch
+    let err =
+        e.call("designos_apply_batch", json!({"ops": [{"op": "apply_spec", "parent_id": b.0, "spec": {"kind": "instance", "component": "A"}}]})).unwrap_err();
+    let cause = err.cause.as_ref().expect("batch cause");
+    assert_eq!(cause.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(cause.message, "Can't add: B would contain itself (B \u{2192} A \u{2192} B)");
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
+}
+
+#[test]
+fn a_refused_spec_swap_says_what_the_editor_says() {
+    let mut e = Engine::default();
+    let page = e.active_page_id.unwrap();
+    let row = main_on(&mut e, page, "Row", 0.0);
+    let card = main_on(&mut e, page, "Card", 300.0);
+    place(&mut e, row, card); // Card holds an instance of Row
+    let dot = main_on(&mut e, page, "Dot", 600.0);
+    let chip = main_on(&mut e, page, "Chip", 900.0);
+    place(&mut e, dot, chip);
+    let before = e.doc.to_json().unwrap();
+    let spec = json!({"kind": "instance", "component": "Chip", "overrides": [{"path": "Dot", "swap": "Card"}]});
+    // the nested Dot swapped to Card inside Row: Row would hold Card, which holds Row
+    let err = e.call("designos_apply_spec", json!({"parent_id": layer_of(&e.doc, row).0, "spec": spec})).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} \u{2026} \u{2192} Row)");
+    let err = e.call("designos_apply_batch", json!({"ops": [{"op": "apply_spec", "parent_id": layer_of(&e.doc, row).0, "spec": spec}]})).unwrap_err();
+    assert_eq!(
+        err.cause.as_ref().map(|c| c.message.as_str()),
+        Some("Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} \u{2026} \u{2192} Row)"),
+        "{err}"
+    );
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
 }
