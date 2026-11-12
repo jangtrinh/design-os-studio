@@ -1912,7 +1912,9 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             continue;
         }
         let Some(mut nn) = c.s.get(nid).cloned() else { continue };
-        if !text_override_transfers(&old, &nn, matched.is_some(), single_text_pair) {
+        let transfers_text = text_override_transfers(&old, &nn, matched.is_some(), single_text_pair);
+        let preserves_characters = transfers_text && matched.is_some();
+        if !transfers_text {
             fields.remove(&OverrideField::Characters);
             fields.remove(&OverrideField::TextStyle);
         }
@@ -1932,7 +1934,10 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 }
                 let diff = transfer_gate_diff(&orig, &new_orig);
                 fields.retain(|f| {
-                    *f == OverrideField::Name || (!same_family && matches!(f, OverrideField::Characters | OverrideField::TextStyle)) || !diff.contains(f)
+                    *f == OverrideField::Name
+                        || (preserves_characters && *f == OverrideField::Characters)
+                        || (!same_family && *f == OverrideField::TextStyle)
+                        || !diff.contains(f)
                 });
             }
         }
@@ -9874,7 +9879,7 @@ mod tests {
     }
 
     #[test]
-    fn variant_switch_resets_text_and_text_style_when_variants_originally_differed_and_skips_bound_text() {
+    fn variant_switch_transfers_matching_text_and_gates_style_when_variants_differ() {
         let mut d = Document::new("VariantTextGate");
         let page = d.add_page("P");
         let mk_variant = |d: &mut Document, name: &str, x: f32, label_text: &str, font_size: f32| -> NodeId {
@@ -9897,7 +9902,7 @@ mod tests {
         let c = combine_as_variants(&mut d, &[v_default, v_done, v_loading]);
         apply(&mut d, c);
 
-        // Switching Default ("Save", 14px) -> Done ("Saved", 14px): user text "Submit" resets to "Saved", while 20px style override stays.
+        // Switching Default ("Save", 14px) -> Done ("Saved", 14px): same-name user text survives, while 20px style override stays.
         let c = create_instance(&mut d, v_default, page, Vec2::new(0.0, 200.0));
         apply(&mut d, c);
         let inst = *d.get(page).unwrap().children.last().unwrap();
@@ -9915,7 +9920,7 @@ mod tests {
         let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("Done".into())));
         apply(&mut d, c);
         let done_lbl = child_named(&d, inst, "Label");
-        assert_eq!(text_of(&d, done_lbl), "Saved", "switching to Done resets user text Submit to Saved because Save != Saved");
+        assert_eq!(text_of(&d, done_lbl), "Submit", "same-name text override survives differing variant defaults");
         if let NodeKind::Text(tp) = &d.get(done_lbl).unwrap().kind {
             assert_eq!(tp.style.font_size, 20.0, "matching 14px original font_size keeps user 20px override");
         }
