@@ -6003,6 +6003,20 @@ mod workspace_dir_tests {
         });
     }
 
+    /// Only the design server's overrides go: the permission flags and a `resume` before them stay, and a command with no
+    /// override is returned as it came.
+    #[test]
+    fn stripping_the_codex_overrides_keeps_the_prefix_and_leaves_other_commands_alone() {
+        for (mode, prefix) in [(PermissionMode::Ask, "codex"), (PermissionMode::Skip, "codex --dangerously-bypass-approvals-and-sandbox")] {
+            let launch = AgentCliPreset::Codex.cli_launch_command_for_mode(mode);
+            assert!(launch.contains("mcp_servers.designos"), "precondition: the launch command registers the server: {launch}");
+            assert_eq!(super::strip_codex_mcp_overrides(launch), prefix, "{mode:?}");
+        }
+        let resume = format!("codex resume --last --dangerously-bypass-approvals-and-sandbox{}", codex_mcp_overrides!());
+        assert_eq!(super::strip_codex_mcp_overrides(&resume), "codex resume --last --dangerously-bypass-approvals-and-sandbox");
+        assert_eq!(super::strip_codex_mcp_overrides("claude --resume abc"), "claude --resume abc");
+    }
+
     /// The writer thread reports a failed write as "Couldn't update the agent files" and retries it; a missing workspace is not one.
     #[test]
     fn a_missing_workspace_is_not_a_failed_write_of_the_agent_files() {
