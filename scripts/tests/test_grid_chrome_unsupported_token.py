@@ -1,6 +1,6 @@
 """An untranslatable Tailwind token must fail only its own scene, never abort the run.
 
-Run from the repo root: python3 scripts/qa/grid_chrome/test_unsupported_token.py
+Run from the repo root: python3 scripts/tests/test_grid_chrome_unsupported_token.py
 """
 
 from pathlib import Path
@@ -8,7 +8,7 @@ import sys
 import unittest
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "qa"))
 
 from grid_chrome import probe_page, screenshot  # noqa: E402
 from grid_chrome.tailwind_css_map import UnsupportedTailwindToken, tailwind_token_to_decls  # noqa: E402

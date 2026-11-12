@@ -236,7 +236,7 @@ pub fn css_for_with(doc: &Document, node: NodeId, fmt: ColorFormat) -> String {
     let mut text_shadows = Vec::new();
     if let (Some(g), Some(p)) = (grid_stroke.filter(|g| g.model == StrokeModel::Shadow), crate::grid_stroke::drawn_paint(&n.stroke)) {
         let color = crate::codegen::stroke_color_token(doc, n, fmt).unwrap_or_else(|| solid_or_first(p, profile, fmt));
-        shadows.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset {}px {}px 0 0 {color}", num(*x), num(*y))));
+        shadows.extend(g.shadow_xy(doc, n, true, fmt).map(|(x, y)| format!("inset {x} {y} 0 0 {color}")));
     }
     for e in &n.effects {
         match e {
@@ -397,7 +397,10 @@ fn border(n: &Node, out: &mut Vec<String>, grid: Option<GridStroke>, profile: Co
     if !stroke_is_drawn(n) {
         return;
     }
-    if grid.is_some_and(|g| g.model == StrokeModel::Shadow) {
+    if let Some(g) = grid.filter(|g| g.model == StrokeModel::Shadow) {
+        if let Some(note) = g.limit_note {
+            out.push(format!("/* {note} */"));
+        }
         return; // drawn as inset shadows with the other effects
     }
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));

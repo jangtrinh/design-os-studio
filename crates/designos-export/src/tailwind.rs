@@ -230,9 +230,19 @@ fn shadow_value(doc: &Document, n: &Node, stroke: Option<GridStroke>, fmt: Color
         let color = match (bound(doc, n, "strokes/0"), &p.kind) {
             (Some(v), _) => css_var(v),
             (None, PaintKind::Solid(c)) => tailwind_solid_color(doc.color_profile, fmt, c, p.opacity),
+            (
+                None,
+                PaintKind::LinearGradient { stops, .. }
+                | PaintKind::RadialGradient { stops, .. }
+                | PaintKind::AngularGradient { stops, .. }
+                | PaintKind::DiamondGradient { stops, .. },
+            ) => stops
+                .first()
+                .map(|s| tailwind_solid_color(doc.color_profile, fmt, &s.color, p.opacity * s.color.a))
+                .unwrap_or_else(|| "transparent".to_string()),
             _ => "transparent".to_string(),
         };
-        parts.extend(g.shadow_offsets.iter().flatten().map(|(x, y)| format!("inset_{}px_{}px_0px_0px_{color}", num(*x), num(*y))));
+        parts.extend(g.shadow_xy(doc, n, false, fmt).map(|(x, y)| format!("inset_{x}_{y}_0px_0px_{color}")));
     }
     for e in &n.effects {
         match e {
@@ -718,9 +728,10 @@ fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out,
     }
     let tag = if matches!(n.kind, NodeKind::Section) { "section" } else { "div" };
     let site = slot_site(doc, id);
+    let limit_note = (!jsx).then(|| crate::grid_stroke::grid_stroke_of(doc, n).and_then(|g| g.limit_note)).flatten();
     // A JSX slot renders through its parameter; HTML has no parameters, so it keeps the default content.
     let kids = if jsx && site.is_some() { Vec::new() } else { visible_children(doc, n) };
-    if kids.is_empty() && site.is_none() {
+    if kids.is_empty() && site.is_none() && limit_note.is_none() {
         if jsx {
             o.line(depth, format!("<{tag}{class_attr} />"));
         } else {
@@ -729,6 +740,9 @@ fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out,
         return;
     }
     o.line(depth, format!("<{tag}{class_attr}>"));
+    if let Some(note) = limit_note {
+        o.line(depth + 1, format!("<!-- {note} -->"));
+    }
     let me = Parent::of(n);
     if let Some(site) = &site {
         if jsx {

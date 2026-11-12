@@ -48,30 +48,70 @@ pub(crate) struct GridStroke {
     /// For [`StrokeModel::Shadow`]: the offset of the inset shadow layer of each stroked side (top,
     /// right, bottom, left), so a layer is a band of that side's width.
     pub shadow_offsets: [Option<(f32, f32)>; 4],
+    /// Short note emitted as a code comment when CSS has no border-free primitive for a dashed or
+    /// gradient per-side stroke whose padding is smaller than the stroke width.
+    pub limit_note: Option<&'static str>,
+    /// Whether every padding side is written from the stored padding plus [`Self::pad_extra`] and kept at 0 or
+    /// more, even with nothing to add: set for every drawn stroke, so a negative stored side cannot make the
+    /// whole `padding` shorthand invalid. A stroke that is not exported leaves the padding as stored.
+    pub clamp_padding: bool,
 }
 
 impl GridStroke {
     /// Whether padding side `i` is written from the stored padding plus [`Self::pad_extra`] and kept at 0 or
-    /// more. A shadow stroke clamps every side: a negative side would make the whole `padding` shorthand
-    /// invalid in CSS and drop the other sides with it.
+    /// more. A shadow stroke and every drawn stroke ([`Self::clamp_padding`]) clamp every side: a negative
+    /// side would make the whole `padding` shorthand invalid in CSS and drop the other sides with it.
     pub fn adjusts_padding(&self, i: usize) -> bool {
-        self.pad_extra[i] != 0.0 || self.model == StrokeModel::Shadow
+        self.pad_extra[i] != 0.0 || self.model == StrokeModel::Shadow || self.clamp_padding
     }
 
     /// The stroke is a CSS `border` and takes layout space.
     pub fn border(&self) -> bool {
         self.model == StrokeModel::Border
     }
+
+    /// For [`StrokeModel::Shadow`]: `(x, y)` offset tokens of each stroked side in CSS (`css_fallback = true`,
+    /// `var(--Name, fallback)` and `calc(-1 * var(...))`) or Tailwind (`css_fallback = false`, `var(--Name)`
+    /// and `calc(-1*var(...))`).
+    pub fn shadow_xy<'a>(
+        &'a self,
+        doc: &'a Document,
+        n: &'a Node,
+        css_fallback: bool,
+        color_fmt: crate::util::ColorFormat,
+    ) -> impl Iterator<Item = (String, String)> + 'a {
+        let any_side_bound = SIDE_WEIGHT_KEYS.iter().any(|k| crate::codegen::bound(doc, n, k).is_some());
+        self.shadow_offsets.into_iter().enumerate().filter_map(move |(i, off)| {
+            let (x, y) = off?;
+            let var = crate::codegen::bound(doc, n, SIDE_WEIGHT_KEYS[i])
+                .or_else(|| (!any_side_bound && n.stroke.side_weights.is_none()).then(|| crate::codegen::bound(doc, n, "strokeWeight")).flatten());
+            if let Some(v) = var {
+                let token = if css_fallback { crate::codegen::stroke_width_var_css(doc, n, v, color_fmt) } else { crate::codegen::css_var(v) };
+                let neg = if css_fallback { format!("calc(-1 * {token})") } else { format!("calc(-1*{token})") };
+                Some(match i {
+                    0 => ("0px".to_string(), token),
+                    1 => (neg, "0px".to_string()),
+                    2 => ("0px".to_string(), neg),
+                    _ => (token, "0px".to_string()),
+                })
+            } else {
+                Some((format!("{}px", crate::util::fmt_num(x)), format!("{}px", crate::util::fmt_num(y))))
+            }
+        })
+    }
 }
 
 /// Stroke model of the grid frame `n` whose auto layout is `al`.
 ///
 /// An Inside stroke is a border when the solver reserves its width (version 0 with `stroke_included`).
-/// A per-side Inside stroke the solver does not reserve is inset shadows when it is not dashed, a
-/// gradient, or width-bound: they take no space, so content sits where the solver puts it, and they paint
-/// under the children exactly as Studio paints a frame's stroke (a full-bleed child covers it there too).
-/// Otherwise it is a border, whose padding shrinks by its width and stops at 0. A gradient Inside stroke is a border (`border-image` needs
-/// one). Every other stroke is an outline, offset inward for Inside and Center strokes so it still sits
+/// A per-side Inside stroke the solver does not reserve is inset shadows when it is solid (including
+/// when side widths are bound to variables): they take no space, so content sits where the solver puts
+/// it, and they paint under the children exactly as Studio paints a frame's stroke (a full-bleed child
+/// covers it there too). A dashed or gradient per-side Inside stroke whose padding is at least the
+/// stroke width on every side is a border whose padding shrinks by its width. When the padding on any
+/// side is smaller than the stroke, CSS has no border-free dashed or gradient per-side stroke, so the
+/// export keeps content in place with a solid inset `box-shadow` and writes a comment noting the CSS
+/// limit. Every other stroke is an outline, offset inward for Inside and Center strokes so it still sits
 /// on the frame's edge.
 pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStroke {
     let resolved = designos_doc::resolve_node(doc, n);
@@ -82,7 +122,7 @@ pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStro
         std::array::from_fn::<f32, 4, _>(|i| effective[i] - resolved_al.padding[i])
     };
     let none = [None; 4];
-    let outline = GridStroke { model: StrokeModel::Outline, pad_extra: reserved, shadow_offsets: none };
+    let outline = GridStroke { model: StrokeModel::Outline, pad_extra: reserved, shadow_offsets: none, limit_note: None, clamp_padding: stroke_is_drawn(n) };
     if !stroke_is_drawn(n) || st.align != StrokeAlign::Inside {
         return outline;
     }
@@ -93,18 +133,41 @@ pub(crate) fn grid_stroke(doc: &Document, n: &Node, al: &AutoLayout) -> GridStro
         return outline;
     }
     let widths = st.side_weights.unwrap_or([st.weight; 4]);
-    let bound = WIDTH_KEYS.iter().any(|key| n.variables.bindings.contains_key(*key));
     let dashed = st.dashes.iter().any(|d| *d > 0.0);
-    if sided && !reserves && !gradient && !dashed && !bound {
+    let fits_in_padding = (0..4).all(|i| resolved_al.padding[i].max(0.0) + reserved[i] >= widths[i].max(0.0));
+    if sided && !reserves && ((!gradient && !dashed) || !fits_in_padding) {
         let [t, r, b, l] = widths.map(|w| w.max(0.0));
-        let layer = |w: f32, at: (f32, f32)| (w > 0.0).then_some(at);
+        let side_bound: [bool; 4] = std::array::from_fn(|i| crate::codegen::bound(doc, n, SIDE_WEIGHT_KEYS[i]).is_some());
+        let limit_note = match (dashed, gradient) {
+            (true, true) => {
+                Some("CSS cannot draw a per-side dashed gradient stroke without a border that would shift grid content; drawn as a solid inset box-shadow")
+            }
+            (true, false) => Some("CSS cannot draw a per-side dashed stroke without a border that would shift grid content; drawn as a solid inset box-shadow"),
+            (false, true) => {
+                Some("CSS cannot draw a per-side gradient stroke without a border that would shift grid content; drawn as a solid inset box-shadow")
+            }
+            (false, false) => None,
+        };
         return GridStroke {
             model: StrokeModel::Shadow,
             pad_extra: [0.0; 4],
-            shadow_offsets: [layer(t, (0.0, t)), layer(r, (-r, 0.0)), layer(b, (0.0, -b)), layer(l, (l, 0.0))],
+            shadow_offsets: [
+                (t > 0.0 || side_bound[0]).then_some((0.0, t)),
+                (r > 0.0 || side_bound[1]).then_some((-r, 0.0)),
+                (b > 0.0 || side_bound[2]).then_some((0.0, -b)),
+                (l > 0.0 || side_bound[3]).then_some((l, 0.0)),
+            ],
+            limit_note,
+            clamp_padding: true,
         };
     }
-    GridStroke { model: StrokeModel::Border, pad_extra: std::array::from_fn(|i| reserved[i] - widths[i].max(0.0)), shadow_offsets: none }
+    GridStroke {
+        model: StrokeModel::Border,
+        pad_extra: std::array::from_fn(|i| reserved[i] - widths[i].max(0.0)),
+        shadow_offsets: none,
+        limit_note: None,
+        clamp_padding: true,
+    }
 }
 
 /// [`grid_stroke`] for any node: `None` unless `n` is a grid container (a frame, component, component
@@ -176,7 +239,19 @@ mod tests {
     #[test]
     fn dashed_per_side_stroke_the_solver_does_not_reserve_is_a_border_that_shrinks_the_padding() {
         let (mut doc, grid) = stroked(1, false, StrokeAlign::Inside, Some([4.0, 1.0, 2.0, 3.0]));
+        if let designos_doc::NodeKind::Frame(f) = &mut doc.get_mut(grid).unwrap().kind {
+            f.auto_layout.as_mut().unwrap().padding = [8.0; 4];
+        }
         doc.get_mut(grid).unwrap().stroke.dashes = vec![4.0, 2.0];
         is(grid_stroke_of(&doc, doc.get(grid).unwrap()).unwrap(), StrokeModel::Border, [-4.0, -1.0, -2.0, -3.0]);
+    }
+
+    #[test]
+    fn dashed_per_side_stroke_wider_than_the_padding_stays_an_inset_shadow_with_limit_note() {
+        let (mut doc, grid) = stroked(1, false, StrokeAlign::Inside, Some([4.0, 1.0, 2.0, 3.0]));
+        doc.get_mut(grid).unwrap().stroke.dashes = vec![4.0, 2.0];
+        let got = grid_stroke_of(&doc, doc.get(grid).unwrap()).unwrap();
+        is(got, StrokeModel::Shadow, [0.0; 4]);
+        assert!(got.limit_note.is_some());
     }
 }

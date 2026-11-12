@@ -6,6 +6,11 @@
 //! * [`css_for`] prints Dev Mode style CSS for a layer; [`tailwind_for`], [`swiftui_for`],
 //!   [`uikit_for`], [`compose_for`], [`android_xml_for`] and [`react_for`] generate code for the
 //!   other Dev Mode languages (Figma's native set is CSS, SwiftUI, UIKit, Compose and Android XML).
+//!   On grid frames whose stroke is not reserved by the layout solver, a per-side `Inside` stroke
+//!   exports as an inset `box-shadow` (including bound width variables via `var()`); where CSS has
+//!   no border-free primitive for a dashed or gradient per-side stroke and padding is smaller than
+//!   the stroke, the export keeps grid content in place with a solid inset `box-shadow` and emits a
+//!   comment noting the CSS limit.
 //!
 //! [`export_pdf`] exports ordered frames (deck slides or selected design frames) as
 //! vector PDF 1.4 pages, one page per frame. Pages preserve frame dimensions,

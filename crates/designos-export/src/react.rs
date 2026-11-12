@@ -91,6 +91,10 @@ fn style_entries(doc: &Document, id: NodeId, root: bool, fmt: ColorFormat) -> Ve
     let mut decls: Vec<String> = Vec::new();
     let mut open = false;
     for l in css.lines() {
+        // A comment line (the grid stroke limit note) is not a declaration and has no JS style entry.
+        if !open && l.trim_start().starts_with("/*") {
+            continue;
+        }
         match decls.last_mut().filter(|_| open) {
             Some(d) => {
                 d.push('\n');

@@ -3,7 +3,7 @@
 //! resolves to (here 6 for the weight and 20 for the padding, against 2 and 8 stored).
 
 use designos_doc::*;
-use designos_export::{css_for, tailwind_for};
+use designos_export::{css_for, react_for, tailwind_for};
 
 fn number_variable(id: &str, name: &str, px: f32) -> Variable {
     Variable {
@@ -203,6 +203,167 @@ fn negative_padding_on_an_unstroked_side_of_a_shadow_stroke_stays_valid_in_css_a
     assert_eq!(decl(&css, "padding"), "4px 0px 4px 4px", "{css}");
     let tw = classes(&tailwind_for(&doc, g));
     assert!(!tw.iter().any(|c| c.contains("[-")), "{tw:?}");
+    assert!(tw.iter().any(|c| c == "pl-1") && tw.iter().any(|c| c == "py-1"), "{tw:?}");
+    assert!(!tw.iter().any(|c| c.starts_with("pr-")), "the clamped right side is 0 and dropped: {tw:?}");
+}
+
+#[test]
+fn per_side_inside_stroke_with_bound_side_widths_uses_inset_shadow_variables() {
+    let (mut doc, g) = sided_grid(0.0);
+    doc.variables.insert("w-top".into(), number_variable("w-top", "Border/Top", 4.0));
+    doc.variables.insert("w-right".into(), number_variable("w-right", "Border/Right", 1.0));
+    let vars = &mut doc.variable_collections.get_mut("c").unwrap().variables;
+    vars.push("w-top".into());
+    vars.push("w-right".into());
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    n.variables.bindings.insert("strokeTopWeight".into(), "w-top".into());
+    n.variables.bindings.insert("strokeRightWeight".into(), "w-right".into());
+    let css = css_for(&doc, g);
+    assert_eq!(
+        decl(&css, "box-shadow"),
+        "inset 0px var(--Border-Top, 4px) 0 0 #333, inset calc(-1 * var(--Border-Right, 1px)) 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333",
+        "{css}"
+    );
+    assert!(!css.lines().any(|l| l.starts_with("border") || l.starts_with("box-sizing")), "{css}");
+    let tw = tailwind_for(&doc, g);
+    assert!(
+        tw.contains(
+            "shadow-[inset_0px_var(--Border-Top)_0px_0px_#333333,inset_calc(-1*var(--Border-Right))_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]"
+        ),
+        "{tw}"
+    );
+    let tw_classes = classes(&tw);
+    assert!(!tw_classes.iter().any(|c| c.starts_with("border") || c == "box-border"), "{tw_classes:?}");
+}
+
+#[test]
+fn dashed_per_side_inside_stroke_wider_than_padding_keeps_content_in_place_and_notes_css_limit() {
+    let (mut doc, g) = sided_grid(0.0);
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    n.stroke.dashes = vec![4.0, 2.0];
+    let css = css_for(&doc, g);
+    assert!(
+        css.contains("/* CSS cannot draw a per-side dashed stroke without a border that would shift grid content; drawn as a solid inset box-shadow */"),
+        "{css}"
+    );
+    assert_eq!(decl(&css, "box-shadow"), "inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333", "{css}");
+    assert!(!css.lines().any(|l| l.starts_with("border") || l.starts_with("box-sizing")), "{css}");
+    let tw = tailwind_for(&doc, g);
+    assert!(
+        tw.contains("<!-- CSS cannot draw a per-side dashed stroke without a border that would shift grid content; drawn as a solid inset box-shadow -->"),
+        "{tw}"
+    );
+    assert!(
+        tw.contains("shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]"),
+        "{tw}"
+    );
+    let tw_classes = classes(&tw);
+    assert!(!tw_classes.iter().any(|c| c.starts_with("border") || c == "box-border"), "{tw_classes:?}");
+}
+
+#[test]
+fn gradient_per_side_inside_stroke_wider_than_padding_keeps_content_in_place_and_notes_css_limit() {
+    let (mut doc, g) = sided_grid(0.0);
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    n.stroke.paints = vec![Paint {
+        kind: PaintKind::LinearGradient {
+            stops: vec![GradientStop { pos: 0.0, color: Color::rgb(0x33, 0x33, 0x33) }, GradientStop { pos: 1.0, color: Color::rgb(0x99, 0x99, 0x99) }],
+            handles: [Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0)],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let css = css_for(&doc, g);
+    assert!(
+        css.contains("/* CSS cannot draw a per-side gradient stroke without a border that would shift grid content; drawn as a solid inset box-shadow */"),
+        "{css}"
+    );
+    assert_eq!(decl(&css, "box-shadow"), "inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333", "{css}");
+    assert!(!css.lines().any(|l| l.starts_with("border") || l.starts_with("box-sizing")), "{css}");
+    let tw = tailwind_for(&doc, g);
+    assert!(
+        tw.contains("<!-- CSS cannot draw a per-side gradient stroke without a border that would shift grid content; drawn as a solid inset box-shadow -->"),
+        "{tw}"
+    );
+    assert!(
+        tw.contains("shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]"),
+        "{tw}"
+    );
+    let tw_classes = classes(&tw);
+    assert!(!tw_classes.iter().any(|c| c.starts_with("border") || c == "box-border"), "{tw_classes:?}");
+}
+
+#[test]
+fn a_stroke_only_a_shader_paints_still_pads_by_the_width_the_solver_reserves() {
+    let (mut doc, g) = grid(0, true, StrokeAlign::Inside, false);
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    n.stroke.weight = 4.0;
+    n.stroke.paints = vec![Paint { kind: PaintKind::Shader(ShaderRef::default()), opacity: 1.0, visible: true, blend: BlendMode::Normal }];
+    let css = css_for(&doc, g);
+    assert_eq!(decl(&css, "padding"), "12px", "{css}");
+}
+
+#[test]
+fn per_side_widths_win_over_a_uniform_stroke_weight_variable() {
+    let (mut doc, g) = sided_grid(0.0);
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    n.variables.bindings.insert("strokeWeight".into(), "weight".into());
+    let css = css_for(&doc, g);
+    assert_eq!(decl(&css, "box-shadow"), "inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333", "{css}");
+}
+
+#[test]
+fn a_uniform_gradient_inside_stroke_exports_as_before() {
+    let (mut doc, g) = grid(1, false, StrokeAlign::Inside, false);
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    n.stroke.weight = 4.0;
+    if let NodeKind::Frame(f) = &mut n.kind {
+        f.auto_layout.as_mut().unwrap().padding = [0.0; 4];
+    }
+    n.stroke.paints = vec![Paint {
+        kind: PaintKind::LinearGradient {
+            stops: vec![GradientStop { pos: 0.0, color: Color::rgb(0x33, 0x33, 0x33) }, GradientStop { pos: 1.0, color: Color::rgb(0x99, 0x99, 0x99) }],
+            handles: [Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0)],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let css = css_for(&doc, g);
+    assert!(!css.contains("/*") && !css.contains("box-shadow"), "{css}");
+    assert!(css.contains("border-image"), "{css}");
+}
+
+#[test]
+fn the_limit_note_does_not_leak_into_react_style_entries() {
+    let (mut doc, g) = sided_grid(0.0);
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    n.stroke.dashes = vec![4.0, 2.0];
+    let react = react_for(&doc, g);
+    assert!(!react.contains("/*") && !react.contains("CSS cannot"), "{react}");
+    assert!(react.contains("boxShadow: 'inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333'"), "{react}");
+}
+
+#[test]
+fn negative_padding_on_an_outline_stroke_stays_valid_in_css_and_tailwind() {
+    let (mut doc, g) = grid(1, false, StrokeAlign::Inside, false);
+    let n = doc.get_mut(g).unwrap();
+    n.variables.bindings.clear();
+    if let NodeKind::Frame(f) = &mut n.kind {
+        f.auto_layout.as_mut().unwrap().padding = [4.0, -5.0, 4.0, 4.0];
+    }
+    let css = css_for(&doc, g);
+    assert_eq!(decl(&css, "padding"), "4px 0px 4px 4px", "{css}");
+    let tw = classes(&tailwind_for(&doc, g));
+    assert!(!tw.iter().any(|c| c.starts_with('p') && c.contains("[-")), "{tw:?}");
     assert!(tw.iter().any(|c| c == "pl-1") && tw.iter().any(|c| c == "py-1"), "{tw:?}");
     assert!(!tw.iter().any(|c| c.starts_with("pr-")), "the clamped right side is 0 and dropped: {tw:?}");
 }

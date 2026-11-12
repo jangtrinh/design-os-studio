@@ -89,6 +89,9 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         extra::scene_c10_stroke_v1_inside_sides_unpadded_fixed(),
         extra::scene_c10b_stroke_v1_inside_sides_unpadded_hug(),
         extra::scene_c12_row_span_over_content_sized_rows(),
+        extra::scene_stroke_v1_inside_sides_unpadded_dashed(),
+        extra::scene_stroke_v1_inside_sides_unpadded_gradient(),
+        extra::scene_stroke_v1_inside_sides_unpadded_bound_width(),
     ]
 }
 
@@ -962,6 +965,21 @@ fn c9_stroke_v1_inside_sides_padded_fixed_css_and_tailwind() {
 #[test]
 fn c10_stroke_v1_inside_sides_unpadded_fixed_css_and_tailwind() {
     assert_fixture_css_and_tailwind("c10_stroke_v1_inside_sides_unpadded_fixed");
+}
+
+#[test]
+fn stroke_v1_inside_sides_unpadded_dashed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("stroke_v1_inside_sides_unpadded_dashed");
+}
+
+#[test]
+fn stroke_v1_inside_sides_unpadded_gradient_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("stroke_v1_inside_sides_unpadded_gradient");
+}
+
+#[test]
+fn stroke_v1_inside_sides_unpadded_bound_width_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("stroke_v1_inside_sides_unpadded_bound_width");
 }
 
 /// The pixel list of a CSS declaration such as `grid-template-rows: 40px 40px`, `None` when absent or

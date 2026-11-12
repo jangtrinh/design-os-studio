@@ -3,7 +3,10 @@
 //! explicit rows, Fill in an `auto` column, `grid-auto-rows`, Hug columns in a fixed-width grid).
 
 use super::{add_item, new_grid, GridFixture};
-use designos_doc::{AutoLayout, Color, GridAutoTracks, GridTrack, Node, NodeKind, Paint, Sizing, StrokeAlign, Vec2};
+use designos_doc::{
+    AutoLayout, BlendMode, Color, GradientStop, GridAutoTracks, GridTrack, Node, NodeKind, Paint, PaintKind, Sizing, StrokeAlign, Variable, VariableCollection,
+    VariableKind, VariableMode, VariableValue, Vec2,
+};
 
 fn stroke_2px(n: &mut Node, align: StrokeAlign) {
     n.stroke.paints = vec![Paint::solid(Color::rgb(0x33, 0x33, 0x33))];
@@ -217,4 +220,105 @@ pub fn scene_c12_row_span_over_content_sized_rows() -> GridFixture {
     doc.relayout_subtree(grid);
     GridFixture { name: "c12_row_span_over_content_sized_rows", doc, grid, items: vec![a, b, c], expected_css: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: 15px 15px;\nalign-content: start;",
         expected_tailwind: "<div class=\"grid grid-cols-2 grid-rows-[15px_15px] content-start w-[200px] h-[200px]\">\n  <div class=\"col-start-1 row-start-1 row-span-2 w-[50px] h-[30px]\"></div>\n  <div class=\"col-start-2 row-start-1 w-[50px] h-2.5\"></div>\n  <div class=\"col-start-2 row-start-2 w-[50px] h-0.5\"></div>\n</div>" }
+}
+
+pub fn scene_stroke_v1_inside_sides_unpadded_dashed() -> GridFixture {
+    let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Fixed);
+    al.layout_version = 1;
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 60.0));
+    let n = doc.get_mut(grid).unwrap();
+    stroke_2px(n, StrokeAlign::Inside);
+    n.stroke.side_weights = Some([4.0, 1.0, 2.0, 3.0]);
+    n.stroke.dashes = vec![4.0, 2.0];
+    let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "stroke_v1_inside_sides_unpadded_dashed",
+        doc,
+        grid,
+        items: vec![a, b],
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 60px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\n/* CSS cannot draw a per-side dashed stroke without a border that would shift grid content; drawn as a solid inset box-shadow */\nbox-shadow: inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[200px] h-15 shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <!-- CSS cannot draw a per-side dashed stroke without a border that would shift grid content; drawn as a solid inset box-shadow -->\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>",
+    }
+}
+
+pub fn scene_stroke_v1_inside_sides_unpadded_gradient() -> GridFixture {
+    let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Fixed);
+    al.layout_version = 1;
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 60.0));
+    let n = doc.get_mut(grid).unwrap();
+    stroke_2px(n, StrokeAlign::Inside);
+    n.stroke.side_weights = Some([4.0, 1.0, 2.0, 3.0]);
+    n.stroke.paints = vec![Paint {
+        kind: PaintKind::LinearGradient {
+            stops: vec![GradientStop { pos: 0.0, color: Color::rgb(0x33, 0x33, 0x33) }, GradientStop { pos: 1.0, color: Color::rgb(0x99, 0x99, 0x99) }],
+            handles: [Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0)],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "stroke_v1_inside_sides_unpadded_gradient",
+        doc,
+        grid,
+        items: vec![a, b],
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 60px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\n/* CSS cannot draw a per-side gradient stroke without a border that would shift grid content; drawn as a solid inset box-shadow */\nbox-shadow: inset 0px 4px 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[200px] h-15 shadow-[inset_0px_4px_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <!-- CSS cannot draw a per-side gradient stroke without a border that would shift grid content; drawn as a solid inset box-shadow -->\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>",
+    }
+}
+
+pub fn scene_stroke_v1_inside_sides_unpadded_bound_width() -> GridFixture {
+    let mut al = base(2, 0.0, Sizing::Fixed, Sizing::Fixed);
+    al.layout_version = 1;
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 60.0));
+    doc.variable_collections.insert(
+        "c".into(),
+        VariableCollection {
+            id: "c".into(),
+            name: "Tokens".into(),
+            modes: vec![VariableMode { id: "m".into(), name: "Mode".into() }],
+            default_mode: "m".into(),
+            variables: vec!["w-top".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    doc.variables.insert(
+        "w-top".into(),
+        Variable {
+            id: "w-top".into(),
+            name: "Border/Top".into(),
+            collection: "c".into(),
+            kind: VariableKind::Number,
+            values: [("m".to_string(), VariableValue::Number(4.0))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    let n = doc.get_mut(grid).unwrap();
+    stroke_2px(n, StrokeAlign::Inside);
+    n.stroke.side_weights = Some([4.0, 1.0, 2.0, 3.0]);
+    n.variables.bindings.insert("strokeTopWeight".into(), "w-top".into());
+    let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "stroke_v1_inside_sides_unpadded_bound_width",
+        doc,
+        grid,
+        items: vec![a, b],
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 60px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nbox-shadow: inset 0px var(--Border-Top, 4px) 0 0 #333, inset -1px 0px 0 0 #333, inset 0px -2px 0 0 #333, inset 3px 0px 0 0 #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start w-[200px] h-15 shadow-[inset_0px_var(--Border-Top)_0px_0px_#333333,inset_-1px_0px_0px_0px_#333333,inset_0px_-2px_0px_0px_#333333,inset_3px_0px_0px_0px_#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>",
+    }
 }
