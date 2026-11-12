@@ -5815,6 +5815,37 @@ mod tests {
     }
 
     #[test]
+    fn a_connector_whose_other_end_moved_to_another_page_follows_the_end_that_stays() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let page2 = engine.doc.add_page("Page 2");
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops":[
+                    {"op":"insert","as":"a","parent":page.0,"kind":"rectangle","name":"A","x":120.0,"y":120.0,"width":80.0,"height":40.0},
+                    {"op":"insert","as":"b","parent":page.0,"kind":"rectangle","name":"B","x":300.0,"y":240.0,"width":80.0,"height":40.0},
+                    {"op":"connect","as":"link","from":"@a","to":"@b"}
+                ]}),
+            )
+            .expect("setup connector fixture");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (a, b, link) = (id("a"), id("b"), id("link"));
+        engine.call("designos_apply_batch", json!({"ops":[{"op":"move","node":a.0,"parent":page2.0}]})).expect("move one end to page 2");
+        let (start_before, end_before) = connector_ends(&engine, link);
+        assert_eq!(start_before.node, None, "the end on another page is detached");
+
+        engine.call("designos_apply_batch", json!({"ops":[{"op":"update","node":b.0,"x":500.0,"y":340.0}]})).expect("move the end that stays");
+
+        let (start, end) = connector_ends(&engine, link);
+        assert_eq!(start.node, None);
+        assert_eq!(start.point, start_before.point, "the detached end keeps its free point");
+        assert_eq!(end.node, Some(b));
+        assert_ne!(end.point, end_before.point, "the attached end follows its layer");
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
     fn mcp_connect_free_point_inside_a_rotated_frame_maps_back_to_the_page_point() {
         let mut engine = Engine::default();
         let page = engine.resolve_default_page().unwrap();
