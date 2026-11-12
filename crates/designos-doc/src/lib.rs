@@ -310,10 +310,11 @@ pub struct Document {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub in_progress: BTreeMap<NodeId, InProgress>,
     next_id: u64,
-    /// Whether the links of the copy layers inside nested instances have been checked by this release
-    /// (see [`relink_copy_layers`]). A file saved by an earlier release does not carry it and reads as `false`; a
-    /// document made or loaded by this release is `true`, so a file it saves is not examined again.
-    #[serde(default)]
+    /// Whether the links of the copy layers inside nested instances have been checked by this release (see
+    /// [`relink_copy_layers`]). A file saved by an earlier release does not carry it and reads as `false`, and the load
+    /// checks it. A document is only ever saved after that check or made by this release, so it is always written as
+    /// `true` and a file saved by this release is not examined again.
+    #[serde(default, serialize_with = "copy_layer_links::serialize_checked")]
     copy_links_checked: bool,
     /// Where the exhausted-counter fallback resumes scanning, so one id is never handed out twice
     /// before its node is inserted. Runtime only.
@@ -758,7 +759,7 @@ impl Clone for Document {
 
 impl Document {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), copy_links_checked: true, ..Default::default() }
+        Self { name: name.into(), ..Default::default() }
     }
 
     /// Clones the document structure, styles, variables, comments, and library state without
@@ -1646,6 +1647,7 @@ impl Document {
                 #[serde(skip_serializing_if = "BTreeMap::is_empty")]
                 in_progress: BTreeMap<NodeId, &'a InProgress>,
                 next_id: u64,
+                #[serde(serialize_with = "copy_layer_links::serialize_checked")]
                 copy_links_checked: bool,
             }
             let filtered_in_progress: BTreeMap<NodeId, &InProgress> = self

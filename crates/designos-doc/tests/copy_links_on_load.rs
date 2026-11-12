@@ -112,6 +112,9 @@ fn a_new_document_is_saved_with_the_marker_also_when_a_stale_work_flag_is_droppe
     let value: Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();
     assert_eq!(value["copy_links_checked"], json!(true), "a document made by this release needs no examination");
 
+    let value: Value = serde_json::from_str(&Document::default().to_json().unwrap()).unwrap();
+    assert_eq!(value["copy_links_checked"], json!(true), "so is a document built without the constructor");
+
     // an `in_progress` flag of a layer that no longer exists is dropped through a separate writer path
     doc.in_progress.insert(NodeId(99_999), InProgress::new(None, None, 1));
     let value: Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();

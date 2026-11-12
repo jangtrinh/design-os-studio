@@ -126,6 +126,13 @@ pub fn relink_copy_layers(doc: &mut Document) -> usize {
     relinked
 }
 
+/// Serializer of the `Document::copy_links_checked` marker, which is always `true`: a document is saved only after the load
+/// checked its copy layer links or after this release made them, so what is stored does not depend on the in-memory value.
+/// That value is `false` only for a document just parsed from a file without the marker, and the load reads it right then.
+pub(crate) fn serialize_checked<S: serde::Serializer>(_: &bool, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_bool(true)
+}
+
 /// `json` as a release before the marker wrote it: the saved document ends with the marker, and an older file does not.
 #[cfg(test)]
 pub(crate) fn without_marker(json: &str) -> String {
