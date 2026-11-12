@@ -99,7 +99,7 @@ jq -r '[.. | objects | select(.type? == "TABLE_CELL")][0] | keys[]' "$SCRATCH/ta
 jq -r '[.. | objects | select(.type? == "STICKY")][0] | keys[]' "$SCRATCH/tables-raw.json" | sort > "$SCRATCH/sticky-keys.txt"
 diff "$SCRATCH/sticky-keys.txt" "$SCRATCH/cell-keys.txt"
 ```
-- `fig2json` usage is FACT (`crates/designos-fig/examples/fig2json.rs:3-5`).
+- `fig2json` usage is FACT (`crates/designos-fig` fig2json harness lines 3-5).
 - The `jq` paths assume the raw dump nests NodeChanges as objects with a `type` key. That is an ASSUMPTION; adjust after looking at the first 200 lines.
 - The fixture needs one sticky for the diff. Add it if the owner's file has none, or diff against a TEXT node.
 - Record each U with the exact JSON excerpt (guid, key, value).
