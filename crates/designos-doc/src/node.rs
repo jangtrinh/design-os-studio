@@ -151,6 +151,9 @@ pub struct Node {
     /// Plugin metadata entries (`"{pluginID}:{key}" -> value` or `key -> value`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub plugin_data: BTreeMap<String, String>,
+    /// Fields written by a newer release that this model does not know yet.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
     /// Detached symbol provenance (`detachedSymbolId`, `"guid:s:l"` or `"assetRef:key:version"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detached_symbol_id: Option<String>,
@@ -446,6 +449,7 @@ impl Node {
             lock_aspect: false,
             hyperlink: None,
             plugin_data: BTreeMap::new(),
+            extra: BTreeMap::new(),
             detached_symbol_id: None,
             fig_metadata: BTreeMap::new(),
             motion: None,

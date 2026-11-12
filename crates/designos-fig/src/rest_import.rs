@@ -88,6 +88,125 @@ pub(crate) fn farr<'a>(v: &'a Value, k: &str) -> &'a [Value] {
     v.get(k).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
 }
 
+pub(crate) fn node_extra(v: &Value, ty: &str) -> BTreeMap<String, Value> {
+    if matches!(ty, "STICKY" | "SHAPE_WITH_TEXT" | "CONNECTOR") {
+        return BTreeMap::new();
+    }
+    const KNOWN: &[&str] = &[
+        "id",
+        "type",
+        "name",
+        "visible",
+        "locked",
+        "opacity",
+        "blendMode",
+        "size",
+        "relativeTransform",
+        "absoluteBoundingBox",
+        "fills",
+        "strokes",
+        "strokeWeight",
+        "individualStrokeWeights",
+        "strokeAlign",
+        "strokeCap",
+        "strokeJoin",
+        "strokeMiterLimit",
+        "strokeMiterAngle",
+        "strokeDashes",
+        "effects",
+        "cornerRadius",
+        "rectangleCornerRadii",
+        "cornerSmoothing",
+        "constraints",
+        "layoutSizingHorizontal",
+        "layoutSizingVertical",
+        "layoutGrow",
+        "layoutAlign",
+        "layoutPositioning",
+        "gridColumnAnchorIndex",
+        "gridRowAnchorIndex",
+        "gridColumnSpan",
+        "gridRowSpan",
+        "gridChildHorizontalAlign",
+        "gridChildVerticalAlign",
+        "minWidth",
+        "maxWidth",
+        "minHeight",
+        "maxHeight",
+        "stackChildMarginTop",
+        "stackChildMarginRight",
+        "stackChildMarginBottom",
+        "stackChildMarginLeft",
+        "styles",
+        "children",
+        "pluginData",
+        "exportSettings",
+        "guides",
+        "backgroundColor",
+        "componentId",
+        "componentKey",
+        "propsAreBubbled",
+        "overrides",
+        "preserveRatio",
+        "isMask",
+        "maskType",
+        "fillGeometry",
+        "strokeGeometry",
+        "vectorNetwork",
+        "arcData",
+        "pointCount",
+        "starInnerRadius",
+        "booleanOperation",
+        "characters",
+        "style",
+        "characterStyleOverrides",
+        "styleOverrideTable",
+        "layoutMode",
+        "layoutGrids",
+        "gridColumns",
+        "gridColumnsSizing",
+        "gridRows",
+        "gridRowsSizing",
+        "gridAutoTracks",
+        "layoutWrap",
+        "itemSpacing",
+        "counterAxisSpacing",
+        "paddingTop",
+        "paddingRight",
+        "paddingBottom",
+        "paddingLeft",
+        "primaryAxisAlignItems",
+        "counterAxisAlignItems",
+        "primaryAxisSizingMode",
+        "counterAxisSizingMode",
+        "strokesIncludedInLayout",
+        "itemReverseZIndex",
+        "stackLayoutVersion",
+        "exportSettings",
+        "hyperlink",
+        "detachedSymbolId",
+        "figMetadata",
+        "motion",
+        "isSlot",
+        "isSlotContent",
+        "slotContentId",
+        "overrideLevel",
+        "variantPicks",
+        "_overrideKey",
+        "_uniformScale",
+        "_overrides",
+        "_derived",
+        "_keptOverrides",
+        "_keptOwnKeys",
+        "stampType",
+        "stampSubType",
+        "shapeType",
+        "shapeWithTextType",
+        "studioConnector",
+    ];
+    v.as_object().into_iter().flat_map(|o| o.iter()).filter(|(k, _)| !KNOWN.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
 pub(crate) fn vec2(v: &Value) -> Option<Vec2> {
     Some(Vec2::new(fnum(v, "x")?, fnum(v, "y")?))
 }
@@ -1363,7 +1482,9 @@ impl<'a> Ctx<'a> {
         let kind = if let Some(carrier) = &studio_carrier {
             self.has_connectors = true;
             self.connectors.push((id, carrier.start_node_id.clone(), carrier.end_node_id.clone()));
-            NodeKind::Connector(carrier.props.clone())
+            let mut props = carrier.props.clone();
+            props.extra.extend(crate::rest_import::node_extra(v, ty));
+            NodeKind::Connector(props)
         } else {
             match ty {
                 "FRAME" => NodeKind::Frame(frame()),
@@ -1529,6 +1650,7 @@ impl<'a> Ctx<'a> {
             },
         };
         n.size = v.get("size").and_then(vec2).or_else(|| bbox.and_then(|b| Some(Vec2::new(fnum(b, "width")?, fnum(b, "height")?)))).unwrap_or(Vec2::ZERO);
+        n.extra = node_extra(v, ty);
 
         // Paint & stroke.
         let fills = parse_paints(v.get("fills"));

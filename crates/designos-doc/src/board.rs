@@ -170,6 +170,8 @@ pub struct ConnectorProps {
     pub end_cap: ConnectorCap,
     /// Text drawn at the midpoint over a background.
     pub label: Option<TextProps>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for ConnectorProps {
@@ -181,6 +183,7 @@ impl Default for ConnectorProps {
             start_cap: ConnectorCap::None,
             end_cap: ConnectorCap::Arrow,
             label: None,
+            extra: BTreeMap::new(),
         }
     }
 }
