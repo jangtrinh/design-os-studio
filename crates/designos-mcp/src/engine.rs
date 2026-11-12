@@ -468,7 +468,16 @@ impl Engine {
         // or serialize a document with deferred layout still in it.
         self.settle_layout();
         match name {
-            "designos_get_app_state" => crate::tools::bootstrap::call_get_app_state(self, args).map_err(ToolError::from),
+            "designos_get_app_state" => {
+                // The outline walks the frames this call reports on, so the pages that own them are filled in first.
+                self.ensure_active_page_hydrated()?;
+                if let Some(ids) = args.get("target_node_ids").and_then(Value::as_array) {
+                    for id in ids.iter().filter_map(Value::as_u64).filter(|id| *id > 0) {
+                        self.ensure_page_hydrated_for_node(NodeId(id))?;
+                    }
+                }
+                crate::tools::bootstrap::call_get_app_state(self, args).map_err(ToolError::from)
+            }
             "designos_get_document" => {
                 self.ensure_active_page_hydrated()?;
                 let _: Empty = parse(args)?;
@@ -3147,6 +3156,25 @@ mod tests {
 
         let metadata = engine.call("designos_get_metadata", json!({"node_id": instance.0})).unwrap();
         assert!(metadata["xml"].as_str().unwrap().contains("Rectangle"), "metadata must expose hydrated children");
+    }
+
+    #[test]
+    fn app_state_outline_hydrates_the_active_deferred_page() {
+        let (mut engine, _, instance) = deferred_page_engine();
+        let state = engine.call("designos_get_app_state", json!({"sections": ["outline"]})).unwrap();
+        let outline = state["markdown"].as_str().unwrap().to_string();
+        assert!(engine.doc.get(instance).unwrap().children.len() == 1, "the call hydrated the page it outlines: {outline}");
+        assert!(outline.contains("Rectangle"), "the outline lists the instance's hydrated child: {outline}");
+    }
+
+    #[test]
+    fn app_state_outline_hydrates_the_page_of_an_explicit_target() {
+        let (mut engine, _, instance) = deferred_page_engine();
+        let other = engine.doc.add_page("Other");
+        engine.active_page_id = Some(other);
+        let state = engine.call("designos_get_app_state", json!({"sections": ["outline"], "target_node_ids": [instance.0]})).unwrap();
+        let outline = state["markdown"].as_str().unwrap().to_string();
+        assert!(outline.contains("Rectangle"), "the outline lists the target's hydrated child: {outline}");
     }
 
     #[test]
