@@ -370,3 +370,23 @@ fn a_batch_apply_spec_inside_a_hug_frame_grows_it_and_re_solves_the_frame_above(
     assert_eq!((size.x, size.y), (100.0, 50.0), "the frame hugs the layer that was added");
     assert_eq!(ty(&e, tail), 50.0, "the screen follows the larger frame");
 }
+
+/// Binding a fixed frame's padding to a variable with the single-layer tool changes what the frame lays out inside itself and
+/// nothing outside it.
+#[test]
+fn binding_padding_on_a_fixed_size_frame_with_update_node_moves_nothing_outside_it() {
+    let Holder { mut e, holder, tail, .. } = fixed_holder();
+    e.call(
+        "designos_apply_batch",
+        json!({ "ops": [{ "op": "set_variables",
+            "upsert_collections": [{ "id": "space", "name": "Space", "modes": [{ "id": "m1", "name": "One" }], "default_mode": "m1" }],
+            "upsert_variables": [{ "id": "pad", "name": "pad", "collection": "space", "kind": "number", "values": { "m1": 20 } }] }] }),
+    )
+    .unwrap();
+    let before = geometry(&e.doc);
+
+    e.call("designos_update_node", json!({ "node_id": holder.0, "bindings": { "paddingLeft": "pad" } })).unwrap();
+
+    assert_eq!(moved_outside(&e, &before, holder), Vec::<u64>::new());
+    assert_eq!(ty(&e, tail), 200.0, "the tail keeps the place the document stored");
+}
