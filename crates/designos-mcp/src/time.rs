@@ -35,6 +35,14 @@ mod tests {
     }
 
     #[test]
+    fn leap_days_century_years_and_the_day_before_the_epoch_are_exact() {
+        assert_eq!(civil_from_days(19_782), (2024, 2, 29));
+        assert_eq!(civil_from_days(11_016), (2000, 2, 29));
+        assert_eq!(civil_from_days(47_541), (2100, 3, 1), "2100 is not a leap year");
+        assert_eq!(civil_from_days(-1), (1969, 12, 31));
+    }
+
+    #[test]
     fn uses_the_injected_document_clock() {
         designos_doc::set_thread_mock_now_ms(Some(1_790_000_000_321));
         assert_eq!(now_rfc3339(), "2026-09-21T14:13:20.321Z");
