@@ -2242,8 +2242,16 @@ impl<'a> Ctx<'a> {
                             m.component.source = Some(cc);
                         }
                     }
-                    if !matches!(in_node.kind, NodeKind::Instance { .. }) && in_node.kind.is_container() {
-                        pair_stack.push((ic, cc));
+                    // A nested instance's children are copied from its referenced component, not
+                    // stored under the instance shell in the containing main. Pair that subtree
+                    // with the nested main so every copied descendant gets its immediate source.
+                    let pair_target = match in_node.kind {
+                        NodeKind::Instance { component: Some(target), .. } => Some(target),
+                        _ if in_node.kind.is_container() => Some(cc),
+                        _ => None,
+                    };
+                    if let Some(target) = pair_target {
+                        pair_stack.push((ic, target));
                     }
                 }
             }
@@ -4888,6 +4896,24 @@ mod expand_depth_tests {
         assert_eq!(swapped.name, "Sidebar icon");
         assert!(swapped.component.overrides.contains(&OverrideField::Name));
         assert!(swapped.children.iter().any(|id| doc.get(*id).is_some_and(|n| n.name == "settings-path")));
+    }
+
+    #[test]
+    fn nested_instance_children_link_to_the_nested_main() {
+        let size = json!({"x": 8, "y": 8});
+        let doc = json!({"document":{"type":"DOCUMENT","children":[{"id":"0:1","type":"CANVAS","children":[
+            {"id":"10:1","name":"Inner","type":"COMPONENT","size":size,"children":[{"id":"10:2","name":"Leaf","type":"RECTANGLE","size":size}]},
+            {"id":"11:1","name":"Outer","type":"COMPONENT","size":size,"children":[{"id":"11:2","name":"Inner copy","type":"INSTANCE","componentId":"10:1","size":size,"children":[{"id":"11:3","name":"Leaf","type":"RECTANGLE","size":size}]}]},
+            {"id":"1:1","name":"Use","type":"INSTANCE","componentId":"11:1","size":size}
+        ]}]}});
+        let imported = import_rest_value(&doc, true).unwrap();
+        let use_node = imported.nodes.values().find(|n| n.name == "Use").unwrap();
+        let nested = imported.get(*use_node.children.first().unwrap()).unwrap();
+        let leaf = imported.get(*nested.children.first().unwrap()).unwrap();
+        let outer = imported.nodes.values().find(|n| n.name == "Outer").unwrap();
+        let outer_nested = imported.get(*outer.children.first().unwrap()).unwrap();
+        let outer_leaf = imported.get(*outer_nested.children.first().unwrap()).unwrap();
+        assert_eq!(leaf.component.source, Some(outer_leaf.id));
     }
 
     #[test]
