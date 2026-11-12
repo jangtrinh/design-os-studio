@@ -3181,6 +3181,10 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
         apply_export_toast_preset(app);
         return;
     }
+    if base == "cycle-refusal-toast" {
+        crate::comp_cycle_refusal::apply_toast_preset(app);
+        return;
+    }
     if base == "variables" {
         app.vars.open = true;
         app.vars.full = true;

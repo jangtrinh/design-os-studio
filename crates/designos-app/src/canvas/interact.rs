@@ -2002,6 +2002,16 @@ fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: Option<DV>) -> boo
     skip.extend(mains_held_by(&app.doc, &sources));
     skip.extend(sources);
     let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &skip);
+    // Where the drop would have gone without the guard above: when that is a refusal, say why the layers went elsewhere.
+    // The layers are dropped where they land, so this is a redirect to tell about, not a refusal.
+    if m.main_copies.is_empty() {
+        let natural = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &m.ids);
+        if natural != target {
+            if let Some(refusal) = crate::comp_cycle_refusal::move_refusal(&app.doc, &m.ids, natural) {
+                app.show_toast(refusal.moved_outside, false);
+            }
+        }
+    }
     // Layers that stay inside their container only reorder; leaving it takes them out of the flow.
     let moving: Vec<NodeId> =
         m.ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.parent != Some(target)) && !app.doc.is_ancestor(*id, target)).collect();

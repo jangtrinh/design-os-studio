@@ -1276,7 +1276,7 @@ mod color_profile;
 mod color_profile_picking;
 mod comments;
 mod components;
-mod components_cycles;
+pub(super) mod components_cycles;
 mod components_main_copies;
 mod connector_rules;
 mod corner_radius;

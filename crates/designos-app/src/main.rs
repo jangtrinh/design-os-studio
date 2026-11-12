@@ -52,6 +52,7 @@ mod cli_scan_design_system;
 mod clipboard;
 mod cmdk;
 mod comments;
+mod comp_cycle_refusal;
 mod comp_ops;
 mod decks;
 mod deferred_work;

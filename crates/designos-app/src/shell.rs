@@ -909,6 +909,8 @@ impl Shell {
             Some("web-capture-report") => {
                 app.web_capture_report_open = true;
             }
+            // Staging presets edit the open document directly, outside history: only a screenshot run may use them.
+            Some(p) if opts.screenshot.is_none() && stages_document_edits(p) => {}
             Some(p) if p.starts_with("micro-") => {
                 if !p.contains(":seq:") {
                     apply_micro_interaction_showcase_preset(&mut app, p);
@@ -922,7 +924,7 @@ impl Shell {
         }
         app.canvas.tiles.unlimited_budget = opts.screenshot.is_some();
         let mut seq_capture = None;
-        if let Some(p) = opts.panel.as_deref() {
+        if let Some(p) = opts.panel.as_deref().filter(|p| opts.screenshot.is_some() || !stages_document_edits(p)) {
             if let Some((slug, rest)) = p.split_once(":seq:") {
                 let total = rest.trim().parse::<usize>().unwrap_or(60).max(2);
                 if opts.size.is_some_and(|(w, h)| w < h) {
@@ -2767,6 +2769,11 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
             app.show_toast(crate::cmdk::done_toast(op), false);
         }
     }
+}
+
+/// `--panel` presets that build or edit layers in the open document to stage a capture.
+fn stages_document_edits(panel: &str) -> bool {
+    panel.starts_with("micro-") || matches!(panel.split(':').next(), Some("export-toast" | "cycle-refusal-toast"))
 }
 
 /// Configures `app` with a rich, deterministic visual showcase scene for each of the 8

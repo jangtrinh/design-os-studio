@@ -391,6 +391,7 @@ impl App {
             if is_noop(&cmd) {
                 // Inside the component itself (or its descendants): fall back to the page.
                 if attempt == 0 {
+                    self.explain_instance_placed_outside(comp, parent);
                     parent = self.page;
                     continue;
                 }
@@ -439,6 +440,8 @@ impl App {
         }
         let cmd = create_instance(&mut self.doc, comp, slot, Vec2::ZERO);
         let Command::Insert { index, nodes, .. } = cmd else {
+            let refusal = crate::comp_cycle_refusal::insert_refusal(&self.doc, comp, slot);
+            self.explain_refusal(refusal);
             return None;
         };
         let id = nodes.first().map(|n| n.id);
@@ -462,8 +465,12 @@ impl App {
     /// Sets (or with `None` resets) a component property on an instance.
     pub fn set_instance_prop(&mut self, inst: NodeId, name: &str, value: Option<PropValue>) {
         let mut tx = Tx::new();
+        let refused = value.clone();
         let cmd = set_instance_prop(&mut self.doc, inst, name, value);
-        if self.push_cmd(&mut tx, cmd) {
+        if is_noop(&cmd) {
+            let refusal = refused.and_then(|v| crate::comp_cycle_refusal::prop_refusal(&self.doc, inst, name, &v));
+            self.explain_refusal(refusal);
+        } else if self.push_cmd(&mut tx, cmd) {
             self.refit_texts(&mut tx, inst);
             self.run_tx(tx);
         }
@@ -473,8 +480,12 @@ impl App {
     /// the outer instance's panel of exposed properties. Text that grew or shrank is refitted in the outer instance.
     pub fn set_nested_instance_prop(&mut self, nested: NodeId, name: &str, value: Option<PropValue>) {
         let mut tx = Tx::new();
+        let refused = value.clone();
         let cmd = set_nested_instance_prop(&mut self.doc, nested, name, value);
-        if self.push_cmd(&mut tx, cmd) {
+        if is_noop(&cmd) {
+            let refusal = refused.and_then(|v| crate::comp_cycle_refusal::prop_refusal(&self.doc, nested, name, &v));
+            self.explain_refusal(refusal);
+        } else if self.push_cmd(&mut tx, cmd) {
             let outer = instance_root_of(&self.doc, nested).unwrap_or(nested);
             self.refit_texts(&mut tx, outer);
             self.run_tx(tx);
@@ -490,7 +501,10 @@ impl App {
     pub fn swap_instance(&mut self, inst: NodeId, comp: NodeId) {
         let mut tx = Tx::new();
         let cmd = swap_instance(&mut self.doc, inst, comp);
-        if self.push_cmd(&mut tx, cmd) {
+        if is_noop(&cmd) {
+            let refusal = crate::comp_cycle_refusal::swap_refusal(&self.doc, inst, comp);
+            self.explain_refusal(refusal);
+        } else if self.push_cmd(&mut tx, cmd) {
             self.run_tx(tx);
         }
     }

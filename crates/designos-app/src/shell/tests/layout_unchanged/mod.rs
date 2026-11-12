@@ -338,6 +338,10 @@ pub fn run_spec_cases(spec_key: &str) {
         opts.size = Some((1440, 900));
         opts.scale = Some(1.0);
         opts.no_toast = true;
+        // The staging presets edit the open document, which only a capture run may do.
+        if opts.panel.as_deref().is_some_and(|p| p.starts_with("micro-")) && opts.screenshot.is_none() {
+            opts.screenshot = Some(case_tmp.join("staging.png"));
+        }
         opts.agent_cli_dir = Some(stub_dir.clone());
         opts.fixed_now = Some(1_700_000_060_000);
 
