@@ -1941,6 +1941,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The sentence the contributor sets with the restored draft is what the composer's caption line shows in the New chat state.
+    #[test]
+    fn closing_the_last_tab_shows_the_restored_message_notice_in_the_composer_caption() {
+        let dir = temp_composer_dir("close-tab-caption");
+        let mut st = TerminalState::new_for_session("doc-close-caption", "Close Caption", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab_mut().expect("agent tab").composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+
+        st.close_tab(0);
+
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored after tab close"));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Start-window prompts come first, then the queue in order; a system job never lands in the draft; what was already typed in
     /// the New chat composer stays and the recovered text follows it.
     #[test]

@@ -3788,6 +3788,9 @@ impl TerminalState {
                         self.unattached_composer.draft.push_str(&recovered);
                     }
                     self.unattached_composer.notice = Some("Queued message restored after tab close".into());
+                    // The caption line shows a notice only beside a refused outcome, as it does for a draft returned by a failed start.
+                    self.unattached_composer.last_outcome =
+                        Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
                 }
             }
             let _ = removed.child.kill();
