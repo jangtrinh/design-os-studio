@@ -73,7 +73,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ### `designos_update_node`
 - **Purpose:** Update specified fields of one non-page layer.
 - **Args:** required: `node_id` (optional: `bindings`, `diff_image`, `fill`, `fills`, `height`, `idempotency_key`, `lint`, `name`, `opacity`, `prop_vars`, `text`, `visible`, `width`, `x`, `y`)
-- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `MOVE_CYCLE`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `OUTSIDE_OWNED_FRAMES`
+- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `MOVE_CYCLE`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `UNKNOWN_COMPONENT_PROPERTY`, `OVERRIDE_FIELD_NOT_APPLICABLE`, `OUTSIDE_OWNED_FRAMES`
 - **Example:** `{"node_id":2,"name":"Header","fill":"var:Color/Primary"}`
 
 ### `designos_delete_node`

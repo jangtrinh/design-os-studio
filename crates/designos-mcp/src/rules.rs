@@ -518,6 +518,8 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`UNKNOWN_VARIABLE`",
             "`VARIABLE_TYPE_MISMATCH`",
             "`AMBIGUOUS_VARIABLE`",
+            "`UNKNOWN_COMPONENT_PROPERTY`",
+            "`OVERRIDE_FIELD_NOT_APPLICABLE`",
             "`OUTSIDE_OWNED_FRAMES`",
             "`TOOL_DISABLED`",
         ],
@@ -872,6 +874,8 @@ mod tests {
     fn per_tool_error_lists_name_the_unsupported_codes_the_tool_returns() {
         let has = |tool: &str, code: &str| tool_error_codes(tool).contains(&format!("`{code}`").as_str());
         assert!(has("designos_create_node", "UNSUPPORTED_NODE_KIND"));
+        assert!(has("designos_update_node", "UNKNOWN_COMPONENT_PROPERTY"));
+        assert!(has("designos_update_node", "OVERRIDE_FIELD_NOT_APPLICABLE"));
         for tool in ["designos_save_file", "designos_render_png", "designos_export_fig_file"] {
             assert!(has(tool, "UNSUPPORTED_EXTENSION"), "{tool}");
         }
