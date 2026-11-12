@@ -1195,6 +1195,7 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "connectorLineType",
     "connectorLineStyle",
     "studioConnector",
+    "variantPicks",
     "connectorStartStrokeCap",
     "connectorEndStrokeCap",
     "connectorStartCap",
@@ -1856,6 +1857,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     copy(&mut m, nc, "name", "name");
     copy(&mut m, nc, "componentKey", "componentKey");
     copy(&mut m, nc, "studioConnector", "studioConnector");
+    copy(&mut m, nc, "variantPicks", "variantPicks");
     // A symbol or state group indexed by its publish `key` (see `Lk::new`) keeps that key the way
     // `componentKey` is kept, so export writes it back. An explicit `componentKey` wins.
     if !m.contains_key("componentKey") && matches!(ty, "COMPONENT" | "COMPONENT_SET") {
@@ -2659,7 +2661,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     for (k, val) in obj {
         match k.as_str() {
             "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "strokeCap" | "strokeJoin"
-            | "strokeMiterAngle" | "cornerRadius" | "slotContent" | "arcData" | "ownVariantBindings" => {
+            | "strokeMiterAngle" | "cornerRadius" | "slotContent" | "arcData" | "ownVariantBindings" | "variantPicks" => {
                 m.insert(k.clone(), val.clone());
             }
             "miterLimit" => {

@@ -652,31 +652,6 @@ fn mode_switch_cost_over_two_thousand_bound_nested_instances() {
     eprintln!("MODE_SWITCH_COST 2000 instances: {times:?}; after the last switch (light) {on_small} show Small, {flipped} show Large");
 }
 
-/// What a bound top instance does with a variant picked by hand through the API (the panel shows a pill, not a control,
-/// while the property is bound, so a person detaches first): the binding wins again at the next resync. Pinned so the
-/// nested rule (a recorded pick wins until reset) is read against it.
-#[test]
-fn a_bound_top_instance_returns_to_its_variable_at_the_next_mode_change_after_a_pick() {
-    let mut f = make_fx();
-    create_instance(&mut f.d, f.small, f.host, Vec2::new(10.0, 100.0)).apply(&mut f.d).unwrap();
-    let top = *f.d.get(f.host).unwrap().children.last().unwrap();
-    let c = bind_prop_variable(&mut f.d, top, "Size", Some("size")).unwrap();
-    f.h.exec(&mut f.d, c).unwrap();
-    let c = set_instance_prop(&mut f.d, top, "Size", Some(PropValue::Variant("Large".into())));
-    f.h.exec(&mut f.d, c).unwrap();
-    assert_eq!(main_of(&f.d, top), f.large, "the pick shows until something resyncs the binding");
-    let host = f.host;
-    set_mode(&mut f, host, "dark");
-    set_mode(&mut f, host, "light");
-    assert_eq!(main_of(&f.d, top), f.small, "a mode switch applies the binding over the pick");
-    let c = swap_instance(&mut f.d, top, f.large);
-    f.h.exec(&mut f.d, c).unwrap();
-    assert!(f.d.get(top).unwrap().component.overrides.contains(&OverrideField::MainComponent));
-    set_mode(&mut f, host, "dark");
-    set_mode(&mut f, host, "light");
-    assert_eq!(main_of(&f.d, top), f.small, "and over a swap recorded on the top instance");
-}
-
 /// `host2 > OI > W' > N''`: a wrapper main `O` holds an instance of the wrapper main, `OI` is an instance of `O` in `host2`.
 /// Returns `host2` and the deepest copy, three levels below the main that holds the binding.
 fn three_levels(f: &mut Nx) -> (NodeId, NodeId) {

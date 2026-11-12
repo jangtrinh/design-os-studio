@@ -1478,6 +1478,10 @@ impl<'a> Ctx<'a> {
         if let Some(lvl) = v.get("overrideLevel").and_then(Value::as_i64) {
             n.component.override_level = Some(lvl as i32);
         }
+        // The bound variant properties picked by hand on a top-level instance (a carrier entry of the node).
+        if let Some(names) = v.get("variantPicks").and_then(Value::as_array) {
+            n.component.variant_picks = names.iter().filter_map(Value::as_str).map(String::from).collect();
+        }
         n.component.is_slot = fbool(v, "isSlot").unwrap_or(false);
         n.component.is_slot_content = fbool(v, "isSlotContent").unwrap_or(false);
         n.component.slot_content_id = fstr(v, "slotContentId").filter(|s| !s.is_empty()).map(String::from);
@@ -3172,6 +3176,12 @@ impl<'a> Ctx<'a> {
             if let Some(names) = set.get("ownVariantBindings").and_then(Value::as_array) {
                 if let Some(n) = self.doc.get_mut(id) {
                     n.component.own_variant_bindings = names.iter().filter_map(Value::as_str).map(String::from).collect();
+                }
+            }
+            // The bound variant properties picked by hand on this nested copy, from the same kind of carrier entry.
+            if let Some(names) = set.get("variantPicks").and_then(Value::as_array) {
+                if let Some(n) = self.doc.get_mut(id) {
+                    n.component.variant_picks = names.iter().filter_map(Value::as_str).map(String::from).collect();
                 }
             }
             if set.get("name").is_some() {

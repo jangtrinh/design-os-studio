@@ -86,6 +86,11 @@ fn make_set(d: &mut Document, page: NodeId, set_name: &str, names: &[(&str, f32)
 
 /// A wrapper main holding an instance of `base` with `Size` bound to `size`, and `W`, an instance of it in `Host`.
 fn wrap(d: &mut Document, page: NodeId, base: NodeId) {
+    wrap_bound(d, page, base, &["Size"]);
+}
+
+/// [`wrap`] with each property of `bound` bound to the variable of its lower-case name.
+fn wrap_bound(d: &mut Document, page: NodeId, base: NodeId, bound: &[&str]) {
     let id = d.alloc_id();
     let mut wf = Node::frame(id, Rect::new(0.0, 600.0, 400.0, 100.0));
     wf.name = "Wrapper".into();
@@ -93,7 +98,9 @@ fn wrap(d: &mut Document, page: NodeId, base: NodeId) {
     create_instance(d, base, wmain, Vec2::new(10.0, 10.0)).apply(d).unwrap();
     let nested = *d.get(wmain).unwrap().children.last().unwrap();
     create_component(d, wmain).apply(d).unwrap();
-    bind_prop_variable(d, nested, "Size", Some("size")).unwrap().apply(d).unwrap();
+    for prop in bound {
+        bind_prop_variable(d, nested, prop, Some(&prop.to_lowercase())).unwrap().apply(d).unwrap();
+    }
     let id = d.alloc_id();
     let mut hf = Node::frame(id, Rect::new(500.0, 0.0, 400.0, 200.0));
     hf.name = "Host".into();
@@ -134,7 +141,11 @@ fn a_pick_on_another_property_than_the_bound_one_survives_a_fig_reopen_and_a_mod
     assert_eq!(shown(&reopened, copy), "Button/Size=Small, State=Hover", "the reopened copy shows the pick");
     assert!(reopened.get(copy).unwrap().component.overrides.contains(&OverrideField::MainComponent), "and still holds it as a pick");
     set_theme_mode(&mut reopened, "Host", "dark");
-    assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Button/Size=Small, State=Hover", "a mode switch does not take the pick back");
+    assert_eq!(
+        shown(&reopened, copy_in_w(&reopened)),
+        "Button/Size=Large, State=Hover",
+        "a mode switch keeps the State pick, and the bound Size follows its variable"
+    );
 }
 
 #[test]
@@ -153,4 +164,115 @@ fn a_swap_to_another_set_with_the_same_property_survives_a_fig_reopen_and_a_mode
     assert!(reopened.get(copy).unwrap().component.overrides.contains(&OverrideField::MainComponent), "and still holds it as a pick");
     set_theme_mode(&mut reopened, "Host", "dark");
     assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Badge/Size=Small", "a mode switch does not take the swap back");
+}
+
+fn state_variable() -> Variable {
+    let s = |v: &str| VariableValue::String(v.into());
+    Variable {
+        id: "state".into(),
+        name: "state".into(),
+        values: [("light".to_string(), s("Default")), ("dark".to_string(), s("Hover"))].into_iter().collect(),
+        ..size_variable()
+    }
+}
+
+const BUTTON_VARIANTS: [(&str, f32); 4] =
+    [("Size=Small, State=Default", 100.0), ("Size=Large, State=Default", 200.0), ("Size=Small, State=Hover", 110.0), ("Size=Large, State=Hover", 210.0)];
+
+/// A document with a `Button` set, the wrapper whose nested instance binds `Size` and `State`, and `Top`, a top-level
+/// instance in `Host` that binds `Size`.
+fn picks_document() -> (Document, Vec<NodeId>) {
+    let (mut d, page) = base_document();
+    d.variables.insert("state".into(), state_variable());
+    d.variable_collections.get_mut("theme").unwrap().variables.push("state".into());
+    let mains = make_set(&mut d, page, "Button", &BUTTON_VARIANTS, 0.0);
+    wrap_bound(&mut d, page, mains[0], &["Size", "State"]);
+    let host = node_named(&d, "Host");
+    create_instance(&mut d, mains[0], host, Vec2::new(10.0, 120.0)).apply(&mut d).unwrap();
+    let top = *d.get(host).unwrap().children.last().unwrap();
+    let mut tn = d.get(top).unwrap().clone();
+    tn.name = "Top".into();
+    Command::Update { node: Box::new(tn) }.apply(&mut d).unwrap();
+    bind_prop_variable(&mut d, top, "Size", Some("size")).unwrap().apply(&mut d).unwrap();
+    (d, mains)
+}
+
+fn picks_of(d: &Document, id: NodeId) -> Vec<String> {
+    d.get(id).unwrap().component.variant_picks.iter().cloned().collect()
+}
+
+#[test]
+fn variant_picks_survive_a_fig_reopen_on_a_top_instance_and_a_nested_copy() {
+    let (mut d, _) = picks_document();
+    let (copy, top) = (copy_in_w(&d), node_named(&d, "Top"));
+    set_nested_instance_prop(&mut d, copy, "Size", Some(PropValue::Variant("Large".into()))).apply(&mut d).unwrap();
+    set_instance_prop(&mut d, top, "Size", Some(PropValue::Variant("Large".into()))).apply(&mut d).unwrap();
+    assert_eq!((picks_of(&d, copy), picks_of(&d, top)), (vec!["Size".to_string()], vec!["Size".to_string()]));
+
+    let mut reopened = import_fig(&export_fig(&d).expect("export")).expect("reopen");
+    let (copy, top) = (copy_in_w(&reopened), node_named(&reopened, "Top"));
+    assert_eq!(picks_of(&reopened, copy), ["Size"], "the nested copy keeps its pick");
+    assert_eq!(picks_of(&reopened, top), ["Size"], "and so does the top-level instance");
+    assert_eq!(shown(&reopened, copy), "Button/Size=Large, State=Default");
+    assert_eq!(shown(&reopened, top), "Button/Size=Large, State=Default");
+    set_theme_mode(&mut reopened, "Host", "dark");
+    assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Button/Size=Large, State=Hover", "Size holds, State follows");
+    assert_eq!(shown(&reopened, node_named(&reopened, "Top")), "Button/Size=Large, State=Default", "the top-level pick holds against the variable");
+    set_theme_mode(&mut reopened, "Host", "light");
+    assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Button/Size=Large, State=Default");
+}
+
+#[test]
+fn a_fig_written_before_picks_were_recorded_holds_only_the_bound_properties_that_differ_from_their_variable() {
+    let (mut d, _) = picks_document();
+    let copy = copy_in_w(&d);
+    set_nested_instance_prop(&mut d, copy, "Size", Some(PropValue::Variant("Large".into()))).apply(&mut d).unwrap();
+    // what a build without picks wrote: the swap is there, the pick record is not
+    let mut node = d.get(copy).unwrap().clone();
+    node.component.variant_picks.clear();
+    Command::Update { node: Box::new(node) }.apply(&mut d).unwrap();
+
+    let mut reopened = import_fig(&export_fig(&d).expect("export")).expect("reopen");
+    let copy = copy_in_w(&reopened);
+    assert_eq!(shown(&reopened, copy), "Button/Size=Large, State=Default", "the reopened copy shows what the file stored");
+    assert_eq!(picks_of(&reopened, copy), ["Size"], "Size differs from the variable's value; State shows its variable's value and keeps following");
+    set_theme_mode(&mut reopened, "Host", "dark");
+    assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Button/Size=Large, State=Hover");
+}
+
+#[test]
+fn an_instance_that_binds_no_variant_property_writes_no_variant_picks() {
+    let (mut d, page) = base_document();
+    let mains = make_set(&mut d, page, "Button", &BUTTON_VARIANTS, 0.0);
+    let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+        "kind": "instance",
+        "component": "Button",
+        "variant": { "Size": "Large", "State": "Hover" }
+    }))
+    .unwrap();
+    let inst = d.apply_spec(page, &spec).expect("apply_spec");
+    set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant("Small".into()))).apply(&mut d).unwrap();
+    swap_instance(&mut d, inst, mains[2]).apply(&mut d).unwrap();
+    assert!(d.get(inst).unwrap().component.variant_picks.is_empty());
+    let decoded = designos_fig::decode_fig_to_json(&export_fig(&d).expect("export")).expect("decode");
+    assert!(!decoded.to_string().contains("variantPicks"), "no carrier entry for an instance that holds no pick");
+    let reopened = import_fig(&export_fig(&d).unwrap()).unwrap();
+    assert!(reopened.nodes.values().all(|n| n.component.variant_picks.is_empty()));
+}
+
+#[test]
+fn a_pick_that_equals_its_variable_at_save_time_is_still_a_pick_after_a_fig_reopen() {
+    let (mut d, _) = picks_document();
+    let (copy, top) = (copy_in_w(&d), node_named(&d, "Top"));
+    set_nested_instance_prop(&mut d, copy, "Size", Some(PropValue::Variant("Large".into()))).apply(&mut d).unwrap();
+    set_instance_prop(&mut d, top, "Size", Some(PropValue::Variant("Large".into()))).apply(&mut d).unwrap();
+    set_theme_mode(&mut d, "Host", "dark");
+    assert_eq!(shown(&d, copy_in_w(&d)), "Button/Size=Large, State=Hover", "the dark variable and the pick agree");
+
+    let mut reopened = import_fig(&export_fig(&d).expect("export")).expect("reopen");
+    assert_eq!(picks_of(&reopened, copy_in_w(&reopened)), ["Size"], "only the file's own record can tell this from a swap the binding made");
+    assert_eq!(picks_of(&reopened, node_named(&reopened, "Top")), ["Size"]);
+    set_theme_mode(&mut reopened, "Host", "light");
+    assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Button/Size=Large, State=Default", "the nested pick still holds against light");
+    assert_eq!(shown(&reopened, node_named(&reopened, "Top")), "Button/Size=Large, State=Default", "and so does the top-level one");
 }

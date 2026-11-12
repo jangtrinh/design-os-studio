@@ -1034,7 +1034,13 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
     let mut c = Ctx::new(doc);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        let before = (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len(), n.component.own_variant_bindings.len());
+        let before = (
+            n.component.overrides.len(),
+            n.component.grid_align_overrides,
+            n.plugin_data.len(),
+            n.component.own_variant_bindings.len(),
+            n.component.variant_picks.len(),
+        );
         for f in fields {
             n.component.overrides.remove(f);
             match f {
@@ -1055,7 +1061,14 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
                 _ => {}
             }
         }
-        if (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len(), n.component.own_variant_bindings.len()) != before {
+        if (
+            n.component.overrides.len(),
+            n.component.grid_align_overrides,
+            n.plugin_data.len(),
+            n.component.own_variant_bindings.len(),
+            n.component.variant_picks.len(),
+        ) != before
+        {
             c.update(n);
         }
     }
@@ -2222,28 +2235,41 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
                 desired = *sw;
             }
         }
+        let mut bound_switch = false;
         if top {
             if let Some(v) = variant_target(&c.s, &inode) {
                 desired = v;
             }
-        } else if nested_variant_follows_binding(&inode) {
+        } else {
             // A bound variant property of a nested instance resolves its variable where this copy sits (the modes of
-            // its ancestors), and the switch below is the one a person's pick makes.
-            let choices = bound_variant_choices(c.s, i, &inode, cur);
-            if let Some(v) = variant_target_from(&c.s, desired, &choices).filter(|_| !choices.is_empty()) {
-                desired = v;
+            // its ancestors), and the switch below is the one a person's pick makes. A property picked by hand keeps the
+            // variant the copy shows; the others lie over it.
+            let mut choices = bound_variant_choices(c.s, i, &inode, cur);
+            choices.retain(|name, _| !inode.component.variant_picks.contains(name));
+            if !choices.is_empty() {
+                if let Some(v) = variant_target_from(&c.s, desired, &choices) {
+                    desired = v;
+                    bound_switch = true;
+                }
             }
         }
         // not a main that would hold itself: the instance stays on the main it has
         if desired != cur && would_hold_itself(c.s, desired, i) {
             c.refused_swap.push((cur, desired));
         } else if desired != cur {
+            // The switch a bound variant property makes on a copy holding a pick leaves the pick recorded (the swap drops
+            // the record); a switch any other way (an instance-swap property) takes the record with it, as it always did.
+            let holds_pick = bound_switch && inode.component.overrides.contains(&OverrideField::MainComponent);
             swap_main(c, i, desired);
             swapped_here = true;
             inode = match c.s.get(i) {
                 Some(n) => n.clone(),
                 None => return,
             };
+            if holds_pick {
+                inode.component.overrides.insert(OverrideField::MainComponent);
+                c.update(inode.clone());
+            }
         }
         // Top instances mirror their component; swapped nested ones their own component too.
         let mine = instance_component(&inode);
@@ -2646,9 +2672,11 @@ fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
     if new_comp == instance || would_hold_itself(c.s, new_comp, instance) {
         return false;
     }
+    let old_comp = c.s.get(instance).and_then(instance_component);
     swap_main(c, instance, new_comp);
     if let Some(mut n) = c.s.get(instance).cloned() {
         n.component.overrides.insert(OverrideField::MainComponent);
+        record_variant_swap(c.s, &mut n, old_comp, new_comp);
         c.update(n);
     }
     true
@@ -2663,10 +2691,14 @@ pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value
 fn set_instance_prop_inner(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize) {
     set_instance_prop_edit(doc, instance, |n| match value {
         Some(v) => {
+            if matches!(v, PropValue::Variant(_)) {
+                record_variant_pick(n, name);
+            }
             n.component.values.insert(name.to_string(), v);
         }
         None => {
             n.component.values.remove(name);
+            n.component.variant_picks.remove(name);
         }
     })
 }
