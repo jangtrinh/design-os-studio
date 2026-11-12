@@ -65,7 +65,7 @@
       "license": "https://polyformproject.org/licenses/shield/1.0.0",
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "downloadUrl": "https://github.com/jangtrinh/design-os-studio/releases",
-      "softwareVersion": "0.7.12",
+      "softwareVersion": "0.7.13",
       "dateModified": "2026-11-12",
       "@id": "https://jangtrinh.github.io/design-os-studio/#app",
       "isBasedOn": {
@@ -519,9 +519,19 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.12, and it has captures from the release build. Older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.13. The latest captures are from the 0.7.12 release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--0713" id="new-in-v0713" aria-labelledby="v0713-h">
+          <h3 id="v0713-h" class="new-ver">0.7.13</h3>
+          <ul class="new-bullets">
+            <li><strong>Auto layout.</strong> Rotated and flipped children are laid out by their visual bounding box, as in Figma: a 72 x 18 text turned 270 degrees takes 18 px of a row, not 72. A wrapped frame from a <code>.fig</code> import with no counter-axis gap uses its item spacing as the line gap, and a <code>.fig</code> frame with no right or bottom padding imports it as 0. Re-solving every auto-layout frame of the imported Untitled UI PRO v8.0 kit moved 61,948 of 194,397 layers by more than 0.5 px before this release and moves 2,039 now.</li>
+            <li><strong>Components.</strong> A nested instance whose variant is bound to a variable follows the mode where it sits: a mode set on the host frame, an ancestor, the wrapper instance or the page. An instance keeps its own ring arc (start, sweep, inner radius) when its main component's arc changes, and Reset gives the main's arc back.</li>
+            <li><strong><code>.fig</code> save.</strong> A save keeps the overrides of an instance on a page that was never opened after its main component is edited. A vector resized inside an instance keeps its size through a save and reopen; that already held, and tests now pin it.</li>
+            <li><strong>Export and canvas.</strong> Dashed, gradient and width-bound Inside strokes on a grid that are wider than the padding export as an inset shadow, so content no longer shifts. SwiftUI export splits unequal grid columns such as 2fr 1fr by their weights (iOS 16 or macOS 13). The grid overlay draws its gap bands in the real gaps.</li>
+            <li><strong>Fixes.</strong> A refused edit, such as an instance swap that would make a component contain itself, shows a toast that says why, and a Display P3 document caps its converted-image cache at 64 MiB. Several fixes were carried from pull requests by @NamAIEngineer.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--0712" id="new-in-v0712" aria-labelledby="v0712-h">
           <h3 id="v0712-h" class="new-ver">0.7.12</h3>
           <p class="new-note">Captured with the 0.7.12 release build, headlessly with <code>designos-studio --screenshot</code> (2x), on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click the image for full size. The page is the kit's Dropdowns page of the copy, and <code>--panel effect-glass</code> adds a default glass effect to the selected Menu layer for the capture.</p>

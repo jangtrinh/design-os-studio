@@ -169,7 +169,16 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.12, and it has captures from the release build. Older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.13. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+
+<a id="new-in-v0713"></a>
+### 0.7.13
+
+- **Auto layout.** Rotated and flipped children are laid out by their visual bounding box, as in Figma: a 72 x 18 text turned 270 degrees takes 18 px of a row, not 72. A wrapped frame from a `.fig` import with no counter-axis gap uses its item spacing as the line gap, and a `.fig` frame with no right or bottom padding imports it as 0. Re-solving every auto-layout frame of the imported Untitled UI PRO v8.0 kit moved 61,948 of 194,397 layers by more than 0.5 px before this release and moves 2,039 now.
+- **Components.** A nested instance whose variant is bound to a variable follows the mode where it sits: a mode set on the host frame, an ancestor, the wrapper instance or the page. An instance keeps its own ring arc (start, sweep, inner radius) when its main component's arc changes, and Reset gives the main's arc back.
+- **`.fig` save.** A save keeps the overrides of an instance on a page that was never opened after its main component is edited. A vector resized inside an instance keeps its size through a save and reopen; that already held, and tests now pin it.
+- **Export and canvas.** Dashed, gradient and width-bound Inside strokes on a grid that are wider than the padding export as an inset shadow, so content no longer shifts. SwiftUI export splits unequal grid columns such as 2fr 1fr by their weights (iOS 16 or macOS 13). The grid overlay draws its gap bands in the real gaps.
+- **Fixes.** A refused edit, such as an instance swap that would make a component contain itself, shows a toast that says why, and a Display P3 document caps its converted-image cache at 64 MiB. Several fixes were carried from pull requests by @NamAIEngineer.
 
 <a id="new-in-v0712"></a>
 ### 0.7.12
@@ -752,7 +761,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.12. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.12 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.13. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.13 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
