@@ -52,6 +52,11 @@ Big files open as one document. The Untitled UI PRO v8.0 kit, a 336 MB file, ope
 - The **Variables** view lists collections, modes and alias bindings. Open it from the left rail, or with `designos-studio file.fig --panel variables`.
 - **Dev Mode** (`Shift+D`) prints code for the selection in eight targets: CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML.
 
+<figure>
+  <img src="{{ '/images/studio-kit-type.png' | relative_url }}" width="1600" height="1000" alt="design:os by Jang" decoding="async">
+  <figcaption>design:os by Jang</figcaption>
+</figure>
+
 To check a file without opening the window, run:
 
 ```sh
