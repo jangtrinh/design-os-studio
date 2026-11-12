@@ -1970,7 +1970,7 @@ mod style_tests {
 }
 
 #[cfg(test)]
-mod issue_1740_tests {
+mod duplicate_node_id_tests {
     use super::*;
 
     #[test]
@@ -2050,5 +2050,36 @@ mod issue_1740_tests {
         assert_eq!(doc.nodes, before.nodes);
         assert_eq!(doc.pages, before.pages);
         assert!(history.undo.is_empty());
+    }
+
+    #[test]
+    fn direct_document_insert_with_existing_id_leaves_the_original_untouched() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let id = NodeId(42);
+        doc.insert(page, Node::rectangle(id, Rect::new(10.0, 20.0, 30.0, 40.0))).unwrap();
+        let before = doc.clone();
+
+        let result = doc.insert(page, Node::rectangle(id, Rect::new(90.0, 90.0, 5.0, 5.0)));
+
+        assert!(matches!(result, Err(DocError::DuplicateNode(found)) if found == id));
+        assert_eq!(doc.nodes, before.nodes);
+        assert_eq!(doc.pages, before.pages);
+    }
+
+    #[test]
+    fn a_fresh_insert_still_undoes_and_redoes_after_the_duplicate_guard() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let id = NodeId(77);
+        let mut history = History::default();
+
+        history.exec(&mut doc, Command::Insert { parent: page, index: 0, nodes: vec![Node::rectangle(id, Rect::default())] }).unwrap();
+        assert!(doc.nodes.contains_key(&id));
+        assert!(history.undo(&mut doc).unwrap());
+        assert!(!doc.nodes.contains_key(&id));
+        assert!(history.redo(&mut doc).unwrap());
+        assert!(doc.nodes.contains_key(&id));
+        assert_eq!(doc.nodes[&page].children.iter().filter(|c| **c == id).count(), 1);
     }
 }
