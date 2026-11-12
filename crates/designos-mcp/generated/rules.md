@@ -79,7 +79,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ### `designos_delete_node`
 - **Purpose:** Remove a non-page layer and its entire subtree.
 - **Args:** required: `node_id` (optional: `diff_image`, `idempotency_key`, `lint`)
-- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `OUTSIDE_OWNED_FRAMES`
+- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `INSTANCE_CHILD`, `OUTSIDE_OWNED_FRAMES`
 - **Example:** `{"node_id":3}`
 
 ### `designos_list_comments`

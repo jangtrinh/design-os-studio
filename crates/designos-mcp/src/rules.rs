@@ -521,7 +521,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`OUTSIDE_OWNED_FRAMES`",
             "`TOOL_DISABLED`",
         ],
-        "designos_delete_node" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`PAGE_ROOT_PROTECTED`", "`OUTSIDE_OWNED_FRAMES`", "`TOOL_DISABLED`"],
+        "designos_delete_node" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`PAGE_ROOT_PROTECTED`", "`INSTANCE_CHILD`", "`OUTSIDE_OWNED_FRAMES`", "`TOOL_DISABLED`"],
         "designos_list_comments" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
         "designos_add_comment" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TEXT_TOO_LONG`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_reply_comment" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],

@@ -696,7 +696,7 @@ impl Engine {
                 let id = n.id;
                 self.check_owned_frames(id, "/node_id")?;
                 if is_protected_instance_child(&self.doc, n, former_parent) {
-                    return Err(ToolError::new(ErrorCode::FieldNotAllowedOnInstance, "/node_id", INSTANCE_CHILD_DELETE_MESSAGE));
+                    return Err(ToolError::new(ErrorCode::InstanceChild, "/node_id", INSTANCE_CHILD_DELETE_MESSAGE));
                 }
                 let before_doc = a.diff_image.then(|| self.doc.clone());
                 let baseline =
@@ -5332,7 +5332,8 @@ mod tests {
 
         let err = e.call("designos_delete_node", json!({"node_id": instance_child.0})).unwrap_err();
 
-        assert_eq!(err.code, ErrorCode::FieldNotAllowedOnInstance);
+        assert_eq!(err.code, ErrorCode::InstanceChild);
+        assert!(!err.safe_to_retry, "{err}");
         assert!(err.message.contains("instance"), "{err}");
         assert_eq!(e.doc.to_json().unwrap(), before);
         assert!(!e.history.can_undo(), "a rejected delete must not create history");

@@ -2368,7 +2368,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     return Err(op_failed_error(
                         op_idx,
                         op_name,
-                        ErrorCode::FieldNotAllowedOnInstance,
+                        ErrorCode::InstanceChild,
                         &format!("{op_path}/node"),
                         crate::engine::INSTANCE_CHILD_DELETE_MESSAGE,
                     ));
@@ -4676,7 +4676,8 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::BatchOpFailed, "{err}");
         let cause = err.cause.as_deref().expect("the batch error names the cause");
-        assert_eq!(cause.code, ErrorCode::FieldNotAllowedOnInstance, "{err}");
+        assert_eq!(cause.code, ErrorCode::InstanceChild, "{err}");
+        assert!(!err.safe_to_retry, "the batch envelope takes the cause kind: {err}");
         assert_eq!(cause.path, "/ops/0/node");
         assert_eq!(engine.doc.to_json().unwrap(), before, "a refused batch must leave the document untouched");
         assert!(!engine.history.can_undo(), "a refused batch must not create history");
