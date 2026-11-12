@@ -145,11 +145,24 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace --all-targets --locked
 
+  # The macOS jobs (this one, lint-budget and the swiftc leg of native-export-compile) skip a push to main:
+  # main requires an up-to-date branch, so the tree on main is the tree the pull request's own macOS checks
+  # just passed, and the repeat would hold all 5 macOS runners of the account for about 20 minutes while the
+  # next pull request queues. Pull requests, train/** pushes, merge_group and v* tags still run them. Keep the
+  # `github.event_name == 'push' && github.ref == 'refs/heads/main'` predicate identical in all four places
+  # and in the "Test (macos-15)" aggregate below (scripts/tests/test_ci_macos_on_main.py checks them).
   test-macos:
     name: Test (macos-15, ${{ matrix.partition }}/3)
     needs: changes
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && needs.changes.outputs.rust == 'true'
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && !(github.event_name == 'push' && github.ref == 'refs/heads/main') && needs.changes.outputs.rust == 'true'
     runs-on: macos-15
+    # Debug info off, as the Linux leg of the cross-OS "Test" job does: the shards compile the same test
+    # binaries and only need pass/fail. This is a job-level env, not a $GITHUB_ENV step after rust-cache,
+    # because Swatinem/rust-cache hashes CARGO* variables into its key: set late, the key would stay the
+    # same and every run would restore dependencies built with debug info, rebuild them and never save.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     strategy:
       fail-fast: false
       matrix:
@@ -217,6 +230,7 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           RUST_CHANGED: ${{ needs.changes.outputs.rust }}
@@ -236,6 +250,13 @@ jobs:
           if [ "$CHANGES_RESULT" != "success" ]; then
             echo "::error::Path filter job 'changes' did not succeed (result: '$CHANGES_RESULT')"
             exit 1
+          fi
+          # A push to main does not run the macOS jobs (see the note above test-macos). If they ran anyway,
+          # fall through so their results are still checked below.
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_NAME" = "refs/heads/main" ] && [ "$SHARDS_RESULT" = "skipped" ] && [ "$LINT_RESULT" = "skipped" ]; then
+            echo "skipped on main: the pull request's checks covered this tree"
+            echo "::notice::skipped on main: the pull request's checks covered this tree"
+            exit 0
           fi
           if [ "$RUST_CHANGED" = "false" ]; then
             if { [ "$SHARDS_RESULT" = "skipped" ] || [ "$SHARDS_RESULT" = "success" ]; } && { [ "$LINT_RESULT" = "skipped" ] || [ "$LINT_RESULT" = "success" ]; }; then
@@ -259,7 +280,7 @@ jobs:
   lint-budget:
     name: Lint budget (macos-15)
     needs: changes
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && needs.changes.outputs.rust == 'true'
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && !(github.event_name == 'push' && github.ref == 'refs/heads/main') && needs.changes.outputs.rust == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -471,13 +492,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            label: swiftc · macos-15
-            targets: --target swift
-          - os: ubuntu-latest
-            label: kotlinc + aapt2 · ubuntu-latest
-            targets: --target kotlin --target android
+        # A job-level `if` cannot read the matrix, so the swiftc leg is left out of the matrix itself on a
+        # push to main (see the note above test-macos). Both legs: swift on macos-15, kotlin + android on ubuntu-latest.
+        include: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/main') && '[{"os":"ubuntu-latest","label":"kotlinc + aapt2 · ubuntu-latest","targets":"--target kotlin --target android"}]' || '[{"os":"macos-15","label":"swiftc · macos-15","targets":"--target swift"},{"os":"ubuntu-latest","label":"kotlinc + aapt2 · ubuntu-latest","targets":"--target kotlin --target android"}]') }}
     steps:
       - uses: actions/checkout@v4
 
