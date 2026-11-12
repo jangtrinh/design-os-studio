@@ -707,7 +707,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
     }
 
     if active.non_4px_grid
-        && !matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::Line)
+        && !matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::Line | NodeKind::Connector(_))
         && (!is_grid_multiple(n.size.x, config.thresholds.grid_step) || !is_grid_multiple(n.size.y, config.thresholds.grid_step))
     {
         let step = config.thresholds.grid_step.max(1.0);
@@ -787,7 +787,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
     if active.small_touch_target {
         let role = infer_role_hint(doc, n);
         let min_t = config.thresholds.min_touch_target;
-        if matches!(role, "button" | "input") && (n.size.x < min_t || n.size.y < min_t) {
+        if matches!(role, "button" | "input") && !matches!(n.kind, NodeKind::Connector(_)) && (n.size.x < min_t || n.size.y < min_t) {
             emit(
                 "small-touch-target",
                 Category::Accessibility,
