@@ -25,6 +25,7 @@ Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU re
 - [Prompt & CLI Cookbook](https://github.com/jangtrinh/design-os-studio/blob/main/docs/cookbook.md): CLI and agent recipes
 - [Release & Packaging Guide](https://github.com/jangtrinh/design-os-studio/blob/main/docs/releasing.md): How releases are built and published
 - [MCP Server](https://github.com/jangtrinh/design-os-studio/blob/main/crates/designos-mcp/README.md): Local `designos-mcp` server (39 tools)
+- [Open a .fig file without Figma](https://jangtrinh.github.io/design-os-studio/guides/open-fig-without-figma/): Guide to opening, editing and writing `.fig` files with no Figma app, including a headless path for agents
 
 ## DESIGN:OS Ecosystem
 
