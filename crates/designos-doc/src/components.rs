@@ -1816,16 +1816,8 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     n.component.overrides.remove(&OverrideField::MainComponent);
     c.update(n);
 
-    if !(top_swap && same_family) && target_size != comp.size {
-        let plan = crate::layout_constraints::plan_constraint_pass(&c.s, i, comp.size, target_size, 8);
-        for (cid, new_tf, new_sz) in plan {
-            if cid == i {
-                continue;
-            }
-            let Some(mut child) = c.s.get(cid).cloned() else { continue };
-            crate::layout_constraints::apply_constrained_geometry(&mut child, new_tf, new_sz);
-            c.update(child);
-        }
+    if target_size != comp.size {
+        apply_instance_constraints(c, i, comp.size, target_size, 64);
     }
 
     // Re-apply carried overrides by base-name and sibling-occurrence path.
@@ -2460,7 +2452,8 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
             c.push(Command::Reparent { id: *id, parent: i, index: k });
         }
     }
-    if !(top && swapped_here) && c.s.get(i).is_some_and(|x| x.kind.is_container()) {
+    let kept_size_override = c.s.get(i).is_some_and(|x| x.component.overrides.contains(&OverrideField::Size));
+    if (!(top && swapped_here) || kept_size_override) && c.s.get(i).is_some_and(|x| x.kind.is_container()) {
         if let Some(slot_after) = c.s.get(i).map(|x| x.size).filter(|&sz| sz != rn.size) {
             apply_instance_constraints(c, i, rn.size, slot_after, 64);
         }
@@ -6056,7 +6049,7 @@ mod tests {
         let ch1 = d.alloc_id();
         let mut r1 = Node::rectangle(ch1, Rect::new(8.0, 8.0, 84.0, 24.0));
         r1.name = "Dot".into();
-        r1.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        r1.constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
         d.insert(v1, r1).unwrap();
         let c = create_component(&mut d, v1);
         apply(&mut d, c);
@@ -6068,7 +6061,7 @@ mod tests {
         let ch2 = d.alloc_id();
         let mut r2 = Node::rectangle(ch2, Rect::new(20.0, 16.0, 160.0, 28.0));
         r2.name = "Dot".into();
-        r2.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        r2.constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
         d.insert(v2, r2).unwrap();
         let c = create_component(&mut d, v2);
         apply(&mut d, c);
@@ -6088,8 +6081,8 @@ mod tests {
         apply(&mut d, c);
 
         let dot_after = d.get(child_named(&d, inst, "Dot")).unwrap();
-        assert_eq!(dot_after.transform.tx, 20.0, "variant switch must keep LG's own child position (20, 16), not constraint-scale SM's");
-        assert_eq!(dot_after.size.x, 160.0, "variant switch must keep LG's own child size (160, 28)");
+        assert_eq!(dot_after.transform.tx, 12.0, "resized instance must refit the switched variant child to the kept width");
+        assert_eq!(dot_after.size.x, 96.0, "resized instance must refit the switched variant child to the kept width");
         assert!(!dot_after.component.overrides.contains(&OverrideField::Size), "variant switch must not manufacture child Size override");
     }
 
