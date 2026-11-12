@@ -3,7 +3,8 @@
 
 use designos_doc::*;
 use designos_render::{
-    converted_image_bytes, image_conversions, render_page_native, retain_converted_images, tiny_skia::Pixmap, Viewport, MAX_CONVERTED_IMAGE_BYTES,
+    converted_image_bytes, decoded_image_bytes, image_conversions, render_page_native, retain_converted_images, tiny_skia::Pixmap, Viewport,
+    MAX_CONVERTED_IMAGE_BYTES, MAX_DECODED_IMAGE_BYTES,
 };
 
 const W: u32 = 4000;
@@ -169,9 +170,11 @@ fn dropping_a_closed_document_releases_its_converted_images() {
     render_one_px(&d0, p0);
     render_one_px(&d1, p1);
     assert_eq!(converted_image_bytes(), 2 * 64 * 64 * 4);
+    assert_eq!(decoded_image_bytes(), 2 * 64 * 64 * 4);
 
     retain_converted_images([(&d0, None)]);
     assert_eq!(converted_image_bytes(), 64 * 64 * 4, "closing d1 drops its converted pixmap bytes");
+    assert_eq!(decoded_image_bytes(), 64 * 64 * 4, "closing d1 drops its decoded pixmap bytes");
 
     let before = image_conversions();
     render_one_px(&d0, p0);
@@ -191,9 +194,11 @@ fn two_open_documents_sharing_one_image_keep_one_pixmap_after_one_closes() {
     render_one_px(&d1, p1);
     assert_eq!(image_conversions() - base_conv, 1, "two documents sharing one (key, bytes) convert once");
     assert_eq!(converted_image_bytes(), 64 * 64 * 4, "two documents sharing one image keep one pixmap");
+    assert_eq!(decoded_image_bytes(), 64 * 64 * 4, "two documents sharing one image keep one decoded pixmap");
 
     retain_converted_images([(&d0, None)]);
     assert_eq!(converted_image_bytes(), 64 * 64 * 4, "closing one document keeps the shared pixmap");
+    assert_eq!(decoded_image_bytes(), 64 * 64 * 4, "closing one document keeps the shared decoded pixmap");
     render_one_px(&d0, p0);
     assert_eq!(image_conversions() - base_conv, 1, "surviving document reuses the shared pixmap");
 }
@@ -214,6 +219,18 @@ fn an_image_over_the_byte_budget_is_the_only_cached_entry_and_converts_once_acro
     render_one_px(&small, small_page);
     assert!(converted_image_bytes() <= MAX_CONVERTED_IMAGE_BYTES, "the next image evicts the oversized one: {}", converted_image_bytes());
     assert_eq!(converted_image_bytes(), 64 * 64 * 4);
+}
+
+#[test]
+fn decoded_image_cache_stays_within_byte_budget() {
+    let (d0, p0) = single_image_doc("decoded-0", 2500, 71);
+    let (d1, p1) = single_image_doc("decoded-1", 2500, 72);
+    let (d2, p2) = single_image_doc("decoded-2", 2500, 73);
+    retain_converted_images(std::iter::empty());
+    render_one_px(&d0, p0);
+    render_one_px(&d1, p1);
+    render_one_px(&d2, p2);
+    assert!(decoded_image_bytes() <= MAX_DECODED_IMAGE_BYTES, "decoded cache bytes {} exceed {}", decoded_image_bytes(), MAX_DECODED_IMAGE_BYTES);
 }
 
 /// Release timing of a 1x1 native sample over the 4000x3000 photo, as the eyedropper loupe takes it every frame:
