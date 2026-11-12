@@ -4142,6 +4142,7 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         | "individualStrokeWeights" => OverrideField::Stroke,
         "effects" => OverrideField::Effects,
         "cornerRadius" | "rectangleCornerRadii" | "cornerSmoothing" => OverrideField::CornerRadii,
+        "arcData" => OverrideField::Arc,
         "characters" => OverrideField::Characters,
         "style"
         | "characterStyleOverrides"

@@ -3120,6 +3120,11 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                     ov.push(("rectangleBottomLeftCornerRadius", fl(r[3])));
                 }
             }
+            // The arc is written whole, as the file states it: a reader takes only the keys an entry carries, and the
+            // baked outline is left out so the reopened ring is drawn from the arc and the size.
+            if let (true, NodeKind::Ellipse(arc)) = (ovs.contains(&OverrideField::Arc), &n.kind) {
+                ov.push(("arcData", msg(vec![("startingAngle", fl(arc.start)), ("endingAngle", fl(arc.end)), ("innerRadius", fl(arc.inner_radius))])));
+            }
             if let NodeKind::Text(tp) = &n.kind {
                 let src_tp = src_node.and_then(|sn| match &sn.kind {
                     NodeKind::Text(stp) => Some(stp),

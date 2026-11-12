@@ -228,6 +228,8 @@ pub enum OverrideField {
     SlotContent,
     /// Whether the aspect ratio of width and height is locked.
     LockAspect,
+    /// The arc of an ellipse: start angle, sweep and inner radius (a ring or a pie).
+    Arc,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

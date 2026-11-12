@@ -25,6 +25,8 @@ mod color_profile;
 mod color_space;
 mod comments;
 #[cfg(test)]
+mod component_arc_override_tests;
+#[cfg(test)]
 mod component_cycle_tests;
 mod component_prop_variables;
 #[cfg(test)]
