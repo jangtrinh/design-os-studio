@@ -6,7 +6,8 @@ use super::*;
 use crate::util::v2;
 use designos_doc::layout_solver::compute;
 use designos_doc::{
-    AlignSelf, AutoLayout, CounterAlignContent, FrameProps, GridTrack, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2,
+    Affine, AlignSelf, AutoLayout, CounterAlignContent, FrameProps, GridTrack, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing,
+    Vec2,
 };
 
 fn auto(direction: LayoutDirection, primary: LayoutAlign) -> AutoLayout {
@@ -127,10 +128,15 @@ fn wrapped_counter_space_between_spreads_lines_edge_to_edge() {
 struct Kid {
     size: (f32, f32),
     lc: LayoutChild,
+    tf: Affine,
 }
 
 fn kid(w: f32, h: f32) -> Kid {
-    Kid { size: (w, h), lc: LayoutChild::default() }
+    Kid { size: (w, h), lc: LayoutChild::default(), tf: Affine::IDENTITY }
+}
+
+fn kid_turned(w: f32, h: f32, deg: f32) -> Kid {
+    Kid { tf: Affine::rotate(deg.to_radians()), ..kid(w, h) }
 }
 
 fn kid_with(w: f32, h: f32, edit: impl FnOnce(&mut LayoutChild)) -> Kid {
@@ -173,6 +179,7 @@ fn solve_through_resizing(entry: Entry, al: AutoLayout, frame: Vec2, frame_lc: L
         let id = d.alloc_id();
         let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, k.size.0, k.size.1));
         n.layout_child = k.lc;
+        n.transform = k.tf;
         ids.push(d.insert(f, n).unwrap());
     }
     let run = |d: &mut Document| match entry {
@@ -1792,4 +1799,111 @@ fn grid_child_alignment_centres_the_margin_box_inside_its_cell() {
     assert_eq!(at(GridChildAlign::Center, GridChildAlign::Center), [40.0, 30.0, 40.0, 20.0]);
     // End puts the child's margin box against the far edge of the cell: right margin 0, bottom margin 30.
     assert_eq!(at(GridChildAlign::End, GridChildAlign::End), [60.0, 50.0, 40.0, 20.0]);
+}
+
+#[test]
+fn rotated_children_get_the_same_box_in_every_solver() {
+    // 72x18 turned: the slot holds its bounding box; a tilted child keeps its size whatever Fill or limits say
+    for deg in [90.0, 180.0, 270.0, 30.0, 44.0] {
+        for edit in [|_: &mut LayoutChild| {}, |lc: &mut LayoutChild| lc.horizontal = Sizing::Fill, |lc: &mut LayoutChild| lc.max_w = Some(20.0)] {
+            let mut turned = kid_turned(72.0, 18.0, deg);
+            edit(&mut turned.lc);
+            let solved = solve_everywhere(auto(LayoutDirection::Vertical, LayoutAlign::Start), v2(300.0, 300.0), &[turned, kid(10.0, 10.0)]);
+            assert!(solved.kids.iter().flatten().all(|v| v.is_finite()), "{deg}: {solved:?}");
+        }
+    }
+    let solved = solve_everywhere(auto(LayoutDirection::Horizontal, LayoutAlign::Start), v2(300.0, 300.0), &[kid_turned(72.0, 18.0, 270.0), kid(10.0, 10.0)]);
+    assert_eq!(solved.kids[1][0], 18.0, "the next sibling sits behind the turned box, 18 wide");
+}
+
+#[test]
+fn editor_relayout_of_a_rotated_child_is_stable_over_ten_passes() {
+    let flipped = Affine { a: -1.0, ..Affine::IDENTITY };
+    let cases = [
+        ("30", Affine::rotate(30f32.to_radians())),
+        ("44", Affine::rotate(44f32.to_radians())),
+        ("90", Affine::rotate(90f32.to_radians())),
+        ("270", Affine::rotate(270f32.to_radians())),
+        ("flip", flipped),
+    ];
+    for (label, tf) in cases {
+        for fill in [false, true] {
+            let mut d = Document::new("t");
+            let page = d.add_page("p");
+            let fid = d.alloc_id();
+            let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 300.0));
+            f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(auto(LayoutDirection::Vertical, LayoutAlign::Start)), ..Default::default() });
+            let f = d.insert(page, f).unwrap();
+            let id = d.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 72.0, 18.0));
+            n.transform = tf;
+            if fill {
+                n.layout_child.horizontal = Sizing::Fill;
+            }
+            d.insert(f, n).unwrap();
+            let snapshot = |d: &Document| {
+                let n = d.get(id).unwrap();
+                (n.transform, n.size)
+            };
+            layout_node(&mut d, &mut Edit::new(), f);
+            let first = snapshot(&d);
+            for pass in 0..10 {
+                layout_node(&mut d, &mut Edit::new(), f);
+                assert_eq!(snapshot(&d), first, "{label} fill {fill}: editor pass {pass} moved the child");
+            }
+            d.relayout_subtree(f);
+            assert_eq!(snapshot(&d), first, "{label} fill {fill}: the headless solver disagrees with the editor");
+            let size = d.get(id).unwrap().size;
+            assert!(size.x.is_finite() && size.y.is_finite() && size.x > 0.0 && size.y > 0.0 && size.x < 1000.0 && size.y < 1000.0, "{label}: {size:?}");
+        }
+    }
+}
+
+#[test]
+fn turned_auto_height_text_keeps_its_stored_height_in_every_solver() {
+    crate::textmeasure::install_layout_measurer();
+    let body = "The quick brown fox jumps over the lazy dog and keeps running across the field until nightfall.";
+    for deg in [0.0f32, 90.0, 270.0, 30.0] {
+        let build = || {
+            let mut d = Document::new("t");
+            let page = d.add_page("p");
+            let fid = d.alloc_id();
+            let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 10.0));
+            let al = AutoLayout { primary_sizing: Sizing::Hug, ..auto(LayoutDirection::Vertical, LayoutAlign::Start) };
+            f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+            let f = d.insert(page, f).unwrap();
+            let id = d.alloc_id();
+            let mut t = Node::text(id, Rect::new(0.0, 0.0, 120.0, 20.0), body, designos_doc::TextStyle { font_size: 14.0, ..Default::default() });
+            if let NodeKind::Text(tp) = &mut t.kind {
+                tp.auto_resize = designos_doc::TextAutoResize::Height;
+            }
+            t.transform = Affine::rotate(deg.to_radians());
+            d.insert(f, t).unwrap();
+            (d, f, id)
+        };
+        let mut results = Vec::new();
+        for entry in ENTRIES {
+            let (mut d, f, id) = build();
+            let mut states = Vec::new();
+            for _ in 0..10 {
+                match entry {
+                    Entry::Editor => layout_node(&mut d, &mut Edit::new(), f),
+                    Entry::Spec => d.relayout_subtree(f),
+                    Entry::Changelog => designos_doc::relayout_subtree(&mut d, f),
+                }
+                let n = d.get(id).unwrap();
+                states.push((n.transform, n.size, d.get(f).unwrap().size));
+            }
+            assert!(states.iter().all(|s| *s == states[0]), "{entry:?} {deg}: not stable over 10 passes");
+            results.push(states[0]);
+        }
+        assert!(results.iter().all(|r| *r == results[0]), "{deg}: solvers disagree: {results:?}");
+        let (_, size, frame) = results[0];
+        if deg != 0.0 {
+            assert_eq!(size, Vec2::new(120.0, 20.0), "{deg}: stored text box untouched");
+            let (sin, cos) = deg.to_radians().sin_cos();
+            let want = if deg == 30.0 { 120.0 * sin + 20.0 * cos } else { 120.0 };
+            assert!((frame.y - want).abs() < 0.01, "{deg}: the Hug parent wraps the turned box, got {} want {want}", frame.y);
+        }
+    }
 }

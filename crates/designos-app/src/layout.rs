@@ -98,17 +98,17 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
         }
         for ((cid, kid), r) in ids.iter().zip(kids.iter()).zip(out.rects.iter()) {
             let n = doc.get(*cid).unwrap();
-            let new_size = v2(r.w, r.h);
+            let write = designos_doc::slot_write(&n.transform, n.size, *r);
+            let new_size = write.size;
             let width_changed = (n.size.x - new_size.x).abs() > 1e-3;
             let size_changed = width_changed || (n.size.y - new_size.y).abs() > 1e-3;
-            let pos_changed = (n.transform.tx - r.x).abs() > 1e-3 || (n.transform.ty - r.y).abs() > 1e-3;
+            let pos_changed = (n.transform.tx - write.transform.tx).abs() > 1e-3 || (n.transform.ty - write.transform.ty).abs() > 1e-3;
             let mut new_lc = n.layout_child;
-            new_lc.record_stretched(kid.size, new_size, horiz, kid.stretches_cross());
+            new_lc.record_stretched(kid.size, write.extent, horiz, kid.stretches_cross());
             let lc_changed = n.layout_child != new_lc;
             if size_changed || pos_changed || lc_changed {
                 if let Some(n) = ed.node(doc, *cid) {
-                    n.transform.tx = r.x;
-                    n.transform.ty = r.y;
+                    n.transform = write.transform;
                     n.layout_child = new_lc;
                 }
                 if size_changed {
@@ -120,8 +120,7 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
                 layout_node(doc, ed, *cid);
             }
         }
-        let drifted =
-            ids.iter().zip(out.rects.iter()).any(|(cid, r)| doc.get(*cid).is_some_and(|n| (n.size.x - r.w).abs() > 1e-3 || (n.size.y - r.h).abs() > 1e-3));
+        let drifted = ids.iter().zip(out.rects.iter()).any(|(cid, r)| doc.get(*cid).is_some_and(|n| designos_doc::slot_drifted(&n.transform, n.size, *r)));
         if recurse_width_only || !drifted {
             break;
         }

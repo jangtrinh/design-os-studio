@@ -43,6 +43,10 @@ mod geom;
 mod history;
 mod layout_apply;
 pub mod layout_constraints;
+mod layout_rotated;
+pub use layout_rotated::{slot_drifted, slot_write, SlotWrite};
+#[cfg(test)]
+mod layout_rotated_tests;
 pub mod layout_solver;
 mod layout_solver_grid;
 mod layout_solver_grid_placement;
