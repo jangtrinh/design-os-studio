@@ -1258,7 +1258,9 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
             cr.tx.ed.revert(&mut app.doc);
             let inv = app.doc.world_transform(cr.id).invert().unwrap_or(Affine::IDENTITY);
             let ml = inv.apply(cur);
+            let mut changed = false;
             if let Some(n) = cr.tx.ed.node(&mut app.doc, cr.id) {
+                let before = n.corner_radii;
                 let dx = if matches!(cr.corner, 0 | 3) { ml.x } else { n.size.x - ml.x };
                 let dy = if matches!(cr.corner, 0 | 1) { ml.y } else { n.size.y - ml.y };
                 let max_r = (n.size.x.min(n.size.y) * 0.5).max(0.0);
@@ -1270,9 +1272,14 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
                 } else {
                     n.corner_radii = [new_r; 4];
                 }
-                drop_baked_outline_of_parametric_shape(n);
+                changed = n.corner_radii != before;
+                if changed {
+                    drop_baked_outline_of_parametric_shape(n);
+                }
             }
-            app.changed();
+            if changed {
+                app.changed();
+            }
         }
         Interaction::AutoLayoutDrag(ad) => {
             if dist(ad.start_page, cur) * app.view.zoom > theme::DRAG_THRESHOLD_PX {
@@ -3786,6 +3793,40 @@ mod tests {
         follow_pointer(app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
         let Interaction::CornerRadius(cr) = inter else { panic!("still a corner radius drag") };
         app.run_tx(cr.tx);
+    }
+
+    #[test]
+    fn an_unchanged_corner_radius_drag_does_not_dirty_the_canvas() {
+        let (mut app, id, _) = app_with_two();
+        app.doc.get_mut(id).unwrap().corner_radii = [50.0; 4];
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: app.doc.get(id).unwrap().corner_radii });
+        let inp = Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers::NONE,
+            space: false,
+            z_down: false,
+        };
+
+        // The pointer is beyond the maximum radius, so clamping keeps the existing 50px value.
+        let at = app.doc.world_transform(id).apply(v2(100.0, 100.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
+        assert!(!app.canvas.dirty, "an unchanged radius must not dirty the canvas");
+
+        let (mut app, id, _) = app_with_two();
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: app.doc.get(id).unwrap().corner_radii });
+        let at = app.doc.world_transform(id).apply(v2(20.0, 20.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
+        assert!(app.canvas.dirty, "a changed radius must dirty the canvas");
     }
 
     /// A 100 x 100 shape of `kind` that carries the baked fill and stroke outline a `.fig` import leaves.
