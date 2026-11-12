@@ -8,7 +8,7 @@
   <sub>DESIGN:OS Studio 0.7.5 on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click for full size.</sub>
 </p>
 
-**Native GPU-accelerated interface design studio in Rust. It opens and writes `.fig` files with no Figma app installed, runs your own coding agent CLI in an Agents panel on the open file, and ships a Model Context Protocol server (`designos-mcp`, 39 tools) so agents can edit a `.fig` headless.**
+**Native GPU-accelerated interface design studio in Rust. It opens and writes `.fig` files with no Figma app installed, runs your own coding agent CLI in an Agents panel on the open file, and ships a Model Context Protocol server (`designos-mcp`) so agents can edit a `.fig` headless.**
 
 Open a `.fig`, edit it, and write it back — in the Studio window, or without a window through `designos FILE --inspect-json`, `--export-fig`, `--scan-design-system` and `--codegen`, or through `designos-mcp`. Studio draws the canvas on the GPU with `wgpu` (Metal, DirectX 12 or Vulkan). The Agents panel runs Claude Code, Codex, Grok, Antigravity or Gemini CLI as a live session on the open file with your own sign-in, so Studio needs no API key. Work with variables and modes, select matching layers with Multi-Edit (`Q`), and read Dev Mode code in eight languages (CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML). Saving a `.fig` has [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834).
 
