@@ -10,7 +10,10 @@ You have a `.fig` file and no Figma seat, no sign-in, or no internet. You still 
 
 DESIGN:OS Studio is a FREE Figma alternative: an independent native desktop editor that opens and writes `.fig` files on your own computer, with no Figma app. A coding agent can do the same headless, through `designos-mcp` (39 tools in v0.7.12) or the `designos` CLI. It is FREE and source-available ([PolyForm Shield](https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE)). Nothing is sold. It is not affiliated with Figma.
 
-[Image slot: a real Studio capture with a .fig open, Pages and Layers on the left, Design panel on the right. Alt and caption: "design:os by Jang"]
+<figure>
+  <img src="{{ '/images/studio-fig-open.png' | relative_url }}" width="1600" height="1000" alt="design:os by Jang" decoding="async">
+  <figcaption>design:os by Jang</figcaption>
+</figure>
 
 ## What you need
 
@@ -41,8 +44,6 @@ Studio reads the `.fig` container as Figma saves it (`fig-kiwi`, compressed with
 Big files open as one document. The Untitled UI PRO v8.0 kit, a 336 MB file, opens with 207,601 nodes. A spatial index keeps the work to what is on screen. On that kit, an idle view used 0.01 s of CPU in 20 s (v0.6.0, Apple M4 Max, Metal) — figures from the [live README](https://github.com/jangtrinh/design-os-studio#how-fast-does-designos-studio-render-large-files).
 
 **Proof point (maintainer screenshot, 11 November 2026):** Studio read a shadcn `.fig` of 257,687 nodes and 73 pages in about 6 seconds, without Figma. This figure is not in the README; it comes from Jang's screenshot, confirmed 11 November. Treat it as a maintainer measurement, not a published benchmark.
-
-[Image slot: Studio with a large kit open, page list visible. Alt and caption: "design:os by Jang"]
 
 ## Step 3. Inspect it
 
