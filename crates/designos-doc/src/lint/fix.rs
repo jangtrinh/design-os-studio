@@ -159,7 +159,7 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
             }
         }
 
-        if allow("small-touch-target", id) && matches!(role, "button" | "input") {
+        if allow("small-touch-target", id) && matches!(role, "button" | "input") && !matches!(n.kind, NodeKind::Connector(_)) {
             if n.size.x < 44.0 || n.size.y < 44.0 {
                 n.size.x = n.size.x.max(44.0);
                 n.size.y = n.size.y.max(44.0);
@@ -396,7 +396,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod issue_1710_tests {
+mod connector_grid_fix_tests {
     use super::*;
     use crate::{ConnectorEnd, ConnectorProps, Document, Magnet, Node, Rect, Vec2};
 
@@ -425,5 +425,51 @@ mod issue_1710_tests {
         assert_eq!(doc.get(connector), Some(&connector_before));
         assert!(history.undo(&mut doc).unwrap());
         assert_eq!(doc.get(connector), Some(&connector_before));
+    }
+
+    /// A connector's name can read as a control ("Button link"); its box is still derived from its
+    /// ends, so neither the finding nor the fix may treat it as a touch target or a grid item.
+    fn named_connector_doc(name: &str) -> (Document, NodeId, NodeId) {
+        let mut doc = Document::new("named connector");
+        let page = doc.add_page("Page");
+        let start_id = doc.alloc_id();
+        let start = doc.insert(page, Node::rectangle(start_id, Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let end_id = doc.alloc_id();
+        let end = doc.insert(page, Node::rectangle(end_id, Rect::new(160.0, 0.0, 40.0, 40.0))).unwrap();
+        let id = doc.alloc_id();
+        let props =
+            ConnectorProps { start: ConnectorEnd::attached(start, Magnet::Right), end: ConnectorEnd::attached(end, Magnet::Left), ..Default::default() };
+        let connector = doc.insert(page, Node::connector(id, props)).unwrap();
+        let node = doc.get_mut(connector).unwrap();
+        node.name = name.into();
+        node.size = Vec2::new(127.0, 3.0);
+        (doc, page, connector)
+    }
+
+    #[test]
+    fn a_connector_named_like_a_control_is_not_a_touch_target_finding() {
+        let (doc, _, connector) = named_connector_doc("Button link");
+        let cfg = LintConfig::from_rule_list(&["small-touch-target".into(), "non-4px-grid".into()]).unwrap();
+
+        let report = crate::lint::lint(&doc, &cfg, &crate::lint::NoLintEnv);
+
+        let on_connector: Vec<&str> = report.findings.iter().filter(|f| f.node == connector).map(|f| f.rule).collect();
+        assert!(on_connector.is_empty(), "connector findings: {on_connector:?}");
+    }
+
+    #[test]
+    fn a_connector_named_like_a_control_is_not_resized_by_the_touch_target_fix() {
+        let (mut doc, page, connector) = named_connector_doc("Input to button");
+        let before = doc.get(connector).unwrap().clone();
+        let rules = ["small-touch-target".to_string()];
+
+        let cfg = LintConfig::from_rule_list(&rules).unwrap();
+        let (cmds, report) = lint_fix_commands(&doc, &[page], &cfg);
+        assert!(report["changes"].as_array().unwrap().iter().all(|change| change["node_id"] != connector.0), "report: {report}");
+        assert!(cmds.iter().all(|cmd| !matches!(cmd, Command::Update { node } if node.id == connector)));
+
+        let mut history = History::default();
+        lint_fix_with_history(&mut doc, &mut history, Some(page), Some(&rules)).unwrap();
+        assert_eq!(doc.get(connector), Some(&before));
     }
 }

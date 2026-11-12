@@ -787,7 +787,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
     if active.small_touch_target {
         let role = infer_role_hint(doc, n);
         let min_t = config.thresholds.min_touch_target;
-        if matches!(role, "button" | "input") && (n.size.x < min_t || n.size.y < min_t) {
+        if matches!(role, "button" | "input") && !matches!(n.kind, NodeKind::Connector(_)) && (n.size.x < min_t || n.size.y < min_t) {
             emit(
                 "small-touch-target",
                 Category::Accessibility,
