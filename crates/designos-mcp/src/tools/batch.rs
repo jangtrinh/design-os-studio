@@ -1406,8 +1406,11 @@ pub(crate) fn relayout_seeds(doc: &mut Document, leaves: &[NodeId], containers: 
     let mut seeds = Vec::with_capacity(leaves.len() * 2 + containers.len());
     for &id in leaves {
         seeds.push(id);
-        if let Some(parent) = doc.get(id).and_then(|n| n.parent) {
-            seeds.push(parent);
+        let is_auto_layout = doc.get(id).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some();
+        if !is_auto_layout {
+            if let Some(parent) = doc.get(id).and_then(|n| n.parent) {
+                seeds.push(parent);
+            }
         }
     }
     seeds.extend_from_slice(containers);
@@ -1549,6 +1552,9 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
             return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "collection id must not be empty"));
         }
         let existing = collections.get(&c_in.id).cloned();
+        if existing.as_ref().is_some_and(VariableCollection::is_library) || c_in.source_library_key.is_some() {
+            return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "library variables are read-only"));
+        }
         if existing.as_ref().is_some_and(|e| e.is_extension()) && (!c_in.modes.is_empty() || c_in.default_mode.is_some()) {
             return Err(op_failed_error(
                 op_idx,
@@ -1629,6 +1635,11 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
                 format!("variable collection '{collection_id}' not found"),
             ));
         }
+        if existing.as_ref().is_some_and(|v| collections.get(&v.collection).is_some_and(VariableCollection::is_library))
+            || collections.get(&collection_id).is_some_and(VariableCollection::is_library)
+        {
+            return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "library variables are read-only"));
+        }
         // values are written below through the variable store (set_value, set_alias, reset_override), which owns the
         // rules for extended collections and alias cycles; this record only keeps what the variable already has
         let values = existing.as_ref().map(|e| e.values.clone()).unwrap_or_default();
@@ -1666,6 +1677,9 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
     let rules_before = VariableStore { variables: doc.variables.clone(), collections: doc.variable_collections.clone() }.extension_violations();
     let mut store = VariableStore { variables, collections };
     for del_id in &op.delete_variables {
+        if store.variables.get(del_id).is_some_and(|v| store.collections.get(&v.collection).is_some_and(VariableCollection::is_library)) {
+            return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "library variables are read-only"));
+        }
         store.forget_overrides_of(del_id);
         store.variables.remove(del_id);
         for col in store.collections.values_mut() {
@@ -2104,7 +2118,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         p_mut.children.insert(target_idx, root_id);
                     }
                 }
-                relayout_for_node(&mut trial, parent);
+                relayout_containers(&mut trial, &[parent]);
                 relayout_for_node(&mut trial, root_id);
 
                 let mut nodes = Vec::new();
@@ -2146,7 +2160,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 prev_node = Some(root_id);
                 created_roots.push(CreatedRootRecord { alias: a.alias.clone(), root_id, created_ids: subtree_ids });
                 collected_cmds.push(Command::Insert { parent, index: target_idx, nodes });
-                relayout_targets.push(parent);
+                container_targets.push(parent);
                 relayout_targets.push(root_id);
                 let before_bounds = node_page_bounds(&trial, root_id);
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: root_id, before_bounds });
@@ -2350,6 +2364,15 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 let Some(former_parent) = cur_node.parent else {
                     return Err(op_failed_error(op_idx, op_name, ErrorCode::PageRootProtected, &op_path, "page roots cannot be deleted by this tool"));
                 };
+                if crate::engine::is_protected_instance_child(&trial, cur_node, former_parent) {
+                    return Err(op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::InstanceChild,
+                        &format!("{op_path}/node"),
+                        crate::engine::INSTANCE_CHILD_DELETE_MESSAGE,
+                    ));
+                }
                 let deleted_bounds = node_page_bounds(&trial, id);
                 let parent_bounds_before = {
                     let pb = node_page_bounds(&trial, former_parent);
@@ -4633,6 +4656,82 @@ mod tests {
     }
 
     #[test]
+    fn batch_delete_rejects_a_linked_instance_child_and_leaves_the_document_unchanged() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let component_id = engine.doc.alloc_id();
+        let mut component = Node::new(component_id, designos_doc::NodeKind::Component(designos_doc::FrameProps::default()));
+        component.name = "Card".into();
+        engine.doc.insert(page, component).unwrap();
+        let child_id = engine.doc.alloc_id();
+        engine.doc.insert(component_id, Node::rectangle(child_id, designos_doc::Rect::new(0.0, 0.0, 80.0, 24.0))).unwrap();
+        designos_doc::create_instance(&mut engine.doc, component_id, page, designos_doc::Vec2::new(160.0, 0.0)).apply(&mut engine.doc).unwrap();
+        let instance_id = designos_doc::instances_of(&engine.doc, component_id)[0];
+        let instance_child = engine.doc.get(instance_id).unwrap().children[0];
+        let before = engine.doc.to_json().unwrap();
+
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": instance_child.0 }] }))
+            .expect_err("deleting a mirrored layer inside an instance must be refused");
+
+        assert_eq!(err.code, ErrorCode::BatchOpFailed, "{err}");
+        let cause = err.cause.as_deref().expect("the batch error names the cause");
+        assert_eq!(cause.code, ErrorCode::InstanceChild, "{err}");
+        assert!(!err.safe_to_retry, "the batch envelope takes the cause kind: {err}");
+        assert_eq!(cause.path, "/ops/0/node");
+        assert_eq!(engine.doc.to_json().unwrap(), before, "a refused batch must leave the document untouched");
+        assert!(!engine.history.can_undo(), "a refused batch must not create history");
+
+        let ok = engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": instance_id.0 }] }));
+        assert!(ok.is_ok(), "deleting the instance root stays allowed: {ok:?}");
+    }
+
+    /// A component with one rectangle child and one instance of it, plus a free rectangle beside them.
+    fn component_instance_and_free_rect(engine: &mut Engine) -> (NodeId, NodeId, NodeId, NodeId, NodeId) {
+        let page = engine.resolve_default_page().unwrap();
+        let component_id = engine.doc.alloc_id();
+        let mut component = Node::new(component_id, designos_doc::NodeKind::Component(designos_doc::FrameProps::default()));
+        component.name = "Card".into();
+        engine.doc.insert(page, component).unwrap();
+        let main_child = engine.doc.alloc_id();
+        engine.doc.insert(component_id, Node::rectangle(main_child, designos_doc::Rect::new(0.0, 0.0, 80.0, 24.0))).unwrap();
+        designos_doc::create_instance(&mut engine.doc, component_id, page, designos_doc::Vec2::new(160.0, 0.0)).apply(&mut engine.doc).unwrap();
+        let instance_id = designos_doc::instances_of(&engine.doc, component_id)[0];
+        let instance_child = engine.doc.get(instance_id).unwrap().children[0];
+        let free = engine.doc.alloc_id();
+        engine.doc.insert(page, Node::rectangle(free, designos_doc::Rect::new(0.0, 200.0, 40.0, 40.0))).unwrap();
+        (main_child, instance_id, instance_child, free, component_id)
+    }
+
+    #[test]
+    fn a_batch_with_one_mirrored_instance_layer_among_its_deletes_is_refused_whole() {
+        let mut engine = Engine::default();
+        let (_, _, instance_child, free, _) = component_instance_and_free_rect(&mut engine);
+        let before = engine.doc.to_json().unwrap();
+
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": free.0 }, { "op": "delete", "node": instance_child.0 }] }))
+            .expect_err("the second delete is forbidden, so the whole batch is refused");
+
+        assert_eq!(err.code, ErrorCode::BatchOpFailed, "{err}");
+        assert_eq!(err.cause.as_deref().map(|c| c.path.as_str()), Some("/ops/1/node"));
+        assert_eq!(engine.doc.to_json().unwrap(), before, "the free layer that was deleted first is back: nothing was committed");
+        assert!(engine.doc.get(free).is_some());
+        assert!(!engine.history.can_undo());
+    }
+
+    #[test]
+    fn layers_of_the_main_component_stay_deletable_through_the_batch() {
+        let mut engine = Engine::default();
+        let (main_child, _, _, _, _) = component_instance_and_free_rect(&mut engine);
+
+        let reply = engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": main_child.0 }] }));
+
+        assert!(reply.is_ok(), "the main component is not an instance: {reply:?}");
+        assert!(engine.doc.get(main_child).is_none());
+    }
+
+    #[test]
     fn delete_node_captures_before_bounds() {
         let mut engine = Engine::default();
         let page = engine.resolve_default_page().unwrap();
@@ -5729,6 +5828,80 @@ mod tests {
         assert_eq!(engine.doc.get(panel).unwrap().children.last().copied(), Some(link), "the re-homed connector must be the topmost child");
         assert!(!engine.doc.get(page).unwrap().children.contains(&link), "the connector must leave the page");
         assert!(conn.layout_child.absolute, "a re-homed connector stays out of auto-layout flow");
+        assert_connector_matches_its_geometry(&engine, link);
+    }
+
+    #[test]
+    fn mcp_move_connector_endpoints_rehomes_detaches_warns_and_undoes_atomically() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let page2 = engine.doc.add_page("Page 2");
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops":[
+                    {"op":"insert","as":"frame","parent":page.0,"kind":"frame","name":"Frame","x":100.0,"y":100.0,"width":400.0,"height":300.0},
+                    {"op":"insert","as":"a","parent":page.0,"kind":"rectangle","name":"A","x":120.0,"y":120.0,"width":80.0,"height":40.0},
+                    {"op":"insert","as":"b","parent":page.0,"kind":"rectangle","name":"B","x":300.0,"y":240.0,"width":80.0,"height":40.0},
+                    {"op":"connect","as":"link","from":"@a","to":"@b"}
+                ]}),
+            )
+            .expect("setup connector fixture");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (frame, a, b, link) = (id("frame"), id("a"), id("b"), id("link"));
+        engine.live_ops = Some(Vec::new());
+        engine.take_live_ops();
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops":[
+                    {"op":"move","node":a.0,"parent":frame.0}, {"op":"move","node":b.0,"parent":frame.0}
+                ]}),
+            )
+            .expect("move both endpoints into frame");
+        assert_eq!(engine.doc.get(link).unwrap().parent, Some(frame));
+        assert_connector_matches_its_geometry(&engine, link);
+        assert!(engine.take_live_ops().iter().any(|op| matches!(op, LiveOp::Reparent { id, parent, .. } if *id == link && *parent == frame)));
+        let detached = engine.call("designos_apply_batch", json!({"ops":[{"op":"move","node":a.0,"parent":page2.0}]})).expect("move endpoint to page 2");
+        let NodeKind::Connector(c) = &engine.doc.get(link).unwrap().kind else { panic!("expected connector") };
+        assert_eq!(c.start.node, None);
+        assert_eq!(c.end.node, Some(b));
+        assert!(detached["warnings"].as_array().is_some_and(|ws| ws.iter().any(|w| w["code"] == "CONNECTOR_ENDPOINT_DETACHED")));
+        assert_connector_matches_its_geometry(&engine, link);
+        assert!(engine.take_live_ops().iter().any(|op| matches!(op, LiveOp::Update { id, .. } if *id == link)));
+        engine.call("designos_undo", json!({})).expect("undo detach");
+        assert_eq!(connector_ends(&engine, link).0.node, Some(a));
+        assert_eq!(engine.doc.get(a).unwrap().parent, Some(frame));
+    }
+
+    #[test]
+    fn a_connector_whose_other_end_moved_to_another_page_follows_the_end_that_stays() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let page2 = engine.doc.add_page("Page 2");
+        let setup = engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops":[
+                    {"op":"insert","as":"a","parent":page.0,"kind":"rectangle","name":"A","x":120.0,"y":120.0,"width":80.0,"height":40.0},
+                    {"op":"insert","as":"b","parent":page.0,"kind":"rectangle","name":"B","x":300.0,"y":240.0,"width":80.0,"height":40.0},
+                    {"op":"connect","as":"link","from":"@a","to":"@b"}
+                ]}),
+            )
+            .expect("setup connector fixture");
+        let id = |name: &str| NodeId(setup["name_to_id"][name].as_u64().unwrap());
+        let (a, b, link) = (id("a"), id("b"), id("link"));
+        engine.call("designos_apply_batch", json!({"ops":[{"op":"move","node":a.0,"parent":page2.0}]})).expect("move one end to page 2");
+        let (start_before, end_before) = connector_ends(&engine, link);
+        assert_eq!(start_before.node, None, "the end on another page is detached");
+
+        engine.call("designos_apply_batch", json!({"ops":[{"op":"update","node":b.0,"x":500.0,"y":340.0}]})).expect("move the end that stays");
+
+        let (start, end) = connector_ends(&engine, link);
+        assert_eq!(start.node, None);
+        assert_eq!(start.point, start_before.point, "the detached end keeps its free point");
+        assert_eq!(end.node, Some(b));
+        assert_ne!(end.point, end_before.point, "the attached end follows its layer");
         assert_connector_matches_its_geometry(&engine, link);
     }
 

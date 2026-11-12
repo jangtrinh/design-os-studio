@@ -1540,6 +1540,7 @@ impl Session {
                 let path = self.png_output_path(&a.path)?;
                 self.engine.settle_layout();
                 let id = designos_doc::NodeId(a.node_id);
+                self.engine.ensure_page_hydrated_for_node(id)?;
                 if self.engine.doc.get(id).is_none() {
                     return Err(
                         ToolError::new(ErrorCode::NodeNotFound, "/node_id", format!("Node {} does not exist", a.node_id)).with_received(json!(a.node_id))
@@ -2751,6 +2752,19 @@ mod tests {
             ErrorCode::FieldNotAllowedOnInstance,
             true,
         );
+
+        // InstanceChild: a layer mirrored inside a component instance cannot be deleted
+        {
+            let page = s.engine.resolve_default_page().unwrap();
+            let component = s.engine.doc.alloc_id();
+            s.engine.doc.insert(page, designos_doc::Node::new(component, designos_doc::NodeKind::Component(designos_doc::FrameProps::default()))).unwrap();
+            let main_child = s.engine.doc.alloc_id();
+            s.engine.doc.insert(component, designos_doc::Node::rectangle(main_child, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+            designos_doc::create_instance(&mut s.engine.doc, component, page, designos_doc::Vec2::new(100.0, 0.0)).apply(&mut s.engine.doc).unwrap();
+            let instance = designos_doc::instances_of(&s.engine.doc, component)[0];
+            let mirrored = s.engine.doc.get(instance).unwrap().children[0];
+            record(s.call("designos_delete_node", json!({"node_id": mirrored.0})).unwrap_err(), ErrorCode::InstanceChild, false);
+        }
 
         // 14. AmbiguousComponent & 17. NoSuchVariant & 19. AmbiguousOverridePath
         {
