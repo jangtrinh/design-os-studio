@@ -420,3 +420,39 @@ fn binding_padding_on_a_fixed_size_frame_with_update_node_moves_nothing_outside_
     assert_eq!(moved_outside(&e, &before, holder), Vec::<u64>::new());
     assert_eq!(ty(&e, tail), 200.0, "the tail keeps the place the document stored");
 }
+
+fn page_x(e: &Engine, id: NodeId) -> f32 {
+    e.doc.world_transform(id).tx
+}
+
+/// Deleting the layer at the group's origin refits the group to the one that is left, and that layer stays where it was on the page.
+#[test]
+fn deleting_the_first_layer_of_a_group_in_auto_layout_keeps_the_other_layer_in_place() {
+    let Holder { mut e, holder, b, .. } = holder_with(NodeKind::Group, Rect::new(0.0, 0.0, 80.0, 20.0));
+    e.doc.get_mut(b).unwrap().transform.tx = 40.0;
+    let a = e.doc.get(holder).unwrap().children[0];
+    let b_before = page_x(&e, b);
+    assert_eq!(b_before, 40.0);
+
+    e.call("designos_delete_node", json!({ "node_id": a.0 })).unwrap();
+
+    assert_eq!(page_x(&e, b), b_before, "the remaining layer did not move on the page");
+}
+
+/// Undoing a delete inside a group puts both layers back at their page positions.
+#[test]
+fn undoing_the_delete_of_the_first_layer_of_a_group_restores_both_page_positions() {
+    let mut e = Engine::new();
+    let page = e.resolve_default_page().unwrap();
+    let group = add_frame(&mut e, page, Rect::new(0.0, 0.0, 80.0, 20.0), NodeKind::Group, "group");
+    let a = add_rect(&mut e, group, Rect::new(0.0, 0.0, 40.0, 20.0), "a");
+    let b = add_rect(&mut e, group, Rect::new(40.0, 0.0, 40.0, 20.0), "b");
+    let (a_before, b_before) = (page_x(&e, a), page_x(&e, b));
+
+    e.call("designos_delete_node", json!({ "node_id": a.0 })).unwrap();
+    assert_eq!(page_x(&e, b), b_before, "the remaining layer did not move on the page");
+    e.call("designos_undo", json!({})).unwrap();
+
+    assert_eq!(page_x(&e, a), a_before, "the restored layer is back");
+    assert_eq!(page_x(&e, b), b_before, "and so is the one that stayed");
+}
