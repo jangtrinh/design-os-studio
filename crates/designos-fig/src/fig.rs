@@ -2918,8 +2918,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         for (k, val) in [
             ("paddingLeft", fnum(o, "stackPaddingLeft").or(h)),
             ("paddingTop", fnum(o, "stackPaddingTop").or(v)),
-            ("paddingRight", fnum(o, "stackPaddingRight").or(h)),
-            ("paddingBottom", fnum(o, "stackPaddingBottom").or(v)),
+            ("paddingRight", fnum(o, "stackPaddingRight").or(uniform_if_absent(o, "stackHorizontalPadding", p))),
+            ("paddingBottom", fnum(o, "stackPaddingBottom").or(uniform_if_absent(o, "stackVerticalPadding", p))),
         ] {
             if let Some(x) = val {
                 m.insert(k.into(), x.into());
@@ -3294,6 +3294,17 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
     out
 }
 
+/// Figma stores the four paddings as independent fields: `stackHorizontalPadding` is the left side and
+/// `stackVerticalPadding` the top, while right and bottom have their own fields and read as 0 when absent.
+/// The one exception is the legacy uniform `stackPadding`, which covers every side that has no field of its own.
+fn uniform_if_absent(o: &Value, side_field: &str, uniform: Option<f32>) -> Option<f32> {
+    if fnum(o, side_field).is_some() {
+        None
+    } else {
+        uniform
+    }
+}
+
 fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
     let mode = match fstr(nc, "stackMode") {
         Some("HORIZONTAL") => "HORIZONTAL",
@@ -3323,8 +3334,8 @@ fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
     };
     ins(m, "paddingLeft", fnum(nc, "stackPaddingLeft").or(h));
     ins(m, "paddingTop", fnum(nc, "stackPaddingTop").or(v));
-    ins(m, "paddingRight", fnum(nc, "stackPaddingRight").or(h));
-    ins(m, "paddingBottom", fnum(nc, "stackPaddingBottom").or(v));
+    ins(m, "paddingRight", fnum(nc, "stackPaddingRight").or(uniform_if_absent(nc, "stackHorizontalPadding", p)));
+    ins(m, "paddingBottom", fnum(nc, "stackPaddingBottom").or(uniform_if_absent(nc, "stackVerticalPadding", p)));
     m.insert("primaryAxisAlignItems".into(), stack_justify(fstr(nc, "stackPrimaryAlignItems")).into());
     m.insert("counterAxisAlignItems".into(), stack_align(fstr(nc, "stackCounterAlignItems")).into());
     // Real files only ever write `FIXED` for the primary axis (absent = hug) and

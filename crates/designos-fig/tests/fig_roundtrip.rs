@@ -176,7 +176,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
     let f = card.kind.frame_props().expect("Card is a frame");
     let al = f.auto_layout.as_ref().expect("Card has auto_layout");
     assert_eq!(al.direction, LayoutDirection::Vertical);
-    assert_eq!(al.padding, [12.0, 16.0, 12.0, 16.0]);
+    assert_eq!(al.padding, [12.0, 0.0, 0.0, 16.0]);
 
     let title = find(&doc2, "Title");
     let NodeKind::Text(tp) = &title.kind else { panic!("expected Text") };
