@@ -342,6 +342,8 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         let legacy = al.layout_version == 0;
         let (start, gap) = match al.primary_align {
             LayoutAlign::SpaceBetween if legacy && !al.wrap && kids.len() == 1 && !kids[0].main_fill => (free / 2.0, al.item_spacing),
+            // Wrapping lines keep their stored item spacing as the floor of the gap in every version: they were broken with it.
+            LayoutAlign::SpaceBetween if k > 1.0 && al.wrap => (0.0, (free / (k - 1.0)).max(al.item_spacing.min(0.0))),
             LayoutAlign::SpaceBetween if k > 1.0 && legacy => (0.0, free / (k - 1.0)),
             LayoutAlign::SpaceBetween if k > 1.0 => (0.0, (free / (k - 1.0)).max(0.0)),
             LayoutAlign::SpaceAround if free > 0.0 => (free / k / 2.0, free / k),
@@ -799,6 +801,55 @@ mod tests {
         d.relayout_subtree(frame);
         assert_eq!(slot_of(&d, kids[0]).1, 0.0);
         assert_eq!(slot_of(&d, kids[1]).1, 80.0);
+    }
+
+    #[test]
+    fn a_wrapping_space_between_line_keeps_the_negative_item_spacing_gap_in_every_version() {
+        // 80 + (-30) + 40 = 90 fits the 100 wide frame, so both children share one line with free space -20.
+        for layout_version in [0, 1] {
+            let al = AutoLayout { wrap: true, item_spacing: -30.0, ..space_between(LayoutDirection::Horizontal, layout_version) };
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (100.0, 100.0), &[(80.0, 30.0), (40.0, 30.0)]);
+            d.relayout_subtree(frame);
+            assert_eq!(slot_of(&d, kids[0]).0, 0.0, "version {layout_version}");
+            assert_eq!(slot_of(&d, kids[1]).0, 60.0, "version {layout_version}");
+        }
+    }
+
+    #[test]
+    fn a_version_0_space_between_frame_centres_a_lone_child_inside_its_padding_beside_an_absolute_sibling() {
+        // Width 200, padding left 40 and right 0: the content box is 160 wide, so a 40 wide child sits at 40 + 60 = 100. The
+        // absolutely positioned sibling is not a flow child, so the child is still alone.
+        let al = AutoLayout { padding: [0.0, 0.0, 0.0, 40.0], ..space_between(LayoutDirection::Horizontal, 0) };
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (200.0, 100.0), &[(40.0, 100.0), (30.0, 30.0)]);
+        d.get_mut(kids[1]).unwrap().layout_child.absolute = true;
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]).0, 100.0);
+    }
+
+    #[test]
+    fn auto_spacing_modes_split_the_space_two_max_clamped_fill_children_leave_free() {
+        // Frame 300, Fill children clamped to 100 and 80: free space 120 goes to the mode's own distribution.
+        for layout_version in [0, 1] {
+            for (align, second_x, first_x) in [
+                (LayoutAlign::SpaceBetween, 220.0, 0.0),
+                (LayoutAlign::SpaceAround, 30.0 + 100.0 + 60.0, 30.0),
+                (LayoutAlign::SpaceEvenly, 40.0 + 100.0 + 40.0, 40.0),
+            ] {
+                let al = AutoLayout { direction: LayoutDirection::Horizontal, primary_align: align, item_spacing: 96.0, layout_version, ..Default::default() };
+                let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (300.0, 100.0), &[(10.0, 100.0), (10.0, 100.0)]);
+                for (kid, max) in kids.iter().zip([100.0, 80.0]) {
+                    let lc = &mut d.get_mut(*kid).unwrap().layout_child;
+                    lc.horizontal = Sizing::Fill;
+                    lc.max_w = Some(max);
+                }
+                d.relayout_subtree(frame);
+                let what = format!("{align:?}, version {layout_version}");
+                assert_eq!(slot_of(&d, kids[0]).0, first_x, "{what}");
+                assert_eq!(slot_of(&d, kids[0]).2, 100.0, "{what}");
+                assert_eq!(slot_of(&d, kids[1]).0, second_x, "{what}");
+                assert_eq!(slot_of(&d, kids[1]).2, 80.0, "{what}");
+            }
+        }
     }
 
     /// A horizontal 1216 wide frame with item spacing 96 holding a 328 wide fixed child and a Fill child.
