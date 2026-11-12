@@ -551,7 +551,9 @@ impl ErrorCode {
             | Self::AnotherWindowOwnsSession
             | Self::ApprovalDenied
             | Self::ApprovalTimeout => ErrorKind::NeedsHuman,
-            Self::FileTooLarge | Self::DocumentInvalid | Self::HistoryDropped | Self::InternalError | Self::UnsupportedFileType | Self::InstanceChild => ErrorKind::Fatal,
+            Self::FileTooLarge | Self::DocumentInvalid | Self::HistoryDropped | Self::InternalError | Self::UnsupportedFileType | Self::InstanceChild => {
+                ErrorKind::Fatal
+            }
         }
     }
 }
@@ -2213,9 +2215,7 @@ mod error_kind_tests {
             | ErrorCode::HistoryDropped
             | ErrorCode::InternalError
             | ErrorCode::UnsupportedFileType
-            | ErrorCode::InstanceChild => {
-                "fatal"
-            }
+            | ErrorCode::InstanceChild => "fatal",
         }
     }
 

@@ -97,7 +97,8 @@ fn the_same_edits_go_through_on_a_local_collection_beside_a_library() {
 
     let mut f = fixture();
     let (local, library) = (&f.local, &f.library);
-    let (first, second, alias, mode, collection) = (local.first.clone(), local.second.clone(), local.alias.clone(), local.mode.clone(), local.collection.clone());
+    let (first, second, alias, mode, collection) =
+        (local.first.clone(), local.second.clone(), local.alias.clone(), local.mode.clone(), local.collection.clone());
     let library_collection = library.collection.clone();
     set_variables(&mut f.engine, json!({"upsert_variables": [{"id": first, "values": {mode.clone(): 20}}]})).unwrap();
     assert_eq!(f.engine.doc.variables[&first].values[&mode], VariableValue::Number(20.0));
