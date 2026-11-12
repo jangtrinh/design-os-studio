@@ -15,8 +15,17 @@ use egui::{Align2, Rect, Sense, Ui};
 
 /// Entries of the mirroring dropdown. "Straight" removes the handles.
 const MIRROR: [&str; 4] = ["Straight", "Mirror angle and length", "Mirror angle", "No mirroring"];
-const CAPS: [(&str, Option<StrokeCap>); 4] =
-    [("Inherit", None), ("None", Some(StrokeCap::None)), ("Round", Some(StrokeCap::Round)), ("Square", Some(StrokeCap::Square))];
+const CAPS: [(&str, Option<StrokeCap>); 9] = [
+    ("Inherit", None),
+    ("None", Some(StrokeCap::None)),
+    ("Line arrow", Some(StrokeCap::ArrowLines)),
+    ("Triangle arrow", Some(StrokeCap::ArrowEquilateral)),
+    ("Reversed triangle", Some(StrokeCap::TriangleFilled)),
+    ("Circle arrow", Some(StrokeCap::CircleFilled)),
+    ("Diamond arrow", Some(StrokeCap::DiamondFilled)),
+    ("Round", Some(StrokeCap::Round)),
+    ("Square", Some(StrokeCap::Square)),
+];
 
 fn text_button(ui: &mut Ui, rect: Rect, key: &str, label: &str, enabled: bool) -> bool {
     widgets::record(ui, key, rect);
@@ -166,8 +175,21 @@ mod tests {
     }
 
     #[test]
-    fn an_arrow_cap_reads_mixed_in_the_mixed_ink() {
-        assert_eq!(mixed_ink(Some(Some(StrokeCap::ArrowLines)), "Mixed"), Some(theme::TEXT_TERTIARY));
+    fn an_arrow_cap_reads_by_name_in_the_normal_ink() {
+        assert_eq!(mixed_ink(Some(Some(StrokeCap::ArrowLines)), "Line arrow"), Some(theme::TEXT));
+    }
+
+    #[test]
+    fn every_endpoint_arrow_cap_has_a_vertex_label() {
+        for (label, cap) in [
+            ("Line arrow", StrokeCap::ArrowLines),
+            ("Triangle arrow", StrokeCap::ArrowEquilateral),
+            ("Reversed triangle", StrokeCap::TriangleFilled),
+            ("Circle arrow", StrokeCap::CircleFilled),
+            ("Diamond arrow", StrokeCap::DiamondFilled),
+        ] {
+            assert_eq!(mixed_ink(Some(Some(cap)), label), Some(theme::TEXT), "{label}");
+        }
     }
 
     #[test]
