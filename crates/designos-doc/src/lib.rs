@@ -34,6 +34,8 @@ mod component_prop_variables;
 #[cfg(test)]
 mod component_prop_variables_tests;
 #[cfg(test)]
+mod component_variant_picks_round_tests;
+#[cfg(test)]
 mod component_variant_picks_tests;
 mod components;
 mod connector_home;

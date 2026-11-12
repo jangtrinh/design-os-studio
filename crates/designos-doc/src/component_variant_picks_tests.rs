@@ -7,18 +7,18 @@
 
 use crate::*;
 
-struct Px {
-    d: Document,
-    host: NodeId,
-    w: NodeId,
-    wmain: NodeId,
-    top: NodeId,
+pub(super) struct Px {
+    pub(super) d: Document,
+    pub(super) host: NodeId,
+    pub(super) w: NodeId,
+    pub(super) wmain: NodeId,
+    pub(super) top: NodeId,
     /// Small/Default, Large/Default, Small/Hover, Large/Hover.
-    m: [NodeId; 4],
-    h: History,
+    pub(super) m: [NodeId; 4],
+    pub(super) h: History,
 }
 
-fn string_variable(id: &str, light: &str, dark: &str) -> Variable {
+pub(super) fn string_variable(id: &str, light: &str, dark: &str) -> Variable {
     let s = |v: &str| VariableValue::String(v.into());
     Variable {
         id: id.into(),
@@ -38,7 +38,7 @@ fn string_variable(id: &str, light: &str, dark: &str) -> Variable {
 
 /// `nested`: the properties bound inside the wrapper main (so `W`'s copy inherits them); `top`: the properties bound on
 /// the top-level instance. Each property `Size` / `State` is bound to the variable `size` / `state`.
-fn build(nested: &[&str], top: &[&str]) -> Px {
+pub(super) fn build(nested: &[&str], top: &[&str]) -> Px {
     let mut d = Document::new("t");
     let page = d.add_page("P");
     d.variable_collections.insert(
@@ -95,39 +95,39 @@ fn build(nested: &[&str], top: &[&str]) -> Px {
     Px { d, host, w, wmain, top: top_id, m: [mains[0], mains[1], mains[2], mains[3]], h }
 }
 
-fn copy(f: &Px) -> NodeId {
+pub(super) fn copy(f: &Px) -> NodeId {
     *f.d.get(f.w).unwrap().children.first().unwrap()
 }
 
 /// The variant the instance shows, as its name.
-fn shown(f: &Px, inst: NodeId) -> String {
+pub(super) fn shown(f: &Px, inst: NodeId) -> String {
     f.d.get(instance_component(f.d.get(inst).unwrap()).unwrap()).unwrap().name.clone()
 }
 
-fn set_mode(f: &mut Px, mode: &str) {
+pub(super) fn set_mode(f: &mut Px, mode: &str) {
     let mut n = f.d.get(f.host).unwrap().clone();
     n.variables.modes.insert("theme".into(), mode.into());
     f.h.exec(&mut f.d, Command::Update { node: Box::new(n) }).unwrap();
 }
 
-fn picks(f: &Px, inst: NodeId) -> Vec<String> {
+pub(super) fn picks(f: &Px, inst: NodeId) -> Vec<String> {
     f.d.get(inst).unwrap().component.variant_picks.iter().cloned().collect()
 }
 
-fn pick_nested(f: &mut Px, inst: NodeId, prop: &str, value: &str) {
+pub(super) fn pick_nested(f: &mut Px, inst: NodeId, prop: &str, value: &str) {
     let c = set_nested_instance_prop(&mut f.d, inst, prop, Some(PropValue::Variant(value.into())));
     f.h.exec(&mut f.d, c).unwrap();
 }
 
-fn pick_top(f: &mut Px, inst: NodeId, prop: &str, value: &str) {
+pub(super) fn pick_top(f: &mut Px, inst: NodeId, prop: &str, value: &str) {
     let c = set_instance_prop(&mut f.d, inst, prop, Some(PropValue::Variant(value.into())));
     f.h.exec(&mut f.d, c).unwrap();
 }
 
-const SMALL_DEFAULT: &str = "Size=Small, State=Default";
-const LARGE_DEFAULT: &str = "Size=Large, State=Default";
-const SMALL_HOVER: &str = "Size=Small, State=Hover";
-const LARGE_HOVER: &str = "Size=Large, State=Hover";
+pub(super) const SMALL_DEFAULT: &str = "Size=Small, State=Default";
+pub(super) const LARGE_DEFAULT: &str = "Size=Large, State=Default";
+pub(super) const SMALL_HOVER: &str = "Size=Small, State=Hover";
+pub(super) const LARGE_HOVER: &str = "Size=Large, State=Hover";
 
 #[test]
 fn a_pick_on_state_leaves_a_bound_size_following_the_mode() {

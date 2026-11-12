@@ -217,9 +217,9 @@ pub(crate) fn record_variant_pick(n: &mut Node, name: &str) {
 /// What the swap of instance node `n` from main `old` to main `new` (already made) means for the bound variant properties
 /// of `n`. Each bound property that has a counterpart in `new` and whose value the swap changed becomes a pick; after a
 /// swap to a main of another set, every bound property `new` also has does, as the swap chose the whole main. On a
-/// top-level instance with a property binding, the new value of every variant property the swap changed is stored too:
-/// the instance's variant comes from its stored values, and the next resync would otherwise move it back to the old one.
-/// An instance that binds no property records nothing here, so its file stays as it was.
+/// top-level instance, the new value of each such bound variant property is stored too: the instance's variant comes from
+/// its stored values, and the next resync would otherwise move it back to the old one. An instance that binds no variant
+/// property (none at all, or only text or boolean ones) records nothing here, so its file stays as it was.
 pub(crate) fn record_variant_swap(doc: &Document, n: &mut Node, old: Option<NodeId>, new: NodeId) {
     if !has_prop_binding(n) {
         return;
@@ -230,11 +230,14 @@ pub(crate) fn record_variant_swap(doc: &Document, n: &mut Node, old: Option<Node
     let old_pairs = old.map(pairs).unwrap_or_default();
     let top = is_top_instance(n);
     for (name, value) in pairs(new) {
+        if !n.variables.bindings.contains_key(&prop_binding_key(&name)) {
+            continue;
+        }
         let changed = old_pairs.iter().find(|(k, _)| *k == name).is_none_or(|(_, v)| *v != value);
         if top && changed {
             n.component.values.insert(name.clone(), PropValue::Variant(value));
         }
-        if (changed || !same_set) && n.variables.bindings.contains_key(&prop_binding_key(&name)) {
+        if changed || !same_set {
             n.component.variant_picks.insert(name);
         }
     }

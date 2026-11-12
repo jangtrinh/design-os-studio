@@ -276,3 +276,29 @@ fn a_pick_that_equals_its_variable_at_save_time_is_still_a_pick_after_a_fig_reop
     assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Button/Size=Large, State=Default", "the nested pick still holds against light");
     assert_eq!(shown(&reopened, node_named(&reopened, "Top")), "Button/Size=Large, State=Default", "and so does the top-level one");
 }
+
+/// How many property assignments and carrier entries the exported node named `name` has.
+fn exported_assignments(d: &Document, name: &str) -> (usize, String) {
+    let decoded = designos_fig::decode_fig_to_json(&export_fig(d).expect("export")).expect("decode");
+    let node = decoded["message"]["nodeChanges"].as_array().unwrap().iter().find(|n| n["name"] == name).expect("node").clone();
+    (node["componentPropAssignments"].as_array().map_or(0, Vec::len), node["pluginData"].to_string())
+}
+
+#[test]
+fn swapping_an_instance_that_binds_only_a_text_property_changes_nothing_in_the_exported_file() {
+    let (mut d, mains) = picks_document();
+    let top = node_named(&d, "Top");
+    bind_prop_variable(&mut d, top, "Size", None).unwrap().apply(&mut d).unwrap();
+    let set = d.get(mains[0]).unwrap().parent.unwrap();
+    add_prop(&mut d, set, ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Buy".into()) }).apply(&mut d).unwrap();
+    d.variables.insert("label".into(), Variable { id: "label".into(), name: "label".into(), ..size_variable() });
+    d.variable_collections.get_mut("theme").unwrap().variables.push("label".into());
+    bind_prop_variable(&mut d, top, "Label", Some("label")).unwrap().apply(&mut d).unwrap();
+    let values_before = d.get(top).unwrap().component.values.clone();
+    let exported_before = exported_assignments(&d, "Top");
+    swap_instance(&mut d, top, mains[1]).apply(&mut d).unwrap();
+    assert_eq!(shown(&d, top), "Button/Size=Large, State=Default");
+    assert_eq!(d.get(top).unwrap().component.values, values_before, "no variant value is stored");
+    assert!(picks_of(&d, top).is_empty());
+    assert_eq!(exported_assignments(&d, "Top"), exported_before, "the exported property assignments and carrier entries are the ones before the swap");
+}
