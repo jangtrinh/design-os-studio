@@ -47,8 +47,10 @@ fn reopen(doc: &Document) -> Document {
     import_fig(&export_fig(doc).expect("export_fig")).expect("import_fig")
 }
 
-/// The page copy `Trip` of wrapper `W` holds two copies of main `X`, both named `Item` and both holding a layer named
-/// `Shape`; the second copy is swapped to main `Y`. Each copy's `Shape` carries a fill of its own.
+/// Main `I` holds two copies of main `X`, both named `Item` and both holding a layer named `Shape`; main `O` holds a copy
+/// of `I`; the page copy `Trip` of `O` has its second `Item` swapped to main `Y`. The `Shape` of each `Item` carries a fill
+/// of its own. The two `Item`s sit side by side one level below the first nested copy, so a link that skips that level
+/// cannot tell them apart by name, by shape or by what they show.
 fn twins() -> Document {
     let mut doc = Document::new("twins");
     let page = doc.add_page("Page 1");
@@ -59,36 +61,44 @@ fn twins() -> Document {
     let y = frame_with(&mut doc, page, "Y", shape);
     create_component(&mut doc, y).apply(&mut doc).unwrap();
     let id = doc.alloc_id();
-    let w = doc.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 120.0, 40.0))).unwrap();
-    doc.get_mut(w).unwrap().name = "W".into();
+    let i = doc.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 120.0, 40.0))).unwrap();
+    doc.get_mut(i).unwrap().name = "I".into();
     for x_pos in [0.0, 60.0] {
-        create_instance(&mut doc, x, w, Vec2::new(x_pos, 0.0)).apply(&mut doc).unwrap();
-        let item = *doc.get(w).unwrap().children.last().unwrap();
+        create_instance(&mut doc, x, i, Vec2::new(x_pos, 0.0)).apply(&mut doc).unwrap();
+        let item = *doc.get(i).unwrap().children.last().unwrap();
         doc.get_mut(item).unwrap().name = "Item".into();
     }
-    create_component(&mut doc, w).apply(&mut doc).unwrap();
-    create_instance(&mut doc, w, page, Vec2::new(300.0, 0.0)).apply(&mut doc).unwrap();
+    create_component(&mut doc, i).apply(&mut doc).unwrap();
+    let id = doc.alloc_id();
+    let o = doc.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 120.0, 40.0))).unwrap();
+    doc.get_mut(o).unwrap().name = "O".into();
+    create_instance(&mut doc, i, o, Vec2::new(0.0, 0.0)).apply(&mut doc).unwrap();
+    create_component(&mut doc, o).apply(&mut doc).unwrap();
+    create_instance(&mut doc, o, page, Vec2::new(300.0, 0.0)).apply(&mut doc).unwrap();
     let trip = *doc.get(page).unwrap().children.last().unwrap();
     doc.get_mut(trip).unwrap().name = "Trip".into();
-    let trail = doc.get(trip).unwrap().children[1];
+    let trail = items_of(&doc)[1];
     swap_instance(&mut doc, trail, y).apply(&mut doc).unwrap();
     for (item, rgb) in [(0usize, (0, 200, 0)), (1, (250, 200, 0))] {
-        let item_id = doc.get(trip).unwrap().children[item];
-        let shape = doc.get(item_id).unwrap().children[0];
+        let shape = doc.get(items_of(&doc)[item]).unwrap().children[0];
         set_fill(&mut doc, shape, rgb);
     }
     doc
 }
 
-/// Each copy of the pair, as (main it shows, id of its inner layer, that layer's fill).
-fn pair_state(doc: &Document) -> Vec<(Option<NodeId>, NodeId, Paint)> {
+/// The two `Item` copies inside the page copy `Trip`.
+fn items_of(doc: &Document) -> Vec<NodeId> {
     let trip = instance_named(doc, "Trip");
-    doc.get(trip)
-        .unwrap()
-        .children
-        .iter()
+    let inner = doc.get(trip).unwrap().children[0];
+    doc.get(inner).unwrap().children.clone()
+}
+
+/// Each `Item` of the page copy, as (main it shows, id of its inner layer, that layer's fill).
+fn pair_state(doc: &Document) -> Vec<(Option<NodeId>, NodeId, Paint)> {
+    items_of(doc)
+        .into_iter()
         .map(|item| {
-            let n = doc.get(*item).unwrap();
+            let n = doc.get(item).unwrap();
             let shape = *n.children.first().expect("copy holds its layer");
             (instance_component(n), shape, fill_of(doc, shape))
         })
@@ -106,12 +116,14 @@ fn two_copies_of_one_main_stay_two_copies_and_keep_their_own_layer_after_a_fig_r
     let layers_before = doc.nodes.len();
     let opened = pair_state(&doc);
     assert_eq!(opened.len(), 2);
-    let wrapper = component_named(&doc, "W");
-    sync_instances(&mut doc, wrapper).apply(&mut doc).unwrap();
+    for wrapper in ["I", "O"] {
+        let main = component_named(&doc, wrapper);
+        sync_instances(&mut doc, main).apply(&mut doc).unwrap();
+    }
     let synced = pair_state(&doc);
 
     assert_eq!(synced.len(), 2, "still exactly two copies");
-    assert_eq!(doc.nodes.len(), layers_before, "no layer was added or dropped by the sync");
+    assert_eq!(doc.nodes.len(), layers_before, "no layer was added or dropped by the syncs");
     assert_eq!(synced[0].0, Some(component_named(&doc, "X")), "the first copy shows X");
     assert_eq!(synced[1].0, Some(component_named(&doc, "Y")), "the swap stays on the same copy");
     for (i, (open, now)) in opened.iter().zip(&synced).enumerate() {
@@ -184,9 +196,7 @@ fn first_child_chain(doc: &Document, root: NodeId) -> Vec<NodeId> {
 #[test]
 fn a_rest_document_links_each_nested_copy_layer_one_level_up_and_needs_no_relink() {
     let rect = |id: &str| json!({"id": id, "name": "Dot", "type": "RECTANGLE", "size": {"x": 5, "y": 5}});
-    let inst = |id: &str, main: &str, kids: Vec<serde_json::Value>| {
-        json!({"id": id, "name": "N", "type": "INSTANCE", "componentId": main, "size": {"x": 5, "y": 5}, "children": kids})
-    };
+    let inst = |id: &str, main: &str, kids: Vec<serde_json::Value>| json!({"id": id, "name": "N", "type": "INSTANCE", "componentId": main, "size": {"x": 5, "y": 5}, "children": kids});
     let j = json!({"document": {"type": "DOCUMENT", "children": [{"id": "0:1", "type": "CANVAS", "children": [
         {"id": "1:1", "name": "Inner", "type": "COMPONENT", "size": {"x": 5, "y": 5}, "children": [rect("1:2")]},
         {"id": "2:1", "name": "Mid", "type": "COMPONENT", "size": {"x": 5, "y": 5}, "children": [inst("2:2", "1:1", vec![rect("I2:2;1:2")])]},
