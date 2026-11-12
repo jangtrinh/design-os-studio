@@ -122,6 +122,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     if link {
         n.component.source = Some(src);
         n.component.overrides.clear();
+        release_own_variant_bindings(&mut n);
         // A linked copy inherits property values from its main-side source.
         // Property values belong only to explicit instance overrides; copying
         // the source map would freeze nested instances at creation time.
@@ -1003,6 +1004,7 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
         } else if is_inst {
             relink_keeping_values(c.s, &mut dn, None);
             dn.component.overrides.clear();
+            release_own_variant_bindings(&mut dn);
             dn.component.grid_align_overrides = [false, false];
         } else {
             dn.component = ComponentLink::default();
@@ -1032,10 +1034,14 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
     let mut c = Ctx::new(doc);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        let before = (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len());
+        let before = (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len(), n.component.own_variant_bindings.len());
         for f in fields {
             n.component.overrides.remove(f);
             match f {
+                // The variant a nested copy shows is the pick or its own binding: resetting it gives the main's back.
+                OverrideField::MainComponent => {
+                    release_own_variant_bindings(&mut n);
+                }
                 OverrideField::Layout => {
                     n.component.grid_align_overrides = [false, false];
                 }
@@ -1049,7 +1055,7 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
                 _ => {}
             }
         }
-        if (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len()) != before {
+        if (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len(), n.component.own_variant_bindings.len()) != before {
             c.update(n);
         }
     }
@@ -1093,7 +1099,8 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
         let own_values = if exposed_values.contains(&id) { overriding_value_keys(c.s, &n) } else { Vec::new() };
-        if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] || !own_values.is_empty() {
+        let released_binding = release_own_variant_bindings(&mut n);
+        if released_binding || !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] || !own_values.is_empty() {
             n.component.overrides.clear();
             n.component.grid_align_overrides = [false, false];
             for name in &own_values {
@@ -1142,6 +1149,19 @@ fn sync_component(c: &mut Ctx, owner: NodeId) {
     for t in targets {
         sync_one(c, t);
     }
+}
+
+/// The main nested copy `id` shows when no pick is recorded on it and its bound variant properties `choices` drive it:
+/// its reference's main, switched to the sibling variant the choices select. `None` when the reference cannot be found.
+pub(crate) fn bound_target_of_copy(d: &Document, id: NodeId, choices: &BTreeMap<String, PropValue>) -> Option<NodeId> {
+    let r = reference_of(d, id)?;
+    let rc = main_of_reference(d.get(r)?)?;
+    Some(variant_target_from(d, rc, choices).unwrap_or(rc))
+}
+
+/// Whether the reference of nested copy `id` (the main's instance it mirrors) binds property `name` to a variable.
+pub(crate) fn reference_binds_prop(d: &Document, id: NodeId, name: &str) -> bool {
+    reference_of(d, id).and_then(|r| d.get(r)).is_some_and(|r| r.variables.bindings.contains_key(&prop_binding_key(name)))
 }
 
 fn reference_of(d: &Document, id: NodeId) -> Option<NodeId> {
@@ -2178,6 +2198,15 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     let slot_layout_child = rn.layout_child;
     let values = c.s.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
 
+    // The variable bound to a variant property of a nested instance is the main's: it follows it, as a binding on any
+    // field the copy has no override of does.
+    if !top && matches!(inode.kind, NodeKind::Instance { .. }) && matches!(rn.kind, NodeKind::Instance { .. }) {
+        if let Some(followed) = follow_reference_variant_bindings(c.s, &inode, &rn) {
+            c.update(followed.clone());
+            inode = followed;
+        }
+    }
+
     // --- which component should this instance show? ---
     let mut swapped_here = false;
     if let Some(cur) = instance_component(&inode) {
@@ -2195,6 +2224,13 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
         }
         if top {
             if let Some(v) = variant_target(&c.s, &inode) {
+                desired = v;
+            }
+        } else if nested_variant_follows_binding(&inode) {
+            // A bound variant property of a nested instance resolves its variable where this copy sits (the modes of
+            // its ancestors), and the switch below is the one a person's pick makes.
+            let choices = bound_variant_choices(c.s, i, &inode, cur);
+            if let Some(v) = variant_target_from(&c.s, desired, &choices).filter(|_| !choices.is_empty()) {
                 desired = v;
             }
         }
@@ -2323,6 +2359,17 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     let seen_before = seen.len();
     seen.extend(own);
     if swapped_here && !matches!(rn.kind, NodeKind::Component(_)) {
+        relink_swapped_slot_children(c, ref_id, i);
+    }
+    // A nested instance whose bound variant switched while its reference still showed another main mirrors its own main's
+    // layers. When the reference shows that main too (it followed the same variable), the copy is relinked to the
+    // reference's layers instead of being rebuilt from them, which would drop its overrides.
+    if !top
+        && !swapped_here
+        && has_prop_binding(&inode)
+        && matches!(rn.kind, NodeKind::Instance { .. })
+        && instance_component(&inode) == instance_component(&rn)
+    {
         relink_swapped_slot_children(c, ref_id, i);
     }
     let in_slot = rn.component.bindings.contains_key(&OverrideField::SlotContent) || is_slot_container(&c.s, i) || is_slot_container(&c.s, ref_id);
@@ -2531,18 +2578,35 @@ fn solve_instance_auto_layout(c: &mut Ctx, root: NodeId, old: Vec2, new: Vec2, d
     }
 }
 
+/// The layer at the end of the `source` chain of `id`: the layer that a copy at any depth stands for. The chain stops at
+/// an instance root, whose `source` is its main component: two instances of the same inner component (a button's leading
+/// and trailing icon) are two layers, not one.
+fn source_root(d: &Document, id: NodeId) -> NodeId {
+    let mut cur = id;
+    for _ in 0..64 {
+        match d.get(cur).and_then(|n| n.component.source).filter(|s| d.get(*s).is_some_and(|x| !matches!(x.kind, NodeKind::Component(_)))) {
+            Some(next) => cur = next,
+            None => break,
+        }
+    }
+    cur
+}
+
+/// Links the layers of `inst_node` to the layers of `slot_node` that stand for the same main layer. A layer of a copy that
+/// shows its own main links to that main's layer, while a layer of the reference one level up links to the reference's
+/// own source; both reach the same main layer at the end of their `source` chain, which is how they are matched at any depth.
 fn relink_swapped_slot_children(c: &mut Ctx, slot_node: NodeId, inst_node: NodeId) {
     let rkids = c.s.get(slot_node).map(|x| x.children.clone()).unwrap_or_default();
     let ikids = c.s.get(inst_node).map(|x| x.children.clone()).unwrap_or_default();
     let mut slot_by_src: BTreeMap<NodeId, NodeId> = BTreeMap::new();
     for rc in rkids {
         if let Some(src) = c.s.get(rc).and_then(|n| n.component.source) {
-            slot_by_src.entry(src).or_insert(rc);
+            slot_by_src.entry(source_root(c.s, src)).or_insert(rc);
         }
     }
     for ic in ikids {
         let Some(mut ic_node) = c.s.get(ic).cloned() else { continue };
-        let Some(rc) = ic_node.component.source.and_then(|src| slot_by_src.get(&src).copied()) else { continue };
+        let Some(rc) = ic_node.component.source.and_then(|src| slot_by_src.get(&source_root(c.s, src)).copied()) else { continue };
         let same_sub_comp = instance_component(&ic_node) == c.s.get(rc).and_then(instance_component);
         ic_node.component.source = Some(rc);
         c.update(ic_node);
@@ -2562,7 +2626,7 @@ pub fn swap_instance(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> 
     swap_instance_inner(doc, instance, new_comp).0
 }
 
-fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize) {
+pub(crate) fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize) {
     let mut c = Ctx::new(doc);
     if !swap_recorded(&mut c, instance, new_comp) {
         return (nothing(), 0);

@@ -1,0 +1,156 @@
+//! A pick made by hand on a nested copy whose `Size` is bound to a variable survives a `.fig` save and reopen when it
+//! differs from the variant the binding would choose: another property's pick, and a swap to another set that also has
+//! a `Size`. Files here are written by Studio and read back by Studio.
+
+use designos_doc::*;
+use designos_fig::{export_fig, import_fig};
+
+fn theme_collection() -> VariableCollection {
+    VariableCollection {
+        id: "theme".into(),
+        name: "Theme".into(),
+        modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+        default_mode: "light".into(),
+        variables: vec!["size".into()],
+        key: None,
+        source_library_key: None,
+        extensions: Default::default(),
+    }
+}
+
+fn size_variable() -> Variable {
+    let s = |v: &str| VariableValue::String(v.into());
+    Variable {
+        id: "size".into(),
+        name: "size".into(),
+        collection: "theme".into(),
+        kind: VariableKind::String,
+        values: [("light".to_string(), s("Small")), ("dark".to_string(), s("Large"))].into_iter().collect(),
+        description: String::new(),
+        scopes: vec![],
+        hidden_from_publishing: false,
+        key: None,
+        code_syntax: Default::default(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
+    }
+}
+
+fn node_named(d: &Document, name: &str) -> NodeId {
+    d.nodes.values().find(|n| n.name == name).map(|n| n.id).unwrap_or_else(|| panic!("no node {name}"))
+}
+
+/// "Set/Variant" the instance shows.
+fn shown(d: &Document, id: NodeId) -> String {
+    let m = instance_component(d.get(id).unwrap()).unwrap();
+    let set = d.get(m).unwrap().parent.and_then(|p| d.get(p)).map(|p| p.name.clone()).unwrap_or_default();
+    format!("{set}/{}", d.get(m).unwrap().name)
+}
+
+fn copy_in_w(d: &Document) -> NodeId {
+    *d.get(node_named(d, "W")).unwrap().children.first().unwrap()
+}
+
+/// Switches the Theme collection to the mode named `mode` on the node named `name`; ids are looked up because a reopened
+/// file carries its own.
+fn set_theme_mode(d: &mut Document, name: &str, mode: &str) {
+    let coll = d.variable_collections.values().find(|c| c.name == "Theme").expect("Theme").clone();
+    let mode_id = coll.modes.iter().find(|m| m.name.eq_ignore_ascii_case(mode)).expect("mode").id.clone();
+    let mut n = d.get(node_named(d, name)).unwrap().clone();
+    n.variables.modes.insert(coll.id, mode_id);
+    History::default().exec(d, Command::Update { node: Box::new(n) }).unwrap();
+}
+
+/// A set `set_name` whose variants are the given names, each a frame with a text `label`.
+fn make_set(d: &mut Document, page: NodeId, set_name: &str, names: &[(&str, f32)], y: f32) -> Vec<NodeId> {
+    let mut mains = Vec::new();
+    for (name, wd) in names {
+        let id = d.alloc_id();
+        let mut v = Node::frame(id, Rect::new(0.0, y, *wd, 40.0));
+        v.name = (*name).into();
+        let v = d.insert(page, v).unwrap();
+        let id = d.alloc_id();
+        let mut t = Node::text(id, Rect::new(4.0, 4.0, 30.0, 20.0), "Label", TextStyle::default());
+        t.name = "label".into();
+        d.insert(v, t).unwrap();
+        create_component(d, v).apply(d).unwrap();
+        mains.push(v);
+    }
+    combine_as_variants(d, &mains).apply(d).unwrap();
+    let set = d.get(mains[0]).unwrap().parent.unwrap();
+    let mut sn = d.get(set).unwrap().clone();
+    sn.name = set_name.into();
+    Command::Update { node: Box::new(sn) }.apply(d).unwrap();
+    mains
+}
+
+/// A wrapper main holding an instance of `base` with `Size` bound to `size`, and `W`, an instance of it in `Host`.
+fn wrap(d: &mut Document, page: NodeId, base: NodeId) {
+    let id = d.alloc_id();
+    let mut wf = Node::frame(id, Rect::new(0.0, 600.0, 400.0, 100.0));
+    wf.name = "Wrapper".into();
+    let wmain = d.insert(page, wf).unwrap();
+    create_instance(d, base, wmain, Vec2::new(10.0, 10.0)).apply(d).unwrap();
+    let nested = *d.get(wmain).unwrap().children.last().unwrap();
+    create_component(d, wmain).apply(d).unwrap();
+    bind_prop_variable(d, nested, "Size", Some("size")).unwrap().apply(d).unwrap();
+    let id = d.alloc_id();
+    let mut hf = Node::frame(id, Rect::new(500.0, 0.0, 400.0, 200.0));
+    hf.name = "Host".into();
+    let host = d.insert(page, hf).unwrap();
+    create_instance(d, wmain, host, Vec2::new(10.0, 10.0)).apply(d).unwrap();
+    let w = *d.get(host).unwrap().children.last().unwrap();
+    let mut wn = d.get(w).unwrap().clone();
+    wn.name = "W".into();
+    Command::Update { node: Box::new(wn) }.apply(d).unwrap();
+}
+
+fn base_document() -> (Document, NodeId) {
+    let mut d = Document::new("t");
+    let page = d.add_page("P");
+    d.variable_collections.insert("theme".into(), theme_collection());
+    d.variables.insert("size".into(), size_variable());
+    (d, page)
+}
+
+#[test]
+fn a_pick_on_another_property_than_the_bound_one_survives_a_fig_reopen_and_a_mode_switch() {
+    let (mut d, page) = base_document();
+    let mains = make_set(
+        &mut d,
+        page,
+        "Button",
+        &[("Size=Small, State=Default", 100.0), ("Size=Large, State=Default", 200.0), ("Size=Small, State=Hover", 110.0), ("Size=Large, State=Hover", 210.0)],
+        0.0,
+    );
+    wrap(&mut d, page, mains[0]);
+    let copy = copy_in_w(&d);
+    let pick = set_nested_instance_prop(&mut d, copy, "State", Some(PropValue::Variant("Hover".into())));
+    pick.apply(&mut d).unwrap();
+    assert_eq!(shown(&d, copy), "Button/Size=Small, State=Hover");
+
+    let mut reopened = import_fig(&export_fig(&d).expect("export")).expect("reopen");
+    let copy = copy_in_w(&reopened);
+    assert_eq!(shown(&reopened, copy), "Button/Size=Small, State=Hover", "the reopened copy shows the pick");
+    assert!(reopened.get(copy).unwrap().component.overrides.contains(&OverrideField::MainComponent), "and still holds it as a pick");
+    set_theme_mode(&mut reopened, "Host", "dark");
+    assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Button/Size=Small, State=Hover", "a mode switch does not take the pick back");
+}
+
+#[test]
+fn a_swap_to_another_set_with_the_same_property_survives_a_fig_reopen_and_a_mode_switch() {
+    let (mut d, page) = base_document();
+    let button = make_set(&mut d, page, "Button", &[("Size=Small", 100.0), ("Size=Large", 200.0)], 0.0);
+    let badge = make_set(&mut d, page, "Badge", &[("Size=Small", 60.0), ("Size=Large", 90.0)], 300.0);
+    wrap(&mut d, page, button[0]);
+    let copy = copy_in_w(&d);
+    swap_instance(&mut d, copy, badge[0]).apply(&mut d).unwrap();
+    assert_eq!(shown(&d, copy), "Badge/Size=Small");
+
+    let mut reopened = import_fig(&export_fig(&d).expect("export")).expect("reopen");
+    let copy = copy_in_w(&reopened);
+    assert_eq!(shown(&reopened, copy), "Badge/Size=Small", "the reopened copy shows the swap");
+    assert!(reopened.get(copy).unwrap().component.overrides.contains(&OverrideField::MainComponent), "and still holds it as a pick");
+    set_theme_mode(&mut reopened, "Host", "dark");
+    assert_eq!(shown(&reopened, copy_in_w(&reopened)), "Badge/Size=Small", "a mode switch does not take the swap back");
+}

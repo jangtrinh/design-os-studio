@@ -13,7 +13,7 @@
 //! variable) changes nothing: the last valid value stays and [`prop_binding_problem`] names the reason.
 
 use crate::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Prefix of the binding key of a component property on an instance root.
 pub const PROP_BINDING_PREFIX: &str = "componentProperties/";
@@ -153,6 +153,87 @@ pub fn prop_bindings_of(n: &Node) -> impl Iterator<Item = (&str, &str)> {
     n.variables.bindings.iter().filter_map(|(k, v)| Some((prop_binding_name(k)?, v.as_str())))
 }
 
+/// The variant each bound variant property of `n` (the instance node `id`, which sits where its ancestors say) gets from
+/// its variable in the modes of that place. A binding that gives no valid option keeps the value `shown` (the main the
+/// instance shows now) has for that property, so an unusable value changes nothing, as it does for a top instance.
+pub(crate) fn bound_variant_choices(doc: &Document, id: NodeId, n: &Node, shown: NodeId) -> BTreeMap<String, PropValue> {
+    let mut out = BTreeMap::new();
+    for (name, var) in prop_bindings_of(n) {
+        let Some(def) = def_of(doc, n, name).filter(|d| matches!(d.kind, PropKind::Variant { .. })) else { continue };
+        match resolve_for_def(doc, id, &def, var) {
+            Ok(v) => {
+                out.insert(name.to_string(), v);
+            }
+            Err(_) => {
+                let kept = doc.get(shown).and_then(|c| parse_variant_name(&c.name).into_iter().find_map(|(k, v)| (k == name).then_some(v)));
+                if let Some(v) = kept {
+                    out.insert(name.to_string(), PropValue::Variant(v));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// What a bind or unbind of a property means on the instance it is made on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CopyBinding {
+    /// Not the variant property of a nested copy, or nothing inherited to unbind: the binding is set or removed as it is.
+    NotACopyVariant,
+    /// A variable bound to the variant of a nested copy: the copy's own binding.
+    Own,
+    /// An unbind of the binding a nested copy inherits from its main.
+    FrozenUnbound,
+}
+
+/// Marks (or unmarks) the binding of variant property `name` on nested copy `n` as the copy's own.
+fn set_own_variant_binding(n: &mut Node, name: &str, own: bool) {
+    if own {
+        n.component.own_variant_bindings.insert(name.to_string());
+    } else {
+        n.component.own_variant_bindings.remove(name);
+    }
+}
+
+/// Gives the bindings of the variant properties of `n` back to its main: the next sync restores the main's. Returns
+/// whether `n` held any of its own.
+pub(crate) fn release_own_variant_bindings(n: &mut Node) -> bool {
+    let held = !n.component.own_variant_bindings.is_empty();
+    n.component.own_variant_bindings.clear();
+    held
+}
+
+/// `n`, a nested copy, with the variable bindings of the variant properties of its reference `r` (the main's nested
+/// instance) in place of its own, or `None` when it has those already. A binding the copy holds as its own (see
+/// [`set_own_variant_binding`]) stays and the main's for that property is not copied. The bindings of boolean and text
+/// properties are left as they are: a person can bind those on the copy itself, and nothing records that as an override.
+pub(crate) fn follow_reference_variant_bindings(doc: &Document, n: &Node, r: &Node) -> Option<Node> {
+    let own_names = &n.component.own_variant_bindings;
+    let is_variant = |name: &str| [n, r].into_iter().any(|x| def_of(doc, x, name).is_some_and(|d| matches!(d.kind, PropKind::Variant { .. })));
+    let variant_bindings = |x: &Node| -> BTreeMap<String, String> {
+        prop_bindings_of(x)
+            .filter(|(name, _)| is_variant(name) && !own_names.contains(*name))
+            .map(|(name, var)| (prop_binding_key(name), var.to_string()))
+            .collect()
+    };
+    let (own, want) = (variant_bindings(n), variant_bindings(r));
+    if own == want {
+        return None;
+    }
+    let mut out = n.clone();
+    for key in own.keys() {
+        out.variables.bindings.remove(key);
+    }
+    out.variables.bindings.extend(want);
+    Some(out)
+}
+
+/// Whether the bound variant properties of nested instance `n` drive the variant it shows: not while a person has
+/// picked a variant on it by hand, which is recorded on it as a main-component override until that is reset.
+pub(crate) fn nested_variant_follows_binding(n: &Node) -> bool {
+    !n.component.overrides.contains(&OverrideField::MainComponent)
+}
+
 /// Binds property `name` of instance `inst` to `var`, or with `None` unbinds it; see [`bind_prop_variables`].
 pub fn bind_prop_variable(doc: &mut Document, inst: NodeId, name: &str, var: Option<&str>) -> Result<Command, PropBindError> {
     bind_prop_variables(doc, inst, &[(name, var)])
@@ -164,12 +245,21 @@ pub fn bind_prop_variable(doc: &mut Document, inst: NodeId, name: &str, var: Opt
 /// its last valid value and [`prop_binding_problem`] says why. Nothing changes when any entry is refused.
 pub fn bind_prop_variables(doc: &mut Document, inst: NodeId, edits: &[(&str, Option<&str>)]) -> Result<Command, PropBindError> {
     let n = doc.get(inst).filter(|n| matches!(n.kind, NodeKind::Instance { .. })).ok_or(PropBindError::NotAnInstance(inst))?;
-    // (property name, variable to bind or None, value the variable gives now)
-    let mut planned: Vec<(String, Option<String>, Option<PropValue>)> = Vec::with_capacity(edits.len());
+    // (property name, variable to bind or None, value the variable gives now, what binding it on a nested copy means)
+    let mut planned: Vec<(String, Option<String>, Option<PropValue>, CopyBinding)> = Vec::with_capacity(edits.len());
+    let nested = !is_top_instance(n);
     for &(name, var) in edits {
         let def = def_of(doc, n, name).ok_or_else(|| PropBindError::NoSuchProperty(name.to_string()))?;
+        let nested_variant = nested && matches!(def.kind, PropKind::Variant { .. });
+        let kind = match (nested_variant, var) {
+            (false, _) => CopyBinding::NotACopyVariant,
+            (true, Some(_)) => CopyBinding::Own,
+            // the main binds this property too: the copy keeps the variant it shows and stops following
+            (true, None) if reference_binds_prop(doc, inst, name) => CopyBinding::FrozenUnbound,
+            (true, None) => CopyBinding::NotACopyVariant,
+        };
         let Some(var) = var else {
-            planned.push((name.to_string(), None, None));
+            planned.push((name.to_string(), None, None, kind));
             continue;
         };
         let expected = bindable_prop_kind(&def.kind).ok_or_else(|| PropBindError::NotBindable(name.to_string()))?;
@@ -177,20 +267,33 @@ pub fn bind_prop_variables(doc: &mut Document, inst: NodeId, edits: &[(&str, Opt
         if v.kind != expected {
             return Err(PropBindError::KindMismatch { property: name.to_string(), expected, found: v.kind });
         }
-        planned.push((name.to_string(), Some(var.to_string()), resolve_for_def(doc, inst, &def, var).ok()));
+        planned.push((name.to_string(), Some(var.to_string()), resolve_for_def(doc, inst, &def, var).ok(), kind));
     }
     Ok(set_instance_prop_edit(doc, inst, |n| {
-        for (name, var, value) in planned {
+        for (name, var, value, kind) in planned {
             let key = prop_binding_key(&name);
             match var {
                 Some(var) => {
                     n.variables.bindings.insert(key, var);
-                    if let Some(v) = value {
-                        n.component.values.insert(name, v);
+                    // A nested copy shows the variant its own main names, which the sync switches; no value is stored for it.
+                    match value {
+                        Some(PropValue::Variant(_)) if kind == CopyBinding::Own => {}
+                        Some(v) => {
+                            n.component.values.insert(name.clone(), v);
+                        }
+                        None => {}
                     }
+                    // A variable bound to the variant of a nested copy is that copy's own: it stays through a sync of the main.
+                    set_own_variant_binding(n, &name, kind == CopyBinding::Own);
                 }
                 None => {
                     n.variables.bindings.remove(&key);
+                    // Unbinding what the copy inherits would be put back by the same command's sync, so it is recorded
+                    // instead: the copy's own binding is "none", and it is held on the variant it shows like a pick.
+                    set_own_variant_binding(n, &name, kind == CopyBinding::FrozenUnbound);
+                    if kind == CopyBinding::FrozenUnbound {
+                        n.component.overrides.insert(OverrideField::MainComponent);
+                    }
                 }
             }
         }
@@ -213,28 +316,54 @@ impl PropResyncScope {
 }
 
 /// What `cmd` can change for a property binding, read against the document before `cmd` runs: a node whose
-/// modes change moves everything below it, a variable edit moves every bound instance, a binding edit moves
-/// that instance.
+/// modes change moves everything below it, a node moved or inserted somewhere else moves what it holds, a variable
+/// edit moves every bound instance, a binding edit moves that instance.
 pub(crate) fn prop_resync_scope(doc: &Document, cmd: &Command) -> PropResyncScope {
-    fn walk(doc: &Document, cmd: &Command, out: &mut PropResyncScope) {
-        match cmd {
-            Command::Update { node } => {
-                let Some(cur) = doc.get(node.id) else { return };
-                if cur.variables.modes != node.variables.modes {
-                    out.subtrees.insert(node.id);
-                }
-                if !prop_bindings_of(cur).eq(prop_bindings_of(node)) {
-                    out.nodes.insert(node.id);
-                }
-            }
-            Command::SetVariables { .. } => out.all = true,
-            Command::Batch(cmds) => cmds.iter().for_each(|c| walk(doc, c, out)),
-            _ => {}
-        }
-    }
     let mut out = PropResyncScope::default();
-    walk(doc, cmd, &mut out);
+    collect_prop_resync_scope(doc, cmd, &mut out);
     out
+}
+
+fn collect_prop_resync_scope(doc: &Document, cmd: &Command, out: &mut PropResyncScope) {
+    match cmd {
+        Command::Update { node } => {
+            let Some(cur) = doc.get(node.id) else { return };
+            if cur.variables.modes != node.variables.modes {
+                out.subtrees.insert(node.id);
+            }
+            if !prop_bindings_of(cur).eq(prop_bindings_of(node)) {
+                out.nodes.insert(node.id);
+            }
+        }
+        Command::SetVariables { .. } => out.all = true,
+        // A node that arrives under another parent (a move, a paste) can sit in other modes than it did; a reorder
+        // among its siblings (arrow-key nudge in a stack) keeps its place in the mode tree.
+        Command::Reparent { id, parent, .. } => {
+            if doc.get(*id).and_then(|n| n.parent) != Some(*parent) {
+                out.subtrees.insert(*id);
+            }
+        }
+        Command::Insert { nodes, .. } => out.nodes.extend(nodes.iter().filter(|n| has_prop_binding(n)).map(|n| n.id)),
+        Command::Batch(cmds) => cmds.iter().for_each(|c| collect_prop_resync_scope(doc, c, out)),
+        _ => {}
+    }
+}
+
+/// Re-applies the bound component properties that `cmds` moved to `after`, a copy of `before` that `cmds` were applied to
+/// one at a time with [`Command::apply`]. A history step does this after it applies a command; a trial copy that runs the
+/// same commands without a history calls this once at the end, so it holds what the committed document will.
+pub fn settle_bound_props_after(before: &Document, after: &mut Document, cmds: &[Command]) {
+    let mut scope = PropResyncScope::default();
+    cmds.iter().for_each(|c| collect_prop_resync_scope(before, c, &mut scope));
+    if !scope.is_empty() {
+        let _ = apply_prop_resync(after, &scope);
+    }
+}
+
+/// Whether `def` is a variant property of nested instance `n` that a person picked by hand (see
+/// [`nested_variant_follows_binding`]), so its binding leaves it alone.
+fn nested_variant_is_picked(n: &Node, def: &ComponentPropDef) -> bool {
+    matches!(def.kind, PropKind::Variant { .. }) && !is_top_instance(n) && !nested_variant_follows_binding(n)
 }
 
 fn prop_needs_resync(doc: &Document, id: NodeId, n: &Node, def: &ComponentPropDef, value: &PropValue) -> bool {
@@ -267,7 +396,7 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
     if scope.all {
         candidates.extend(doc.nodes.values().filter(|n| has_prop_binding(n)).map(|n| n.id));
     }
-    let stale: Vec<(NodeId, Vec<(String, PropValue)>)> = candidates
+    let mut stale: Vec<(NodeId, Vec<(String, PropValue)>)> = candidates
         .into_iter()
         .filter_map(|id| {
             let n = doc.get(id)?;
@@ -278,16 +407,29 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
                 .filter_map(|(name, var)| {
                     let def = def_of(doc, n, name)?;
                     let value = resolve_for_def(doc, id, &def, var).ok()?;
+                    if nested_variant_is_picked(n, &def) {
+                        return None;
+                    }
                     prop_needs_resync(doc, id, n, &def, &value).then(|| (name.to_string(), value))
                 })
                 .collect();
             (!changes.is_empty()).then_some((id, changes))
         })
         .collect();
+    // A copy follows its main-side instance link by link, so the copies switch first: a main-side instance that
+    // switched before them would leave their layers pointing at layers it replaced, and the overrides on those would
+    // not carry over.
+    stale.sort_by_key(|(id, _)| doc.get(*id).is_some_and(is_top_instance));
     let mut undo = Vec::new();
     for (id, changes) in stale {
+        // A nested instance shows the variant its own main names, so its variant is switched by the sync below (the
+        // same swap a person's pick makes) and no value is stored for it; its other values are stored as on a top one.
+        let nested = doc.get(id).is_some_and(|n| !is_top_instance(n));
         let (cmd, _) = set_instance_prop_edit(doc, id, |n| {
             for (name, value) in changes {
+                if nested && matches!(value, PropValue::Variant(_)) {
+                    continue;
+                }
                 n.component.values.insert(name, value);
             }
         });
@@ -310,9 +452,33 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
 
 /// Applies the values of every bound property to its instance, with no undo step: for a document that was just read
 /// (an imported file whose assignment holds only the variable's alias), so its layers show what the variables give.
+///
+/// A `.fig` file stores the variant a bound nested instance shows as a swap of that nested instance, which the import
+/// records as a pick by hand. Where the variable gives the variant the file shows, the swap is the binding's doing and not
+/// a pick: it is released here, so the reopened instance goes on following its variable.
 pub fn settle_bound_props(doc: &mut Document) {
+    release_bound_variants_the_file_stored(doc);
     let scope = PropResyncScope { all: true, ..Default::default() };
     let _ = apply_prop_resync(doc, &scope);
+}
+
+fn release_bound_variants_the_file_stored(doc: &mut Document) {
+    let released: Vec<NodeId> = doc
+        .nodes
+        .values()
+        .filter(|n| matches!(n.kind, NodeKind::Instance { .. }) && !is_top_instance(n) && !nested_variant_follows_binding(n) && has_prop_binding(n))
+        .filter(|n| {
+            let Some(shown) = instance_component(n) else { return false };
+            let choices = bound_variant_choices(doc, n.id, n, shown);
+            !choices.is_empty() && bound_target_of_copy(doc, n.id, &choices) == Some(shown)
+        })
+        .map(|n| n.id)
+        .collect();
+    for id in released {
+        if let Some(n) = doc.get_mut(id) {
+            n.component.overrides.remove(&OverrideField::MainComponent);
+        }
+    }
 }
 
 /// Property bindings whose value the property does not take: one `(instance, property, problem)` per binding.

@@ -3168,6 +3168,12 @@ impl<'a> Ctx<'a> {
     ) -> Result<bool, FigError> {
         let mut swapped = false;
         if !derived_only {
+            // Studio's own record of a nested copy's own variant bindings (a carrier entry, see `fig_export::carrier`).
+            if let Some(names) = set.get("ownVariantBindings").and_then(Value::as_array) {
+                if let Some(n) = self.doc.get_mut(id) {
+                    n.component.own_variant_bindings = names.iter().filter_map(Value::as_str).map(String::from).collect();
+                }
+            }
             if set.get("name").is_some() {
                 if let Some(n) = self.doc.get_mut(id) {
                     n.component.overrides.insert(OverrideField::Name);

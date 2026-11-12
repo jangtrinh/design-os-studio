@@ -370,6 +370,10 @@ pub struct ComponentLink {
     /// layout of its main component. A node that merely lacks auto layout does not set it.
     #[serde(default, skip_serializing_if = "is_false")]
     pub layout_cleared: bool,
+    /// Variant properties (by name) of a nested copy whose variable binding is the copy's own: set on the copy itself, so a
+    /// sync of the main neither replaces it nor copies the main's over it. Resetting the copy empties it.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub own_variant_bindings: BTreeSet<String>,
 }
 
 fn is_false_pair(pair: &[bool; 2]) -> bool {
@@ -395,6 +399,7 @@ impl ComponentLink {
             && self.detached_symbol_id.is_none()
             && self.grid_align_overrides == [false, false]
             && !self.layout_cleared
+            && self.own_variant_bindings.is_empty()
     }
 }
 
