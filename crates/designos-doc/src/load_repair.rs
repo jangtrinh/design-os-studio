@@ -53,6 +53,11 @@ pub struct RepairReport {
     /// [`RepairReport::structural_summary`]: nothing in the node graph was guessed, and a caller that refuses
     /// repaired graphs still opens the file.
     pub motion_tracks_dropped: usize,
+    /// Layers inside a nested component copy that linked to the layer of the innermost main instead of the layer one
+    /// level up (how an earlier release read a Studio-written `.fig`), relinked on load so that a change made on them
+    /// survives an edit of a main component. Left out of [`RepairReport::structural_summary`]: no layer, value or flag
+    /// changed, only which layer a copy layer follows, so a caller that refuses repaired graphs still opens the file.
+    pub copy_links_relinked: usize,
 }
 
 /// What the table pass of [`Document::validate_and_repair`] changed; all zero for well-formed tables.

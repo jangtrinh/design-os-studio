@@ -2252,6 +2252,10 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
+        // An override key names a layer inside one level's main, but the first loop above resolved it against the whole
+        // file, which links a nested copy's layers past the levels in between. Relink them level by level, to the layer
+        // one level up; links that are already right (every copy built from a Figma-authored file) are not touched.
+        relink_copy_layers(&mut self.doc);
     }
 
     fn resolve_pref_target(&self, pref_key: &str) -> Option<NodeId> {

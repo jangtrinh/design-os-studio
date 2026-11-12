@@ -37,6 +37,7 @@ mod components;
 mod connector_home;
 mod connector_index;
 mod connector_route_cache;
+mod copy_layer_links;
 mod dev;
 pub mod diff;
 pub mod find;
@@ -129,6 +130,7 @@ pub use connector_index::*;
 pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
 #[cfg(any(test, feature = "fixtures"))]
 pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
+pub use copy_layer_links::{authored_layer, relink_copy_layers};
 pub use dev::*;
 pub use diff::*;
 pub use geom::*;
@@ -308,6 +310,11 @@ pub struct Document {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub in_progress: BTreeMap<NodeId, InProgress>,
     next_id: u64,
+    /// Whether the links of the copy layers inside nested instances have been checked by this release
+    /// (see [`relink_copy_layers`]). A file saved by an earlier release does not carry it and reads as `false`; a
+    /// document made or loaded by this release is `true`, so a file it saves is not examined again.
+    #[serde(default)]
+    copy_links_checked: bool,
     /// Where the exhausted-counter fallback resumes scanning, so one id is never handed out twice
     /// before its node is inserted. Runtime only.
     #[serde(skip)]
@@ -751,7 +758,7 @@ impl Clone for Document {
 
 impl Document {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), ..Default::default() }
+        Self { name: name.into(), copy_links_checked: true, ..Default::default() }
     }
 
     /// Clones the document structure, styles, variables, comments, and library state without
@@ -783,6 +790,7 @@ impl Document {
             images,
             in_progress: self.in_progress.clone(),
             next_id: self.next_id,
+            copy_links_checked: self.copy_links_checked,
             gap_cursor: self.gap_cursor,
             dirty: self.dirty.clone(),
             pending_relayout: self.pending_relayout.clone(),
@@ -1638,6 +1646,7 @@ impl Document {
                 #[serde(skip_serializing_if = "BTreeMap::is_empty")]
                 in_progress: BTreeMap<NodeId, &'a InProgress>,
                 next_id: u64,
+                copy_links_checked: bool,
             }
             let filtered_in_progress: BTreeMap<NodeId, &InProgress> = self
                 .in_progress
@@ -1665,6 +1674,7 @@ impl Document {
                 images: &self.images,
                 in_progress: filtered_in_progress,
                 next_id: self.next_id,
+                copy_links_checked: self.copy_links_checked,
             };
             return finite_json::to_writer_finite(writer, &view);
         }
@@ -1777,6 +1787,13 @@ impl Document {
         }
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
+        // A file an earlier release saved after reading a Studio-written `.fig` can link nested copy layers past a level.
+        // Examine its links once; the file this release saves carries the marker, so no later load repeats it. This runs
+        // before the migrations below so that their full-dirty mark is the last thing the load does, as for any file.
+        if !doc.copy_links_checked {
+            report.copy_links_relinked = relink_copy_layers(&mut doc);
+            doc.copy_links_checked = true;
+        }
         doc.migrate_text();
         doc.normalize_extensions();
         (doc, report)
