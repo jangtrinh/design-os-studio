@@ -148,9 +148,12 @@ jobs:
   # The macOS jobs (this one, lint-budget and the swiftc leg of native-export-compile) skip a push to main:
   # main requires an up-to-date branch, so the tree on main is the tree the pull request's own macOS checks
   # just passed, and the repeat would hold all 5 macOS runners of the account for about 20 minutes while the
-  # next pull request queues. Pull requests, train/** pushes, merge_group and v* tags still run them. Keep the
-  # `github.event_name == 'push' && github.ref == 'refs/heads/main'` predicate identical in all four places
-  # and in the "Test (macos-15)" aggregate below (scripts/tests/test_ci_macos_on_main.py checks them).
+  # next pull request queues. Pull requests, train/** pushes, merge_group and v* tags still run them. The one
+  # macOS job that does run on main is cache-seed-macos below: a pull request can only restore caches saved on
+  # its own ref or on main, so main has to keep the shards' dependency cache warm. Keep the
+  # `github.event_name == 'push' && github.ref == 'refs/heads/main'` predicate identical in the `if` of
+  # test-macos and lint-budget (negated), in the native-export-compile matrix (negated), in cache-seed-macos
+  # (as is) and in the "Test (macos-15)" aggregate (scripts/tests/test_ci_macos_on_main.py checks them).
   test-macos:
     name: Test (macos-15, ${{ matrix.partition }}/3)
     needs: changes
@@ -174,7 +177,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
+      # shared-key replaces the job id in the cache key so cache-seed-macos can write the very key these
+      # shards read: v0-rust-<shared-key>-<OS>-<arch>-<digest of rustc and CARGO*/RUST* env>-<lockfile hash>.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-test
 
       - name: Validate packaging scripts syntax
         shell: bash
@@ -295,6 +302,50 @@ jobs:
       - name: Lint budget on a release build (large fixture)
         run: cargo test -p designos-render --release --locked --test lint_rules large_fixture_off_thread_budget
 
+  # Not a test job and not part of the "Test (macos-15)" aggregate or any required check: a red run here only
+  # means the cache could not be refreshed. It exists because the macOS shards read a rust-cache that a pull
+  # request can only restore from its own ref or from main, and the shards no longer run on main. On a push to
+  # main it checks whether the shards' exact cache key exists (lookup-only: no download, a few seconds); only on
+  # a miss (Cargo.lock, manifests, .cargo/config.toml, toolchain or the CARGO*/RUST* env changed) does it restore
+  # the nearest older cache, compile the test dependencies the way the shards do, and save under the exact key.
+  # Everything that feeds the key (runner, toolchain step, job env, shared-key) must stay equal to test-macos.
+  cache-seed-macos:
+    name: Cache seed (macos-15)
+    needs: changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.rust == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      # save-if "false" keeps this step's post action from saving: on a miss it still records state for it.
+      - name: Look up the shards' dependency cache
+        id: lookup
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-test
+          lookup-only: true
+          save-if: "false"
+
+      - name: Restore the nearest older dependency cache (miss only)
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-test
+
+      # The same build plan as `cargo nextest run --workspace --locked`, which builds with
+      # `cargo test --no-run --workspace`, so the dependency artifacts are the ones the shards need.
+      - name: Compile the workspace test dependencies (miss only)
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: cargo test --workspace --locked --no-run
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -338,6 +389,12 @@ jobs:
           python3 -B scripts/check_vendor_skills.py extract
           python3 -B scripts/check_vendor_skills.py map-coverage
           python3 -B -m unittest scripts/test_check_vendor_skills.py
+
+      # Guards the macOS-on-main rules of this workflow (skip on push to main, cache seed job, aggregate).
+      # Linux only: the test runs the aggregate's script with bash and reads this file as text.
+      - name: Validate the macOS CI rules of this workflow
+        if: runner.os == 'Linux'
+        run: python3 -B -m unittest scripts/tests/test_ci_macos_on_main.py
 
       - name: Configure Linux swap and debuginfo
         if: runner.os == 'Linux'
