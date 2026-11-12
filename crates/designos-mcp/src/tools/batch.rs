@@ -4685,6 +4685,51 @@ mod tests {
         assert!(ok.is_ok(), "deleting the instance root stays allowed: {ok:?}");
     }
 
+    /// A component with one rectangle child and one instance of it, plus a free rectangle beside them.
+    fn component_instance_and_free_rect(engine: &mut Engine) -> (NodeId, NodeId, NodeId, NodeId, NodeId) {
+        let page = engine.resolve_default_page().unwrap();
+        let component_id = engine.doc.alloc_id();
+        let mut component = Node::new(component_id, designos_doc::NodeKind::Component(designos_doc::FrameProps::default()));
+        component.name = "Card".into();
+        engine.doc.insert(page, component).unwrap();
+        let main_child = engine.doc.alloc_id();
+        engine.doc.insert(component_id, Node::rectangle(main_child, designos_doc::Rect::new(0.0, 0.0, 80.0, 24.0))).unwrap();
+        designos_doc::create_instance(&mut engine.doc, component_id, page, designos_doc::Vec2::new(160.0, 0.0)).apply(&mut engine.doc).unwrap();
+        let instance_id = designos_doc::instances_of(&engine.doc, component_id)[0];
+        let instance_child = engine.doc.get(instance_id).unwrap().children[0];
+        let free = engine.doc.alloc_id();
+        engine.doc.insert(page, Node::rectangle(free, designos_doc::Rect::new(0.0, 200.0, 40.0, 40.0))).unwrap();
+        (main_child, instance_id, instance_child, free, component_id)
+    }
+
+    #[test]
+    fn a_batch_with_one_mirrored_instance_layer_among_its_deletes_is_refused_whole() {
+        let mut engine = Engine::default();
+        let (_, _, instance_child, free, _) = component_instance_and_free_rect(&mut engine);
+        let before = engine.doc.to_json().unwrap();
+
+        let err = engine
+            .call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": free.0 }, { "op": "delete", "node": instance_child.0 }] }))
+            .expect_err("the second delete is forbidden, so the whole batch is refused");
+
+        assert_eq!(err.code, ErrorCode::BatchOpFailed, "{err}");
+        assert_eq!(err.cause.as_deref().map(|c| c.path.as_str()), Some("/ops/1/node"));
+        assert_eq!(engine.doc.to_json().unwrap(), before, "the free layer that was deleted first is back: nothing was committed");
+        assert!(engine.doc.get(free).is_some());
+        assert!(!engine.history.can_undo());
+    }
+
+    #[test]
+    fn layers_of_the_main_component_stay_deletable_through_the_batch() {
+        let mut engine = Engine::default();
+        let (main_child, _, _, _, _) = component_instance_and_free_rect(&mut engine);
+
+        let reply = engine.call("designos_apply_batch", json!({ "ops": [{ "op": "delete", "node": main_child.0 }] }));
+
+        assert!(reply.is_ok(), "the main component is not an instance: {reply:?}");
+        assert!(engine.doc.get(main_child).is_none());
+    }
+
     #[test]
     fn delete_node_captures_before_bounds() {
         let mut engine = Engine::default();
