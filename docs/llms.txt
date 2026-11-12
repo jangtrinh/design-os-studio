@@ -1,8 +1,8 @@
 # DESIGN:OS Studio (design-os-studio)
 
-> Free, local-first Rust/wgpu interface design studio with native Figma `.fig` v106 binary read/write, Figma-style micro-interactions, a native Agentic PTY Chat UI for Claude Code, Codex, Antigravity, Grok and Gemini CLI, Live Variables Mode Switching & Multi-Edit, and an MCP server with 39 tools. Source-available under PolyForm Shield 1.0.0.
+> FREE, local-first Rust studio that opens and writes `.fig` files with no Figma app installed. Agents edit a `.fig` headless through `designos-mcp` (39 tools) or the `designos` CLI (`--inspect-json`, `--export-fig`, `--scan-design-system`, `--codegen`). Source-available under PolyForm Shield 1.0.0.
 
-Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU renderer; Metal is verified on macOS, Direct3D 12 and Vulkan on Windows and Linux are not verified before release), enterprise Figma `.fig` v106 binary read/write engine, Figma-style micro-interactions, native Agentic PTY Chat UI (`Claude Code` · `Codex` · `Antigravity CLI` · `Grok CLI` · `Gemini CLI`), Live Variables Mode Switching & Multi-Edit (`Q`), multi-target Dev Mode code generator (CSS, Tailwind, React, SwiftUI, UIKit, Jetpack Compose, Android XML, HTML), and a Model Context Protocol server (`designos-mcp`, 39 tools) written in Rust.
+Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU renderer; Metal is verified on macOS, Direct3D 12 and Vulkan on Windows and Linux are not verified before release). Reads and writes `.fig` container version 106. Native Agentic PTY Chat UI (`Claude Code` · `Codex` · `Antigravity CLI` · `Grok CLI` · `Gemini CLI`). Live Variables Mode Switching & Multi-Edit (`Q`). Multi-target Dev Mode code generator (CSS, Tailwind, React, SwiftUI, UIKit, Jetpack Compose, Android XML, HTML). `designos-mcp` is a local stdio server and does not attach to the desktop editor.
 
 ## Key Facts & Verification Metrics
 
