@@ -2659,7 +2659,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     for (k, val) in obj {
         match k.as_str() {
             "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "strokeCap" | "strokeJoin"
-            | "strokeMiterAngle" | "cornerRadius" | "slotContent" | "arcData" => {
+            | "strokeMiterAngle" | "cornerRadius" | "slotContent" | "arcData" | "ownVariantBindings" => {
                 m.insert(k.clone(), val.clone());
             }
             "miterLimit" => {

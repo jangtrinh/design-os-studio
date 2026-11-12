@@ -28,6 +28,8 @@ mod comments;
 mod component_arc_override_tests;
 #[cfg(test)]
 mod component_cycle_tests;
+#[cfg(test)]
+mod component_nested_variant_binding_tests;
 mod component_prop_variables;
 #[cfg(test)]
 mod component_prop_variables_tests;

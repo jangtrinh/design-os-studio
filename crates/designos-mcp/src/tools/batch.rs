@@ -3288,6 +3288,9 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             .map_err(|e| op_failed_error(op_idx, "table", ErrorCode::InternalError, &format!("/ops/{op_idx}"), e))?;
     }
 
+    // The commit below is a history step, which re-applies the component properties bound to variables these ops moved;
+    // the trial gets the same, so the reply and the checks describe the committed document.
+    designos_doc::settle_bound_props_after(&engine.doc, &mut trial, &collected_cmds);
     trial.flush_pending_relayout();
 
     // Build reply fields from the finished trial document (§3.3).

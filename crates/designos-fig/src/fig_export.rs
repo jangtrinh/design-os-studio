@@ -2952,6 +2952,7 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                 _ => false,
             };
         let has_nested_prop_ov = !own && !n.component.values.is_empty() && src_node.is_none_or(|sn| sn.component.values != n.component.values);
+        let has_own_variant_bindings = !own && !n.component.own_variant_bindings.is_empty();
 
         // A swapped nested instance inherits its shell paints and variable bindings from the component it was swapped to.
         let inherited_src = if nested_comp_differs {
@@ -3000,7 +3001,8 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
                     || n.component.override_level.is_some()
                     || n.component.detached_symbol_id.is_some()
                     || nested_comp_differs
-                    || has_nested_prop_ov))
+                    || has_nested_prop_ov
+                    || has_own_variant_bindings))
         {
             let mut ov: Vec<(&'static str, V)> = Vec::new();
             let mut carried: carrier::Carried = Vec::new();
@@ -3289,6 +3291,9 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             }
             if ovs.contains(&OverrideField::SlotContent) {
                 carried.push(("slotContent", serde_json::Value::Bool(true)));
+            }
+            if has_own_variant_bindings {
+                carried.push(("ownVariantBindings", json!(n.component.own_variant_bindings)));
             }
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));
