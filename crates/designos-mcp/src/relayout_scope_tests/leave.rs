@@ -309,3 +309,16 @@ fn a_batch_delete_inside_a_fixed_size_frame_with_a_connector_moves_nothing_outsi
     assert_eq!(outside, Vec::<u64>::new());
     assert_eq!(ty(&e, tail), 200.0, "the tail keeps the place the document stored");
 }
+
+#[test]
+fn a_batch_apply_spec_inside_a_hug_frame_grows_it_and_re_solves_the_frame_above() {
+    let Holder { mut e, holder, tail, .. } =
+        holder_with(auto_layout(LayoutDirection::Horizontal, Sizing::Hug, Sizing::Hug, LayoutAlign::Start, 0.0), Rect::new(0.0, 0.0, 120.0, 56.0));
+
+    e.call("designos_apply_batch", json!({"ops":[{"op":"apply_spec","parent":holder.0,"spec":{"kind":"rectangle","name":"new","width":20,"height":50}}]}))
+        .unwrap();
+
+    let size = e.doc.get(holder).unwrap().size;
+    assert_eq!((size.x, size.y), (100.0, 50.0), "the frame hugs the layer that was added");
+    assert_eq!(ty(&e, tail), 50.0, "the screen follows the larger frame");
+}
