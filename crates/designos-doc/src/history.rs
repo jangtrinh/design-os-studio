@@ -296,6 +296,36 @@ impl Command {
             | Command::SetCheckDesignsSettings(_) => false,
         }
     }
+
+    fn visit_images<'a>(&'a self, f: &mut impl FnMut(&'a str, &'a [u8])) {
+        match self {
+            Command::SetImages { add, .. } => {
+                for (k, v) in add {
+                    f(k, v);
+                }
+            }
+            Command::Batch(cmds) => {
+                for c in cmds {
+                    c.visit_images(f);
+                }
+            }
+            Command::Insert { .. }
+            | Command::Remove { .. }
+            | Command::Update { .. }
+            | Command::Reparent { .. }
+            | Command::InsertPage { .. }
+            | Command::RemovePage { .. }
+            | Command::SetFlows { .. }
+            | Command::SetStyles { .. }
+            | Command::SetComments { .. }
+            | Command::SetLibraryState { .. }
+            | Command::SetGuides { .. }
+            | Command::SetPrototypeDevice { .. }
+            | Command::SetVariables { .. }
+            | Command::SetColorProfile { .. }
+            | Command::SetCheckDesignsSettings(_) => {}
+        }
+    }
 }
 
 fn is_auto_layout_reflow(doc: &Document, before: &Node, after: &Node) -> bool {
@@ -454,6 +484,13 @@ impl History {
     /// undoing past it does not. Costs nothing: no step is inspected and the document is not hashed.
     pub fn is_clean(&self) -> bool {
         !self.clean_lost && self.undo.len() == self.clean_depth
+    }
+
+    /// Calls `f` for every `(key, bytes)` image entry held inside the undo and redo stacks.
+    pub fn for_each_image<'a>(&'a self, mut f: impl FnMut(&'a str, &'a [u8])) {
+        for cmd in self.undo.iter().chain(self.redo.iter()) {
+            cmd.visit_images(&mut f);
+        }
     }
 
     /// Marks the most recently pushed undo step as an agent step. An agent step never counts as

@@ -2396,6 +2396,8 @@ impl Shell {
         if !self.app.plugins.open {
             self.handle_drops(&ctx);
         }
+        // Key handling may have undone or redone a profile change: update before the panels draw.
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
 
         ui.painter().rect_filled(full, 0.0, theme::BG);
         let board = self.app.board_chrome();
@@ -2455,10 +2457,12 @@ impl Shell {
         }
         // Agent edits that arrived during a drag or text edit land once it has ended.
         crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
+        crate::widgets::set_document_profile(self.app.doc.color_profile);
         if !self.app.doc.prune_in_progress().is_empty() {
             self.app.in_progress_changed();
             ctx.request_repaint();
         }
+        let drawn_profile = self.app.doc.color_profile;
         if full_vars {
             // The local-variables full view replaces the left panel, canvas and right panel.
             rail::show(&mut self.app, ui, rail_rect);
@@ -2608,6 +2612,12 @@ impl Shell {
         self.sync_title(&ctx);
         if self.app.ui.menu == Some(MenuKind::Main) && self.app.ui.menu_anchor.is_none() {
             self.app.ui.menu = None;
+        }
+        // A menu or palette that ran after the panels (File/Edit menu, command palette) may have undone or redone a
+        // profile change: the swatches above were painted with the old profile, so draw the frame again.
+        if self.app.doc.color_profile != drawn_profile {
+            crate::widgets::set_document_profile(self.app.doc.color_profile);
+            ctx.request_discard("document colour profile changed after the panels were drawn");
         }
     }
 }

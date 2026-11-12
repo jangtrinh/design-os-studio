@@ -5,7 +5,7 @@ use crate::geom::transformed_bounds;
 use designos_doc as d;
 use designos_doc::{Document, PaintKind, Vec2};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use tiny_skia as sk;
 
@@ -131,7 +131,7 @@ impl<'a> PaintEnv<'a> {
             return img;
         }
         let profile = self.doc.color_profile;
-        if let Some(hit) = CONVERTED_IMAGES.with(|c| c.borrow().get(&(key, profile)).cloned()) {
+        if let Some(hit) = CONVERTED_IMAGES.with(|c| c.borrow().get(&(key, profile))) {
             return hit;
         }
         CONVERSIONS.with(|c| c.set(c.get() + 1));
@@ -143,13 +143,7 @@ impl<'a> PaintEnv<'a> {
             *px = sk::ColorU8::from_rgba(r, g, b, c.alpha()).premultiply();
         }
         let out = Rc::new(out);
-        CONVERTED_IMAGES.with(|c| {
-            let mut c = c.borrow_mut();
-            if c.len() >= 32 {
-                c.clear();
-            }
-            c.insert((key, profile), out.clone());
-        });
+        CONVERTED_IMAGES.with(|c| c.borrow_mut().insert((key, profile), out.clone()));
         out
     }
 
@@ -174,10 +168,59 @@ impl<'a> PaintEnv<'a> {
 }
 
 type ImgKey = (u64, u32, u32);
+type ConvertedKey = (ImgKey, d::ColorProfile);
+
+/// Byte budget for the per-thread converted-image cache (64 MiB).
+pub const MAX_CONVERTED_IMAGE_BYTES: usize = 64 << 20;
+
+#[derive(Default)]
+struct ConvertedCache {
+    entries: HashMap<ConvertedKey, Rc<sk::Pixmap>>,
+    order: VecDeque<ConvertedKey>,
+    bytes: usize,
+}
+
+impl ConvertedCache {
+    fn get(&self, key: &ConvertedKey) -> Option<Rc<sk::Pixmap>> {
+        self.entries.get(key).cloned()
+    }
+
+    fn insert(&mut self, key: ConvertedKey, pm: Rc<sk::Pixmap>) {
+        let new_bytes = pm.data().len();
+        if let Some(old) = self.entries.remove(&key) {
+            self.bytes = self.bytes.saturating_sub(old.data().len());
+            self.order.retain(|k| *k != key);
+        }
+        // An image over the budget is still kept (the eyedropper samples it every frame), but alone: it evicts
+        // everything else, so peak memory is max(budget, that image) and the next insert evicts it.
+        while self.bytes + new_bytes > MAX_CONVERTED_IMAGE_BYTES && !self.order.is_empty() {
+            if let Some(oldest) = self.order.pop_front() {
+                if let Some(old) = self.entries.remove(&oldest) {
+                    self.bytes = self.bytes.saturating_sub(old.data().len());
+                }
+            }
+        }
+        self.bytes += new_bytes;
+        self.entries.insert(key, pm);
+        self.order.push_back(key);
+    }
+
+    fn retain_ids(&mut self, keep: &HashSet<u64>) {
+        self.entries.retain(|((id, _, _), _), pm| {
+            if keep.contains(id) {
+                true
+            } else {
+                self.bytes = self.bytes.saturating_sub(pm.data().len());
+                false
+            }
+        });
+        self.order.retain(|((id, _, _), _)| keep.contains(id));
+    }
+}
 
 thread_local! {
     /// Images already converted to a document profile, by (image, size) and profile.
-    static CONVERTED_IMAGES: RefCell<HashMap<(ImgKey, d::ColorProfile), Rc<sk::Pixmap>>> = RefCell::new(HashMap::new());
+    static CONVERTED_IMAGES: RefCell<ConvertedCache> = RefCell::new(ConvertedCache::default());
     static CONVERSIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static IMAGES: RefCell<HashMap<ImgKey, Option<Rc<sk::Pixmap>>>> = RefCell::new(HashMap::new());
 }
@@ -187,6 +230,32 @@ thread_local! {
 #[doc(hidden)]
 pub fn image_conversions() -> usize {
     CONVERSIONS.with(std::cell::Cell::get)
+}
+
+/// Bytes currently held by the thread-local converted-image cache.
+#[doc(hidden)]
+pub fn converted_image_bytes() -> usize {
+    CONVERTED_IMAGES.with(|c| c.borrow().bytes)
+}
+
+/// Keeps only cached profile-converted pixmaps whose image hash is held by a surviving document or
+/// its undo/redo history, dropping every other entry.
+pub fn retain_converted_images<'a>(surviving: impl IntoIterator<Item = (&'a Document, Option<&'a d::History>)>) {
+    if CONVERTED_IMAGES.with(|c| c.borrow().entries.is_empty()) {
+        return;
+    }
+    let mut keep = HashSet::new();
+    for (doc, hist) in surviving {
+        for (k, v) in &doc.images {
+            keep.insert(hash_bytes(k, v));
+        }
+        if let Some(h) = hist {
+            h.for_each_image(|k, v| {
+                keep.insert(hash_bytes(k, v));
+            });
+        }
+    }
+    CONVERTED_IMAGES.with(|c| c.borrow_mut().retain_ids(&keep));
 }
 
 fn hash_bytes(key: &str, data: &[u8]) -> u64 {

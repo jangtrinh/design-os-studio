@@ -98,6 +98,14 @@ impl HistoryState {
         let open = self.open;
         *self = Self { open, dirty: true, ..Default::default() };
     }
+
+    /// Snapshots parked on this history state (`viewing.saved`, `restore_undo`, `restore_redo`).
+    pub fn parked_snapshots(&self) -> impl Iterator<Item = (&Document, Option<&History>)> {
+        let viewing = self.viewing.as_ref().map(|v| (&v.saved.doc, Some(&v.saved.hist)));
+        let undo = self.restore_undo.as_ref().map(|s| (&s.doc, Some(&s.hist)));
+        let redo = self.restore_redo.as_ref().map(|(s, _)| (&s.doc, Some(&s.hist)));
+        viewing.into_iter().chain(undo).chain(redo)
+    }
 }
 
 /// Short stamp for a version without a name: `2026-10-11 09:30 UTC`.
@@ -142,6 +150,7 @@ impl App {
     /// Called when a library file was opened or created: a fresh history context.
     pub fn history_open_file(&mut self) {
         self.history.reset();
+        self.tabs.retain_converted_images(self);
         self.history.last_version_hash = if self.autosave.saved_hash != 0 { self.autosave.saved_hash } else { doc_hash(&self.doc) };
     }
 

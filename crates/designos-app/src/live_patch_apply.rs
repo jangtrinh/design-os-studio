@@ -61,6 +61,7 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
         // share an id with the ones they changed, so the agent's document starts a history of its own, as when a file is opened.
         app.hist = designos_doc::History::default();
         app.history.reset();
+        app.tabs.retain_converted_images(app);
         app.selection.clear();
         app.decks = Default::default();
     }

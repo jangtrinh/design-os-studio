@@ -549,6 +549,7 @@ impl App {
                 }
                 self.relayout_moved_geometry();
                 self.sanitize();
+                crate::widgets::set_document_profile(self.doc.color_profile);
                 crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
             Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
@@ -566,6 +567,7 @@ impl App {
             Ok(true) => {
                 self.relayout_moved_geometry();
                 self.sanitize();
+                crate::widgets::set_document_profile(self.doc.color_profile);
                 crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
             Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
@@ -2462,6 +2464,7 @@ impl App {
         self.decks = Default::default();
         self.hist = History::default();
         self.history.reset();
+        self.tabs.retain_converted_images(self);
         self.comments.close_popovers();
         self.selection.clear();
         self.hover = None;
