@@ -2,7 +2,7 @@
 
 This repository is **DESIGN:OS Studio**, the native Rust + `wgpu` (Metal/Vulkan/GL) GPU-accelerated design canvas, `.fig` / `.designos` / `.designos` editor, and headless MCP server (`designos-mcp` / `designos-mcp`) for the **DESIGN:OS / EaseUI** ecosystem.
 
-All agents (Claude Code, Codex, Antigravity, Grok, Orca workers) operating in this repository are bound by the same architectural contracts as [`CLAUDE.md`](file:///Users/jangtrinh/Products/design-os-studio/CLAUDE.md), [`.project-agent.md`](file:///Users/jangtrinh/Products/design-os-studio/.project-agent.md), and [`CONTEXT.md`](file:///Users/jangtrinh/Products/design-os-studio/CONTEXT.md).
+All agents (Claude Code, Codex, Antigravity, Grok, Orca workers) operating in this repository are bound by the same architectural contracts as [`CLAUDE.md`](CLAUDE.md), [`.project-agent.md`](.project-agent.md), and [`CONTEXT.md`](CONTEXT.md).
 
 ---
 
@@ -16,6 +16,13 @@ All agents (Claude Code, Codex, Antigravity, Grok, Orca workers) operating in th
 2. **Project Knowledge Base (`.brv/`):**
    - Read `.brv/context-tree/session-handoffs/latest.md` before starting feature or bugfix work.
    - Read `.brv/context-tree/architecture/crate-map.md` and `.brv/context-tree/architecture/figma-vs-designos-engine.md` before modifying document serialization, `.fig` import, `SceneIndex`, or GPU compilation.
+
+---
+
+## Canonical Epic & Figma 126.11.7 REA Implementation Specs
+
+All 24 Epics (`#14` through `#1788`), Proactive Epic `E21` Multiplayer ([`docs/specs/epics-figma-rea/e21-multiplayer-realtime-sync/`](docs/specs/epics-figma-rea/e21-multiplayer-realtime-sync/)), all 56 Open Parity/UX Bugs ([`docs/specs/epics-figma-rea/open-bugs-rea/`](docs/specs/epics-figma-rea/open-bugs-rea/)), and Figma Desktop `126.11.7` reverse-engineered clean-room implementation specs and REA dossiers live under [`docs/specs/epics-figma-rea/`](docs/specs/epics-figma-rea/).
+Before starting work on any Epic, milestone, sub-issue, or open bug fix, all coding agents MUST consult [`open-bugs-rea/README.md`](docs/specs/epics-figma-rea/open-bugs-rea/README.md) and [`EPIC-FIGMA-SPECS-INDEX.md`](docs/specs/epics-figma-rea/EPIC-FIGMA-SPECS-INDEX.md) for data models, Kiwi field tables, root-cause analyses, and machine-checkable acceptance criteria.
 
 ---
 

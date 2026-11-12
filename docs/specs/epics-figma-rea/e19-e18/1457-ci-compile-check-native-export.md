@@ -1,0 +1,74 @@
+# #1457 CI compiles the native code export (SwiftUI, UIKit, Compose, Android XML)
+
+| Field | Value |
+|---|---|
+| Issue | #1457 (epic #1486) |
+| Code baseline | `origin/main@d22dad970`. Re-anchor before coding. |
+| Verdict | **Partly done.** SwiftUI typecheck already runs inside `cargo test` on macOS for 19 stack/grid fixtures (`native_stack_export.rs:1024-1063`) and an ignored slot test (`slot_codegen.rs:402-441`). Missing: the 6 grid scenes of `grid_native_fixtures.rs`, UIKit, Compose, Android XML. |
+| Size | M: 6–8 h (Gradle/Android toolchain setup dominates) |
+| Tier | Claude Sonnet (CI on a protected `main`; toolchain version choices) |
+| Touches | `.github/workflows/ci.yml` (new job), new `tools/native-export-compile-check/` (Gradle Android library project, committed), new `crates/designos-export/tests/native_export_fixture_dump.rs` (writes fixture sources), `scripts/ci/native-export-compile-check.sh`, existing `native_stack_export.rs` (extend typecheck to UIKit) |
+| Depends on | Owner Q7 (blocking or advisory). Open PRs editing `ci.yml`: #1578, #1408, #1202, #1147 (rebase only; the new job is a separate block). |
+
+## 1. Still real? (FACT on `d22dad970`)
+
+- `every_swiftui_test_fixture_passes_swiftc_typecheck` (`crates/designos-export/tests/native_stack_export.rs:1027-1063`) typechecks 19 SwiftUI fixtures with `/usr/bin/swiftc -typecheck` and **passes silently when swiftc is missing** (`:1032-1035`), so only `Test (macos-15)` checks it (`ci.yml:45-51`, matrix ubuntu/windows/macos-15).
+- `grid_native_fixtures.rs` (6 scenes, `:202-211`) asserts strings for SwiftUI/Compose/UIKit/Android and compiles none.
+- No `kotlinc`, `gradle`, `aapt2` anywhere in `.github/` or `scripts/` (grep: 0 hits).
+- Native outputs reference tokens that need stubs to compile: Compose/SwiftUI `Tokens.<name>` (`compose.rs:65-70`, `swiftui.rs:151-156`), Android `@dimen/<token>` (`android_xml.rs:89-94`).
+
+## 2. User-visible outcome
+
+A pull request that makes any exporter emit SwiftUI, UIKit, Compose or Android XML that does not compile fails CI with the compiler's error and the fixture name.
+
+## 3. Behaviour rules (decided; technical)
+
+- R1 One dump test, `native_export_fixture_dump` (`#[ignore]`, run explicitly by the job), writes every fixture from `native_stack_export.rs`, `grid_native_fixtures.rs` and `slot_codegen.rs` builders to `$NATIVE_EXPORT_OUT/{swiftui,uikit,compose,android}/<fixture>.<ext>`, plus token stubs generated from each document's variables (`Tokens.swift`, `Tokens.kt`, `res/values/dimens.xml`, `colors.xml`). Fixture builders move to a shared `tests/common/native_fixtures.rs` so existing tests and the dump share them (DRY).
+- R2 macOS job step: `swiftc -typecheck` for SwiftUI (macOS SDK) and UIKit (`xcrun --sdk iphonesimulator swiftc -typecheck -target arm64-apple-ios17.0-simulator`), one file per fixture plus the stub; failures list fixture + stderr.
+- R3 Ubuntu job: `tools/native-export-compile-check/` Gradle Android library (Kotlin + Compose BOM, compileSdk pinned), `src/main/java` and `src/main/res/layout` filled from the dump, `./gradlew --no-daemon assembleDebug` (compiles Compose and runs aapt2 on layouts). Gradle and Android caches via `actions/cache`/`gradle/actions/setup-gradle`. Versions pinned in the project; Android SDK from the runner image.
+- R4 The existing in-`cargo test` swiftc check stays (fast local feedback) but must FAIL, not skip, when `CI=true` on macOS and swiftc is missing.
+- R5 Generated file names are fixture names in PascalCase for Swift/Kotlin (`Fixture_<name>`), snake_case for layouts (Android requirement).
+
+## 4. Acceptance criteria
+
+- AC-1 Red proof: a throwaway commit on the PR branch that breaks one exporter line (e.g. emit `Modifier.heigth`) makes the new job fail with the fixture name; reverted before merge (link the failing run in the PR).
+- AC-2 Green on `main` content: all fixtures compile: SwiftUI 19 + 6 grid + slot fixtures, UIKit same set, Compose same set, Android same set (counts printed as `checked=N passed=N`).
+- AC-3 Job time: ≤ 10 min warm cache on ubuntu, ≤ 6 min on macOS (report cold and warm times).
+- AC-4 Runs locally: `scripts/ci/native-export-compile-check.sh {swift|android}` documented in the script header; works on the owner's Mac with Xcode + Android SDK.
+- AC-5 Required-check status per owner Q7, set in the ruleset by the owner (an agent must not edit the ruleset).
+- AC-6 Evidence: screenshot or terminal capture of the green run summary.
+
+## 5. Test steps
+
+1. Write the dump test and shared fixtures; run it locally, inspect the tree.
+2. Compile locally on macOS (Swift) and in Docker/Ubuntu or locally with Android SDK (Gradle).
+3. Push; check both jobs; do AC-1 red proof.
+
+## 6. Edge cases
+
+- Fixtures that intentionally emit comments for unsupported features (row span comments in SwiftUI, `swiftui.rs:603-618`): must still compile.
+- Fonts/images referenced by name (`painterResource`, `UIImage(named:)`): stub resources generated by the dump.
+- Kotlin `@Composable` context errors (the #1450 bug class): caught by `assembleDebug`.
+- Windows runner: job not run there (macOS + Ubuntu only).
+
+## 7. Non-goals
+
+Running the exported UI (screenshots of simulators); HTML/Vue/Flutter (HTML already in "Codegen Validators", `ci.yml:207-235`).
+
+## 8. Figma-parity facts
+
+Not applicable.
+
+## 9. Undecided user-visible details
+
+- Q7: should the new job block merges? (Visible to contributors as a required red/green check.)
+
+## 10. Builder tier
+
+Claude Sonnet.
+
+## Epistemic ledger
+
+- FACT: SwiftUI typecheck exists and skips without swiftc (`native_stack_export.rs:1032-1035`).
+- FACT: CI test matrix is `ubuntu-latest, windows-latest, macos-15` (`ci.yml:51`); ruleset "Protect main" requires `Test (macos-15)`, `Clippy`, `Rustfmt`, `Check` (gh API 2026-11-06). Project `CLAUDE.md` still says `Test (macos-14)` (stale doc, outside this issue).
+- ASSUMPTION (medium): a Gradle project is acceptable repo weight (~10 small files). Flips if the owner wants no JVM tooling in the repo (alternative: a separate repo or a container image).

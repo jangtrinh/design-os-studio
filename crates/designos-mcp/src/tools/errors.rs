@@ -38,6 +38,7 @@ pub enum ErrorCode {
     UnknownComponentProperty,
     PropertyTypeMismatch,
     FieldNotAllowedOnInstance,
+    InstanceChild,
     UnknownSlot,
     SlotFillNotAllowed,
     SlotChildCount,
@@ -182,6 +183,7 @@ impl ErrorCode {
         Self::UnknownComponentProperty,
         Self::PropertyTypeMismatch,
         Self::FieldNotAllowedOnInstance,
+        Self::InstanceChild,
         Self::UnknownSlot,
         Self::SlotFillNotAllowed,
         Self::SlotChildCount,
@@ -267,6 +269,7 @@ impl ErrorCode {
             Self::UnknownComponentProperty => "UNKNOWN_COMPONENT_PROPERTY",
             Self::PropertyTypeMismatch => "PROPERTY_TYPE_MISMATCH",
             Self::FieldNotAllowedOnInstance => "FIELD_NOT_ALLOWED_ON_INSTANCE",
+            Self::InstanceChild => "INSTANCE_CHILD",
             Self::UnknownSlot => "UNKNOWN_SLOT",
             Self::SlotFillNotAllowed => "SLOT_FILL_NOT_ALLOWED",
             Self::SlotChildCount => "SLOT_CHILD_COUNT",
@@ -350,6 +353,7 @@ impl ErrorCode {
             Self::UnsupportedNodeKind => "Pick a supported kind from valid_options, then retry.",
             Self::UnsupportedExtension => "Choose a path whose extension matches `expected`, then retry.",
             Self::UnsupportedFileType => "Stop and tell the user: this file type is not supported. Do not retry with the same path.",
+            Self::InstanceChild => "A layer inside a component instance cannot be deleted. Hide the layer, or override it on the instance, instead of deleting it.",
             Self::ToolDisabled => "Stop and tell the user: this tool is disabled in this session. Do not work around it.",
             Self::AnotherWindowOwnsSession => {
                 "Stop and tell the user: another window owns this file's agent session. Switch to that window. Do not work around it."
@@ -406,6 +410,7 @@ impl ErrorCode {
             "UNKNOWN_COMPONENT_PROPERTY" | "UNKNOWN_COMPONENT_PROP" => Some(Self::UnknownComponentProperty),
             "PROPERTY_TYPE_MISMATCH" | "PROP_TYPE_MISMATCH" => Some(Self::PropertyTypeMismatch),
             "FIELD_NOT_ALLOWED_ON_INSTANCE" => Some(Self::FieldNotAllowedOnInstance),
+            "INSTANCE_CHILD" => Some(Self::InstanceChild),
             "UNKNOWN_SLOT" => Some(Self::UnknownSlot),
             "SLOT_FILL_NOT_ALLOWED" => Some(Self::SlotFillNotAllowed),
             "SLOT_CHILD_COUNT" => Some(Self::SlotChildCount),
@@ -546,7 +551,9 @@ impl ErrorCode {
             | Self::AnotherWindowOwnsSession
             | Self::ApprovalDenied
             | Self::ApprovalTimeout => ErrorKind::NeedsHuman,
-            Self::FileTooLarge | Self::DocumentInvalid | Self::HistoryDropped | Self::InternalError | Self::UnsupportedFileType => ErrorKind::Fatal,
+            Self::FileTooLarge | Self::DocumentInvalid | Self::HistoryDropped | Self::InternalError | Self::UnsupportedFileType | Self::InstanceChild => {
+                ErrorKind::Fatal
+            }
         }
     }
 }
@@ -2203,9 +2210,12 @@ mod error_kind_tests {
             | ErrorCode::AnotherWindowOwnsSession
             | ErrorCode::ApprovalDenied
             | ErrorCode::ApprovalTimeout => "needs_human",
-            ErrorCode::FileTooLarge | ErrorCode::DocumentInvalid | ErrorCode::HistoryDropped | ErrorCode::InternalError | ErrorCode::UnsupportedFileType => {
-                "fatal"
-            }
+            ErrorCode::FileTooLarge
+            | ErrorCode::DocumentInvalid
+            | ErrorCode::HistoryDropped
+            | ErrorCode::InternalError
+            | ErrorCode::UnsupportedFileType
+            | ErrorCode::InstanceChild => "fatal",
         }
     }
 
@@ -2225,7 +2235,7 @@ mod error_kind_tests {
             let kind = json["error_kind"].as_str().unwrap_or("");
             assert_eq!(kind, expected_kind(*code), "{}", code.as_str());
         }
-        assert_eq!(ErrorCode::ALL.len(), 81);
+        assert_eq!(ErrorCode::ALL.len(), 82);
     }
 
     #[test]
@@ -2253,7 +2263,14 @@ mod error_kind_tests {
 
     #[test]
     fn internal_and_unsupported_file_type_errors_are_fatal() {
-        for code in [ErrorCode::InternalError, ErrorCode::FileTooLarge, ErrorCode::DocumentInvalid, ErrorCode::HistoryDropped, ErrorCode::UnsupportedFileType] {
+        for code in [
+            ErrorCode::InternalError,
+            ErrorCode::FileTooLarge,
+            ErrorCode::DocumentInvalid,
+            ErrorCode::HistoryDropped,
+            ErrorCode::UnsupportedFileType,
+            ErrorCode::InstanceChild,
+        ] {
             let json = ToolError::new(code, "", "m").to_json_value();
             assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
             assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());

@@ -20,6 +20,13 @@ Every agent working on `design-os-studio` MUST load and follow:
 
 ---
 
+## Canonical Epic & Figma 126.11.7 REA Implementation Specs
+
+All 24 Epics (`#14` through `#1788`), Proactive Epic `E21` Multiplayer ([`docs/specs/epics-figma-rea/e21-multiplayer-realtime-sync/`](docs/specs/epics-figma-rea/e21-multiplayer-realtime-sync/)), all 56 Open Parity/UX Bugs ([`docs/specs/epics-figma-rea/open-bugs-rea/`](docs/specs/epics-figma-rea/open-bugs-rea/)), and Figma Desktop `126.11.7` reverse-engineered clean-room implementation specs and REA dossiers live under [`docs/specs/epics-figma-rea/`](docs/specs/epics-figma-rea/).
+Before starting work on any Epic, milestone, sub-issue, or open bug fix, all coding agents MUST consult [`open-bugs-rea/README.md`](docs/specs/epics-figma-rea/open-bugs-rea/README.md) and [`EPIC-FIGMA-SPECS-INDEX.md`](docs/specs/epics-figma-rea/EPIC-FIGMA-SPECS-INDEX.md) for data models, Kiwi field tables, root-cause analyses, and machine-checkable acceptance criteria.
+
+---
+
 ## 2. Workspace Crate Map (11 Crates)
 
 | Crate | Path / Binary | Role & Primary Responsibility |

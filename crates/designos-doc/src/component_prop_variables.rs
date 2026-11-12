@@ -195,12 +195,52 @@ fn set_own_variant_binding(n: &mut Node, name: &str, own: bool) {
     }
 }
 
-/// Gives the bindings of the variant properties of `n` back to its main: the next sync restores the main's. Returns
-/// whether `n` held any of its own.
+/// Gives the bindings of the variant properties of `n` back to its main, and every variant property a person picked by
+/// hand back to its variable: the next sync restores the main's bindings and applies the variables. Returns whether `n`
+/// held any of its own bindings or any pick.
 pub(crate) fn release_own_variant_bindings(n: &mut Node) -> bool {
-    let held = !n.component.own_variant_bindings.is_empty();
+    let held = !n.component.own_variant_bindings.is_empty() || !n.component.variant_picks.is_empty();
     n.component.own_variant_bindings.clear();
+    n.component.variant_picks.clear();
     held
+}
+
+/// Records that a person picked variant property `name` by hand on `n`, a top-level instance, when `name` is bound there.
+/// A property that is not bound needs no record: the variant the instance shows already is its pick. A nested copy
+/// records its picks through [`record_variant_swap`], as its variant is the main it shows.
+pub(crate) fn record_variant_pick(n: &mut Node, name: &str) {
+    if is_top_instance(n) && n.variables.bindings.contains_key(&prop_binding_key(name)) {
+        n.component.variant_picks.insert(name.to_string());
+    }
+}
+
+/// What the swap of instance node `n` from main `old` to main `new` (already made) means for the bound variant properties
+/// of `n`. Each bound property that has a counterpart in `new` and whose value the swap changed becomes a pick; after a
+/// swap to a main of another set, every bound property `new` also has does, as the swap chose the whole main. On a
+/// top-level instance, the new value of each such bound variant property is stored too: the instance's variant comes from
+/// its stored values, and the next resync would otherwise move it back to the old one. An instance that binds no variant
+/// property (none at all, or only text or boolean ones) records nothing here, so its file stays as it was.
+pub(crate) fn record_variant_swap(doc: &Document, n: &mut Node, old: Option<NodeId>, new: NodeId) {
+    if !has_prop_binding(n) {
+        return;
+    }
+    let pairs = |id: NodeId| doc.get(id).map(|c| parse_variant_name(&c.name)).unwrap_or_default();
+    let set_of = |id: NodeId| doc.get(id).and_then(|c| c.parent).filter(|p| doc.get(*p).is_some_and(|p| matches!(p.kind, NodeKind::ComponentSet(_))));
+    let same_set = old.is_some_and(|o| set_of(o).is_some() && set_of(o) == set_of(new));
+    let old_pairs = old.map(pairs).unwrap_or_default();
+    let top = is_top_instance(n);
+    for (name, value) in pairs(new) {
+        if !n.variables.bindings.contains_key(&prop_binding_key(&name)) {
+            continue;
+        }
+        let changed = old_pairs.iter().find(|(k, _)| *k == name).is_none_or(|(_, v)| *v != value);
+        if top && changed {
+            n.component.values.insert(name.clone(), PropValue::Variant(value));
+        }
+        if changed || !same_set {
+            n.component.variant_picks.insert(name);
+        }
+    }
 }
 
 /// `n`, a nested copy, with the variable bindings of the variant properties of its reference `r` (the main's nested
@@ -226,12 +266,6 @@ pub(crate) fn follow_reference_variant_bindings(doc: &Document, n: &Node, r: &No
     }
     out.variables.bindings.extend(want);
     Some(out)
-}
-
-/// Whether the bound variant properties of nested instance `n` drive the variant it shows: not while a person has
-/// picked a variant on it by hand, which is recorded on it as a main-component override until that is reset.
-pub(crate) fn nested_variant_follows_binding(n: &Node) -> bool {
-    !n.component.overrides.contains(&OverrideField::MainComponent)
 }
 
 /// Binds property `name` of instance `inst` to `var`, or with `None` unbinds it; see [`bind_prop_variables`].
@@ -272,6 +306,8 @@ pub fn bind_prop_variables(doc: &mut Document, inst: NodeId, edits: &[(&str, Opt
     Ok(set_instance_prop_edit(doc, inst, |n| {
         for (name, var, value, kind) in planned {
             let key = prop_binding_key(&name);
+            // Binding means "follow from now on", and an unbound property has no pick to hold.
+            n.component.variant_picks.remove(&name);
             match var {
                 Some(var) => {
                     n.variables.bindings.insert(key, var);
@@ -331,7 +367,7 @@ fn collect_prop_resync_scope(doc: &Document, cmd: &Command, out: &mut PropResync
             if cur.variables.modes != node.variables.modes {
                 out.subtrees.insert(node.id);
             }
-            if !prop_bindings_of(cur).eq(prop_bindings_of(node)) {
+            if !prop_bindings_of(cur).eq(prop_bindings_of(node)) || cur.component.variant_picks != node.component.variant_picks {
                 out.nodes.insert(node.id);
             }
         }
@@ -360,10 +396,10 @@ pub fn settle_bound_props_after(before: &Document, after: &mut Document, cmds: &
     }
 }
 
-/// Whether `def` is a variant property of nested instance `n` that a person picked by hand (see
-/// [`nested_variant_follows_binding`]), so its binding leaves it alone.
-fn nested_variant_is_picked(n: &Node, def: &ComponentPropDef) -> bool {
-    matches!(def.kind, PropKind::Variant { .. }) && !is_top_instance(n) && !nested_variant_follows_binding(n)
+/// Whether `def` is a variant property of instance `n`, top-level or nested, that a person picked by hand (see
+/// [`ComponentLink::variant_picks`]), so its binding leaves it alone.
+fn variant_is_picked(n: &Node, def: &ComponentPropDef) -> bool {
+    matches!(def.kind, PropKind::Variant { .. }) && n.component.variant_picks.contains(&def.name)
 }
 
 fn prop_needs_resync(doc: &Document, id: NodeId, n: &Node, def: &ComponentPropDef, value: &PropValue) -> bool {
@@ -406,10 +442,10 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
             let changes: Vec<(String, PropValue)> = prop_bindings_of(n)
                 .filter_map(|(name, var)| {
                     let def = def_of(doc, n, name)?;
-                    let value = resolve_for_def(doc, id, &def, var).ok()?;
-                    if nested_variant_is_picked(n, &def) {
+                    if variant_is_picked(n, &def) {
                         return None;
                     }
+                    let value = resolve_for_def(doc, id, &def, var).ok()?;
                     prop_needs_resync(doc, id, n, &def, &value).then(|| (name.to_string(), value))
                 })
                 .collect();
@@ -455,7 +491,9 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
 ///
 /// A `.fig` file stores the variant a bound nested instance shows as a swap of that nested instance, which the import
 /// records as a pick by hand. Where the variable gives the variant the file shows, the swap is the binding's doing and not
-/// a pick: it is released here, so the reopened instance goes on following its variable.
+/// a pick: it is released here, so the reopened instance goes on following its variable. Where it is not, the bound
+/// properties the file shows at another value than their variable gives are the picks. A file Studio wrote says its picks
+/// itself (a carrier entry) and is left as it says.
 pub fn settle_bound_props(doc: &mut Document) {
     release_bound_variants_the_file_stored(doc);
     let scope = PropResyncScope { all: true, ..Default::default() };
@@ -463,20 +501,51 @@ pub fn settle_bound_props(doc: &mut Document) {
 }
 
 fn release_bound_variants_the_file_stored(doc: &mut Document) {
-    let released: Vec<NodeId> = doc
-        .nodes
-        .values()
-        .filter(|n| matches!(n.kind, NodeKind::Instance { .. }) && !is_top_instance(n) && !nested_variant_follows_binding(n) && has_prop_binding(n))
-        .filter(|n| {
-            let Some(shown) = instance_component(n) else { return false };
-            let choices = bound_variant_choices(doc, n.id, n, shown);
-            !choices.is_empty() && bound_target_of_copy(doc, n.id, &choices) == Some(shown)
-        })
-        .map(|n| n.id)
-        .collect();
+    let mut released: Vec<NodeId> = Vec::new();
+    let mut picked: Vec<(NodeId, BTreeSet<String>)> = Vec::new();
+    for n in doc.nodes.values().filter(|n| {
+        matches!(n.kind, NodeKind::Instance { .. })
+            && !is_top_instance(n)
+            && n.component.overrides.contains(&OverrideField::MainComponent)
+            && n.component.variant_picks.is_empty()
+            && has_prop_binding(n)
+    }) {
+        let Some(shown) = instance_component(n) else { continue };
+        let choices = bound_variant_choices(doc, n.id, n, shown);
+        if choices.is_empty() {
+            continue;
+        }
+        let target = bound_target_of_copy(doc, n.id, &choices);
+        if target == Some(shown) {
+            released.push(n.id);
+            continue;
+        }
+        let set_of = |id: NodeId| doc.get(id).and_then(|c| c.parent);
+        let swapped_to_another_set = target.is_some_and(|t| set_of(t) != set_of(shown));
+        let shown_pairs = doc.get(shown).map(|c| parse_variant_name(&c.name)).unwrap_or_default();
+        let held: BTreeSet<String> = choices
+            .iter()
+            .filter(|(name, want)| {
+                let value = shown_pairs.iter().find(|(k, _)| k == *name).map(|(_, v)| v);
+                match (value, want) {
+                    (Some(v), PropValue::Variant(w)) => swapped_to_another_set || v != w,
+                    _ => false,
+                }
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        if !held.is_empty() {
+            picked.push((n.id, held));
+        }
+    }
     for id in released {
         if let Some(n) = doc.get_mut(id) {
             n.component.overrides.remove(&OverrideField::MainComponent);
+        }
+    }
+    for (id, held) in picked {
+        if let Some(n) = doc.get_mut(id) {
+            n.component.variant_picks = held;
         }
     }
 }

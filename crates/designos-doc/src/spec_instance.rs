@@ -1313,12 +1313,13 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                 .filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))))
                 .unwrap_or(cur_comp);
             let new_comp = resolve_variant_component(doc, owner, &ov.variant, Some(cur_comp), None)?;
-            for (k, v) in &ov.variant {
-                let cmd = set_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
-                cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
-            }
             if new_comp != cur_comp {
                 let cmd = swap_instance(doc, target_id, new_comp);
+                cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
+            }
+            // Each entry is a pick as the panel's is: one that names the variant the copy shows holds a bound property.
+            for (k, v) in &ov.variant {
+                let cmd = set_nested_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
             }
         }
