@@ -129,9 +129,9 @@ fn kit_auto_layout_relayout_census() {
         }
         for (cid, r) in child_rects {
             if let Some(cnode) = doc.get_mut(cid) {
-                cnode.transform.tx = r.x;
-                cnode.transform.ty = r.y;
-                cnode.size = Vec2::new(r.w, r.h);
+                let write = designos_doc::slot_write(&cnode.transform, cnode.size, r);
+                cnode.transform = write.transform;
+                cnode.size = write.size;
             }
         }
     }
