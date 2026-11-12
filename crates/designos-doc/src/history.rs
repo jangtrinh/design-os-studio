@@ -883,7 +883,15 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, 
     let mut steps = vec![inv];
     if !prop_scope.is_empty() {
         match apply_prop_resync(doc, &prop_scope) {
-            Ok(Some(resync_inv)) => steps.insert(0, resync_inv),
+            Ok(Some(resync_inv)) => {
+                // Property resync can replace a bound variant with a component whose size feeds
+                // an auto-layout parent. The original command was already applied and its layout
+                // pass has run, so solve the resync's changed nodes upward before returning.
+                let mut seeds = Vec::new();
+                collect_relayout_seeds(doc, &resync_inv, &mut seeds);
+                doc.relayout_seeds_upward(&seeds);
+                steps.insert(0, resync_inv)
+            }
             Ok(None) => {}
             Err(e) => {
                 let _ = Command::Batch(steps).apply(doc);
