@@ -2712,7 +2712,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "get_variables",
-        "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. A collection that extends another has an `extension` block (parent_collection_id, mode_map, inherited_variable_ids, overrides with value and parent_value); `extendable` marks a collection others may extend. Set an override with designos_apply_batch set_variables, using the extension's own mode id; a null value there resets the override. Subscribed library variables and collections are read-only to set_variables; refused writes report 'library variables are read-only'.",
+        "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. A collection that extends another has an `extension` block (parent_collection_id, mode_map, inherited_variable_ids, overrides with value and parent_value); `extendable` marks a collection others may extend. Set an override with designos_apply_batch set_variables, using the extension's own mode id; a null value there resets the override.",
         json!({"node_id":id}),
         vec![],
         json!({
@@ -3429,6 +3429,24 @@ mod tests {
             assert_eq!(error.cause.as_deref().map(|cause| cause.message.as_str()), Some("library variables are read-only"), "case {index}: {error}");
             assert_eq!((engine.doc.variables, engine.doc.variable_collections), before, "case {index} must be atomic");
         }
+    }
+
+    #[test]
+    fn set_variables_still_edits_a_local_collection_next_to_a_subscribed_library() {
+        use designos_doc::{VariableKind, VariableStore};
+        let (mut engine, library_collection, library_variable) = subscribed_library_variable();
+        let mut store = VariableStore { variables: engine.doc.variables.clone(), collections: engine.doc.variable_collections.clone() };
+        let local_collection = store.add_collection("Local");
+        let local_variable = store.add_variable(&local_collection, "spacing", VariableKind::Number).unwrap();
+        engine.doc.variables = store.variables;
+        engine.doc.variable_collections = store.collections;
+
+        let reply = set_variables(&mut engine, json!({"upsert_variables": [{"id": local_variable, "name": "gap"}]}));
+
+        assert!(reply.is_ok(), "an ordinary collection stays writable: {reply:?}");
+        assert_eq!(engine.doc.variables[&local_variable].name, "gap");
+        assert_eq!(engine.doc.variables[&library_variable].name, "token", "the library variable is untouched");
+        assert_eq!(engine.doc.variable_collections[&library_collection].name, "Library");
     }
 
     #[test]
