@@ -105,7 +105,7 @@ fn moved_direct(doc: &Document, s: &Solved) -> (usize, usize, f32) {
     for (cid, r) in &s.1 {
         let Some(c) = doc.get(*cid) else { continue };
         let t = c.transform.translation();
-        let r0 = [t.x, t.y, t.x + c.size.x, t.y + c.size.y];
+        let r0 = page_space_bounds(c.transform, c.size);
         let r1 = [r.x, r.y, r.x + r.w, r.y + r.h];
         let d = edge_diff(&r0, &r1);
         if d > 0.5 {
@@ -196,8 +196,7 @@ fn kit_layout_drift_measure() {
     for (fid, s) in &base {
         for (cid, r) in &s.1 {
             let c = doc.get(*cid).unwrap();
-            let t = c.transform.translation();
-            if edge_diff(&[t.x, t.y, t.x + c.size.x, t.y + c.size.y], &[r.x, r.y, r.x + r.w, r.y + r.h]) > 0.5 {
+            if edge_diff(&page_space_bounds(c.transform, c.size), &[r.x, r.y, r.x + r.w, r.y + r.h]) > 0.5 {
                 local_moved.entry(*fid).or_default().push(*cid);
             }
         }
@@ -211,9 +210,9 @@ fn kit_layout_drift_measure() {
         }
         for (cid, r) in &s.1 {
             if let Some(c) = after_doc.get_mut(*cid) {
-                c.transform.tx = r.x;
-                c.transform.ty = r.y;
-                c.size = Vec2::new(r.w, r.h);
+                let write = designos_doc::slot_write(&c.transform, c.size, *r);
+                c.transform = write.transform;
+                c.size = write.size;
             }
         }
     }
@@ -337,7 +336,7 @@ fn kit_layout_drift_measure() {
         for (cid, r) in &s.1 {
             let c = doc.get(*cid).unwrap();
             let t = c.transform.translation();
-            let d = edge_diff(&[t.x, t.y, t.x + c.size.x, t.y + c.size.y], &[r.x, r.y, r.x + r.w, r.y + r.h]);
+            let d = edge_diff(&page_space_bounds(c.transform, c.size), &[r.x, r.y, r.x + r.w, r.y + r.h]);
             if d > 0.5 {
                 let _ = writeln!(
                     kids_csv,
