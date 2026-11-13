@@ -285,11 +285,14 @@ fn a_variable_hidden_from_publishing_stays_hidden_through_a_fig_round_trip() {
         vec![
             ("Internal/Grey".to_string(), Some(false)),
             ("Old/Grey".to_string(), Some(false)),
-            ("Old/White".to_string(), None),
-            ("Text/Primary".to_string(), None)
+            ("Old/White".to_string(), Some(true)),
+            ("Text/Primary".to_string(), Some(true))
         ],
-        "a hidden variable writes the switch off; the others write nothing"
+        "every variable writes its publish switch explicitly"
     );
+    let saved_changes = node_changes(&saved);
+    let set = saved_changes.iter().find(|entry| entry["type"] == "VARIABLE_SET").expect("the collection is written");
+    assert_eq!(set.get("isPublishable"), Some(&json!(true)), "a visible collection writes its publish switch explicitly");
     let mut after = hidden(&import_fig(&saved).unwrap());
     after.sort();
     assert_eq!(after, expected, "the switch survives a save and reopen");
