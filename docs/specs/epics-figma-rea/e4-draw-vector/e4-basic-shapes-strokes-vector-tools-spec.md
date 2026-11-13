@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): READY AFTER FIXES.** Reference for implementation; inside and outside strokes, mask types and offset path are already on main, and the GPU stencil claim is false (the renderer has no stencil; each inside or outside stroke clip opens a mask Program). Corrections: [review](../reviews/review-e4-e5-e6-e7.md#e4-basic-shapes).
+
 # True Figma Implementation Spec: Basic Shapes, Multi-Strokes & Vector Tools
 
 **Epic:** E4 — Draw & Vector (#17)  

@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): SUPERSEDED.** Reference for implementation; nine of its 13 slices target issues that are already closed and merged (#135, #136, #137, #143, #1448), the layout slices need Figma evidence first, and its hot-file queue slots are not real. Corrections: [review](../reviews/review-e1-e2-e19-e20.md#e1-e2-readme).
+
 # E1 & E2 REA Resolutions: Master Plan & Hot-File Execution Schedule
 
 **Date:** 2026-11-12  
