@@ -514,7 +514,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`INVALID_ARGUMENTS`",
             "`NODE_NOT_FOUND`",
             "`PAGE_ROOT_PROTECTED`",
-            "`MOVE_CYCLE`",
+            "`INSTANCE_CYCLE`",
             "`UNKNOWN_VARIABLE`",
             "`VARIABLE_TYPE_MISMATCH`",
             "`AMBIGUOUS_VARIABLE`",
@@ -534,6 +534,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`NODE_NOT_FOUND`",
             "`NOT_A_CONTAINER`",
             "`UNKNOWN_COMPONENT`",
+            "`INSTANCE_CYCLE`",
             "`UNKNOWN_VARIABLE`",
             "`UNKNOWN_SLOT`",
             "`TOOL_DISABLED`",
@@ -998,6 +999,16 @@ mod tests {
         }
         let update = pack_section(&pack, "designos_update_node");
         assert!(update.contains(r#""fill":"var:"#), "the update_node example shows a var: fill: {update}");
+    }
+
+    #[test]
+    fn every_tool_that_can_return_a_cycle_refusal_lists_the_instance_cycle_error() {
+        // `designos_apply_batch` is not here: it returns BATCH_OP_FAILED and carries the refusal as the `cause`.
+        let pack = generate_default_rules_pack().expect("rules pack");
+        for tool in ["designos_update_node", "designos_apply_spec"] {
+            let section = pack_section(&pack, tool);
+            assert!(section.contains("`INSTANCE_CYCLE`"), "{tool} lists INSTANCE_CYCLE: {section}");
+        }
     }
 
     /// Fails when `args` uses a property the tool's advertised `inputSchema` does not declare,

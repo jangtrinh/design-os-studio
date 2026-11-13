@@ -73,7 +73,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ### `designos_update_node`
 - **Purpose:** Update specified fields of one non-page layer.
 - **Args:** required: `node_id` (optional: `bindings`, `diff_image`, `fill`, `fills`, `height`, `idempotency_key`, `lint`, `name`, `opacity`, `prop_vars`, `text`, `visible`, `width`, `x`, `y`)
-- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `MOVE_CYCLE`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `OUTSIDE_OWNED_FRAMES`
+- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `INSTANCE_CYCLE`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `OUTSIDE_OWNED_FRAMES`
 - **Example:** `{"node_id":2,"name":"Header","fill":"var:Color/Primary"}`
 
 ### `designos_delete_node`
@@ -109,7 +109,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ### `designos_apply_spec`
 - **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave...
 - **Args:** required: `spec` (optional: `diff_image`, `idempotency_key`, `lint`, `parent_id`)
-- **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
+- **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `INSTANCE_CYCLE`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
 - **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","children":[{"kind":"text","name":"Label","text":"Net Revenue"},{"kind":"text","name":"Value","text":"$148,920"}]}}`
 
 ### `designos_export_spec`
@@ -364,8 +364,8 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 ## Design Quality & Anti-Generic Rules
 
 - **Visual hierarchy**: One primary action per view, >= 3:1 headline-to-body.
-- **Layout rhythm & cards**: Do not wrap every group in a card or nest cards. Avoid a uniform grid of identical cards. Use the type scale and spacing scale (`var:` / `style:` tokens), <= 3 gaps, padding `page >= section >= card >= control`.
-- **Buttons & centred controls**: Buttons, pills, badges: preset `easeui-button-primary` / `easeui-button-secondary` / `easeui-badge`, or `layout` row with `justify` and `align` center (plain `"frame"`: labels top-left).
+- **Layout & cards**: Do not wrap every group in a card or nest cards. No uniform grid of identical cards. Use the type scale and spacing scale (`var:` / `style:` tokens), <= 3 gaps, padding `page >= section >= card >= control`.
+- **Centred controls**: Buttons, pills, badges: preset `easeui-button-primary` / `easeui-button-secondary` / `easeui-badge`, or `layout` row with `justify` and `align` center (plain `"frame"`: labels top-left).
 - **Surface & colour**: Restrain gradients, shadows, and corner radii. One primary accent per screen; red/amber/green for status.
 - **Icons & illustrations**: Never hand-draw logos, illustrations, or icons as vector paths. Use library instances or labelled placeholders.
 - **Typography**: <= 2 font families, <= 4 sizes, 45–75 char lines. Real copy, no lorem ipsum.
