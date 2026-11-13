@@ -14,6 +14,11 @@ pub(crate) type QueuedWork = Box<dyn FnOnce(&mut App)>;
 /// A close must not let a retrying job hold the UI forever. Work left after this many passes is dropped with the closing app.
 pub(crate) const MAX_QUIT_DRAIN_PASSES: usize = 64;
 
+#[cfg(test)]
+thread_local! {
+    static LAST_QUIT_DROP_LOG: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 impl App {
     /// Shows `status` now and runs `work` on the next frame, after the status has been painted.
     pub(crate) fn run_after_status_paint(&mut self, status: impl Into<String>, work: impl FnOnce(&mut App) + 'static) {
@@ -44,7 +49,14 @@ impl App {
             queued += self.queued_work.len();
             self.run_queued_work();
         }
-        self.queued_work.clear();
+        let dropped = self.queued_work.len();
+        if dropped > 0 {
+            self.queued_work.clear();
+            let line = format!("designos: warn: quit dropped {dropped} queued job(s) after {MAX_QUIT_DRAIN_PASSES} drain passes");
+            eprintln!("{line}");
+            #[cfg(test)]
+            LAST_QUIT_DROP_LOG.with(|slot| *slot.borrow_mut() = Some(line));
+        }
         queued
     }
 }
@@ -110,5 +122,11 @@ mod tests {
         assert_eq!(app.finish_queued_work_before_quit(), EXPECTED_MAX_PASSES);
         assert_eq!(ran.get(), EXPECTED_MAX_PASSES, "quit must stop a self-requeueing job at the drain bound");
         assert!(!app.has_queued_work(), "work left after the bound is discarded with the closing app");
+        let log = super::LAST_QUIT_DROP_LOG.with(|slot| slot.borrow().clone());
+        assert_eq!(
+            log.as_deref(),
+            Some("designos: warn: quit dropped 1 queued job(s) after 64 drain passes"),
+            "quit logs the dropped job count when the drain bound is hit"
+        );
     }
 }
