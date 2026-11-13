@@ -391,3 +391,54 @@ fn enter_a_path_raised_behind_an_export_toast_goes_to_the_queued_toast() {
     assert_eq!(s.app().toast_queue.len(), 1, "the no-dialog error waits");
     assert!(s.app().toast_queue[0].enter_path, "Enter a path lands on the toast that was queued");
 }
+
+#[test]
+fn an_unarmed_error_on_screen_is_not_replaced_by_a_same_frame_reveal_failure() {
+    let mut s = Sim::new();
+    s.shell.app.show_toast("Cannot save: disk full", true);
+    let other = reveal_path("other.png");
+    crate::fig_export::push_late_reveal_failure(other.clone(), crate::fig_export::reveal_failure_text(&other, "no file manager"));
+    s.frame(vec![]);
+    let toast = s.app().toast.as_ref().expect("a toast is on screen");
+    assert_eq!(toast.text, "Cannot save: disk full", "the unpainted save error stays on screen: {}", toast.text);
+    assert_eq!(s.app().toast_queue.len(), 1, "the reveal failure waits behind the live error");
+    assert_eq!(s.app().toast_queue[0].text, "Couldn't open /tmp/designos-toast-queue: no file manager");
+}
+
+#[test]
+fn the_queue_cap_never_drops_an_error_toast_with_an_action() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    s.shell.app.show_no_file_dialog_toast(true);
+    for i in 0..crate::app::TOAST_QUEUE_CAP {
+        s.shell.app.show_toast(format!("Cannot save {i}: disk full"), true);
+    }
+    assert_eq!(s.app().toast_queue.len(), crate::app::TOAST_QUEUE_CAP);
+    assert!(s.app().toast_queue[0].enter_path, "the Enter a path error toast is never dropped by the cap");
+    assert_eq!(s.app().toast_queue[1].text, "Cannot save 1: disk full", "the oldest plain error was dropped instead");
+
+    let mut s_all_actions = Sim::new();
+    export_toast_on_screen(&mut s_all_actions, "screen.png");
+    for i in 0..crate::app::TOAST_QUEUE_CAP {
+        s_all_actions.shell.app.show_toast_with_reveal(format!("Exported {i}"), reveal_path(&format!("{i}.png")));
+    }
+    s_all_actions.shell.app.show_toast("Cannot save: disk full", true);
+    assert_eq!(s_all_actions.app().toast_queue.len(), crate::app::TOAST_QUEUE_CAP);
+    assert!(s_all_actions.app().toast_queue.iter().all(|t| t.has_action()), "when the queue is full of action toasts, none is dropped");
+}
+
+#[test]
+fn a_late_failure_for_another_file_respects_the_queue_cap() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "a.png");
+    for i in 0..crate::app::TOAST_QUEUE_CAP {
+        s.shell.app.show_toast(format!("Cannot save {i}: disk full"), true);
+    }
+    assert_eq!(s.app().toast_queue.len(), crate::app::TOAST_QUEUE_CAP);
+    let c = PathBuf::from("/tmp/designos-toast-other/c.png");
+    crate::fig_export::push_late_reveal_failure(c.clone(), crate::fig_export::reveal_failure_text(&c, ""));
+    s.frame(vec![]);
+    assert_eq!(s.app().toast_queue.len(), crate::app::TOAST_QUEUE_CAP, "front insertion respects TOAST_QUEUE_CAP");
+    assert_eq!(s.app().toast_queue[0].text, "Couldn't open /tmp/designos-toast-other", "the reveal failure is at the front");
+}
+
