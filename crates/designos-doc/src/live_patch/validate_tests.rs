@@ -274,6 +274,56 @@ fn concurrent_table_column_edits_and_row_inserts_preserve_widths_and_cell_agreem
 }
 
 #[test]
+fn merged_table_concurrent_column_and_row_resizes_preserve_widths_and_cell_agreement() {
+    let make_merged_base = || {
+        let mut doc = Document::new("merged table concurrency");
+        let page = doc.add_page("Page");
+        crate::table_ops::create_table(&doc, page, crate::Vec2::new(0.0, 0.0), 2, 2, &crate::TableStyle::default()).unwrap().apply(&mut doc).unwrap();
+        let table_id = *doc.get(page).unwrap().children.last().unwrap();
+        crate::table_ops::merge(&doc, table_id, (0, 0, 1, 1)).unwrap().apply(&mut doc).unwrap();
+        let (col0, col1, row0, row1) = match &doc.get(table_id).unwrap().kind {
+            crate::NodeKind::Table(props) => (props.cols[0].id, props.cols[1].id, props.rows[0].id, props.rows[1].id),
+            _ => panic!("expected table"),
+        };
+        (doc, table_id, col0, col1, row0, row1)
+    };
+
+    // (a) Agent resizes column 1 and user changes nothing: column 1 has the agent's width.
+    let (agent, table_id, _, col1, _, _) = make_merged_base();
+    let mut editor = agent.clone();
+    let agent_col1 = crate::table_ops::resize_col(&agent, table_id, col1, 240.0).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_col1).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[160.0, 240.0], &[44.0, 44.0]);
+
+    // (b) User widens column 0 concurrently while agent resizes column 1: column 0 keeps user's width and column 1 takes agent's.
+    let (agent, table_id, col0, col1, _, _) = make_merged_base();
+    let mut editor = agent.clone();
+    crate::table_ops::resize_col(&editor, table_id, col0, 300.0).unwrap().apply(&mut editor).unwrap();
+    let agent_col1 = crate::table_ops::resize_col(&agent, table_id, col1, 240.0).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_col1).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[300.0, 240.0], &[44.0, 44.0]);
+
+    // (c1) Agent resizes row 1 and user changes nothing: row 1 has the agent's height.
+    let (agent, table_id, _, _, _, row1) = make_merged_base();
+    let mut editor = agent.clone();
+    let agent_row1 = crate::table_ops::resize_row(&agent, table_id, row1, 90.0).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_row1).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[160.0, 160.0], &[44.0, 90.0]);
+
+    // (c2) User heightens row 0 concurrently while agent resizes row 1: row 0 keeps user's height and row 1 takes agent's.
+    let (agent, table_id, _, _, row0, row1) = make_merged_base();
+    let mut editor = agent.clone();
+    crate::table_ops::resize_row(&editor, table_id, row0, 120.0).unwrap().apply(&mut editor).unwrap();
+    let agent_row1 = crate::table_ops::resize_row(&agent, table_id, row1, 90.0).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_row1).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[160.0, 160.0], &[120.0, 90.0]);
+}
+
+#[test]
 fn an_agent_edit_cannot_insert_a_page_or_turn_a_layer_into_one() {
     let (base, page, frame_id) = doc_with_frame();
     let page_kind = serde_json::to_value(&base.get(page).unwrap().kind).unwrap();
