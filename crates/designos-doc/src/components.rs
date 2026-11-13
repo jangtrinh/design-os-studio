@@ -6144,8 +6144,71 @@ mod tests {
     }
 
     #[test]
-    fn variant_switch_keeps_new_variant_child_offsets() {
+    fn variant_switch_refits_new_variant_children_to_kept_instance_size() {
         let mut d = Document::new("VariantOffsets");
+        let page = d.add_page("Page");
+
+        let id1 = d.alloc_id();
+        let mut v1 = Node::frame(id1, Rect::new(0.0, 0.0, 100.0, 40.0));
+        v1.name = "Size=SM".into();
+        let v1 = d.insert(page, v1).unwrap();
+        let ch1 = d.alloc_id();
+        let mut r1 = Node::rectangle(ch1, Rect::new(8.0, 8.0, 84.0, 24.0));
+        r1.name = "Dot".into();
+        r1.constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
+        d.insert(v1, r1).unwrap();
+        let st1 = d.alloc_id();
+        let mut b1 = Node::rectangle(st1, Rect::new(8.0, 8.0, 84.0, 24.0));
+        b1.name = "Bar".into();
+        b1.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        d.insert(v1, b1).unwrap();
+        let c = create_component(&mut d, v1);
+        apply(&mut d, c);
+
+        let id2 = d.alloc_id();
+        let mut v2 = Node::frame(id2, Rect::new(120.0, 0.0, 200.0, 60.0));
+        v2.name = "Size=LG".into();
+        let v2 = d.insert(page, v2).unwrap();
+        let ch2 = d.alloc_id();
+        let mut r2 = Node::rectangle(ch2, Rect::new(20.0, 16.0, 160.0, 28.0));
+        r2.name = "Dot".into();
+        r2.constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
+        d.insert(v2, r2).unwrap();
+        let st2 = d.alloc_id();
+        let mut b2 = Node::rectangle(st2, Rect::new(20.0, 16.0, 160.0, 28.0));
+        b2.name = "Bar".into();
+        b2.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        d.insert(v2, b2).unwrap();
+        let c = create_component(&mut d, v2);
+        apply(&mut d, c);
+
+        let c = combine_as_variants(&mut d, &[v1, v2]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, v1, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let mut n = d.get(inst).unwrap().clone();
+        n.size = Vec2::new(120.0, 40.0);
+        n.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(n) });
+
+        let c = set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant("LG".into())));
+        apply(&mut d, c);
+
+        let dot_after = d.get(child_named(&d, inst, "Dot")).unwrap();
+        assert_eq!(dot_after.transform.tx, 12.0, "resized instance must refit the switched variant Scale child to the kept width");
+        assert_eq!(dot_after.size.x, 96.0, "resized instance must refit the switched variant Scale child to the kept width");
+        assert!(!dot_after.component.overrides.contains(&OverrideField::Size), "variant switch must not manufacture child Size override");
+
+        let bar_after = d.get(child_named(&d, inst, "Bar")).unwrap();
+        assert_eq!((bar_after.transform.tx, bar_after.size.x), (20.0, 80.0), "Stretch child keeps LG's 20px left/right margins inside the kept 120px width");
+        assert_eq!((bar_after.transform.ty, bar_after.size.y), (16.0, 8.0), "Stretch child keeps LG's 16px top/bottom margins inside the kept 40px height");
+    }
+
+    #[test]
+    fn manual_swap_refits_resized_instance_and_preserves_auto_layout_result() {
+        let mut d = Document::new("ManualSwapRefit");
         let page = d.add_page("Page");
 
         let id1 = d.alloc_id();
@@ -6183,13 +6246,61 @@ mod tests {
         n.component.overrides.insert(OverrideField::Size);
         apply(&mut d, Command::Update { node: Box::new(n) });
 
-        let c = set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant("LG".into())));
+        let c = swap_instance(&mut d, inst, v2);
         apply(&mut d, c);
 
-        let dot_after = d.get(child_named(&d, inst, "Dot")).unwrap();
-        assert_eq!(dot_after.transform.tx, 12.0, "resized instance must refit the switched variant child to the kept width");
-        assert_eq!(dot_after.size.x, 96.0, "resized instance must refit the switched variant child to the kept width");
-        assert!(!dot_after.component.overrides.contains(&OverrideField::Size), "variant switch must not manufacture child Size override");
+        let dot = d.get(child_named(&d, inst, "Dot")).unwrap();
+        assert_eq!(
+            (dot.transform.tx, dot.size.x),
+            (12.0, 96.0),
+            "manual swap_instance on a size-overridden variant must refit Scale children to the kept width"
+        );
+
+        // Auto-layout instance case: a resized auto-layout instance keeps its layout result after variant switch.
+        let mk_al = |d: &mut Document, name: &str, x: f32, w: f32, pad: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 300.0, w, 48.0));
+            f.name = name.into();
+            let mut al = crate::AutoLayout::v1();
+            al.direction = crate::LayoutDirection::Horizontal;
+            al.primary_sizing = crate::Sizing::Fixed;
+            al.counter_sizing = crate::Sizing::Fixed;
+            al.padding = [pad, pad, pad, pad];
+            if let Some(fp) = f.kind.frame_props_mut() {
+                fp.auto_layout = Some(al);
+            }
+            let comp = d.insert(page, f).unwrap();
+            let cid = d.alloc_id();
+            let mut pill = Node::rectangle(cid, Rect::new(pad, pad, w - 2.0 * pad, 48.0 - 2.0 * pad));
+            pill.name = "FillBar".into();
+            pill.layout_child.grow = 1.0;
+            d.insert(comp, pill).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let al_sm = mk_al(&mut d, "Density=Compact", 0.0, 120.0, 8.0);
+        let al_lg = mk_al(&mut d, "Density=Spacious", 200.0, 200.0, 16.0);
+        let c = combine_as_variants(&mut d, &[al_sm, al_lg]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, al_sm, page, Vec2::new(0.0, 420.0));
+        apply(&mut d, c);
+        let al_inst = *d.get(page).unwrap().children.last().unwrap();
+        let mut al_n = d.get(al_inst).unwrap().clone();
+        al_n.size = Vec2::new(240.0, 48.0);
+        al_n.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(al_n) });
+
+        let c = set_instance_prop(&mut d, al_inst, "Density", Some(PropValue::Variant("Spacious".into())));
+        apply(&mut d, c);
+        let fill_bar = d.get(child_named(&d, al_inst, "FillBar")).unwrap();
+        assert_eq!(d.get(al_inst).unwrap().size, Vec2::new(240.0, 48.0));
+        assert_eq!(
+            (fill_bar.transform.tx, fill_bar.size.x),
+            (16.0, 208.0),
+            "auto-layout instance keeps its layout result inside the kept 240px width with Spacious 16px padding"
+        );
     }
 
     #[test]
