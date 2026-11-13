@@ -2924,8 +2924,10 @@ impl<'a> Ctx<'a> {
 
     fn resize_override_node(&mut self, id: NodeId, sz: Vec2, has_fill_geo: bool, has_stroke_geo: bool, skip_geo: bool, explicitly_sized: &mut HashSet<NodeId>) {
         explicitly_sized.insert(id);
-        let Some((old_size, old_transform, is_vec_or_bool, is_container)) =
-            self.doc.get(id).map(|n| (n.size, n.transform, matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)), n.kind.is_container()))
+        let Some((old_size, old_transform, preserves_outline, is_container)) = self
+            .doc
+            .get(id)
+            .map(|n| (n.size, n.transform, matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_) | NodeKind::Line), n.kind.is_container()))
         else {
             return;
         };
@@ -2937,7 +2939,7 @@ impl<'a> Ctx<'a> {
             return;
         }
         if let Some(n) = self.doc.get_mut(id) {
-            if !is_vec_or_bool {
+            if !preserves_outline {
                 if !has_fill_geo || skip_geo {
                     n.fill_geometry = None;
                 }

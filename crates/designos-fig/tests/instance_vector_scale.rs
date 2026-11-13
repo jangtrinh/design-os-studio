@@ -75,6 +75,48 @@ fn vec_data(blob: u32, nw: f32, nh: f32) -> V {
     msg(vec![("vectorNetworkBlob", V::Uint(blob)), ("normalizedSize", vec2(nw, nh))])
 }
 
+fn build_line_size_only_fixture() -> Vec<u8> {
+    let doc = node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]);
+    let page = node((0, 1), (0, 0), "a", "CANVAS", "Page 1", vec![]);
+    let main = node((1, 100), (0, 1), "a", "SYMBOL", "LineMain", vec![("size", vec2(100.0, 10.0))]);
+    let line = node(
+        (1, 101),
+        (1, 100),
+        "a",
+        "LINE",
+        "Line",
+        vec![
+            ("overrideKey", guid(90, 101)),
+            ("size", vec2(100.0, 0.0)),
+            ("strokePaints", V::Array(vec![solid(0.0, 0.0, 0.0)])),
+            ("strokeWeight", fl(10.0)),
+            ("strokeAlign", en("CENTER")),
+            ("strokeCap", en("NONE")),
+            ("strokeGeometry", geo("NONZERO", 0)),
+        ],
+    );
+    let instance = node(
+        (2, 1),
+        (0, 1),
+        "b",
+        "INSTANCE",
+        "LineInstance",
+        vec![
+            ("size", vec2(200.0, 10.0)),
+            ("symbolData", msg(vec![("symbolID", guid(1, 100))])),
+            ("derivedSymbolData", V::Array(vec![ov(&[(90, 101)], vec![("size", vec2(200.0, 0.0))])])),
+        ],
+    );
+    let changes = V::Array(vec![doc, page, main, line, instance]);
+    let outline_blob = path_blob(&[(1, &[0.0, -10.0]), (2, &[100.0, -10.0]), (2, &[100.0, 0.0]), (2, &[0.0, 0.0]), (0, &[])]);
+    let blobs = V::Array(vec![st(vec![("bytes", V::Bytes(outline_blob))])]);
+    let message = msg(vec![("nodeChanges", changes), ("blobs", blobs)]);
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &message).unwrap();
+    container::write_container(&schema.encode(), &body, Compression::Zstd, 101)
+}
+
 /// Builds a `.fig` message containing:
 /// - `chevron-selector-vertical` (24×24 main component) with a `10×16` `vector` frame and two `10×5` `Icon`
 ///   open-path stroked vectors (`strokeWeight = 1.5`, `ROUND` cap/join, `SCALE` constraints, `overrideKey`s).
@@ -504,6 +546,22 @@ fn resized_instance_without_derived_geometry_scales_geometry_to_fit_child_size()
             "pad_large={pad_large}: expected scaled network (0..5, 0..2.5), got ({nx0}..{nx1}, {ny0}..{ny1})"
         );
     }
+}
+
+#[test]
+fn size_only_line_instance_override_keeps_and_scales_imported_stroke_band() {
+    let doc = import_fig(&build_line_size_only_fixture()).unwrap();
+    let line = find_in_subtree(&doc, find(&doc, "LineInstance").id, "Line");
+    let outline = line.stroke_geometry.as_ref().expect("size-only line override keeps imported outline");
+    let xs: Vec<f32> = outline
+        .iter()
+        .flat_map(|p| p.cmds.iter())
+        .filter_map(|c| match c {
+            PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some(p.x),
+            _ => None,
+        })
+        .collect();
+    assert!(xs.contains(&200.0), "line outline must stretch to the derived width, got {xs:?}");
 }
 
 #[test]
