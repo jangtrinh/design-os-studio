@@ -295,6 +295,32 @@ fn reference(make: fn() -> Gesture) -> (Vec<f32>, Vec<f32>) {
     (before, after)
 }
 
+#[test]
+fn clicking_a_corner_radius_handle_does_not_edit_or_add_undo() {
+    let mut g = corner_radius();
+    let before = g.values();
+    let depth = g.sim.app().hist.undo_depth();
+    g.sim.mv(g.from);
+    g.sim.button(true);
+    g.sim.button(false);
+    g.sim.frame(vec![]);
+    assert!(same(&g.values(), &before), "a click must leave corner radii unchanged: {:?} -> {:?}", before, g.values());
+    assert_eq!(g.sim.app().hist.undo_depth(), depth, "a click must not add an undo step");
+}
+
+#[test]
+fn clicking_a_shape_control_handle_does_not_edit_or_add_undo() {
+    let mut g = shape_control();
+    let before = g.values();
+    let depth = g.sim.app().hist.undo_depth();
+    g.sim.mv(g.from);
+    g.sim.button(true);
+    g.sim.button(false);
+    g.sim.frame(vec![]);
+    assert!(same(&g.values(), &before), "a click must leave shape controls unchanged: {:?} -> {:?}", before, g.values());
+    assert_eq!(g.sim.app().hist.undo_depth(), depth, "a click must not add an undo step");
+}
+
 fn commits_where_released(make: fn() -> Gesture) {
     let (before, want) = reference(make);
     let mut g = make();
