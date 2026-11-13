@@ -1481,6 +1481,25 @@ pub fn size_comes_from_main(doc: &Document, id: NodeId) -> bool {
     !keeps_own_text_size(r, n, values)
 }
 
+/// Drops a baked vector outline on a parametric shape so the renderer rebuilds it from its parameters.
+pub fn drop_baked_outline_of_parametric_shape(n: &mut Node) {
+    if matches!(
+        n.kind,
+        NodeKind::Ellipse(_)
+            | NodeKind::Polygon { .. }
+            | NodeKind::Star { .. }
+            | NodeKind::Rectangle
+            | NodeKind::Frame(_)
+            | NodeKind::Component(_)
+            | NodeKind::ComponentSet(_)
+            | NodeKind::Instance { .. }
+            | NodeKind::Section
+    ) {
+        n.fill_geometry = None;
+        n.stroke_geometry = None;
+    }
+}
+
 /// Copies every field of `r` that `n` does not override onto `n`.
 fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, PropValue>) {
     let ov = n.component.overrides.clone();
@@ -1488,6 +1507,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         NodeKind::Ellipse(a) => Some(*a),
         _ => None,
     };
+    let own_radii_before = (n.corner_radii, n.corner_smoothing);
     let own_text = keeps_own_text_size(r, n, values);
     let keep_text_fill = matches!(n.kind, NodeKind::Text(_)) && (ov.contains(&OverrideField::Fills) || ov.contains(&OverrideField::TextStyle));
     let saved_text_fill = keep_text_fill.then(|| {
@@ -1606,24 +1626,16 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         n.component.is_slot = r.component.is_slot;
         n.component.is_slot_content = r.component.is_slot_content;
     }
-    // Size sync copies the main's baked paths, but a local corner-radius override makes those
-    // paths stale. Let the renderer rebuild parametric geometry from the instance's radius.
-    if ov.contains(&OverrideField::CornerRadii)
-        && matches!(
-            n.kind,
-            NodeKind::Ellipse(_)
-                | NodeKind::Polygon { .. }
-                | NodeKind::Star { .. }
-                | NodeKind::Rectangle
-                | NodeKind::Frame(_)
-                | NodeKind::Component(_)
-                | NodeKind::ComponentSet(_)
-                | NodeKind::Instance { .. }
-                | NodeKind::Section
-        )
-    {
-        n.fill_geometry = None;
-        n.stroke_geometry = None;
+    // Size sync copies the main's baked paths, but a local corner-radius override (or a main corner-radius
+    // change on a size-overridden shape) makes those paths stale. Let the renderer rebuild parametric geometry.
+    let radii_is_own = ov.contains(&OverrideField::CornerRadii);
+    let radii_outline_stale = if radii_is_own {
+        !ov.contains(&OverrideField::Size) || n.fill_geometry.is_some() || n.stroke_geometry.is_some()
+    } else {
+        ov.contains(&OverrideField::Size) && (r.corner_radii, r.corner_smoothing) != own_radii_before
+    };
+    if radii_outline_stale {
+        drop_baked_outline_of_parametric_shape(n);
     }
     // A baked outline draws the arc it was made for and outranks the arc: one that no longer matches is dropped, so
     // the ring is drawn from the arc and the size again.
