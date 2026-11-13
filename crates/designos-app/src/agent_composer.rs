@@ -2441,7 +2441,7 @@ mod tests {
         st.path_prepend.push(bin_dir);
         assert!(st.tabs.is_empty());
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
 
         assert_eq!(st.tabs.len(), 1, "exactly one tab is opened");
         {
@@ -2454,7 +2454,7 @@ mod tests {
         assert!(received.contains("Image task 7: Remove background."), "the agent CLI must receive the prompt: {received:?}");
 
         // A second job reuses the same agent tab.
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Isolate subject.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Isolate subject.", None);
         assert_eq!(st.tabs.len(), 1, "a ready agent tab of the same CLI is reused");
         let received = wait_for_file_containing(&mut st, &recv, "Image task 8");
         assert!(received.contains("Image task 8: Isolate subject."), "second prompt reaches the same CLI: {received:?}");
@@ -2478,7 +2478,7 @@ mod tests {
         st.active_tab = 0;
         let before: Vec<(AgentCliPreset, AgentCliPreset, String)> = st.tabs.iter().map(|t| (t.preset, t.spawn_preset, t.title.clone())).collect();
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 9: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 9: Remove background.", None);
 
         assert_eq!(st.tabs.len(), 3, "a Claude tab is added next to the user's Shell and Codex tabs");
         for (i, (preset, spawn_preset, title)) in before.iter().enumerate() {
@@ -2512,7 +2512,7 @@ mod tests {
         st.active_mentions.push(sample_mention());
         let sends_before = st.active_composer().send_count;
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 3: Remove background. Compare @Hero/Title.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 3: Remove background. Compare @Hero/Title.", None);
 
         let comp = st.active_composer();
         assert_eq!(comp.draft, "half typed thought", "a system send must not clear the draft");
@@ -2539,7 +2539,7 @@ mod tests {
         let mut st = TerminalState::new_for_session("doc-system-failed-start", "System Send", Some(&dir));
         st.path_prepend.push(bin_dir);
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 5: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 5: Remove background.", None);
 
         assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "the stub CLI fails to start");
         let _ = st.poll_live_agent_bridge();
@@ -3757,7 +3757,7 @@ mod tests {
         st.active_runtime = AgentCliPreset::Claude;
 
         assert_eq!(st.send_to_agent("user prompt at start", None), SendOutcome::Queued);
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
         assert_eq!(st.tabs.len(), 1);
         assert_eq!(st.tabs[0].composer.pending_send.len(), 2);
 
@@ -3800,7 +3800,7 @@ mod tests {
         *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Reading the file\u{2026}".into()));
         st.tick_composer();
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Upscale.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Upscale.", None);
         assert_eq!(
             *st.tabs[0].agent_status.lock().unwrap(),
             AgentTabStatus::Working(Some("Reading the file\u{2026}".into())),
@@ -3984,7 +3984,7 @@ mod tests {
         *st_img.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
         let written_at_img_hold = tab_written_string(&st_img, 0);
 
-        st_img.submit_system_image_prompt(AgentCliPreset::Gemini, "Image task 9: Upscale.", None);
+        let _ = st_img.submit_system_image_prompt(AgentCliPreset::Gemini, "Image task 9: Upscale.", None);
         assert_eq!(
             st_img.tabs[0].composer.last_outcome,
             Some(SendOutcome::Queued),
@@ -4042,7 +4042,7 @@ mod tests {
         st.tabs[0].composer.enter_written_at = Some(Instant::now());
         assert_eq!(*st.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Idle);
 
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 10: Remove background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 10: Remove background.", None);
 
         std::thread::sleep(READY_QUIET_OUTPUT + Duration::from_millis(40));
         st.tick_composer();
@@ -4069,7 +4069,7 @@ mod tests {
         st.tabs[0].composer.output_at_enter = out_at_enter_2;
         st.tabs[0].composer.enter_written_at = Some(Instant::now());
         assert_eq!(*st.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Idle);
-        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 11: Relight.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 11: Relight.", None);
         std::thread::sleep(READY_QUIET_OUTPUT + Duration::from_millis(40));
         st.tick_composer();
         st.flush_pending_enter_now();

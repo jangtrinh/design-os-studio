@@ -1144,7 +1144,11 @@ fn pump_next_queued_image_job_for(
         }
 
         if image_jobs.agent_script.is_none() {
-            terminal.submit_system_image_prompt(preset, &prompt, file_path);
+            if let Err(reason) = terminal.submit_system_image_prompt(preset, &prompt, file_path) {
+                image_jobs.jobs[idx].state = ImageJobState::Failed(reason.clone());
+                terminal.status_msg = Some(reason);
+                continue;
+            }
         }
 
         let tab_status: Option<Arc<Mutex<AgentTabStatus>>> = terminal.active_tab().map(|t| Arc::clone(&t.agent_status));
@@ -1959,6 +1963,25 @@ mod tests {
         assert_eq!(DISABLED_TOOLTIP, "Needs an agent CLI. Set one up in Agents.");
         assert!(app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).is_none(), "starting an image job without an installed agent CLI is refused");
         assert_eq!(app.toast.as_ref().map(|t| t.text.as_str()), Some(DISABLED_TOOLTIP));
+    }
+
+    #[test]
+    fn refused_agent_fails_image_job_instead_of_leaving_it_running() {
+        let tmp = TestDir::new("ask-risky-refusal");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("image-refusal-{}", std::process::id()));
+        app.terminal.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        app.terminal.active_runtime = AgentCliPreset::Codex;
+        app.image_jobs.override_agent_installed = Some(true);
+
+        let job_id = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job is queued before the agent starts");
+        let job = app.image_jobs.jobs.iter().find(|job| job.id == job_id).expect("job is recorded");
+        assert!(
+            matches!(&job.state, ImageJobState::Failed(reason) if reason.contains("Ask first") && reason.contains("Codex")),
+            "unexpected state: {:?}",
+            job.state
+        );
+        assert!(app.image_jobs.watcher.is_none(), "a refused agent must not leave a watcher running");
     }
 
     #[test]
