@@ -180,6 +180,37 @@ fn a_refused_spec_swap_says_what_the_editor_says() {
     assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
 }
 
+#[test]
+fn a_five_hop_swap_loop_with_a_layer_named_layer_keeps_its_name_and_names_the_target_once() {
+    let mut e = Engine::default();
+    let page = e.active_page_id.unwrap();
+    let row = main_on(&mut e, page, "Row", 0.0);
+    let card = main_on(&mut e, page, "Card", 300.0);
+    place(&mut e, row, card);
+    let dot = main_on(&mut e, page, "Dot", 600.0);
+    let chip = main_on(&mut e, page, "Chip", 900.0);
+    place(&mut e, dot, chip);
+
+    // 1. 5-hop override swap where the Chip instance inside Row is named "Layer":
+    // Row -> Layer -> Dot -> Card -> Row.
+    let root = place(&mut e, chip, row);
+    e.doc.get_mut(root).unwrap().name = "Layer".into();
+    let ov: designos_doc::OverrideSpec = serde_json::from_value(json!({"path": "Dot", "swap": "Card"})).unwrap();
+    let err = designos_doc::apply_overrides(&mut e.doc, root, &[ov], &[]).unwrap_err();
+    assert_eq!(err.code, "INSTANCE_CYCLE");
+    assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} Dot \u{2192} Card \u{2192} Row)");
+    Command::Remove { id: root }.apply(&mut e.doc).unwrap();
+
+    // 2. 5-hop spec swap where the instance itself is explicitly named "Layer" inside Row:
+    // Row -> Layer -> Dot -> Card -> Row.
+    let before = e.doc.to_json().unwrap();
+    let spec = json!({"kind": "instance", "component": "Chip", "name": "Layer", "overrides": [{"path": "Dot", "swap": "Card"}]});
+    let err = e.call("designos_apply_spec", json!({"parent_id": row.0, "spec": spec})).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} Dot \u{2192} Card \u{2192} Row)");
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
+}
+
 /// A text variable in a Theme collection that reads the given value in its only mode.
 fn text_variable(e: &mut Engine, id: &str, value: &str) {
     let collection = e.doc.variable_collections.entry("theme".into()).or_insert_with(|| VariableCollection {

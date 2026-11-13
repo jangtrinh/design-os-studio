@@ -178,6 +178,8 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub warnings: Vec<crate::SpecWarning>,
     pub measured_with_fallback: Vec<u64>,
     pub touched_slot_containers: HashMap<NodeId, String>,
+    /// Instance root created by `build_instance_spec_node` when `spec.name` was omitted.
+    pub(crate) unnamed_spec_root: Option<NodeId>,
     /// Renderer measurer for this call. `None` keeps the character-width estimate.
     pub measure: Option<&'a dyn crate::text_measure::TextMeasure>,
 }
@@ -210,6 +212,7 @@ impl<'a> SpecBuildCtx<'a> {
             warnings: Vec::new(),
             measured_with_fallback: Vec::new(),
             touched_slot_containers: HashMap::new(),
+            unnamed_spec_root: None,
             measure: None,
         }
     }
@@ -1268,9 +1271,9 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                 swapped_with_variant = true;
             }
             if let Some((held, mut path)) = held_main_cycle_path_at(doc, new_comp, target_id, &[]) {
-                // Do not expose the unnamed override parent as the swap target in the user-facing cycle path.
-                if let Some(label) = path.iter_mut().find(|label| **label == "Layer") {
-                    *label = cycle_node_label(doc, new_comp);
+                // Only when an unnamed spec instance sits in an elided (>5 hop) loop, surface the swap target in slot 1.
+                if ctx.unnamed_spec_root == Some(instance_root) && path.len() > 5 {
+                    path[1] = cycle_node_label(doc, new_comp);
                 }
                 let message = cycle_refusal_message(CycleAction::Swap, &cycle_node_label(doc, held), &path);
                 return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.swap".into()), Vec::new(), None));
@@ -2009,7 +2012,20 @@ impl Document {
         // Apply root component properties (`props`), slots (`slots`, E15-2), and descendant overrides (`overrides`)
         if let Err(e) = apply_instance_props_with_ctx(self, inst_id, &spec.props, ctx)
             .and_then(|()| apply_instance_slots_with_ctx(self, inst_id, &spec.slots, "slots", ctx))
-            .and_then(|()| apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx))
+            .and_then(|()| {
+                if !spec.name.is_empty() {
+                    if let Some(inst_node) = self.get_mut(inst_id) {
+                        if spec.name != inst_node.name {
+                            inst_node.name = spec.name.clone();
+                        }
+                    }
+                }
+                let prev_unnamed = ctx.unnamed_spec_root;
+                ctx.unnamed_spec_root = spec.name.trim().is_empty().then_some(inst_id);
+                let res = apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx);
+                ctx.unnamed_spec_root = prev_unnamed;
+                res
+            })
         {
             let _ = Command::Remove { id: inst_id }.apply(self);
             return Err(e);
