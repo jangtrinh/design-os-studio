@@ -4388,7 +4388,7 @@ mod parked_override_export_tests {
         let sub = *d.get(inst).unwrap().children.iter().find(|&&c| d.get(c).unwrap().name == "Subtitle").unwrap();
         let mut sn = d.get(sub).unwrap().clone();
         if let NodeKind::Text(tp) = &mut sn.kind {
-            tp.content = "Parked".into();
+            tp.content = "Parked subtitle text".into();
         }
         sn.component.overrides.insert(OverrideField::Characters);
         Command::Update { node: Box::new(sn) }.apply(&mut d).unwrap();
@@ -4402,5 +4402,20 @@ mod parked_override_export_tests {
         let bytes_with_parked = export_fig(&d).unwrap();
         let bytes_without_parked = export_fig(&clean).unwrap();
         assert_eq!(bytes_with_parked, bytes_without_parked);
+
+        let pen_with_parked = crate::export_pen_json(&d).unwrap();
+        let pen_without_parked = crate::export_pen_json(&clean).unwrap();
+        assert_eq!(pen_with_parked, pen_without_parked, "pen export omits parked overrides and writes only what the instance shows");
+        assert!(!pen_with_parked.contains("parked_overrides"));
+        assert!(!pen_with_parked.contains("Parked subtitle text"));
+
+        let rest_with_parked = crate::export_rest_json(&d).to_string();
+        let rest_without_parked = crate::export_rest_json(&clean).to_string();
+        assert_eq!(rest_with_parked, rest_without_parked, "REST export omits parked overrides and writes only what the instance shows");
+        assert!(!rest_with_parked.contains("parked_overrides"));
+        assert!(!rest_with_parked.contains("Parked subtitle text"));
+
+        let native_json = d.to_json().unwrap();
+        assert!(native_json.contains("parked_overrides"), "native file writes parked_overrides");
     }
 }

@@ -61,12 +61,23 @@ struct Ctx<'a> {
     holds_itself: BTreeMap<NodeId, bool>,
     /// Number of nested swaps and override fields dropped during this context's swap operations.
     dropped_changes: usize,
+    /// Number of parked overrides kept on instances for a later return during this context's swap operations.
+    kept_for_return: usize,
 }
 
 impl<'a> Ctx<'a> {
     fn new(doc: &'a mut Document) -> Self {
         let saved_dirty = doc.dirty.clone();
-        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: Vec::new(), holds_itself: BTreeMap::new(), dropped_changes: 0 }
+        Ctx {
+            s: doc,
+            cmds: Vec::new(),
+            invs: Vec::new(),
+            saved_dirty,
+            refused_swap: Vec::new(),
+            holds_itself: BTreeMap::new(),
+            dropped_changes: 0,
+            kept_for_return: 0,
+        }
     }
     fn push(&mut self, c: Command) {
         if let Ok(inv) = c.clone().apply(self.s) {
@@ -1824,7 +1835,7 @@ fn field_applies_to_kind(field: OverrideField, kind: &NodeKind) -> bool {
     }
 }
 
-fn extract_parked_override(path: &[NestedStep], from: &Node, field: OverrideField) -> Option<ParkedOverride> {
+fn extract_parked_override(path: &[NestedStep], from: &Node, orig_id: Option<NodeId>, field: OverrideField) -> Option<ParkedOverride> {
     let value = match field {
         OverrideField::Name => ParkedOverrideValue::Name(from.name.clone()),
         OverrideField::Visible => ParkedOverrideValue::Visible(from.visible),
@@ -1887,7 +1898,7 @@ fn extract_parked_override(path: &[NestedStep], from: &Node, field: OverrideFiel
     let is_text = matches!(from.kind, NodeKind::Text(_));
     let bindings =
         from.variables.bindings.iter().filter(|(k, _)| binding_override_field(k, is_text) == Some(field)).map(|(k, v)| (k.clone(), v.clone())).collect();
-    Some(ParkedOverride { path: path.to_vec(), field, value, bindings })
+    Some(ParkedOverride { path: path.to_vec(), field, value, bindings, origin_source: orig_id })
 }
 
 fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
@@ -1909,21 +1920,11 @@ fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
                 to.fill_geometry = None;
                 to.stroke_geometry = None;
             }
-            match explicit_width {
-                Some(v) => {
-                    to.plugin_data.insert("pen:explicit_width".into(), v.clone());
-                }
-                None => {
-                    to.plugin_data.remove("pen:explicit_width");
-                }
+            if let Some(v) = explicit_width {
+                to.plugin_data.insert("pen:explicit_width".into(), v.clone());
             }
-            match explicit_height {
-                Some(v) => {
-                    to.plugin_data.insert("pen:explicit_height".into(), v.clone());
-                }
-                None => {
-                    to.plugin_data.remove("pen:explicit_height");
-                }
+            if let Some(v) = explicit_height {
+                to.plugin_data.insert("pen:explicit_height".into(), v.clone());
             }
         }
         ParkedOverrideValue::Transform(tf) => to.transform = *tf,
@@ -1937,13 +1938,8 @@ fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
         ParkedOverrideValue::Stroke { stroke, style_ref, explicit_stroke_fields } => {
             to.stroke = (**stroke).clone();
             set_or_remove_style_ref(to, "stroke", style_ref.as_deref());
-            match explicit_stroke_fields {
-                Some(v) => {
-                    to.plugin_data.insert("pen:explicit_stroke_fields".into(), v.clone());
-                }
-                None => {
-                    to.plugin_data.remove("pen:explicit_stroke_fields");
-                }
+            if let Some(v) = explicit_stroke_fields {
+                to.plugin_data.insert("pen:explicit_stroke_fields".into(), v.clone());
             }
         }
         ParkedOverrideValue::Effects { effects, style_ref } => {
@@ -1982,7 +1978,6 @@ fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
                 b.paragraph = text.paragraph.clone();
                 b.lists = text.lists.clone();
                 b.direction = text.direction;
-                b.text_wrap = text.text_wrap;
             }
             to.text_style_overrides = *text_style_overrides;
             set_or_remove_style_ref(to, "text", text_style_ref.as_deref());
@@ -2020,6 +2015,67 @@ fn apply_parked_override_to_node(po: &ParkedOverride, to: &mut Node) {
         }
     }
     to.component.overrides.insert(po.field);
+}
+
+fn family_variants(d: &Document, comp_id: NodeId) -> Vec<NodeId> {
+    if let Some(parent_id) = d.get(comp_id).and_then(|n| n.parent) {
+        if let Some(parent) = d.get(parent_id) {
+            if matches!(parent.kind, NodeKind::ComponentSet(_)) {
+                return parent.children.iter().copied().filter(|&cid| matches!(d.get(cid).map(|n| &n.kind), Some(NodeKind::Component(_)))).collect();
+            }
+        }
+    }
+    vec![comp_id]
+}
+
+fn find_layer_at_path<'a>(d: &'a Document, root_comp: NodeId, path: &[NestedStep]) -> Option<&'a Node> {
+    let mut cur_id = root_comp;
+    let mut active_comp = Some(root_comp);
+    for (step_name, step_occ) in path {
+        let n = d.get(cur_id)?;
+        let mut seen_names: BTreeMap<String, usize> = BTreeMap::new();
+        let mut found: Option<&'a Node> = None;
+        for &k in &n.children {
+            let Some(kn) = d.get(k) else { continue };
+            let base = base_layer(d, active_comp, kn);
+            let base_name = &base.name;
+            let seen = seen_names.entry(base_name.clone()).or_insert(0);
+            let occ = *seen;
+            *seen += 1;
+            if base_name == step_name && occ == *step_occ {
+                found = Some(kn);
+                break;
+            }
+        }
+        let kn = found?;
+        let orig = orig_in_main(d, Some(root_comp), kn);
+        let is_swapped_inst = matches!(kn.kind, NodeKind::Instance { .. })
+            && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
+        active_comp = if is_swapped_inst || matches!(kn.kind, NodeKind::Instance { .. }) { instance_component(kn).or(active_comp) } else { active_comp };
+        cur_id = kn.id;
+    }
+    d.get(cur_id)
+}
+
+fn family_has_compatible_layer(d: &Document, comp_id: NodeId, path: &[NestedStep], field: OverrideField) -> bool {
+    family_variants(d, comp_id).into_iter().any(|var_id| find_layer_at_path(d, var_id, path).is_some_and(|node| field_applies_to_kind(field, &node.kind)))
+}
+
+fn direct_transfer_gate_allows(
+    f: OverrideField,
+    orig: &Node,
+    new_orig: &Node,
+    preserves_text_override: bool,
+    has_characters_override: bool,
+    same_family: bool,
+    diff: &BTreeSet<OverrideField>,
+) -> bool {
+    let same_text_metrics = same_text_sizing(orig, new_orig);
+    f == OverrideField::Name
+        || (preserves_text_override && f == OverrideField::Characters)
+        || (preserves_text_override && has_characters_override && same_text_metrics && f == OverrideField::Size)
+        || (!same_family && f == OverrideField::TextStyle)
+        || !diff.contains(&f)
 }
 
 /// Rebuilds the children of instance `i` from `new_comp`, carrying overrides
@@ -2060,11 +2116,23 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             let is_inst = matches!(kn.kind, NodeKind::Instance { .. });
             let is_swapped_inst =
                 is_inst && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
-            if is_swapped_inst {
+            let has_parked = is_inst && !kn.component.parked_overrides.is_empty();
+            if is_swapped_inst || has_parked {
                 // Only a nested instance the old main itself holds has a counterpart in the new main; anything else cannot move.
                 match (orig, instance_component(kn)) {
-                    (Some(_), Some(shown)) => inner.movable.push(InnerSwap { path: path.clone(), shown, picks: kn.component.variant_picks.clone() }),
-                    _ => inner.dropped += 1,
+                    (Some(_), Some(shown)) => inner.movable.push(InnerSwap {
+                        path: path.clone(),
+                        shown,
+                        swapped: is_swapped_inst,
+                        picks: kn.component.variant_picks.clone(),
+                        parked: kn.component.parked_overrides.clone(),
+                    }),
+                    _ => {
+                        if is_swapped_inst {
+                            inner.dropped += 1;
+                        }
+                        inner.dropped_parked += kn.component.parked_overrides.len();
+                    }
                 }
             }
             let fields = if top_swap {
@@ -2090,6 +2158,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     }
     collect(&c.s, i, (old_comp, old_comp, top_swap, false), &mut Vec::new(), &mut carried, &mut inner);
     let mut dropped_inner_swaps = inner.dropped;
+    let mut dropped_fields = inner.dropped_parked;
     let old_text_count = count_text_nodes(&c.s, i);
 
     for k in inode.children.clone() {
@@ -2189,17 +2258,29 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         match target {
             Some(t) if moves => {
                 used_swap_targets.insert(t.id);
-                if instance_component(&t) != Some(sw.shown) {
+                if sw.swapped && instance_component(&t) != Some(sw.shown) {
                     swap_main(c, t.id, sw.shown);
                     transferred_any = true;
                 }
                 if let Some(mut tn) = c.s.get(t.id).cloned() {
-                    tn.component.overrides.insert(OverrideField::MainComponent);
-                    tn.component.variant_picks = sw.picks.clone();
+                    if sw.swapped {
+                        tn.component.overrides.insert(OverrideField::MainComponent);
+                        tn.component.variant_picks = sw.picks.clone();
+                    }
+                    for po in &sw.parked {
+                        if !tn.component.parked_overrides.iter().any(|p| p.path == po.path && p.field == po.field) {
+                            tn.component.parked_overrides.push(po.clone());
+                        }
+                    }
                     c.update(tn);
                 }
             }
-            _ => dropped_inner_swaps += 1,
+            _ => {
+                if sw.swapped {
+                    dropped_inner_swaps += 1;
+                }
+                dropped_fields += sw.parked.len();
+            }
         }
     }
     if transferred_any {
@@ -2209,7 +2290,6 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     let new_texts = text_nodes(&c.s, i);
     let single_text_pair = old_text_count == 1 && new_texts.len() == 1;
     let mut used_override_targets: BTreeSet<NodeId> = BTreeSet::new();
-    let mut dropped_fields = 0usize;
     for item in carried {
         let CarriedOverride { path, old, orig_id, mut fields, own_layer } = item;
         let matched = by_path.get(&path).copied();
@@ -2218,8 +2298,8 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             (matches!(old.kind, NodeKind::Text(_)) && fields.iter().any(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle))).then_some(lone)
         }) else {
             for &f in &fields {
-                if old.component.overrides.contains(&f) {
-                    if let Some(po) = extract_parked_override(&path, &old, f) {
+                if same_family && old.component.overrides.contains(&f) {
+                    if let Some(po) = extract_parked_override(&path, &old, orig_id, f) {
                         newly_parked.push(po);
                     } else {
                         dropped_fields += 1;
@@ -2255,8 +2335,8 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 keep
             });
             for f in rest {
-                if old.component.overrides.contains(&f) {
-                    if let Some(po) = extract_parked_override(&path, &old, f) {
+                if same_family && old.component.overrides.contains(&f) {
+                    if let Some(po) = extract_parked_override(&path, &old, orig_id, f) {
                         newly_parked.push(po);
                     } else {
                         dropped_fields += 1;
@@ -2280,16 +2360,9 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                     }
                 }
                 let diff = transfer_gate_diff(&orig, &new_orig);
-                let same_text_metrics = same_text_sizing(&orig, &new_orig);
                 let has_characters_override = fields.contains(&OverrideField::Characters);
                 let before = fields.len();
-                fields.retain(|f| {
-                    *f == OverrideField::Name
-                        || (preserves_text_override && *f == OverrideField::Characters)
-                        || (preserves_text_override && has_characters_override && same_text_metrics && *f == OverrideField::Size)
-                        || (!same_family && *f == OverrideField::TextStyle)
-                        || !diff.contains(f)
-                });
+                fields.retain(|&f| direct_transfer_gate_allows(f, &orig, &new_orig, preserves_text_override, has_characters_override, same_family, &diff));
                 dropped_fields += before - fields.len();
             }
         }
@@ -2310,49 +2383,115 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
 
     let mut remaining_parked: Vec<ParkedOverride> = Vec::new();
     let mut to_apply_by_node: BTreeMap<NodeId, Vec<ParkedOverride>> = BTreeMap::new();
-    for po in prior_parked {
-        if newly_parked.iter().any(|np| np.path == po.path && np.field == po.field) {
-            continue;
-        }
-        let Some(&nid) = by_path.get(&po.path) else {
-            remaining_parked.push(po);
-            continue;
-        };
-        let Some(nn) = c.s.get(nid) else {
-            remaining_parked.push(po);
-            continue;
-        };
-        if !field_applies_to_kind(po.field, &nn.kind) {
-            remaining_parked.push(po);
-            continue;
-        }
-        to_apply_by_node.entry(nid).or_default().push(po);
-    }
-    for (nid, mut pos) in to_apply_by_node {
-        let Some(mut nn) = c.s.get(nid).cloned() else { continue };
-        pos.sort_by_key(|po| match po.field {
-            OverrideField::TextStyle => 0u8,
-            OverrideField::Characters => 1u8,
-            _ => 2u8,
-        });
-        let mut changed = false;
-        for po in &pos {
-            if !nn.component.overrides.contains(&po.field) {
-                apply_parked_override_to_node(po, &mut nn);
-                changed = true;
+    if same_family {
+        for po in &prior_parked {
+            if newly_parked.iter().any(|np| np.path == po.path && np.field == po.field) {
+                continue;
+            }
+            let Some(&nid) = by_path.get(&po.path) else {
+                if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
+                    remaining_parked.push(po.clone());
+                } else {
+                    dropped_fields += 1;
+                }
+                continue;
+            };
+            let Some(nn) = c.s.get(nid) else {
+                if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
+                    remaining_parked.push(po.clone());
+                } else {
+                    dropped_fields += 1;
+                }
+                continue;
+            };
+            if !field_applies_to_kind(po.field, &nn.kind) {
+                if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
+                    remaining_parked.push(po.clone());
+                } else {
+                    dropped_fields += 1;
+                }
+                continue;
+            }
+            if nn.component.overrides.contains(&po.field) {
+                // Live override on the returning layer wins; parked entry is removed.
+                continue;
+            }
+            let path_has_chars = nn.component.overrides.contains(&OverrideField::Characters)
+                || prior_parked.iter().any(|p| {
+                    p.path == po.path && p.field == OverrideField::Characters && !newly_parked.iter().any(|np| np.path == p.path && np.field == p.field)
+                });
+            let gate_allows = match (po.origin_source.and_then(|id| c.s.get(id)), nn.component.source.and_then(|s| c.s.get(s))) {
+                (Some(orig), Some(new_orig)) => {
+                    if po.field == OverrideField::Layout {
+                        let mut old_probe = orig.clone();
+                        apply_parked_override_to_node(po, &mut old_probe);
+                        let mut nn_probe = nn.clone();
+                        apply_transferred_layout(orig, new_orig, &old_probe, &mut nn_probe)
+                    } else {
+                        let diff = transfer_gate_diff(orig, new_orig);
+                        let preserves_text_override = text_override_transfers(orig, nn, true, false);
+                        direct_transfer_gate_allows(po.field, orig, new_orig, preserves_text_override, path_has_chars, true, &diff)
+                    }
+                }
+                _ => true,
+            };
+            if gate_allows {
+                to_apply_by_node.entry(nid).or_default().push(po.clone());
+            } else if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
+                remaining_parked.push(po.clone());
+            } else {
+                dropped_fields += 1;
             }
         }
-        if changed {
-            c.update(nn);
+        for (nid, mut pos) in to_apply_by_node {
+            let Some(mut nn) = c.s.get(nid).cloned() else { continue };
+            pos.sort_by_key(|po| match po.field {
+                OverrideField::TextStyle => 0u8,
+                OverrideField::Characters => 1u8,
+                _ => 2u8,
+            });
+            let mut changed = false;
+            for po in &pos {
+                if !nn.component.overrides.contains(&po.field) {
+                    if po.field == OverrideField::Layout {
+                        if let (Some(orig), Some(new_orig)) =
+                            (po.origin_source.and_then(|id| c.s.get(id)).cloned(), nn.component.source.and_then(|s| c.s.get(s)).cloned())
+                        {
+                            let mut old_probe = orig.clone();
+                            apply_parked_override_to_node(po, &mut old_probe);
+                            if apply_transferred_layout(&orig, &new_orig, &old_probe, &mut nn) {
+                                nn.component.overrides.insert(OverrideField::Layout);
+                                changed = true;
+                            }
+                        } else {
+                            apply_parked_override_to_node(po, &mut nn);
+                            changed = true;
+                        }
+                    } else {
+                        apply_parked_override_to_node(po, &mut nn);
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                c.update(nn);
+            }
         }
-    }
-    for po in newly_parked {
-        if let Some(existing) = remaining_parked.iter_mut().find(|p| p.path == po.path && p.field == po.field) {
-            *existing = po;
-        } else {
-            remaining_parked.push(po);
+        for po in newly_parked {
+            if family_has_compatible_layer(c.s, new_comp, &po.path, po.field) {
+                if let Some(existing) = remaining_parked.iter_mut().find(|p| p.path == po.path && p.field == po.field) {
+                    *existing = po;
+                } else {
+                    remaining_parked.push(po);
+                }
+            } else {
+                dropped_fields += 1;
+            }
         }
+    } else {
+        dropped_fields += prior_parked.len();
     }
+    let kept_for_return = remaining_parked.len();
     if let Some(mut cur_inst) = c.s.get(i).cloned() {
         if cur_inst.component.parked_overrides != remaining_parked {
             cur_inst.component.parked_overrides = remaining_parked;
@@ -2360,10 +2499,13 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
 
-    if dropped_inner_swaps > 0 || dropped_fields > 0 {
-        eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s) and {dropped_fields} field override(s)");
+    if dropped_inner_swaps > 0 || dropped_fields > 0 || kept_for_return > 0 {
+        eprintln!(
+            "designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s), {dropped_fields} field override(s), and kept {kept_for_return} override(s) for return"
+        );
     }
     c.dropped_changes += dropped_inner_swaps + dropped_fields;
+    c.kept_for_return += kept_for_return;
 }
 
 struct CarriedOverride {
@@ -2562,13 +2704,16 @@ fn apply_transferred_layout(orig: &Node, new_orig: &Node, old: &Node, nn: &mut N
 struct InnerSwaps {
     movable: Vec<InnerSwap>,
     dropped: usize,
+    dropped_parked: usize,
 }
 
 struct InnerSwap {
     path: Vec<NestedStep>,
     shown: NodeId,
+    swapped: bool,
     /// The bound variant properties picked by hand on it, which travel with the swap.
     picks: BTreeSet<String>,
+    parked: Vec<ParkedOverride>,
 }
 
 fn text_nodes(d: &Document, root: NodeId) -> Vec<NodeId> {
@@ -2813,7 +2958,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     // reference's layers instead of being rebuilt from them, which would drop its overrides.
     if !top
         && !swapped_here
-        && has_prop_binding(&inode)
+        && (has_prop_binding(&inode) || inode.component.overrides.contains(&OverrideField::MainComponent))
         && matches!(rn.kind, NodeKind::Instance { .. })
         && instance_component(&inode) == instance_component(&rn)
     {
@@ -3075,12 +3220,18 @@ pub fn swap_instance(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> 
 }
 
 pub(crate) fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize) {
+    let (cmd, dropped, _) = swap_instance_reporting(doc, instance, new_comp);
+    (cmd, dropped)
+}
+
+pub(crate) fn swap_instance_reporting(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize, usize) {
     let mut c = Ctx::new(doc);
     if !swap_recorded(&mut c, instance, new_comp) {
-        return (nothing(), 0);
+        return (nothing(), 0, 0);
     }
     let dropped = c.dropped_changes;
-    (c.finish(), dropped)
+    let kept = c.kept_for_return;
+    (c.finish(), dropped, kept)
 }
 
 /// Swaps `instance` to `new_comp` and records the swap as a `MainComponent` override. False when nothing changed: the
@@ -3113,18 +3264,24 @@ pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value
 /// [`set_instance_prop`], also why the edit was refused when the guard refused it: the sentence of
 /// [`crate::cycle_refusal_message`] for the swap that the value would make. `None` when the edit went through.
 pub fn set_instance_prop_explained(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, Option<String>) {
-    let (cmd, _, refused) = set_instance_prop_reporting(doc, instance, name, value);
+    let (cmd, _, _, refused) = set_instance_prop_reporting(doc, instance, name, value);
     let reason = refused.first().map(|swap| crate::refused_swap_message(doc, instance, *swap));
     (cmd, reason)
 }
 
 fn set_instance_prop_inner(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize) {
-    let (cmd, dropped, _) = set_instance_prop_reporting(doc, instance, name, value);
+    let (cmd, dropped, _, _) = set_instance_prop_reporting(doc, instance, name, value);
     (cmd, dropped)
 }
 
-fn set_instance_prop_reporting(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize, Vec<(NodeId, NodeId)>) {
-    set_instance_prop_edit_reporting(doc, instance, |n| match value {
+#[cfg(test)]
+fn set_instance_prop_counts(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize, usize) {
+    let (cmd, dropped, kept, _) = set_instance_prop_reporting(doc, instance, name, value);
+    (cmd, dropped, kept)
+}
+
+fn set_instance_prop_reporting(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize, usize, Vec<(NodeId, NodeId)>) {
+    set_instance_prop_edit_counts_reporting(doc, instance, |n| match value {
         Some(v) => {
             if matches!(v, PropValue::Variant(_)) {
                 record_variant_pick(n, name);
@@ -3148,6 +3305,15 @@ pub(crate) fn set_instance_prop_edit(doc: &mut Document, instance: NodeId, edit:
 /// [`set_instance_prop_edit`], also the swaps the guard refused that stopped the edit, as `(main shown, main wanted)`.
 /// The list is empty when the edit went through, and when it changed nothing for another reason.
 pub(crate) fn set_instance_prop_edit_reporting(doc: &mut Document, instance: NodeId, edit: impl FnOnce(&mut Node)) -> (Command, usize, Vec<(NodeId, NodeId)>) {
+    let (cmd, dropped, _, refused) = set_instance_prop_edit_counts_reporting(doc, instance, edit);
+    (cmd, dropped, refused)
+}
+
+fn set_instance_prop_edit_counts_reporting(
+    doc: &mut Document,
+    instance: NodeId,
+    edit: impl FnOnce(&mut Node),
+) -> (Command, usize, usize, Vec<(NodeId, NodeId)>) {
     let mut c = Ctx::new(doc);
     if let Some(mut n) = c.s.get(instance).cloned() {
         edit(&mut n);
@@ -3156,9 +3322,10 @@ pub(crate) fn set_instance_prop_edit_reporting(doc: &mut Document, instance: Nod
     sync_one(&mut c, instance);
     let refused = std::mem::take(&mut c.refused_swap);
     let dropped = c.dropped_changes;
+    let kept = c.kept_for_return;
     let cmd = c.finish();
     if refused.is_empty() {
-        return (cmd, dropped, Vec::new());
+        return (cmd, dropped, kept, Vec::new());
     }
     // A value that would swap the instance to a main that holds itself in it is not stored: nothing changes. A swap
     // the instance already refuses without this value (a stored variant that a rename or an older build left pointing
@@ -3166,9 +3333,9 @@ pub(crate) fn set_instance_prop_edit_reporting(doc: &mut Document, instance: Nod
     let stored = refused_swaps(doc, instance);
     let blocking: Vec<(NodeId, NodeId)> = refused.into_iter().filter(|r| !stored.contains(r)).collect();
     if blocking.is_empty() {
-        (cmd, dropped, Vec::new())
+        (cmd, dropped, kept, Vec::new())
     } else {
-        (nothing(), 0, blocking)
+        (nothing(), 0, 0, blocking)
     }
 }
 
@@ -10505,7 +10672,8 @@ mod tests {
         let page = d.add_page("P");
         let a = main_with_texts(&mut d, page, "Card/A", 0.0, &["Title", "Subtitle"]);
         let b = main_with_texts(&mut d, page, "Card/B", 200.0, &["Title"]);
-        let _ = combine_as_variants(&mut d, &[a, b]);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
         let c = create_instance(&mut d, a, page, Vec2::new(0.0, 900.0));
         apply(&mut d, c);
         let inst = *d.get(page).unwrap().children.last().unwrap();
@@ -11515,6 +11683,34 @@ mod tests {
         comp
     }
 
+    fn normalized_node(d: &Document, id: NodeId) -> Node {
+        let mut n = d.get(id).unwrap().clone();
+        n.id = NodeId(0);
+        n.parent = None;
+        n.children.clear();
+        n.motion = None;
+        n
+    }
+
+    fn subtree_nodes(d: &Document, root: NodeId) -> Vec<Node> {
+        let mut out = Vec::new();
+        d.walk(root, |n, _| out.push(n.clone()));
+        out
+    }
+
+    fn normalized_subtree(d: &Document, root: NodeId) -> Vec<Node> {
+        let mut out = Vec::new();
+        d.walk(root, |n, _| {
+            let mut c = n.clone();
+            c.id = NodeId(0);
+            c.parent = None;
+            c.children.clear();
+            c.motion = None;
+            out.push(c);
+        });
+        out
+    }
+
     #[test]
     fn override_on_layer_missing_in_other_variant_returns_on_switch_back_for_text_visibility_fill_and_stroke() {
         let mut d = Document::new("ThereAndBackMissingLayer");
@@ -11558,33 +11754,27 @@ mod tests {
             apply(&mut d, Command::Update { node: Box::new(rn) });
         }
 
-        let (cmd_to_b, dropped_to_b) = set_instance_prop_inner(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        let before_sub = normalized_node(&d, sub);
+        let before_badge = normalized_node(&d, badge);
+        let before_chip = normalized_node(&d, chip);
+        let before_rule = normalized_node(&d, rule);
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
+
+        let (cmd_to_b, dropped_to_b, kept_to_b) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
         apply(&mut d, cmd_to_b);
-        assert_eq!(dropped_to_b, 0, "parked overrides on layers missing from B must not be counted as dropped");
+        assert_eq!((dropped_to_b, kept_to_b), (0, 4), "switch A -> B reports 0 dropped and 4 kept-for-return overrides");
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 4);
         assert_eq!(d.get(inst).unwrap().children.len(), 1, "B only has Title");
 
-        let (cmd_to_a, dropped_to_a) = set_instance_prop_inner(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        let (cmd_to_a, dropped_to_a, kept_to_a) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
         apply(&mut d, cmd_to_a);
-        assert_eq!(dropped_to_a, 0);
+        assert_eq!((dropped_to_a, kept_to_a), (0, 0), "switch B -> A restores all 4 overrides so 0 are dropped and 0 remain parked");
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
 
-        let sub_after = child_named(&d, inst, "Subtitle");
-        assert_eq!(text_of(&d, sub_after), "Custom subtitle", "text override on Subtitle returns when switching back to A");
-        assert_eq!(d.get(sub_after).unwrap().size, Vec2::new(112.0, 14.0), "fitted size of overridden Subtitle text returns with it");
-        assert!(d.get(sub_after).unwrap().component.overrides.contains(&OverrideField::Characters));
-
-        let badge_after = child_named(&d, inst, "Badge");
-        assert!(!d.get(badge_after).unwrap().visible, "visibility override on Badge returns when switching back to A");
-        assert!(d.get(badge_after).unwrap().component.overrides.contains(&OverrideField::Visible));
-
-        let chip_after = child_named(&d, inst, "Chip");
-        assert_eq!(paint_of(&d, chip_after), crate::PaintKind::Solid(Color::rgb(10, 200, 90)), "fill override on Chip returns when switching back to A");
-        assert!(d.get(chip_after).unwrap().component.overrides.contains(&OverrideField::Fills));
-
-        let rule_after = child_named(&d, inst, "Rule");
-        let rule_node = d.get(rule_after).unwrap();
-        assert_eq!(rule_node.stroke.weight, 3.0, "stroke weight override on Rule returns when switching back to A");
-        assert_eq!(rule_node.stroke.paints[0].kind, crate::PaintKind::Solid(Color::rgb(220, 40, 40)), "stroke paint override on Rule returns");
-        assert!(rule_node.component.overrides.contains(&OverrideField::Stroke));
+        assert_eq!(normalized_node(&d, child_named(&d, inst, "Subtitle")), before_sub, "Subtitle node returns identical");
+        assert_eq!(normalized_node(&d, child_named(&d, inst, "Badge")), before_badge, "Badge node returns identical");
+        assert_eq!(normalized_node(&d, child_named(&d, inst, "Chip")), before_chip, "Chip node returns identical");
+        assert_eq!(normalized_node(&d, child_named(&d, inst, "Rule")), before_rule, "Rule node returns identical");
     }
 
     #[test]
@@ -11620,10 +11810,14 @@ mod tests {
         let sub = child_named(&d, inst, "Subtitle");
         override_text(&mut d, sub, "For C too");
 
-        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        let (c, dropped_ab, kept_ab) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
         apply(&mut d, c);
-        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("C".into())));
+        assert_eq!((dropped_ab, kept_ab), (0, 1));
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+        let (c, dropped_bc, kept_bc) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("C".into())));
         apply(&mut d, c);
+        assert_eq!((dropped_bc, kept_bc), (0, 0));
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
         assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "For C too", "parked Subtitle override applies when switching from B to third variant C");
 
         // 2. A -> B -> D -> A: D has a Rectangle named "Subtitle", so Characters stays parked on D and applies when switched to A.
@@ -11632,19 +11826,21 @@ mod tests {
         let inst2 = *d.get(page).unwrap().children.last().unwrap();
         let sub2 = child_named(&d, inst2, "Subtitle");
         override_text(&mut d, sub2, "Kept across D");
+        let before_sub2 = normalized_node(&d, sub2);
 
-        let c = set_instance_prop(&mut d, inst2, "State", Some(PropValue::Variant("B".into())));
+        let (c, dropped1, kept1) = set_instance_prop_counts(&mut d, inst2, "State", Some(PropValue::Variant("B".into())));
         apply(&mut d, c);
-        let c = set_instance_prop(&mut d, inst2, "State", Some(PropValue::Variant("D".into())));
+        assert_eq!((dropped1, kept1), (0, 1));
+        let (c, dropped2, kept2) = set_instance_prop_counts(&mut d, inst2, "State", Some(PropValue::Variant("D".into())));
         apply(&mut d, c);
+        assert_eq!((dropped2, kept2), (0, 1), "on D (Rectangle Subtitle), Characters remains parked because Variants A and C have Text Subtitle");
+        assert_eq!(d.get(inst2).unwrap().component.parked_overrides.len(), 1);
         assert!(matches!(d.get(child_named(&d, inst2, "Subtitle")).unwrap().kind, NodeKind::Rectangle));
-        let c = set_instance_prop(&mut d, inst2, "State", Some(PropValue::Variant("A".into())));
+        let (c, dropped3, kept3) = set_instance_prop_counts(&mut d, inst2, "State", Some(PropValue::Variant("A".into())));
         apply(&mut d, c);
-        assert_eq!(
-            text_of(&d, child_named(&d, inst2, "Subtitle")),
-            "Kept across D",
-            "parked Characters override stays parked while Subtitle is a Rectangle on D and applies when returning to A"
-        );
+        assert_eq!((dropped3, kept3), (0, 0));
+        assert!(d.get(inst2).unwrap().component.parked_overrides.is_empty());
+        assert_eq!(normalized_node(&d, child_named(&d, inst2, "Subtitle")), before_sub2);
     }
 
     #[test]
@@ -11659,6 +11855,8 @@ mod tests {
         let c = create_instance(&mut d, a, page, Vec2::new(0.0, 140.0));
         apply(&mut d, c);
         let inst = *d.get(page).unwrap().children.last().unwrap();
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
 
         let clean_json = d.to_json().unwrap();
         assert!(!clean_json.contains("parked_overrides"), "a document without parked overrides omits the field in JSON");
@@ -11666,19 +11864,39 @@ mod tests {
         let sub = child_named(&d, inst, "Subtitle");
         override_text(&mut d, sub, "Persisted subtitle");
 
-        // Switch A -> B (step 1).
-        let cmd1 = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
-        let undo1 = apply(&mut d, cmd1);
+        // Also bind Chip's fill to a variable on A so variable bindings on a parked field are tested end-to-end.
+        let chip = child_named(&d, inst, "Chip");
+        {
+            let mut cn = d.get(chip).unwrap().clone();
+            cn.fills = vec![Paint::solid(Color::rgb(30, 144, 255))];
+            cn.variables.bindings.insert("fills/0".into(), "var:brand-blue".into());
+            cn.component.overrides.insert(OverrideField::Fills);
+            apply(&mut d, Command::Update { node: Box::new(cn) });
+        }
 
-        // Save and reopen while on B: the parked override survives round-trip JSON serialization.
+        let state_on_a_exact = subtree_nodes(&d, inst);
+        let state_on_a_norm = normalized_subtree(&d, inst);
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
+
+        // Switch A -> B (step 1).
+        let (cmd1, dropped1, kept1) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        let undo1 = apply(&mut d, cmd1);
+        assert_eq!((dropped1, kept1), (0, 2));
+        let parked_on_b = d.get(inst).unwrap().component.parked_overrides.clone();
+        assert_eq!(parked_on_b.len(), 2);
+        assert!(parked_on_b.iter().any(|p| p.field == OverrideField::Fills && p.bindings.get("fills/0").map(String::as_str) == Some("var:brand-blue")));
+        let state_on_b_exact = subtree_nodes(&d, inst);
+
+        // Save and reopen while on B: the parked overrides survive round-trip JSON serialization.
         let mid_json = d.to_json().unwrap();
         let mut reopened = Document::from_json(&mid_json).unwrap();
+        assert_eq!(reopened.get(inst).unwrap().component.parked_overrides, parked_on_b);
         let c = set_instance_prop(&mut reopened, inst, "State", Some(PropValue::Variant("A".into())));
         apply(&mut reopened, c);
         assert_eq!(
-            text_of(&reopened, child_named(&reopened, inst, "Subtitle")),
-            "Persisted subtitle",
-            "saving and reopening on B preserves the parked override for when the instance switches back to A"
+            normalized_subtree(&reopened, inst),
+            state_on_a_norm,
+            "saving and reopening on B preserves parked overrides and variable bindings across B -> A"
         );
         assert!(
             !reopened.to_json().unwrap().contains("parked_overrides"),
@@ -11690,32 +11908,46 @@ mod tests {
         let dup_root = dup_nodes[0].id;
         let insert_idx = d.get(page).unwrap().children.len();
         apply(&mut d, Command::Insert { parent: page, index: insert_idx, nodes: dup_nodes });
+        assert_eq!(d.get(dup_root).unwrap().component.parked_overrides, parked_on_b);
         let c = set_instance_prop(&mut d, dup_root, "State", Some(PropValue::Variant("A".into())));
         apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, dup_root, "Subtitle")), "Persisted subtitle");
         assert_eq!(
-            text_of(&d, child_named(&d, dup_root, "Subtitle")),
-            "Persisted subtitle",
-            "copying and pasting the instance while on B keeps the parked override on the pasted instance"
+            d.get(child_named(&d, dup_root, "Chip")).unwrap().variables.bindings.get("fills/0").map(String::as_str),
+            Some("var:brand-blue"),
+            "pasted instance restores the bound variable on Chip"
         );
+        assert!(d.get(dup_root).unwrap().component.parked_overrides.is_empty());
 
         // Main sync while on B: syncing B's main preserves the parked override on inst.
         let c = sync_instances(&mut d, b);
         apply(&mut d, c);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides, parked_on_b);
 
         // Switch B -> A (step 2).
-        let cmd2 = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        let (cmd2, dropped2, kept2) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
         let undo2 = apply(&mut d, cmd2);
-        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Persisted subtitle");
+        assert_eq!((dropped2, kept2), (0, 0));
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
+        assert_eq!(normalized_subtree(&d, inst), state_on_a_norm, "B -> A restores every node and binding");
+        let state_after_ba_exact = subtree_nodes(&d, inst);
 
-        // Undo B -> A, then undo A -> B; redo A -> B, then redo B -> A (one undo step per switch).
+        // Undo B -> A, then undo A -> B; redo A -> B, then redo B -> A (comparing whole nodes and parked_overrides at every step).
         let redo2 = apply(&mut d, undo2);
-        assert_eq!(d.get(inst).unwrap().children.len(), 1, "undoing B -> A returns to B");
+        assert_eq!(subtree_nodes(&d, inst), state_on_b_exact, "undoing B -> A restores the exact B subtree and parked_overrides");
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides, parked_on_b);
+
         let redo1 = apply(&mut d, undo1);
-        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Persisted subtitle", "undoing A -> B restores Subtitle on A");
+        assert_eq!(subtree_nodes(&d, inst), state_on_a_exact, "undoing A -> B restores the exact A subtree and empty parked_overrides");
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
+
         let _ = apply(&mut d, redo1);
-        assert_eq!(d.get(inst).unwrap().children.len(), 1, "redoing A -> B returns to B");
+        assert_eq!(subtree_nodes(&d, inst), state_on_b_exact, "redoing A -> B restores the exact B subtree and parked_overrides");
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides, parked_on_b);
+
         let _ = apply(&mut d, redo2);
-        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Persisted subtitle", "redoing B -> A restores Subtitle on A");
+        assert_eq!(subtree_nodes(&d, inst), state_after_ba_exact, "redoing B -> A restores the exact post-switch A subtree and empty parked_overrides");
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
     }
 
     #[test]
@@ -11737,6 +11969,7 @@ mod tests {
         apply(&mut d, c);
         let c = reset_instance(&mut d, inst);
         apply(&mut d, c);
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
         let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
         apply(&mut d, c);
         assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Default subtitle", "reset_instance drops parked overrides for good");
@@ -11748,6 +11981,7 @@ mod tests {
         apply(&mut d, c);
         let c = reset_overrides(&mut d, inst, &[OverrideField::Characters]);
         apply(&mut d, c);
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
         let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
         apply(&mut d, c);
         assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Default subtitle", "reset_overrides drops parked overrides for that field");
@@ -11763,7 +11997,168 @@ mod tests {
     }
 
     #[test]
-    fn nested_instance_switch_to_third_variant_restores_parked_override_while_return_to_slot_variant_follows_slot_sync() {
+    fn swap_outside_component_family_drops_parked_overrides_and_keeps_target_text() {
+        let mut d = Document::new("CrossFamilySwapParked");
+        let page = d.add_page("P");
+        let card_a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
+        let card_b = build_rich_variant(&mut d, page, "State=B", 240.0, false);
+        let c = combine_as_variants(&mut d, &[card_a, card_b]);
+        apply(&mut d, c);
+
+        // Button is an unrelated component outside Card's family that has its own "Subtitle" text layer.
+        let btn_id = d.alloc_id();
+        let mut btn_f = Node::frame(btn_id, Rect::new(500.0, 0.0, 160.0, 60.0));
+        btn_f.name = "Button".into();
+        let button_with_sub = d.insert(page, btn_f).unwrap();
+        let bt_id = d.alloc_id();
+        let mut bt = Node::text(bt_id, Rect::new(8.0, 4.0, 60.0, 14.0), "Title", TextStyle::default());
+        bt.name = "Title".into();
+        d.insert(button_with_sub, bt).unwrap();
+        let bs_id = d.alloc_id();
+        let mut bs = Node::text(bs_id, Rect::new(8.0, 22.0, 100.0, 14.0), "Button own subtitle", TextStyle::default());
+        bs.name = "Subtitle".into();
+        d.insert(button_with_sub, bs).unwrap();
+        let c = create_component(&mut d, button_with_sub);
+        apply(&mut d, c);
+
+        // Button2 is an unrelated component outside Card's family without "Subtitle".
+        let btn2_id = d.alloc_id();
+        let mut btn2_f = Node::frame(btn2_id, Rect::new(700.0, 0.0, 160.0, 60.0));
+        btn2_f.name = "ButtonPlain".into();
+        let button_without_sub = d.insert(page, btn2_f).unwrap();
+        let b2t_id = d.alloc_id();
+        let mut b2t = Node::text(b2t_id, Rect::new(8.0, 4.0, 60.0, 14.0), "Title", TextStyle::default());
+        b2t.name = "Title".into();
+        d.insert(button_without_sub, b2t).unwrap();
+        let c = create_component(&mut d, button_without_sub);
+        apply(&mut d, c);
+
+        // 1. Card/A "Subtitle" override -> switch to Card/B (parked) -> swap to Button with a "Subtitle" layer:
+        //    Button shows its own text ("Button own subtitle"), parked list is removed, and the dropped count says 1.
+        let c = create_instance(&mut d, card_a, page, Vec2::new(0.0, 140.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let sub = child_named(&d, inst, "Subtitle");
+        override_text(&mut d, sub, "Card custom subtitle");
+
+        let (c, dropped_to_b) = set_instance_prop_inner(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(dropped_to_b, 0);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+        let (c, dropped_to_btn, kept_to_btn) = swap_instance_reporting(&mut d, inst, button_with_sub);
+        apply(&mut d, c);
+        assert_eq!(
+            text_of(&d, child_named(&d, inst, "Subtitle")),
+            "Button own subtitle",
+            "Button shows its own Subtitle text rather than the parked Card override"
+        );
+        assert_eq!((dropped_to_btn, kept_to_btn), (1, 0), "swapping outside the family drops the parked entry and reports 1 dropped");
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty(), "parked list is removed on cross-family swap");
+
+        // 2. Direct swap from Card/A (with "Subtitle" overridden) to ButtonPlain (which lacks "Subtitle") drops the override instead of parking it.
+        let c = create_instance(&mut d, card_a, page, Vec2::new(300.0, 140.0));
+        apply(&mut d, c);
+        let inst2 = *d.get(page).unwrap().children.last().unwrap();
+        let inst2_sub = child_named(&d, inst2, "Subtitle");
+        override_text(&mut d, inst2_sub, "Card direct subtitle");
+        let (c, dropped_direct, kept_direct) = swap_instance_reporting(&mut d, inst2, button_without_sub);
+        apply(&mut d, c);
+        assert_eq!((dropped_direct, kept_direct), (1, 0), "cross-family swap with missing layer counts 1 dropped and parks 0");
+        assert!(d.get(inst2).unwrap().component.parked_overrides.is_empty());
+    }
+
+    #[test]
+    fn parked_fill_override_respects_direct_transfer_gate_on_intermediate_variant_and_returns_on_origin() {
+        let mut d = Document::new("ParkedTransferGateFill");
+        let page = d.add_page("P");
+        let a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
+        let b = build_rich_variant(&mut d, page, "State=B", 240.0, false);
+        let c_var = build_rich_variant(&mut d, page, "State=C", 480.0, true);
+        // Variant A's Chip has grey fill (200, 200, 200); set Variant C's Chip default fill to blue (0, 80, 255) so A and C differ.
+        let c_chip = child_named(&d, c_var, "Chip");
+        set_fill(&mut d, c_chip, Color::rgb(0, 80, 255));
+        let c = combine_as_variants(&mut d, &[a, b, c_var]);
+        apply(&mut d, c);
+
+        // Baseline: a direct A -> C switch drops the Chip fill override because A and C have different default Chip fills.
+        let c = create_instance(&mut d, a, page, Vec2::new(0.0, 140.0));
+        apply(&mut d, c);
+        let direct_inst = *d.get(page).unwrap().children.last().unwrap();
+        let direct_chip = child_named(&d, direct_inst, "Chip");
+        override_fill(&mut d, direct_chip, Color::rgb(10, 200, 90));
+        let (c, direct_dropped, direct_kept) = set_instance_prop_counts(&mut d, direct_inst, "State", Some(PropValue::Variant("C".into())));
+        apply(&mut d, c);
+        assert_eq!((direct_dropped, direct_kept), (1, 0), "direct A -> C drops the Chip fill override");
+        let expected_c_chip = normalized_node(&d, child_named(&d, direct_inst, "Chip"));
+        assert_eq!(paint_of(&d, child_named(&d, direct_inst, "Chip")), crate::PaintKind::Solid(Color::rgb(0, 80, 255)));
+
+        // Indirect A -> B (Chip missing, fill parked) -> C -> A:
+        let c = create_instance(&mut d, a, page, Vec2::new(300.0, 140.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inst_chip = child_named(&d, inst, "Chip");
+        override_fill(&mut d, inst_chip, Color::rgb(10, 200, 90));
+        let expected_a_chip = normalized_node(&d, child_named(&d, inst, "Chip"));
+
+        let (c, d_ab) = set_instance_prop_inner(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d_ab, 0);
+        let parked_after_b = d.get(inst).unwrap().component.parked_overrides.clone();
+        assert_eq!(parked_after_b.len(), 1);
+
+        let (c, d_bc, k_bc) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("C".into())));
+        apply(&mut d, c);
+        assert_eq!(normalized_node(&d, child_named(&d, inst, "Chip")), expected_c_chip, "C's Chip shows C's own fill with no override flag");
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides, parked_after_b, "the parked entry stays in parked_overrides on C");
+        assert_eq!((d_bc, k_bc), (0, 1), "when the transfer gate says no on C, the entry is not dropped and remains parked");
+
+        let (c, d_ca, k_ca) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert_eq!((d_ca, k_ca), (0, 0));
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
+        assert_eq!(normalized_node(&d, child_named(&d, inst, "Chip")), expected_a_chip, "C -> A brings the green fill override back");
+    }
+
+    #[test]
+    fn when_returning_layer_already_has_override_live_override_wins_and_parked_entry_is_removed() {
+        let mut d = Document::new("LiveOverrideWinsOverParked");
+        let page = d.add_page("P");
+        // Variant A has two texts ("Title", "Subtitle"); Variant B has one text ("Heading"); Variant C has one text ("Subtitle").
+        let a = main_with_texts(&mut d, page, "State=A", 0.0, &["Title", "Subtitle"]);
+        let b = main_with_texts(&mut d, page, "State=B", 200.0, &["Heading"]);
+        let c_var = main_with_texts(&mut d, page, "State=C", 400.0, &["Subtitle"]);
+        let c = combine_as_variants(&mut d, &[a, b, c_var]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, a, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inst_sub = child_named(&d, inst, "Subtitle");
+        override_text(&mut d, inst_sub, "Parked from A");
+
+        // Switch A -> B: A has 2 texts and B has 1, so single-text rule does not fire and "Subtitle" is parked.
+        let (c, d_ab) = set_instance_prop_inner(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d_ab, 0);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+        // On B, override "Heading" to "Live from B".
+        let inst_heading = child_named(&d, inst, "Heading");
+        override_text(&mut d, inst_heading, "Live from B");
+
+        // Switch B -> C: B has 1 text ("Heading") and C has 1 text ("Subtitle"), so single-text rule transfers "Live from B"
+        // onto C's "Subtitle". The returning "Subtitle" layer already has a live Characters override, so "Live from B" wins
+        // and the parked entry from A is removed.
+        let (c, d_bc) = set_instance_prop_inner(&mut d, inst, "State", Some(PropValue::Variant("C".into())));
+        apply(&mut d, c);
+        assert_eq!(d_bc, 0);
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty(), "the parked entry is removed when the live override wins");
+        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Live from B", "the live override on the returning layer wins");
+    }
+
+    #[test]
+    fn nested_instance_keeps_parked_overrides_across_outer_variant_switch_and_returns_on_slot_variant() {
         let mut d = Document::new("NestedSwitchParked");
         let page = d.add_page("P");
         let a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
@@ -11772,30 +12167,176 @@ mod tests {
         let c = combine_as_variants(&mut d, &[a, b, c_var]);
         apply(&mut d, c);
 
+        let mk_outer = |d: &mut Document, name: &str, x: f32| -> NodeId {
+            let outer_id = d.alloc_id();
+            let mut outer_f = Node::frame(outer_id, Rect::new(x, 200.0, 240.0, 100.0));
+            outer_f.name = name.into();
+            let outer_main = d.insert(page, outer_f).unwrap();
+            let c = create_component(d, outer_main);
+            apply(d, c);
+            let c = create_instance(d, a, outer_main, Vec2::new(0.0, 0.0));
+            apply(d, c);
+            outer_main
+        };
+        let outer_one = mk_outer(&mut d, "Layout=One", 0.0);
+        let outer_two = mk_outer(&mut d, "Layout=Two", 280.0);
+        let c = combine_as_variants(&mut d, &[outer_one, outer_two]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, outer_one, page, Vec2::new(0.0, 360.0));
+        apply(&mut d, c);
+        let outer_inst = *d.get(page).unwrap().children.last().unwrap();
+        let nested = d.get(outer_inst).unwrap().children[0];
+        let sub = child_named(&d, nested, "Subtitle");
+        override_text(&mut d, sub, "Brand");
+        let expected_brand_sub = normalized_node(&d, sub);
+
+        // Switch nested Card from A to B ("Brand" is parked on the nested Card).
+        let c = set_nested_instance_prop(&mut d, nested, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        let parked_on_nested = d.get(nested).unwrap().component.parked_overrides.clone();
+        assert_eq!(parked_on_nested.len(), 1);
+
+        // Switch nested Card to third variant C (restores "Brand"), then back to B (parks "Brand" again).
+        let c = set_nested_instance_prop(&mut d, nested, "State", Some(PropValue::Variant("C".into())));
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, nested, "Subtitle")), "Brand");
+        assert!(d.get(nested).unwrap().component.parked_overrides.is_empty());
+
+        let c = set_nested_instance_prop(&mut d, nested, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d.get(nested).unwrap().component.parked_overrides.len(), 1);
+
+        // Switch the outer variant Layout=One -> Layout=Two and back to Layout=One (rebuilding the nested Card each time).
+        let c = set_instance_prop(&mut d, outer_inst, "Layout", Some(PropValue::Variant("Two".into())));
+        apply(&mut d, c);
+        let nested_on_two = d.get(outer_inst).unwrap().children[0];
+        assert_eq!(
+            d.get(nested_on_two).unwrap().component.parked_overrides.len(),
+            1,
+            "nested instance keeps its parked list when rebuilt on outer variant Two"
+        );
+
+        let c = set_instance_prop(&mut d, outer_inst, "Layout", Some(PropValue::Variant("One".into())));
+        apply(&mut d, c);
+        let nested_on_one = d.get(outer_inst).unwrap().children[0];
+        assert_eq!(
+            d.get(nested_on_one).unwrap().component.parked_overrides.len(),
+            1,
+            "nested instance keeps its parked list when rebuilt back on outer variant One"
+        );
+
+        // Switch the nested Card back to A (the variant the outer main's slot itself shows): "Subtitle" returns as "Brand".
+        let c = set_nested_instance_prop(&mut d, nested_on_one, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert!(d.get(nested_on_one).unwrap().component.parked_overrides.is_empty());
+        assert_eq!(
+            normalized_node(&d, child_named(&d, nested_on_one, "Subtitle")),
+            expected_brand_sub,
+            "switching nested Card back to slot variant A restores Brand on Subtitle"
+        );
+    }
+
+    #[test]
+    fn new_instance_of_main_whose_nested_instance_has_parked_entries_starts_with_empty_parked_list() {
+        let mut d = Document::new("NewInstanceFromMainWithParkedNested");
+        let page = d.add_page("P");
+        let a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
+        let b = build_rich_variant(&mut d, page, "State=B", 220.0, false);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+
         let outer_id = d.alloc_id();
         let mut outer_f = Node::frame(outer_id, Rect::new(0.0, 200.0, 240.0, 100.0));
-        outer_f.name = "OuterCard".into();
+        outer_f.name = "OuterMain".into();
         let outer_main = d.insert(page, outer_f).unwrap();
         let c = create_component(&mut d, outer_main);
         apply(&mut d, c);
         let c = create_instance(&mut d, a, outer_main, Vec2::new(0.0, 0.0));
         apply(&mut d, c);
 
+        // On the main component's own nested Card, override Subtitle to "Brand" and switch it to B so it holds a parked entry.
+        let main_nested = d.get(outer_main).unwrap().children[0];
+        let main_nested_sub = child_named(&d, main_nested, "Subtitle");
+        override_text(&mut d, main_nested_sub, "Brand");
+        let c = set_nested_instance_prop(&mut d, main_nested, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d.get(main_nested).unwrap().component.parked_overrides.len(), 1);
+
+        // Creating a new instance of OuterMain does not copy the main-side nested instance's parked list.
         let c = create_instance(&mut d, outer_main, page, Vec2::new(300.0, 200.0));
         apply(&mut d, c);
-        let outer_inst = *d.get(page).unwrap().children.last().unwrap();
-        let nested = d.get(outer_inst).unwrap().children[0];
-        let sub = child_named(&d, nested, "Subtitle");
-        override_text(&mut d, sub, "Nested custom");
-
-        let c = set_nested_instance_prop(&mut d, nested, "State", Some(PropValue::Variant("B".into())));
-        apply(&mut d, c);
-        let c = set_nested_instance_prop(&mut d, nested, "State", Some(PropValue::Variant("C".into())));
-        apply(&mut d, c);
-        assert_eq!(
-            text_of(&d, child_named(&d, nested, "Subtitle")),
-            "Nested custom",
-            "switching nested instance from B to third variant C restores the parked override"
+        let new_outer = *d.get(page).unwrap().children.last().unwrap();
+        let copy_nested = d.get(new_outer).unwrap().children[0];
+        assert!(
+            d.get(copy_nested).unwrap().component.parked_overrides.is_empty(),
+            "a new instance made from a main component does not inherit parked entries from the main's nested instance"
         );
+        let c = set_nested_instance_prop(&mut d, copy_nested, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert_eq!(text_of(&d, child_named(&d, copy_nested, "Subtitle")), "Default subtitle");
+    }
+
+    #[test]
+    fn parked_entry_is_removed_and_counted_as_dropped_when_deleted_from_all_variants_or_reused_with_incompatible_kind() {
+        let mut d = Document::new("ParkedEntryEndsWhenLayerGoneFromFamily");
+        let page = d.add_page("P");
+        let a = build_rich_variant(&mut d, page, "State=A", 0.0, true);
+        let b = build_rich_variant(&mut d, page, "State=B", 240.0, false);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, a, page, Vec2::new(0.0, 140.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let inst_sub = child_named(&d, inst, "Subtitle");
+        override_text(&mut d, inst_sub, "Doomed subtitle");
+
+        // Switch A -> B: "Subtitle" is parked on inst.
+        let (c, d_ab) = set_instance_prop_inner(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        assert_eq!(d_ab, 0);
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+        // The main deletes "Subtitle" in Variant A (so no variant of the family has "Subtitle" anymore).
+        let sub_in_a = child_named(&d, a, "Subtitle");
+        apply(&mut d, Command::Remove { id: sub_in_a });
+
+        // A later switch B -> A reports the drop and empties the parked list.
+        let (c, d_ba, k_ba) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert_eq!((d_ba, k_ba), (1, 0), "when no variant in the family has the layer, a later switch reports the drop");
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty(), "the parked list is now empty");
+
+        // Second check: a new layer that reuses the name "Subtitle" with another kind (Rectangle) gets nothing,
+        // and when no variant in the family has a Text "Subtitle", switching B -> A drops the parked Characters override.
+        let rect_id = d.alloc_id();
+        let mut rect = Node::rectangle(rect_id, Rect::new(8.0, 22.0, 60.0, 14.0));
+        rect.name = "Subtitle".into();
+        rect.fills = vec![Paint::solid(Color::rgb(180, 180, 180))];
+        d.insert(a, rect).unwrap();
+        let c = sync_instances(&mut d, a);
+        apply(&mut d, c);
+        let expected_rect = normalized_node(&d, child_named(&d, inst, "Subtitle"));
+
+        // Seed a parked Characters override for ["Subtitle"] while on B and switch B -> A where "Subtitle" is a Rectangle in A (and absent in B).
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        {
+            let mut in_b = d.get(inst).unwrap().clone();
+            in_b.component.parked_overrides.push(ParkedOverride {
+                path: vec![("Subtitle".into(), 0)],
+                field: OverrideField::Characters,
+                value: ParkedOverrideValue::Characters { content: "Stale text".into(), fitted_size: None, sizing_text: None },
+                bindings: BTreeMap::new(),
+                origin_source: None,
+            });
+            apply(&mut d, Command::Update { node: Box::new(in_b) });
+        }
+        let (c, d_rect, k_rect) = set_instance_prop_counts(&mut d, inst, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        assert_eq!((d_rect, k_rect), (1, 0), "parked Characters is dropped when Subtitle only exists as a Rectangle across the family");
+        assert!(d.get(inst).unwrap().component.parked_overrides.is_empty());
+        assert_eq!(normalized_node(&d, child_named(&d, inst, "Subtitle")), expected_rect, "Rectangle reusing the name gets nothing");
     }
 }

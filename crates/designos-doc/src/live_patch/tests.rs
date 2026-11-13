@@ -1540,6 +1540,7 @@ fn parked_overrides_round_trip_through_live_patch_when_added_and_cleared() {
         field: crate::OverrideField::Visible,
         value: crate::ParkedOverrideValue::Visible(false),
         bindings: BTreeMap::new(),
+        origin_source: Some(NodeId(42)),
     }];
 
     let mut ops = Vec::new();

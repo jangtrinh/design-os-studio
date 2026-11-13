@@ -397,6 +397,8 @@ pub struct ParkedOverride {
     pub value: ParkedOverrideValue,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub bindings: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_source: Option<NodeId>,
 }
 
 /// Stored value of a [`ParkedOverride`], matched to its [`OverrideField`].
