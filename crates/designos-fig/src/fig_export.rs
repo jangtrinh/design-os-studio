@@ -2589,15 +2589,11 @@ fn clears_inherited_auto_layout(n: &Node) -> bool {
 
 pub(crate) fn export_outer_frame_props<'a>(doc: &Document, id: NodeId, n: &'a Node) -> (Option<std::borrow::Cow<'a, FrameProps>>, bool) {
     let Some(fp) = n.kind.frame_props() else { return (None, false) };
-    if matches!(n.kind, NodeKind::Instance { .. })
-        && n.children.is_empty()
-        && doc.pending_instance_overrides(id).is_some()
-        && !kept_overrides::edited_self_fields(doc, id).contains(&OverrideField::Layout)
-    {
-        if let Some(raw) = n.fig_metadata.get("_unopenedOuterFrame") {
-            if let Ok((outer_fp, outer_cleared)) = serde_json::from_str::<(FrameProps, bool)>(raw) {
-                let clears = outer_cleared && outer_fp.auto_layout.is_none();
-                return (Some(std::borrow::Cow::Owned(outer_fp)), clears);
+    if matches!(n.kind, NodeKind::Instance { .. }) && n.children.is_empty() && doc.pending_instance_overrides(id).is_some() {
+        if let Some(opened) = doc.pending_instance_self_digests(id) {
+            if let Some(snap) = crate::instance_self_digest::unopened_layout_snapshot(&opened) {
+                let clears = snap.outer_cleared && snap.outer_fp.auto_layout.is_none();
+                return (Some(std::borrow::Cow::Owned(snap.outer_fp)), clears);
             }
         }
     }

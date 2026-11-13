@@ -2055,8 +2055,9 @@ impl<'a> Ctx<'a> {
             }
         }
         let mut self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>> = HashMap::new();
+        let mut layout_snapshots = crate::instance_self_digest::LayoutSnapshotLease::default();
         for &inst in pending_by_page.values().flatten() {
-            let digests = self.flag_pending_self_overrides(inst);
+            let digests = self.flag_pending_self_overrides(inst, &mut layout_snapshots);
             if !digests.is_empty() {
                 self_digests.insert(inst, digests);
             }
@@ -2139,6 +2140,7 @@ impl<'a> Ctx<'a> {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            _layout_snapshots: layout_snapshots,
         }));
         if let Ok(mut guard) = hydrator.lock() {
             guard.self_weak = std::sync::Arc::downgrade(&hydrator);
@@ -2149,7 +2151,11 @@ impl<'a> Ctx<'a> {
     /// Flags on the still childless instance `inst` the fields its file record overrides on the instance itself (the
     /// entry that names its main), as opening its page would, so that syncing a main component leaves them alone. Returns
     /// the digests of the instance's overridden fields as they are now (see [`crate::instance_self_digest`]).
-    fn flag_pending_self_overrides(&mut self, inst: NodeId) -> BTreeMap<OverrideField, u64> {
+    fn flag_pending_self_overrides(
+        &mut self,
+        inst: NodeId,
+        layout_snapshots: &mut crate::instance_self_digest::LayoutSnapshotLease,
+    ) -> BTreeMap<OverrideField, u64> {
         let mut flagged: Vec<OverrideField> = Vec::new();
         let mut own_sets: Vec<Value> = Vec::new();
         if let Some(ov) = self.overrides.get(&inst) {
@@ -2172,6 +2178,7 @@ impl<'a> Ctx<'a> {
         if let Some(ov) = self.overrides.get_mut(&inst) {
             ov.own_keys = Vec::new();
         }
+        let mut layout_snapshot = None;
         if flagged.contains(&OverrideField::Layout) {
             let outer_fp = self.doc.get(inst).and_then(|n| Some((n.kind.frame_props()?.clone(), n.component.layout_cleared)));
             let was_no_al = self.no_auto_layout.contains(&inst);
@@ -2207,11 +2214,14 @@ impl<'a> Ctx<'a> {
                     self.grid_row_track_ids.remove(&inst);
                 }
             }
-            if let (Some((outer_fp, outer_cleared)), Some(node)) = (outer_fp, self.doc.get_mut(inst)) {
-                if node.kind.frame_props() != Some(&outer_fp) || node.component.layout_cleared != outer_cleared {
-                    if let Ok(raw) = serde_json::to_string(&(outer_fp, outer_cleared)) {
-                        node.fig_metadata.insert("_unopenedOuterFrame".into(), raw);
-                    }
+            if let (Some((outer_fp, outer_cleared)), Some(node)) = (outer_fp, self.doc.get(inst)) {
+                if let Some(seeded_fp) = node.kind.frame_props().cloned() {
+                    layout_snapshot = Some(crate::instance_self_digest::UnopenedLayoutSnapshot {
+                        outer_fp,
+                        outer_cleared,
+                        seeded_fp,
+                        seeded_cleared: node.component.layout_cleared,
+                    });
                 }
             }
         }
@@ -2221,6 +2231,9 @@ impl<'a> Ctx<'a> {
             node.component.add_fig_own_entry_flag(field);
         }
         let mut digests = crate::instance_self_digest::digests(node);
+        if let Some(snapshot) = layout_snapshot {
+            digests.insert(OverrideField::Layout, layout_snapshots.record(snapshot));
+        }
         // The derived data of the instance was computed for the size it has now, flagged or not.
         if holds_derived {
             digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
@@ -2821,7 +2834,7 @@ impl<'a> Ctx<'a> {
     }
 
     fn apply_frame_layout_override(&mut self, id: NodeId, set: &Value) {
-        if set.get("layoutMode").is_none() && !self.no_auto_layout.contains(&id) {
+        if fstr(set, "layoutMode") != Some("NONE") && !self.no_auto_layout.contains(&id) {
             self.inherit_auto_layout_for_partial_override(id, set);
         }
         let Some(n) = self.doc.get_mut(id) else { return };
@@ -4012,6 +4025,7 @@ struct DeferredFigHydrator {
     live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     /// Count of override records dropped during page duplication because their layer was missing in the copy.
     dropped_duplicate_records: usize,
+    _layout_snapshots: crate::instance_self_digest::LayoutSnapshotLease,
 }
 
 impl DeferredFigHydrator {
@@ -4125,20 +4139,14 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         };
         let mut hydration_err: Option<FigError> = None;
         for &inst in &insts {
-            let layout_edited = self
-                .self_digests
-                .get(&inst)
-                .and_then(|opened| cx.doc.get(inst).map(|n| crate::instance_self_digest::edited_fields(n, opened)))
-                .is_some_and(|f| f.contains(&OverrideField::Layout));
-            if let Some(n) = cx.doc.get_mut(inst) {
-                if let Some(raw) = n.fig_metadata.remove("_unopenedOuterFrame") {
-                    if !layout_edited {
-                        if let Ok((outer_fp, outer_cleared)) = serde_json::from_str::<(FrameProps, bool)>(&raw) {
-                            if let Some(fp) = n.kind.frame_props_mut() {
-                                *fp = outer_fp;
-                            }
-                            n.component.layout_cleared = outer_cleared;
+            if let Some(opened) = self.self_digests.get(&inst) {
+                let layout_edited = cx.doc.get(inst).is_some_and(|n| crate::instance_self_digest::edited_fields(n, opened).contains(&OverrideField::Layout));
+                if !layout_edited {
+                    if let (Some(snap), Some(n)) = (crate::instance_self_digest::unopened_layout_snapshot(opened), cx.doc.get_mut(inst)) {
+                        if let Some(fp) = n.kind.frame_props_mut() {
+                            *fp = snap.outer_fp;
                         }
+                        n.component.layout_cleared = snap.outer_cleared;
                     }
                 }
             }
@@ -4185,6 +4193,11 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             if let Some(derived) = cleared_derived.remove(&inst) {
                 if let Some(ov) = cx.overrides.get_mut(&inst) {
                     ov.fast_derived = derived;
+                }
+            }
+            if cx.doc.get(inst).is_some_and(|n| n.children.is_empty()) {
+                if let Some((_, saved)) = saved_insts.iter().find(|&&(id, _)| id == inst) {
+                    cx.doc.nodes.insert(inst, saved.clone());
                 }
             }
         }
@@ -5813,6 +5826,7 @@ mod expand_depth_tests {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            _layout_snapshots: crate::instance_self_digest::LayoutSnapshotLease::default(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -5864,6 +5878,7 @@ mod expand_depth_tests {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            _layout_snapshots: crate::instance_self_digest::LayoutSnapshotLease::default(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));
@@ -5964,6 +5979,7 @@ mod expand_depth_tests {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            _layout_snapshots: crate::instance_self_digest::LayoutSnapshotLease::default(),
         }));
         doc.page_hydrator = Some(hydrator.clone());
         (doc, hydrator, p1, p2, outer_comp, nested_inst)

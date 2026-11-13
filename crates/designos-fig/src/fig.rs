@@ -2919,10 +2919,21 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             m.insert("layoutMode".into(), mode.into());
         }
         convert_stack_extras(&mut m, o);
-        if let Some(x) = fnum(o, "gridColumnGap").or_else(|| fnum(o, "gridColumnsGap")).or_else(|| fnum(o, "stackSpacing")) {
+        let is_stack = matches!(fstr(o, "stackMode"), Some("HORIZONTAL" | "VERTICAL"));
+        let item_gap = if is_stack {
+            fnum(o, "stackSpacing").or_else(|| fnum(o, "gridColumnGap")).or_else(|| fnum(o, "gridColumnsGap"))
+        } else {
+            fnum(o, "gridColumnGap").or_else(|| fnum(o, "gridColumnsGap")).or_else(|| fnum(o, "stackSpacing"))
+        };
+        if let Some(x) = item_gap {
             m.insert("itemSpacing".into(), x.into());
         }
-        if let Some(x) = fnum(o, "gridRowGap").or_else(|| fnum(o, "gridRowsGap")).or_else(|| fnum(o, "stackCounterSpacing")) {
+        let counter_gap = if is_stack {
+            fnum(o, "stackCounterSpacing").or_else(|| fnum(o, "gridRowGap")).or_else(|| fnum(o, "gridRowsGap"))
+        } else {
+            fnum(o, "gridRowGap").or_else(|| fnum(o, "gridRowsGap")).or_else(|| fnum(o, "stackCounterSpacing"))
+        };
+        if let Some(x) = counter_gap {
             m.insert("counterAxisSpacing".into(), x.into());
         }
         let p = fnum(o, "stackPadding");

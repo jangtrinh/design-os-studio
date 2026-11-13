@@ -616,3 +616,234 @@ fn an_entry_with_only_a_fill_outline_follows_a_radius_edit_of_its_main() {
 fn an_entry_with_only_corner_smoothing_follows_a_radius_edit_of_its_main() {
     follows_main_edit(json!({"cornerSmoothing": 0.6}), Vec::new(), main_radius, |n| n.corner_radii == [12.0; 4]);
 }
+
+fn deferred_layout_fixture_with_main(main_fields: Value, instance_overrides: Value) -> Vec<u8> {
+    let instance = json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": instance_overrides}});
+    let mut changes = vec![
+        fig_node((0, 0), (0, 0), "DOCUMENT", "Document", json!({})),
+        fig_node((0, 1), (0, 0), "CANVAS", "Cover", json!({})),
+        fig_node((0, 2), (0, 0), "CANVAS", "Page 2", json!({})),
+        fig_node((0, 3), (0, 0), "CANVAS", "404 pages", json!({})),
+        fig_node(BUTTON, (0, 3), "SYMBOL", "Buttons/Button", main_fields),
+        fig_node(LABEL, BUTTON, "TEXT", "Text", json!({"fontSize": 14.0, "textData": {"characters": "Button CTA"}})),
+        fig_node(ICON, BUTTON, "ROUNDED_RECTANGLE", "Icon", json!({"strokePaints": [solid(&rgba(0.0, 0.0, 0.0), None)], "strokeWeight": 1.5})),
+        fig_node(VARIANT, (0, 3), "SYMBOL", "Type=Simple 03, Breakpoint=Desktop", json!({"size": {"x": 1440.0, "y": 960.0}})),
+        fig_node(INSTANCE, VARIANT, "INSTANCE", "Buttons/Button", instance),
+    ];
+    changes.extend((0..25_000u64).map(|i| rect_nc((9, i + 1), (0, 1), "F")));
+    fig_bytes(changes, Vec::new())
+}
+
+#[test]
+fn an_unopened_instance_spacing_edit_changes_only_stack_spacing_and_keeps_inheriting_main_layout() {
+    let main_fields = json!({
+        "stackMode": "HORIZONTAL",
+        "stackSpacing": 4.0,
+        "stackPadding": 24.0,
+        "stackPrimaryAlignItems": "CENTER"
+    });
+    let own = own_entry_json(json!({
+        "stackMode": "HORIZONTAL",
+        "stackSpacing": 4.0
+    }));
+    let fig = deferred_layout_fixture_with_main(main_fields, json!([own]));
+    let saved = edit_and_save(&fig, |n| {
+        n.kind.frame_props_mut().expect("instance frame").auto_layout.as_mut().expect("recorded auto layout").item_spacing = 20.0;
+    });
+    let edited = own_entry_of(&saved_entries(&saved, INSTANCE));
+    let expected = own_entry_json(json!({
+        "stackMode": "HORIZONTAL",
+        "stackSpacing": 20.0
+    }));
+    assert_eq!(edited, expected, "only stackSpacing may change in the saved own entry");
+
+    let mut reopened = import_fig(&saved).expect("reopen saved fig");
+    assert_page_stays_unloaded(&reopened);
+    reopened.hydrate_all_pages();
+    let instance = variant_button(&reopened);
+    let al = reopened.get(instance).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).expect("reopened auto layout");
+    assert_eq!(
+        (al.item_spacing, al.padding, al.primary_align),
+        (20.0, [24.0, 24.0, 24.0, 24.0], LayoutAlign::Center),
+        "reopened instance must keep inheriting main padding and alignment"
+    );
+}
+
+#[test]
+fn an_unopened_instance_with_every_layout_own_key_keeps_all_on_no_edit_and_changes_one_key_on_single_edit() {
+    let col_a = guid(9, 10);
+    let row_a = guid(9, 20);
+    let own = own_entry_json(json!({
+        "frameMaskDisabled": true,
+        "gridColumns": {"entries": [{"id": col_a, "position": "!"}]},
+        "gridColumnsSizing": {"entries": [{"id": col_a, "trackSize": {"minSizing": {"type": "FLEX", "value": 1.0}, "maxSizing": {"type": "FLEX", "value": 1.0}}}]},
+        "gridRows": {"entries": [{"id": row_a, "position": "!"}]},
+        "gridRowsSizing": {"entries": [{"id": row_a, "trackSize": {"minSizing": {"type": "FIXED", "value": 40.0}, "maxSizing": {"type": "FIXED", "value": 40.0}}}]},
+        "gridAutoTracks": "ROWS",
+        "gridColumnGap": 6.0,
+        "gridRowGap": 8.0,
+        "layoutGrids": [{"pattern": "GRID", "sectionSize": 8.0, "visible": true, "color": rgba(1.0, 0.0, 0.0)}],
+        "stackMode": "HORIZONTAL",
+        "stackSpacing": 4.0,
+        "stackCounterSpacing": 10.0,
+        "stackPadding": 16.0,
+        "stackHorizontalPadding": 12.0,
+        "stackVerticalPadding": 14.0,
+        "stackPaddingRight": 18.0,
+        "stackPaddingBottom": 22.0,
+        "stackPrimaryAlignItems": "CENTER",
+        "stackCounterAlignItems": "MAX",
+        "stackCounterAlignContent": "SPACE_BETWEEN",
+        "stackLayoutVersion": 1,
+        "stackPrimarySizing": "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE",
+        "stackCounterSizing": "RESIZE_TO_FIT",
+        "stackWrap": "WRAP",
+        "bordersTakeSpace": true,
+        "stackReverseZIndex": true
+    }));
+    assert_eq!(own.as_object().expect("own object").len(), 27, "guidPath + all 26 Layout own keys");
+    let fig = deferred_layout_fixture(json!([own]));
+    let recorded = own_entry_of(&saved_entries(&fig, INSTANCE));
+
+    let live = import_fig(&fig).expect("import");
+    assert_page_stays_unloaded(&live);
+    let untouched = own_entry_of(&saved_entries(&export_fig(&live).expect("no-edit export"), INSTANCE));
+    assert_eq!(untouched, recorded, "no-edit save must keep every Layout own key as read");
+
+    let saved = edit_and_save(&fig, |n| {
+        n.kind.frame_props_mut().expect("instance frame").auto_layout.as_mut().expect("recorded auto layout").item_spacing = 20.0;
+    });
+    let edited = own_entry_of(&saved_entries(&saved, INSTANCE));
+    let mut expected = recorded;
+    expected["stackSpacing"] = json!(20.0);
+    assert_eq!(edited, expected, "a one-field edit must change only stackSpacing across all 26 Layout own keys");
+}
+
+#[test]
+fn an_unopened_instance_resize_to_fit_and_stack_padding_stay_as_recorded_when_unedited() {
+    let own = own_entry_json(json!({
+        "stackMode": "HORIZONTAL",
+        "stackSpacing": 4.0,
+        "stackCounterSizing": "RESIZE_TO_FIT",
+        "stackPadding": 16.0
+    }));
+    let fig = deferred_layout_fixture(json!([own]));
+    let recorded = own_entry_of(&saved_entries(&fig, INSTANCE));
+    let saved = edit_and_save(&fig, |n| {
+        n.kind.frame_props_mut().expect("instance frame").auto_layout.as_mut().expect("recorded auto layout").item_spacing = 20.0;
+    });
+    let edited = own_entry_of(&saved_entries(&saved, INSTANCE));
+    let mut expected = recorded;
+    expected["stackSpacing"] = json!(20.0);
+    assert_eq!(edited, expected, "RESIZE_TO_FIT and stackPadding must stay as recorded when unedited");
+}
+
+#[test]
+fn a_budget_skipped_instance_on_an_opened_page_keeps_its_recorded_layout_on_no_edit_save() {
+    let own = own_entry_json(json!({
+        "stackMode": "HORIZONTAL",
+        "stackSpacing": 12.0,
+        "stackPadding": 16.0,
+        "stackCounterSizing": "RESIZE_TO_FIT"
+    }));
+    let instance = json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": [own]}});
+    let mut changes = vec![
+        fig_node((0, 0), (0, 0), "DOCUMENT", "Document", json!({})),
+        fig_node((0, 1), (0, 0), "CANVAS", "Cover", json!({})),
+        fig_node((0, 2), (0, 0), "CANVAS", "Page 2", json!({})),
+        fig_node((0, 3), (0, 0), "CANVAS", "404 pages", json!({})),
+        fig_node(BUTTON, (0, 3), "SYMBOL", "Buttons/Button", json!({"stackMode": "HORIZONTAL", "stackSpacing": 4.0})),
+        fig_node(LABEL, BUTTON, "TEXT", "Text", json!({"fontSize": 14.0, "textData": {"characters": "Button CTA"}})),
+        fig_node(ICON, BUTTON, "ROUNDED_RECTANGLE", "Icon", json!({"strokePaints": [solid(&rgba(0.0, 0.0, 0.0), None)], "strokeWeight": 1.5})),
+        fig_node((1, 13), (0, 3), "SYMBOL", "SwapTarget", json!({})),
+        fig_node((1, 14), (1, 13), "INSTANCE", "Inner", json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": []}})),
+        fig_node((1, 15), (0, 3), "SYMBOL", "OuterComp", json!({})),
+        fig_node((1, 17), (0, 3), "SYMBOL", "EmptyComp", json!({})),
+        fig_node((1, 16), (1, 15), "INSTANCE", "Slot", json!({"symbolData": {"symbolID": guid(1, 17), "symbolOverrides": []}})),
+        fig_node(
+            (1, 18),
+            (0, 3),
+            "INSTANCE",
+            "OuterUse",
+            json!({
+                "symbolData": {
+                    "symbolID": guid(1, 15),
+                    "symbolOverrides": [{"guidPath": {"guids": [guid(1, 16)]}, "overriddenSymbolID": guid(1, 13)}]
+                }
+            }),
+        ),
+        fig_node(VARIANT, (0, 3), "SYMBOL", "Type=Simple 03, Breakpoint=Desktop", json!({"size": {"x": 1440.0, "y": 960.0}})),
+        fig_node(INSTANCE, VARIANT, "INSTANCE", "Buttons/Button", instance),
+    ];
+    changes.extend((0..25_000u64).map(|i| rect_nc((9, i + 1), (0, 1), "F")));
+    let fig = fig_bytes(changes, Vec::new());
+    let recorded = own_entry_of(&saved_entries(&fig, INSTANCE));
+    let (mut live, _) = designos_fig::import_fig_with_budget(&fig, 6).expect("import with budget 6");
+    assert_page_stays_unloaded(&live);
+    let page = page_named(&live, "404 pages");
+    assert!(live.ensure_page_hydrated(page), "page hydration succeeds when instance is skipped by clone budget");
+    assert_eq!(live.hydration_unexpanded_instances(), 1, "instance was skipped by clone budget");
+    let button = variant_button(&live);
+    assert!(live.get(button).expect("instance").children.is_empty(), "target instance must remain unexpanded after budget skip");
+
+    let saved = export_fig(&live).expect("export after budget-skipped page hydration");
+    let after = own_entry_of(&saved_entries(&saved, INSTANCE));
+    assert_eq!(after, recorded, "budget-skipped instance must keep recorded layout keys on a no-edit save");
+}
+
+#[test]
+fn a_shortened_grid_track_list_leaves_recorded_grid_tracks_and_anchors_untouched() {
+    let col_a = guid(9, 10);
+    let col_b = guid(9, 11);
+    let own = own_entry_json(json!({
+        "stackMode": "GRID",
+        "gridColumnGap": 4.0,
+        "gridColumns": {"entries": [
+            {"id": col_a, "position": "!"},
+            {"id": col_b, "position": "\""}
+        ]},
+        "gridColumnsSizing": {"entries": [
+            {"id": col_a, "trackSize": {"minSizing": {"type": "FLEX", "value": 1.0}, "maxSizing": {"type": "FLEX", "value": 1.0}}},
+            {"id": col_b, "trackSize": {"minSizing": {"type": "FIXED", "value": 120.0}, "maxSizing": {"type": "FIXED", "value": 120.0}}}
+        ]}
+    }));
+    let child_first = json!({"guidPath": {"guids": [guid(LABEL.0, LABEL.1)]}, "gridColumnAnchor": col_a});
+    let child_last = json!({"guidPath": {"guids": [guid(ICON.0, ICON.1)]}, "gridColumnAnchor": col_b});
+    let main_fields = json!({"stackMode": "GRID", "gridColumnGap": 4.0, "gridRowGap": 0.0});
+    let fig = deferred_layout_fixture_with_main(main_fields, json!([own, child_first, child_last]));
+    let recorded_entries = saved_entries(&fig, INSTANCE);
+
+    // Case 1: removed first track (leaving only Fixed(120.0)) + spacing edit.
+    // Case 2: removed last track (leaving only Flex(1.0)) + spacing edit.
+    for remaining_track in [GridTrack::Fixed(120.0), GridTrack::Flex(1.0)] {
+        let saved = edit_and_save(&fig, |n| {
+            let al = n.kind.frame_props_mut().expect("instance frame").auto_layout.as_mut().expect("recorded auto layout");
+            al.item_spacing = 20.0;
+            al.grid_columns = 1;
+            al.grid_col_tracks = vec![remaining_track].into();
+        });
+        let entries = saved_entries(&saved, INSTANCE);
+        let mut expected = recorded_entries.clone();
+        expected[0]["gridColumnGap"] = json!(20.0);
+        assert_eq!(entries, expected, "grid tracks and child anchors must stay as recorded when track count changed ({remaining_track:?})");
+    }
+}
+
+#[test]
+fn native_document_save_does_not_contain_unopened_outer_frame_metadata() {
+    let own = own_entry_json(json!({"stackMode": "HORIZONTAL", "stackSpacing": 12.0}));
+    let fig = deferred_layout_fixture(json!([own]));
+    let mut live = import_fig(&fig).expect("import");
+    let instance = variant_button(&live);
+    assert!(
+        !live.get(instance).expect("instance").fig_metadata.contains_key("_unopenedOuterFrame"),
+        "Node::fig_metadata must not carry internal _unopenedOuterFrame key"
+    );
+    assert!(
+        !serde_json::to_string(&live).expect("serialize live document").contains("_unopenedOuterFrame"),
+        "serialized Document must not contain _unopenedOuterFrame while deferred"
+    );
+    live.load_pending_pages().expect("load pending pages for native save");
+    let native_json = live.to_json().expect("serialize native document");
+    assert!(!native_json.contains("_unopenedOuterFrame"), "native document JSON must not contain _unopenedOuterFrame");
+}

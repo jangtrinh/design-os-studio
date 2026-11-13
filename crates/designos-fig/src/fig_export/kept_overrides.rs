@@ -373,6 +373,209 @@ fn remap_child_grid_anchors(entries: &mut [V], own: &[usize], anchor_key: &str, 
     }
 }
 
+fn remove_own_key(entries: &mut [V], own: &[usize], key: &str) {
+    for &i in own {
+        if let Some(record) = message_fields_mut(&mut entries[i]) {
+            record.retain(|(k, _)| &**k != key);
+        }
+    }
+}
+
+fn set_own_key(entries: &mut [V], own: &[usize], last: usize, key: &str, val: V) {
+    for &i in own {
+        if i != last {
+            if let Some(record) = message_fields_mut(&mut entries[i]) {
+                record.retain(|(k, _)| &**k != key);
+            }
+        }
+    }
+    if let Some(record) = message_fields_mut(&mut entries[last]) {
+        if let Some(slot) = record.iter_mut().find(|(k, _)| &**k == key) {
+            slot.1 = val;
+        } else {
+            record.push((key.into(), val));
+        }
+    }
+}
+
+fn copy_fresh_key(entries: &mut [V], own: &[usize], last: usize, fresh: &V, key: &str) {
+    if let Some(val) = fresh.get(key).cloned() {
+        set_own_key(entries, own, last, key, val);
+    }
+}
+
+fn own_has_key(entries: &[V], own: &[usize], key: &str) -> bool {
+    own.iter().any(|&i| entries[i].get(key).is_some())
+}
+
+fn restate_edited_layout_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid: (u32, u32), entries: &mut [V], own: &[usize], last: usize) {
+    let layout_only = BTreeSet::from([OverrideField::Layout]);
+    let Some(fresh) = collect_instance_overrides_for(cx, inst_id, Some(&layout_only)).into_iter().find(|e| is_own_entry(e, main_guid)) else {
+        return;
+    };
+    let Some(node) = cx.doc.get(inst_id) else { return };
+    let Some(now_fp) = node.kind.frame_props() else { return };
+    let now_cleared = node.component.layout_cleared;
+    let opened = cx.doc.pending_instance_self_digests(inst_id).unwrap_or_default();
+    let (seeded_fp, seeded_cleared) = crate::instance_self_digest::unopened_layout_snapshot(&opened)
+        .map(|s| (s.seeded_fp, s.seeded_cleared))
+        .or_else(|| {
+            let comp = match &node.kind {
+                NodeKind::Instance { component: Some(c), .. } => Some(*c),
+                _ => node.component.source,
+            }?;
+            Some((cx.doc.get(comp)?.kind.frame_props()?.clone(), false))
+        })
+        .unwrap_or_default();
+
+    if now_fp.clips_content != seeded_fp.clips_content {
+        copy_fresh_key(entries, own, last, &fresh, "frameMaskDisabled");
+    }
+    if now_fp.grids != seeded_fp.grids {
+        if now_fp.grids.is_empty() {
+            remove_own_key(entries, own, "layoutGrids");
+        } else {
+            copy_fresh_key(entries, own, last, &fresh, "layoutGrids");
+        }
+    }
+
+    let Some(now_al) = now_fp.auto_layout.as_ref() else {
+        if now_cleared && (seeded_fp.auto_layout.is_some() || !seeded_cleared) {
+            for &i in own {
+                if let Some(record) = message_fields_mut(&mut entries[i]) {
+                    record.retain(|(k, _)| {
+                        !matches!(
+                            &**k,
+                            "gridColumns"
+                                | "gridColumnsSizing"
+                                | "gridRows"
+                                | "gridRowsSizing"
+                                | "gridAutoTracks"
+                                | "gridColumnGap"
+                                | "gridRowGap"
+                                | "stackMode"
+                                | "stackSpacing"
+                                | "stackCounterSpacing"
+                                | "stackPadding"
+                                | "stackHorizontalPadding"
+                                | "stackVerticalPadding"
+                                | "stackPaddingRight"
+                                | "stackPaddingBottom"
+                                | "stackPrimaryAlignItems"
+                                | "stackCounterAlignItems"
+                                | "stackCounterAlignContent"
+                                | "stackLayoutVersion"
+                                | "stackPrimarySizing"
+                                | "stackCounterSizing"
+                                | "stackWrap"
+                                | "bordersTakeSpace"
+                                | "stackReverseZIndex"
+                        )
+                    });
+                }
+            }
+            copy_fresh_key(entries, own, last, &fresh, "stackMode");
+        }
+        return;
+    };
+
+    let seeded_al = seeded_fp.auto_layout.as_ref();
+    if seeded_al.map(|a| a.direction) != Some(now_al.direction) || seeded_cleared != now_cleared {
+        copy_fresh_key(entries, own, last, &fresh, "stackMode");
+    }
+    if seeded_al.map(|a| a.item_spacing) != Some(now_al.item_spacing) {
+        let key = if now_al.direction == LayoutDirection::Grid || (own_has_key(entries, own, "gridColumnGap") && !own_has_key(entries, own, "stackSpacing")) {
+            "gridColumnGap"
+        } else {
+            "stackSpacing"
+        };
+        set_own_key(entries, own, last, key, V::Float(now_al.item_spacing));
+    }
+    if seeded_al.map(|a| a.counter_spacing) != Some(now_al.counter_spacing) {
+        let key = if now_al.direction == LayoutDirection::Grid || (own_has_key(entries, own, "gridRowGap") && !own_has_key(entries, own, "stackCounterSpacing"))
+        {
+            "gridRowGap"
+        } else {
+            "stackCounterSpacing"
+        };
+        match now_al.counter_spacing {
+            Some(gap) => set_own_key(entries, own, last, key, V::Float(gap)),
+            // The grid row gap is always stated; for a stack an unset gap is simply absent from the record.
+            None if key == "gridRowGap" => set_own_key(entries, own, last, key, V::Float(now_al.line_gap())),
+            None => remove_own_key(entries, own, key),
+        }
+    }
+    if seeded_al.map(|a| a.padding) != Some(now_al.padding) {
+        let uniform = now_al.padding[0] == now_al.padding[1] && now_al.padding[1] == now_al.padding[2] && now_al.padding[2] == now_al.padding[3];
+        let has_side_keys = own_has_key(entries, own, "stackVerticalPadding")
+            || own_has_key(entries, own, "stackPaddingRight")
+            || own_has_key(entries, own, "stackPaddingBottom")
+            || own_has_key(entries, own, "stackHorizontalPadding");
+        if uniform && own_has_key(entries, own, "stackPadding") && !has_side_keys {
+            set_own_key(entries, own, last, "stackPadding", V::Float(now_al.padding[0]));
+        } else if own_has_key(entries, own, "stackPadding") {
+            remove_own_key(entries, own, "stackPadding");
+            for (idx, key) in [(0, "stackVerticalPadding"), (1, "stackPaddingRight"), (2, "stackPaddingBottom"), (3, "stackHorizontalPadding")] {
+                set_own_key(entries, own, last, key, V::Float(now_al.padding[idx]));
+            }
+        } else {
+            for (idx, key) in [(0, "stackVerticalPadding"), (1, "stackPaddingRight"), (2, "stackPaddingBottom"), (3, "stackHorizontalPadding")] {
+                if seeded_al.map(|a| a.padding[idx]) != Some(now_al.padding[idx]) {
+                    set_own_key(entries, own, last, key, V::Float(now_al.padding[idx]));
+                }
+            }
+        }
+    }
+    if seeded_al.map(|a| a.primary_align) != Some(now_al.primary_align) {
+        copy_fresh_key(entries, own, last, &fresh, "stackPrimaryAlignItems");
+    }
+    if seeded_al.map(|a| a.counter_align) != Some(now_al.counter_align) {
+        copy_fresh_key(entries, own, last, &fresh, "stackCounterAlignItems");
+    }
+    if seeded_al.map(|a| a.counter_align_content) != Some(now_al.counter_align_content) {
+        copy_fresh_key(entries, own, last, &fresh, "stackCounterAlignContent");
+    }
+    if seeded_al.map(|a| a.layout_version) != Some(now_al.layout_version) {
+        copy_fresh_key(entries, own, last, &fresh, "stackLayoutVersion");
+    }
+    if seeded_al.map(|a| a.primary_sizing) != Some(now_al.primary_sizing) {
+        copy_fresh_key(entries, own, last, &fresh, "stackPrimarySizing");
+    }
+    if seeded_al.map(|a| a.counter_sizing) != Some(now_al.counter_sizing) {
+        copy_fresh_key(entries, own, last, &fresh, "stackCounterSizing");
+    }
+    if seeded_al.map(|a| a.wrap) != Some(now_al.wrap) {
+        copy_fresh_key(entries, own, last, &fresh, "stackWrap");
+    }
+    if seeded_al.map(|a| a.stroke_included) != Some(now_al.stroke_included) {
+        copy_fresh_key(entries, own, last, &fresh, "bordersTakeSpace");
+    }
+    if seeded_al.map(|a| a.reverse_z) != Some(now_al.reverse_z) {
+        copy_fresh_key(entries, own, last, &fresh, "stackReverseZIndex");
+    }
+    if seeded_al.map(|a| a.grid_auto_tracks) != Some(now_al.grid_auto_tracks) {
+        copy_fresh_key(entries, own, last, &fresh, "gridAutoTracks");
+    }
+    if seeded_al.map(|a| (a.grid_columns, &a.grid_col_tracks)) != Some((now_al.grid_columns, &now_al.grid_col_tracks)) {
+        let old_cols = ordered_track_guids_in_own(entries, own, "gridColumns");
+        let new_cols = ordered_track_guids(&fresh, "gridColumns").unwrap_or_default();
+        if old_cols.is_empty() || old_cols.len() == new_cols.len() {
+            copy_fresh_key(entries, own, last, &fresh, "gridColumns");
+            copy_fresh_key(entries, own, last, &fresh, "gridColumnsSizing");
+            remap_child_grid_anchors(entries, own, "gridColumnAnchor", &old_cols, &new_cols);
+        }
+    }
+    if seeded_al.map(|a| (a.grid_rows, &a.grid_row_tracks)) != Some((now_al.grid_rows, &now_al.grid_row_tracks)) {
+        let old_rows = ordered_track_guids_in_own(entries, own, "gridRows");
+        let new_rows = ordered_track_guids(&fresh, "gridRows").unwrap_or_default();
+        if old_rows.is_empty() || old_rows.len() == new_rows.len() {
+            copy_fresh_key(entries, own, last, &fresh, "gridRows");
+            copy_fresh_key(entries, own, last, &fresh, "gridRowsSizing");
+            remap_child_grid_anchors(entries, own, "gridRowAnchor", &old_rows, &new_rows);
+        }
+    }
+}
+
 /// The record states the instance's own fields as they were when the file was opened. A field the user changed on the
 /// instance since then (its digest moved, see [`crate::instance_self_digest`]) is written from the node instead, in
 /// place of what the record says for it; every other part of the record is written as it was.
@@ -403,35 +606,39 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: Nod
     if edited.is_empty() && reset.is_empty() {
         return;
     }
-    // The instance has no children, so what it reads from the node is its own entry alone. A reset has no fresh
-    // value to append; edited fields still replace the old value with the current node state.
-    let mut fresh = collect_instance_overrides_for(cx, inst_id, Some(&edited)).into_iter().find(|e| is_own_entry(e, main_guid));
-    let own: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| is_own_entry(e, main_guid)).map(|(i, _)| i).collect();
-    let Some(&last) = own.last() else {
-        if let Some(fresh) = fresh {
-            entries.insert(0, fresh);
+    let mut own: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| is_own_entry(e, main_guid)).map(|(i, _)| i).collect();
+    if own.is_empty() {
+        let Some(mut fresh) = collect_instance_overrides_for(cx, inst_id, Some(&edited)).into_iter().find(|e| is_own_entry(e, main_guid)) else {
+            return;
+        };
+        if let Some(fields) = message_fields_mut(&mut fresh) {
+            fields.retain(|(k, _)| &**k == "guidPath");
         }
-        return;
-    };
-    let track_remap = edited.contains(&OverrideField::Layout).then(|| {
-        (
-            ordered_track_guids_in_own(entries, &own, "gridColumns"),
-            fresh.as_ref().and_then(|f| ordered_track_guids(f, "gridColumns")).unwrap_or_default(),
-            ordered_track_guids_in_own(entries, &own, "gridRows"),
-            fresh.as_ref().and_then(|f| ordered_track_guids(f, "gridRows")).unwrap_or_default(),
-        )
-    });
-    let mut restated = fresh.as_mut().and_then(message_fields_mut);
-    if let Some(fields) = restated.as_mut() {
-        fields.retain(|(k, _)| &**k != "guidPath");
+        entries.insert(0, fresh);
+        own.push(0);
     }
+    let last = *own.last().expect("own entry exists");
+
+    // The instance has no children, so what it reads from the node is its own entry alone. A reset has no fresh
+    // value to append; edited fields still replace the old value with the current node state. The layout group is not
+    // restated wholesale from the childless node: only the layout keys the edit changed are written (below).
+    let non_layout: BTreeSet<OverrideField> = edited.iter().copied().filter(|&f| f != OverrideField::Layout).collect();
+    let mut restated = if non_layout.is_empty() {
+        None
+    } else {
+        collect_instance_overrides_for(cx, inst_id, Some(&non_layout)).into_iter().find(|e| is_own_entry(e, main_guid)).and_then(|mut fresh| {
+            let mut fields = message_fields_mut(&mut fresh).map(std::mem::take)?;
+            fields.retain(|(k, _)| &**k != "guidPath");
+            Some(fields)
+        })
+    };
     let stale_consumption = {
         let Some(node) = cx.doc.get(inst_id) else { return };
         let main_node = cx.doc.get(main);
         let own_refs: Vec<&V> = own.iter().map(|&i| &entries[i]).collect();
         stale_consumption_fields(node, main_node, &opened, &own_refs, &edited, &reset)
     };
-    let mut removed = edited;
+    let mut removed = non_layout;
     removed.extend(reset);
     // Entries on one path apply in list order, so a key left in an earlier one would still be read where the last does not
     // override it: the old value goes from all of them and the new one is stated by the last.
@@ -441,11 +648,10 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: Nod
         drop_stale_consumption_entries(record, &stale_consumption);
     }
     if let (Some(record), Some(restated)) = (message_fields_mut(&mut entries[last]), restated.take()) {
-        record.append(restated);
+        record.extend(restated);
     }
-    if let Some((old_cols, new_cols, old_rows, new_rows)) = track_remap {
-        remap_child_grid_anchors(entries, &own, "gridColumnAnchor", &old_cols, &new_cols);
-        remap_child_grid_anchors(entries, &own, "gridRowAnchor", &old_rows, &new_rows);
+    if edited.contains(&OverrideField::Layout) {
+        restate_edited_layout_fields(cx, inst_id, main_guid, entries, &own, last);
     }
     entries.retain(|entry| {
         !is_own_entry(entry, main_guid)
