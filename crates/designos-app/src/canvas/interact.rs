@@ -1246,20 +1246,23 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
             let inv = app.doc.world_transform(cr.id).invert().unwrap_or(Affine::IDENTITY);
             let ml = inv.apply(cur);
             let mut changed = false;
-            if let Some(n) = cr.tx.ed.node(&mut app.doc, cr.id) {
+            if let Some(n) = app.doc.get(cr.id) {
                 let dx = if matches!(cr.corner, 0 | 3) { ml.x } else { n.size.x - ml.x };
                 let dy = if matches!(cr.corner, 0 | 1) { ml.y } else { n.size.y - ml.y };
                 let max_r = (n.size.x.min(n.size.y) * 0.5).max(0.0);
                 let new_r = dx.min(dy).clamp(0.0, max_r).round();
-                if inp.mods.alt {
+                let radii = if inp.mods.alt {
                     let mut r = cr.start_radii;
                     r[cr.corner] = new_r;
-                    n.corner_radii = r;
+                    r
                 } else {
-                    n.corner_radii = [new_r; 4];
-                }
-                changed = Some(n.corner_radii) != before;
-                if changed || n.corner_radii != cr.start_radii {
+                    [new_r; 4]
+                };
+                changed = Some(radii) != before;
+                if radii == cr.start_radii {
+                    cr.tx.ed.forget(cr.id);
+                } else if let Some(n) = cr.tx.ed.node(&mut app.doc, cr.id) {
+                    n.corner_radii = radii;
                     drop_baked_outline_of_parametric_shape(n);
                 }
             }
@@ -1743,7 +1746,9 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             app.run_tx(r.tx);
         }
         Interaction::CornerRadius(c) => {
-            app.run_tx(c.tx);
+            if c.tx.ed.touched().is_empty() || !app.run_tx(c.tx) {
+                return;
+            }
         }
         Interaction::AutoLayoutDrag(a) => {
             if a.moved {
@@ -3816,7 +3821,7 @@ mod tests {
     }
 
     #[test]
-    fn a_second_move_at_the_clamp_or_back_to_start_tracks_the_previous_move() {
+    fn a_second_move_at_the_clamp_or_back_to_start_in_a_corner_radius_drag_tracks_the_previous_move() {
         let (mut app, _, _) = app_with_two();
         let id = baked_shape(&mut app, NodeKind::Rectangle);
         let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: app.doc.get(id).unwrap().corner_radii });
@@ -3855,6 +3860,49 @@ mod tests {
         follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at_zero, &inp);
         assert!(app.canvas.dirty, "dragging back to the starting radius changes the live radius and must dirty the canvas");
         assert_eq!(app.doc.get(id).unwrap().corner_radii, [0.0; 4]);
+    }
+
+    #[test]
+    fn corner_radius_drag_returning_to_start_keeps_baked_outline_and_adds_no_undo_step() {
+        for (alt, start_radii, back_local) in [(false, [0.0; 4], v2(0.0, 0.0)), (true, [12.0, 8.0, 4.0, 0.0], v2(12.0, 12.0))] {
+            let (mut app, _, _) = app_with_two();
+            let id = baked_shape(&mut app, NodeKind::Rectangle);
+            app.doc.get_mut(id).unwrap().corner_radii = start_radii;
+            let original = app.doc.get(id).unwrap().clone();
+            let undo_before = app.hist.undo_depth();
+            let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii });
+            let drag_inp = Inp {
+                pos: None,
+                press_pos: None,
+                release_pos: None,
+                prior_release_pos: None,
+                release_mods: None,
+                prior_release_mods: None,
+                pressed: false,
+                down: true,
+                released: false,
+                mid_pressed: false,
+                mid_down: false,
+                mods: Modifiers { alt, ..Modifiers::NONE },
+                space: false,
+                z_down: false,
+            };
+
+            let out = app.doc.world_transform(id).apply(v2(50.0, 50.0));
+            follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, out, &drag_inp);
+            assert!(app.doc.get(id).unwrap().fill_geometry.is_none(), "outline dropped while radius differs from start (alt={alt})");
+
+            let back = app.doc.world_transform(id).apply(back_local);
+            follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, back, &drag_inp);
+            assert!(app.canvas.dirty, "canvas repaints when returning to start radius (alt={alt})");
+            app.canvas.dirty = false;
+
+            app.canvas.inter = inter;
+            release_without_an_end(&mut app);
+            assert_eq!(app.doc.get(id).unwrap(), &original, "shape must equal original on release at start radius (alt={alt})");
+            assert_eq!(app.hist.undo_depth(), undo_before, "no undo step when radius returns to start (alt={alt})");
+            assert!(!app.canvas.dirty, "release at start radius must not mark document changed (alt={alt})");
+        }
     }
 
     /// A 100 x 100 shape of `kind` that carries the baked fill and stroke outline a `.fig` import leaves.
