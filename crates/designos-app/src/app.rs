@@ -447,8 +447,9 @@ impl App {
         })
     }
 
-    /// Puts `next` on screen, or in the queue when the toast on screen carries an action that has not run out, or
-    /// when other toasts already wait. A toast with an action is never replaced (the user may be about to press it),
+    /// Puts `next` on screen, or in the queue when the toast on screen carries an action that has not run out, when
+    /// `next` is an error and an error is still on screen, or when other toasts already wait. A toast with an action
+    /// is never replaced (the user may be about to press it), an error on screen is never replaced by another error,
     /// and a plain toast never jumps ahead of one that waits, so a stream of plain toasts cannot hide it.
     fn place_toast(&mut self, next: Toast) -> &mut Toast {
         if next.error {
@@ -464,8 +465,11 @@ impl App {
                 return &mut self.toast_queue[i];
             }
         }
-        let live_action = self.toast.as_ref().is_some_and(|t| t.has_action() && (!t.armed || self.now < t.until));
-        if live_action || !self.toast_queue.is_empty() {
+        let live = |t: &Toast| !t.armed || self.now < t.until;
+        let live_action = self.toast.as_ref().is_some_and(|t| t.has_action() && live(t));
+        // A different error does not replace an error the user has seen and that still has time left.
+        let live_error = next.error && self.toast.as_ref().is_some_and(|t| t.error && t.armed && self.now < t.until);
+        if live_action || live_error || !self.toast_queue.is_empty() {
             return self.enqueue_toast(next);
         }
         self.toast.insert(next)
