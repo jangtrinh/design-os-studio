@@ -2976,10 +2976,9 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     // A nested instance whose bound variant switched while its reference still showed another main mirrors its own main's
     // layers. When the reference shows that main too (it followed the same variable), the copy is relinked to the
     // reference's layers instead of being rebuilt from them, which would drop its overrides.
-    let has_parked = !inode.component.parked_overrides.is_empty() || c.had_parked.contains(&i);
     if !top
         && !swapped_here
-        && (has_prop_binding(&inode) || (has_parked && inode.component.overrides.contains(&OverrideField::MainComponent)))
+        && (has_prop_binding(&inode) || inode.component.overrides.contains(&OverrideField::MainComponent))
         && matches!(rn.kind, NodeKind::Instance { .. })
         && instance_component(&inode) == instance_component(&rn)
     {
@@ -12466,6 +12465,50 @@ mod tests {
         let synced_lbl = child_named(&d, inst_btn, "Label");
         assert_eq!(text_of(&d, synced_lbl), "Cancel", "with an empty parked list, main sync matches main and replaces Pay with Cancel");
         assert!(d.get(synced_lbl).unwrap().component.overrides.is_empty());
+    }
+
+    #[test]
+    fn nested_manual_variant_round_trip_keeps_text_override() {
+        let mut d = Document::new("nested-variant-round-trip");
+        let page = d.add_page("P");
+        let make_button = |d: &mut Document, name: &str, x: f32, text: &str| {
+            let id = d.alloc_id();
+            let mut frame = Node::frame(id, Rect::new(x, 0.0, 100.0, 40.0));
+            frame.name = name.into();
+            let main = d.insert(page, frame).unwrap();
+            let label_id = d.alloc_id();
+            let mut label = Node::text(label_id, Rect::new(0.0, 0.0, 80.0, 20.0), text, TextStyle::default());
+            label.name = "Label".into();
+            d.insert(main, label).unwrap();
+            let c = create_component(d, main);
+            apply(d, c);
+            main
+        };
+        let a = make_button(&mut d, "State=A", 0.0, "A");
+        let b = make_button(&mut d, "State=B", 120.0, "B");
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+        let card_id = d.alloc_id();
+        let mut card = Node::frame(card_id, Rect::new(0.0, 100.0, 140.0, 60.0));
+        card.name = "Card".into();
+        let card = d.insert(page, card).unwrap();
+        let c = create_component(&mut d, card);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, a, card, Vec2::ZERO);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, card, page, Vec2::new(200.0, 100.0));
+        apply(&mut d, c);
+        let card_instance = *d.get(page).unwrap().children.last().unwrap();
+        let nested = d.get(card_instance).unwrap().children[0];
+        let label = child_named(&d, nested, "Label");
+        override_text(&mut d, label, "Custom");
+        let c = set_nested_instance_prop(&mut d, nested, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        let c = set_nested_instance_prop(&mut d, nested, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        let label = child_named(&d, nested, "Label");
+        assert_eq!(text_of(&d, label), "Custom");
+        assert!(d.get(label).unwrap().component.overrides.contains(&OverrideField::Characters));
     }
 
     #[test]
