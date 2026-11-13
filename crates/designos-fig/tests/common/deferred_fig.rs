@@ -98,6 +98,25 @@ pub fn deferred_fixture() -> Vec<u8> {
     fixture(text_and_stroke_overrides(), Vec::new(), Vec::new())
 }
 
+/// A deferred fixture whose main component has auto-layout. The instance record says spacing 4; #1699 edits the
+/// unopened instance to 20 and expects the save to restate the edited frame layout.
+pub fn deferred_layout_fixture(instance_overrides: Value) -> Vec<u8> {
+    let mut instance = json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": instance_overrides}});
+    let mut changes = vec![
+        fig_node((0, 0), (0, 0), "DOCUMENT", "Document", json!({})),
+        fig_node((0, 1), (0, 0), "CANVAS", "Cover", json!({})),
+        fig_node((0, 2), (0, 0), "CANVAS", "Page 2", json!({})),
+        fig_node((0, 3), (0, 0), "CANVAS", "404 pages", json!({})),
+        fig_node(BUTTON, (0, 3), "SYMBOL", "Buttons/Button", json!({"stackMode": "HORIZONTAL", "stackSpacing": 4.0, "stackCounterSpacing": 0.0})),
+        fig_node(LABEL, BUTTON, "TEXT", "Text", json!({"fontSize": 14.0, "textData": {"characters": "Button CTA"}})),
+        fig_node(VARIANT, (0, 3), "SYMBOL", "Type=Simple 03, Breakpoint=Desktop", json!({"size": {"x": 1440.0, "y": 960.0}})),
+    ];
+    instance["symbolData"]["symbolOverrides"] = instance_overrides;
+    changes.push(fig_node(INSTANCE, VARIANT, "INSTANCE", "Buttons/Button", instance));
+    changes.extend((0..25_000u64).map(|i| rect_nc((9, i + 1), (0, 1), "F")));
+    fig_bytes(changes, Vec::new())
+}
+
 pub fn page_named(doc: &Document, name: &str) -> NodeId {
     doc.pages.iter().copied().find(|&p| doc.get(p).is_some_and(|n| n.name.trim() == name)).unwrap_or_else(|| panic!("no page {name}"))
 }

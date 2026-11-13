@@ -395,6 +395,59 @@ fn a_stroke_edit_keeps_the_layout_keys_of_the_entry() {
 }
 
 #[test]
+fn an_unopened_instance_layout_edit_replaces_recorded_spacing_without_rewriting_child_metadata() {
+    let own = own_entry_json(json!({
+        "stackMode": "HORIZONTAL",
+        "stackSpacing": 4.0,
+        "stackPositioning": "ABSOLUTE",
+        "minSize": {"value": {"x": 12.0, "y": 8.0}},
+        "maxSize": {"value": {"x": 240.0, "y": 180.0}},
+        "targetAspectRatio": {"value": {"x": 16.0, "y": 9.0}}
+    }));
+    let fig = deferred_layout_fixture(json!([own]));
+    let saved = edit_and_save(&fig, |n| {
+        n.kind.frame_props_mut().expect("instance frame").auto_layout =
+            Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: 20.0, ..AutoLayout::default() });
+    });
+    let edited = own_entry_of(&saved_entries(&saved, INSTANCE));
+    assert_eq!(edited["stackSpacing"].as_f64(), Some(20.0), "edited spacing must replace the record: {edited}");
+    for key in ["stackPositioning", "minSize", "maxSize", "targetAspectRatio"] {
+        assert_eq!(edited.get(key), own.get(key), "{key} must stay record-only");
+    }
+    let reopened = import_fig(&saved).expect("reopen saved fig");
+    let instance = variant_button(&reopened);
+    assert_eq!(reopened.get(instance).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).map(|al| al.item_spacing), Some(20.0),);
+}
+
+#[test]
+fn an_unopened_instance_layout_grid_edit_replaces_recorded_guides() {
+    let own = own_entry_json(json!({
+        "layoutGrids": [{"pattern": "GRID", "sectionSize": 8.0, "visible": true, "color": rgba(1.0, 0.0, 0.0)}]
+    }));
+    let fig = deferred_layout_fixture(json!([own]));
+    let saved = edit_and_save(&fig, |n| {
+        n.kind.frame_props_mut().expect("instance frame").grids = vec![LayoutGrid::grid(24.0, Color::rgba(0, 255, 0, 128))];
+    });
+    let edited = own_entry_of(&saved_entries(&saved, INSTANCE));
+    let guide = edited["layoutGrids"].as_array().and_then(|g| g.first()).expect("restated layout grid");
+    assert_eq!(guide["sectionSize"].as_f64(), Some(24.0), "edited entry: {edited}");
+    assert_eq!(guide["color"]["g"].as_f64(), Some(1.0));
+}
+
+#[test]
+fn an_unopened_instance_layout_clear_replaces_recorded_mode_with_none() {
+    let own = own_entry_json(json!({"stackMode": "HORIZONTAL", "stackSpacing": 4.0}));
+    let fig = deferred_layout_fixture(json!([own]));
+    let saved = edit_and_save(&fig, |n| {
+        n.kind.frame_props_mut().expect("instance frame").auto_layout = None;
+        n.component.layout_cleared = true;
+    });
+    let edited = own_entry_of(&saved_entries(&saved, INSTANCE));
+    assert_eq!(edited.get("stackMode"), Some(&json!("NONE")), "cleared layout must not be re-inherited: {edited}");
+    assert!(edited.get("stackSpacing").is_none(), "stale auto-layout fields must be removed: {edited}");
+}
+
+#[test]
 fn a_fill_edit_leaves_the_stroke_and_layout_keys_as_recorded() {
     let own = own_entry_json(json!({
         "stackMode": "VERTICAL", "bordersTakeSpace": true, "styleIdForGrid": style_ref("GRID_ONE"),

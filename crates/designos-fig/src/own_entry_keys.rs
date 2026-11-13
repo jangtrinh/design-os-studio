@@ -58,6 +58,34 @@ fn named_class(key: &str) -> Option<OwnKey> {
         | "rectangleTopRightCornerRadius"
         | "rectangleBottomLeftCornerRadius"
         | "rectangleBottomRightCornerRadius" => States(OverrideField::CornerRadii),
+        // Only frame-level layout keys are restated for an instance's own entry. Child constraints (`stackPositioning`,
+        // `minSize`, `maxSize`) and aspect-ratio metadata stay as recorded because the own-entry writer does not emit
+        // them; they must not be mistaken for edits of the instance's frame layout.
+        "frameMaskDisabled"
+        | "gridColumns"
+        | "gridColumnsSizing"
+        | "gridRows"
+        | "gridRowsSizing"
+        | "gridAutoTracks"
+        | "gridColumnGap"
+        | "gridRowGap"
+        | "layoutGrids"
+        | "stackMode"
+        | "stackSpacing"
+        | "stackCounterSpacing"
+        | "stackHorizontalPadding"
+        | "stackVerticalPadding"
+        | "stackPaddingRight"
+        | "stackPaddingBottom"
+        | "stackPrimaryAlignItems"
+        | "stackCounterAlignItems"
+        | "stackCounterAlignContent"
+        | "stackLayoutVersion"
+        | "stackPrimarySizing"
+        | "stackCounterSizing"
+        | "stackWrap"
+        | "bordersTakeSpace"
+        | "stackReverseZIndex" => States(OverrideField::Layout),
         "strokeGeometry" => Derived(OverrideField::Stroke),
         "fillGeometry" => Derived(OverrideField::CornerRadii),
         // Names the node, ties it to the library or file, or belongs to another kind of node.
@@ -216,45 +244,23 @@ fn named_class(key: &str) -> Option<OwnKey> {
         | "transformModifiers"
         | "strokeData"
         | "targetAspectRatio"
-        | "bordersTakeSpace"
         | "horizontalConstraint"
-        | "stackMode"
-        | "stackSpacing"
         | "stackPadding"
-        | "stackHorizontalPadding"
-        | "stackVerticalPadding"
-        | "stackPrimarySizing"
-        | "stackPrimaryAlignItems"
-        | "stackCounterAlignItems"
         | "stackChildPrimaryGrow"
-        | "stackPaddingRight"
-        | "stackPaddingBottom"
         | "stackChildAlignSelf"
         | "stackPositioning"
-        | "stackReverseZIndex"
-        | "stackWrap"
-        | "stackCounterSpacing"
         | "minSize"
         | "maxSize"
-        | "stackCounterAlignContent"
-        | "stackLayoutVersion"
         | "stackChildMarginTop"
         | "stackChildMarginRight"
         | "stackChildMarginBottom"
         | "stackChildMarginLeft"
-        | "gridRows"
-        | "gridColumns"
-        | "gridRowGap"
-        | "gridColumnGap"
         | "gridRowAnchor"
         | "gridColumnAnchor"
         | "gridRowSpan"
         | "gridColumnSpan"
-        | "gridColumnsSizing"
-        | "gridRowsSizing"
         | "gridChildVerticalAlign"
         | "gridChildHorizontalAlign"
-        | "gridAutoTracks"
         | "gridReflowEnabled"
         | "pluginData"
         | "autoRename"
@@ -263,8 +269,6 @@ fn named_class(key: &str) -> Option<OwnKey> {
         | "verticalConstraint"
         | "exportSettings"
         | "textAutoResize"
-        | "layoutGrids"
-        | "frameMaskDisabled"
         | "resizeToFit"
         | "booleanOperation"
         | "handleMirroring"
@@ -278,7 +282,6 @@ fn named_class(key: &str) -> Option<OwnKey> {
         | "guides"
         | "scrollDirection"
         | "overrideKey"
-        | "stackCounterSizing"
         | "listSpacing"
         | "variableConsumptionMap"
         | "variableModeBySetMap"
@@ -370,10 +373,20 @@ mod tests {
 
     #[test]
     fn a_layout_key_that_shares_a_prefix_with_a_stroke_key_is_not_a_stroke_key() {
-        assert_eq!(classify_own_key("bordersTakeSpace"), OwnKey::LeftAsRecorded);
+        assert_eq!(classify_own_key("bordersTakeSpace"), OwnKey::States(OverrideField::Layout));
         assert_eq!(classify_own_key("borderTopWeight"), OwnKey::States(OverrideField::Stroke));
         assert_eq!(classify_own_key("strokeSeed"), OwnKey::LeftAsRecorded);
         assert_eq!(classify_own_key("rectangleCornerRadiiIndependent"), OwnKey::States(OverrideField::CornerRadii));
+    }
+
+    #[test]
+    fn own_layout_keeps_child_constraints_and_aspect_ratio_in_the_record() {
+        for key in ["stackPositioning", "minSize", "maxSize", "targetAspectRatio"] {
+            assert_eq!(classify_own_key(key), OwnKey::LeftAsRecorded, "{key} is not emitted by the own-entry writer");
+        }
+        for key in ["frameMaskDisabled", "stackMode", "stackSpacing", "stackPaddingRight", "stackPrimarySizing"] {
+            assert_eq!(classify_own_key(key), OwnKey::States(OverrideField::Layout), "{key} is emitted by the own-entry writer");
+        }
     }
 
     #[test]
