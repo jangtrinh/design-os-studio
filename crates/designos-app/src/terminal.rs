@@ -3514,9 +3514,10 @@ impl TerminalState {
         self.next_run_seq = run_seq + 1;
         self.active_run_id = format!("{}-{}-{}", self.session_id, id, run_seq);
         // Grok and Antigravity load their project config, hooks and MCP servers included, from the session folder, as the user.
-        let exact = match (preset, mode) {
-            (AgentCliPreset::Grok, PermissionMode::Ask) => Some(crate::agent_session_files::ExactProjectConfig::Grok),
-            (AgentCliPreset::Antigravity, PermissionMode::Ask) => Some(crate::agent_session_files::ExactProjectConfig::Antigravity),
+        // Every mode that installs the approval hook gets these guards, so a mode added later is covered without touching this.
+        let exact = match (preset, mode.installs_approval_hook()) {
+            (AgentCliPreset::Grok, true) => Some(crate::agent_session_files::ExactProjectConfig::Grok),
+            (AgentCliPreset::Antigravity, true) => Some(crate::agent_session_files::ExactProjectConfig::Antigravity),
             _ => None,
         };
         let provisioned = if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
@@ -3524,10 +3525,12 @@ impl TerminalState {
         } else {
             self.provision_session_agent_files(file_path)
         };
-        // Gemini CLI, Grok and Antigravity load the files Studio just rewrote by themselves. In Ask mode, files that could not be
-        // rewritten, or do not read back as written, or an entry that is not Studio's and could not be moved aside, may be a copy an
-        // agent kept (hooks and servers included): the tab does not start.
-        if let (AgentCliPreset::Gemini | AgentCliPreset::Grok | AgentCliPreset::Antigravity, PermissionMode::Ask, Some(e)) = (preset, mode, &provisioned) {
+        // Gemini CLI, Grok and Antigravity load the files Studio just rewrote by themselves. In every mode with the approval hook,
+        // files that could not be rewritten, or do not read back as written, or an entry that is not Studio's and could not be moved
+        // aside, may be a copy an agent kept (hooks and servers included): the tab does not start.
+        if let (AgentCliPreset::Gemini | AgentCliPreset::Grok | AgentCliPreset::Antigravity, true, Some(e)) =
+            (preset, mode.installs_approval_hook(), &provisioned)
+        {
             let message = crate::agent_session_files::start_failure_message(preset.tab_title(), e);
             self.set_aside_note = None;
             self.status_msg = Some(message.clone());
@@ -6045,6 +6048,26 @@ mod workspace_dir_tests {
             assert_eq!(command, "codex resume --last --dangerously-bypass-approvals-and-sandbox");
             st.shutdown();
         });
+    }
+
+    /// Every mode with the approval hook starts Grok and Antigravity on a project config that is exactly Studio's: a hook file an
+    /// agent planted in the session folder is moved aside before the tab starts, in Ask for risky only as in Ask.
+    #[test]
+    fn a_grok_tab_in_every_approval_mode_starts_on_the_exact_project_config() {
+        for mode in [crate::agent_permissions::AgentPermissionMode::Ask, crate::agent_permissions::AgentPermissionMode::AskRisky] {
+            without_private_root(|| {
+                let mut st = tab_state_in(mode);
+                crate::agent_session_files::ensure_session_dir(&st.session_dir).expect("the session folder");
+                let planted = st.session_dir.join(".grok/hooks/planted.json");
+                std::fs::create_dir_all(planted.parent().expect("a hooks folder")).expect("hooks folder");
+                std::fs::write(&planted, b"{}").expect("a planted hook file");
+
+                st.spawn_tab_with_registration(AgentCliPreset::Grok, None, Some("true"), None, false, None, false, mode).expect("the Grok tab starts");
+
+                assert!(!planted.exists(), "{mode:?}: the planted hook file was moved aside");
+                st.shutdown();
+            });
+        }
     }
 
     /// Only the design server's overrides go: the permission flags and a `resume` before them stay, and a command with no
