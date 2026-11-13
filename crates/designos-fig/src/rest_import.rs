@@ -3840,6 +3840,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         // freshly cloned main. The exporter already performs this check for
         // unopened pages; mirror it before applying the record on open.
         let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        let mut cleared_derived = HashMap::new();
         for &inst in &insts {
             let Some(&main) = self.targets.get(&inst) else { continue };
             let Some(&stored) = self.instance_fingerprints.get(&inst) else { continue };
@@ -3847,7 +3848,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
             if fingerprints.of_mains(doc, &mains) != stored {
                 if let Some(ov) = self.overrides.get_mut(&inst) {
-                    ov.fast_derived.clear();
+                    let taken = std::mem::take(&mut ov.fast_derived);
+                    if !taken.is_empty() {
+                        cleared_derived.insert(inst, taken);
+                    }
                 }
             }
         }
@@ -3913,6 +3917,11 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             }
         }
         if let Some(err) = hydration_err {
+            for (inst, derived) in cleared_derived {
+                if let Some(ov) = cx.overrides.get_mut(&inst) {
+                    ov.fast_derived = derived;
+                }
+            }
             cx.doc.nodes.retain(|&id, _| id.0 < next_clone);
             for (id, node) in saved_insts {
                 cx.doc.nodes.insert(id, node);
@@ -3920,24 +3929,26 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             self.done = saved_done;
             self.last_error = Some(err.to_string());
             *doc = cx.doc;
-            if !self.pending_by_page.is_empty() {
-                self.ids = cx.ids;
-                self.overrides = cx.overrides;
-                self.override_keys = cx.override_keys;
-                self.col_anchor_guids = cx.col_anchor_guids;
-                self.row_anchor_guids = cx.row_anchor_guids;
-                self.grid_col_track_ids = cx.grid_col_track_ids;
-                self.grid_row_track_ids = cx.grid_row_track_ids;
-                self.no_auto_layout = cx.no_auto_layout;
-                self.scales = cx.scales;
-                self.path_cache = cx.path_cache;
-                self.blob_cache = cx.blob_cache;
-                self.expanded_comps = cx.expanded_comps;
-            } else {
-                self.targets.clear();
-                self.done.clear();
-            }
+            self.ids = cx.ids;
+            self.overrides = cx.overrides;
+            self.override_keys = cx.override_keys;
+            self.col_anchor_guids = cx.col_anchor_guids;
+            self.row_anchor_guids = cx.row_anchor_guids;
+            self.grid_col_track_ids = cx.grid_col_track_ids;
+            self.grid_row_track_ids = cx.grid_row_track_ids;
+            self.no_auto_layout = cx.no_auto_layout;
+            self.scales = cx.scales;
+            self.path_cache = cx.path_cache;
+            self.blob_cache = cx.blob_cache;
+            self.expanded_comps = cx.expanded_comps;
             return false;
+        }
+        for &inst in &cx.unexpanded_instances {
+            if let Some(derived) = cleared_derived.remove(&inst) {
+                if let Some(ov) = cx.overrides.get_mut(&inst) {
+                    ov.fast_derived = derived;
+                }
+            }
         }
         cx.mark_custom_instance_slots();
         if cx.next_clone > 1 {
@@ -3948,7 +3959,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.budget_exhausted = cx.budget_exhausted;
         self.unexpanded_instances.extend(cx.unexpanded_instances);
         *doc = cx.doc;
-        if !self.pending_by_page.is_empty() {
+        if !self.pending_by_page.is_empty() || !self.unexpanded_instances.is_empty() {
             self.ids = cx.ids;
             self.overrides = cx.overrides;
             self.override_keys = cx.override_keys;

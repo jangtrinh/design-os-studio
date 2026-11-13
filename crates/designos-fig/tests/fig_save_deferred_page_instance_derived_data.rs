@@ -232,3 +232,33 @@ fn a_deferred_instance_pointed_at_another_component_gets_no_derived_data() {
     let saved = export_fig(&live).expect("export");
     assert!(saved_derived(&saved, INSTANCE).is_empty(), "derived data computed for one component is not written under another");
 }
+
+#[test]
+fn a_failed_page_hydration_after_a_main_edit_preserves_the_instance_derived_data() {
+    let on_page_2 = fig_node(
+        (1, 60),
+        (0, 2),
+        "INSTANCE",
+        "Buttons/Button",
+        json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1), "symbolOverrides": text_and_stroke_overrides()}, "derivedSymbolData": derived_data()}),
+    );
+    let fig = derived_fixture(vec![on_page_2]);
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let instance = variant_button(&live);
+    let before = live.pending_instance_derived(instance).expect("derived data before hydration attempt");
+    assert_eq!(before.entries.len(), 3);
+
+    edit_size(&mut live, "Text", "Buttons/Button");
+    live.reserve_ids(NodeId(u64::MAX - 2));
+    assert!(!live.ensure_page_hydrated(page), "hydration that exhausts node id space must fail");
+    let err = live.hydration_error().expect("hydration error must be recorded");
+    assert!(err.contains("node id space exhausted"), "{err}");
+
+    let after = live.pending_instance_derived(instance);
+    assert_eq!(
+        after.as_ref().map(|d| (d.fingerprint, d.entries.len(), d.entries[0].size)),
+        Some((before.fingerprint, before.entries.len(), before.entries[0].size)),
+        "failed hydration must leave the instance's derived data as it was before the attempt"
+    );
+}
