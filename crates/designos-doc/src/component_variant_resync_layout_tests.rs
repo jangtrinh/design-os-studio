@@ -222,3 +222,61 @@ fn hug_frames_off_the_resized_chain_keep_their_positions() {
     assert_eq!((f.d.get(f.quiet).unwrap().transform.tx, f.d.get(f.quiet).unwrap().transform.ty), quiet_at, "the child of the quiet host");
     assert_eq!(hug_at(&f, f.hug_quiet), quiet_host, "the quiet host");
 }
+
+fn set_variables(f: &mut Fx, edit: impl FnOnce(&mut std::collections::BTreeMap<String, Variable>, &mut std::collections::BTreeMap<String, VariableCollection>)) {
+    let mut vars = f.d.variables.clone();
+    let mut collections = f.d.variable_collections.clone();
+    edit(&mut vars, &mut collections);
+    f.h.exec(&mut f.d, Command::SetVariables { variables: vars, collections }).unwrap();
+}
+
+fn assert_hosts_follow_step_undo_and_redo(f: &mut Fx, big: (f32, f32), small: (f32, f32)) {
+    assert_eq!((shown(f, f.top), shown(f, f.copy)), (LARGE.to_string(), LARGE.to_string()));
+    assert_eq!((width(f, f.hug_top), width(f, f.hug_nested)), big, "the step");
+    assert!(f.h.undo(&mut f.d).unwrap());
+    assert_eq!((shown(f, f.top), shown(f, f.copy)), (SMALL.to_string(), SMALL.to_string()));
+    assert_eq!((width(f, f.hug_top), width(f, f.hug_nested)), small, "undo");
+    assert!(f.h.redo(&mut f.d).unwrap());
+    assert_eq!((width(f, f.hug_top), width(f, f.hug_nested)), big, "redo");
+}
+
+#[test]
+fn a_variable_value_edit_resizes_the_hug_hosts_in_its_step_and_in_undo_and_redo() {
+    let mut f = build();
+    set_variables(&mut f, |vars, _| {
+        vars.get_mut("size").unwrap().values.insert("light".into(), VariableValue::String("Large".into()));
+    });
+    assert_hosts_follow_step_undo_and_redo(&mut f, (208.0, 208.0), (108.0, 108.0));
+}
+
+#[test]
+fn a_default_mode_change_resizes_the_hug_hosts_in_its_step_and_in_undo_and_redo() {
+    let mut f = build();
+    set_variables(&mut f, |_, collections| {
+        collections.get_mut("theme").unwrap().default_mode = "dark".into();
+    });
+    assert_hosts_follow_step_undo_and_redo(&mut f, (208.0, 208.0), (108.0, 108.0));
+}
+
+#[test]
+fn two_switched_instances_under_one_host_solve_it_once_for_the_step() {
+    fn solves_for_the_step(instances_in_host: usize) -> (usize, f32) {
+        let mut f = build();
+        for _ in 1..instances_in_host {
+            let small = f.d.get(f.hug_top).unwrap().children.first().map(|&c| instance_component(f.d.get(c).unwrap()).unwrap()).unwrap();
+            create_instance(&mut f.d, small, f.hug_top, Vec2::new(0.0, 0.0)).apply(&mut f.d).unwrap();
+            let extra = last_child(&f.d, f.hug_top);
+            let bind = bind_prop_variable(&mut f.d, extra, "Size", Some("size")).unwrap();
+            f.h.exec(&mut f.d, bind).unwrap();
+        }
+        f.d.relayout_subtree(f.stage);
+        crate::layout_apply::reset_solve_calls();
+        set_mode(&mut f, "dark");
+        (crate::layout_apply::solve_calls(), width(&f, f.hug_top))
+    }
+    let (one, one_width) = solves_for_the_step(1);
+    let (two, two_width) = solves_for_the_step(2);
+    assert_eq!((one_width, two_width), (208.0, 408.0), "both instances are laid out in the host");
+    assert!(one > 0, "the step solves the chain it resized");
+    assert_eq!(two, one, "a second switched instance under the same host adds no solve");
+}
