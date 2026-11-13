@@ -8037,6 +8037,56 @@ mod tests {
     }
 
     #[test]
+    fn variant_switch_transfers_styled_run_on_text_crossing_variants_with_different_defaults() {
+        let mut d = Document::new("RichTextVariantSwitch");
+        let page = d.add_page("P");
+        let mk = |d: &mut Document, name: &str, y: f32, text: &str, runs: Vec<crate::TextRun>| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, y, 160.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let mut t = Node::text(tid, Rect::new(4.0, 4.0, 120.0, 20.0), text, crate::TextStyle::default());
+            t.name = "Label".into();
+            if let NodeKind::Text(tp) = &mut t.kind {
+                tp.runs = runs;
+            }
+            d.insert(comp, t).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+
+        let bold = crate::TextStyle { font_weight: 700, ..crate::TextStyle::default() };
+        let user_run = crate::TextRun { start: 4, end: 7, style: bold };
+
+        let idle = mk(&mut d, "State=Idle", 0.0, "Save", Vec::new());
+        let done = mk(&mut d, "State=Done", 80.0, "Saved", Vec::new());
+        let c = combine_as_variants(&mut d, &[idle, done]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, idle, page, Vec2::new(240.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let lbl = child_named(&d, inst, "Label");
+        let before = d.get(lbl).unwrap().clone();
+        let mut edited = before.clone();
+        if let NodeKind::Text(tp) = &mut edited.kind {
+            tp.content = "Buy Now".into();
+            tp.runs = vec![user_run.clone()];
+        }
+        edited.component.overrides = record_override(&before, &edited);
+        apply(&mut d, Command::Update { node: Box::new(edited) });
+
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("Done".into())));
+        apply(&mut d, c);
+        let done_lbl = child_named(&d, inst, "Label");
+        let NodeKind::Text(done_tp) = &d.get(done_lbl).unwrap().kind else { panic!("expected text") };
+        assert_eq!(done_tp.content, "Buy Now");
+        assert_eq!(done_tp.runs, vec![user_run], "user styled run transfers with Characters when variant default runs match");
+    }
+
+    #[test]
     fn top_level_variant_switch_children_match_root_size() {
         let mut d = Document::new("VariantRoot");
         let page = d.add_page("P");

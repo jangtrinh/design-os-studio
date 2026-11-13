@@ -1350,7 +1350,6 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             apply_instance_slots_with_ctx(doc, target_id, &ov.slots, "overrides.slots", ctx)?;
         }
 
-        // 4. Text characters (`text`)
         // 4a. Arc data on a descendant ellipse.
         if let Some(arc) = &ov.arc {
             let is_ellipse = doc.get(target_id).is_some_and(|n| matches!(n.kind, NodeKind::Ellipse(_)));
