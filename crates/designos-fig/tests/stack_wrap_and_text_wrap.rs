@@ -32,6 +32,17 @@ fn auto_layout(doc: &Document) -> AutoLayout {
     named(doc, "Stack").kind.frame_props().and_then(|f| f.auto_layout.clone()).expect("auto layout")
 }
 
+fn rest_auto_layout(extra: Value) -> AutoLayout {
+    let mut frame = json!({
+        "id": "1:2", "name": "Stack", "type": "FRAME", "layoutMode": "HORIZONTAL", "itemSpacing": 32,
+        "absoluteBoundingBox": {"x": 0, "y": 0, "width": 300, "height": 200}, "children": []
+    });
+    frame.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    let file =
+        json!({"name": "f", "document": {"id": "0:0", "type": "DOCUMENT", "children": [{"id": "0:1", "name": "p", "type": "CANVAS", "children": [frame]}]}});
+    auto_layout(&import_rest_json(&file.to_string()).unwrap())
+}
+
 fn text_wrap(doc: &Document) -> TextWrap {
     match &named(doc, "Copy").kind {
         NodeKind::Text(t) => t.text_wrap,
@@ -237,4 +248,100 @@ fn partial_override_without_layout_mode_patches_stack_layout_version_and_align()
     assert_eq!(al.layout_version, 1);
     assert_eq!(al.primary_align, LayoutAlign::SpaceEvenly);
     assert_eq!(al.counter_align_content, CounterAlignContent::SpaceBetween);
+}
+
+#[test]
+fn partial_item_spacing_override_follows_auto_counter_gap() {
+    let changes = json!([
+        {"guid": {"sessionID": 0, "localID": 0}, "type": "DOCUMENT", "name": "d"},
+        {"guid": {"sessionID": 0, "localID": 1}, "parentIndex": {"guid": {"sessionID": 0, "localID": 0}, "position": "!"}, "type": "CANVAS", "name": "p"},
+        {
+            "guid": {"sessionID": 1, "localID": 2},
+            "parentIndex": {"guid": {"sessionID": 0, "localID": 1}, "position": "!"},
+            "type": "SYMBOL", "name": "Master", "size": {"x": 200.0, "y": 200.0}
+        },
+        {
+            "guid": {"sessionID": 1, "localID": 10},
+            "parentIndex": {"guid": {"sessionID": 1, "localID": 2}, "position": "!"},
+            "type": "FRAME", "name": "InnerStack", "size": {"x": 200.0, "y": 200.0},
+            "stackMode": "HORIZONTAL", "stackWrap": "WRAP", "stackSpacing": 32.0
+        },
+        {
+            "guid": {"sessionID": 1, "localID": 3},
+            "parentIndex": {"guid": {"sessionID": 0, "localID": 1}, "position": "\""},
+            "type": "INSTANCE", "name": "Inst", "size": {"x": 200.0, "y": 200.0},
+            "symbolData": {
+                "symbolID": {"sessionID": 1, "localID": 2},
+                "symbolOverrides": [{
+                    "guidPath": {"guids": [{"sessionID": 1, "localID": 10}]},
+                    "stackSpacing": 16.0
+                }]
+            }
+        }
+    ]);
+    let doc = import_fig_node_changes(&changes, "d").unwrap();
+    let inst = doc.nodes.values().find(|n| n.name == "Inst").unwrap();
+    let inner = doc.get(inst.children[0]).unwrap();
+    let al = inner.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!((al.item_spacing, al.counter_spacing), (16.0, 16.0));
+}
+
+#[test]
+fn partial_item_spacing_override_keeps_explicit_counter_gap() {
+    let changes = json!([
+        {"guid": {"sessionID": 0, "localID": 0}, "type": "DOCUMENT", "name": "d"},
+        {"guid": {"sessionID": 0, "localID": 1}, "parentIndex": {"guid": {"sessionID": 0, "localID": 0}, "position": "!"}, "type": "CANVAS", "name": "p"},
+        {
+            "guid": {"sessionID": 1, "localID": 2}, "parentIndex": {"guid": {"sessionID": 0, "localID": 1}, "position": "!"},
+            "type": "SYMBOL", "name": "Master", "size": {"x": 200.0, "y": 200.0}
+        },
+        {
+            "guid": {"sessionID": 1, "localID": 10}, "parentIndex": {"guid": {"sessionID": 1, "localID": 2}, "position": "!"},
+            "type": "FRAME", "name": "InnerStack", "size": {"x": 200.0, "y": 200.0},
+            "stackMode": "HORIZONTAL", "stackWrap": "WRAP", "stackSpacing": 32.0, "stackCounterSpacing": 24.0
+        },
+        {
+            "guid": {"sessionID": 1, "localID": 3}, "parentIndex": {"guid": {"sessionID": 0, "localID": 1}, "position": "\""},
+            "type": "INSTANCE", "name": "Inst", "size": {"x": 200.0, "y": 200.0},
+            "symbolData": {"symbolID": {"sessionID": 1, "localID": 2}, "symbolOverrides": [{
+                "guidPath": {"guids": [{"sessionID": 1, "localID": 10}]}, "stackSpacing": 16.0
+            }]}
+        }
+    ]);
+    let doc = import_fig_node_changes(&changes, "d").unwrap();
+    let inst = doc.nodes.values().find(|n| n.name == "Inst").unwrap();
+    let inner = doc.get(inst.children[0]).unwrap();
+    let al = inner.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!((al.item_spacing, al.counter_spacing), (16.0, 24.0));
+}
+
+#[test]
+fn rest_export_preserves_auto_counter_gap_and_explicit_zero() {
+    let auto = rest_auto_layout(json!({"layoutWrap": "WRAP"}));
+    let mut auto_doc = Document::new("auto");
+    let page = auto_doc.add_page("p");
+    let fid = auto_doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 200.0));
+    frame.name = "Stack".into();
+    frame.kind = NodeKind::Frame(FrameProps { auto_layout: Some(auto), ..Default::default() });
+    auto_doc.insert(page, frame).unwrap();
+    let auto_json = export_rest_json(&auto_doc);
+    let auto_frame = &auto_json["document"]["children"][0]["children"][0];
+    assert!(auto_frame.get("counterAxisSpacing").is_none());
+    assert!(auto_layout(&import_rest_json(&auto_json.to_string()).unwrap()).counter_spacing_auto);
+
+    let explicit = rest_auto_layout(json!({"layoutWrap": "WRAP", "counterAxisSpacing": 0}));
+    let mut explicit_doc = Document::new("explicit");
+    let page = explicit_doc.add_page("p");
+    let fid = explicit_doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 200.0));
+    frame.name = "Stack".into();
+    frame.kind = NodeKind::Frame(FrameProps { auto_layout: Some(explicit), ..Default::default() });
+    explicit_doc.insert(page, frame).unwrap();
+    let explicit_json = export_rest_json(&explicit_doc);
+    let explicit_frame = &explicit_json["document"]["children"][0]["children"][0];
+    assert_eq!(explicit_frame["counterAxisSpacing"].as_f64(), Some(0.0));
+    let roundtrip = auto_layout(&import_rest_json(&explicit_json.to_string()).unwrap());
+    assert_eq!(roundtrip.counter_spacing, 0.0);
+    assert!(!roundtrip.counter_spacing_auto);
 }
