@@ -323,10 +323,15 @@ pub fn publishable_assets(doc: &Document) -> Vec<(String, LibraryAssetKind, Stri
     }
     // A soft-deleted collection or variable is not published as an asset (a variable's `is_publishable` says so);
     // `snapshot` still carries one that a published component binds to, so the component renders as it does here.
-    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted()) {
+    for (id, c) in doc.variable_collections.iter().filter(|(id, c)| !imported.contains(id.as_str()) && !c.is_soft_deleted() && !c.is_hidden_from_publishing()) {
         out.push((format!("col:{id}"), LibraryAssetKind::VariableCollection, c.name.clone()));
     }
-    for (id, v) in doc.variables.iter().filter(|(id, v)| !imported.contains(id.as_str()) && v.is_publishable() && !in_extension(doc, v)) {
+    for (id, v) in doc.variables.iter().filter(|(id, v)| {
+        !imported.contains(id.as_str())
+            && v.is_publishable()
+            && !in_extension(doc, v)
+            && !doc.variable_collections.get(&v.collection).is_some_and(VariableCollection::is_hidden_from_publishing)
+    }) {
         out.push((format!("var:{id}"), LibraryAssetKind::Variable, v.name.clone()));
     }
     out
@@ -1752,6 +1757,17 @@ mod tests {
         let snap = snapshot(&d, "L1", "Lib", 1);
         assert!(snap.variables.contains_key("v1") && snap.variables["v1"].is_soft_deleted());
         assert!(snap.variable_collections["c1"].is_soft_deleted());
+    }
+
+    #[test]
+    fn hidden_variable_collections_are_not_published() {
+        let mut d = lib_doc();
+        d.variable_collections.get_mut("c1").unwrap().set_hidden_from_publishing(true);
+        let keys: Vec<String> = publishable_assets(&d).into_iter().map(|a| a.0).collect();
+        assert!(!keys.contains(&"col:c1".to_string()), "hidden collection must not publish: {keys:?}");
+        assert!(!keys.contains(&"var:v1".to_string()), "variables in a hidden collection must not publish: {keys:?}");
+        assert!(keys.contains(&"col:c2".to_string()), "visible collection still publishes: {keys:?}");
+        assert!(keys.contains(&"var:v2".to_string()), "variables in a visible collection still publish: {keys:?}");
     }
 
     #[test]
