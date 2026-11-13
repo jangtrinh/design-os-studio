@@ -2977,9 +2977,15 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     // layers. When the reference shows that main too (it followed the same variable), the copy is relinked to the
     // reference's layers instead of being rebuilt from them, which would drop its overrides.
     let has_parked = !inode.component.parked_overrides.is_empty() || c.had_parked.contains(&i);
+    let direct_component_swap = instance_component(&inode)
+        .and_then(|id| c.s.get(id)?.parent)
+        .is_some_and(|parent| !matches!(c.s.get(parent).map(|n| &n.kind), Some(NodeKind::ComponentSet(_))));
     if !top
         && !swapped_here
-        && (has_prop_binding(&inode) || (has_parked && inode.component.overrides.contains(&OverrideField::MainComponent)))
+        && (has_prop_binding(&inode)
+            || (direct_component_swap
+                && (inode.component.overrides.contains(&OverrideField::MainComponent) || rn.component.overrides.contains(&OverrideField::MainComponent)))
+            || (has_parked && inode.component.overrides.contains(&OverrideField::MainComponent)))
         && matches!(rn.kind, NodeKind::Instance { .. })
         && instance_component(&inode) == instance_component(&rn)
     {
@@ -10566,6 +10572,43 @@ mod tests {
             "the override below the inner swap lands on the swapped content"
         );
         assert_eq!(dropped, 0, "nothing was left behind");
+    }
+
+    #[test]
+    fn nested_label_override_survives_matching_main_nested_swap_sync() {
+        let mut d = Document::new("NestedLabelOverride");
+        let page = d.add_page("P");
+        let button_a = main_with_texts(&mut d, page, "Button/A", 0.0, &["Label"]);
+        let button_b = main_with_texts(&mut d, page, "Button/B", 160.0, &["Label"]);
+        let button_a_label = child_named(&d, button_a, "Label");
+        let button_b_label = child_named(&d, button_b, "Label");
+        set_text(&mut d, button_a_label, "Default A");
+        set_text(&mut d, button_b_label, "Default B");
+
+        let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 240.0, 80.0);
+        let dot = child_named(&d, card, "Dot");
+        apply(&mut d, Command::Remove { id: dot });
+        put_named_instance(&mut d, button_a, card, "Button");
+
+        let c = create_instance(&mut d, card, page, Vec2::new(320.0, 0.0));
+        apply(&mut d, c);
+        let card_instance = *d.get(page).unwrap().children.last().unwrap();
+        let nested_copy = child_named(&d, card_instance, "Button");
+
+        // User changes the nested instance in the Card copy and overrides its label.
+        let c = swap_instance(&mut d, nested_copy, button_b);
+        apply(&mut d, c);
+        let copy_label = child_named(&d, nested_copy, "Label");
+        override_text(&mut d, copy_label, "Pay");
+
+        // The Card main makes the same nested swap. Syncing Card must retain Pay.
+        let nested_main = child_named(&d, card, "Button");
+        let c = swap_instance(&mut d, nested_main, button_b);
+        apply(&mut d, c);
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+
+        assert_eq!(text_of(&d, child_named(&d, nested_copy, "Label")), "Pay");
     }
 
     #[test]
