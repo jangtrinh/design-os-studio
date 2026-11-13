@@ -290,3 +290,71 @@ fn two_switched_instances_under_one_host_solve_it_once_for_the_step() {
     assert!(one > 0, "the step solves the chain it resized");
     assert_eq!(two, one, "a second switched instance under the same host adds no solve");
 }
+
+#[test]
+fn grouped_bound_variant_resync_hugs_through_nested_groups_and_undo_redo() {
+    let mut f = build();
+    let outer = f.d.alloc_id();
+    let mut outer_node = Node::new(outer, NodeKind::Group);
+    outer_node.size = Vec2::new(108.0, 48.0);
+    let outer = f.d.insert(f.hug_top, outer_node).unwrap();
+    let inner = f.d.alloc_id();
+    let mut inner_node = Node::new(inner, NodeKind::Group);
+    inner_node.size = Vec2::new(108.0, 48.0);
+    let inner = f.d.insert(outer, inner_node).unwrap();
+    f.d.reparent(f.top, inner, 0).unwrap();
+    let mut offset = f.d.get(f.top).unwrap().clone();
+    offset.transform.tx = 17.0;
+    f.d.get_mut(f.top).unwrap().transform.tx = 17.0;
+    f.d.relayout_subtree(f.stage);
+    let original_child = (f.d.get(f.top).unwrap().transform, f.d.get(f.top).unwrap().size);
+    let initial_host = width(&f, f.hug_top);
+    assert!(initial_host >= 108.0);
+
+    set_mode(&mut f, "dark");
+    assert_eq!(shown(&f, f.top), LARGE);
+    assert_eq!(width(&f, outer), 200.0);
+    assert_eq!(width(&f, inner), 200.0);
+    assert!(width(&f, f.hug_top) > initial_host);
+
+    assert!(f.h.undo(&mut f.d).unwrap());
+    assert_eq!(shown(&f, f.top), SMALL);
+    assert_eq!((f.d.get(f.top).unwrap().transform, f.d.get(f.top).unwrap().size), original_child, "undo restores asymmetric child geometry");
+    assert_eq!(width(&f, f.hug_top), initial_host);
+    assert!(f.h.redo(&mut f.d).unwrap());
+    assert_eq!((width(&f, outer), width(&f, inner)), (200.0, 200.0));
+    assert!(width(&f, f.hug_top) > initial_host);
+}
+
+#[test]
+fn direct_variant_swap_inside_a_root_group_terminates_and_refits_the_group() {
+    let mut f = build();
+    let page = f.d.get(f.stage).and_then(|n| n.parent).expect("stage page");
+    let group = f.d.alloc_id();
+    f.d.insert(page, Node::new(group, NodeKind::Group)).unwrap();
+    f.d.reparent(f.top, group, 0).unwrap();
+
+    crate::changelog_features::swap_instance_variant(&mut f.d, f.top, "Size", "Large").unwrap();
+
+    assert_eq!(shown(&f, f.top), LARGE);
+    assert_eq!(width(&f, group), 200.0, "the root group is refit after the swap");
+}
+
+#[test]
+fn ordinary_group_edit_preserves_imported_stored_bounds() {
+    let mut f = build();
+    let group = f.d.alloc_id();
+    let mut group_node = Node::new(group, NodeKind::Group);
+    group_node.size = Vec2::new(300.0, 80.0);
+    let group = f.d.insert(f.hug_quiet, group_node).unwrap();
+    f.d.reparent(f.quiet, group, 0).unwrap();
+    f.d.relayout_subtree(f.stage);
+    assert_eq!(width(&f, group), 300.0);
+
+    let mut child = f.d.get(f.quiet).unwrap().clone();
+    child.size.x = 120.0;
+    f.h.exec(&mut f.d, Command::Update { node: Box::new(child) }).unwrap();
+    assert_eq!(width(&f, group), 300.0, "ordinary edits must not refit stored group bounds");
+    assert!(f.h.undo(&mut f.d).unwrap());
+    assert_eq!(width(&f, group), 300.0, "undo must restore the stored group bounds");
+}

@@ -417,14 +417,62 @@ pub fn settle_bound_props_after(before: &Document, after: &mut Document, cmds: &
 /// same resync and the same layout.
 pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropResyncScope) -> Result<Option<Command>, DocError> {
     let inv = apply_prop_resync(doc, scope)?;
-    if let Some(resync_inv) = &inv {
-        // The inverse holds the nodes as they were; the seeds are the ones whose layout inputs differ from the
-        // document now, which `collect_relayout_seeds` tells by comparing them with the live node.
-        let mut seeds = Vec::new();
-        collect_relayout_seeds(doc, resync_inv, &mut seeds);
-        doc.relayout_seeds_upward(&seeds);
+    let Some(resync_inv) = inv else { return Ok(None) };
+    // Variant resync changes an instance size below plain Groups. Refit only these ancestors on
+    // this explicit binding path; generic command replay must preserve imported group bounds.
+    let mut changed = Vec::new();
+    collect_update_ids(&resync_inv, &mut changed);
+    let mut groups = BTreeSet::new();
+    for id in changed {
+        let mut cur = doc.get(id).and_then(|n| n.parent);
+        while let Some(parent) = cur {
+            if doc.get(parent).is_some_and(|n| matches!(n.kind, NodeKind::Group)) {
+                groups.insert(parent);
+            }
+            cur = doc.get(parent).and_then(|n| n.parent);
+        }
     }
-    Ok(inv)
+    let mut old_nodes = BTreeMap::new();
+    let mut ordered: Vec<_> = groups.into_iter().collect();
+    ordered.sort_by_key(|id| std::cmp::Reverse(group_depth(doc, *id)));
+    for id in ordered {
+        let _ = apply_resize_to_fit_one(doc, id, |d, touched| {
+            if let Some(n) = d.get(touched).cloned() {
+                old_nodes.entry(touched).or_insert(n);
+            }
+        });
+    }
+    let mut seeds = Vec::new();
+    collect_relayout_seeds(doc, &resync_inv, &mut seeds);
+    for id in old_nodes.keys() {
+        if let Some(p) = doc.get(*id).and_then(|n| n.parent) {
+            seeds.push(p);
+        }
+    }
+    doc.relayout_seeds_upward(&seeds);
+    if old_nodes.is_empty() {
+        Ok(Some(resync_inv))
+    } else {
+        let group_inv = Command::Batch(old_nodes.into_values().map(|n| Command::Update { node: Box::new(n) }).collect());
+        Ok(Some(Command::Batch(vec![group_inv, resync_inv])))
+    }
+}
+
+fn collect_update_ids(cmd: &Command, out: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Update { node } => out.push(node.id),
+        Command::Batch(cs) => cs.iter().for_each(|c| collect_update_ids(c, out)),
+        _ => {}
+    }
+}
+fn group_depth(doc: &Document, id: NodeId) -> usize {
+    let mut d = 0;
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(p) = cur {
+        d += 1;
+        cur = doc.get(p).and_then(|n| n.parent);
+    }
+    d
 }
 
 /// Whether `def` is a variant property of instance `n`, top-level or nested, that a person picked by hand (see
