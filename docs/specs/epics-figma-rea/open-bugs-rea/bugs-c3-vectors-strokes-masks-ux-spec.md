@@ -1,3 +1,5 @@
+> **Review status: NOT REVIEWED.** Reference for implementation; verify symbols and statements about Figma against main and the schema before relying on them.
+
 # True Figma Implementation Spec: Open Parity Bugs Cluster C3 (Vector Lines/Arrows, Parametric Primitives, Masks, Strokes, GPU Blur & UX Micro-Interactions)
 
 **Epic / Cluster:** Cluster C3 — Vectors, Strokes, Baked Outlines, Masks, Blur & UX Micro-Interactions  

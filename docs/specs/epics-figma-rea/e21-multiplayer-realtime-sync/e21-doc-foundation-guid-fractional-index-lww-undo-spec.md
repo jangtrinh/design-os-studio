@@ -1,3 +1,5 @@
+> **Review status: NOT REVIEWED.** Reference for implementation; verify symbols and statements about Figma against main and the schema before relying on them.
+
 # E21 Document Foundation Spec: 64-Bit NodeId, Base-94 Fractional Index, Field-Level LWW & Cycle-Free Undo
 
 **Epic:** E21 (Multiplayer & Real-Time Sync) | **Slices:** E21.1, E21.2, E21.3  

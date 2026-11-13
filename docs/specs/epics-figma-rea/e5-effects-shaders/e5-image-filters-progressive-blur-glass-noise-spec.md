@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): SUPERSEDED.** Reference for implementation; image filters, glass splay and bevel, noise size and shadow behind are already on main, its issue numbers 521 and 1328 are the wrong ones, and the part worth taking is progressive blur (#37). Corrections: [review](../reviews/review-e4-e5-e6-e7.md#e5-image-filters).
+
 # True Figma Implementation Spec: Image Filters, Progressive Blur, Glass, Noise & Backdrop Alpha
 
 **Epic:** E5 — Effects & Shaders (#18)  

@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): SUPERSEDED.** Reference for implementation; the diff engine and merge with id remap are already on main (#343, #344, #345); the UI and command line parts remain, and fit the shipped Diff3 and merge API. Corrections: [review](../reviews/review-e8-to-e13.md#e10-branching).
+
 # E10 Three-Way Diff, Branch Merge & Git Merge Driver Spec
 
 Date: 2026-11-12 | Milestone: v0.8.0 | Base: `origin/main@e0e44f3c2`

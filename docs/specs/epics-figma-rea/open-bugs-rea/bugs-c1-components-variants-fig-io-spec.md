@@ -1,3 +1,5 @@
+> **Review status: NOT REVIEWED.** Reference for implementation; verify symbols and statements about Figma against main and the schema before relying on them.
+
 # True Figma Parity Specification: Cluster C1 — Components, Variant Switches, Overrides Stash V2, Multi-Hop `guidPath`, Lazy Hydration & Container/Kiwi I/O
 
 **Target Architecture:** Figma Desktop 126.11.7 (macOS ARM64, WebAssembly C++ Core Engine & Rspack UI Shell) vs. DESIGN:OS Studio (`design-os-studio`)  
