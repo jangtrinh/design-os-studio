@@ -127,6 +127,28 @@ fn update_node_unbinds_with_null_and_refuses_a_wrong_variable() {
 }
 
 #[test]
+fn apply_spec_reports_property_binding_errors_with_documented_codes() {
+    let mut s = setup();
+    let page = s.e.resolve_default_page().unwrap();
+    let unknown =
+        s.e.call(
+            "designos_apply_spec",
+            json!({"parent_id": page.0, "spec": {"kind": "instance", "component": format!("node:{}", s.comp.0), "props": {"Nope": "var:Theme/title"}}}),
+        )
+        .unwrap_err();
+    assert_eq!(unknown.to_json_value()["error"]["code"], "UNKNOWN_COMPONENT_PROPERTY");
+
+    let not_instance = s
+        .e
+        .call(
+            "designos_apply_spec",
+            json!({"parent_id": page.0, "spec": {"kind": "instance", "component": format!("node:{}", s.comp.0), "overrides": [{"path": "label", "props": {"Label": "var:Theme/title"}}]}}),
+        )
+        .unwrap_err();
+    assert_eq!(not_instance.to_json_value()["error"]["code"], "OVERRIDE_FIELD_NOT_APPLICABLE");
+}
+
+#[test]
 fn apply_spec_binds_and_export_spec_round_trips_the_binding() {
     let mut s = setup();
     let page = s.e.resolve_default_page().unwrap();

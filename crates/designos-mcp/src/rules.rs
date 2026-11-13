@@ -475,7 +475,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 89;
+const MAX_PURPOSE_CHARS: usize = 86;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -535,6 +535,8 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`NOT_A_CONTAINER`",
             "`UNKNOWN_COMPONENT`",
             "`INSTANCE_CYCLE`",
+            "`UNKNOWN_COMPONENT_PROPERTY`",
+            "`OVERRIDE_FIELD_NOT_APPLICABLE`",
             "`UNKNOWN_VARIABLE`",
             "`UNKNOWN_SLOT`",
             "`TOOL_DISABLED`",
@@ -875,6 +877,14 @@ mod tests {
         assert!(has("designos_create_node", "UNSUPPORTED_NODE_KIND"));
         for tool in ["designos_save_file", "designos_render_png", "designos_export_fig_file"] {
             assert!(has(tool, "UNSUPPORTED_EXTENSION"), "{tool}");
+        }
+    }
+
+    #[test]
+    fn apply_spec_lists_property_binding_errors_it_can_return() {
+        let listed = tool_error_codes("designos_apply_spec");
+        for code in ["UNKNOWN_COMPONENT_PROPERTY", "OVERRIDE_FIELD_NOT_APPLICABLE"] {
+            assert!(listed.contains(&format!("`{code}`").as_str()), "designos_apply_spec must list {code}: {listed:?}");
         }
     }
 

@@ -17,13 +17,13 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ## Enabled MCP Tools
 
 ### `designos_get_document`
-- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text,...
+- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill,...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
 
 ### `designos_get_libraries`
-- **Purpose:** List this file's local publishable assets, enabled libraries (with pinned and latest...
+- **Purpose:** List this file's local publishable assets, enabled libraries (with pinned and...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
@@ -35,7 +35,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"node_id":1,"depth":3}`
 
 ### `designos_search_design_system`
-- **Purpose:** Search components, component sets, shared styles, and variables across this file and...
+- **Purpose:** Search components, component sets, shared styles, and variables across this file...
 - **Args:** required: `query` (optional: `kinds`, `limit`, `property`)
 - **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"query":"button","kinds":["component"],"limit":10}`
@@ -109,11 +109,11 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ### `designos_apply_spec`
 - **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave...
 - **Args:** required: `spec` (optional: `diff_image`, `idempotency_key`, `lint`, `parent_id`)
-- **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `INSTANCE_CYCLE`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
+- **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `INSTANCE_CYCLE`, `UNKNOWN_COMPONENT_PROPERTY`, `OVERRIDE_FIELD_NOT_APPLICABLE`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
 - **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","children":[{"kind":"text","name":"Label","text":"Net Revenue"},{"kind":"text","name":"Value","text":"$148,920"}]}}`
 
 ### `designos_export_spec`
-- **Purpose:** Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with...
+- **Purpose:** Export a node and its descendants as a declarative NodeSpec JSON tree, enriched...
 - **Args:** required: `node_id`
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`
 - **Example:** `{"node_id":2}`
@@ -125,37 +125,37 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"node_id":2,"status":"ready","annotation":"Semantic tokens"}`
 
 ### `designos_export_fig_file`
-- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi...
+- **Purpose:** Export the current session document to a Figma binary .fig container (with...
 - **Args:** required: `output_path` (optional: `overwrite`)
 - **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `UNSUPPORTED_EXTENSION`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`, `INTERNAL_ERROR`
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`
-- **Purpose:** Query layers in a page or subtree with a streaming single-pass XPath evaluator, node...
+- **Purpose:** Query layers in a page or subtree with a streaming single-pass XPath evaluator,...
 - **Args:** required: `selector` (optional: `cursor`, `format`, `hardcoded`, `limit`, `max_scanned`, `node_id`, `page_id`, `with_problems`)
 - **Errors:** `INVALID_ARGUMENTS`, `INVALID_SELECTOR`, `NODE_NOT_FOUND`, `CURSOR_STALE`, `RULE_UNAVAILABLE`
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
 
 ### `designos_lint`
-- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on...
+- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter...
 - **Args:** required: none (optional: `cursor`, `include_ignored`, `limit`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"preset":"agent","limit":100}`
 
 ### `designos_get_guidelines`
-- **Purpose:** List available design guideline topics or return the guideline document for a topic...
+- **Purpose:** List available design guideline topics or return the guideline document for a...
 - **Args:** required: none (optional: `max_tokens`, `platform`, `topic`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_TOPIC`, `TOPIC_NOT_AVAILABLE`
 - **Example:** `{"topic":"design-system","platform":"web"}`
 
 ### `designos_import_web_capture`
-- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page...
+- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a...
 - **Args:** required: none (optional: `capture`, `infer_block_auto_layout`, `page_id`, `path`, `x`, `y`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `NODE_NOT_FOUND`
 - **Example:** `{"path":"capture.webcapture.json","page_id":1}`
 
 ### `designos_undo`
-- **Purpose:** Undo the latest successful edit in this session; returns changed=false if the stack...
+- **Purpose:** Undo the latest successful edit in this session; returns changed=false if the...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`, `HISTORY_DROPPED`
 - **Example:** `{}`
@@ -197,7 +197,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"node_id":2,"language":"css"}`
 
 ### `designos_configure_session`
-- **Purpose:** Configure per-session MCP options for the automatic mutating-call lint issues block...
+- **Purpose:** Configure per-session MCP options for the automatic mutating-call lint issues...
 - **Args:** required: none (optional: `auto_fix`, `issues`)
 - **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"issues":{"mode":"preset","preset":"agent","max_items":25}}`
@@ -220,13 +220,13 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"page":"spec/checkout.md"}`
 
 ### `designos_open_file`
-- **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace...
+- **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the...
 - **Args:** required: `path` (optional: `discard_changes`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNSAVED_CHANGES`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `DOCUMENT_INVALID`
 - **Example:** `{"path":"design.designos","discard_changes":false}`
 
 ### `designos_save_file`
-- **Purpose:** Save this session to a .designos file inside the workspace, or in place when path is...
+- **Purpose:** Save this session to a .designos file inside the workspace, or in place when path...
 - **Args:** required: none (optional: `overwrite`, `path`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_REQUIRED`, `INVALID_NAME`, `NAME_TOO_LONG`, `UNSUPPORTED_EXTENSION`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"path":"design.designos","overwrite":true}`
