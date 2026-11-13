@@ -522,10 +522,22 @@ impl App {
     /// its full time, once the status is gone.
     pub(crate) fn show_status_toast(&mut self, text: impl Into<String>) {
         let now = self.now;
+        let text = text.into();
+        if self.toast.as_ref().is_some_and(|t| !t.armed && !t.error && !t.has_action()) {
+            self.enqueue_toast(Toast {
+                until: now + theme::TOAST_SECONDS,
+                text,
+                error: false,
+                reveal: None,
+                enter_path: false,
+                duration: theme::TOAST_SECONDS,
+                armed: false,
+            });
+            return;
+        }
         if let Some(displaced) = self.toast.take_if(|t| t.has_action() && (!t.armed || now < t.until)) {
             self.toast_queue.push_front(displaced);
         }
-        let text = text.into();
         self.toast = Some(Toast {
             until: now + theme::TOAST_SECONDS,
             text,

@@ -141,6 +141,17 @@ fn a_status_toast_takes_the_slot_and_the_export_toast_comes_back_after_it() {
 }
 
 #[test]
+fn an_unpainted_status_toast_waits_behind_a_newer_status() {
+    let mut s = Sim::new();
+    s.shell.app.show_status_toast("Saving first…");
+    s.shell.app.show_status_toast("Saving second…");
+
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some("Saving first…"), "first unpainted status must not be replaced",);
+    assert_eq!(s.app().toast_queue.len(), 1);
+    assert_eq!(s.app().toast_queue[0].text, "Saving second…");
+}
+
+#[test]
 fn a_comments_warning_export_toast_does_not_flag_the_toast_already_on_screen() {
     let mut s = Sim::new();
     let first = export_toast_on_screen(&mut s, "first.fig");
