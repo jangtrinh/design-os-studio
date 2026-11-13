@@ -1283,7 +1283,7 @@ pub fn show_composer(
     widgets::record(ui, "agents-composer-input", input_rect);
 
     let hint_owned = if state.composer_draft().is_empty() {
-        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current();
+        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current(state.permission_mode);
         crate::agent_composer_text::placeholder(state, pill_label, is_shell_tab, any_cli)
     } else {
         String::new()

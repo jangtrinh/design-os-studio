@@ -37,6 +37,8 @@ pub struct AgentPickerState {
     pub pill_cache_valid: bool,
     /// The probe generation the cached pill was built from.
     pub pill_cache_generation: u64,
+    /// The permission mode the cached pill was built for: the rows it picks from depend on it.
+    pub pill_cache_mode: crate::terminal::PermissionMode,
     /// `More…` in the agent menu stays open while the other-CLI form is open.
     pub menu_more_open: bool,
     /// Scroll of the agent menu when it is taller than the room above the pill.
@@ -48,9 +50,9 @@ pub struct AgentPickerState {
 }
 
 impl AgentPickerState {
-    /// True while the cached pill was built from settled probes and no probe result has changed since.
-    pub fn pill_cache_current(&self) -> bool {
-        self.pill_cache_valid && self.pill_cache_generation == self.cache.generation()
+    /// True while the cached pill was built from settled probes, for `mode`, and no probe result has changed since.
+    pub fn pill_cache_current(&self, mode: crate::terminal::PermissionMode) -> bool {
+        self.pill_cache_valid && self.pill_cache_generation == self.cache.generation() && self.pill_cache_mode == mode
     }
 
     /// Starts the background version + sign-in probe when the picker or `+` menu is opened (`#652` §3 rule 2 & §5).
@@ -157,7 +159,7 @@ pub fn composer_pill(state: &mut TerminalState) -> (&'static str, Option<AgentCl
             return (preset.display_name(), Some(preset));
         }
     }
-    if state.picker.pill_cache_current() {
+    if state.picker.pill_cache_current(state.permission_mode) {
         return (state.picker.pill_label_cache, state.picker.pill_preset_cache);
     }
     // Starting the probe cycle writes seed probes, so it comes first: the generation read next is the one the rows are built from.
@@ -175,6 +177,7 @@ pub fn composer_pill(state: &mut TerminalState) -> (&'static str, Option<AgentCl
     state.picker.pill_preset_cache = preset;
     state.picker.pill_cache_valid = state.picker.open_row_order_settled;
     state.picker.pill_cache_generation = generation;
+    state.picker.pill_cache_mode = state.permission_mode;
     (label, preset)
 }
 
@@ -1056,6 +1059,33 @@ mod tests {
         st.permission_mode = crate::terminal::PermissionMode::Ask;
         let ask_rows = rows_for_state(&mut st);
         assert!(ask_rows.iter().find(|r| r.label == "Codex").expect("Codex").selectable, "Ask still offers Codex");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The pill is cached between frames. A switch to Ask for risky only must not leave it naming an agent the menu now marks
+    /// unavailable, and Send in New chat must not start that agent.
+    #[test]
+    fn switching_to_ask_for_risky_only_drops_the_cached_pill_agent_and_send_starts_nothing() {
+        let root = temp_test_dir("pill-mode-switch");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.session_registry.last_cli = Some("codex".into());
+        st.active_runtime = AgentCliPreset::Shell;
+        st.permission_mode = crate::terminal::PermissionMode::Ask;
+        assert_eq!(composer_pill(&mut st).1, Some(AgentCliPreset::Codex), "precondition: in Ask the pill falls back to the last agent, Codex");
+        assert!(st.picker.pill_cache_current(crate::terminal::PermissionMode::Ask), "precondition: the pill is cached");
+
+        st.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        let (label, preset) = composer_pill(&mut st);
+        assert_ne!(preset, Some(AgentCliPreset::Codex), "the pill still names {label}");
+        assert_ne!(label, "Codex");
+
+        st.set_composer_draft("make a hero");
+        let _ = st.send_from_composer_box("make a hero", None);
+        assert!(st.tabs.iter().all(|tab| tab.spawn_preset != AgentCliPreset::Codex), "Send started Codex in Ask for risky only");
+
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }
