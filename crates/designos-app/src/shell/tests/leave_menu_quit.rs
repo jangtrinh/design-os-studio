@@ -377,6 +377,22 @@ fn close_cleanup_is_one_shot_when_eframe_calls_on_exit_after_the_close() {
 }
 
 #[test]
+fn a_quit_that_reaches_on_exit_without_a_close_request_still_runs_the_queued_job() {
+    let (mut s, _d, _path) = external_sim_with(&two_rects());
+    let ran = std::rc::Rc::new(std::cell::Cell::new(false));
+    let flag = std::rc::Rc::clone(&ran);
+    s.shell.app.run_after_status_paint("Importing kit.fig\u{2026}", move |_| flag.set(true));
+    assert!(s.shell.app.has_queued_work() && !ran.get(), "precondition: the job waits for the next frame");
+
+    // Dock Quit and logout end the app through eframe's on_exit with no close request, so the window-close
+    // branch that drains the queue never ran.
+    eframe::App::on_exit(&mut s.shell);
+
+    assert!(ran.get(), "the job the user started ran before the app ended");
+    assert!(!s.shell.app.has_queued_work());
+}
+
+#[test]
 fn terminate_while_the_window_is_hidden_brings_it_back_and_asks_once_it_is_visible() {
     let (mut s, _d, path) = external_sim_with(&two_rects());
     edit(&mut s);
