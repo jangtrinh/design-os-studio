@@ -430,22 +430,20 @@ fn live_close_save_that_cannot_reach_the_editor_log_is_retryable() {
     assert!(err["message"].as_str().unwrap_or("").contains("could not be told"), "{err}");
 }
 
-/// A missing session folder is a write failure, not proof that the editor already closed the tab: the caller gets the retryable
-/// notification failure at once instead of a non-retryable "already closed" answer.
+/// The tab's folder is gone (a scratch folder goes with its tab): there is no editor to ask, so the answer is that the tab is closed
+/// and asking again can never work, at once and not after the wait.
 #[test]
-fn live_close_when_the_tab_folder_is_gone_reports_missing_session_and_is_retryable() {
+fn live_close_when_the_tab_folder_is_gone_is_tab_closed_not_retryable() {
     let dir = Workspace::new();
     let (session_dir, mut s) = live_session(&dir, 6);
     s.set_close_ack_timeout(Duration::from_secs(10));
     fs::remove_dir_all(&session_dir).unwrap();
     let started = std::time::Instant::now();
     let err = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap_err().to_json_value();
-    assert!(started.elapsed() < Duration::from_secs(2), "no wait when the session folder cannot be written");
+    assert!(started.elapsed() < Duration::from_secs(2), "no wait for an editor that is gone");
     assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
-    assert_eq!(err["safe_to_retry"], true, "{err}");
-    assert!(err["message"].as_str().unwrap_or("").contains("could not be told"), "{err}");
-    assert!(!err["message"].as_str().unwrap_or("").contains("already closed"), "{err}");
-    assert!(err["next_step"].as_str().unwrap_or("").contains("call designos_close_document again"), "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert!(err["next_step"].as_str().unwrap_or("").contains("already closed"), "{err}");
     assert!(!session_dir.exists(), "the close did not bring the folder back");
 }
 
