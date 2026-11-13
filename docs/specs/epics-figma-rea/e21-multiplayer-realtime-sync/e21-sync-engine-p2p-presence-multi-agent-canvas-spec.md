@@ -1,4 +1,4 @@
-> **Review status: NOT REVIEWED.** Reference only until a review is attached; code on main and the CHANGELOG win over this file.
+> **Review status: NOT REVIEWED.** Reference for implementation; verify symbols and statements about Figma against main and the schema before relying on them.
 
 # E21 Sync Engine Spec: crates/designos-sync, Serverless P2P, Zero-Invalidation Presence & Multi-Agent Canvas
 

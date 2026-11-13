@@ -1,4 +1,4 @@
-> **Review status (2026-11-12): READY AFTER FIXES.** The crate split and Kiwi mapping match open issues #362 and #363 once aligned, but the sticky formula and the Smart Animate match rule are inference and need a source before coding. See the [review](../reviews/review-e8-to-e13.md#e11-proto-crate).
+> **Review status (2026-11-12): READY AFTER FIXES.** Reference for implementation; the crate split and Kiwi mapping match open issues #362 and #363 once aligned, but the sticky formula and the Smart Animate match rule are inference and need a source. Corrections: [review](../reviews/review-e8-to-e13.md#e11-proto-crate).
 
 # True Figma Specification: Proto Crate Architecture, Kiwi Schema Triggers, Sticky Scrolling & Smart Animate (#123 Slices P1–P3)
 

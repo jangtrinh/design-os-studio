@@ -1,4 +1,4 @@
-> **Review status (2026-11-12): READY AFTER FIXES.** The 33-value annotation enum is sourced, but three REST names are wrong, the Code Connect model contradicts issue #259 and the rule that repo files win, and the .fig annotation codec is missing; apply the corrections in the review. See the [review](../reviews/review-e4-e5-e6-e7.md#e7-annotations).
+> **Review status (2026-11-12): READY AFTER FIXES.** Reference for implementation; the 33-value annotation enum is sourced, but three REST names are wrong, the Code Connect model contradicts issue #259 and the rule that repo files win, and the .fig annotation codec is missing. Corrections: [review](../reviews/review-e4-e5-e6-e7.md#e7-annotations).
 
 # E7 Dev Mode, Annotations, Measurements & Code Connect MCP Spec
 

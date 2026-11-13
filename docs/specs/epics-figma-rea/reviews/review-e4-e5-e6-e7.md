@@ -40,14 +40,14 @@ Slice order comes from the READMEs: E4 queue is 9 slices on the Kiwi hot files, 
 
 <a id="e4-basic-shapes"></a>
 
-## 1. E4: basic shapes, multi-stroke, vector tools ([`e4-basic-shapes-strokes-vector-tools-spec.md`](../e4-draw-vector/e4-basic-shapes-strokes-vector-tools-spec.md))
+## 1. Basic shapes, multi-stroke, vector tools in E4 ([`e4-basic-shapes-strokes-vector-tools-spec.md`](../e4-draw-vector/e4-basic-shapes-strokes-vector-tools-spec.md))
 
 ### a. What it says to build
-- P1.1 inside and outside stroke parity (#952): double the weight and clip against the fill.
-- P1.2 ellipse arc data, star inner scale, line resize (#953).
-- P1.3 vector mask types alpha, outline, luminance (#1506).
-- P2.1 multi-stroke list with OFFSET alignment, per-side weights (#196, #197).
-- P2.2 eraser tool (#193), P2.3 cut tool (#194), P2.4 offset path tool (#499).
+- Inside and outside stroke parity (#952, slice P1.1): double the weight and clip against the fill.
+- Ellipse arc data, star inner scale, line resize (#953, slice P1.2).
+- Vector mask types alpha, outline, luminance (#1506, slice P1.3).
+- Multi-stroke list with OFFSET alignment, per-side weights (#196, #197, slice P2.1).
+- Eraser tool (#193, slice P2.2), cut tool (#194, slice P2.3), offset path tool (#499, slice P2.4).
 - Kiwi encode and decode code for arc, mask, strokeData.
 
 ### b. Code references
@@ -72,7 +72,7 @@ The inspect-panel line ranges belong to E7, not here.
 | P2.4 offset path (#499, #195) | Shipped in 0.5.0 (#195 CLOSED): `offset_paths(paths, delta, join, miter_limit)` in `vectorops.rs`, `offset_path_selection_with` in `designos-app/src/vecops.rs`, with tests. Open #499 is "stroke-only contours, open-path caps, multi-selection reflow and side weights". Studio joins are Round, Bevel, Miter; the spec says Round and Square (that is the Figma UI label, but the mapping is not stated). |
 
 ### e. Issue state
-#952 CLOSED (title matches the symptom, not the "stencil" design). #953 OPEN v0.7.14. #1506 OPEN v0.7.14. #196, #197, #193, #194, #499 OPEN, milestone "v0.21 Edit vectors". Epic #17 OPEN. The spec's milestone "v0.8.0" matches none of them.
+Issue #952 is CLOSED (title matches the symptom, not the "stencil" design). Issue #953 is OPEN v0.7.14. Issue #1506 is OPEN v0.7.14. Issues #196, #197, #193, #194, #499 are OPEN, milestone "v0.21 Edit vectors". Epic #17 is OPEN. The spec's milestone "v0.8.0" matches none of them.
 
 ### f. Risks against the invariants
 - The GPU section is wrong. `designos-gpu` has `depth_stencil: None` in every pipeline (`pipelines.rs`, `present.rs`). Inside and outside strokes use `mask_clip(...)` in `compile.rs` (`draw_strokes`, lines ~1250-1280), which opens an offscreen mask Program per stroked node, with a fallback to no clip when `prog_cap_hit(48)` or at low zoom. A multi-stroke list with M inside or outside items would open M mask Programs per node, so it hits the cap faster and degrades to unclipped strokes under load. This contradicts "zero new Programs" and needs a design (one shared mask per node for all items, or CPU-tessellated inside geometry).
@@ -92,7 +92,7 @@ The inspect-panel line ranges belong to E7, not here.
 
 <a id="e4-draw-engine"></a>
 
-## 2. E4: draw engine ([`e4-figma-draw-variable-width-repeat-pattern-brushes-text-path.md`](../e4-draw-vector/e4-figma-draw-variable-width-repeat-pattern-brushes-text-path.md))
+## 2. Draw engine in E4 ([`e4-figma-draw-variable-width-repeat-pattern-brushes-text-path.md`](../e4-draw-vector/e4-figma-draw-variable-width-repeat-pattern-brushes-text-path.md))
 
 ### a. What it says to build
 Variable-width strokes with seven presets and an enforcer (D1); path trim (D1); transform group with repeat, symmetry, skew, at most two modifiers (D2); pattern fills with three tile layouts and a tile cache (D2); scatter and stretch brushes with a seeded PRNG (D4); text on path (D4). Issue labels are "D1, D2, D4", not numbers. The README points at #179-#206.
@@ -111,7 +111,7 @@ Not found: `adjacent_segments` (vertices carry no adjacency list; use segment de
 Nothing of the six features. `strokeData`, `variableWidthPoints`, `pathTrim`, `transformModifiers`, `textPathStart` survive only as passthrough keys (#174 CLOSED). The only brush hit is an unrelated REST key. Corresponding issues are all open: #180, #182 (variable width), #184 (trim), #188-#190 (transform group), #191, #192 (pattern), #199-#204 (brushes), #205, #206 (text on path); #179 (typed fields) and #198 (stroke sampling) are prerequisites the spec skips.
 
 ### e. Issue state
-All of #179-#206 that matter are OPEN, milestones v0.10, v0.15, v0.28 or Backlog. #181 and #183 in that range are unrelated merged PRs. #186 and #195 are CLOSED.
+All of #179-#206 that matter are OPEN, milestones v0.10, v0.15, v0.28 or Backlog. Items #181 and #183 in that range are unrelated merged PRs. Issues #186 and #195 are CLOSED.
 
 ### f. Risks
 - Repeat of 40 children with group opacity or blend would open up to 40 offscreen Programs if each copy is its own group; the spec says "tessellated once, drawn with instance_count N" but `exec.rs` draws one instance per call (`inst..inst + 1`). Needs a design that keeps the 48-Program interactive cap.
@@ -126,7 +126,7 @@ Source first: width-profile curves and the meaning of ascent and descent (needs 
 
 <a id="e5-image-filters"></a>
 
-## 3. E5: image filters, progressive blur, glass, noise, shadow-behind ([`e5-image-filters-progressive-blur-glass-noise-spec.md`](../e5-effects-shaders/e5-image-filters-progressive-blur-glass-noise-spec.md))
+## 3. Image filters, progressive blur, glass, noise, shadow-behind in E5 ([`e5-image-filters-progressive-blur-glass-noise-spec.md`](../e5-effects-shaders/e5-image-filters-progressive-blur-glass-noise-spec.md))
 
 ### a. What it says to build
 Seven image-filter sliders with a CIELAB pipeline (#521); progressive blur with start and end radius and normalized offsets (#37); glass splay and bevel, 2D noise size, effect creation caps (#38); drop-shadow silhouette cut-out controlled by `showShadowBehindNode` (#1328).
@@ -150,7 +150,7 @@ Not found: `can_add_effect`, `EffectKind` (proposed new), `Effect::ProgressiveBl
 | #1328 shadow behind | `DropShadow.show_behind` exists; silhouette cut-out is in the renderer. #1328 is CLOSED and was about background blur with no fill (PR #1624). Wrong issue, shipped feature. |
 
 ### e. Issue state
-#521 OPEN v0.7.14 (wrong subject). #37 OPEN Backlog. #38 OPEN Backlog (stale: shipped except render). #1328 CLOSED (wrong subject). Epic #18 OPEN, milestone "v0.6 AI design".
+Issue #521 is OPEN v0.7.14 (wrong subject). Issue #37 is OPEN Backlog. Issue #38 is OPEN Backlog (stale: shipped except render). Issue #1328 is CLOSED (wrong subject). Epic #18 is OPEN, milestone "v0.6 AI design".
 
 ### f. Risks
 - A 4-level Gaussian pyramid per blurred layer is four or more extra passes and targets per layer. The project already records that "a blurred layer alone is 4 passes" against the Metal 2,047-passes-per-submission limit; the spec does not budget this or say how the interactive and refine compiles differ. Keep it behind `interactive()`.
@@ -164,7 +164,7 @@ Keep only #37: doc model, `.fig` and REST round trip, CPU render, then GPU. Use 
 
 <a id="e5-video-shaders"></a>
 
-## 4. E5: video, custom shaders, mesh gradient, 3D ([`e5-video-fills-custom-wgsl-shaders-3d-transforms.md`](../e5-effects-shaders/e5-video-fills-custom-wgsl-shaders-3d-transforms.md))
+## 4. Video, custom shaders, mesh gradient, 3D in E5 ([`e5-video-fills-custom-wgsl-shaders-3d-transforms.md`](../e5-effects-shaders/e5-video-fills-custom-wgsl-shaders-3d-transforms.md))
 
 ### a. What it says to build
 Video fills with poster fallback (#168, #169); a custom WGSL shader registry (#39, #170); Coons-patch mesh gradients (#571); 3D transforms with perspective, backface hiding, scene settings (#173, #175, #176).
@@ -177,7 +177,7 @@ Elsewhere: `PaintKind::Shader(ShaderRef)` and `Effect::Shader` already exist (pa
 ### c. Figma facts
 - SOURCED: `PaintType::VIDEO` 7, `video` 18, `image` 8, `videoFillPlayback` 47 and its seven fields, `PaintType::CUSTOM` 10, `EffectType::CUSTOM` 9, `customEffectId` 39 and 43, `componentPropAssignments` 40 and 44, `transform3d` 570, `scene3d` 572, `FixedOrderTransform3d` 1-5, `backfaceHidden`, `perspectiveOrigin`, `preserve3d`.
 - CONTRADICTED: "`image = 8` is the poster frame" is the spec's reading; the schema only says the paint has an image. And the budget claim "8 + 12 + 16 = 36 programs, satisfies the < 64 cap" contradicts what a Program is (see cross-cutting).
-- ASSERTED: Euler order (the spec flags it unknown, good), Coons patch tessellation at 8x8, "$d/(d+t_z)$ shrinks to 0.6667" (the formula follows from the matrix the spec chose, not from Figma), backface culling rule on screen-space winding, "hardware decoders in prototype mode only", the video poster being the whole canvas behaviour. V-E5-08 expects a centre colour of (0.5, 0.5, 0.25) for red, green, blue, yellow corners; that is the plain bilinear average, and the spec gives no Figma source that mesh gradients blend that way.
+- ASSERTED: Euler order (the spec flags it unknown, good), Coons patch tessellation at 8x8, "$d/(d+t_z)$ shrinks to 0.6667" (the formula follows from the matrix the spec chose, not from Figma), backface culling rule on screen-space winding, "hardware decoders in prototype mode only", the video poster being the whole canvas behaviour. The test vector V-E5-08 expects a centre colour of (0.5, 0.5, 0.25) for red, green, blue, yellow corners; that is the plain bilinear average, and the spec gives no Figma source that mesh gradients blend that way.
 
 ### d. What already exists
 - Video: Studio already decided a design: the poster is a normal `PaintKind::Image` paint, and a sidecar `VideoFill` record says it is really a video; video bytes sit in `Document::images`; it plays only in Present (`prototype.rs:685-705`, `designos-app/src/video.rs`). The spec's `PaintKind::Video(VideoPaint)` is a second, competing model. `.fig` import and export of `PaintType::VIDEO` is the open part (#169).
@@ -185,7 +185,7 @@ Elsewhere: `PaintKind::Shader(ShaderRef)` and `Effect::Shader` already exist (pa
 - Mesh gradient, 3D: none.
 
 ### e. Issue state
-#168 OPEN (decode through OS codecs, v0.29). #169 OPEN (video fills, v0.29). #39 CLOSED. #170 OPEN (author WGSL shaders, v0.24). #571 OPEN (v0.24). #173 OPEN (a REA study, not an implementation), #175 OPEN (v0.25), #176 OPEN (no milestone; "align with Figma once 3D is GA"). #174 in that range is an unrelated CLOSED passthrough issue.
+Issue #168 is OPEN (decode through OS codecs, v0.29). Issue #169 is OPEN (video fills, v0.29). Issue #39 is CLOSED. Issue #170 is OPEN (author WGSL shaders, v0.24). Issue #571 is OPEN (v0.24). Issue #173 is OPEN (a REA study, not an implementation), #175 OPEN (v0.25), #176 OPEN (no milestone; "align with Figma once 3D is GA"). Issue #174 in that range is an unrelated CLOSED passthrough issue.
 
 ### f. Risks
 - Video: a decoder thread per playing fill and an LRU texture pool must stay off the idle path (0.00% idle CPU). Poster-only canvas is safe; Present-mode decoding needs an explicit stop that cancels repaint requests.
@@ -200,7 +200,7 @@ Reconcile video with the existing `VideoFill` design (extend it, do not add a se
 
 <a id="e6-export-easing"></a>
 
-## 5. E6: export bounds, export settings, easing and springs ([`e6-export-bounds-settings-easing-springs-spec.md`](../e6-motion-export/e6-export-bounds-settings-easing-springs-spec.md))
+## 5. Export bounds, export settings, easing and springs in E6 ([`e6-export-bounds-settings-easing-springs-spec.md`](../e6-motion-export/e6-export-bounds-settings-easing-springs-spec.md))
 
 ### a. What it says to build
 - Slice 1: export bounds options (`useAbsoluteBounds`, `contentsOnly`) and a lossless WebP format (#528, #457).
@@ -217,8 +217,8 @@ Wrong line numbers: the Figma facts F2-F4 cite "bounds.rs lines 51-59, 39-50, 91
 - SOURCED: all 18 `ExportSettings` fields and the five enums match the schema exactly (lines 279-292, 1409-1439). Easing curves: `39902-...min.js` module 70253 has `IN_CUBIC: [.42,0,1,1]`, `OUT_CUBIC: [0,0,.58,1]`, `INOUT_CUBIC: [.42,0,.58,1]`, `LINEAR`, the three back curves exactly as the spec lists, and the plugin names `EASE_IN` to `IN_CUBIC`. Spring presets: `GENTLE [1,100,15]`, `QUICK/ONE [1,300,20]`, `BOUNCY/TWO [1,600,15]`, `SLOW/THREE [1,80,20]` are in the same module (the names GENTLE, QUICK, BOUNCY, SLOW are in the switch). The spring step response and the over-damped settle formula match module 826862 (underdamped, over-damped, critical, and `-ln(eps) + ln((z+i)/(2i))` over `w0/(z+i)`). `useAbsoluteBounds` and `contentsOnly` exist in the plugin typing (`plugin-api.d.ts:5139-5143`).
 - CONTRADICTED:
   1. Critical-damping settle `9.23341/w0`. Figma's code does not branch: for `zeta <= 1.0001` it uses the under-damped formula with `zeta` capped at 0.9999, and `AD` clamps `zeta` into [0.03, 0.9999] unless a "physical" spring is used. The Lambert-W root is correct maths (checked: 9.2334) but it is Studio's invention, not Figma's number.
-  2. Test V-EAS-02: with the spec's own formulas, Gentle at t = 0.2 s gives x = 0.700 (not 0.724) and settle = 1.022 s (not 0.92 s). V-EAS-01's Penner value is 0.145, not 0.165.
-  3. F2, F3, F4 (shadow reach, stroke reach, clip containment) are labelled "FACT - seen" with `bounds.rs` as the source. That is Studio's own code. Open #528 says Studio's export bounds differ from Figma by 1 to 84 px on 10 kit frames, so these formulas are the known-wrong ones. V-EXP-01 to V-EXP-04 are computed from them, not from Figma exports.
+  2. Test V-EAS-02: with the spec's own formulas, Gentle at t = 0.2 s gives x = 0.700 (not 0.724) and settle = 1.022 s (not 0.92 s). The Penner value of test V-EAS-01 is 0.145, not 0.165.
+  3. The facts F2, F3 and F4 (shadow reach, stroke reach, clip containment) are labelled "FACT - seen" with `bounds.rs` as the source. That is Studio's own code. Open #528 says Studio's export bounds differ from Figma by 1 to 84 px on 10 kit frames, so these formulas are the known-wrong ones. The tests V-EXP-01 to V-EXP-04 are computed from them, not from Figma exports.
   4. "`EASE_IN / IN_CUBIC (tag = 0, 15)`" merges two Kiwi tags the repo keeps apart on purpose (`EasingType::EaseIn = 15` doc comment: "Not the stronger InCubic curve"; test at prototype.rs:780 pins Penner for tag 0). The Figma JS supports the merge (both tags map to the same bezier), so the spec is right and the repo's earlier decision is the one to revisit, with the tests changed deliberately.
 - ASSERTED: CMYK conversion profile (US Web Coated SWOP), WebP quality 100 means lossless, `t_settle.clamp(0.05, 5.0)`, nominal text bounds when `useAbsoluteBounds`.
 
@@ -229,7 +229,7 @@ Wrong line numbers: the Figma facts F2-F4 cite "bounds.rs lines 51-59, 39-50, 91
 - Bounds: PNG and SVG render bounds exist (#528, PR #1261); `useAbsoluteBounds` and `contentsOnly` are absent.
 
 ### e. Issue state
-#528 OPEN v0.7.14 (the real defect is measured error against Figma, not missing options). #213 OPEN Backlog. #457 OPEN v0.7.14. #459 OPEN v0.7.14 (different task, see above). #215 and #139 CLOSED. Epic #19 OPEN, no milestone. The spec's slice 2 swaps #459's subject; file a new issue or amend #459.
+Issue #528 is OPEN v0.7.14 (the real defect is measured error against Figma, not missing options). Issue #213 is OPEN Backlog. Issue #457 is OPEN v0.7.14. Issue #459 is OPEN v0.7.14 (different task, see above). Issues #215 and #139 are CLOSED. Epic #19 is OPEN, no milestone. The spec's slice 2 swaps #459's subject; file a new issue or amend #459.
 
 ### f. Risks
 Pure maths in `designos-doc`, no GPU or UI work, so the render invariants are untouched. Risk is correctness: changing curve constants moves every saved prototype transition and Motion track; the existing pins at `prototype.rs:780` must change in the same slice, with a note in the CHANGELOG. Keep `Easing::EaseIn` (Penner) distinct only if a file already saved with it must not move; say which.
@@ -246,7 +246,7 @@ Pure maths in `designos-doc`, no GPU or UI work, so the render invariants are un
 
 <a id="e6-motion-lottie"></a>
 
-## 6. E6: motion, timeline, Lottie, video export ([`e6-motion-timeline-lottie-video-export-spec.md`](../e6-motion-export/e6-motion-timeline-lottie-video-export-spec.md))
+## 6. Motion, timeline, Lottie, video export in E6 ([`e6-motion-timeline-lottie-video-export-spec.md`](../e6-motion-export/e6-motion-timeline-lottie-video-export-spec.md))
 
 ### a. What it says to build
 Motion node types and fields; text stagger; a pure `evaluate_motion(doc, t_us) -> MotionOverrides` in `crates/designos-doc/src/motion.rs`; a Lottie exporter with 13 lint rules; hardware video export (VideoToolbox, MediaFoundation) behind a `motion-video` feature; about 60 composite presets.
@@ -265,7 +265,7 @@ Not found: `crates/designos-export/src/lottie.rs`, `video_export.rs`, `motion-vi
 Most of slice 4's data side is shipped: Motion model (#140, 0.7.11), evaluation of timelines with SET/SCALE/OFFSET, ONCE/LOOP/BOOMERANG and nesting (#142), `.fig` import and export of timelines and tracks (#209), animation styles (#141, 0.7.12), easing and duration variable binding (#143). The text-stagger message is only a passthrough key. Open and real: applying motion values to render (#164), frame sequence export (#165), MP4 export (#167, with #168 decode), the `cargo-deny` licence gate for codec dependencies (#166), timeline UI, Lottie export, presets.
 
 ### e. Issue state
-#140, #141, #142, #209 CLOSED. #164, #165 OPEN Backlog. #166 OPEN. #167 OPEN v0.29. #164-#167 are the issues for slice 4's remaining work; the spec cites a range "#140-#142, #164-#167, #209-#237" without mapping slices to them.
+Issues #140, #141, #142 and #209 are CLOSED. Issues #164 and #165 are OPEN Backlog. Issue #166 is OPEN. Issue #167 is OPEN v0.29. Issues #164-#167 are the issues for slice 4's remaining work; the spec cites a range "#140-#142, #164-#167, #209-#237" without mapping slices to them.
 
 ### f. Risks
 - Playback needs a repaint loop while playing; the spec says "0.00% CPU overhead" but never states that the loop stops (no `request_repaint` when paused or ended) or that scrubbing never calls `app.changed()` for the evaluator output. Idle CPU must stay 0.00% once playback stops.
@@ -280,7 +280,7 @@ SUPERSEDED for the data model and evaluator (do not create a second `evaluate_mo
 
 <a id="e7-annotations"></a>
 
-## 7. E7: annotations, measurements, Code Connect, MCP ([`e7-annotations-measurements-code-connect-mcp-spec.md`](../e7-devmode-mcp/e7-annotations-measurements-code-connect-mcp-spec.md))
+## 7. Annotations, measurements, Code Connect, MCP in E7 ([`e7-annotations-measurements-code-connect-mcp-spec.md`](../e7-devmode-mcp/e7-annotations-measurements-code-connect-mcp-spec.md))
 
 ### a. What it says to build
 Expand `ANNOTATION_PROPERTIES` from 22 to 33; add categories (5 presets, 8 colours, custom) and measurements; replace the Code Connect stub in the Inspect panel with a document registry (`Document.code_connect`, `code_connect.rs`); enhance `designos_get_design_context` (JSON format with an XPath query, asset directory, Code Connect snippets); add four Code Connect MCP tools. No issue numbers are named, only Epic #20.
@@ -305,9 +305,9 @@ One extra check: `designos_query_xpath` already exists as a separate tool, so "X
 ### e. Issue state
 The spec names none. The matching issues: #280 (annotation model and UI: 33 types, categories, measurements; OPEN, v0.27), #281 (`.fig` round trip of annotations, categories, measurements; OPEN; it sits at hot-file queue position 40 and depends on #280), #259 (model Code Connect mappings in the document; OPEN), #260 (replace the stub), #262 (MCP map tools), #261, #263, #264, #265, #266 (all OPEN, v0.16 Code Connect).
 Conflicts with those issues:
-- #259 requires "multiple `{label, component_name, source, snippet, imports, prop_map}` per component" and archive on component delete; the spec's `CodeConnectMapping` is one mapping per node with a different field set.
-- #265 records owner ruling R6.21, "repo files win; the document keeps a synced copy". The spec never says which side wins and its lint tool ("stale source file paths") implies the document is the authority.
-- #262 names the MCP tools as "get map, add map, suggestions, send mappings"; the spec's four tool names differ.
+- Issue #259 requires "multiple `{label, component_name, source, snippet, imports, prop_map}` per component" and archive on component delete; the spec's `CodeConnectMapping` is one mapping per node with a different field set.
+- Issue #265 records owner ruling R6.21, "repo files win; the document keeps a synced copy". The spec never says which side wins and its lint tool ("stale source file paths") implies the document is the authority.
+- Issue #262 names the MCP tools as "get map, add map, suggestions, send mappings"; the spec's four tool names differ.
 
 ### f. Risks
 `designos_get_design_context` already carries a 5,000-node and 40,000-character fallback; adding asset writes to disk from an MCP read tool changes its risk tier (see the published tool risk metadata, #1287). Measurement overlays on the canvas must not call `app.changed()` per pan or zoom. Visual proof for #280 needs a desktop 1440 capture from the Untitled UI kit, not a self-built file.

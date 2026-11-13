@@ -11,9 +11,9 @@
 
 ## Review status
 
-On 2026-11-12 three independent read-only reviews checked 22 of the specs below against `origin/main` at `b731e4359`, the Kiwi schema copy in the repository, GitHub issue state and the three evidence-backed specs of the same day. Each spec carries the same status in a banner at its top, and the [review folder](reviews/README.md) holds the findings, the corrections an implementer must apply and the definition of each status word; where this index says "Canonical & Binding" or "Implement Strictly from Spec", the status below takes precedence.
+On 2026-11-12 three independent read-only reviews checked 22 of the specs below against `origin/main` at `b731e4359`, the Kiwi schema copy in the repository, GitHub issue state and the three evidence-backed specs of the same day. The specs are reference material for implementation, not a contract: the table shows, per spec, what the review found and where the corrections are, and the [review folder](reviews/README.md) defines each status word.
 
-| Spec | Status | Reason | Review |
+| Spec | Status | What the review found | Corrections |
 |---|---|---|---|
 | [e1-e2-rea-resolutions/README.md](e1-e2-rea-resolutions/README.md) | SUPERSEDED | Nine of 13 slices target closed and merged issues; layout slices need evidence; queue slots are not real. | [review](reviews/review-e1-e2-e19-e20.md#e1-e2-readme) |
 | [e1-e2-rea-resolutions/e1-step0-rea-resolutions-135-136-137-143-1448-1856.md](e1-e2-rea-resolutions/e1-step0-rea-resolutions-135-136-137-143-1448-1856.md) | SUPERSEDED | Shipped work re-specified; except the component property defaults part (#1856), which is READY AFTER FIXES. | [review](reviews/review-e1-e2-e19-e20.md#e1-step-0) |
@@ -32,15 +32,15 @@ On 2026-11-12 three independent read-only reviews checked 22 of the specs below 
 | [e9-slides-whiteboard/e9-slides-transitions-builds-deck-roundtrip-spec.md](e9-slides-whiteboard/e9-slides-transitions-builds-deck-roundtrip-spec.md) | READY AFTER FIXES | Invents parallel transition and easing types; probe premise wrong. | [review](reviews/review-e8-to-e13.md#e9-slides-transitions) |
 | [e10-versions-branching/e10-three-way-diff-branch-merge-git-driver-spec.md](e10-versions-branching/e10-three-way-diff-branch-merge-git-driver-spec.md) | SUPERSEDED | Diff engine and merge shipped; UI and CLI parts need a rewrite. | [review](reviews/review-e8-to-e13.md#e10-branching) |
 | [e11-prototyping/e11-proto-crate-triggers-sticky-smart-animate-spec.md](e11-prototyping/e11-proto-crate-triggers-sticky-smart-animate-spec.md) | READY AFTER FIXES | Crate split and Kiwi mapping usable once aligned; sticky formula and match rule need evidence. | [review](reviews/review-e8-to-e13.md#e11-proto-crate) |
-| [e11-prototyping/e11-video-audio-gif-present-ux-mcp-spec.md](e11-prototyping/e11-video-audio-gif-present-ux-mcp-spec.md) | NEEDS OWNER DECISION | Native decoders and a wgpu path Present does not use; duplicates the E12 video work. | [review](reviews/review-e8-to-e13.md#e11-video-present) |
+| [e11-prototyping/e11-video-audio-gif-present-ux-mcp-spec.md](e11-prototyping/e11-video-audio-gif-present-ux-mcp-spec.md) | NEEDS OWNER DECISION | Native decoders and a wgpu path Present does not use; duplicates the E12 video work; scaling modes and MCP tools could proceed after fixes. | [review](reviews/review-e8-to-e13.md#e11-video-present) |
 | [e12-text-fonts-a11y/e12-canvas-a11y-contrast-eyedropper-video.md](e12-text-fonts-a11y/e12-canvas-a11y-contrast-eyedropper-video.md) | READY AFTER FIXES | Keyboard facts wrong off macOS; AccessKit snippet does not fit egui; video slice needs the owner. | [review](reviews/review-e8-to-e13.md#e12-canvas-a11y) |
-| [e12-text-fonts-a11y/e12-variable-fonts-rich-text-decorations-smart-symbols.md](e12-text-fonts-a11y/e12-variable-fonts-rich-text-decorations-smart-symbols.md) | READY AFTER FIXES | Mostly on main; only decoration style, thickness, offset and fills are new. | [review](reviews/review-e8-to-e13.md#e12-fonts-rich-text) |
+| [e12-text-fonts-a11y/e12-variable-fonts-rich-text-decorations-smart-symbols.md](e12-text-fonts-a11y/e12-variable-fonts-rich-text-decorations-smart-symbols.md) | READY AFTER FIXES | Mostly on main; only decoration style, thickness, offset and fills are new; smart symbols need evidence and the font gate needs an owner decision. | [review](reviews/review-e8-to-e13.md#e12-fonts-rich-text) |
 | [e13-sites-code-layers/e13-code-layers-runtime-sandbox-mcp-spec.md](e13-sites-code-layers/e13-code-layers-runtime-sandbox-mcp-spec.md) | NEEDS OWNER DECISION | Runs user code in a web view; cites a missing crate; CSP contradicts itself. | [review](reviews/review-e8-to-e13.md#e13-code-layers) |
 | [e13-sites-code-layers/e13-sites-breakpoints-scroll-cms-compiler-spec.md](e13-sites-code-layers/e13-sites-breakpoints-scroll-cms-compiler-spec.md) | READY AFTER FIXES | Schema work well grounded; compiler preview server and WOFF2 encoder are owner decisions. | [review](reviews/review-e8-to-e13.md#e13-sites) |
 
 Second wave (not reviewed yet):
 
-| Spec | Status | Reason |
+| Spec | Status | What the review found |
 |---|---|---|
 | [open-bugs-rea/bugs-c1-components-variants-fig-io-spec.md](open-bugs-rea/bugs-c1-components-variants-fig-io-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
 | [open-bugs-rea/bugs-c2-layout-text-export-drift-spec.md](open-bugs-rea/bugs-c2-layout-text-export-drift-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
@@ -48,7 +48,7 @@ Second wave (not reviewed yet):
 | [e21-multiplayer-realtime-sync/e21-doc-foundation-guid-fractional-index-lww-undo-spec.md](e21-multiplayer-realtime-sync/e21-doc-foundation-guid-fractional-index-lww-undo-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
 | [e21-multiplayer-realtime-sync/e21-sync-engine-p2p-presence-multi-agent-canvas-spec.md](e21-multiplayer-realtime-sync/e21-sync-engine-p2p-presence-multi-agent-canvas-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
 
-The index's own Kiwi tag numbers for `isSlot`, `isSlotContent`, `isExtension` and `styleOverrideTable` do not match the schema copy in the repository (the E19 review lists the correct values), and three issue labels (1881, 1886, 1891) do not match their issues; the tables below were not corrected.
+The index's own Kiwi tag numbers for `isSlot` (schema: 463), `isSlotContent` (495) and `styleOverrideTable` (tag 3) do not match the schema copy in the repository, `isExtension` is not a Kiwi field there (the E19 review lists the details), and three issue labels (1881, 1886, 1891) do not match their issues; the tables below were not corrected.
 
 ---
 

@@ -1,4 +1,4 @@
-> **Review status: NOT REVIEWED.** Reference only until a review is attached; code on main and the CHANGELOG win over this file.
+> **Review status: NOT REVIEWED.** Reference for implementation; verify symbols and statements about Figma against main and the schema before relying on them.
 
 # True Figma Implementation Spec: Open Parity Bugs Cluster C3 (Vector Lines/Arrows, Parametric Primitives, Masks, Strokes, GPU Blur & UX Micro-Interactions)
 

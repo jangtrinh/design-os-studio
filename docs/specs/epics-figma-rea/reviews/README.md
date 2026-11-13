@@ -1,5 +1,7 @@
 # Review of the 29 "True Figma Implementation Specs" (2026-11-12)
 
+All specs stay usable as reference; this review lists what to correct before relying on each one.
+
 Three independent read-only reviews checked every spec against `origin/main` (`b731e4359`), the Kiwi schema copy in the repo,
 issue state on GitHub and the three evidence-backed specs of the same day
 ([nested copy identity](../finalize-e1-e2-e3/spec-nested-copy-identity.md),
@@ -11,14 +13,14 @@ issue state on GitHub and the three evidence-backed specs of the same day
 - [E8 to E13](review-e8-to-e13.md)
 
 Every reviewed spec carries a review status banner at its top and a row in the "Review status" table of the
-[index](../EPIC-FIGMA-SPECS-INDEX.md). The status words are:
+[index](../EPIC-FIGMA-SPECS-INDEX.md). The status words mean:
 
-- READY AFTER FIXES: implement only together with the corrections listed in the review.
-- NEEDS EVIDENCE: Figma behaviour is stated without a checkable source; reference only until one exists.
-- NEEDS OWNER DECISION: reference only until the owner decides (see the decisions below).
-- SUPERSEDED: the work is already on main, or another spec covers it; reference only (a named exception may be usable).
-- SPLIT: some slices are usable, the rest are not; the review says which.
-- NOT REVIEWED: reference only until a review is attached.
+- READY AFTER FIXES: usable once the corrections in the review are applied.
+- NEEDS EVIDENCE: statements about Figma's behaviour lack a checkable source; verify them before relying on them.
+- NEEDS OWNER DECISION: contains choices the owner has not made yet (see the decisions below).
+- SUPERSEDED: the work is already on main or another spec covers it; useful as background, and a named exception may still be worth taking.
+- SPLIT: some slices are worth taking and the rest are not; the review says which.
+- NOT REVIEWED: verify symbols and statements about Figma against main and the schema before relying on them.
 
 Three pull requests were merged after the review was written: the per-property variant picks (pull request 1950), the first
 auto-layout slice, legacy auto spacing (1946), and nine MCP fixes (1947). The nested copy link fix (issue 1925) is still open.
@@ -51,7 +53,7 @@ Kiwi field numbers and enum values were the reliable part (130 of 131 checked ma
    Kiwi tags `isSlot` / `isSlotContent` / `isExtension` / `styleOverrideTable` in the index.
 4. **GPU cost is not free.** The GPU renderer has no stencil; an inside or outside stroke clip opens an offscreen mask Program
    per node. Any spec that promises "zero new Programs" must be re-costed against the Program cap and the Metal limit.
-5. **Wrong issue numbers.** 521, 1328, 1881, 1886, 1891 do not match what the specs say they are.
+5. **Wrong issue numbers.** The numbers 521, 1328, 1881, 1886, 1891 do not match what the specs say they are.
 6. **Standing rulings.** Connector export in design files stays a vector until the owner checks Figma Design (connector spec of 2026-11-04);
    the plugin platform was dropped (code layers that run user code need a decision); new features go to v0.8.0.
 

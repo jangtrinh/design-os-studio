@@ -30,13 +30,13 @@ were merged after this review was written; sentences they change are marked.
 7. **File count.** 29 spec files plus the index were created on 2026-11-12 (file birth times; all were created, none only edited). The count of 29 may include the index as one of them.
 3. **Performance numbers.** These were not re-measured: the E20 figures (1.8 GB, under 4.5 s, under 18 s, 6.6 GB) and the claim "reopen drops back to 16–18 s". The issue figures they quote are sourced from #1686 and #1712. The spec's "Result" lines are predictions written as results.
 4. **Test-vector tables.** All four specs grade test vectors `[FACT - seen]` or "Verified", but no Figma-authored file stands behind any of them. They are arithmetic or intent, so the reviewer grades them all ASSERTED. The only vectors in these specs that come from Figma are the ones copied from the reference spec.
-5. **E19's dossier uses Studio's own bug reports as Figma evidence.** For example, the #1583 "Figma behaviour" is sourced "[FACT - seen: issue `#1583`, … `wasm-strings.txt:44258`]". It also reuses the reference spec's kit counts as if they were its own.
+5. **The dossier for E19 uses Studio's own bug reports as Figma evidence.** For example, the #1583 "Figma behaviour" is sourced "[FACT - seen: issue `#1583`, … `wasm-strings.txt:44258`]". It also reuses the reference spec's kit counts as if they were its own.
 
 ---
 
 <a id="e1-e2-readme"></a>
 
-## 1. E1/E2 REA README ([`e1-e2-rea-resolutions/README.md`](../e1-e2-rea-resolutions/README.md), 116 lines)
+## 1. Master plan in E1 and E2 ([`e1-e2-rea-resolutions/README.md`](../e1-e2-rea-resolutions/README.md), 116 lines)
 
 **a. What it says to build.** It is a master plan of 13 slices:
 - Extended collections (#135): model, Kiwi codec and Variables panel.
@@ -80,7 +80,7 @@ The plan puts these in hot-file "slots" 27–32 and routes each slice to named m
 
 <a id="e1-step-0"></a>
 
-## 2. E1 step-0 ([`e1-step0-rea-resolutions-135-136-137-143-1448-1856.md`](../e1-e2-rea-resolutions/e1-step0-rea-resolutions-135-136-137-143-1448-1856.md), 372 lines)
+## 2. Step 0 in E1 ([`e1-step0-rea-resolutions-135-136-137-143-1448-1856.md`](../e1-e2-rea-resolutions/e1-step0-rea-resolutions-135-136-137-143-1448-1856.md), 372 lines)
 
 **a. What it says to build.**
 1. Extended collections (#135). Add `parent_collection_id`, `root_collection_key`, `is_extendable` and `overrides` to `VariableCollection`, and `parent_mode_id` to `VariableMode`. Resolution is recursive. Reset deletes the override.
@@ -142,7 +142,7 @@ Drop the `AuthoredColor` codec: no open issue asks for it, and the `ColorSpace` 
 
 <a id="e2-layout-grid"></a>
 
-## 3. E2 layout and grid ([`e2-layout-grid-1885-1895-unbounded-tracks.md`](../e1-e2-rea-resolutions/e2-layout-grid-1885-1895-unbounded-tracks.md), 273 lines)
+## 3. Layout and grid in E2 ([`e2-layout-grid-1885-1895-unbounded-tracks.md`](../e1-e2-rea-resolutions/e2-layout-grid-1885-1895-unbounded-tracks.md), 273 lines)
 
 **a. What it says to build.**
 1. Auto gap backing store (#1885). Auto gap sets `stackPrimaryAlignItems = SPACE_BETWEEN (4)`, and the numeric spacing stays stored. An instance override of the spacing alone keeps space-between. The wrap line gap is governed "independently" by `stackCounterSpacing`.
@@ -190,7 +190,7 @@ Drop the `AuthoredColor` codec: no open issue asks for it, and the `ColorSpace` 
 
 <a id="e19-slots-clip-hydration"></a>
 
-## 4. E19 slots, clip, hydration, repair ([`e19-e3-slots-clip-hydration-repair-spec.md`](../e19-e3-rea-followups/e19-e3-slots-clip-hydration-repair-spec.md), 229 lines)
+## 4. Slots, clip, hydration, repair in E19 ([`e19-e3-slots-clip-hydration-repair-spec.md`](../e19-e3-rea-followups/e19-e3-slots-clip-hydration-repair-spec.md), 229 lines)
 
 **a. What it says to build.**
 1. Preferred-only slots (#473). Do not emit an empty `slotPropConfig`. Add preferred components to the export roots.
@@ -231,11 +231,11 @@ Drop the `AuthoredColor` codec: no open issue asks for it, and the `ColorSpace` 
 | Arc overrides kept in `symbolOverrides` under "`arcDataOverride`" | ASSERTED | the schema has `NodeChange.arcData = 195` and `symbolOverrides = 2`, but no `arcDataOverride`. Not needed: #1907 is a Studio file-migration issue with no Figma question. |
 
 **d. Overlap with work in flight.**
-- **Stale derived sizes on page load (#1888).** This is reference slice S2 (#1919 + #1888). S2 waits for S1 and S7, as the reference spec orders its slices. The reference puts the check in `rest_import.rs` `apply_overrides` during hydration, using the existing fingerprints. This spec puts a new field on a type that does not exist and a check in the app's page switch, so the two designs conflict.
+- **Stale derived sizes on page load (#1888).** This is reference slice S2 (#1919 + #1888). That slice waits for S1 and S7, as the reference spec orders its slices. The reference puts the check in `rest_import.rs` `apply_overrides` during hydration, using the existing fingerprints. This spec puts a new field on a type that does not exist and a check in the app's page switch, so the two designs conflict.
 - **New instance from an unopened page (#1887).** This is reference slice S8, which is ordered last. An owner ruling also keeps the `components.rs` copy and sync code for the reference spec's slices until they land. Collision on `components.rs`.
 - **Ring arc repair (#1907).**
   - It needs a "file older than 0.7.13" marker, and main has none.
-  - S1 (#1925, still open) owns `finish_load` (`lib.rs:1770`), `load_repair` and "the document marker". #1907 should reuse that marker and land after S1.
+  - The nested copy link fix, slice S1 (#1925, still open), owns `finish_load` (`lib.rs:1770`), `load_repair` and "the document marker". The ring arc repair (#1907) should reuse that marker and land after S1.
   - A standing rule applies to the marker: serde default, skipped when empty, and a test that the previous release still opens the file.
 - **Selection outline (#1583).** Open contributor draft #1625 ("clip instance chrome to ancestor clipping shapes") targets an issue that is already closed. It should be declined when contributor drafts are carried.
 
@@ -250,9 +250,9 @@ Drop the `AuthoredColor` codec: no open issue asks for it, and the `ColorSpace` 
 | #1907 | open |
 
 The INDEX says this spec "resolves #1881 instance clip flag, #1886 lazy hydration, #1891 symbolData repair". All three labels are wrong:
-- #1881 is a closed wrap counter gap import issue.
-- #1886 is a merged layout PR.
-- #1891 is an open image-cache bound issue.
+- The label points at a closed wrap counter gap import issue (#1881).
+- The label points at a merged layout pull request (#1886).
+- The label points at an open image-cache bound issue (#1891).
 
 **f. Verdict.** Preferred-only slots and the selection outline (#473, #1583): SUPERSEDED (fixed on main). Stale derived sizes and the unopened page instance (#1888, #1887): SUPERSEDED by reference slices S2 and S8.
 
@@ -268,7 +268,7 @@ Ring arc repair for pre-0.7.13 files (#1907): READY AFTER FIXES:
 
 <a id="e20-save-load-quit"></a>
 
-## 5. E20 save, load, quit ([`e20-save-load-quit-lazy-hydration-spec.md`](../e20-save-load-quit/e20-save-load-quit-lazy-hydration-spec.md), 279 lines)
+## 5. Save, load, quit in E20 ([`e20-save-load-quit-lazy-hydration-spec.md`](../e20-save-load-quit/e20-save-load-quit-lazy-hydration-spec.md), 279 lines)
 
 **a. What it says to build.**
 1. Compact unopened pages (#1686). Add `deferred_pages: BTreeMap<NodeId, DeferredPagePayload>` with compressed bytes. Pages become shells and hydrate on first visit.
@@ -318,7 +318,7 @@ Ring arc repair for pre-0.7.13 files (#1907): READY AFTER FIXES:
 | #1648 cleanup | #1684 "make quit cleanup idempotent" |
 
 - All four belong to the app shell and lifecycle group of contributor drafts (#1081 #1175 #1684 #1786 #1783 #1785 #1774). The owner decided to carry bug-fix drafts with credit, and that group is still on hold. Implementing the spec's versions would override the owner's carry decision.
-- **Files.** #1686, #1712 and #1715 touch `lib.rs`, `pending_pages.rs`, `rest_import.rs` and `designos-library/src/store.rs`. `lib.rs` is shared with S1 (#1925, `finish_load` and the marker). #1686 also overlaps S2's native-format addition (the "derived record").
+- **Files.** The compact pages, lazy reader and clone lock slices (#1686, #1712, #1715) touch `lib.rs`, `pending_pages.rs`, `rest_import.rs` and `designos-library/src/store.rs`. `lib.rs` is shared with S1 (#1925, `finish_load` and the marker). The compact pages slice (#1686) also overlaps S2's native-format addition (the "derived record").
 - **Later merge.** Pull request 1947 made the MCP read tools fill in a deferred page before they read it. This bears on the "what every reader does" question for #1686 (section 5f); it does not change any verdict here.
 
 **e. Issue state.** All eight are open, in milestone "Backlog: AI design 2 roadmap & overflow", not v0.7.14. The epic is #1788. Per their own issue text, #1715, #1716, #1717, #1718 and #1719 are "not urgent".
@@ -338,22 +338,22 @@ Ring arc repair for pre-0.7.13 files (#1907): READY AFTER FIXES:
 
 ## Conflicts with work in flight
 
-- **Layout slice 1 (#1920)**, branch `fix/1920-legacy-auto-spacing`, has since landed (pull request 1946). E2's #1885 slice targets the same `layout_solver.rs`. Its premise "Auto gap = `SPACE_BETWEEN` (4)" contradicts main (`fig.rs:2619-2621`) and the reference rules for version 0 and version 1 that the slice implemented.
-- **Owner ruling on #1885 and #1895.** The wrap line gap override and the tilted Fill child (#1885, #1895) stay open until #1942 has observations. E2's two layout slices and README slots 31 and 32 must not be implemented.
+- **Layout slice 1 (#1920)**, branch `fix/1920-legacy-auto-spacing`, has since landed (pull request 1946). The E2 slice for #1885 targets the same `layout_solver.rs`. Its premise "Auto gap = `SPACE_BETWEEN` (4)" contradicts main (`fig.rs:2619-2621`) and the reference rules for version 0 and version 1 that the slice implemented.
+- **Owner ruling on #1885 and #1895.** The wrap line gap override and the tilted Fill child (#1885, #1895) stay open until #1942 has observations. The two layout slices of E2 and README slots 31 and 32 must not be implemented.
 - **Tilted children.** The E2 #1895 code would overwrite `layout_rotated.rs`, which #1897 merged (`ae37ad1d7`).
-- **Nested-copy spec slice S1 (#1925, still open)** owns `finish_load`, `load_repair` and the document marker. E19's #1907 migration and E20's #1686 and #1715 changes touch the same load path. #1907 must reuse S1's marker and land after it.
-- **Nested-copy spec slices S2 (#1888) and S8 (#1887)** are ordered by the reference spec: S2 after S1 and S7, S8 last. An owner ruling keeps other work off the `components.rs` copy and sync code until its slices land. E19's #1887 and #1888 slices would break both.
-- **App shell and lifecycle drafts** (on hold). E20's #1717, #1718, #1719 and #1648 cleanup slices duplicate drafts #1786, #1785, #1783 and #1684 (the owner decided to carry contributor drafts).
-- **Extended collections.** E1's model would fork the one merged in #1813 (`variables_extend.rs`).
+- **Nested-copy spec slice S1 (#1925, still open)** owns `finish_load`, `load_repair` and the document marker. The E19 migration (#1907) and the E20 changes (#1686, #1715) touch the same load path. The ring arc repair (#1907) must reuse the marker of S1 and land after it.
+- **Nested-copy spec slices S2 (#1888) and S8 (#1887)** are ordered by the reference spec: S2 after S1 and S7, S8 last. An owner ruling keeps other work off the `components.rs` copy and sync code until its slices land. The E19 slices for #1887 and #1888 would break both.
+- **App shell and lifecycle drafts** (on hold). The E20 slices for #1717, #1718, #1719 and the #1648 cleanup duplicate drafts #1786, #1785, #1783 and #1684 (the owner decided to carry contributor drafts).
+- **Extended collections.** The E1 model would fork the one merged in #1813 (`variables_extend.rs`).
 - **The index's process rules.** The routing to named model tiers and the "hot-file slots 27–32" are not the project's process. The index also drops the owner's 2026-10-16 exception to the "< 64 programs" invariant (the uncapped refine when the view is idle).
 
 ## Index errors (EPIC-FIGMA-SPECS-INDEX.md)
 
-- E19 row: "`isSlot=476`/`isSlotContent=483`". The schema has `isSlot = 463` and `isSlotContent = 495`; 476 is `gridChildVerticalAlign` and 483 is `variantPropSpecs`.
-- E1 row: "`#135` `isExtension=904`". There is no Kiwi tag 904; `isExtension` is a Plugin API property. "`#143` timing rejection" does not match the spec (timing variables). "`#1856` `StyleType`" does not match the issue (component property defaults bound to a variable).
-- E2 row: "`GridTrackSizeType` `FIXED=0`/`FLEX=1`/`HUG=2`" contradicts the schema and the E2 spec (FLEX 0, FIXED 1, HUG 2). It also files the grid solver under #1895, which is the tilted-child issue.
-- E12 row: "`styleOverrideTable=132`". The schema has tag 3 on `TextData` and on `VectorData`.
-- E19 row: "Resolves #1881 instance clip flag, #1886 lazy hydration override preservation, #1891 orphan/cycle symbolData repair". None matches: #1881 is a closed wrap counter gap issue, #1886 is a merged layout PR, #1891 is an image cache bound. The spec body covers #473, #1583, #1887, #1888 and #1907 instead.
+- In the E19 row: "`isSlot=476`/`isSlotContent=483`". The schema has `isSlot = 463` and `isSlotContent = 495`; 476 is `gridChildVerticalAlign` and 483 is `variantPropSpecs`.
+- In the E1 row: "`#135` `isExtension=904`". There is no Kiwi tag 904; `isExtension` is a Plugin API property. "`#143` timing rejection" does not match the spec (timing variables). "`#1856` `StyleType`" does not match the issue (component property defaults bound to a variable).
+- In the E2 row: "`GridTrackSizeType` `FIXED=0`/`FLEX=1`/`HUG=2`" contradicts the schema and the E2 spec (FLEX 0, FIXED 1, HUG 2). It also files the grid solver under #1895, which is the tilted-child issue.
+- In the E12 row: "`styleOverrideTable=132`". The schema has tag 3 on `TextData` and on `VectorData`.
+- In the E19 row: "Resolves #1881 instance clip flag, #1886 lazy hydration override preservation, #1891 orphan/cycle symbolData repair". None matches: #1881 is a closed wrap counter gap issue, #1886 is a merged layout PR, #1891 is an image cache bound. The spec body covers #473, #1583, #1887, #1888 and #1907 instead.
 - Header: "Status: Canonical & Binding" and "100% backed by clean-room reverse engineering". Graded ASSERTED. None of the four specs reviewed here is backed for its behaviour claims.
 
 ## The 29 new specs (from the index; line counts measured, status as the index or file claims)
@@ -394,6 +394,6 @@ Plus the index itself (238 lines, "Canonical & Binding"). "E4" and similar in th
 
 ## Open questions
 
-1. #1856: implement now on the corrected scope (section 2f), or batch it with the scan-file work?
-2. E20: carry drafts #1786, #1785, #1783 and #1684 first (the app shell group on hold), then write a fresh, sourced spec for #1686, #1712, #1715 and #1716?
+1. Component property defaults (#1856): implement now on the corrected scope (section 2f), or batch it with the scan-file work?
+2. Save, load and quit (E20): carry drafts #1786, #1785, #1783 and #1684 first (the app shell group on hold), then write a fresh, sourced spec for #1686, #1712, #1715 and #1716?
 3. Grid beyond 64 columns: file an issue (solver clamp, placement occupancy, importer caps), or drop it?

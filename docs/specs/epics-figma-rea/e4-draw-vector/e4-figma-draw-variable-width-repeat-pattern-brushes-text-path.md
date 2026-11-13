@@ -1,4 +1,4 @@
-> **Review status (2026-11-12): NEEDS EVIDENCE.** Every formula (width presets, hex tiling, glyph placement, caps) is stated without a source and the modifier model drops the schema's axis, unit and order fields; source them from a Figma-authored file first. See the [review](../reviews/review-e4-e5-e6-e7.md#e4-draw-engine).
+> **Review status (2026-11-12): NEEDS EVIDENCE.** Reference for implementation; every formula (width presets, hex tiling, glyph placement, caps) is stated without a source and the modifier model drops the schema's axis, unit and order fields. Corrections: [review](../reviews/review-e4-e5-e6-e7.md#e4-draw-engine).
 
 # True Figma Implementation Spec: Figma Draw Engine — Variable Width, Repeat, Pattern, Brushes & Text-on-Path
 

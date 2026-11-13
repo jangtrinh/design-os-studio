@@ -1,4 +1,4 @@
-> **Review status (2026-11-12): READY AFTER FIXES.** Variable fonts, the rich text round trip and skip-ink already exist on main, so only decoration style, thickness, offset and fills are new; the axis tag decimals are wrong, and smart symbols and the font gate need evidence or a decision. See the [review](../reviews/review-e8-to-e13.md#e12-fonts-rich-text).
+> **Review status (2026-11-12): READY AFTER FIXES.** Reference for implementation; variable fonts, the rich text round trip and skip-ink already exist on main, so decoration style, thickness, offset and fills are the new part; the axis tag decimals are wrong, and smart symbols and the font gate need evidence or a decision. Corrections: [review](../reviews/review-e8-to-e13.md#e12-fonts-rich-text).
 
 # E12 Text Engine: Variable Fonts, Mixed Rich Text, Decorations, Smart Symbols & Font Embedding
 

@@ -1,4 +1,4 @@
-> **Review status (2026-11-12): READY AFTER FIXES.** The schema work is well grounded for slices 1 to 4; the preview server and the WOFF2 encoder need an owner decision, and the review lists the other corrections. See the [review](../reviews/review-e8-to-e13.md#e13-sites).
+> **Review status (2026-11-12): READY AFTER FIXES.** Reference for implementation; the schema work is well grounded for slices 1 to 4; the preview server and the WOFF2 encoder need an owner decision. Corrections: [review](../reviews/review-e8-to-e13.md#e13-sites).
 
 # E13.1–E13.5 Sites, Breakpoints, Scroll Effects, CMS & Zero-JS Compiler Spec
 

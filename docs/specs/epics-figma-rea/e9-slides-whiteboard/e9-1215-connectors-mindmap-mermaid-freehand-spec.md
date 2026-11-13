@@ -1,4 +1,4 @@
-> **Review status (2026-11-12): NEEDS OWNER DECISION.** Writing native CONNECTOR nodes in design files contradicts the standing vector-export rule, most connector work shipped in 0.7.10, and new node kinds conflict with the no-format-change rule; the owner decides first. See the [review](../reviews/review-e8-to-e13.md#e9-connectors-mermaid).
+> **Review status (2026-11-12): NEEDS OWNER DECISION.** Reference for implementation; writing native CONNECTOR nodes in design files contradicts the standing vector-export rule, most connector work shipped in 0.7.10, and new node kinds conflict with the no-format-change rule; these are owner decisions. Corrections: [review](../reviews/review-e8-to-e13.md#e9-connectors-mermaid).
 
 # True Figma Connectors, Mind Maps, Mermaid & Freehand in Canvas Spec
 

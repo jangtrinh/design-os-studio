@@ -1,4 +1,4 @@
-> **Review status (2026-11-12): NEEDS EVIDENCE.** It adds a second video model beside the shipped video fill record, the mesh gradient colour model and the 3D rotation order have no Figma source, and its Program arithmetic is meaningless; reconcile and source these first. See the [review](../reviews/review-e4-e5-e6-e7.md#e5-video-shaders).
+> **Review status (2026-11-12): NEEDS EVIDENCE.** Reference for implementation; it adds a second video model beside the shipped video fill record, and the mesh gradient colour model, the 3D rotation order and the Program arithmetic have no Figma source. Corrections: [review](../reviews/review-e4-e5-e6-e7.md#e5-video-shaders).
 
 # True Figma Implementation Spec: Video Fills, Custom WGSL Shaders, Mesh Gradients & 3D Transforms
 

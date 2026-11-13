@@ -1,4 +1,4 @@
-> **Review status (2026-11-12): NEEDS OWNER DECISION.** It runs user code in a web view with a bundled React runtime, cites a crate that does not exist (oxc_transpiler) and its CSP contradicts itself; the owner decides first whether running user code is acceptable. See the [review](../reviews/review-e8-to-e13.md#e13-code-layers).
+> **Review status (2026-11-12): NEEDS OWNER DECISION.** Reference for implementation; it runs user code in a web view with a bundled React runtime, cites a crate that does not exist (oxc_transpiler) and its CSP contradicts itself; whether to run user code is an owner decision. Corrections: [review](../reviews/review-e8-to-e13.md#e13-code-layers).
 
 # E13.6–E13.8 Code Layers Runtime, Sandbox & MCP Engine Spec
 
