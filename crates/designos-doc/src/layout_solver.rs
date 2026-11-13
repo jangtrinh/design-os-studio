@@ -258,6 +258,20 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     };
     let mut rects = vec![Rect::default(); kids.len()];
     let mut cross_cursor = pc_start;
+    if al.wrap && cross_has_slack && al.counter_align_content == CounterAlignContent::Auto {
+        if kids.iter().all(|k| k.stretches_cross()) {
+            let share = (frame_cross - pc - al.counter_spacing * (lines.len() as f32 - 1.0)).max(0.0) / lines.len() as f32;
+            line_cross.fill(share);
+        } else {
+            let used: f32 = line_cross.iter().sum::<f32>() + al.counter_spacing * (lines.len() as f32 - 1.0);
+            let slack = (frame_cross - pc - used).max(0.0);
+            cross_cursor += match al.counter_align {
+                LayoutAlign::Center => slack / 2.0,
+                LayoutAlign::End => slack,
+                _ => 0.0,
+            };
+        }
+    }
     for (li, line) in lines.iter().enumerate() {
         let k = line.len() as f32;
         // Main sizes (distribute fill children by grow weight with a CSS flex freeze loop for min/max clamping).
@@ -966,5 +980,66 @@ mod tests {
     fn an_explicit_start_align_self_still_pins_a_clamped_child_to_the_start() {
         let (d, kid) = frame_with_cross_fill_child(LayoutDirection::Vertical, LayoutAlign::Center, AlignSelf::Start, (None, Some(1280.0)));
         assert_eq!(cross_span(&d, kid, LayoutDirection::Vertical), (0.0, 1280.0));
+    }
+
+    #[test]
+    fn wrap_auto_content_aligns_line_block_by_counter_align() {
+        let base = AutoLayout {
+            direction: LayoutDirection::Horizontal,
+            wrap: true,
+            primary_align: LayoutAlign::Center,
+            counter_align: LayoutAlign::Center,
+            item_spacing: 32.0,
+            counter_spacing: 32.0,
+            padding: [32.0, 32.0, 32.0, 32.0],
+            ..AutoLayout::default()
+        };
+        let eight_rects = [(88.0, 88.0); 8];
+        for (align, (y0, y1)) in [(LayoutAlign::Start, (32.0, 152.0)), (LayoutAlign::Center, (33.0, 153.0)), (LayoutAlign::End, (34.0, 154.0))] {
+            let al = AutoLayout { counter_align: align, ..base.clone() };
+            let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (560.0, 274.0), &eight_rects);
+            d.relayout_subtree(frame);
+            for &k in &kids[0..4] {
+                assert_eq!(slot_of(&d, k).1, y0, "{align:?} first line");
+            }
+            for &k in &kids[4..8] {
+                assert_eq!(slot_of(&d, k).1, y1, "{align:?} second line");
+            }
+        }
+
+        // Single wrapped line with cross slack aligns its track by counter_align.
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(base.clone(), (560.0, 274.0), &eight_rects[0..4]);
+        d.relayout_subtree(frame);
+        for &k in &kids {
+            assert_eq!(slot_of(&d, k).1, 93.0);
+        }
+
+        // Negative cross slack clamps to zero so overflowing wrapped lines stay anchored at padding start.
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(base, (560.0, 200.0), &eight_rects);
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]).1, 32.0);
+        assert_eq!(slot_of(&d, kids[4]).1, 152.0);
+    }
+
+    #[test]
+    fn wrap_auto_content_stretches_lines_when_all_children_stretch() {
+        let al = AutoLayout { direction: LayoutDirection::Horizontal, wrap: true, item_spacing: 20.0, counter_spacing: 20.0, ..AutoLayout::default() };
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(al.clone(), (200.0, 200.0), &[(80.0, 40.0); 4]);
+        for &k in &kids {
+            d.get_mut(k).unwrap().layout_child.vertical = Sizing::Fill;
+        }
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]), (0.0, 0.0, 80.0, 90.0));
+        assert_eq!(slot_of(&d, kids[1]), (100.0, 0.0, 80.0, 90.0));
+        assert_eq!(slot_of(&d, kids[2]), (0.0, 110.0, 80.0, 90.0));
+        assert_eq!(slot_of(&d, kids[3]), (100.0, 110.0, 80.0, 90.0));
+
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(al, (200.0, 200.0), &[(80.0, 40.0); 2]);
+        for &k in &kids {
+            d.get_mut(k).unwrap().layout_child.align_self = AlignSelf::Stretch;
+        }
+        d.relayout_subtree(frame);
+        assert_eq!(slot_of(&d, kids[0]), (0.0, 0.0, 80.0, 200.0));
+        assert_eq!(slot_of(&d, kids[1]), (100.0, 0.0, 80.0, 200.0));
     }
 }
