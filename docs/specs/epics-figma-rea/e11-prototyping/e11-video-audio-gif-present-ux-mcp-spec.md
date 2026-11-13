@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): NEEDS OWNER DECISION.** Reference for implementation; it needs one video pipeline for Present and the canvas and a decision on native decoder FFI; the scaling modes and MCP tools are the parts the review marks as workable after fixes. Corrections: [review](../reviews/review-e8-to-e13.md#e11-video-present).
+
 # True Figma Specification: Video, Audio, Animated GIF, Present UX & MCP Automation (#123 Slices P4–P6)
 
 **Date:** 2026-11-12  

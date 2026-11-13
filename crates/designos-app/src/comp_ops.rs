@@ -468,7 +468,7 @@ impl App {
         let refused = value.clone();
         let cmd = set_instance_prop(&mut self.doc, inst, name, value);
         if is_noop(&cmd) {
-            let refusal = refused.and_then(|v| crate::comp_cycle_refusal::prop_refusal(&self.doc, inst, name, &v));
+            let refusal = refused.and_then(|v| designos_doc::prop_cycle_refusal(&self.doc, inst, name, &v));
             self.explain_refusal(refusal);
         } else if self.push_cmd(&mut tx, cmd) {
             self.refit_texts(&mut tx, inst);
@@ -483,7 +483,7 @@ impl App {
         let refused = value.clone();
         let cmd = set_nested_instance_prop(&mut self.doc, nested, name, value);
         if is_noop(&cmd) {
-            let refusal = refused.and_then(|v| crate::comp_cycle_refusal::prop_refusal(&self.doc, nested, name, &v));
+            let refusal = refused.and_then(|v| designos_doc::prop_cycle_refusal(&self.doc, nested, name, &v));
             self.explain_refusal(refusal);
         } else if self.push_cmd(&mut tx, cmd) {
             let outer = instance_root_of(&self.doc, nested).unwrap_or(nested);

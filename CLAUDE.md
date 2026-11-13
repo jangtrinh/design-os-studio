@@ -20,10 +20,14 @@ Every agent working on `design-os-studio` MUST load and follow:
 
 ---
 
-## Canonical Epic & Figma 126.11.7 REA Implementation Specs
+## Epic & Figma 126.11.7 REA Implementation Specs (Reference)
 
 All 24 Epics (`#14` through `#1788`), Proactive Epic `E21` Multiplayer ([`docs/specs/epics-figma-rea/e21-multiplayer-realtime-sync/`](docs/specs/epics-figma-rea/e21-multiplayer-realtime-sync/)), all 56 Open Parity/UX Bugs ([`docs/specs/epics-figma-rea/open-bugs-rea/`](docs/specs/epics-figma-rea/open-bugs-rea/)), and Figma Desktop `126.11.7` reverse-engineered clean-room implementation specs and REA dossiers live under [`docs/specs/epics-figma-rea/`](docs/specs/epics-figma-rea/).
-Before starting work on any Epic, milestone, sub-issue, or open bug fix, all coding agents MUST consult [`open-bugs-rea/README.md`](docs/specs/epics-figma-rea/open-bugs-rea/README.md) and [`EPIC-FIGMA-SPECS-INDEX.md`](docs/specs/epics-figma-rea/EPIC-FIGMA-SPECS-INDEX.md) for data models, Kiwi field tables, root-cause analyses, and machine-checkable acceptance criteria.
+The specs are reference material to implement faster, not a contract. Before work on an Epic or one of its issues, read [`EPIC-FIGMA-SPECS-INDEX.md`](docs/specs/epics-figma-rea/EPIC-FIGMA-SPECS-INDEX.md) (for an open bug, also [`open-bugs-rea/README.md`](docs/specs/epics-figma-rea/open-bugs-rea/README.md)) and the matching spec, and take from it what helps: data models, Kiwi field tables, acceptance ideas, slice order.
+A reviewed spec carries its review status at its top and in the index (a spec without one has not been reviewed yet); read the linked [review](docs/specs/epics-figma-rea/reviews/README.md) first, it lists the known errors and the corrections.
+Check every symbol, path and line number against main before relying on it.
+When a spec disagrees with code on main, the CHANGELOG or an owner ruling, the spec loses.
+A statement about Figma's behaviour is a fact only with a checkable source (the Kiwi schema, a Figma-authored file, Figma's documentation or interface strings, a recorded observation); without one, treat it as a hypothesis and verify it before relying on it.
 
 ---
 

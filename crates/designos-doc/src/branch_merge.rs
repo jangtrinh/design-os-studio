@@ -238,10 +238,7 @@ pub fn merge(base: &Document, main: &Document, branch: &Document, diff: &Diff3, 
     }
     if let Some((component, cycle_path)) = crate::components::first_new_self_holding_component_cycle(main, &remapped_branch, &working, &commands) {
         let comp_name = crate::cycle_node_label(&working, component);
-        let path_text = cycle_path.join(" -> ");
-        return Err(MergeError::InstanceCycle(format!(
-            "INSTANCE_CYCLE: cannot merge branch because main component '{comp_name}' would hold an instance of itself (cycle path: {path_text})"
-        )));
+        return Err(MergeError::InstanceCycle(crate::cycle_refusal_message(crate::CycleAction::Merge, &comp_name, &cycle_path)));
     }
 
     // 6. Validate all references in the merged document (`T10.3 §2`, `§3.7`, `§8.1`, `§8.2`).
@@ -2586,8 +2583,7 @@ mod tests {
         let result = merge_branch(&base, &main, &branch, &Resolution::default());
         let err = result.expect_err("merge must reject the cycle formed after add then move");
         let text = err.to_string();
-        assert!(text.contains("INSTANCE_CYCLE"), "named cycle error: {text}");
-        assert!(text.contains("Component -> Frame -> Component"), "error identifies cycle path: {text}");
+        assert_eq!(text, "Can't merge: Component would contain itself (Component \u{2192} Frame \u{2192} Component)");
         assert!(!text.contains("(id "), "error omits internal ids: {text}");
     }
 
@@ -2618,9 +2614,7 @@ mod tests {
 
         let err_a = merge_branch(&base, &main_a, &branch_a, &Resolution::default()).expect_err("add-then-move cycle must be refused");
         let msg_a = err_a.to_string();
-        assert!(msg_a.contains("INSTANCE_CYCLE"), "{msg_a}");
-        assert!(msg_a.contains("main component 'B'"), "{msg_a}");
-        assert!(msg_a.contains("B -> X -> B"), "{msg_a}");
+        assert_eq!(msg_a, "Can't merge: B would contain itself (B \u{2192} X \u{2192} B)");
         assert_eq!(main_a.nodes, main_a_before.nodes, "whole merge is refused; main is not half-applied");
 
         // Case 2: main puts an instance of B into X; branch moves X into B and adds an unrelated layer.
@@ -2637,9 +2631,7 @@ mod tests {
 
         let err_b = merge_branch(&base, &main_b, &branch_b, &Resolution::default()).expect_err("move-then-add cycle must be refused");
         let msg_b = err_b.to_string();
-        assert!(msg_b.contains("INSTANCE_CYCLE"), "{msg_b}");
-        assert!(msg_b.contains("main component 'B'"), "{msg_b}");
-        assert!(msg_b.contains("B -> X -> B"), "{msg_b}");
+        assert_eq!(msg_b, "Can't merge: B would contain itself (B \u{2192} X \u{2192} B)");
         assert_eq!(main_b.nodes, main_b_before.nodes, "whole merge is refused; main is not half-applied");
 
         // Case 3: base has an instance of B inside X; branch removes the instance and moves X into B (legal).

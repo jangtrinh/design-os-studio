@@ -22,16 +22,7 @@ fn replay_reparent_refuses_a_held_main_cycle() {
     let before = d.to_json().unwrap();
     let op = LiveOp::Reparent { id: moving, parent: b, at: SiblingHint::default() };
     let report = replay(&mut d, vec![op], &mut LivePatchState::default());
-    assert!(
-        report.skipped.iter().any(|s| {
-            s.contains("MOVE_CYCLE")
-                && s.contains("cannot move 'A' into 'B'")
-                && s.contains("main component 'B'")
-                && s.contains("that would make a component hold an instance of itself")
-        }),
-        "{:?}",
-        report.skipped
-    );
+    assert_eq!(report.skipped, ["Can't move: B would contain itself (B \u{2192} A \u{2192} B)"]);
     assert_eq!(d.to_json().unwrap(), before);
 }
 
@@ -58,11 +49,7 @@ fn replay_insert_and_reparent_refuse_concurrent_component_instance_cycle() {
     let insert_ops = live_ops_for_command(&branch_a, &insert_cmd).unwrap();
 
     let report_a = replay(&mut main_a, insert_ops, &mut LivePatchState::default());
-    assert!(
-        report_a.skipped.iter().any(|s| { s.contains("INSTANCE_CYCLE") && s.contains("main component 'B'") && s.contains("B -> X -> B") }),
-        "insert replay must refuse with component name and cycle path: {:?}",
-        report_a.skipped
-    );
+    assert_eq!(report_a.skipped, ["Can't add: B would contain itself (B \u{2192} X \u{2192} B)"], "insert replay refuses with the editor's sentence");
     assert_eq!(main_a.to_json().unwrap(), main_a_before);
 
     // Direction 2: editor inserted an instance of B into X; agent moved X into B on its stale copy.
@@ -75,14 +62,7 @@ fn replay_insert_and_reparent_refuse_concurrent_component_instance_cycle() {
     let move_ops = live_ops_for_command(&branch_b, &move_cmd).unwrap();
 
     let report_b = replay(&mut main_b, move_ops, &mut LivePatchState::default());
-    assert!(
-        report_b
-            .skipped
-            .iter()
-            .any(|s| { s.contains("MOVE_CYCLE") && s.contains("INSTANCE_CYCLE") && s.contains("main component 'B'") && s.contains("B -> X -> B") }),
-        "reparent replay must refuse with component name and cycle path: {:?}",
-        report_b.skipped
-    );
+    assert_eq!(report_b.skipped, ["Can't move: B would contain itself (B \u{2192} X \u{2192} B)"], "reparent replay refuses with the editor's sentence");
     assert_eq!(main_b.to_json().unwrap(), main_b_before);
 }
 
@@ -157,10 +137,7 @@ fn replay_update_refuses_swapping_instance_into_its_own_main() {
 
     let report = replay(&mut doc, ops, &mut LivePatchState::default());
     assert_eq!(report.applied, 0);
-    assert_eq!(report.skipped.len(), 1);
-    assert!(report.skipped[0].contains("INSTANCE_CYCLE"), "{}", report.skipped[0]);
-    assert!(report.skipped[0].contains("B -> B"), "{}", report.skipped[0]);
-    assert!(!report.skipped[0].contains("node "), "{}", report.skipped[0]);
+    assert_eq!(report.skipped, ["Can't swap: B would contain itself (B \u{2192} B)"]);
 }
 
 #[test]
@@ -182,10 +159,7 @@ fn replay_update_refuses_turning_self_holding_frame_into_component() {
 
     let report = replay(&mut doc, ops, &mut LivePatchState::default());
     assert_eq!(report.applied, 0);
-    assert_eq!(report.skipped.len(), 1);
-    assert!(report.skipped[0].contains("INSTANCE_CYCLE"), "{}", report.skipped[0]);
-    assert!(report.skipped[0].contains("'B'"), "{}", report.skipped[0]);
-    assert!(!report.skipped[0].contains("node "), "{}", report.skipped[0]);
+    assert_eq!(report.skipped, ["Can't turn into a component: B would contain itself (B \u{2192} B)"]);
 }
 
 #[test]
@@ -210,9 +184,45 @@ fn replay_insert_refuses_new_main_component_holding_instance_of_itself() {
 
     let report = replay(&mut doc, ops, &mut LivePatchState::default());
     assert_eq!(report.applied, 0);
-    assert_eq!(report.skipped.len(), 1);
-    assert!(report.skipped[0].contains("INSTANCE_CYCLE"), "{}", report.skipped[0]);
-    assert!(report.skipped[0].contains("'SelfComp'"), "{}", report.skipped[0]);
+    assert_eq!(report.skipped, ["Can't add: SelfComp would contain itself (SelfComp \u{2192} SelfComp)"]);
+}
+
+/// A new main that holds itself through another main, `Card`, which already holds an instance of the id the new main
+/// takes: the sentence closes the loop on the new main's own name, although the document has no layer with that name.
+#[test]
+fn replay_insert_of_a_main_that_holds_itself_through_another_main_names_the_loop_with_the_new_name() {
+    let mut doc = Document::new("insert-via-held-main");
+    let page = doc.add_page("Page");
+    let card = doc.alloc_id();
+    let mut card_node = Node::new(card, crate::NodeKind::Component(crate::FrameProps::default()));
+    card_node.name = "Card".into();
+    doc.insert(page, card_node).unwrap();
+    let wrapper = doc.alloc_id();
+    let slot = doc.alloc_id();
+    let mut slot_node = Node::new(slot, crate::NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(wrapper), component_key: None });
+    slot_node.name = "Slot".into();
+    doc.insert(card, slot_node).unwrap();
+    assert!(doc.get(wrapper).is_none(), "the document has no layer for the id that Card's instance points at");
+
+    let mut branch = doc.clone();
+    let mut wrapper_node = Node::new(wrapper, crate::NodeKind::Component(crate::FrameProps::default()));
+    wrapper_node.name = "Wrapper".into();
+    branch.insert(page, wrapper_node).unwrap();
+    let inner = branch.alloc_id();
+    let mut inner_node = Node::new(inner, crate::NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(card), component_key: None });
+    inner_node.name = "CardInst".into();
+    branch.insert(wrapper, inner_node).unwrap();
+    let ops = live_ops_for_command(
+        &branch,
+        &Command::Insert { parent: page, index: 1, nodes: vec![branch.get(wrapper).unwrap().clone(), branch.get(inner).unwrap().clone()] },
+    )
+    .unwrap();
+
+    let before = doc.to_json().unwrap();
+    let report = replay(&mut doc, ops, &mut LivePatchState::default());
+    assert_eq!(report.applied, 0);
+    assert_eq!(report.skipped, ["Can't add: Wrapper would contain itself (Wrapper \u{2192} Card \u{2192} Wrapper)"]);
+    assert_eq!(doc.to_json().unwrap(), before);
 }
 
 /// A page with `frames` top-level frames of `kids` rectangles each, one style, one comment.

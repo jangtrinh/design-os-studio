@@ -1,11 +1,54 @@
 # Master Epic-to-Figma-Spec Index & Coding-Agent Execution Playbook
 
-**Status:** Canonical & Binding  
+**Status:** Reference material for implementation (see [Review status](#review-status))  
 **Date:** 2026-11-12  
 **Target File:** `docs/specs/epics-figma-rea/EPIC-FIGMA-SPECS-INDEX.md`  
 **Base Repository Commit:** `origin/main` (2026-11-12)  
 **Clean-Room Target:** **Figma Desktop `126.11.7`** (Reverse-Engineered via `morluto/rea` `v6.8.0`)  
 **Epistemic Standard:** Clean-room reverse engineering. All assertions categorized as `[FACT - seen]`, `[INFERENCE]`, or `[ASSUMPTION]`. Zero proprietary source code.
+
+---
+
+## Review status
+
+On 2026-11-12 three independent read-only reviews checked 22 of the specs below against `origin/main` at `b731e4359`, the Kiwi schema copy in the repository, GitHub issue state and the three evidence-backed specs of the same day. The specs are reference material for implementation, not a contract: the table shows, per spec, what the review found and where the corrections are, and the [review folder](reviews/README.md) defines each status word.
+
+| Spec | Status | What the review found | Corrections |
+|---|---|---|---|
+| [e1-e2-rea-resolutions/README.md](e1-e2-rea-resolutions/README.md) | SUPERSEDED | Nine of 13 slices target closed and merged issues; layout slices need evidence; queue slots are not real. | [review](reviews/review-e1-e2-e19-e20.md#e1-e2-readme) |
+| [e1-e2-rea-resolutions/e1-step0-rea-resolutions-135-136-137-143-1448-1856.md](e1-e2-rea-resolutions/e1-step0-rea-resolutions-135-136-137-143-1448-1856.md) | SUPERSEDED | Shipped work re-specified; except the component property defaults part (#1856), which is READY AFTER FIXES. | [review](reviews/review-e1-e2-e19-e20.md#e1-step-0) |
+| [e1-e2-rea-resolutions/e2-layout-grid-1885-1895-unbounded-tracks.md](e1-e2-rea-resolutions/e2-layout-grid-1885-1895-unbounded-tracks.md) | NEEDS EVIDENCE | Auto gap claim contradicts main; tilted child rule has no source; grid part has no issue and is partly done. | [review](reviews/review-e1-e2-e19-e20.md#e2-layout-grid) |
+| [e19-e3-rea-followups/e19-e3-slots-clip-hydration-repair-spec.md](e19-e3-rea-followups/e19-e3-slots-clip-hydration-repair-spec.md) | SUPERSEDED | Slots and selection outline fixed on main; hydration duplicates the nested copy spec; except the ring arc repair (#1907), which is READY AFTER FIXES. | [review](reviews/review-e1-e2-e19-e20.md#e19-slots-clip-hydration) |
+| [e20-save-load-quit/e20-save-load-quit-lazy-hydration-spec.md](e20-save-load-quit/e20-save-load-quit-lazy-hydration-spec.md) | SPLIT | Four slices duplicate contributor drafts; two need a design; three are usable after fixes (some slices usable, see review). | [review](reviews/review-e1-e2-e19-e20.md#e20-save-load-quit) |
+| [e4-draw-vector/e4-basic-shapes-strokes-vector-tools-spec.md](e4-draw-vector/e4-basic-shapes-strokes-vector-tools-spec.md) | READY AFTER FIXES | Three of eight slices already shipped; the GPU stencil, zero Programs claim is false. | [review](reviews/review-e4-e5-e6-e7.md#e4-basic-shapes) |
+| [e4-draw-vector/e4-figma-draw-variable-width-repeat-pattern-brushes-text-path.md](e4-draw-vector/e4-figma-draw-variable-width-repeat-pattern-brushes-text-path.md) | NEEDS EVIDENCE | Kiwi fields are real, but every formula has no source. | [review](reviews/review-e4-e5-e6-e7.md#e4-draw-engine) |
+| [e5-effects-shaders/e5-image-filters-progressive-blur-glass-noise-spec.md](e5-effects-shaders/e5-image-filters-progressive-blur-glass-noise-spec.md) | SUPERSEDED | Image filters, glass, noise and shadow behind are on main; except progressive blur (#37), which is READY AFTER FIXES. | [review](reviews/review-e4-e5-e6-e7.md#e5-image-filters) |
+| [e5-effects-shaders/e5-video-fills-custom-wgsl-shaders-3d-transforms.md](e5-effects-shaders/e5-video-fills-custom-wgsl-shaders-3d-transforms.md) | NEEDS EVIDENCE | Competes with the shipped video fill record; mesh colour model and 3D order unsourced. | [review](reviews/review-e4-e5-e6-e7.md#e5-video-shaders) |
+| [e6-motion-export/e6-export-bounds-settings-easing-springs-spec.md](e6-motion-export/e6-export-bounds-settings-easing-springs-spec.md) | READY AFTER FIXES | Schema and curves sourced; bounds facts cite Studio's own code; settle formula and test numbers wrong. | [review](reviews/review-e4-e5-e6-e7.md#e6-export-easing) |
+| [e6-motion-export/e6-motion-timeline-lottie-video-export-spec.md](e6-motion-export/e6-motion-timeline-lottie-video-export-spec.md) | SPLIT | Model and evaluator superseded; lint and stagger usable after fixes; Lottie output needs evidence (some slices usable, see review). | [review](reviews/review-e4-e5-e6-e7.md#e6-motion-lottie) |
+| [e7-devmode-mcp/e7-annotations-measurements-code-connect-mcp-spec.md](e7-devmode-mcp/e7-annotations-measurements-code-connect-mcp-spec.md) | READY AFTER FIXES | Enum sourced; three REST names wrong; contradicts #259 and the repo-files-win rule. | [review](reviews/review-e4-e5-e6-e7.md#e7-annotations) |
+| [e8-interop-pptx/e8-pptx-import-export-spec.md](e8-interop-pptx/e8-pptx-import-export-spec.md) | READY AFTER FIXES | Export core sound; probe slice rests on missing symbols; transition table unsourced. | [review](reviews/review-e8-to-e13.md#e8-pptx) |
+| [e9-slides-whiteboard/e9-1215-connectors-mindmap-mermaid-freehand-spec.md](e9-slides-whiteboard/e9-1215-connectors-mindmap-mermaid-freehand-spec.md) | NEEDS OWNER DECISION | Native connector export vs the vector-export rule; new node kinds vs no format change; Mermaid parser vs open spike. | [review](reviews/review-e8-to-e13.md#e9-connectors-mermaid) |
+| [e9-slides-whiteboard/e9-slides-transitions-builds-deck-roundtrip-spec.md](e9-slides-whiteboard/e9-slides-transitions-builds-deck-roundtrip-spec.md) | READY AFTER FIXES | Invents parallel transition and easing types; probe premise wrong. | [review](reviews/review-e8-to-e13.md#e9-slides-transitions) |
+| [e10-versions-branching/e10-three-way-diff-branch-merge-git-driver-spec.md](e10-versions-branching/e10-three-way-diff-branch-merge-git-driver-spec.md) | SUPERSEDED | Diff engine and merge shipped; UI and CLI parts need a rewrite. | [review](reviews/review-e8-to-e13.md#e10-branching) |
+| [e11-prototyping/e11-proto-crate-triggers-sticky-smart-animate-spec.md](e11-prototyping/e11-proto-crate-triggers-sticky-smart-animate-spec.md) | READY AFTER FIXES | Crate split and Kiwi mapping usable once aligned; sticky formula and match rule need evidence. | [review](reviews/review-e8-to-e13.md#e11-proto-crate) |
+| [e11-prototyping/e11-video-audio-gif-present-ux-mcp-spec.md](e11-prototyping/e11-video-audio-gif-present-ux-mcp-spec.md) | NEEDS OWNER DECISION | Native decoders and a wgpu path Present does not use; duplicates the E12 video work; scaling modes and MCP tools could proceed after fixes. | [review](reviews/review-e8-to-e13.md#e11-video-present) |
+| [e12-text-fonts-a11y/e12-canvas-a11y-contrast-eyedropper-video.md](e12-text-fonts-a11y/e12-canvas-a11y-contrast-eyedropper-video.md) | READY AFTER FIXES | Keyboard facts wrong off macOS; AccessKit snippet does not fit egui; video slice needs the owner. | [review](reviews/review-e8-to-e13.md#e12-canvas-a11y) |
+| [e12-text-fonts-a11y/e12-variable-fonts-rich-text-decorations-smart-symbols.md](e12-text-fonts-a11y/e12-variable-fonts-rich-text-decorations-smart-symbols.md) | READY AFTER FIXES | Mostly on main; only decoration style, thickness, offset and fills are new; smart symbols need evidence and the font gate needs an owner decision. | [review](reviews/review-e8-to-e13.md#e12-fonts-rich-text) |
+| [e13-sites-code-layers/e13-code-layers-runtime-sandbox-mcp-spec.md](e13-sites-code-layers/e13-code-layers-runtime-sandbox-mcp-spec.md) | NEEDS OWNER DECISION | Runs user code in a web view; cites a missing crate; CSP contradicts itself. | [review](reviews/review-e8-to-e13.md#e13-code-layers) |
+| [e13-sites-code-layers/e13-sites-breakpoints-scroll-cms-compiler-spec.md](e13-sites-code-layers/e13-sites-breakpoints-scroll-cms-compiler-spec.md) | READY AFTER FIXES | Schema work well grounded; compiler preview server and WOFF2 encoder are owner decisions. | [review](reviews/review-e8-to-e13.md#e13-sites) |
+
+Second wave (not reviewed yet):
+
+| Spec | Status | What the review found |
+|---|---|---|
+| [open-bugs-rea/bugs-c1-components-variants-fig-io-spec.md](open-bugs-rea/bugs-c1-components-variants-fig-io-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
+| [open-bugs-rea/bugs-c2-layout-text-export-drift-spec.md](open-bugs-rea/bugs-c2-layout-text-export-drift-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
+| [open-bugs-rea/bugs-c3-vectors-strokes-masks-ux-spec.md](open-bugs-rea/bugs-c3-vectors-strokes-masks-ux-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
+| [e21-multiplayer-realtime-sync/e21-doc-foundation-guid-fractional-index-lww-undo-spec.md](e21-multiplayer-realtime-sync/e21-doc-foundation-guid-fractional-index-lww-undo-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
+| [e21-multiplayer-realtime-sync/e21-sync-engine-p2p-presence-multi-agent-canvas-spec.md](e21-multiplayer-realtime-sync/e21-sync-engine-p2p-presence-multi-agent-canvas-spec.md) | NOT REVIEWED (review in progress) | Second wave; no review attached yet. |
+
+The index's own Kiwi tag numbers for `isSlot` (schema: 463), `isSlotContent` (495) and `styleOverrideTable` (tag 3) do not match the schema copy in the repository, `isExtension` is not a Kiwi field there (the E19 review lists the details), and three issue labels (1881, 1886, 1891) do not match their issues; the tables below were not corrected.
 
 ---
 
@@ -18,7 +61,7 @@ Whenever an autonomous coding agent (Claude Code, Codex, Antigravity, Grok, or O
 ```mermaid
 flowchart TD
     Step1["1. Lookup Epic #N in Section 1<br/>Open Linked Implementation Spec(s)"] --> Step2["2. Check Section 3 Invariants & Queue<br/>Verify Hot-File Status Before Worktree Branching"]
-    Step2 --> Step3["3. Implement Strictly from Spec<br/>Run Spec Acceptance Gate Commands (--skip vsf_pcp)<br/>Verify CPU vs GPU Parity<br/>Clean Up Worktree & Target Dirs on Merge"]
+    Step2 --> Step3["3. Implement with the Spec as Reference<br/>Run Spec Acceptance Gate Commands (--skip vsf_pcp)<br/>Verify CPU vs GPU Parity<br/>Clean Up Worktree & Target Dirs on Merge"]
 ```
 
 ### The 3-Step Execution Workflow
@@ -30,7 +73,8 @@ flowchart TD
    - If your task touches any of the 4 hot files (`crates/designos-fig/src/{fig.rs, fig_export.rs, kiwi.rs, rest_import.rs}`), ensure you hold the **Single-Writer Token**. Rebase onto `origin/main` immediately before opening or merging PRs.
    - Non-hot crates (`designos-doc`, `designos-render`, `designos-gpu`, `designos-export`, `designos-proto`, `designos-motion`, `designos-mcp`, `designos-app` disjoint panels) execute in parallel waves.
    - Memorize the 4 Engine Safety Invariants (`AGENTS.md` §4): zero `doc.to_json()` in `doc_hash`, zero `ctx.load_texture` in `ctx.data_mut`, preserve `self.interactive()` guard in `designos-gpu`, and cap offscreen GPU programs at `< 64`.
-3. **Implement Strictly from Spec (Zero Guessing):**
+3. **Implement with the spec as reference (zero guessing):**
+   - Read the spec's review status and its corrections first; check every symbol against main. Code on main, the CHANGELOG and owner rulings win over the spec.
    - Consult the linked clean-room REA Dossier in [Section 2](#section-2-clean-room-figma-126117-rea-evidence-dossiers-inventory) if verifying raw Kiwi wire IDs, binary chunk offsets, or UI localization keys.
    - Run the spec's machine-checkable acceptance commands. When testing `designos-fig`, always pass `-- --skip vsf_pcp` unless executing the single-process locked kit gate.
    - Verify CPU (`tiny-skia`) vs `--gpu` (`wgpu`) parity where applicable.

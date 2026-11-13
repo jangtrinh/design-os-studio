@@ -42,6 +42,7 @@ mod connector_home;
 mod connector_index;
 mod connector_route_cache;
 mod copy_layer_links;
+mod cycle_refusal;
 mod dev;
 pub mod diff;
 pub mod find;
@@ -135,6 +136,7 @@ pub use connector_route_cache::{cached_connector_route, connector_route_bounds, 
 #[cfg(any(test, feature = "fixtures"))]
 pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
 pub use copy_layer_links::{authored_layer, relink_copy_layers};
+pub use cycle_refusal::*;
 pub use dev::*;
 pub use diff::*;
 pub use geom::*;

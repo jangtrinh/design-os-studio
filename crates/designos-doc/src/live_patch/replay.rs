@@ -274,22 +274,15 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 if let Some(comp) = crate::instance_component(&merged) {
                     let at = merged.parent.unwrap_or(id);
                     if let Some((held_main, cycle_path)) = crate::held_main_cycle_path_at(doc, comp, at, &[]) {
-                        let node_name = crate::cycle_node_label(doc, id);
-                        let comp_name = crate::cycle_node_label(doc, comp);
-                        let held_name = crate::cycle_node_label(doc, held_main);
-                        let path_text = cycle_path.join(" -> ");
-                        report.skipped.push(format!(
-                            "INSTANCE_CYCLE: cannot update '{node_name}' to an instance of '{comp_name}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle path: {path_text})"
-                        ));
+                        report.skipped.push(crate::cycle_refusal_message(crate::CycleAction::Swap, &crate::cycle_node_label(doc, held_main), &cycle_path));
                         return None;
                     }
                 }
             }
             if !matches!(cur.kind, NodeKind::Component(_)) && matches!(merged.kind, NodeKind::Component(_)) && crate::mains_held_by(doc, &[id]).contains(&id) {
                 let held_name = if merged.name.trim().is_empty() { merged.kind.default_name().to_string() } else { merged.name.clone() };
-                report
-                    .skipped
-                    .push(format!("INSTANCE_CYCLE: cannot turn '{held_name}' into a component: that would make a component hold an instance of itself"));
+                let path = crate::component_chain_path(doc, id, id).unwrap_or_else(|| vec![held_name.clone(), held_name.clone()]);
+                report.skipped.push(crate::cycle_refusal_message(crate::CycleAction::MakeComponent, &held_name, &path));
                 return None;
             }
             if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {
@@ -331,13 +324,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 return None;
             }
             if let Some((held_main, cycle_path)) = crate::reparent_held_main_cycle_path(doc, &[id], parent) {
-                let node_name = crate::cycle_node_label(doc, id);
-                let parent_name = crate::cycle_node_label(doc, parent);
-                let held_name = crate::cycle_node_label(doc, held_main);
-                let path_text = cycle_path.join(" -> ");
-                report.skipped.push(format!(
-                    "MOVE_CYCLE: cannot move '{node_name}' into '{parent_name}' inside main component '{held_name}': that would make a component hold an instance of itself (INSTANCE_CYCLE, cycle path: {path_text})"
-                ));
+                report.skipped.push(crate::cycle_refusal_message(crate::CycleAction::Move, &crate::cycle_node_label(doc, held_main), &cycle_path));
                 return None;
             }
             let siblings: Vec<_> = p.children.iter().copied().filter(|c| *c != id).collect();
@@ -750,13 +737,7 @@ fn resolve_insert(
         }
         extra.reverse();
         if let Some((held_main, cycle_path)) = crate::held_main_cycle_path_at(doc, comp, parent, &extra) {
-            let inst_name = crate::cycle_node_label(doc, comp);
-            let parent_name = crate::cycle_node_label(doc, parent);
-            let held_name = crate::cycle_node_label(doc, held_main);
-            let path_text = cycle_path.join(" -> ");
-            report.skipped.push(format!(
-                "INSTANCE_CYCLE: cannot insert instance of '{inst_name}' into '{parent_name}' inside main component '{held_name}': that would make a component hold an instance of itself (cycle path: {path_text})"
-            ));
+            report.skipped.push(crate::cycle_refusal_message(crate::CycleAction::Add, &crate::cycle_node_label(doc, held_main), &cycle_path));
             return None;
         }
         let mut anc = n.parent;
@@ -765,7 +746,26 @@ fn resolve_insert(
             let pnode = preview_by_id[&pid];
             if matches!(pnode.kind, NodeKind::Component(_)) && (comp == pid || crate::mains_held_through(doc, [comp]).contains(&pid)) {
                 let held_name = node_label(pnode);
-                report.skipped.push(format!("INSTANCE_CYCLE: cannot insert main component '{held_name}' holding an instance of itself"));
+                // the layers of the new main down to the instance, then the way back to the main through `comp`
+                let mut below = Vec::new();
+                let mut up = n.parent;
+                while let Some(uid) = up.filter(|uid| *uid != pid && preview_by_id.contains_key(uid) && below.len() <= preview.len()) {
+                    below.push(node_label(preview_by_id[&uid]));
+                    up = preview_by_id[&uid].parent;
+                }
+                below.reverse();
+                let mut path = vec![held_name.clone()];
+                path.extend(below);
+                if comp == pid {
+                    path.push(held_name.clone());
+                } else {
+                    path.extend(crate::component_chain_path(doc, comp, pid).unwrap_or_else(|| vec![crate::cycle_node_label(doc, comp), held_name.clone()]));
+                    // the new main is not in the document yet, so the chain closes on a label it could not look up
+                    if let Some(last) = path.last_mut() {
+                        *last = held_name.clone();
+                    }
+                }
+                report.skipped.push(crate::cycle_refusal_message(crate::CycleAction::Add, &held_name, &path));
                 return None;
             }
             anc = pnode.parent;

@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): READY AFTER FIXES.** Reference for implementation; it adds parallel transition and easing types next to the shipped Transition, TransitionKind and Easing (extending those is the better route), and its container probe slice rests on a wrong premise. Corrections: [review](../reviews/review-e8-to-e13.md#e9-slides-transitions).
+
 # True Figma Slides, Transitions, Object Builds & Deck Roundtrip Spec
 
 **Date:** 2026-11-12  

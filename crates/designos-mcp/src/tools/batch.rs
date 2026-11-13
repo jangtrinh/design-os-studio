@@ -2313,14 +2313,10 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     ));
                 }
                 // a layer that holds an instance of a main does not go into that main, nor into a layer in it
-                if designos_doc::reparent_would_hold_itself(&trial, &[id], new_parent) {
-                    return Err(op_failed_error(
-                        op_idx,
-                        op_name,
-                        ErrorCode::MoveCycle,
-                        &op_path,
-                        format!("cannot move node {} into {}: that would make a component hold an instance of itself", id.0, new_parent.0),
-                    ));
+                if let Some((held_main, cycle_path)) = designos_doc::reparent_held_main_cycle_path(&trial, &[id], new_parent) {
+                    let message =
+                        designos_doc::cycle_refusal_message(designos_doc::CycleAction::Move, &designos_doc::cycle_node_label(&trial, held_main), &cycle_path);
+                    return Err(op_failed_error(op_idx, op_name, ErrorCode::MoveCycle, &op_path, message));
                 }
 
                 let siblings_without_id = pnode.children.iter().filter(|&&c| c != id).count();
