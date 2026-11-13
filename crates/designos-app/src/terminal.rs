@@ -3155,7 +3155,12 @@ impl TerminalState {
                 // leaves the banner up and shows the reason a start would get.
                 if let Some(agent) = agent_start_failure::agent_started_by_login(command) {
                     self.refresh_permission_mode_from_disk();
-                    if self.refuse_start_in_mode(agent, false, self.permission_mode).is_err() {
+                    if let Err(reason) = self.refuse_start_in_mode(agent, false, self.permission_mode) {
+                        // Nothing in the panel paints the status line: the caption under the composer is where a refused send
+                        // writes its reason, on the composer of the tab on screen and no other.
+                        let composer = self.active_composer_mut();
+                        composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::ModeUnavailable));
+                        composer.notice = Some(reason);
                         return;
                     }
                 }

@@ -923,3 +923,116 @@ fn selected_menu_rows_draw_a_check_icon_not_a_glyph() {
     assert!(!painted(&s).iter().any(|t| t.contains('✓')), "and so does the agent that is running: {:?}", painted(&s));
     finish(s);
 }
+
+/// A running tab of `preset` that started in Ask, while the person has since switched to Ask when risky. The Sim has no library
+/// folder, so the mode is the one held in memory.
+fn login_refusal_sim(preset: AgentCliPreset) -> Sim {
+    let mut s = session_sim();
+    let terminal = &mut s.shell.app.terminal;
+    assert!(terminal.library_root.is_none(), "the Sim reads no mode from a settings file");
+    terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::AskRisky;
+    let tab = &mut terminal.tabs[0];
+    tab.spawn_preset = preset;
+    tab.preset = preset;
+    s
+}
+
+fn not_signed_in_card(preset: AgentCliPreset) -> crate::agent_start_failure::StartFailure {
+    crate::agent_start_failure::StartFailure {
+        preset,
+        cause: crate::agent_start_failure::StartFailureCause::NotLoggedIn,
+        exit_code: Some(1),
+        output_tail: Vec::new(),
+        fix: crate::agent_start_failure::FixAction::RunLogin(crate::agent_start_failure::login_command(preset)),
+    }
+}
+
+fn login_expired_banner(preset: AgentCliPreset) -> crate::agent_session_failure::SessionFailure {
+    crate::agent_session_failure::SessionFailure::new(preset, crate::agent_session_failure::SessionFailureClass::LoginExpired, None, "401 unauthorized\n")
+}
+
+/// The caption under the composer as painted, with the room it was painted in.
+fn composer_caption(s: &Sim) -> Option<(String, Rect)> {
+    let note = recorded(s, "agents-composer-notice")?;
+    crate::lint::scan_shapes(&s.shapes).0.into_iter().find(|t| note.contains_rect(t.rect)).map(|t| (t.text, note))
+}
+
+fn refusal_reason(preset: AgentCliPreset) -> &'static str {
+    crate::agent_permissions::ask_risky_unsupported_reason(preset).expect("a CLI without the approval hook has a reason")
+}
+
+/// After the click the card or banner is still up, nothing started, and the caption under the composer, inside the composer box,
+/// carries the CLI's own reason. The caption elides to its width, so what is painted is the start of that reason.
+fn assert_refusal_on_screen(s: &mut Sim, preset: AgentCliPreset, surface: &str, widget: &str) {
+    assert!(composer_caption(s).is_none(), "{preset:?} {surface}: nothing is captioned before the click");
+    let button = recorded(s, widget).unwrap_or_else(|| panic!("{preset:?} {surface}: the Run login button"));
+    let tabs_before = s.shell.app.terminal.tabs.len();
+
+    s.click(button.center());
+    frames(s, 30);
+
+    assert_eq!(s.shell.app.terminal.tabs.len(), tabs_before, "{preset:?} {surface}: nothing starts");
+    assert!(recorded(s, widget).is_some(), "{preset:?} {surface}: the card or banner is still up");
+    let (caption, note) = composer_caption(s).unwrap_or_else(|| panic!("{preset:?} {surface}: the refusal is painted nowhere; painted: {:?}", painted(s)));
+    eprintln!("PAINTED caption after a refused Run login, {preset:?} {surface}: {caption:?} in a caption {:.0} px wide", note.width());
+    let box_r = recorded(s, "agents-composer-box").expect("composer box");
+    assert!(box_r.contains_rect(note), "{preset:?} {surface}: the caption {note:?} lies inside the composer box {box_r:?}");
+    let shown = caption.trim_end_matches('\u{2026}');
+    assert!(!shown.is_empty() && refusal_reason(preset).starts_with(shown), "{preset:?} {surface}: the caption {caption:?} is the start of the CLI's reason");
+    assert_eq!(
+        s.shell.app.terminal.active_composer().notice.as_deref(),
+        Some(refusal_reason(preset)),
+        "{preset:?} {surface}: the notice holds the whole reason"
+    );
+}
+
+/// Clicking Run login on the start-failure card in Ask when risky leaves the card up and says why in the caption under the composer.
+#[test]
+fn run_login_on_the_start_failure_card_is_refused_on_screen_in_ask_when_risky() {
+    for preset in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity] {
+        let mut s = login_refusal_sim(preset);
+        s.shell.app.terminal.tabs[0].start_failure = Some(not_signed_in_card(preset));
+        frames(&mut s, 3);
+        assert_refusal_on_screen(&mut s, preset, "card", "agents-start-failure-fix-agents-left-pty");
+        finish(s);
+    }
+}
+
+/// The same refusal from the Run login button of the login-expired banner of a running tab.
+#[test]
+fn run_login_on_the_login_expired_banner_is_refused_on_screen_in_ask_when_risky() {
+    for preset in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity] {
+        let mut s = login_refusal_sim(preset);
+        s.shell.app.terminal.tabs[0].session_failure = Some(login_expired_banner(preset));
+        frames(&mut s, 3);
+        assert_refusal_on_screen(&mut s, preset, "banner", "agents-session-failure-action-agents-left-pty");
+        finish(s);
+    }
+}
+
+/// The refusal is written on the composer of the tab on screen: another tab's notice about its waiting messages stays as it was.
+#[test]
+fn a_refused_run_login_leaves_the_waiting_notice_of_another_tab_alone() {
+    let mut s = login_refusal_sim(AgentCliPreset::Gemini);
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second stub tab");
+    {
+        let terminal = &mut s.shell.app.terminal;
+        terminal.tabs[0].composer.pending_send.push_back(crate::agent_composer::QueuedSend::new("still waiting", false));
+        terminal.tabs[0].composer.notice = Some("Queued message waits for the agent".into());
+        terminal.active_tab = 1;
+        let tab = &mut terminal.tabs[1];
+        tab.spawn_preset = AgentCliPreset::Gemini;
+        tab.preset = AgentCliPreset::Gemini;
+        tab.start_failure = Some(not_signed_in_card(AgentCliPreset::Gemini));
+    }
+    frames(&mut s, 3);
+    let button = recorded(&s, "agents-start-failure-fix-agents-left-pty").expect("the card's Run login button");
+
+    s.click(button.center());
+    frames(&mut s, 3);
+
+    let terminal = &s.shell.app.terminal;
+    assert_eq!(terminal.tabs[0].composer.notice.as_deref(), Some("Queued message waits for the agent"), "the other tab's notice is untouched");
+    assert_eq!(terminal.tabs[1].composer.notice.as_deref(), Some(refusal_reason(AgentCliPreset::Gemini)), "the tab on screen carries the refusal");
+    finish(s);
+}
