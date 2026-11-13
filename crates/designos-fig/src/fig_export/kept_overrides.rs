@@ -73,6 +73,37 @@ fn message_fields_mut(v: &mut V) -> Option<&mut Vec<(std::sync::Arc<str>, V)>> {
     }
 }
 
+fn consumption_field_removed(field: &str, key: OverrideField) -> bool {
+    matches!((field, key), ("WIDTH", OverrideField::Size) | ("HEIGHT", OverrideField::Size))
+}
+
+fn drop_stale_consumption_entries(record: &mut Vec<(std::sync::Arc<str>, V)>, fields: &BTreeSet<OverrideField>) {
+    for (key, value) in record.iter_mut() {
+        if !matches!(&**key, "variableConsumptionMap" | "parameterConsumptionMap") {
+            continue;
+        }
+        let Some(entries) = value.get_mut("entries").and_then(|v| match v {
+            V::Array(a) => Some(a),
+            _ => None,
+        }) else {
+            continue;
+        };
+        entries.retain(|entry| {
+            let Some(variable_field) = entry.get("variableField") else { return true };
+            let name = match variable_field {
+                V::Enum(name) => name.as_ref(),
+                V::String(name) => name.as_str(),
+                _ => return true,
+            };
+            !fields.iter().any(|field| consumption_field_removed(name, *field))
+        });
+    }
+    record.retain(|(key, value)| {
+        !matches!(&**key, "variableConsumptionMap" | "parameterConsumptionMap")
+            || value.get("entries").and_then(V::as_array).is_none_or(|entries| !entries.is_empty())
+    });
+}
+
 /// Re-adds the blobs a geometry list names to this file's table and points the list at them. A blob the loader holds
 /// no bytes for leaves its geometry out: an index into another file's table would draw something else.
 fn remap_geometry(cx: &mut ExportCtx<'_>, kept: &Kept, list: &mut V) {
@@ -188,6 +219,7 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid
     for &i in &own {
         let Some(record) = message_fields_mut(&mut entries[i]) else { continue };
         record.retain(|(k, _)| !field_removed_with(k).is_some_and(|f| edited.contains(&f)));
+        drop_stale_consumption_entries(record, &edited);
     }
     if let Some(record) = message_fields_mut(&mut entries[last]) {
         record.append(restated);

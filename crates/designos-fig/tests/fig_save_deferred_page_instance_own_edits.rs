@@ -73,6 +73,43 @@ fn a_resize_of_the_unopened_instance_survives_a_save() {
 }
 
 #[test]
+fn a_resize_of_a_width_bound_unopened_instance_drops_the_stale_width_binding() {
+    let mut own = json!({
+        "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
+        "size": {"x": 130.0, "y": 48.0},
+        "variableConsumptionMap": {"entries": [{
+            "variableField": "WIDTH",
+            "variableData": {"dataType": "ALIAS", "resolvedDataType": "FLOAT", "value": {"alias": {"guid": guid(2, 2)}}}
+        }]}
+    });
+    let mut overrides = text_and_stroke_overrides();
+    overrides.as_array_mut().expect("entries").push(std::mem::take(&mut own));
+    let float_var = fig_node(
+        (2, 2),
+        (1, 2),
+        "VARIABLE",
+        "width-token",
+        json!({
+            "key": "WIDTH_TOKEN",
+            "variableSetID": {"guid": guid(1, 2)},
+            "variableResolvedType": "FLOAT",
+            "variableDataValues": {"entries": [{"modeID": guid(1, 100), "variableData": {"dataType": "FLOAT", "value": {"floatValue": 130.0}}}]}
+        }),
+    );
+    let fig = fixture_with(json!({}), overrides, vec![float_var], Vec::new());
+    let mut live = import_fig(&fig).expect("import");
+    let button = variant_button(&live);
+    live.get_mut(button).expect("instance").size.x = 200.0;
+
+    let saved = export_fig(&live).expect("export");
+    let entries = saved_entries(&saved, INSTANCE);
+    let own = entry_at(&entries, BUTTON);
+    assert!(own.get("variableConsumptionMap").is_none(), "the stale width binding remains in the restated own entry: {own}");
+    let back = reopened(&saved);
+    assert_eq!(back.get(variant_button(&back)).expect("instance").size.x, 200.0);
+}
+
+#[test]
 fn a_fill_change_of_the_unopened_instance_survives_a_save() {
     let fig = fixture_with_own_entry();
     let mut live = import_fig(&fig).expect("import");
