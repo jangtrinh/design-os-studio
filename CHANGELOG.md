@@ -2,7 +2,20 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
-## [Unreleased]
+## [0.7.14] - 2026-11-13
+
+A patch release from `main` that keeps the variable bindings of component property defaults in imported Figma files, makes an instance's variant choices and overrides more reliable, and carries more fixes from @NamAIEngineer. Re-solving the imported Untitled UI PRO v8.0 kit now moves 1,910 layers instead of 2,039 (#1920).
+
+### Added
+- **Components.** A component property (boolean, text or variant) whose default is bound to a variable in Figma keeps that binding: it is read on `.fig` and Figma REST import, for a variable of the same file or of a remote library, written back on `.fig` export, and listed among the component's bound variables by the design-system scan. Renaming or deleting the property, deleting the variable, publishing to or inserting from a library, a branch merge and turning the property into a slot keep the binding true, and a paste from Figma clears it (#1856, PR #1990).
+
+### Changed
+- **Approvals.** The mode Ask for risky only is now called Ask when risky; stored settings keep working (PR #1991).
+- **Approvals.** Ask when risky is enforced for every way of starting an agent: a CLI that does not share the approval hook (such as Codex, Grok, Antigravity, Gemini, OpenCode or a custom command) is refused with its reason and the next step, and the composer pill follows the mode. This covers a new chat, resume, the agent picker, image jobs and Run login for Gemini and Antigravity, whose login is the agent itself; logins that are real login commands still run; by @NamAIEngineer (#1435, PR #1991).
+- **Approvals.** Grok and Antigravity start on a project config that is exactly Studio's in every mode that uses the approval hook, and a hook file planted in the session folder is moved aside first (PR #1991).
+- **Images.** The decoded-image cache holds at most 64 MiB of decoded pixels and evicts the oldest first; one image larger than that is still cached, alone, so it is not decoded again on every paint; by @NamAIEngineer (#1891, PR #1989).
+- **Agent tools.** Deleting a layer that is mirrored inside a component instance, with `designos_delete_node` or a batch `delete`, now answers the non-retryable `INSTANCE_CHILD` with a next step (hide the layer or override it); it used to answer `FIELD_NOT_ALLOWED_ON_INSTANCE`, marked safe to retry; by @NamAIEngineer (#985, PR #1947).
+- **Agent tools.** Every write to a library variable (delete, value, mode, alias) is refused, atomically inside a batch; variables of local collections stay writable; by @NamAIEngineer (#1804, PR #1947).
 
 ### Fixed
 - **App shell.**
@@ -12,6 +25,58 @@ All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented 
   - Saving a document of more than 25,000 layers to the library no longer copies it on the UI thread for a thumbnail, the same budget the other thumbnail paths already use; by @NamAIEngineer (#1718, PR #1785).
   - An error toast that is on screen is no longer replaced by a different error before its time is up; the new error waits behind it; by @NamAIEngineer (#1766, PR #1774).
 - **Agent CLI.** `--apply-spec` says what it did: the reply names the added root (`root_name`, `parent_id`, `nodes_created`), states `added_new_subtree: true` and `updated_existing_node: false`, and warns with `ROOT_NAME_ALREADY_EXISTS` when a sibling of the same name was left unchanged; by @NamAIEngineer (#1086, PR #1175).
+- **Agents panel.**
+  - The Sessions popover's rename field stays in step with the row it edits, Enter and Escape act in the same frame, and the Other CLI form opens when the agent menu asks for it or the window is resized; by @NamAIEngineer (#1010, PR #1991).
+  - Codex gets no design-server registration for an untitled design that has no workspace, also on resume, and the status line says so; by @NamAIEngineer (#1654, PR #1991).
+  - Closing a tab that has waiting messages puts the waiting text back in the composer and says so, instead of losing it; by @NamAIEngineer (#1495, PR #1991).
+  - A shell tab keeps its own name on the composer pill (PR #1991).
+  - A running agent tab keeps the permission mode it was started in: a later switch of the mode applies to new tabs only, and a canvas change no longer rewrites the approval script the other tabs use; by @NamAIEngineer (#1970, PR #2010).
+- **Auto layout.**
+  - Re-solving an older frame with auto spacing ("space between") no longer moves what Figma leaves in place: a frame of layout version 0 with exactly one flow child that is not Fill centres that child, from layout version 1 the gap never goes below zero, and Fill children reserve no item spacing under space between, around and evenly. Re-solving the imported kit moves 1,926 layers instead of 2,039 (#1920, PR #1946).
+  - A wrapped auto-layout frame whose lines leave room on the counter axis places the block of lines by the frame's counter alignment: centred for Center, at the far padding edge for End, as Figma does. Re-solving the imported kit moves 1,910 layers instead of 1,926 (#1920, PR #1979).
+- **Components.**
+  - A value picked by hand for one variable-bound variant property now holds only that property until it is reset, and the other bound properties keep following their variables. Before, one hand pick on a nested instance froze every bound property of it, and a pick made through the API on a top-level instance was undone by the next mode change. A nested `variant` entry in `designos_apply_spec` or a batch pins the property too, and picks survive a `.fig` save and reopen (#1901, #1902, PR #1950).
+  - A frame that hugs an instance takes its new size in the same step as a variant switch that a variable drives, instead of keeping the old size until the next edit, also through undo and redo and for `set_variables` through the agent tools; by @NamAIEngineer (#1903, PR #1977).
+  - A frame that hugs its content also takes its new size when the switched instance sits inside one or more groups: the groups are refitted to their children and the frame follows in the same step, for a switch that a variable drives, a variant picked by hand and an instance swap, also through undo and redo; by @NamAIEngineer (#1976, PR #2013).
+  - A change made on a layer inside a nested component copy (a copy inside a copy) is no longer lost after a `.fig` save, reopen and an edit of a main component. Files saved by an earlier release are repaired when they are opened (#1925, PR #1973).
+  - A variant switch or an instance swap counts every override it has to drop and reports it, per field; by @NamAIEngineer (#1915, PR #1988).
+  - A text override is carried to the same-name layer of the new variant on a variant switch instead of being dropped; by @NamAIEngineer (#1916, PR #1988).
+  - The new variant is refitted to the size the instance keeps after a variant switch, also for a swap by hand, an auto-layout instance and stretching children; by @NamAIEngineer (#1917, PR #1988).
+  - An overridden text's box follows the overridden text after a variant switch when the text styles of both variants match; a size override without a text override is not carried into a variant whose box differs; by @NamAIEngineer (#1918, PR #1988).
+  - A main component sync keeps an instance's own corner radius: the stored outline is dropped only when it is stale, and kept when the instance also overrides its size; by @NamAIEngineer (#1935, PR #1988).
+  - Every edit the cycle guard refuses (a move, paste, instance swap, variant or instance-swap property, spec or replayed live patch) gets the same sentence naming the loop, in the editor and in the agent tools. `designos_update_node` and `designos_apply_spec` now refuse with `INSTANCE_CYCLE` a property edit that would make a main component hold itself, and leave the document unchanged (#1896, PR #1971).
+- **Canvas.**
+  - Dragging the corner radius of an imported rectangle or frame that carries a baked outline redraws it; the same fix covers components, instances, sections, and a radius edit on an imported polygon or star in the Properties panel (#1908, PR #1934).
+  - A corner radius drag that leaves the radius as it was changes nothing: the shape keeps its stored outline, no undo step is added and the document is not marked changed; by @NamAIEngineer (#1939, PR #1989).
+  - Paste properties and match style drop the stored outline of an imported shape when the paste changes its corner radii or corner smoothing, and keep it when it does not; by @NamAIEngineer (#1936, PR #1989).
+  - Every arrow cap on a vertex has its label in the cap list instead of reading "Mixed"; by @NamAIEngineer (#1765, PR #1989).
+  - Binding one corner radius of a star, polygon or ellipse to a variable drops the stale stored outline, so the new radius shows; by @NamAIEngineer (#1986, PR #2006).
+  - A background blur with a radius above 32 that touches the edge of the canvas is no longer brighter at the edge than the CPU reference; the resample step treats texels outside the canvas as transparent, as the blur does; by @NamAIEngineer (#1689, PR #2005).
+- **Export.**
+  - A `.pen` export writes the ring arc that an instance draws itself, and the importer reads it back as the instance's own arc; before, a reopened instance showed the main component's arc (#1906, PR #1933).
+  - `designos FILE.fig --export-variables OUT.json --format figma-rest` marks the variables of library collections `"remote": true` instead of `false` on every variable; by @NamAIEngineer (#1854, PR #1928).
+- **Figma files.** Opening a page that was not opened before, after its main component was edited, shows the instances at the main's new size instead of the stale size stored in the file, and keeps their overrides; by @NamAIEngineer (#1888, PR #2011).
+- **Agent tools.**
+  - `designos_export_spec` exports the ring arc that a nested instance draws itself, and the arc applies back; by @NamAIEngineer (#1937, PR #1988).
+  - An insert whose id, or the id of any layer under it, already exists in the document is refused instead of overwriting the layer that holds it; by @NamAIEngineer (#1740, PR #1941).
+  - Replaying an agent's table edit keeps the row heights and column widths the user set in the editor; by @NamAIEngineer (#1817, PR #1941).
+  - The 4 px grid fix and the touch-target fix leave connectors alone, so a fix no longer bends a connector or resizes it to 44 x 44; by @NamAIEngineer (#1710, PR #1941).
+  - Comment and reply messages are stamped with the time they are written; by @NamAIEngineer (#714, PR #1947).
+  - Read tools fill in a deferred page before they read it, so instances from a `.fig` no longer come back without their content; `designos_get_app_state` does the same for the active page and for the page of every layer it is asked about; by @NamAIEngineer (#1307, PR #1947).
+  - A batch that moves a layer to another page re-homes or detaches its connectors the way Studio does; by @NamAIEngineer (#1663, PR #1947).
+  - A batch `apply_spec` into a fixed frame no longer moves layers outside that frame, and a hug frame still grows; binding a fixed frame's padding or stroke re-solves that frame only; by @NamAIEngineer (#1702, #1704, PR #1947).
+  - The rules pack keeps the `needs_human` retry guidance; by @NamAIEngineer (#1399, PR #1947).
+  - The documented error list of `designos_update_node` names `UNKNOWN_COMPONENT_PROPERTY` and `OVERRIDE_FIELD_NOT_APPLICABLE`, so an agent can tell these refusals from a transport failure and correct its call instead of retrying; by @NamAIEngineer (#1938, PR #2002).
+- **Windows.** The documented PowerShell install command parses again on Windows PowerShell 5.1: `install.ps1` is ASCII only, and the shortcut text is unchanged; by @NamAIEngineer (#1313, PR #1929).
+
+### Known issues
+- A native file in which an instance has its own ring arc cannot be opened by Studio 0.7.12 or older.
+- Re-solving the imported Untitled UI PRO v8.0 kit still moves 1,910 layers, about 1% (#1920).
+- A nested instance can lose its overrides when its variant is switched by hand and back (#1909). An override on a layer the other variant lacks is still lost on a variant switch; the switch now reports it (#1915).
+- A main component sync with no change can resize instances imported from a `.fig` (#1919).
+- In the prototype player, a "Set variable mode" or "Set variable" action does not switch the variants bound to that variable (#1904).
+- The mode control of the Agents panel shows the mode for new tabs, not the mode the focused tab runs in (#2008).
+- The variable-bound nested variant is checked on files made in Studio only: the kit has no bound component property, and no file authored in Figma with one was available.
 
 ## [0.7.13] - 2026-11-12
 
