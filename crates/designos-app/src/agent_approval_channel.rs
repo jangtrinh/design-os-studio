@@ -303,6 +303,13 @@ pub fn remove_tab_dir(session_dir: &Path, tab_id: usize) {
     }
 }
 
+/// Removes one tab's approval hook script while leaving the session hook and other tabs intact.
+pub fn remove_tab_hook_script(session_dir: &Path, tab_id: usize) {
+    if let Some(dir) = channel_dir(session_dir) {
+        let _ = std::fs::remove_file(dir.join(format!("approve-hook-tab-{tab_id}.sh")));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

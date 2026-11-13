@@ -592,6 +592,16 @@ pub fn write_approval_hook_script(session_dir: &Path) -> std::io::Result<PathBuf
 }
 
 fn write_hook_script_file(script_path: PathBuf, content: &str) -> std::io::Result<PathBuf> {
+    if std::fs::read(&script_path).is_ok_and(|existing| existing == content.as_bytes()) {
+        #[cfg(unix)]
+        if let Ok(meta) = std::fs::metadata(&script_path) {
+            use std::os::unix::fs::PermissionsExt;
+            if meta.permissions().mode() & 0o777 != 0o700 {
+                std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
+            }
+        }
+        return Ok(script_path);
+    }
     crate::agent_approval_channel::write_owner_only_file(&script_path, content.as_bytes(), true)?;
     Ok(script_path)
 }
@@ -2449,6 +2459,20 @@ mod tests {
         assert_eq!(got[0].timestamp, 9_000);
         remove_auto_allow_log(&dir);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn identical_tab_hook_install_keeps_the_existing_file() {
+        use std::os::unix::fs::MetadataExt;
+        let session = std::env::temp_dir().join(format!("designos-tab-hook-idempotent-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&session);
+        let channel = crate::agent_approval_channel::prepare_channel_dir(&session).expect("channel");
+        let path = install_tab_hook_script(&channel, None, 17, AgentPermissionMode::Ask).expect("first install");
+        let inode = std::fs::metadata(&path).expect("metadata").ino();
+        install_tab_hook_script(&channel, None, 17, AgentPermissionMode::Ask).expect("same-content install");
+        assert_eq!(std::fs::metadata(&path).expect("metadata after same-content install").ino(), inode, "unchanged script must not be atomically replaced");
+        crate::agent_approval_channel::remove_channel(&session);
     }
 
     #[test]
