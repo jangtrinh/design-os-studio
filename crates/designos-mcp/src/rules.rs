@@ -475,7 +475,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 82;
+const MAX_PURPOSE_CHARS: usize = 78;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -891,6 +891,12 @@ mod tests {
         let codes = tool_error_codes("designos_apply_spec");
         assert!(codes.contains(&"`UNKNOWN_COMPONENT_PROPERTY`"), "{codes:?}");
         assert!(codes.contains(&"`OVERRIDE_FIELD_NOT_APPLICABLE`"), "{codes:?}");
+    }
+
+    #[test]
+    fn rules_pack_documents_instance_arc_overrides() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("| `arc` |"), "OverrideSpec in the rules pack must document the supported arc override");
     }
 
     #[test]
