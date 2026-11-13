@@ -37,6 +37,8 @@ mod component_prop_variables_tests;
 mod component_variant_picks_round_tests;
 #[cfg(test)]
 mod component_variant_picks_tests;
+#[cfg(test)]
+mod component_variant_resync_layout_tests;
 mod components;
 mod connector_home;
 mod connector_index;
