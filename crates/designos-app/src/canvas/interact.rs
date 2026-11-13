@@ -871,7 +871,8 @@ fn try_start_special_handle(app: &mut App, rect: ERect, pos: Pos2, page: DV, id:
     let corners = super::fast_world_corners(&app.doc, id).map(|c| dv(app.view.to_screen(rect.min, c)));
     if handles::supports_corner_radius_handles(&n.kind) {
         if let Some(corner) = handles::hit_corner_radius_handle(&corners, n.corner_radii, z, dv(pos), 4.5) {
-            app.canvas.inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner, start_radii: n.corner_radii });
+            app.canvas.inter =
+                Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner, start_radii: n.corner_radii, start_page: page, moved: false });
             return true;
         }
     }
@@ -902,8 +903,16 @@ fn try_start_special_handle(app: &mut App, rect: ERect, pos: Pos2, page: DV, id:
             NodeKind::Star { count, inner_ratio } => (*count, *inner_ratio, 0.0),
             _ => (0, 0.0, 0.0),
         };
-        app.canvas.inter =
-            Interaction::ShapeControl(ShapeControlDragState { tx: Tx::new(), id, kind, start_page: page, start_count, start_ratio, start_end_angle });
+        app.canvas.inter = Interaction::ShapeControl(ShapeControlDragState {
+            tx: Tx::new(),
+            id,
+            kind,
+            start_page: page,
+            start_count,
+            start_ratio,
+            start_end_angle,
+            moved: false,
+        });
         return true;
     }
     false
@@ -1241,6 +1250,10 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
         Interaction::Resize(r) => update_resize(app, r, cur, inp),
         Interaction::Rotate(r) => update_rotate(app, r, cur, inp),
         Interaction::CornerRadius(cr) => {
+            if !cr.moved && dist(cr.start_page, cur) * app.view.zoom <= theme::DRAG_THRESHOLD_PX {
+                return;
+            }
+            cr.moved = true;
             let before = app.doc.get(cr.id).map(|n| n.corner_radii);
             cr.tx.ed.revert(&mut app.doc);
             let inv = app.doc.world_transform(cr.id).invert().unwrap_or(Affine::IDENTITY);
@@ -1330,6 +1343,10 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
         }
         Interaction::SmartSelectionDrag(sd) => update_smart_selection_drag(app, sd, cur),
         Interaction::ShapeControl(sc) => {
+            if !sc.moved && dist(sc.start_page, cur) * app.view.zoom <= theme::DRAG_THRESHOLD_PX {
+                return;
+            }
+            sc.moved = true;
             update_shape_control(app, sc, cur, inp.mods.shift);
         }
         Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
@@ -1746,7 +1763,7 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             app.run_tx(r.tx);
         }
         Interaction::CornerRadius(c) => {
-            if c.tx.ed.touched().is_empty() || !app.run_tx(c.tx) {
+            if !c.moved || c.tx.ed.touched().is_empty() || !app.run_tx(c.tx) {
                 return;
             }
         }
@@ -1786,7 +1803,9 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
             return;
         }
         Interaction::ShapeControl(s) => {
-            app.run_tx(s.tx);
+            if s.moved {
+                app.run_tx(s.tx);
+            }
         }
         Interaction::Draw(mut d) => {
             // `on_drag` does not run on the frame of the release, and the release can share its frame with the press
@@ -3492,6 +3511,7 @@ mod tests {
             start_count: 0,
             start_ratio: 0.0,
             start_end_angle: std::f32::consts::TAU,
+            moved: false,
         };
         update_shape_control(&mut app, &mut sc_ell, v2(50.0, 100.0), true);
         app.run_tx(sc_ell.tx);
@@ -3521,6 +3541,7 @@ mod tests {
             start_count: 5,
             start_ratio: 0.382,
             start_end_angle: 0.0,
+            moved: false,
         };
         update_shape_control(&mut app, &mut sc_star_cnt, v2(50.0, 12.0 - 24.0), false);
         app.run_tx(sc_star_cnt.tx);
@@ -3535,6 +3556,7 @@ mod tests {
             start_count: 8,
             start_ratio: 0.382,
             start_end_angle: 0.0,
+            moved: false,
         };
         update_shape_control(&mut app, &mut sc_star_ratio, v2(50.0 + 30.0, 50.0), false);
         app.run_tx(sc_star_ratio.tx);
@@ -3588,6 +3610,7 @@ mod tests {
             start_count: 0,
             start_ratio: 0.0,
             start_end_angle: std::f32::consts::TAU,
+            moved: false,
         };
         update_shape_control(app, &mut drag, to, false);
         app.run_tx(drag.tx);
@@ -3684,6 +3707,7 @@ mod tests {
             start_count,
             start_ratio: 0.0,
             start_end_angle: std::f32::consts::TAU,
+            moved: false,
         };
         update_shape_control(app, &mut drag, to, false);
         app.run_tx(drag.tx);
@@ -3763,7 +3787,14 @@ mod tests {
     /// Drags the radius handle of `corner` of `id` to `local` (a point in the node's own space), with Alt held for one
     /// corner alone, and ends the drag.
     fn drag_corner_radius(app: &mut App, id: NodeId, corner: usize, local: DV, alt: bool) {
-        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner, start_radii: app.doc.get(id).unwrap().corner_radii });
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState {
+            tx: Tx::new(),
+            id,
+            corner,
+            start_radii: app.doc.get(id).unwrap().corner_radii,
+            start_page: DV::ZERO,
+            moved: false,
+        });
         let inp = Inp {
             pos: None,
             press_pos: None,
@@ -3790,7 +3821,14 @@ mod tests {
     fn an_unchanged_corner_radius_drag_does_not_dirty_the_canvas() {
         let (mut app, id, _) = app_with_two();
         app.doc.get_mut(id).unwrap().corner_radii = [50.0; 4];
-        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: app.doc.get(id).unwrap().corner_radii });
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState {
+            tx: Tx::new(),
+            id,
+            corner: 0,
+            start_radii: app.doc.get(id).unwrap().corner_radii,
+            start_page: DV::ZERO,
+            moved: false,
+        });
         let inp = Inp {
             pos: None,
             press_pos: None,
@@ -3814,7 +3852,14 @@ mod tests {
         assert!(!app.canvas.dirty, "an unchanged radius must not dirty the canvas");
 
         let (mut app, id, _) = app_with_two();
-        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: app.doc.get(id).unwrap().corner_radii });
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState {
+            tx: Tx::new(),
+            id,
+            corner: 0,
+            start_radii: app.doc.get(id).unwrap().corner_radii,
+            start_page: DV::ZERO,
+            moved: false,
+        });
         let at = app.doc.world_transform(id).apply(v2(20.0, 20.0));
         follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
         assert!(app.canvas.dirty, "a changed radius must dirty the canvas");
@@ -3824,7 +3869,14 @@ mod tests {
     fn a_second_move_at_the_clamp_or_back_to_start_in_a_corner_radius_drag_tracks_the_previous_move() {
         let (mut app, _, _) = app_with_two();
         let id = baked_shape(&mut app, NodeKind::Rectangle);
-        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: app.doc.get(id).unwrap().corner_radii });
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState {
+            tx: Tx::new(),
+            id,
+            corner: 0,
+            start_radii: app.doc.get(id).unwrap().corner_radii,
+            start_page: DV::ZERO,
+            moved: false,
+        });
         let inp = Inp {
             pos: None,
             press_pos: None,
@@ -3870,7 +3922,7 @@ mod tests {
             app.doc.get_mut(id).unwrap().corner_radii = start_radii;
             let original = app.doc.get(id).unwrap().clone();
             let undo_before = app.hist.undo_depth();
-            let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii });
+            let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii, start_page: DV::ZERO, moved: false });
             let drag_inp = Inp {
                 pos: None,
                 press_pos: None,
