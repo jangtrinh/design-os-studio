@@ -23,7 +23,7 @@ impl PermissionMode {
         }
     }
 
-    /// Skip only for exactly `"skip"`. Ask for risky only only for exactly `"ask_risky"`.
+    /// `Skip` only for exactly `"skip"`, and `AskRisky` (shown as Ask when risky) only for exactly `"ask_risky"`.
     /// Anything else, including `""`, is Ask (fail closed, `#841`).
     pub fn parse(raw: &str) -> Self {
         let raw = raw.trim();
@@ -283,7 +283,7 @@ pub(crate) fn approval_denied_hook_message() -> String {
 }
 
 /// Generates the POSIX `sh` script Studio installs in the session's private channel folder
-/// ([`crate::agent_approval_channel`]) for Claude Code's `PermissionRequest` hook in `Ask` and `Ask for risky only`.
+/// ([`crate::agent_approval_channel`]) for Claude Code's `PermissionRequest` hook in `Ask` and `Ask when risky`.
 ///
 /// The folder it answers from and the file it reports status to (`status_file`, in the hook folder of `agent_hook_outputs`; none
 /// when no hook has a folder) are written into the script itself.
@@ -587,7 +587,7 @@ pub fn write_approval_hook_script(session_dir: &Path) -> std::io::Result<PathBuf
 }
 
 /// Writes `<channel_dir>/approve-hook.sh` (owner-only on Unix), which reports its status to `status_file` (none: it reports none).
-/// `auto_allow_safe_tiers` is set for `Ask for risky only` and left off for `Ask`.
+/// `auto_allow_safe_tiers` is set for `Ask when risky` and left off for `Ask`.
 pub(crate) fn install_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto_allow_safe_tiers: bool) -> std::io::Result<PathBuf> {
     let script_path = channel_dir.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME);
     let content = approval_hook_script(channel_dir, status_file, auto_allow_safe_tiers);
@@ -1002,7 +1002,7 @@ pub enum ApprovalGate {
     Ask { session: bool },
 }
 
-/// What `Ask for risky only` does with one tool call. Other modes do not use this.
+/// What `Ask when risky` does with one tool call. Other modes do not use this.
 pub fn ask_risky_gate(tool_name: &str, target: &str) -> ApprovalGate {
     let Some(risk) = designos_mcp::risk::tool_risk(&canonical_designos_tool(tool_name)) else {
         return ApprovalGate::Ask { session: false };
@@ -1021,17 +1021,43 @@ pub fn offer_session_grant(mode: PermissionMode, req: &ApprovalRequest) -> bool 
     matches!(ask_risky_gate(&req.tool_name, &req.target), ApprovalGate::Ask { session: true })
 }
 
-/// Codex, Grok, and Antigravity have no shared answer-file hook. The picker shows the mode unavailable for them.
+/// Codex, Grok, Antigravity, Gemini and OpenCode share no approval hook with Claude (no answer-file hook Studio can read), so Ask
+/// when risky cannot run them. The picker shows the mode unavailable for them. The sentence is what a person reads in the one-line
+/// caption under the composer: the next action first, naming the mode by its label in the composer (`Ask first`), then the CLI it unlocks, at most [`MAX_REFUSAL_CHARS`] characters so it fits the narrowest panel.
 pub fn ask_risky_unsupported_reason(preset: AgentCliPreset) -> Option<&'static str> {
     match preset {
         AgentCliPreset::Claude => None,
-        AgentCliPreset::Codex => Some("Codex has no shared approval hook, so Ask for risky only is unavailable."),
-        AgentCliPreset::Grok => Some("Grok does not share the approval hook, so Ask for risky only is unavailable."),
-        AgentCliPreset::Antigravity => Some("Antigravity does not share the approval hook, so Ask for risky only is unavailable."),
-        AgentCliPreset::Gemini => Some("Gemini does not share the approval hook, so Ask for risky only is unavailable."),
-        AgentCliPreset::OpenCode => Some("OpenCode does not share the approval hook, so Ask for risky only is unavailable."),
+        AgentCliPreset::Codex => Some("Switch to Ask first to use Codex."),
+        AgentCliPreset::Grok => Some("Switch to Ask first to use Grok."),
+        AgentCliPreset::Antigravity => Some("Switch to Ask first to use Antigravity."),
+        AgentCliPreset::Gemini => Some("Switch to Ask first to use Gemini."),
+        AgentCliPreset::OpenCode => Some("Switch to Ask first to use OpenCode."),
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => None,
     }
+}
+
+/// The longest refusal sentence: one line of caption must hold it whole.
+pub const MAX_REFUSAL_CHARS: usize = 40;
+
+/// The reason Ask when risky gives for a custom command, which never shares the approval hook.
+pub const CUSTOM_CLI_ASK_RISKY_REASON: &str = "Switch to Ask first to use this command.";
+
+/// Why `mode` cannot start `preset` (a custom command when `custom`), in the words the agent menu already shows for it; `None`
+/// when it can. Only Ask when risky refuses, and only a CLI that does not share the approval hook.
+pub fn start_refusal_in_mode(preset: AgentCliPreset, custom: bool, mode: PermissionMode) -> Option<&'static str> {
+    if mode != PermissionMode::AskRisky {
+        return None;
+    }
+    if custom {
+        return Some(CUSTOM_CLI_ASK_RISKY_REASON);
+    }
+    ask_risky_unsupported_reason(preset)
+}
+
+/// Whether a CLI can be offered under the selected permission mode.
+/// Ask when risky requires the shared approval hook used by Claude.
+pub fn preset_available_in_mode(preset: AgentCliPreset, mode: PermissionMode) -> bool {
+    mode != PermissionMode::AskRisky || ask_risky_unsupported_reason(preset).is_none()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

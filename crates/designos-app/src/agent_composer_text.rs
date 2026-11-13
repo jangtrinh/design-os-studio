@@ -10,6 +10,12 @@ pub fn placeholder(state: &TerminalState, pill: &str, shell: bool, any_cli: bool
     if !any_cli && new_chat {
         return "No agent CLI found. Open the agent menu to install one.".to_string();
     }
+    // An agent tab Ask when risky cannot take prompts for says why, instead of the shell or pill wording below.
+    if !new_chat {
+        if let Some(reason) = state.active_tab().and_then(crate::terminal::TerminalTab::mode_refusal) {
+            return reason.to_string();
+        }
+    }
     if shell && !new_chat {
         return "Select an agent tab".to_string();
     }
@@ -30,6 +36,11 @@ pub fn placeholder(state: &TerminalState, pill: &str, shell: bool, any_cli: bool
 pub fn caption(state: &TerminalState) -> Option<String> {
     if let Some(note) = state.still_running_notice_on_screen() {
         return Some(note.to_string());
+    }
+    if !state.in_new_chat() {
+        if let Some(reason) = state.active_tab().and_then(crate::terminal::TerminalTab::mode_refusal) {
+            return Some(reason.to_string());
+        }
     }
     let comp = state.active_composer();
     if !comp.pending_send.is_empty() && !comp.draft.is_empty() {

@@ -923,3 +923,179 @@ fn selected_menu_rows_draw_a_check_icon_not_a_glyph() {
     assert!(!painted(&s).iter().any(|t| t.contains('✓')), "and so does the agent that is running: {:?}", painted(&s));
     finish(s);
 }
+
+/// A running tab of `preset` that started in Ask, while the person has since switched to Ask when risky. The Sim has no library
+/// folder, so the mode is the one held in memory.
+fn login_refusal_sim(preset: AgentCliPreset) -> Sim {
+    login_refusal_sim_at(preset, DEFAULT_PANEL_W)
+}
+
+/// The Agents panel width the app starts with (`ui.ai_panel_width` default).
+const DEFAULT_PANEL_W: f32 = 400.0;
+/// The narrowest width the person can drag the Agents panel to (`shell/columns.rs` `AI_MIN`); its caption is 228 px wide.
+const NARROWEST_PANEL_W: f32 = crate::shell::columns::AI_MIN;
+
+fn login_refusal_sim_at(preset: AgentCliPreset, panel_w: f32) -> Sim {
+    let mut s = session_sim();
+    s.shell.app.ui.ai_panel_width = panel_w;
+    frames(&mut s, 3);
+    let terminal = &mut s.shell.app.terminal;
+    assert!(terminal.library_root.is_none(), "the Sim reads no mode from a settings file");
+    terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::AskRisky;
+    let tab = &mut terminal.tabs[0];
+    tab.spawn_preset = preset;
+    tab.preset = preset;
+    s
+}
+
+fn not_signed_in_card(preset: AgentCliPreset) -> crate::agent_start_failure::StartFailure {
+    crate::agent_start_failure::StartFailure {
+        preset,
+        cause: crate::agent_start_failure::StartFailureCause::NotLoggedIn,
+        exit_code: Some(1),
+        output_tail: Vec::new(),
+        fix: crate::agent_start_failure::FixAction::RunLogin(crate::agent_start_failure::login_command(preset)),
+    }
+}
+
+fn login_expired_banner(preset: AgentCliPreset) -> crate::agent_session_failure::SessionFailure {
+    crate::agent_session_failure::SessionFailure::new(preset, crate::agent_session_failure::SessionFailureClass::LoginExpired, None, "401 unauthorized\n")
+}
+
+/// The caption under the composer as painted, with the room it was painted in.
+fn composer_caption(s: &Sim) -> Option<(String, Rect)> {
+    let note = recorded(s, "agents-composer-notice")?;
+    crate::lint::scan_shapes(&s.shapes).0.into_iter().find(|t| note.contains_rect(t.rect)).map(|t| (t.text, note))
+}
+
+fn refusal_reason(preset: AgentCliPreset) -> &'static str {
+    crate::agent_permissions::ask_risky_unsupported_reason(preset).expect("a CLI without the approval hook has a reason")
+}
+
+/// The caption under the composer must hold the CLI's whole sentence on its one line: what happened and the next action.
+fn assert_caption_is_whole_reason(s: &Sim, preset: AgentCliPreset, what: &str) {
+    let (caption, note) = composer_caption(s).unwrap_or_else(|| panic!("{preset:?} {what}: the refusal is painted nowhere; painted: {:?}", painted(s)));
+    eprintln!("PAINTED caption, {preset:?} {what}: {caption:?} in a caption {:.0} px wide", note.width());
+    let box_r = recorded(s, "agents-composer-box").expect("composer box");
+    assert!(box_r.contains_rect(note), "{preset:?} {what}: the caption {note:?} lies inside the composer box {box_r:?}");
+    assert_eq!(caption, refusal_reason(preset), "{preset:?} {what}: the whole sentence is painted, with no ellipsis");
+}
+
+/// After the click the card or banner is still up, nothing started, and the whole sentence is painted under the composer.
+fn assert_refusal_on_screen(s: &mut Sim, preset: AgentCliPreset, surface: &str, widget: &str) {
+    assert!(composer_caption(s).is_none(), "{preset:?} {surface}: nothing is captioned before the click");
+    let button = recorded(s, widget).unwrap_or_else(|| panic!("{preset:?} {surface}: the Run login button"));
+    let tabs_before = s.shell.app.terminal.tabs.len();
+
+    s.click(button.center());
+    frames(s, 30);
+
+    assert_eq!(s.shell.app.terminal.tabs.len(), tabs_before, "{preset:?} {surface}: nothing starts");
+    assert!(recorded(s, widget).is_some(), "{preset:?} {surface}: the card or banner is still up");
+    assert_caption_is_whole_reason(s, preset, surface);
+    assert_eq!(s.shell.app.terminal.active_composer().notice.as_deref(), Some(refusal_reason(preset)), "{preset:?} {surface}: the notice holds the sentence");
+}
+
+/// Clicking Run login on the start-failure card in Ask when risky leaves the card up and says why in the caption under the composer.
+#[test]
+fn run_login_on_the_start_failure_card_is_refused_on_screen_in_ask_when_risky() {
+    for (preset, width) in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity].into_iter().flat_map(|p| [(p, DEFAULT_PANEL_W), (p, NARROWEST_PANEL_W)]) {
+        let mut s = login_refusal_sim_at(preset, width);
+        s.shell.app.terminal.tabs[0].start_failure = Some(not_signed_in_card(preset));
+        frames(&mut s, 3);
+        assert_refusal_on_screen(&mut s, preset, &format!("card at {width} px"), "agents-start-failure-fix-agents-left-pty");
+        finish(s);
+    }
+}
+
+/// The same refusal from the Run login button of the login-expired banner of a running tab.
+#[test]
+fn run_login_on_the_login_expired_banner_is_refused_on_screen_in_ask_when_risky() {
+    for (preset, width) in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity].into_iter().flat_map(|p| [(p, DEFAULT_PANEL_W), (p, NARROWEST_PANEL_W)]) {
+        let mut s = login_refusal_sim_at(preset, width);
+        s.shell.app.terminal.tabs[0].session_failure = Some(login_expired_banner(preset));
+        frames(&mut s, 3);
+        assert_refusal_on_screen(&mut s, preset, &format!("banner at {width} px"), "agents-session-failure-action-agents-left-pty");
+        finish(s);
+    }
+}
+
+/// The refusal is written on the composer of the tab on screen: another tab's notice about its waiting messages stays as it was.
+#[test]
+fn a_refused_run_login_leaves_the_waiting_notice_of_another_tab_alone() {
+    let mut s = login_refusal_sim(AgentCliPreset::Gemini);
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second stub tab");
+    {
+        let terminal = &mut s.shell.app.terminal;
+        terminal.tabs[0].composer.pending_send.push_back(crate::agent_composer::QueuedSend::new("still waiting", false));
+        terminal.tabs[0].composer.notice = Some("Queued message waits for the agent".into());
+        terminal.active_tab = 1;
+        let tab = &mut terminal.tabs[1];
+        tab.spawn_preset = AgentCliPreset::Gemini;
+        tab.preset = AgentCliPreset::Gemini;
+        tab.start_failure = Some(not_signed_in_card(AgentCliPreset::Gemini));
+    }
+    frames(&mut s, 3);
+    let button = recorded(&s, "agents-start-failure-fix-agents-left-pty").expect("the card's Run login button");
+
+    s.click(button.center());
+    frames(&mut s, 3);
+
+    let terminal = &s.shell.app.terminal;
+    assert_eq!(terminal.tabs[0].composer.notice.as_deref(), Some("Queued message waits for the agent"), "the other tab's notice is untouched");
+    assert_eq!(terminal.tabs[1].composer.notice.as_deref(), Some(refusal_reason(AgentCliPreset::Gemini)), "the tab on screen carries the refusal");
+    finish(s);
+}
+
+/// A send the mode refuses (a tab of a CLI without the approval hook, started before the switch to Ask when risky) paints the whole
+/// sentence under the composer, for every such CLI at the default panel width and at the narrowest one.
+#[test]
+fn a_refused_send_paints_the_whole_sentence_in_the_caption() {
+    use crate::agent_permissions::AgentPermissionMode;
+    let presets = [AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::OpenCode];
+    for width in [DEFAULT_PANEL_W, NARROWEST_PANEL_W] {
+        for preset in presets {
+            let mut s = login_refusal_sim_at(preset, width);
+            s.shell.app.terminal.tabs[0].permission_mode = AgentPermissionMode::AskRisky;
+            s.shell.app.terminal.set_composer_draft("make a hero");
+            let outcome = s.shell.app.terminal.send_from_composer_box("make a hero", None);
+            assert_eq!(outcome, crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::ModeUnavailable), "{preset:?}");
+            frames(&mut s, 3);
+            assert_caption_is_whole_reason(&s, preset, &format!("refused send at {width} px"));
+            finish(s);
+        }
+    }
+}
+
+/// The sentence for a custom command reaches the caption through the composer's notice (a refused resume; the agent menu does not
+/// offer a custom command in this mode). The caption has room for the whole sentence at both widths.
+#[test]
+fn the_custom_command_sentence_fits_the_caption_at_both_widths() {
+    use crate::agent_composer::{RefuseReason, SendOutcome};
+    use crate::agent_permissions::CUSTOM_CLI_ASK_RISKY_REASON;
+    for width in [DEFAULT_PANEL_W, NARROWEST_PANEL_W] {
+        let mut s = login_refusal_sim_at(AgentCliPreset::Claude, width);
+        let comp = s.shell.app.terminal.active_composer_mut();
+        comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+        comp.notice = Some(CUSTOM_CLI_ASK_RISKY_REASON.to_string());
+        frames(&mut s, 3);
+        let (caption, note) = composer_caption(&s).unwrap_or_else(|| panic!("at {width} px the notice is painted nowhere; painted: {:?}", painted(&s)));
+        eprintln!("PAINTED caption, custom command at {width} px: {caption:?} in a caption {:.0} px wide", note.width());
+        assert_eq!(caption, CUSTOM_CLI_ASK_RISKY_REASON, "at {width} px the whole sentence is painted, with no ellipsis");
+        finish(s);
+    }
+}
+
+/// The sentence for a custom command, and none of them is longer than the caption of the narrowest panel holds.
+#[test]
+fn every_refusal_sentence_names_what_happened_and_the_next_action_in_few_characters() {
+    use crate::agent_permissions::{ask_risky_unsupported_reason, CUSTOM_CLI_ASK_RISKY_REASON, MAX_REFUSAL_CHARS};
+    let presets = [AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::OpenCode];
+    let mut all: Vec<&str> = presets.iter().map(|p| ask_risky_unsupported_reason(*p).expect("a reason")).collect();
+    all.push(CUSTOM_CLI_ASK_RISKY_REASON);
+    for sentence in all {
+        assert!(sentence.chars().count() <= MAX_REFUSAL_CHARS, "{sentence:?} is {} characters", sentence.chars().count());
+        assert!(sentence.starts_with("Switch to Ask first to use "), "the next action comes first, with the mode's own label: {sentence:?}");
+        assert!(sentence.ends_with('.'), "{sentence:?}");
+    }
+}
