@@ -10,6 +10,14 @@ use std::collections::BTreeMap;
 /// Minimum axis extent (`2^-12`) below which per-axis scale falls back to `1.0`.
 const MIN_EXTENT: f64 = 1.0 / 4096.0;
 
+/// Figma treats an all-zero dash pattern as a solid stroke. Keep the resize
+/// path aligned with the renderer's effective dash semantics instead of using
+/// raw vector presence as a signal.
+#[inline]
+fn has_effective_dashes(dashes: &[f32]) -> bool {
+    !dashes.is_empty() && dashes.iter().all(|d| *d >= 0.0) && dashes.iter().sum::<f32>() > 0.0
+}
+
 /// Rounds `x` to the nearest integer, ties rounding half away from zero.
 #[inline]
 pub fn round_half_away_from_zero(x: f64) -> f64 {
@@ -295,7 +303,8 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
             // no name for, such as a REST arrow spelling or a decorative cap, is recorded by the importers
             // in `fig_metadata["strokeCap"]` for lines), and a line with no length has no extent to scale.
             // A line has one cap for both ends (`Stroke::cap`).
-            let stretchable = node.stroke.dashes.is_empty() && old_size.x > 1e-3 && !node.stroke.cap.is_arrow() && !node.fig_metadata.contains_key("strokeCap");
+            let stretchable =
+                !has_effective_dashes(&node.stroke.dashes) && old_size.x > 1e-3 && !node.stroke.cap.is_arrow() && !node.fig_metadata.contains_key("strokeCap");
             if stretchable {
                 let old_w = old_size.x;
                 let stretch = |paths: &mut [Path]| stretch_along_line(paths, old_w, kx, new_size.x - old_w);
