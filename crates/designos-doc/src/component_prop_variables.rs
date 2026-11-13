@@ -421,7 +421,7 @@ pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropRes
     // Variant resync changes an instance size below plain Groups. Refit only these ancestors on
     // this explicit binding path; generic command replay must preserve imported group bounds.
     let mut changed = Vec::new();
-    collect_update_ids(&resync_inv, &mut changed);
+    collect_update_ids(doc, &resync_inv, &mut changed);
     let mut groups = BTreeSet::new();
     for id in changed {
         let mut cur = doc.get(id).and_then(|n| n.parent);
@@ -432,24 +432,42 @@ pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropRes
             cur = doc.get(parent).and_then(|n| n.parent);
         }
     }
-    let mut old_nodes = BTreeMap::new();
-    let mut ordered: Vec<_> = groups.into_iter().collect();
-    ordered.sort_by_key(|id| std::cmp::Reverse(group_depth(doc, *id)));
-    for id in ordered {
-        let _ = apply_resize_to_fit_one(doc, id, |d, touched| {
-            if let Some(n) = d.get(touched).cloned() {
-                old_nodes.entry(touched).or_insert(n);
+    let mut before_group_fit = BTreeMap::new();
+    for &gid in &groups {
+        if let Some(g) = doc.get(gid).cloned() {
+            for &cid in &g.children {
+                if let Some(c) = doc.get(cid).cloned() {
+                    before_group_fit.entry(cid).or_insert(c);
+                }
             }
-        });
+            before_group_fit.entry(gid).or_insert(g);
+        }
     }
     let mut seeds = Vec::new();
     collect_relayout_seeds(doc, &resync_inv, &mut seeds);
-    for id in old_nodes.keys() {
-        if let Some(p) = doc.get(*id).and_then(|n| n.parent) {
-            seeds.push(p);
+    doc.relayout_seeds_upward(&seeds);
+    let mut old_nodes = BTreeMap::new();
+    let mut group_seeds = Vec::new();
+    let mut ordered: Vec<_> = groups.into_iter().collect();
+    ordered.sort_by_key(|id| std::cmp::Reverse(group_depth(doc, *id)));
+    for id in ordered {
+        let before_rect = doc.get(id).map(|n| (n.size, n.transform));
+        let _ = apply_resize_to_fit_one(doc, id, |d, touched| {
+            if let Some(n) = before_group_fit.get(&touched).cloned().or_else(|| d.get(touched).cloned()) {
+                old_nodes.entry(touched).or_insert(n);
+            }
+        });
+        let moved = doc.get(id).map(|n| (n.size, n.transform)) != before_rect;
+        if moved {
+            if let Some(p) = doc.get(id).and_then(|n| n.parent) {
+                group_seeds.push(p);
+            }
         }
     }
-    doc.relayout_seeds_upward(&seeds);
+    if !group_seeds.is_empty() {
+        doc.relayout_seeds_upward(&group_seeds);
+    }
+    old_nodes.retain(|id, old| doc.get(*id) != Some(old));
     if old_nodes.is_empty() {
         Ok(Some(resync_inv))
     } else {
@@ -458,10 +476,14 @@ pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropRes
     }
 }
 
-fn collect_update_ids(cmd: &Command, out: &mut Vec<NodeId>) {
+fn collect_update_ids(doc: &Document, cmd: &Command, out: &mut Vec<NodeId>) {
     match cmd {
-        Command::Update { node } => out.push(node.id),
-        Command::Batch(cs) => cs.iter().for_each(|c| collect_update_ids(c, out)),
+        Command::Update { node } => {
+            if doc.get(node.id).is_some_and(|cur| cur.size != node.size || cur.transform != node.transform || cur.visible != node.visible) {
+                out.push(node.id);
+            }
+        }
+        Command::Batch(cs) => cs.iter().for_each(|c| collect_update_ids(doc, c, out)),
         _ => {}
     }
 }

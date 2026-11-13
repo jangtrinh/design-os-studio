@@ -683,10 +683,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 _ => 3,
             };
             n.corner_radii[i] = x.max(0.0);
-            if is_rect_like || matches!(n.kind, NodeKind::Ellipse(_) | NodeKind::Polygon { .. } | NodeKind::Star { .. }) {
-                n.fill_geometry = None;
-                n.stroke_geometry = None;
-            }
+            crate::drop_baked_outline_of_parametric_shape(n);
         }
         "strokeWeight" => {
             n.stroke.weight = x.max(0.0);

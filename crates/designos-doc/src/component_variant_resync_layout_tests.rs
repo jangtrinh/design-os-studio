@@ -350,11 +350,138 @@ fn ordinary_group_edit_preserves_imported_stored_bounds() {
     f.d.reparent(f.quiet, group, 0).unwrap();
     f.d.relayout_subtree(f.stage);
     assert_eq!(width(&f, group), 300.0);
+    let group_before = f.d.get(group).unwrap().clone();
+    let child_before = f.d.get(f.quiet).unwrap().clone();
+    let host_before = f.d.get(f.hug_quiet).unwrap().clone();
+    let nodes_before = f.d.nodes.clone();
 
     let mut child = f.d.get(f.quiet).unwrap().clone();
     child.size.x = 120.0;
     f.h.exec(&mut f.d, Command::Update { node: Box::new(child) }).unwrap();
-    assert_eq!(width(&f, group), 300.0, "ordinary edits must not refit stored group bounds");
+    assert_eq!(f.d.get(group).unwrap(), &group_before, "ordinary edits must not refit stored group bounds");
     assert!(f.h.undo(&mut f.d).unwrap());
-    assert_eq!(width(&f, group), 300.0, "undo must restore the stored group bounds");
+    assert_eq!(f.d.get(group).unwrap(), &group_before, "undo must restore the whole group node");
+    assert_eq!(f.d.get(f.quiet).unwrap(), &child_before, "undo must restore the whole child node");
+    assert_eq!(f.d.get(f.hug_quiet).unwrap(), &host_before, "undo must restore the whole hug host node");
+    assert_eq!(f.d.nodes, nodes_before, "undo must restore the whole document node map");
+}
+
+/// A hugging frame (4 px padding) at `x` on the stage that holds `levels` nested groups around one bound instance.
+fn hug_around_groups(f: &mut Fx, x: f32, levels: usize) -> (NodeId, NodeId, Vec<NodeId>) {
+    let host = hugging_frame(&mut f.d, f.stage, x, 4.0);
+    let mut parent = host;
+    let mut groups = Vec::new();
+    for _ in 0..levels {
+        let id = f.d.alloc_id();
+        parent = f.d.insert(parent, Node::new(id, NodeKind::Group)).unwrap();
+        groups.push(parent);
+    }
+    let small = instance_component(f.d.get(f.top).unwrap()).unwrap();
+    create_instance(&mut f.d, small, parent, Vec2::ZERO).apply(&mut f.d).unwrap();
+    let inst = last_child(&f.d, parent);
+    let bind = bind_prop_variable(&mut f.d, inst, "Size", Some("size")).unwrap();
+    f.h.exec(&mut f.d, bind).unwrap();
+    // Fit the groups to their content the way the editor leaves them, innermost first.
+    for g in groups.iter().rev() {
+        let size = f.d.get(*f.d.get(*g).unwrap().children.first().unwrap()).unwrap().size;
+        f.d.get_mut(*g).unwrap().size = size;
+    }
+    f.d.relayout_subtree(host);
+    (host, inst, groups)
+}
+
+fn wrap_in_groups(d: &mut Document, host: NodeId, inner_child: NodeId, depth: usize) -> Vec<NodeId> {
+    let sz = d.get(inner_child).unwrap().size;
+    d.get_mut(inner_child).unwrap().transform = Affine::IDENTITY;
+    let mut groups = Vec::with_capacity(depth);
+    let mut parent = host;
+    for _ in 0..depth {
+        let g = d.alloc_id();
+        let mut g_node = Node::new(g, NodeKind::Group);
+        g_node.size = sz;
+        let g = d.insert(parent, g_node).unwrap();
+        groups.push(g);
+        parent = g;
+    }
+    d.reparent(inner_child, parent, 0).unwrap();
+    groups
+}
+
+#[test]
+fn a_group_between_the_instance_and_the_hug_host_does_not_drop_the_chain() {
+    for levels in [1, 2] {
+        let mut f = build();
+        let (host, inst, groups) = hug_around_groups(&mut f, 900.0 + levels as f32 * 100.0, levels);
+        let nested_groups = wrap_in_groups(&mut f.d, f.hug_nested, f.w, levels);
+        f.d.relayout_subtree(f.stage);
+        assert_eq!((shown(&f, inst), width(&f, host), width(&f, f.hug_nested)), (SMALL.to_string(), 108.0, 108.0), "{levels} group(s): precondition");
+
+        set_mode(&mut f, "dark");
+        assert_eq!(shown(&f, inst), LARGE, "{levels} group(s)");
+        assert_eq!((width(&f, inst), width(&f, f.copy), width(&f, f.w)), (200.0, 200.0, 200.0), "{levels} group(s): instances");
+        for &g in groups.iter().chain(nested_groups.iter()) {
+            assert_eq!(width(&f, g), 200.0, "{levels} group(s): the group around it fits the new size");
+        }
+        assert_eq!((width(&f, host), width(&f, f.hug_nested)), (208.0, 208.0), "{levels} group(s): the host hugs the switched instance in the step");
+
+        assert!(f.h.undo(&mut f.d).unwrap());
+        assert_eq!((width(&f, inst), width(&f, f.copy), width(&f, f.w)), (100.0, 100.0, 100.0), "{levels} group(s): undo, instances");
+        for &g in groups.iter().chain(nested_groups.iter()) {
+            assert_eq!(width(&f, g), 100.0, "{levels} group(s): undo, the group");
+        }
+        assert_eq!((width(&f, host), width(&f, f.hug_nested)), (108.0, 108.0), "{levels} group(s): undo");
+
+        assert!(f.h.redo(&mut f.d).unwrap());
+        assert_eq!((width(&f, inst), width(&f, f.copy), width(&f, f.w)), (200.0, 200.0, 200.0), "{levels} group(s): redo, instances");
+        for &g in groups.iter().chain(nested_groups.iter()) {
+            assert_eq!(width(&f, g), 200.0, "{levels} group(s): redo, the group");
+        }
+        assert_eq!((width(&f, host), width(&f, f.hug_nested)), (208.0, 208.0), "{levels} group(s): redo");
+    }
+}
+
+#[test]
+fn a_group_that_keeps_its_size_stops_the_climb_and_leaves_the_host_alone() {
+    let mut f = build();
+    let (host, inst, groups) = hug_around_groups(&mut f, 1100.0, 1);
+    let g = groups[0];
+    let rail = f.d.alloc_id();
+    f.d.insert(g, Node::frame(rail, Rect::new(0.0, 0.0, 200.0, 40.0))).unwrap();
+    f.d.get_mut(g).unwrap().size = Vec2::new(200.0, 40.0);
+    f.d.remove(f.hug_top).unwrap();
+    f.d.remove(f.hug_nested).unwrap();
+    f.d.relayout_subtree(f.stage);
+    let host_before = (width(&f, host), f.d.get(host).unwrap().transform.tx);
+    assert_eq!(host_before.0, 208.0);
+
+    let opened = f.d.layout_epoch();
+    crate::layout_apply::reset_solve_calls();
+    set_mode(&mut f, "dark");
+    assert_eq!(shown(&f, inst), LARGE);
+    assert_eq!(width(&f, g), 200.0, "the sibling rail holds the group at 200 wide");
+    assert_eq!(crate::layout_apply::solve_calls(), 0, "a group whose bounds held solves no frame above it");
+    assert_eq!(f.d.layout_epoch(), opened, "a fitted group whose bounds held does not advance layout_epoch");
+    assert_eq!((width(&f, host), f.d.get(host).unwrap().transform.tx), host_before);
+}
+
+#[test]
+fn hand_variant_pick_and_instance_swap_refit_hug_host_through_groups() {
+    let mut f = build();
+    let (host, inst, groups) = hug_around_groups(&mut f, 1100.0, 2);
+    assert_eq!(width(&f, host), 108.0);
+
+    let large_comp = crate::changelog_features::swap_instance_variant(&mut f.d, inst, "Size", "Large").unwrap();
+    assert_eq!(shown(&f, inst), LARGE);
+    for &g in &groups {
+        assert_eq!(width(&f, g), 200.0);
+    }
+    assert_eq!(width(&f, host), 208.0, "hand variant pick refits nested groups and hug host");
+
+    let small_comp = f.d.get(large_comp).and_then(|n| n.parent).map(|set| f.d.get(set).unwrap().children[0]).unwrap();
+    crate::changelog_features::swap_instance_to_component(&mut f.d, inst, small_comp).unwrap();
+    assert_eq!(shown(&f, inst), SMALL);
+    for &g in &groups {
+        assert_eq!(width(&f, g), 100.0);
+    }
+    assert_eq!(width(&f, host), 108.0, "instance swap refits nested groups and hug host");
 }
