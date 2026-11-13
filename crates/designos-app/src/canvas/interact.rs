@@ -1001,21 +1001,7 @@ pub fn update_shape_control(app: &mut App, s: &mut ShapeControlDragState, cur: D
 /// dropped and the shape is drawn from its parameters again. No override is recorded for it: overrides compare the
 /// parameters, not the outline. The canvas handles and the inspector fields both call this.
 pub(crate) fn drop_baked_outline_of_parametric_shape(n: &mut designos_doc::Node) {
-    if matches!(
-        n.kind,
-        NodeKind::Ellipse(_)
-            | NodeKind::Polygon { .. }
-            | NodeKind::Star { .. }
-            | NodeKind::Rectangle
-            | NodeKind::Frame(_)
-            | NodeKind::Component(_)
-            | NodeKind::ComponentSet(_)
-            | NodeKind::Instance { .. }
-            | NodeKind::Section
-    ) {
-        n.fill_geometry = None;
-        n.stroke_geometry = None;
-    }
+    designos_doc::drop_baked_outline_of_parametric_shape(n);
 }
 
 fn label_hit(app: &App, ctx: &egui::Context, rect: ERect, pos: Pos2) -> Option<NodeId> {
