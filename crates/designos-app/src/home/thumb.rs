@@ -5,6 +5,11 @@ use designos_library::Library;
 use std::collections::HashMap;
 use std::time::SystemTime;
 
+#[cfg(test)]
+std::thread_local! {
+    static BACKGROUND_REFRESH_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Longest edge of a stored thumbnail in pixels.
 pub const THUMB_PX: f32 = 480.0;
 
@@ -95,9 +100,16 @@ pub fn refresh(lib: &Library, file: &str, doc: &Document) -> bool {
 
 /// Renders and stores the thumbnail on a background thread (saving must not stutter).
 pub fn refresh_in_background(lib: Library, file: String, doc: Document) {
+    #[cfg(test)]
+    BACKGROUND_REFRESH_CALLS.with(|calls| calls.set(calls.get() + 1));
     std::thread::spawn(move || {
         refresh(&lib, &file, &doc);
     });
+}
+
+#[cfg(test)]
+pub(crate) fn take_background_refresh_calls() -> usize {
+    BACKGROUND_REFRESH_CALLS.with(|calls| calls.replace(0))
 }
 
 /// Which files are boards, read from the documents (each file is probed once, and again after it

@@ -2674,12 +2674,37 @@ impl App {
         };
         let Some(path) = target else { return };
         if status_first && io::uses_native_serializer(&path) && self.doc.has_pending_pages() {
+            let tab_id = self.tabs.entries.get(self.tabs.active_idx).map(|tab| tab.id);
             self.run_after_status_paint("Saving\u{2026} loading all pages", move |app| {
-                let _ = app.persist_document_to(&path);
+                app.persist_document_for_tab(tab_id, &path);
             });
             return;
         }
         let _ = self.persist_document_to(&path);
+    }
+
+    /// Completes a deferred save against the tab that requested it. The user can switch tabs while
+    /// the status frame is being painted; saving the live `app.doc` at that point would write the
+    /// newly active tab to the original path.
+    pub(crate) fn persist_document_for_tab(&mut self, tab_id: Option<u64>, path: &std::path::Path) {
+        let Some(tab_id) = tab_id else {
+            let _ = self.persist_document_to(path);
+            return;
+        };
+        let Some(target_idx) = self.tabs.entries.iter().position(|tab| tab.id == tab_id) else {
+            self.show_toast("Cannot save: the tab is no longer open", true);
+            return;
+        };
+        let current_id = self.tabs.entries.get(self.tabs.active_idx).map(|tab| tab.id);
+        if current_id == Some(tab_id) {
+            let _ = self.persist_document_to(path);
+            return;
+        }
+        self.switch_tab(target_idx);
+        let _ = self.persist_document_to(path);
+        if let Some(return_id) = current_id.and_then(|id| self.tabs.entries.iter().position(|tab| tab.id == id)) {
+            self.switch_tab(return_id);
+        }
     }
 
     pub(crate) fn persist_document_to(&mut self, path: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {

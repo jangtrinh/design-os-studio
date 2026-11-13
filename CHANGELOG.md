@@ -2,6 +2,17 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **App shell.**
+  - Quitting runs the shutdown cleanup once: the close request and eframe's `on_exit` no longer both flush notes, save the close version and stop the terminals; by @NamAIEngineer (#1648, PR #1684).
+  - Work queued before a quit, including work that a queued job queues, is drained before notes, autosave and terminals shut down, also on the AppKit Dock Quit path that skips the close request; by @NamAIEngineer (PR #1786).
+  - A large document's Save, which waits one frame so its status can paint, writes the tab that pressed Save even if you switch tabs in between; if that tab was closed meanwhile nothing is written and a toast says so; by @NamAIEngineer (PR #1783).
+  - Saving a document of more than 25,000 layers to the library no longer copies it on the UI thread for a thumbnail, the same budget the other thumbnail paths already use; by @NamAIEngineer (#1718, PR #1785).
+  - An error toast that is on screen is no longer replaced by a different error before its time is up; the new error waits behind it; by @NamAIEngineer (#1766, PR #1774).
+- **Agent CLI.** `--apply-spec` says what it did: the reply names the added root (`root_name`, `parent_id`, `nodes_created`), states `added_new_subtree: true` and `updated_existing_node: false`, and warns with `ROOT_NAME_ALREADY_EXISTS` when a sibling of the same name was left unchanged; by @NamAIEngineer (#1086, PR #1175).
+
 ## [0.7.13] - 2026-11-12
 
 A patch release from `main` that finishes the basics of auto layout and components for imported Figma files. Re-solving every auto-layout frame of the imported Untitled UI PRO v8.0 kit moved 61,948 of 194,397 layers by more than 0.5 px before this release and moves 2,039 now (#1669). A nested instance whose variant is bound to a variable now follows the mode where it sits (#1824, PR #1912). It also includes fixes carried from @NamAIEngineer.
