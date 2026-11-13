@@ -1527,3 +1527,32 @@ fn an_agent_undo_of_its_style_keeps_a_style_the_user_edited_since() {
     assert_eq!(r.duplicates, 0);
     assert!(r.skipped.iter().any(|s| s.contains("s_agent")), "{:?}", r.skipped);
 }
+
+#[test]
+fn parked_overrides_round_trip_through_live_patch_when_added_and_cleared() {
+    let (mut full, _page, tops) = full_doc(1, 0);
+    let mut agent = full.clone();
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+
+    let parked = vec![crate::ParkedOverride {
+        path: vec![("Subtitle".into(), 0)],
+        field: crate::OverrideField::Visible,
+        value: crate::ParkedOverrideValue::Visible(false),
+        bindings: BTreeMap::new(),
+    }];
+
+    let mut ops = Vec::new();
+    let mut n = agent.get(tops[0]).unwrap().clone();
+    n.component.parked_overrides = parked.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::Update { node: Box::new(n) });
+    assert_eq!(replay(&mut full, ops, &mut state).applied, 1);
+    assert_eq!(full.get(tops[0]).unwrap().component.parked_overrides, parked);
+
+    let mut ops_clear = Vec::new();
+    let mut n_clear = agent.get(tops[0]).unwrap().clone();
+    n_clear.component.parked_overrides.clear();
+    agent_exec(&mut agent, &mut hist, &mut ops_clear, Command::Update { node: Box::new(n_clear) });
+    assert_eq!(replay(&mut full, ops_clear, &mut state).applied, 1);
+    assert!(full.get(tops[0]).unwrap().component.parked_overrides.is_empty());
+}

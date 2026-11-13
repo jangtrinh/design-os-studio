@@ -4350,3 +4350,57 @@ fn blend_name(b: BlendMode) -> &'static str {
         BlendMode::Luminosity => "LUMINOSITY",
     }
 }
+
+#[cfg(test)]
+mod parked_override_export_tests {
+    use super::*;
+
+    #[test]
+    fn parked_overrides_are_never_written_to_exported_fig_bytes() {
+        let mut d = Document::new("FigParkedOverrideSkip");
+        let page = d.add_page("Page 1");
+
+        let mk_variant = |d: &mut Document, name: &str, x: f32, with_sub: bool| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 120.0, 60.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let mut title = Node::text(tid, Rect::new(8.0, 8.0, 80.0, 16.0), "Title", TextStyle::default());
+            title.name = "Title".into();
+            d.insert(comp, title).unwrap();
+            if with_sub {
+                let sid = d.alloc_id();
+                let mut sub = Node::text(sid, Rect::new(8.0, 28.0, 80.0, 16.0), "Default subtitle", TextStyle::default());
+                sub.name = "Subtitle".into();
+                d.insert(comp, sub).unwrap();
+            }
+            create_component(d, comp).apply(d).unwrap();
+            comp
+        };
+
+        let a = mk_variant(&mut d, "State=A", 0.0, true);
+        let b = mk_variant(&mut d, "State=B", 160.0, false);
+        combine_as_variants(&mut d, &[a, b]).apply(&mut d).unwrap();
+
+        create_instance(&mut d, a, page, Vec2::new(0.0, 120.0)).apply(&mut d).unwrap();
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let sub = *d.get(inst).unwrap().children.iter().find(|&&c| d.get(c).unwrap().name == "Subtitle").unwrap();
+        let mut sn = d.get(sub).unwrap().clone();
+        if let NodeKind::Text(tp) = &mut sn.kind {
+            tp.content = "Parked".into();
+        }
+        sn.component.overrides.insert(OverrideField::Characters);
+        Command::Update { node: Box::new(sn) }.apply(&mut d).unwrap();
+
+        set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into()))).apply(&mut d).unwrap();
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+        let mut clean = d.clone();
+        clean.get_mut(inst).unwrap().component.parked_overrides.clear();
+
+        let bytes_with_parked = export_fig(&d).unwrap();
+        let bytes_without_parked = export_fig(&clean).unwrap();
+        assert_eq!(bytes_with_parked, bytes_without_parked);
+    }
+}
