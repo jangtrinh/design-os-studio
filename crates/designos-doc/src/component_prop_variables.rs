@@ -432,28 +432,29 @@ pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropRes
             cur = doc.get(parent).and_then(|n| n.parent);
         }
     }
-    let mut old_groups = Vec::new();
+    let mut old_nodes = BTreeMap::new();
     let mut ordered: Vec<_> = groups.into_iter().collect();
     ordered.sort_by_key(|id| std::cmp::Reverse(group_depth(doc, *id)));
     for id in ordered {
-        if let Some(n) = doc.get(id).cloned() {
-            old_groups.push(n);
-        }
-        let _ = apply_resize_to_fit_one(doc, id, |_d, _id| {});
+        let _ = apply_resize_to_fit_one(doc, id, |d, touched| {
+            if let Some(n) = d.get(touched).cloned() {
+                old_nodes.entry(touched).or_insert(n);
+            }
+        });
     }
     let mut seeds = Vec::new();
     collect_relayout_seeds(doc, &resync_inv, &mut seeds);
-    for n in &old_groups {
-        if let Some(p) = doc.get(n.id).and_then(|n| n.parent) {
+    for id in old_nodes.keys() {
+        if let Some(p) = doc.get(*id).and_then(|n| n.parent) {
             seeds.push(p);
         }
     }
     doc.relayout_seeds_upward(&seeds);
-    if old_groups.is_empty() {
+    if old_nodes.is_empty() {
         Ok(Some(resync_inv))
     } else {
-        let group_inv = Command::Batch(old_groups.into_iter().map(|n| Command::Update { node: Box::new(n) }).collect());
-        Ok(Some(Command::Batch(vec![resync_inv, group_inv])))
+        let group_inv = Command::Batch(old_nodes.into_values().map(|n| Command::Update { node: Box::new(n) }).collect());
+        Ok(Some(Command::Batch(vec![group_inv, resync_inv])))
     }
 }
 
