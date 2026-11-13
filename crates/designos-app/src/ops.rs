@@ -225,7 +225,7 @@ fn match_root_style(root: &mut Node, target: &Node, painted_fills: &[Paint], tar
     root.effects = target.effects.clone();
     root.opacity = target.opacity;
     root.blend = target.blend;
-    let radii_changed = root.corner_radii != target.corner_radii;
+    let radii_changed = root.corner_radii != target.corner_radii || root.corner_smoothing != target.corner_smoothing;
     root.corner_radii = target.corner_radii;
     root.corner_smoothing = target.corner_smoothing;
     if radii_changed {
@@ -1133,7 +1133,7 @@ impl App {
                 n.effects = snap.effects.clone();
                 n.opacity = snap.opacity;
                 n.blend = snap.blend_mode;
-                let radii_changed = n.corner_radii != snap.corner_radii;
+                let radii_changed = n.corner_radii != snap.corner_radii || n.corner_smoothing != snap.corner_smoothing;
                 n.corner_radii = snap.corner_radii;
                 n.corner_smoothing = snap.corner_smoothing;
                 if radii_changed {
@@ -3644,6 +3644,44 @@ mod tests {
         let pasted = app.doc.get(app.selection[0]).unwrap();
         assert_eq!(pasted.corner_radii, [8.0; 4]);
         assert!(pasted.fill_geometry.is_some() && pasted.stroke_geometry.is_some(), "same corner radii must keep imported geometry on paste_and_match_style");
+    }
+
+    #[test]
+    fn paste_properties_and_match_style_drop_baked_outline_when_only_corner_smoothing_changes() {
+        let mut d = Document::new("paste-smoothing-outline");
+        let page = d.add_page("p");
+        let source = d.alloc_id();
+        let mut source_node = Node::rectangle(source, Rect::new(0.0, 0.0, 50.0, 50.0));
+        source_node.corner_radii = [8.0; 4];
+        source_node.corner_smoothing = 0.6;
+        d.insert(page, source_node).unwrap();
+        let pasted_onto = add_baked_rectangle(&mut d, page, 100.0, 0.0);
+        let copied = add_baked_rectangle(&mut d, page, 220.0, 0.0);
+        d.get_mut(pasted_onto).unwrap().corner_radii = [8.0; 4];
+        d.get_mut(copied).unwrap().corner_radii = [8.0; 4];
+
+        let mut app = App::new(d);
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![pasted_onto];
+        app.paste_properties();
+        let node = app.doc.get(pasted_onto).unwrap();
+        assert_eq!((node.corner_radii, node.corner_smoothing), ([8.0; 4], 0.6));
+        assert!(
+            node.fill_geometry.is_none() && node.stroke_geometry.is_none(),
+            "new smoothing redraws the corners: paste_properties must drop imported geometry"
+        );
+
+        app.selection = vec![copied];
+        app.copy_selection();
+        app.selection = vec![source];
+        app.paste_and_match_style();
+        let pasted = app.doc.get(app.selection[0]).unwrap();
+        assert_eq!((pasted.corner_radii, pasted.corner_smoothing), ([8.0; 4], 0.6));
+        assert!(
+            pasted.fill_geometry.is_none() && pasted.stroke_geometry.is_none(),
+            "new smoothing redraws the corners: paste_and_match_style must drop imported geometry"
+        );
     }
 
     #[test]
