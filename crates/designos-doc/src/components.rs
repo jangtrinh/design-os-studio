@@ -1948,14 +1948,10 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         by_path.clear();
         index(&c.s, i, Some(new_comp), Some(new_comp), &mut Vec::new(), &mut by_path);
     }
-    if dropped_inner_swaps > 0 {
-        eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s)");
-    }
-    c.dropped_changes += dropped_inner_swaps;
-
     let new_texts = text_nodes(&c.s, i);
     let single_text_pair = old_text_count == 1 && new_texts.len() == 1;
     let mut used_override_targets: BTreeSet<NodeId> = BTreeSet::new();
+    let mut dropped_fields = 0usize;
     for item in carried {
         let CarriedOverride { path, old, orig_id, mut fields, own_layer } = item;
         let matched = by_path.get(&path).copied();
@@ -1963,25 +1959,31 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             let lone = new_texts.first().copied().filter(|_| single_text_pair && own_layer)?;
             (matches!(old.kind, NodeKind::Text(_)) && fields.iter().any(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle))).then_some(lone)
         }) else {
-            c.dropped_changes += fields.len();
+            dropped_fields += fields.len();
             continue;
         };
         if !used_override_targets.insert(nid) {
+            dropped_fields += fields.len();
             continue;
         }
-        let Some(mut nn) = c.s.get(nid).cloned() else { continue };
+        let Some(mut nn) = c.s.get(nid).cloned() else {
+            dropped_fields += fields.len();
+            continue;
+        };
         let transfers_text = text_override_transfers(&old, &nn, matched.is_some(), single_text_pair);
         let preserves_text_override = transfers_text && matched.is_some();
         if !transfers_text {
-            fields.remove(&OverrideField::Characters);
-            fields.remove(&OverrideField::TextStyle);
+            dropped_fields += usize::from(fields.remove(&OverrideField::Characters));
+            dropped_fields += usize::from(fields.remove(&OverrideField::TextStyle));
         }
         if matched.is_none() {
             // The single text rule moves the text only.
+            let before = fields.len();
             fields.retain(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle));
+            dropped_fields += before - fields.len();
         }
         if old.kind.frame_props().is_none() || nn.kind.frame_props().is_none() {
-            fields.remove(&OverrideField::Layout);
+            dropped_fields += usize::from(fields.remove(&OverrideField::Layout));
         }
         let mut custom_layout_applied = false;
         if matched.is_some() || same_family {
@@ -1989,10 +1991,14 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 if matched.is_some() && fields.contains(&OverrideField::Layout) {
                     fields.remove(&OverrideField::Layout);
                     custom_layout_applied = apply_transferred_layout(&orig, &new_orig, &old, &mut nn);
+                    if !custom_layout_applied {
+                        dropped_fields += 1;
+                    }
                 }
                 let diff = transfer_gate_diff(&orig, &new_orig);
                 let same_text_metrics = same_text_sizing(&orig, &new_orig);
                 let has_characters_override = fields.contains(&OverrideField::Characters);
+                let before = fields.len();
                 fields.retain(|f| {
                     *f == OverrideField::Name
                         || (preserves_text_override && *f == OverrideField::Characters)
@@ -2000,6 +2006,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                         || (!same_family && *f == OverrideField::TextStyle)
                         || !diff.contains(f)
                 });
+                dropped_fields += before - fields.len();
             }
         }
         if fields.is_empty() && !custom_layout_applied {
@@ -2016,6 +2023,10 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
         c.update(nn);
     }
+    if dropped_inner_swaps > 0 || dropped_fields > 0 {
+        eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s) and {dropped_fields} field override(s)");
+    }
+    c.dropped_changes += dropped_inner_swaps + dropped_fields;
 }
 
 struct CarriedOverride {
@@ -9968,11 +9979,27 @@ mod tests {
         let subtitle = child_named(&d, inst, "Subtitle");
         override_text(&mut d, subtitle, "Custom");
         let (c, dropped) = swap_instance_inner(&mut d, inst, b);
-        apply(&mut d, c);
+        let undo = apply(&mut d, c);
         assert_eq!(dropped, 1, "the missing Subtitle Characters override must be reported");
-        let c = swap_instance(&mut d, inst, a);
+        apply(&mut d, undo);
+        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Custom", "undoing the variant switch restores the dropped Subtitle override");
+
+        // Also count field overrides dropped by the transfer gate (e.g. Fills when variants' default fills differ)
+        // and by the lone-text rule (non-text field on a renamed single text layer).
+        let red = main_with_filled_dot(&mut d, page, "State=Red", 400.0, Color::rgb(255, 0, 0));
+        let blue = main_with_filled_dot(&mut d, page, "State=Blue", 600.0, Color::rgb(0, 0, 255));
+        let c = combine_as_variants(&mut d, &[red, blue]);
         apply(&mut d, c);
-        assert_eq!(text_of(&d, child_named(&d, inst, "Subtitle")), "Default");
+        let c = create_instance(&mut d, red, page, Vec2::new(400.0, 900.0));
+        apply(&mut d, c);
+        let fill_inst = *d.get(page).unwrap().children.last().unwrap();
+        let dot = child_named(&d, fill_inst, "Dot");
+        override_fill(&mut d, dot, Color::rgb(0, 255, 0));
+        let (c, gated_dropped) = swap_instance_inner(&mut d, fill_inst, blue);
+        let undo_fill = apply(&mut d, c);
+        assert_eq!(gated_dropped, 1, "a fill override dropped by the variant transfer gate must be counted");
+        apply(&mut d, undo_fill);
+        assert_eq!(paint_of(&d, child_named(&d, fill_inst, "Dot")), crate::PaintKind::Solid(Color::rgb(0, 255, 0)), "undo restores the gated fill override");
     }
 
     #[test]
