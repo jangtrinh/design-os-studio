@@ -3822,6 +3822,25 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         if insts.is_empty() {
             return false;
         }
+        // `derivedSymbolData` is a cache from the file, valid only for the main
+        // components fingerprinted when the file was imported. A main can be
+        // edited while its instance page is still deferred; applying that old
+        // cache during hydration would restore stale sizes/transforms over the
+        // freshly cloned main. The exporter already performs this check for
+        // unopened pages; mirror it before applying the record on open.
+        let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        for &inst in &insts {
+            let Some(&main) = self.targets.get(&inst) else { continue };
+            let Some(&stored) = self.instance_fingerprints.get(&inst) else { continue };
+            let swaps = self.swap_mains_of.get(&inst).map(Vec::as_slice).unwrap_or(&[]);
+            let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
+            if fingerprints.of_mains(doc, &mains) != stored {
+                if let Some(ov) = self.overrides.get_mut(&inst) {
+                    ov.fast_derived.clear();
+                }
+            }
+        }
+        drop(fingerprints);
         let next_clone = self.next_clone.max(doc.peek_next_id().0);
         let saved_insts: Vec<(NodeId, Node)> = insts.iter().filter_map(|&id| doc.get(id).cloned().map(|n| (id, n))).collect();
         let saved_done = self.done.clone();
