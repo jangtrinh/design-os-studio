@@ -147,7 +147,7 @@ fn a_resumable_session_of_a_cli_without_the_hook_is_not_resumed_by_a_prompt() {
 fn an_image_job_does_not_start_a_cli_without_the_hook() {
     without_private_root(|| {
         let mut st = tab_state_in(AgentPermissionMode::AskRisky);
-        st.submit_system_image_prompt(AgentCliPreset::Codex, "Image task: remove the background.", None);
+        let _ = st.submit_system_image_prompt(AgentCliPreset::Codex, "Image task: remove the background.", None);
         assert!(st.tabs.is_empty(), "no agent was started");
         assert_eq!(st.status_msg.as_deref(), Some(reason_for(AgentCliPreset::Codex)));
     });

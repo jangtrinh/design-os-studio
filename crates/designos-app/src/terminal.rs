@@ -3433,22 +3433,31 @@ impl TerminalState {
     /// Picks a live tab that was started as `preset`; otherwise starts a new tab running that agent CLI. An
     /// existing tab is never relabelled, so a user's Shell or another CLI keeps its identity and never receives
     /// the prompt. The prompt is queued while a fresh tab is still starting.
-    pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) {
+    pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) -> Result<(), String> {
         let reusable =
             self.tabs.iter_mut().position(|t| t.spawn_preset == preset && t.start_failure.is_none() && !t.exited_notice_shown && t.accepts_agent_input());
-        self.active_runtime = preset;
         match reusable {
-            Some(idx) => self.active_tab = idx,
+            Some(idx) => {
+                self.active_tab = idx;
+            }
             None => {
-                if self.spawn_tab(preset, file_path).is_err() {
-                    return;
-                }
+                let idx = self.spawn_tab(preset, file_path)?;
+                self.active_tab = idx;
             }
         }
         if let Some(tab) = self.active_tab_mut() {
             tab.composer.premark = Some(prompt.chars().take(64).collect());
         }
-        let _ = self.send_system_prompt(prompt, file_path);
+        let tab_refusal = self.active_tab().and_then(TerminalTab::mode_refusal).map(str::to_string);
+        match self.send_system_prompt(prompt, file_path) {
+            crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued | crate::agent_composer::SendOutcome::Unconfirmed => {
+                self.active_runtime = preset;
+                Ok(())
+            }
+            crate::agent_composer::SendOutcome::Refused(reason) => {
+                Err(tab_refusal.or_else(|| self.last_start_refusal.map(str::to_string)).unwrap_or_else(|| reason.message().to_string()))
+            }
+        }
     }
 
     /// Records `preset` as the last chosen agent CLI in this file's `sessions.json` (`#652` §3 rule 4).
