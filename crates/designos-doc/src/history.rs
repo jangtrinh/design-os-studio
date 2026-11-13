@@ -827,7 +827,7 @@ fn layout_inputs_changed(old: &Node, new: &Node) -> bool {
         || !old.variables.bindings.iter().filter(|(k, _)| is_layout_binding_key(k)).eq(new.variables.bindings.iter().filter(|(k, _)| is_layout_binding_key(k)))
 }
 
-pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>) {
+fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>) {
     match cmd {
         Command::Update { node } => {
             let Some(cur) = doc.get(node.id) else { return };
@@ -869,6 +869,36 @@ pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut 
         }
         _ => {}
     }
+}
+
+/// The groups that hold a layer `cmd` resizes (or shows or hides): they must be refitted to their content before
+/// the frame above them is solved, see [`Document::relayout_through_groups`]. Collected before `cmd` is applied,
+/// like [`collect_relayout_seeds`]. Only an update counts: a layer that joins or leaves a group leaves its bounds as stored.
+fn collect_group_fit_seeds(doc: &Document, cmd: &Command, groups: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Update { node } => {
+            let Some(cur) = doc.get(node.id) else { return };
+            if !layout_inputs_changed(cur, node) {
+                return;
+            }
+            if let Some(p) = cur.parent.filter(|p| matches!(doc.get(*p).map(|n| &n.kind), Some(NodeKind::Group))) {
+                groups.push(p);
+            }
+        }
+        Command::Batch(cmds) => cmds.iter().for_each(|c| collect_group_fit_seeds(doc, c, groups)),
+        _ => {}
+    }
+}
+
+/// Solves the auto layout that the nodes `applied_inverse` restores or replaced feed, after the command it undoes
+/// ran: the frames around them, and the frames above the groups that hold them.
+pub(crate) fn relayout_after_applied(doc: &mut Document, applied_inverse: &Command) {
+    let mut seeds = Vec::new();
+    collect_relayout_seeds(doc, applied_inverse, &mut seeds);
+    let mut groups = Vec::new();
+    collect_group_fit_seeds(doc, applied_inverse, &mut groups);
+    doc.relayout_seeds_upward(&seeds);
+    doc.relayout_through_groups(&groups);
 }
 
 /// Applies `c`, then re-solves every table whose cell text it changed and re-applies the values of component
@@ -968,8 +998,11 @@ fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<C
 fn apply_and_relayout(doc: &mut Document, c: Command) -> Result<Command, DocError> {
     let mut seeds = Vec::new();
     collect_relayout_seeds(doc, &c, &mut seeds);
+    let mut groups = Vec::new();
+    collect_group_fit_seeds(doc, &c, &mut groups);
     let inv = c.apply_atomic(doc)?;
     doc.relayout_seeds_upward(&seeds);
+    doc.relayout_through_groups(&groups);
     Ok(inv)
 }
 

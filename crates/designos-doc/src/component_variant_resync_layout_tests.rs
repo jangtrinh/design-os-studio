@@ -290,3 +290,61 @@ fn two_switched_instances_under_one_host_solve_it_once_for_the_step() {
     assert!(one > 0, "the step solves the chain it resized");
     assert_eq!(two, one, "a second switched instance under the same host adds no solve");
 }
+
+/// A hugging frame (4 px padding) at `x` on the stage that holds `levels` nested groups around one bound instance.
+fn hug_around_groups(f: &mut Fx, x: f32, levels: usize) -> (NodeId, NodeId) {
+    let host = hugging_frame(&mut f.d, f.stage, x, 4.0);
+    let mut parent = host;
+    let mut groups = Vec::new();
+    for _ in 0..levels {
+        let id = f.d.alloc_id();
+        parent = f.d.insert(parent, Node::new(id, NodeKind::Group)).unwrap();
+        groups.push(parent);
+    }
+    let small = instance_component(f.d.get(f.top).unwrap()).unwrap();
+    create_instance(&mut f.d, small, parent, Vec2::ZERO).apply(&mut f.d).unwrap();
+    let inst = last_child(&f.d, parent);
+    let bind = bind_prop_variable(&mut f.d, inst, "Size", Some("size")).unwrap();
+    f.h.exec(&mut f.d, bind).unwrap();
+    // Fit the groups to their content the way the editor leaves them, innermost first.
+    for g in groups.iter().rev() {
+        let size = f.d.get(*f.d.get(*g).unwrap().children.first().unwrap()).unwrap().size;
+        f.d.get_mut(*g).unwrap().size = size;
+    }
+    f.d.relayout_subtree(host);
+    (host, inst)
+}
+
+#[test]
+fn a_group_between_the_instance_and_the_hug_host_does_not_drop_the_chain() {
+    for levels in [1, 2] {
+        let mut f = build();
+        let (host, inst) = hug_around_groups(&mut f, 900.0 + levels as f32 * 100.0, levels);
+        assert_eq!((shown(&f, inst), width(&f, host)), (SMALL.to_string(), 108.0), "{levels} group(s): precondition");
+
+        set_mode(&mut f, "dark");
+        assert_eq!(shown(&f, inst), LARGE, "{levels} group(s)");
+        assert_eq!(width(&f, host), 208.0, "{levels} group(s): the host hugs the switched instance in the step");
+        let outer = *f.d.get(host).unwrap().children.first().unwrap();
+        assert_eq!(width(&f, outer), 200.0, "{levels} group(s): the group around it fits the new size");
+
+        assert!(f.h.undo(&mut f.d).unwrap());
+        assert_eq!(width(&f, host), 108.0, "{levels} group(s): undo");
+        assert_eq!(width(&f, outer), 100.0, "{levels} group(s): undo, the group");
+        assert!(f.h.redo(&mut f.d).unwrap());
+        assert_eq!(width(&f, host), 208.0, "{levels} group(s): redo");
+    }
+}
+
+#[test]
+fn a_group_that_keeps_its_size_stops_the_climb_and_leaves_the_host_alone() {
+    let mut f = build();
+    let (host, _) = hug_around_groups(&mut f, 1100.0, 1);
+    let host_before = (width(&f, host), f.d.get(host).unwrap().transform.tx);
+    // A group whose child did not resize refits to nothing, so nothing above it is solved.
+    let group = *f.d.get(host).unwrap().children.first().unwrap();
+    let opened = f.d.layout_epoch();
+    f.d.relayout_through_groups(&[group]);
+    assert_eq!(f.d.layout_epoch(), opened, "a fitted group solves no frame");
+    assert_eq!((width(&f, host), f.d.get(host).unwrap().transform.tx), host_before);
+}
