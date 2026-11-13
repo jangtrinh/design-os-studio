@@ -65,7 +65,7 @@
       "license": "https://polyformproject.org/licenses/shield/1.0.0",
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "downloadUrl": "https://github.com/jangtrinh/design-os-studio/releases",
-      "softwareVersion": "0.7.13",
+      "softwareVersion": "0.7.14",
       "dateModified": "2026-11-13",
       "@id": "https://jangtrinh.github.io/design-os-studio/#app",
       "isBasedOn": {
@@ -120,7 +120,7 @@
           "name": "Can a coding agent edit a .fig without opening the Studio window?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Yes. Use designos-mcp (39 tools in v0.7.13) or the designos CLI (--inspect-json, --export-fig, --scan-design-system, --codegen). Disclose issue #834 on any write."
+            "text": "Yes. Use designos-mcp (39 tools in v0.7.14) or the designos CLI (--inspect-json, --export-fig, --scan-design-system, --codegen). Disclose issue #834 on any write."
           }
         },
         {
@@ -152,7 +152,7 @@
     {
       "@type": "VideoObject",
       "name": "An agent edits a .fig headless, without Figma | DESIGN:OS Studio",
-      "description": "A coding agent edits a .fig headless in DESIGN:OS Studio, with no Figma app and no display. FREE and source-available (PolyForm Shield). As of v0.7.13 it ships 39 MCP tools. A .fig save has known issue #834.",
+      "description": "A coding agent edits a .fig headless in DESIGN:OS Studio, with no Figma app and no display. FREE and source-available (PolyForm Shield). As of v0.7.14 it ships 39 MCP tools. A .fig save has known issue #834.",
       "thumbnailUrl": "https://i.ytimg.com/vi/_LtPH2uREr0/maxresdefault.jpg",
       "uploadDate": "2026-11-12T05:06:23+00:00",
       "contentUrl": "https://www.youtube.com/watch?v=_LtPH2uREr0",
@@ -572,9 +572,19 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.13. The latest captures are from the 0.7.12 release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.14. The latest captures are from the 0.7.12 release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--0714" id="new-in-v0714" aria-labelledby="v0714-h">
+          <h3 id="v0714-h" class="new-ver">0.7.14</h3>
+          <ul class="new-bullets">
+            <li><strong>Components.</strong> A component property whose default is bound to a variable in Figma keeps that binding through <code>.fig</code> and Figma REST import, <code>.fig</code> export and the design-system scan. A value picked by hand for one variable-bound variant property holds only that property, and the others keep following their variables. A variant switch keeps a text override and the instance's size, and reports every override it has to drop. A frame that hugs an instance takes its new size in the same step as a variant switch that a variable drives, also when the instance sits inside a group.</li>
+            <li><strong>Agents.</strong> The approval mode Ask for risky only is now called Ask when risky, and it is enforced for every way of starting an agent: a CLI that does not share the approval hook is refused with its reason and the next step. A running agent tab keeps the permission mode it was started in.</li>
+            <li><strong>Auto layout.</strong> Older frames with auto spacing, and wrapped frames with room left on the counter axis, are placed as Figma places them. Re-solving every auto-layout frame of the imported Untitled UI PRO v8.0 kit moves 1,910 of 194,397 layers by more than 0.5 px; it was 2,039.</li>
+            <li><strong>Figma files.</strong> Opening a page for the first time after its main component was edited shows the instances at the main's new size and keeps their overrides. A change made inside a nested component copy survives a <code>.fig</code> save, a reopen and an edit of the main component.</li>
+            <li><strong>Fixes.</strong> Corner radius edits and bindings on imported shapes redraw, a large background blur at the edge of the canvas matches the CPU reference, a <code>.pen</code> export keeps an instance's own ring arc, and the agent tools refuse more clearly (<code>INSTANCE_CHILD</code>, <code>INSTANCE_CYCLE</code>, library variables are read-only). Many fixes were carried from pull requests by @NamAIEngineer.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--0713" id="new-in-v0713" aria-labelledby="v0713-h">
           <h3 id="v0713-h" class="new-ver">0.7.13</h3>
           <ul class="new-bullets">
@@ -863,7 +873,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
   <section id="watch" class="sec" aria-labelledby="watch-h">
     <div class="wrap">
       <h2 id="watch-h">Watch.</h2>
-      <p class="watch-lead">Four short films of DESIGN:OS Studio, starting with an agent editing a <code>.fig</code> headless, with no Figma app and no display. Writing <code>.fig</code> files is still known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>. Current release is v0.7.13, with 39 MCP tools. FREE and source-available (PolyForm Shield). More on the <a href="https://www.youtube.com/@designosbyjang">design:os by Jang</a> channel and the <a href="https://jangtrinh.github.io/videos/">videos hub</a>.</p>
+      <p class="watch-lead">Four short films of DESIGN:OS Studio, starting with an agent editing a <code>.fig</code> headless, with no Figma app and no display. Writing <code>.fig</code> files is still known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>. Current release is v0.7.14, with 39 MCP tools. FREE and source-available (PolyForm Shield). More on the <a href="https://www.youtube.com/@designosbyjang">design:os by Jang</a> channel and the <a href="https://jangtrinh.github.io/videos/">videos hub</a>.</p>
       <ul class="watch-grid">
         <li>
           <a href="https://www.youtube.com/watch?v=_LtPH2uREr0">
@@ -920,7 +930,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
         </details>
         <details>
           <summary>Can a coding agent edit a .fig without opening the Studio window?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-          <p>Yes. Use <code>designos-mcp</code> (39 tools in v0.7.13) or the <code>designos</code> CLI (<code>--inspect-json</code>, <code>--export-fig</code>, <code>--scan-design-system</code>, <code>--codegen</code>). Disclose issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> on any write.</p>
+          <p>Yes. Use <code>designos-mcp</code> (39 tools in v0.7.14) or the <code>designos</code> CLI (<code>--inspect-json</code>, <code>--export-fig</code>, <code>--scan-design-system</code>, <code>--codegen</code>). Disclose issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> on any write.</p>
         </details>
         <details>
           <summary>How do coding agents work with it?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>

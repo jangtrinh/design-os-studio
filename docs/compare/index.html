@@ -66,7 +66,7 @@
           "name": "Is DESIGN:OS Studio free?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Yes. DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). You can use and modify it freely, including for paid work. The terms are PolyForm Shield 1.0.0. You cannot resell it or use it to build a product that competes with it. Pre-built packages for v0.7.13 are on the GitHub Releases page."
+            "text": "Yes. DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). You can use and modify it freely, including for paid work. The terms are PolyForm Shield 1.0.0. You cannot resell it or use it to build a product that competes with it. Pre-built packages for v0.7.14 are on the GitHub Releases page."
           }
         },
         {
@@ -90,7 +90,7 @@
           "name": "Is designos-mcp a Figma MCP alternative?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "It can show up in the same search, but it is a different job. Figma's official MCP server talks to a Figma file in Figma. It needs a Figma account, and write access depends on plan and seat. designos-mcp is a local stdio server, 39 tools in v0.7.13, that inspects, edits and exports a .fig on disk, with no Figma app and no Figma token. Both can be useful. If your files live in Figma, use Figma MCP. If you have a .fig on disk and no Figma session, use designos-mcp or the designos CLI."
+            "text": "It can show up in the same search, but it is a different job. Figma's official MCP server talks to a Figma file in Figma. It needs a Figma account, and write access depends on plan and seat. designos-mcp is a local stdio server, 39 tools in v0.7.14, that inspects, edits and exports a .fig on disk, with no Figma app and no Figma token. Both can be useful. If your files live in Figma, use Figma MCP. If you have a .fig on disk and no Figma session, use designos-mcp or the designos CLI."
           }
         },
         {
@@ -98,7 +98,7 @@
           "name": "What platforms does DESIGN:OS Studio run on?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "v0.7.13 ships packages for macOS (a universal .dmg, verified on Apple Silicon), Windows (a .zip with a per-user install script) and Linux (.deb and .tar.gz). The Windows and Linux packages are built by the same release workflow but are not verified before release. You can also build from source. There is no account and no telemetry."
+            "text": "v0.7.14 ships packages for macOS (a universal .dmg, verified on Apple Silicon), Windows (a .zip with a per-user install script) and Linux (.deb and .tar.gz). The Windows and Linux packages are built by the same release workflow but are not verified before release. You can also build from source. There is no account and no telemetry."
           }
         }
       ]
@@ -123,7 +123,7 @@
       <p class="ds-heading eyebrow doc-head" data-level="3">DESIGN:OS Toolchain · docs</p>
       <h1 id="designos-studio-compared-with-openpencil-penpot-lunacy-and-figma-mcp">DESIGN:OS Studio compared with OpenPencil, Penpot, Lunacy and Figma MCP</h1>
 
-    <p>DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). It is a native Rust editor that opens and writes .fig files with no Figma app, and lets coding agents edit a .fig headless through designos-mcp (39 tools, v0.7.13) or the designos CLI. design:os is not affiliated with or endorsed by Figma. Saving a .fig has known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>, which is still open (P1): a numbered list loses its numbers and the spacing between items grows; a breadcrumb arrow icon renders heavier (the issue title is ".fig save drops numbered-list formatting and changes icon strokes"); and the writer turns inherited or variable-bound paints on instances into literal overrides, so a fill bound to a variable becomes a fixed hex.</p>
+    <p>DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). It is a native Rust editor that opens and writes .fig files with no Figma app, and lets coding agents edit a .fig headless through designos-mcp (39 tools, v0.7.14) or the designos CLI. design:os is not affiliated with or endorsed by Figma. Saving a .fig has known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>, which is still open (P1): a numbered list loses its numbers and the spacing between items grows; a breadcrumb arrow icon renders heavier (the issue title is ".fig save drops numbered-list formatting and changes icon strokes"); and the writer turns inherited or variable-bound paints on instances into literal overrides, so a fill bound to a variable becomes a fixed hex.</p>
 
     <p>This page is a factual comparison for people searching for a free Figma alternative, a desktop .fig editor, or a Figma MCP alternative. "Figma MCP alternative" usually means a server that talks to the Figma API or a Figma plugin. designos-mcp is different: it edits a .fig file on disk, with no Figma app and no Figma token. Both can be useful; they are not the same job.</p>
 
@@ -131,7 +131,7 @@
 
     <h2 id="who-each-tool-is-for">Who each tool is for</h2>
 
-    <p><strong>DESIGN:OS Studio</strong> is for people who want a local desktop editor, and a headless agent path, that opens and writes a .fig on disk with no Figma app and no Figma account. Jang Trịnh, a creative technologist and autonomous system architect, started design:os on 10/10/2026. The current release is v0.7.13.</p>
+    <p><strong>DESIGN:OS Studio</strong> is for people who want a local desktop editor, and a headless agent path, that opens and writes a .fig on disk with no Figma app and no Figma account. Jang Trịnh, a creative technologist and autonomous system architect, started design:os on 10/10/2026. The current release is v0.7.14.</p>
 
     <p><strong>OpenPencil</strong> is for people who want a local-first editor under the MIT License, with a large MCP and CLI surface, peer-to-peer collaboration, and official claims that it reads and writes .fig. It also runs in the browser. A hosted Cloud product is on a waitlist; no public Cloud price was published when this page was written.</p>
 
@@ -174,7 +174,7 @@
         </tr>
         <tr>
           <th scope="row">Headless / MCP for agents</th>
-          <td>designos-mcp: 39 tools in v0.7.13, read and write, local stdio. The designos CLI can inspect, export and write a .fig with no window.</td>
+          <td>designos-mcp: 39 tools in v0.7.14, read and write, local stdio. The designos CLI can inspect, export and write a .fig with no window.</td>
           <td>Official homepage: 24 CLI commands and 126 MCP tools, stdio or HTTP, inspect, edit and export. The MCP docs say "100+" shared design tools and list named tools (115 counted on that page on 13 November 2026). The CLI works on a file with no app running.</td>
           <td>Official Penpot MCP, remote or local. Agents can read and modify the focused Penpot page. Local MCP names five tools. The Penpot file and plugin must be connected.</td>
           <td>A local MCP server runs with the Lunacy app. Docs describe read access to the selection, color variables, components and images. Release notes for 11.6 say an LLM can edit the selection over MCP. Tool count is not published. Not described as a headless file-on-disk server.</td>
@@ -220,9 +220,9 @@
 
     <p>OpenPencil is stronger where a MIT-licensed local editor, a large published MCP and CLI surface, and peer-to-peer collaboration matter. Its homepage and download page present a free desktop app for macOS, Windows and Linux, a web app with no install, 24 CLI commands that work on a file with no app running, and an MCP server over stdio or HTTP. It states that it reads and writes .fig, and that you can export to .fig, PDF, PPTX, SVG, HTML and JSX. Collaboration in a shared room does not need an account. Those are real advantages.</p>
 
-    <p>Studio differs in licence, stack and freshness. It is a native Rust and GPU editor (wgpu, with a tiny-skia CPU path for headless captures), released as FREE + source-available under PolyForm Shield 1.0.0. That licence lets you use and modify it, including for paid work, and does not let you resell it or build a competing product. It ships designos-mcp with 39 tools in v0.7.13, pinned by the tool table in the README, and a designos CLI that can inspect, scan a design system, generate code and write a .fig with no window. It does not offer live multiplayer. It is also newer: work on design:os started on 10/10/2026.</p>
+    <p>Studio differs in licence, stack and freshness. It is a native Rust and GPU editor (wgpu, with a tiny-skia CPU path for headless captures), released as FREE + source-available under PolyForm Shield 1.0.0. That licence lets you use and modify it, including for paid work, and does not let you resell it or build a competing product. It ships designos-mcp with 39 tools in v0.7.14, pinned by the tool table in the README, and a designos CLI that can inspect, scan a design system, generate code and write a .fig with no window. It does not offer live multiplayer. It is also newer: work on design:os started on 10/10/2026.</p>
 
-    <p>On MCP tool counts, this page repeats OpenPencil's own homepage figure of 126, and also records what the MCP docs say: "100+" shared design tools, plus MCP-only operations, with 115 named tools counted in the published tables on 13 November 2026. If you need a single audited number, read their live docs. Studio's 39 is the count in the v0.7.13 README tool table, which is generated from <code>designos-mcp</code>.</p>
+    <p>On MCP tool counts, this page repeats OpenPencil's own homepage figure of 126, and also records what the MCP docs say: "100+" shared design tools, plus MCP-only operations, with 115 named tools counted in the published tables on 13 November 2026. If you need a single audited number, read their live docs. Studio's 39 is the count in the v0.7.14 README tool table, which is generated from <code>designos-mcp</code>.</p>
 
     <p>If you want MIT terms, a large agent tool list, P2P collab, or a web app, OpenPencil is the stronger fit. If you want a native Rust desktop studio, a 39-tool local MCP and CLI with no Figma app, and PolyForm Shield terms, look at Studio, and read <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> before you rely on .fig save.</p>
 
@@ -250,7 +250,7 @@
 
     <p>Access and cost follow your Figma plan. The remote server is available on all plans, with rate limits. Writing to the canvas is on Professional, Education, Organization and Enterprise, and writing outside drafts needs a Full seat. A Dev seat can write in drafts and has read access to other files. The desktop server needs a Dev or Full seat on a paid plan (or Education or Government, as documented) and does not support writing to the canvas. The feature is free during beta and will become usage-based.</p>
 
-    <p>On tool counts: Figma's official tools page does not publish a single total. On 13 November 2026 the published index listed 19 read tools and 15 write tools, with many write tools marked remote-only, and a separate Weave group that needs a paid Weave account. Studio publishes 39 tools for v0.7.13.</p>
+    <p>On tool counts: Figma's official tools page does not publish a single total. On 13 November 2026 the published index listed 19 read tools and 15 write tools, with many write tools marked remote-only, and a separate Weave group that needs a paid Weave account. Studio publishes 39 tools for v0.7.14.</p>
 
     <h2 id="which-should-you-pick">Which should you pick</h2>
 
@@ -278,7 +278,7 @@
 
     <h3 id="is-designos-studio-free">Is DESIGN:OS Studio free?</h3>
 
-    <p>Yes. DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). You can use and modify it freely, including for paid work. The terms are PolyForm Shield 1.0.0. You cannot resell it or use it to build a product that competes with it. Pre-built packages for v0.7.13 are on the GitHub Releases page.</p>
+    <p>Yes. DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). You can use and modify it freely, including for paid work. The terms are PolyForm Shield 1.0.0. You cannot resell it or use it to build a product that competes with it. Pre-built packages for v0.7.14 are on the GitHub Releases page.</p>
 
     <h3 id="is-designos-affiliated-with-figma">Is design:os affiliated with Figma?</h3>
 
@@ -290,15 +290,15 @@
 
     <h3 id="is-designos-mcp-a-figma-mcp-alternative">Is designos-mcp a Figma MCP alternative?</h3>
 
-    <p>It can show up in the same search, but it is a different job. Figma's official MCP server talks to a Figma file in Figma. It needs a Figma account, and write access depends on plan and seat. designos-mcp is a local stdio server, 39 tools in v0.7.13, that inspects, edits and exports a .fig on disk, with no Figma app and no Figma token. Both can be useful. If your files live in Figma, use Figma MCP. If you have a .fig on disk and no Figma session, use designos-mcp or the designos CLI.</p>
+    <p>It can show up in the same search, but it is a different job. Figma's official MCP server talks to a Figma file in Figma. It needs a Figma account, and write access depends on plan and seat. designos-mcp is a local stdio server, 39 tools in v0.7.14, that inspects, edits and exports a .fig on disk, with no Figma app and no Figma token. Both can be useful. If your files live in Figma, use Figma MCP. If you have a .fig on disk and no Figma session, use designos-mcp or the designos CLI.</p>
 
     <h3 id="what-platforms-does-designos-studio-run-on">What platforms does DESIGN:OS Studio run on?</h3>
 
-    <p>v0.7.13 ships packages for macOS (a universal .dmg, verified on Apple Silicon), Windows (a .zip with a per-user install script) and Linux (.deb and .tar.gz). The Windows and Linux packages are built by the same release workflow but are not verified before release. You can also build from source. There is no account and no telemetry.</p>
+    <p>v0.7.14 ships packages for macOS (a universal .dmg, verified on Apple Silicon), Windows (a .zip with a per-user install script) and Linux (.deb and .tar.gz). The Windows and Linux packages are built by the same release workflow but are not verified before release. You can also build from source. There is no account and no telemetry.</p>
 
     <h2 id="close">Close</h2>
 
-    <p>Download DESIGN:OS Studio v0.7.13 from <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.7.13">GitHub Releases</a>. Product pages and a guide to opening a .fig without Figma live at <a href="https://jangtrinh.github.io/design-os-studio/">jangtrinh.github.io/design-os-studio</a>. Before you rely on .fig save, read <a href="https://github.com/jangtrinh/design-os-studio/issues/834">issue #834</a>. design:os is not affiliated with or endorsed by Figma.</p>
+    <p>Download DESIGN:OS Studio v0.7.14 from <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.7.14">GitHub Releases</a>. Product pages and a guide to opening a .fig without Figma live at <a href="https://jangtrinh.github.io/design-os-studio/">jangtrinh.github.io/design-os-studio</a>. Before you rely on .fig save, read <a href="https://github.com/jangtrinh/design-os-studio/issues/834">issue #834</a>. design:os is not affiliated with or endorsed by Figma.</p>
 
     <h2 id="sources">Sources</h2>
 
