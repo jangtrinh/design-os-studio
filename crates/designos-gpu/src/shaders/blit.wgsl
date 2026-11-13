@@ -42,7 +42,8 @@ fn edge_sample(p: vec2<i32>) -> vec4<f32> {
 @fragment
 fn fs_blit(f: FsIn) -> @location(0) vec4<f32> {
     var s = (f.pos.xy) * (tp.src_extent / tp.dst_extent);
-    if tp.edge_mode != 0u {
+    let hi = tp.src_extent - vec2<f32>(0.5);
+    if tp.edge_mode != 0u && (any(s < vec2<f32>(0.5)) || any(s > hi)) {
         let p = s - vec2<f32>(0.5);
         let base = vec2<i32>(floor(p));
         let frac = fract(p);
@@ -52,6 +53,6 @@ fn fs_blit(f: FsIn) -> @location(0) vec4<f32> {
         let d = edge_sample(base + vec2<i32>(1, 1));
         return mix(mix(a, b, frac.x), mix(c, d, frac.x), frac.y);
     }
-    s = clamp(s, vec2<f32>(0.5), tp.src_extent - vec2<f32>(0.5));
+    s = clamp(s, vec2<f32>(0.5), hi);
     return textureSampleLevel(tsrc, tsamp, s / tp.src_tex, 0.0);
 }
