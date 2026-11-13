@@ -1461,10 +1461,8 @@ pub fn swap_instance_variant(doc: &mut Document, instance_id: NodeId, prop_name:
 fn relayout_root_after_group(doc: &Document, id: NodeId) -> NodeId {
     let mut root = doc.get(id).and_then(|n| n.parent).unwrap_or(id);
     while matches!(doc.get(root).map(|n| &n.kind), Some(NodeKind::Group)) {
-        root = doc.get(root).and_then(|n| n.parent).unwrap_or(root);
-        if doc.get(root).is_none() {
-            break;
-        }
+        let Some(parent) = doc.get(root).and_then(|n| n.parent) else { break };
+        root = parent;
     }
     root
 }

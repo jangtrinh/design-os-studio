@@ -327,6 +327,20 @@ fn grouped_bound_variant_resync_hugs_through_nested_groups_and_undo_redo() {
 }
 
 #[test]
+fn direct_variant_swap_inside_a_root_group_terminates_and_refits_the_group() {
+    let mut f = build();
+    let page = f.d.get(f.stage).and_then(|n| n.parent).expect("stage page");
+    let group = f.d.alloc_id();
+    f.d.insert(page, Node::new(group, NodeKind::Group)).unwrap();
+    f.d.reparent(f.top, group, 0).unwrap();
+
+    crate::changelog_features::swap_instance_variant(&mut f.d, f.top, "Size", "Large").unwrap();
+
+    assert_eq!(shown(&f, f.top), LARGE);
+    assert_eq!(width(&f, group), 200.0, "the root group is refit after the swap");
+}
+
+#[test]
 fn ordinary_group_edit_preserves_imported_stored_bounds() {
     let mut f = build();
     let group = f.d.alloc_id();
