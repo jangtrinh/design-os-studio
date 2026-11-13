@@ -3151,6 +3151,14 @@ impl TerminalState {
                 }
             }
             FixAction::RunLogin(command) => {
+                // A login that is the agent itself (Gemini, Antigravity) starts a session, so the mode decides first: refused, it
+                // leaves the banner up and shows the reason a start would get.
+                if let Some(agent) = agent_start_failure::agent_started_by_login(command) {
+                    self.refresh_permission_mode_from_disk();
+                    if self.refuse_start_in_mode(agent, false, self.permission_mode).is_err() {
+                        return;
+                    }
+                }
                 self.clear_active_tab_session_failure();
                 // A login runs as a plain command tab: it is not an agent tab, so a quick
                 // "already signed in" exit is not reported as a failed start.

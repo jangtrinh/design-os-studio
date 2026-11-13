@@ -153,13 +153,121 @@ fn an_image_job_does_not_start_a_cli_without_the_hook() {
     });
 }
 
+/// Stub agent CLIs that only record how they were called, so a login the tests drive never reaches a real sign-in.
+#[cfg(unix)]
+fn stub_agent_binaries(tag: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("designos-login-stubs-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("stub folder");
+    for preset in
+        [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Gemini, AgentCliPreset::Antigravity, AgentCliPreset::OpenCode]
+    {
+        let name = preset.binary_name();
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\necho \"$*\" > \"{}/{name}-ran.txt\"\n", dir.display())).expect("stub script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    dir
+}
+
+/// Gemini and Antigravity have no login subcommand: their login is the agent itself, so it needs the same approval hook a start
+/// does and Ask when risky refuses it with the reason a start gets.
+#[cfg(unix)]
 #[test]
-fn a_login_still_runs_because_it_starts_no_agent_session() {
-    without_private_root(|| {
-        let mut st = tab_state_in(AgentPermissionMode::AskRisky);
-        st.spawn_tab_running(AgentCliPreset::Codex, None, Some("true")).expect("a login command is not an agent session");
-        st.shutdown();
-    });
+fn run_login_for_gemini_and_antigravity_is_refused_in_ask_when_risky() {
+    for preset in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity] {
+        without_private_root(|| {
+            let stubs = stub_agent_binaries("refused");
+            let mut st = tab_state_in(AgentPermissionMode::AskRisky);
+            st.path_override = Some(stubs.clone().into_os_string());
+            tab_of(&mut st, preset, AgentPermissionMode::AskRisky);
+            let tabs_before = st.tabs.len();
+            st.status_msg = None;
+
+            st.apply_start_fix(crate::agent_start_failure::FixAction::RunLogin(crate::agent_start_failure::login_command(preset)), None);
+
+            assert_eq!(st.tabs.len(), tabs_before, "{preset:?}: Run login spawned a tab");
+            assert_eq!(st.status_msg.as_deref(), Some(reason_for(preset)), "{preset:?}: the reason is shown");
+            assert!(!stubs.join(format!("{}-ran.txt", preset.binary_name())).exists(), "{preset:?}: the agent binary ran");
+            st.shutdown();
+            let _ = std::fs::remove_dir_all(&stubs);
+        });
+    }
+}
+
+/// The same login in Ask still runs: only the mode refuses it.
+#[cfg(unix)]
+#[test]
+fn run_login_for_gemini_and_antigravity_still_runs_in_ask() {
+    for preset in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity] {
+        without_private_root(|| {
+            let stubs = stub_agent_binaries("ask");
+            let mut st = tab_state_in(AgentPermissionMode::Ask);
+            st.path_override = Some(stubs.clone().into_os_string());
+            tab_of(&mut st, preset, AgentPermissionMode::Ask);
+            let tabs_before = st.tabs.len();
+
+            st.apply_start_fix(crate::agent_start_failure::FixAction::RunLogin(crate::agent_start_failure::login_command(preset)), None);
+
+            assert_eq!(st.tabs.len(), tabs_before + 1, "{preset:?}: Run login starts the sign-in tab in Ask");
+            wait_for_file(&stubs.join(format!("{}-ran.txt", preset.binary_name())));
+            st.shutdown();
+            let _ = std::fs::remove_dir_all(&stubs);
+        });
+    }
+}
+
+/// Claude, Codex, Grok and OpenCode sign in through a real login subcommand, not through the agent, so Ask when risky leaves
+/// those logins alone: the stub records that it was called with the subcommand.
+#[cfg(unix)]
+#[test]
+fn run_login_through_a_login_subcommand_still_runs_in_ask_when_risky() {
+    for (preset, args) in
+        [(AgentCliPreset::Claude, "auth login"), (AgentCliPreset::Codex, "login"), (AgentCliPreset::Grok, "login"), (AgentCliPreset::OpenCode, "auth login")]
+    {
+        without_private_root(|| {
+            let stubs = stub_agent_binaries("subcommand");
+            let mut st = tab_state_in(AgentPermissionMode::AskRisky);
+            st.path_override = Some(stubs.clone().into_os_string());
+            tab_of(&mut st, preset, AgentPermissionMode::AskRisky);
+            let tabs_before = st.tabs.len();
+
+            st.apply_start_fix(crate::agent_start_failure::FixAction::RunLogin(crate::agent_start_failure::login_command(preset)), None);
+
+            assert_eq!(st.tabs.len(), tabs_before + 1, "{preset:?}: Run login starts the sign-in tab");
+            let recorded = wait_for_file(&stubs.join(format!("{}-ran.txt", preset.binary_name())));
+            assert_eq!(recorded.trim(), args, "{preset:?}: the login subcommand ran");
+            st.shutdown();
+            let _ = std::fs::remove_dir_all(&stubs);
+        });
+    }
+}
+
+/// Only a login that is the agent's bare binary counts as starting that agent; a login subcommand does not.
+#[test]
+fn only_a_bare_agent_binary_login_starts_an_agent() {
+    use crate::agent_start_failure::{agent_started_by_login, login_command};
+    assert_eq!(agent_started_by_login(login_command(AgentCliPreset::Gemini)), Some(AgentCliPreset::Gemini));
+    assert_eq!(agent_started_by_login(login_command(AgentCliPreset::Antigravity)), Some(AgentCliPreset::Antigravity));
+    for preset in [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::OpenCode] {
+        assert_eq!(agent_started_by_login(login_command(preset)), None, "{preset:?} signs in through a login subcommand");
+    }
+    assert_eq!(agent_started_by_login("echo hello"), None);
+}
+
+#[cfg(unix)]
+fn wait_for_file(path: &Path) -> String {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if !text.is_empty() {
+                return text;
+            }
+        }
+        assert!(std::time::Instant::now() < deadline, "{} was never written", path.display());
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
 }
 
 #[test]
