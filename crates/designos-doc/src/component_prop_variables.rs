@@ -410,18 +410,17 @@ pub fn settle_bound_props_after(before: &Document, after: &mut Document, cmds: &
 
 /// [`apply_prop_resync`], then solves the auto layout the swapped instances feed. A variant switch changes an
 /// instance's size after the layout pass of the command that moved the variable, so the hugging frames around it would
-/// keep the old size for one more edit. The parent of each changed node is one seed; a seed is solved once however
-/// many instances sit under it, and the climb goes up only while a frame's own size changes (it crosses a group
-/// between the instance and its frame, see `Document::relayout_seeds_upward`). Frames off that chain keep their
-/// positions. A hug ancestor that several separate chains share is solved once per chain: that is how
-/// `relayout_seeds_upward` climbs today. A history step and the trial copy of a batch both call this, so for a variant
-/// switch they run the same resync and the same layout.
+/// keep the old size for one more edit. Each auto-layout frame holding a changed node is solved once, deepest first,
+/// and the climb goes up only while a frame's own size changes; frames off that chain keep their positions.
+/// A history step and the trial copy of a batch both call this, so the committed document and the trial stay equal.
 pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropResyncScope) -> Result<Option<Command>, DocError> {
     let inv = apply_prop_resync(doc, scope)?;
     if let Some(resync_inv) = &inv {
         // The inverse holds the nodes as they were; the seeds are the ones whose layout inputs differ from the
-        // document now, which the collection tells by comparing them with the live node.
-        relayout_after_applied(doc, resync_inv);
+        // document now, which `collect_relayout_seeds` tells by comparing them with the live node.
+        let mut seeds = Vec::new();
+        collect_relayout_seeds(doc, resync_inv, &mut seeds);
+        doc.relayout_seeds_upward(&seeds);
     }
     Ok(inv)
 }
