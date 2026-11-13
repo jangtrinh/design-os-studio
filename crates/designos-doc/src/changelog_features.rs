@@ -1435,7 +1435,13 @@ pub fn swap_instance_to_component(doc: &mut Document, instance_id: NodeId, dest_
             inst.component.values.insert(k, PropValue::Variant(v));
         }
     }
-    let relayout_root = doc.get(instance_id).and_then(|n| n.parent).unwrap_or(instance_id);
+    refit_group_ancestors(doc, instance_id);
+    let relayout_root = doc
+        .get(instance_id)
+        .and_then(|n| n.parent)
+        .and_then(|p| doc.get(p).and_then(|n| n.parent))
+        .or_else(|| doc.get(instance_id).and_then(|n| n.parent))
+        .unwrap_or(instance_id);
     relayout_subtree(doc, relayout_root);
     Ok(dest_comp)
 }
@@ -1451,9 +1457,29 @@ pub fn swap_instance_variant(doc: &mut Document, instance_id: NodeId, prop_name:
             inst.size = comp_size;
         }
     }
-    let relayout_root = doc.get(instance_id).and_then(|n| n.parent).unwrap_or(instance_id);
+    refit_group_ancestors(doc, instance_id);
+    let relayout_root = doc
+        .get(instance_id)
+        .and_then(|n| n.parent)
+        .and_then(|p| doc.get(p).and_then(|n| n.parent))
+        .or_else(|| doc.get(instance_id).and_then(|n| n.parent))
+        .unwrap_or(instance_id);
     relayout_subtree(doc, relayout_root);
     Ok(new_comp)
+}
+
+fn refit_group_ancestors(doc: &mut Document, id: NodeId) {
+    let mut groups = Vec::new();
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(p) = cur {
+        if matches!(doc.get(p).map(|n| &n.kind), Some(NodeKind::Group)) {
+            groups.push(p);
+        }
+        cur = doc.get(p).and_then(|n| n.parent);
+    }
+    for group in groups.into_iter().rev() {
+        let _ = crate::layout_constraints::apply_resize_to_fit_one(doc, group, |_d, _id| {});
+    }
 }
 
 // ===========================================================================
