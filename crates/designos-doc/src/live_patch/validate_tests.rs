@@ -191,6 +191,88 @@ fn an_agent_insert_row_keeps_a_user_resized_column() {
     }
 }
 
+fn assert_table_and_cells_agree(doc: &Document, table_id: NodeId, expected_cols: &[f32], expected_rows: &[f32]) {
+    crate::table::check_table_positions(doc, table_id).expect("table positions must be valid");
+    let table_node = doc.get(table_id).expect("table node");
+    let crate::NodeKind::Table(props) = &table_node.kind else {
+        panic!("expected table node");
+    };
+    let actual_cols: Vec<f32> = props.cols.iter().map(|t| t.size).collect();
+    let actual_rows: Vec<f32> = props.rows.iter().map(|t| t.size).collect();
+    assert_eq!(actual_cols, expected_cols, "column track widths must match expected");
+    assert_eq!(actual_rows, expected_rows, "row track heights must match expected");
+
+    let mut expected_doc = doc.clone();
+    for cmd in crate::table::relayout(&expected_doc, table_id) {
+        cmd.apply(&mut expected_doc).unwrap();
+    }
+    assert_eq!(doc.get(table_id), expected_doc.get(table_id), "whole table node must agree with its tracks");
+    for &cell_id in &table_node.children {
+        assert_eq!(doc.get(cell_id), expected_doc.get(cell_id), "cell {cell_id:?} must agree with table tracks");
+    }
+}
+
+#[test]
+fn concurrent_table_column_edits_and_row_inserts_preserve_widths_and_cell_agreement() {
+    let make_base = || {
+        let mut doc = Document::new("table concurrency");
+        let page = doc.add_page("Page");
+        crate::table_ops::create_table(&doc, page, crate::Vec2::new(0.0, 0.0), 2, 2, &crate::TableStyle::default()).unwrap().apply(&mut doc).unwrap();
+        let table_id = *doc.get(page).unwrap().children.last().unwrap();
+        let (col0, col1, row0) = match &doc.get(table_id).unwrap().kind {
+            crate::NodeKind::Table(props) => (props.cols[0].id, props.cols[1].id, props.rows[0].id),
+            _ => panic!("expected table"),
+        };
+        (doc, table_id, col0, col1, row0)
+    };
+
+    // 1a. Concurrent edits of different columns: user widens col 0, agent widens col 1.
+    let (agent, table_id, col0, col1, _) = make_base();
+    let mut editor = agent.clone();
+    crate::table_ops::resize_col(&editor, table_id, col0, 300.0).unwrap().apply(&mut editor).unwrap();
+    let agent_col1 = crate::table_ops::resize_col(&agent, table_id, col1, 240.0).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_col1).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[300.0, 240.0], &[44.0, 44.0]);
+
+    // 1b. Concurrent edits of different columns (reverse order): user widens col 1, agent widens col 0.
+    let (agent, table_id, col0, col1, _) = make_base();
+    let mut editor = agent.clone();
+    crate::table_ops::resize_col(&editor, table_id, col1, 300.0).unwrap().apply(&mut editor).unwrap();
+    let agent_col0 = crate::table_ops::resize_col(&agent, table_id, col0, 240.0).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_col0).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[240.0, 300.0], &[44.0, 44.0]);
+
+    // 1c. Concurrent user column resize and agent row resize both survive.
+    let (agent, table_id, col0, _, row0) = make_base();
+    let mut editor = agent.clone();
+    crate::table_ops::resize_col(&editor, table_id, col0, 300.0).unwrap().apply(&mut editor).unwrap();
+    let agent_row0 = crate::table_ops::resize_row(&agent, table_id, row0, 90.0).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_row0).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[300.0, 160.0], &[90.0, 44.0]);
+
+    // 2. Concurrent row insert keeps the user's column width.
+    let (agent, table_id, col0, _, _) = make_base();
+    let mut editor = agent.clone();
+    crate::table_ops::resize_col(&editor, table_id, col0, 300.0).unwrap().apply(&mut editor).unwrap();
+    let agent_insert = crate::table_ops::insert_rows(&agent, table_id, 1, 1).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_insert).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[300.0, 160.0], &[44.0, 44.0, 44.0]);
+
+    // 3. An agent operation that sets a width on purpose still wins for that column while preserving other columns.
+    let (agent, table_id, col0, col1, _) = make_base();
+    let mut editor = agent.clone();
+    crate::table_ops::resize_col(&editor, table_id, col0, 300.0).unwrap().apply(&mut editor).unwrap();
+    crate::table_ops::resize_col(&editor, table_id, col1, 220.0).unwrap().apply(&mut editor).unwrap();
+    let agent_override_col0 = crate::table_ops::resize_col(&agent, table_id, col0, 260.0).unwrap();
+    let patch = LivePatch::new(live_ops_for_command(&agent, &agent_override_col0).unwrap());
+    replay_live_patch(&mut editor, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+    assert_table_and_cells_agree(&editor, table_id, &[260.0, 220.0], &[44.0, 44.0]);
+}
+
 #[test]
 fn an_agent_edit_cannot_insert_a_page_or_turn_a_layer_into_one() {
     let (base, page, frame_id) = doc_with_frame();
