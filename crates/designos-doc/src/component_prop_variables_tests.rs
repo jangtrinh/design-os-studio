@@ -480,3 +480,40 @@ fn slot_migration_removes_bound_default_for_migrated_and_dropped_visibility_prop
     assert_eq!(f.d.get(f.comp).unwrap().component.prop_default_variables.get("Swap").map(String::as_str), Some("title"));
     assert_eq!(f.d.get(f.comp).unwrap().component.prop_default_variables.get("Show icon").map(String::as_str), Some("show"));
 }
+
+#[test]
+fn resync_bound_properties_switches_variants_solves_hug_hosts_and_keeps_picks() {
+    use crate::component_variant_picks_tests::{build, copy, pick_nested, picks, shown, LARGE_DEFAULT, LARGE_HOVER};
+
+    let mut f = build(&["Size", "State"], &["Size", "State"]);
+    let host_al = AutoLayout {
+        direction: LayoutDirection::Horizontal,
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        padding: [4.0; 4],
+        layout_version: 1,
+        ..AutoLayout::default()
+    };
+    if let NodeKind::Frame(fp) = &mut f.d.get_mut(f.host).unwrap().kind {
+        fp.auto_layout = Some(host_al);
+    }
+    f.d.relayout_subtree(f.host);
+    assert_eq!(f.d.get(f.host).unwrap().size.x, 508.0);
+
+    let n = copy(&f);
+    pick_nested(&mut f, n, "Size", "Large");
+    assert_eq!(shown(&f, n), LARGE_DEFAULT);
+    assert_eq!(picks(&f, n), ["Size"]);
+
+    // Mutate collection default_mode outside History (as the prototype player does).
+    f.d.variable_collections.get_mut("theme").unwrap().default_mode = "dark".into();
+    resync_bound_properties(&mut f.d);
+
+    assert_eq!(shown(&f, f.top), LARGE_HOVER);
+    assert_eq!(shown(&f, n), LARGE_HOVER, "nested copy follows State and holds picked Size");
+    assert_eq!(f.d.get(f.host).unwrap().size.x, 618.0, "hug host relayouts in the same resync call");
+
+    f.d.variable_collections.get_mut("theme").unwrap().default_mode = "light".into();
+    resync_bound_properties(&mut f.d);
+    assert_eq!(shown(&f, n), LARGE_DEFAULT, "picked Size stays held when returning to light");
+}

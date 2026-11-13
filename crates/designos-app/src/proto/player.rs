@@ -920,14 +920,14 @@ impl Player {
         }
         let vars: Vec<String> = self.doc.variable_collections.get(collection).map(|c| c.variables.clone()).unwrap_or_default();
         self.refresh_bound(&vars);
-        // Prototype mode changes bypass History, so explicitly resync component properties whose
-        // bindings are stored under `componentProperties/...` as well as ordinary node fields.
-        designos_doc::resync_bound_properties(&mut self.doc);
     }
 
     /// Re-resolves the layers bound to `vars` (and to variables aliasing them), re-fits auto-sized
     /// text, re-runs auto layout and invalidates the frames' textures.
     fn refresh_bound(&mut self, vars: &[String]) {
+        // Prototype variable and mode changes bypass History, so resync bound component properties
+        // (`componentProperties/...`) and their auto-layout ancestors before reflowing bound fields.
+        designos_doc::resync_bound_properties(&mut self.doc);
         let mut set: HashSet<String> = vars.iter().cloned().collect();
         loop {
             let more: Vec<String> = self
@@ -2148,6 +2148,219 @@ mod tests {
         q.pointer_up(Some(f.btn_b), false);
         assert_eq!(q.errors.len(), 1);
         assert!(q.errors[0].contains("unknown mode"));
+    }
+
+    struct BoundVariantPlayerFx {
+        doc: Document,
+        h: History,
+        screen: NodeId,
+        hug_top: NodeId,
+        top: NodeId,
+        hug_nested: NodeId,
+        w: NodeId,
+        copy: NodeId,
+        btn_dark: NodeId,
+        btn_light: NodeId,
+        btn_set: NodeId,
+    }
+
+    fn bound_variant_player_fixture() -> BoundVariantPlayerFx {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let s = |v: &str| VariableValue::String(v.into());
+        doc.variable_collections.insert(
+            "theme".into(),
+            VariableCollection {
+                id: "theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["size".into(), "state".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for (id, light, dark) in [("size", "Small", "Large"), ("state", "Default", "Hover")] {
+            doc.variables.insert(
+                id.into(),
+                Variable {
+                    id: id.into(),
+                    name: id.into(),
+                    collection: "theme".into(),
+                    kind: VariableKind::String,
+                    values: [("light".to_string(), s(light)), ("dark".to_string(), s(dark))].into_iter().collect(),
+                    description: String::new(),
+                    scopes: vec![],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+        let mut mains = Vec::new();
+        for (name, wd) in
+            [("Size=Small, State=Default", 100.0), ("Size=Large, State=Default", 200.0), ("Size=Small, State=Hover", 110.0), ("Size=Large, State=Hover", 210.0)]
+        {
+            let id = doc.alloc_id();
+            let mut v = Node::frame(id, Rect::new(1000.0, 0.0, wd, 40.0));
+            v.name = name.into();
+            let v = doc.insert(page, v).unwrap();
+            let id = doc.alloc_id();
+            let mut t = Node::text(id, Rect::new(10.0, 10.0, 60.0, 20.0), "Label", TextStyle::default());
+            t.name = "label".into();
+            doc.insert(v, t).unwrap();
+            create_component(&mut doc, v).apply(&mut doc).unwrap();
+            mains.push(v);
+        }
+        combine_as_variants(&mut doc, &mains).apply(&mut doc).unwrap();
+
+        let hugging_frame = |d: &mut Document, parent: NodeId, y: f32, padding: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(10.0, y, 10.0, 10.0));
+            if let NodeKind::Frame(fp) = &mut f.kind {
+                fp.auto_layout = Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    primary_sizing: Sizing::Hug,
+                    counter_sizing: Sizing::Hug,
+                    padding: [padding; 4],
+                    layout_version: 1,
+                    ..AutoLayout::default()
+                });
+            }
+            d.insert(parent, f).unwrap()
+        };
+
+        let wmain = hugging_frame(&mut doc, page, 300.0, 0.0);
+        create_instance(&mut doc, mains[0], wmain, Vec2::ZERO).apply(&mut doc).unwrap();
+        let n_main = *doc.get(wmain).unwrap().children.last().unwrap();
+        create_component(&mut doc, wmain).apply(&mut doc).unwrap();
+        let mut h = History::default();
+        for (prop, var) in [("Size", "size"), ("State", "state")] {
+            let c = bind_prop_variable(&mut doc, n_main, prop, Some(var)).unwrap();
+            h.exec(&mut doc, c).unwrap();
+        }
+
+        let id = doc.alloc_id();
+        let screen = doc.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 400.0, 800.0))).unwrap();
+        let hug_top = hugging_frame(&mut doc, screen, 10.0, 4.0);
+        create_instance(&mut doc, mains[0], hug_top, Vec2::ZERO).apply(&mut doc).unwrap();
+        let top = *doc.get(hug_top).unwrap().children.last().unwrap();
+        for (prop, var) in [("Size", "size"), ("State", "state")] {
+            let c = bind_prop_variable(&mut doc, top, prop, Some(var)).unwrap();
+            h.exec(&mut doc, c).unwrap();
+        }
+
+        let hug_nested = hugging_frame(&mut doc, screen, 100.0, 4.0);
+        create_instance(&mut doc, wmain, hug_nested, Vec2::ZERO).apply(&mut doc).unwrap();
+        let w = *doc.get(hug_nested).unwrap().children.last().unwrap();
+        let copy = *doc.get(w).unwrap().children.first().unwrap();
+
+        let make_btn = |d: &mut Document, y: f32, action: Action| -> NodeId {
+            let id = d.alloc_id();
+            let b = d.insert(screen, Node::rectangle(id, Rect::new(10.0, y, 80.0, 30.0))).unwrap();
+            add(d, b, react(Trigger::OnClick, action, None));
+            b
+        };
+        let btn_dark = make_btn(&mut doc, 600.0, Action::SetVariableMode { collection: "theme".into(), mode: "dark".into() });
+        let btn_light = make_btn(&mut doc, 640.0, Action::SetVariableMode { collection: "theme".into(), mode: "light".into() });
+        let btn_set = make_btn(&mut doc, 680.0, Action::SetVariable { variable: "size".into(), value: Expression::text("Large") });
+
+        doc.relayout_subtree(screen);
+        BoundVariantPlayerFx { doc, h, screen, hug_top, top, hug_nested, w, copy, btn_dark, btn_light, btn_set }
+    }
+
+    fn shown_variant_name(doc: &Document, inst: NodeId) -> String {
+        doc.get(instance_component(doc.get(inst).unwrap()).unwrap()).unwrap().name.clone()
+    }
+
+    #[test]
+    fn set_variable_mode_switches_a_bound_top_level_variant() {
+        let f = bound_variant_player_fixture();
+        let mut p = Player::new(&f.doc, f.screen);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Default");
+        assert_eq!(p.doc.get(f.hug_top).unwrap().size.x, 108.0);
+        let rev = p.frame_rev(f.screen);
+        p.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover");
+        assert_eq!(p.doc.get(f.top).unwrap().size.x, 210.0);
+        assert_eq!(p.doc.get(f.hug_top).unwrap().size.x, 218.0, "hug host resizes in the same step as the switch");
+        assert!(p.frame_rev(f.screen) > rev);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+    }
+
+    #[test]
+    fn set_variable_mode_switches_a_bound_nested_variant_and_keeps_its_text_override() {
+        let mut f = bound_variant_player_fixture();
+        let label = *f.doc.get(f.copy).unwrap().children.first().unwrap();
+        let mut edited = f.doc.get(label).unwrap().clone();
+        if let NodeKind::Text(tp) = &mut edited.kind {
+            tp.content = "Keep me".into();
+        }
+        f.h.exec(&mut f.doc, Command::Update { node: Box::new(edited) }).unwrap();
+
+        let mut p = Player::new(&f.doc, f.screen);
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Small, State=Default");
+        assert_eq!(p.doc.get(f.hug_nested).unwrap().size.x, 108.0);
+        p.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Hover");
+        let new_label = *p.doc.get(f.copy).unwrap().children.first().unwrap();
+        assert_eq!(content_of(&p, new_label), "Keep me", "nested copy keeps its text override across the switch");
+        assert_eq!(p.doc.get(f.w).unwrap().size.x, 210.0);
+        assert_eq!(p.doc.get(f.hug_nested).unwrap().size.x, 218.0, "hug host around the nested copy resizes too");
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+    }
+
+    #[test]
+    fn set_variable_switches_a_variant_bound_to_that_variable() {
+        let f = bound_variant_player_fixture();
+        let mut p = Player::new(&f.doc, f.screen);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Default");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Small, State=Default");
+        let rev = p.frame_rev(f.screen);
+        p.pointer_up(Some(f.btn_set), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Default");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Default");
+        assert_eq!(p.doc.get(f.hug_top).unwrap().size.x, 208.0);
+        assert_eq!(p.doc.get(f.hug_nested).unwrap().size.x, 208.0);
+        assert!(p.frame_rev(f.screen) > rev);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+    }
+
+    #[test]
+    fn a_picked_property_stays_held_in_the_player() {
+        let mut f = bound_variant_player_fixture();
+        let c_top = set_instance_prop(&mut f.doc, f.top, "Size", Some(PropValue::Variant("Large".into())));
+        f.h.exec(&mut f.doc, c_top).unwrap();
+        let c_nested = set_nested_instance_prop(&mut f.doc, f.copy, "Size", Some(PropValue::Variant("Large".into())));
+        f.h.exec(&mut f.doc, c_nested).unwrap();
+
+        let mut p = Player::new(&f.doc, f.screen);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Default");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Default");
+        p.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover", "State follows, picked Size holds");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Hover", "nested State follows, picked Size holds");
+        p.pointer_up(Some(f.btn_light), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Default", "picked Size stays held when mode returns to light");
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Default", "nested picked Size stays held when mode returns to light");
+    }
+
+    #[test]
+    fn the_editor_document_is_unchanged_after_the_player_runs() {
+        let f = bound_variant_player_fixture();
+        let before_json = f.doc.to_json().unwrap();
+        let before = f.doc.clone();
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.btn_dark), false);
+        p.pointer_up(Some(f.btn_light), false);
+        p.pointer_up(Some(f.btn_set), false);
+        assert_eq!(f.doc.nodes, before.nodes);
+        assert_eq!(f.doc.variables, before.variables);
+        assert_eq!(f.doc.variable_collections, before.variable_collections);
+        assert_eq!(f.doc.to_json().unwrap(), before_json);
     }
 
     #[test]

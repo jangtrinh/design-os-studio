@@ -531,11 +531,12 @@ pub fn settle_bound_props(doc: &mut Document) {
     let _ = apply_prop_resync(doc, &scope);
 }
 
-/// Re-applies component properties bound to variables after a caller changes the variable mode
-/// outside [`History`], such as the prototype player scratch document.
+/// Re-applies component properties bound to variables and solves the auto-layout chains their
+/// switched instances feed after a caller changes variable values or modes outside [`History`],
+/// such as the prototype player scratch document.
 pub fn resync_bound_properties(doc: &mut Document) {
     let scope = PropResyncScope { all: true, ..Default::default() };
-    let _ = apply_prop_resync(doc, &scope);
+    let _ = apply_prop_resync_and_relayout(doc, &scope);
 }
 
 fn release_bound_variants_the_file_stored(doc: &mut Document) {
