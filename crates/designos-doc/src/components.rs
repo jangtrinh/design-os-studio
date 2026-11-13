@@ -130,6 +130,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
         n.component.grid_align_overrides = [false, false];
         n.component.props.clear();
         n.component.slot_configs.clear();
+        n.component.prop_default_variables.clear();
         n.component.expose_nested_instances = false;
     }
     let idx = out.len();
@@ -948,6 +949,7 @@ pub fn create_instance_reserving(
     root.component.values.clear();
     // The master's ids define its slots; an instance only has them once it assigns its own.
     root.component.slot_content_ids.clear();
+    root.component.prop_default_variables.clear();
     let index = doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     Command::Insert { parent, index, nodes }
 }
@@ -988,6 +990,7 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
         n.component.overrides = OverrideField::ALL.into_iter().collect();
         n.component.grid_align_overrides = [true, true];
         n.component.values.clear();
+        n.component.prop_default_variables.clear();
         release_own_variant_bindings(&mut n);
     } else {
         n.component = ComponentLink::default();
@@ -1107,6 +1110,7 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
     if let Some(mut n) = c.s.get(instance).cloned() {
         n.component.values.clear();
         n.component.slot_content_ids.clear();
+        n.component.prop_default_variables.clear();
         c.update(n);
     }
     let exposed_values = exposed_nested_value_overrides(c.s, instance);
@@ -3146,6 +3150,9 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
     if let Some(scid) = o.component.slot_content_ids.remove(old) {
         o.component.slot_content_ids.insert(new.to_string(), scid);
     }
+    if let Some(var) = o.component.prop_default_variables.remove(old) {
+        o.component.prop_default_variables.insert(new.to_string(), var);
+    }
     c.update(o);
     for id in subtree_ids(c.s, owner) {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
@@ -3184,6 +3191,7 @@ pub fn delete_prop(doc: &mut Document, owner: NodeId, name: &str) -> Command {
     o.component.slot_content_ids.remove(name);
     o.component.props.retain(|p| p.name != name);
     o.component.slot_configs.remove(name);
+    o.component.prop_default_variables.remove(name);
     c.update(o);
     for id in subtree_ids(c.s, owner) {
         let Some(mut n) = c.s.get(id).cloned() else { continue };

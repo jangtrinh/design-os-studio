@@ -388,3 +388,52 @@ fn a_binding_set_through_a_plain_node_update_is_applied_too() {
     f.h.undo(&mut f.d).unwrap();
     assert_eq!(label_text(&f), "Label");
 }
+
+#[test]
+fn rename_prop_moves_bound_property_default_and_undoes() {
+    let mut f = fx();
+    f.d.get_mut(f.comp).unwrap().component.prop_default_variables.insert("Show icon".into(), "show".into());
+
+    let rename = rename_prop(&mut f.d, f.comp, "Show icon", "Icon");
+    f.h.exec(&mut f.d, rename).unwrap();
+    assert_eq!(f.d.get(f.comp).unwrap().component.prop_default_variables.get("Icon").map(String::as_str), Some("show"));
+    assert!(!f.d.get(f.comp).unwrap().component.prop_default_variables.contains_key("Show icon"));
+
+    f.h.undo(&mut f.d).unwrap();
+    assert_eq!(f.d.get(f.comp).unwrap().component.prop_default_variables.get("Show icon").map(String::as_str), Some("show"));
+    assert!(!f.d.get(f.comp).unwrap().component.prop_default_variables.contains_key("Icon"));
+}
+
+#[test]
+fn delete_prop_removes_bound_property_default_and_undoes() {
+    let mut f = fx();
+    f.d.get_mut(f.comp).unwrap().component.prop_default_variables.insert("Label".into(), "title".into());
+
+    let del = delete_prop(&mut f.d, f.comp, "Label");
+    f.h.exec(&mut f.d, del).unwrap();
+    assert!(!f.d.get(f.comp).unwrap().component.prop_default_variables.contains_key("Label"));
+
+    f.h.undo(&mut f.d).unwrap();
+    assert_eq!(f.d.get(f.comp).unwrap().component.prop_default_variables.get("Label").map(String::as_str), Some("title"));
+}
+
+#[test]
+fn instances_and_detaches_and_resets_do_not_carry_property_default_variables() {
+    let mut f = fx();
+    f.d.get_mut(f.comp).unwrap().component.prop_default_variables.insert("Show icon".into(), "show".into());
+    f.d.get_mut(f.icon).unwrap().component.prop_default_variables.insert("Leak".into(), "show".into());
+
+    let create = create_instance(&mut f.d, f.comp, f.page, Vec2::new(300.0, 0.0));
+    f.h.exec(&mut f.d, create).unwrap();
+    let placed = *f.d.get(f.page).unwrap().children.last().unwrap();
+    assert!(f.d.get(placed).unwrap().component.prop_default_variables.is_empty(), "instance root must not inherit prop_default_variables");
+    for &kid in &f.d.get(placed).unwrap().children {
+        assert!(f.d.get(kid).unwrap().component.prop_default_variables.is_empty(), "cloned instance child must not inherit prop_default_variables");
+    }
+
+    // Resetting an instance clears any stray prop_default_variables on it.
+    f.d.get_mut(placed).unwrap().component.prop_default_variables.insert("Show icon".into(), "show".into());
+    let reset = reset_instance(&mut f.d, placed);
+    f.h.exec(&mut f.d, reset).unwrap();
+    assert!(f.d.get(placed).unwrap().component.prop_default_variables.is_empty(), "reset_instance clears prop_default_variables");
+}

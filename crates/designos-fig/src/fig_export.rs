@@ -3359,20 +3359,16 @@ fn prop_def_alias(cx: &ExportCtx, node: &Node, p: &ComponentPropDef) -> Option<V
         return Some(msg(vec![
             ("dataType", en("ALIAS")),
             ("resolvedDataType", en(resolved)),
-            ("value", msg(vec![("alias", msg(vec![("assetRef", msg(vec![("key", V::String(key.to_string())), ("version", V::String(String::new()))]))]))])),
+            ("value", msg(vec![("alias", msg(vec![("assetRef", msg(vec![("key", V::String(key.to_string()))]))]))])),
         ]));
     }
-    let vg = cx.resolve_var_guid(var_id)?;
-    let resolved = match cx.doc.variables.get(var_id).map(|v| v.kind) {
-        Some(VariableKind::Boolean) => "BOOLEAN",
-        Some(VariableKind::String) => "STRING",
-        Some(VariableKind::Number) => "FLOAT",
-        Some(VariableKind::Color) => "COLOR",
-        None => match &p.kind {
-            PropKind::Boolean => "BOOLEAN",
-            PropKind::Text | PropKind::Variant { .. } => "STRING",
-            PropKind::InstanceSwap { .. } | PropKind::Slot => return None,
-        },
+    let var = cx.doc.variables.get(var_id)?;
+    let vg = cx.resolve_var_guid(&var.id)?;
+    let resolved = match var.kind {
+        VariableKind::Boolean => "BOOLEAN",
+        VariableKind::String => "STRING",
+        VariableKind::Number => "FLOAT",
+        VariableKind::Color => "COLOR",
     };
     Some(msg(vec![("dataType", en("ALIAS")), ("resolvedDataType", en(resolved)), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))]))
 }

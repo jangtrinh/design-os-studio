@@ -449,3 +449,132 @@ fn a_property_definition_without_a_binding_serializes_as_before() {
     let defs = saved_comp["componentPropDefs"].as_array().expect("componentPropDefs");
     assert!(defs.iter().all(|d| d.get("varValue").is_none()), "unbound property definitions must not write varValue in .fig: {defs:?}");
 }
+
+#[test]
+fn deleting_a_variable_removes_its_bound_property_default_from_the_scan_file() {
+    let mut doc = import_fig_node_changes(&Value::Array(fig_with_bound_prop_defaults()), "delete var scan").expect("import fig");
+    doc.variables.remove("VariableID:1:7");
+    for updated in designos_doc::dangling_binding_cleanup(&doc, &["VariableID:1:7".to_string()], &[]) {
+        doc.nodes.insert(updated.id, updated);
+    }
+
+    let scan = designos_fig::scan_design_system(&doc).expect("scan design system");
+    let button = scan.components.iter().find(|c| c.name == "Button").expect("Button component in scan");
+    assert_eq!(
+        button.bound_variables,
+        Some(vec!["VariableID:1:8".to_string()]),
+        "deleted variable must be removed from prop_default_variables and scan output"
+    );
+}
+
+#[test]
+fn remote_key_bound_property_default_omits_empty_version_and_round_trips() {
+    let mut changes = fig_with_bound_prop_defaults();
+    let comp_change = changes.iter_mut().find(|n| n["name"] == "Button").unwrap();
+    let defs = comp_change["componentPropDefs"].as_array_mut().unwrap();
+    defs[0]["varValue"] = json!({
+        "dataType": "ALIAS",
+        "resolvedDataType": "BOOLEAN",
+        "value": { "alias": { "assetRef": { "key": "remote_bool_var_key" } } }
+    });
+
+    let doc = import_fig_node_changes(&Value::Array(changes), "remote key prop default").expect("import fig");
+    let comp = by_name(&doc, "Button");
+    assert_eq!(comp.component.prop_default_variables.get("Show icon").map(String::as_str), Some("key:remote_bool_var_key"));
+
+    let saved = export_fig(&doc).expect("export .fig");
+    let nodes = node_changes(&saved);
+    let saved_comp = nodes.iter().find(|n| n["name"] == "Button").expect("Button saved");
+    let saved_def = saved_comp["componentPropDefs"].as_array().unwrap().iter().find(|d| d["name"] == "Show icon").expect("Show icon def saved");
+    let asset_ref = &saved_def["varValue"]["value"]["alias"]["assetRef"];
+    assert_eq!(asset_ref["key"], "remote_bool_var_key");
+    assert!(asset_ref.get("version").is_none(), "remote key assetRef must omit empty version: {asset_ref:?}");
+
+    let reopened = import_fig(&saved).expect("reopen .fig");
+    let reopened_comp = by_name(&reopened, "Button");
+    assert_eq!(reopened_comp.component.prop_default_variables.get("Show icon").map(String::as_str), Some("key:remote_bool_var_key"));
+}
+
+#[test]
+fn rest_import_clears_prop_default_variables_on_expanded_instances_and_requires_default_value_id_object() {
+    let rest = json!({
+        "name": "REST instance and strict prop defs",
+        "document": {
+            "id": "0:0",
+            "name": "Document",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "name": "Page 1",
+                "type": "CANVAS",
+                "children": [
+                    {
+                        "id": "1:10",
+                        "name": "Outer",
+                        "type": "COMPONENT",
+                        "absoluteBoundingBox": { "x": 0.0, "y": 0.0, "width": 120.0, "height": 40.0 },
+                        "componentPropertyDefinitions": {
+                            "Show icon#4:12": {
+                                "type": "BOOLEAN",
+                                "defaultValue": true,
+                                "boundVariables": {
+                                    "defaultValue": { "type": "VARIABLE_ALIAS", "id": "VariableID:1:7" }
+                                }
+                            },
+                            "BareString#4:13": {
+                                "type": "TEXT",
+                                "defaultValue": "Ignored",
+                                "boundVariables": {
+                                    "defaultValue": "VariableID:1:8"
+                                }
+                            },
+                            "ValueField#4:14": {
+                                "type": "TEXT",
+                                "defaultValue": "Ignored",
+                                "boundVariables": {
+                                    "value": { "type": "VARIABLE_ALIAS", "id": "VariableID:1:9" }
+                                }
+                            }
+                        },
+                        "children": [{
+                            "id": "1:11",
+                            "name": "InnerChild",
+                            "type": "COMPONENT",
+                            "absoluteBoundingBox": { "x": 0.0, "y": 0.0, "width": 40.0, "height": 20.0 },
+                            "componentPropertyDefinitions": {
+                                "ChildProp#4:15": {
+                                    "type": "BOOLEAN",
+                                    "defaultValue": false,
+                                    "boundVariables": {
+                                        "defaultValue": { "type": "VARIABLE_ALIAS", "id": "VariableID:1:7" }
+                                    }
+                                }
+                            },
+                            "children": []
+                        }]
+                    },
+                    {
+                        "id": "1:20",
+                        "name": "OuterInstance",
+                        "type": "INSTANCE",
+                        "componentId": "1:10",
+                        "absoluteBoundingBox": { "x": 160.0, "y": 0.0, "width": 120.0, "height": 40.0 },
+                        "children": []
+                    }
+                ]
+            }]
+        }
+    });
+
+    let doc = designos_fig::import_rest_json(&rest.to_string()).expect("import REST JSON");
+    let outer = by_name(&doc, "Outer");
+    assert_eq!(outer.component.prop_default_variables.get("Show icon").map(String::as_str), Some("VariableID:1:7"));
+    assert!(!outer.component.prop_default_variables.contains_key("BareString"), "bare string without id object must not be accepted");
+    assert!(!outer.component.prop_default_variables.contains_key("ValueField"), "boundVariables.value on a definition must not be accepted");
+
+    let inst = by_name(&doc, "OuterInstance");
+    assert!(inst.component.prop_default_variables.is_empty(), "instance root must not store prop_default_variables");
+    for &kid in &inst.children {
+        assert!(doc.get(kid).unwrap().component.prop_default_variables.is_empty(), "expanded instance child must not inherit prop_default_variables");
+    }
+}
