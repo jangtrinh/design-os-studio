@@ -123,6 +123,11 @@ fn update_node_unbinds_with_null_and_refuses_a_wrong_variable() {
     assert_eq!(missing.to_json_value()["error"]["code"], "UNKNOWN_COMPONENT_PROPERTY");
     let not_instance = s.e.call("designos_update_node", json!({"node_id": s.comp.0, "prop_vars": {"Label": "var:Theme/title"}})).unwrap_err();
     assert_eq!(not_instance.to_json_value()["error"]["code"], "OVERRIDE_FIELD_NOT_APPLICABLE");
+    let documented = designos_mcp::rules::tool_error_codes("designos_update_node");
+    for returned in [&missing, &not_instance] {
+        let code = returned.to_json_value()["error"]["code"].as_str().unwrap().to_string();
+        assert!(documented.contains(&format!("`{code}`").as_str()), "designos_update_node error list must include {code}: {documented:?}");
+    }
     assert!(s.e.doc.get(s.inst).unwrap().variables.bindings.is_empty(), "a refused call changes nothing");
 }
 
