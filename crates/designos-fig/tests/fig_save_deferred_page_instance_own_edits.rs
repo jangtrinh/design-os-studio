@@ -73,6 +73,24 @@ fn a_resize_of_the_unopened_instance_survives_a_save() {
 }
 
 #[test]
+fn resetting_a_size_override_on_the_unopened_instance_drops_the_recorded_size() {
+    let fig = fixture_with_own_entry();
+    let mut live = import_fig(&fig).expect("import");
+    let button = variant_button(&live);
+    let node = live.get_mut(button).expect("instance");
+    assert!(node.component.overrides.contains(&OverrideField::Size), "the fixture records a size override");
+    node.size = Vec2::new(120.0, 48.0);
+    node.component.overrides.remove(&OverrideField::Size);
+
+    let saved = export_fig(&live).expect("export");
+    let back = reopened(&saved);
+    let reopened_button = variant_button(&back);
+    let size = back.get(reopened_button).expect("instance").size;
+    assert_eq!((size.x, size.y), (120.0, 48.0), "a reset pending override follows the main size");
+    assert!(entry_at(&saved_entries(&saved, INSTANCE), BUTTON).get("size").is_none(), "the reset size is removed from the own entry");
+}
+
+#[test]
 fn a_fill_change_of_the_unopened_instance_survives_a_save() {
     let fig = fixture_with_own_entry();
     let mut live = import_fig(&fig).expect("import");
