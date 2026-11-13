@@ -538,6 +538,8 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`UNKNOWN_COMPONENT`",
             "`INSTANCE_CYCLE`",
             "`UNKNOWN_VARIABLE`",
+            "`UNKNOWN_COMPONENT_PROPERTY`",
+            "`OVERRIDE_FIELD_NOT_APPLICABLE`",
             "`UNKNOWN_SLOT`",
             "`TOOL_DISABLED`",
         ],
@@ -877,9 +879,18 @@ mod tests {
         assert!(has("designos_create_node", "UNSUPPORTED_NODE_KIND"));
         assert!(has("designos_update_node", "UNKNOWN_COMPONENT_PROPERTY"));
         assert!(has("designos_update_node", "OVERRIDE_FIELD_NOT_APPLICABLE"));
+        assert!(has("designos_apply_spec", "UNKNOWN_COMPONENT_PROPERTY"));
+        assert!(has("designos_apply_spec", "OVERRIDE_FIELD_NOT_APPLICABLE"));
         for tool in ["designos_save_file", "designos_render_png", "designos_export_fig_file"] {
             assert!(has(tool, "UNSUPPORTED_EXTENSION"), "{tool}");
         }
+    }
+
+    #[test]
+    fn apply_spec_lists_property_binding_errors_it_can_return() {
+        let codes = tool_error_codes("designos_apply_spec");
+        assert!(codes.contains(&"`UNKNOWN_COMPONENT_PROPERTY`"), "{codes:?}");
+        assert!(codes.contains(&"`OVERRIDE_FIELD_NOT_APPLICABLE`"), "{codes:?}");
     }
 
     #[test]

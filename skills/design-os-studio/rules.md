@@ -109,7 +109,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 ### `designos_apply_spec`
 - **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI...
 - **Args:** required: `spec` (optional: `diff_image`, `idempotency_key`, `lint`, `parent_id`)
-- **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `INSTANCE_CYCLE`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
+- **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `INSTANCE_CYCLE`, `UNKNOWN_VARIABLE`, `UNKNOWN_COMPONENT_PROPERTY`, `OVERRIDE_FIELD_NOT_APPLICABLE`, `UNKNOWN_SLOT`
 - **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","children":[{"kind":"text","name":"Label","text":"Net Revenue"},{"kind":"text","name":"Value","text":"$148,920"}]}}`
 
 ### `designos_export_spec`
