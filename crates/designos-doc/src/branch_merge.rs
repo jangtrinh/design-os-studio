@@ -615,6 +615,10 @@ fn rewrite_node_references(
     for (prop, var_id) in old_bindings {
         node.variables.bindings.insert(prop, remap_str(&var_id, variable_map));
     }
+    let old_prop_defaults = std::mem::take(&mut node.component.prop_default_variables);
+    for (prop, var_id) in old_prop_defaults {
+        node.component.prop_default_variables.insert(prop, remap_str(&var_id, variable_map));
+    }
     let old_modes = std::mem::take(&mut node.variables.modes);
     for (col_id, mode_id) in old_modes {
         let new_mode_id = remap_mode(&col_id, &mode_id, mode_map, flat_mode_map);
@@ -2223,6 +2227,67 @@ mod tests {
         assert!(merged.styles.contains_key("brand/accent-branch"));
         assert!(merged.variable_collections.contains_key("col-tokens-branch"));
         assert!(merged.variables.contains_key("var-primary-branch"));
+    }
+
+    #[test]
+    fn branch_merge_remaps_colliding_variable_ids_in_prop_default_variables() {
+        let (base, page) = new_doc_with_page();
+        let mut main = base.clone();
+        let mut branch = base.clone();
+
+        let col_id = "col-tokens".to_string();
+        let mode_id = "mode-1".to_string();
+        let var_id = "var-label".to_string();
+
+        for (doc, text_val) in [(&mut main, "Main Label"), (&mut branch, "Branch Label")] {
+            doc.variable_collections.insert(
+                col_id.clone(),
+                VariableCollection {
+                    id: col_id.clone(),
+                    name: "Tokens".into(),
+                    modes: vec![VariableMode { id: mode_id.clone(), name: "Default".into() }],
+                    default_mode: mode_id.clone(),
+                    variables: vec![var_id.clone()],
+                    key: None,
+                    source_library_key: None,
+                    extensions: Default::default(),
+                },
+            );
+            doc.variables.insert(
+                var_id.clone(),
+                Variable {
+                    id: var_id.clone(),
+                    name: text_val.into(),
+                    collection: col_id.clone(),
+                    kind: VariableKind::String,
+                    values: BTreeMap::from([(mode_id.clone(), VariableValue::String(text_val.into()))]),
+                    description: String::new(),
+                    scopes: Vec::new(),
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: BTreeMap::new(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+
+        let branch_comp = branch.alloc_id();
+        let mut comp_node = Node::new(branch_comp, NodeKind::Component(FrameProps::default()));
+        comp_node.name = "Branch Button".into();
+        comp_node.component.props.push(ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("CTA".into()) });
+        comp_node.component.prop_default_variables.insert("Label".into(), var_id.clone());
+        branch.insert(page, comp_node).unwrap();
+
+        let diff = diff3(&base, &main, &branch);
+        let plan = merge(&base, &main, &branch, &diff, &Resolution::default()).expect("merge succeeds");
+        let merged = &plan.merged_document;
+        let merged_comp = merged.nodes.values().find(|n| n.name == "Branch Button").unwrap();
+        assert_eq!(
+            merged_comp.component.prop_default_variables.get("Label").map(String::as_str),
+            Some("var-label-branch"),
+            "branch merge must remap colliding variable ids in prop_default_variables"
+        );
     }
 
     #[test]

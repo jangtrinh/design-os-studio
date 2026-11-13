@@ -1778,6 +1778,12 @@ impl<'a> Ctx<'a> {
                     }
                     _ => continue,
                 };
+                if matches!(kind, PropKind::Boolean | PropKind::Text | PropKind::Variant { .. }) {
+                    let alias = d.get("boundVariables").and_then(|b| b.get("defaultValue"));
+                    if let Some(var) = alias.and_then(|a| fstr(a, "id")).filter(|s| !s.is_empty()) {
+                        n.component.prop_default_variables.insert(name.clone(), var.to_string());
+                    }
+                }
                 n.component.props.push(ComponentPropDef { name, kind, default });
             }
         }
@@ -2857,6 +2863,7 @@ impl<'a> Ctx<'a> {
             n.component.layout_cleared = false;
             n.component.props.clear();
             n.component.slot_configs.clear();
+            n.component.prop_default_variables.clear();
             n.component.expose_nested_instances = false;
             let container = n.kind.is_container();
             match parent_idx {

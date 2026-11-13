@@ -510,6 +510,7 @@ pub fn clone_component_children_into_instance(doc: &mut Document, comp_id: NodeI
         n.component.overrides.clear();
         n.component.props.clear();
         n.component.slot_configs.clear();
+        n.component.prop_default_variables.clear();
         let _ = doc.insert(dst_parent_id, n);
         for &ch_id in orig.children.iter().rev() {
             stack.push((ch_id, new_id));

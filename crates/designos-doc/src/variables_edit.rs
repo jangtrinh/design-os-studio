@@ -632,10 +632,12 @@ pub fn dangling_binding_cleanup(doc: &Document, removed_vars: &[String], removed
     for n in doc.nodes.values() {
         let bad_b = n.variables.bindings.values().any(|v| removed_vars.contains(v));
         let bad_m = n.variables.modes.keys().any(|c| removed_colls.contains(c));
-        if bad_b || bad_m {
+        let bad_d = n.component.prop_default_variables.values().any(|v| removed_vars.contains(v));
+        if bad_b || bad_m || bad_d {
             let mut c = n.clone();
             c.variables.bindings.retain(|_, v| !removed_vars.contains(v));
             c.variables.modes.retain(|k, _| !removed_colls.contains(k));
+            c.component.prop_default_variables.retain(|_, v| !removed_vars.contains(v));
             out.push(c);
         }
     }
@@ -944,5 +946,37 @@ mod tests {
         assert!(!s.collections.contains_key(&other));
         assert_eq!((s.collections[&lib].clone(), s.variables[&lib_var].clone()), library_before);
         assert_eq!(s.variables[&local_var].values[&mode], VariableValue::Alias(lib_var), "the alias was not baked into a literal");
+    }
+
+    #[test]
+    fn dangling_binding_cleanup_removes_deleted_variables_from_prop_default_variables() {
+        let mut d = Document::new("cleanup");
+        let page = d.add_page("Page 1");
+        let cid = d.alloc_id();
+        let mut comp = Node::new(cid, NodeKind::Component(FrameProps::default()));
+        comp.component.prop_default_variables.insert("Show icon".into(), "var_deleted".into());
+        comp.component.prop_default_variables.insert("Label".into(), "var_kept".into());
+        comp.component.prop_default_variables.insert("Remote".into(), "key:remote_key".into());
+        d.insert(page, comp).unwrap();
+
+        let cleaned = dangling_binding_cleanup(&d, &["var_deleted".to_string()], &[]);
+        assert_eq!(cleaned.len(), 1, "a node whose only stale reference is in prop_default_variables must be returned");
+        assert!(!cleaned[0].component.prop_default_variables.contains_key("Show icon"));
+        assert_eq!(cleaned[0].component.prop_default_variables.get("Label").map(String::as_str), Some("var_kept"));
+        assert_eq!(cleaned[0].component.prop_default_variables.get("Remote").map(String::as_str), Some("key:remote_key"));
+
+        // Executing the variable deletion and cleanup in one History batch and undoing restores the entry.
+        let mut h = crate::History::default();
+        let mut batch: Vec<crate::Command> = vec![crate::Command::SetVariables { variables: Default::default(), collections: Default::default() }];
+        batch.extend(cleaned.into_iter().map(|node| crate::Command::Update { node: Box::new(node) }));
+        h.exec(&mut d, crate::Command::Batch(batch)).unwrap();
+        assert!(!d.get(cid).unwrap().component.prop_default_variables.contains_key("Show icon"));
+
+        h.undo(&mut d).unwrap();
+        assert_eq!(
+            d.get(cid).unwrap().component.prop_default_variables.get("Show icon").map(String::as_str),
+            Some("var_deleted"),
+            "undo after variable delete and cleanup restores the prop_default_variables entry"
+        );
     }
 }

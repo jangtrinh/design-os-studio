@@ -379,6 +379,10 @@ pub struct ComponentLink {
     /// property that is not bound is never recorded here: the variant the instance shows already is its pick.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub variant_picks: BTreeSet<String>,
+    /// Variable bound to the default value of a property definition in `props`, keyed by property
+    /// name (`ComponentPropDef.varValue` / `componentPropertyDefinitions[*].boundVariables.defaultValue`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub prop_default_variables: BTreeMap<String, String>,
 }
 
 fn is_false_pair(pair: &[bool; 2]) -> bool {
@@ -406,6 +410,7 @@ impl ComponentLink {
             && !self.layout_cleared
             && self.own_variant_bindings.is_empty()
             && self.variant_picks.is_empty()
+            && self.prop_default_variables.is_empty()
     }
 }
 
