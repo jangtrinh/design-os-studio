@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 /// The fields an instance's own record entry can state, and that a save can restate from the node.
-pub(crate) const SELF_FIELDS: [OverrideField; 12] = [
+pub(crate) const SELF_FIELDS: [OverrideField; 13] = [
     OverrideField::Name,
     OverrideField::Visible,
     OverrideField::Locked,
@@ -28,6 +28,7 @@ pub(crate) const SELF_FIELDS: [OverrideField; 12] = [
     OverrideField::Stroke,
     OverrideField::Effects,
     OverrideField::CornerRadii,
+    OverrideField::Layout,
 ];
 
 /// A digest of what `node` holds for `field`, covering every value a save writes for that field.
@@ -49,6 +50,12 @@ fn digest(node: &Node, field: OverrideField) -> u64 {
         OverrideField::Stroke => format!("{:?}{:?}{:?}{:?}", node.stroke, node.stroke_geometry, bound("strokes/"), node.style_refs.get("stroke")),
         OverrideField::Effects => format!("{:?}{:?}{:?}", node.effects, bound("effects/"), node.style_refs.get("effect")),
         OverrideField::CornerRadii => format!("{:?}{:?}", node.corner_radii, node.corner_smoothing),
+        // The own-entry writer restates the frame's clipping and auto-layout fields, but not child layout
+        // constraints. Keep the explicit clear marker because it emits `stackMode: NONE`.
+        OverrideField::Layout => node.kind.frame_props().map_or_else(
+            || format!("none{:?}", node.component.layout_cleared),
+            |fp| format!("{:?}{:?}{:?}{:?}", fp.clips_content, fp.auto_layout, fp.grids, node.component.layout_cleared),
+        ),
         _ => String::new(),
     };
     text.hash(&mut h);

@@ -2116,7 +2116,7 @@ impl<'a> Ctx<'a> {
             // A field a save can restate is flagged by the keys the file's own entry carries, not by what the loader made
             // of them: it folds, renames and drops some (a style link without paints, for one).
             flagged.extend(ov.own_keys.iter().filter_map(|k| crate::own_entry_keys::field_stated_by(k)));
-            // The other fields (layout, text) are only kept from syncing; nothing restates them.
+            // The remaining fields (text and layout metadata without a restate path) are only kept from syncing.
             let mut no_maps = HashMap::new();
             for e in ov.set.iter().filter(|e| e.path.len() <= 1) {
                 if self.resolve_path_cached(inst, &e.path, &mut no_maps) != Some(inst) {

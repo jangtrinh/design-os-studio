@@ -3164,6 +3164,9 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
             if ovs.contains(&OverrideField::Layout) {
                 if let Some(fp) = n.kind.frame_props() {
                     ov.push(("frameMaskDisabled", V::Bool(!fp.clips_content)));
+                    if !fp.grids.is_empty() {
+                        ov.push(("layoutGrids", V::Array(fp.grids.iter().map(encode_grid).collect())));
+                    }
                     if let Some(al) = &fp.auto_layout {
                         let sm = match al.direction {
                             LayoutDirection::Horizontal => "HORIZONTAL",
