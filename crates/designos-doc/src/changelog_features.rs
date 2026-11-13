@@ -1476,7 +1476,8 @@ fn refit_group_ancestors(doc: &mut Document, id: NodeId) {
         }
         cur = doc.get(p).and_then(|n| n.parent);
     }
-    for group in groups.into_iter().rev() {
+    // Refit the innermost group first so each enclosing group sees its child's new bounds.
+    for group in groups {
         let _ = crate::layout_constraints::apply_resize_to_fit_one(doc, group, |_d, _id| {});
     }
 }
