@@ -1268,6 +1268,31 @@ fn variant_target_from(d: &Document, base_comp: NodeId, values: &BTreeMap<String
         .find(|k| d.get(*k).map(|n| matches!(n.kind, NodeKind::Component(_)) && same_variant(&parse_variant_name(&n.name), &want)).unwrap_or(false))
 }
 
+fn same_text_sizing(from: &Node, to: &Node) -> bool {
+    let (NodeKind::Text(a), NodeKind::Text(b)) = (&from.kind, &to.kind) else { return false };
+    a.style.font_family == b.style.font_family
+        && a.style.font_weight == b.style.font_weight
+        && a.style.italic == b.style.italic
+        && a.style.font_size == b.style.font_size
+        && a.style.line_height == b.style.line_height
+        && a.style.letter_spacing == b.style.letter_spacing
+        && a.style.paragraph_spacing == b.style.paragraph_spacing
+        && a.style.paragraph_indent == b.style.paragraph_indent
+        && a.style.list_spacing == b.style.list_spacing
+        && a.style.leading_trim == b.style.leading_trim
+        && a.style.case == b.style.case
+        && a.style.features == b.style.features
+        && a.style.variation_axes == b.style.variation_axes
+        && a.runs == b.runs
+        && a.auto_resize == b.auto_resize
+        && a.max_lines == b.max_lines
+        && a.paragraph == b.paragraph
+        && a.lists == b.lists
+        && a.direction == b.direction
+        && a.text_wrap == b.text_wrap
+        && same_binding_keys(from, to, &["fontSize", "fontFamily", "fontWeight", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent"])
+}
+
 fn copy_overridden(from: &Node, to: &mut Node, fields: &BTreeSet<OverrideField>) {
     let target_align = (to.layout_child.grid_align_h, to.layout_child.grid_align_v);
     for f in fields {
@@ -1276,6 +1301,15 @@ fn copy_overridden(from: &Node, to: &mut Node, fields: &BTreeSet<OverrideField>)
             copy_variable_bindings_for_field(*f, from, to);
         } else {
             copy_field(*f, from, to);
+        }
+    }
+    if !fields.contains(&OverrideField::Size) && fields.contains(&OverrideField::Characters) && same_text_sizing(from, to) {
+        if let NodeKind::Text(b) = &to.kind {
+            match b.auto_resize {
+                TextAutoResize::WidthAndHeight => to.size = from.size,
+                TextAutoResize::Height if (to.size.x - from.size.x).abs() <= 1e-4 => to.size.y = from.size.y,
+                _ => {}
+            }
         }
     }
     if fields.contains(&OverrideField::Size) {
@@ -1926,9 +1960,11 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                     custom_layout_applied = apply_transferred_layout(&orig, &new_orig, &old, &mut nn);
                 }
                 let diff = transfer_gate_diff(&orig, &new_orig);
+                let same_text_metrics = same_text_sizing(&orig, &new_orig);
                 fields.retain(|f| {
                     *f == OverrideField::Name
-                        || (preserves_text_override && matches!(f, OverrideField::Characters | OverrideField::Size))
+                        || (preserves_text_override && *f == OverrideField::Characters)
+                        || (preserves_text_override && same_text_metrics && *f == OverrideField::Size)
                         || (!same_family && *f == OverrideField::TextStyle)
                         || !diff.contains(f)
                 });
@@ -7607,6 +7643,24 @@ mod tests {
         let after = d.get(child_named(&d, inst, "label")).unwrap();
         assert_eq!(after.size.x, kept_width, "switching B then A must preserve the overridden text width");
         assert_eq!(text_of(&d, after.id), "A much longer overridden label");
+
+        // Also cover derived auto-resize text width when only Characters is in overrides (no Size override flag).
+        let c = create_instance(&mut d, a, page, Vec2::new(450.0, 0.0));
+        apply(&mut d, c);
+        let inst2 = *d.get(page).unwrap().children.last().unwrap();
+        let label2 = child_named(&d, inst2, "label");
+        override_text(&mut d, label2, "A much longer overridden label");
+        let mut refit = d.get(label2).unwrap().clone();
+        refit.size.x = 180.0;
+        apply(&mut d, Command::Update { node: Box::new(refit) });
+        assert!(!d.get(label2).unwrap().component.overrides.contains(&OverrideField::Size));
+        let c = set_instance_prop(&mut d, inst2, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        let c = set_instance_prop(&mut d, inst2, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+        let after2 = d.get(child_named(&d, inst2, "label")).unwrap();
+        assert_eq!(after2.size.x, 180.0, "derived auto-resize text width must round-trip when text style matches");
+        assert!(!after2.component.overrides.contains(&OverrideField::Size));
     }
 
     #[test]
