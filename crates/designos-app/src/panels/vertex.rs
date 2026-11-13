@@ -15,17 +15,6 @@ use egui::{Align2, Rect, Sense, Ui};
 
 /// Entries of the mirroring dropdown. "Straight" removes the handles.
 const MIRROR: [&str; 4] = ["Straight", "Mirror angle and length", "Mirror angle", "No mirroring"];
-const CAPS: [(&str, Option<StrokeCap>); 9] = [
-    ("Inherit", None),
-    ("None", Some(StrokeCap::None)),
-    ("Line arrow", Some(StrokeCap::ArrowLines)),
-    ("Triangle arrow", Some(StrokeCap::ArrowEquilateral)),
-    ("Reversed triangle", Some(StrokeCap::TriangleFilled)),
-    ("Circle arrow", Some(StrokeCap::CircleFilled)),
-    ("Diamond arrow", Some(StrokeCap::DiamondFilled)),
-    ("Round", Some(StrokeCap::Round)),
-    ("Square", Some(StrokeCap::Square)),
-];
 
 fn text_button(ui: &mut Ui, rect: Rect, key: &str, label: &str, enabled: bool) -> bool {
     widgets::record(ui, key, rect);
@@ -36,11 +25,15 @@ fn text_button(ui: &mut Ui, rect: Rect, key: &str, label: &str, enabled: bool) -
     enabled && resp.clicked()
 }
 
-/// The stroke-cap dropdown. A cap the list has no entry for (an arrow, or vertices that disagree) reads "Mixed" in the
-/// mixed ink: label and ink come from the same list position.
+/// The stroke-cap dropdown. `"Inherit"` (`None`) is followed by [`super::stroke::ENDPOINT_CAPS`]; a cap the list has no
+/// entry for (or vertices that disagree) reads `"Mixed"` in the mixed ink.
 fn cap_dropdown(ui: &mut Ui, rect: Rect, cap: Option<Option<StrokeCap>>) -> Option<usize> {
-    let caps: Vec<String> = CAPS.iter().map(|c| c.0.to_string()).collect();
-    let at = cap.and_then(|c| CAPS.iter().position(|x| x.1 == c));
+    let caps: Vec<String> = std::iter::once("Inherit").chain(super::stroke::ENDPOINT_CAPS.iter().map(|(label, _)| *label)).map(str::to_string).collect();
+    let at = match cap {
+        Some(None) => Some(0),
+        Some(Some(c)) => super::stroke::ENDPOINT_CAPS.iter().position(|(_, k)| *k == c).map(|i| i + 1),
+        None => None,
+    };
     let cur = at.map(|i| caps[i].as_str()).unwrap_or("Mixed");
     dropdown_mixed(ui, rect, "vtx-cap", cur, &caps, at.is_none())
 }
@@ -91,7 +84,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
         let cap_r = pane.full(0.0);
         widgets::record(ui, "vtx-cap", cap_r);
         if let Some(i) = cap_dropdown(ui, cap_r, cap) {
-            let c = CAPS[i].1;
+            let c = i.checked_sub(1).and_then(|j| super::stroke::ENDPOINT_CAPS.get(j)).map(|(_, k)| *k);
             vec::set_vertices(app, |v| v.cap = c);
         }
         row_end(pane);
@@ -181,13 +174,7 @@ mod tests {
 
     #[test]
     fn every_endpoint_arrow_cap_has_a_vertex_label() {
-        for (label, cap) in [
-            ("Line arrow", StrokeCap::ArrowLines),
-            ("Triangle arrow", StrokeCap::ArrowEquilateral),
-            ("Reversed triangle", StrokeCap::TriangleFilled),
-            ("Circle arrow", StrokeCap::CircleFilled),
-            ("Diamond arrow", StrokeCap::DiamondFilled),
-        ] {
+        for (label, cap) in super::super::stroke::ENDPOINT_CAPS {
             assert_eq!(mixed_ink(Some(Some(cap)), label), Some(theme::TEXT), "{label}");
         }
     }
