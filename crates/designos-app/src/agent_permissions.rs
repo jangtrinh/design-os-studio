@@ -311,6 +311,7 @@ pub fn approval_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto
     } else {
         String::new()
     };
+    let interpreter = if cfg!(windows) { "sh" } else { "/bin/sh" };
     let script = format!(
         r#"#!/bin/sh
 set -eu
@@ -328,6 +329,10 @@ decline() {{
 case "${{DESIGNOS_TAB_ID:-}}" in
     ''|*[!0-9]*) decline ;;
 esac
+TAB_SCRIPT="$CHANNEL_DIR/approve-hook-tab-$DESIGNOS_TAB_ID.sh"
+if [ -f "$TAB_SCRIPT" ] && [ "${{DESIGNOS_TAB_HOOK_RAN:-}}" != "$DESIGNOS_TAB_ID" ]; then
+    DESIGNOS_TAB_HOOK_RAN="$DESIGNOS_TAB_ID" exec {interpreter} "$TAB_SCRIPT"
+fi
 APPROVALS_DIR="$CHANNEL_DIR/tab-$DESIGNOS_TAB_ID"
 mkdir -p "$APPROVALS_DIR" || decline
 {status_write}REQ_ID="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"
@@ -586,13 +591,25 @@ pub fn write_approval_hook_script(session_dir: &Path) -> std::io::Result<PathBuf
     install_hook_script(&channel_dir, Some(&crate::agent_hook_outputs::HookPaths::locate(session_dir).status()), false)
 }
 
+fn write_hook_script_file(script_path: PathBuf, content: &str) -> std::io::Result<PathBuf> {
+    crate::agent_approval_channel::write_owner_only_file(&script_path, content.as_bytes(), true)?;
+    Ok(script_path)
+}
+
 /// Writes `<channel_dir>/approve-hook.sh` (owner-only on Unix), which reports its status to `status_file` (none: it reports none).
 /// `auto_allow_safe_tiers` is set for `Ask when risky` and left off for `Ask`.
 pub(crate) fn install_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto_allow_safe_tiers: bool) -> std::io::Result<PathBuf> {
     let script_path = channel_dir.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME);
     let content = approval_hook_script(channel_dir, status_file, auto_allow_safe_tiers);
-    crate::agent_approval_channel::write_owner_only_file(&script_path, content.as_bytes(), true)?;
-    Ok(script_path)
+    write_hook_script_file(script_path, &content)
+}
+
+/// Writes `<channel_dir>/approve-hook-tab-<tab_id>.sh` for a running tab in `mode` (`Ask` or `Ask when risky`), so a later
+/// rewrite of `<channel_dir>/approve-hook.sh` for another tab or after a global mode switch never changes this tab's mode.
+pub(crate) fn install_tab_hook_script(channel_dir: &Path, status_file: Option<&Path>, tab_id: usize, mode: AgentPermissionMode) -> std::io::Result<PathBuf> {
+    let script_path = channel_dir.join(format!("approve-hook-tab-{tab_id}.sh"));
+    let content = approval_hook_script(channel_dir, status_file, mode.auto_allows_safe_tiers());
+    write_hook_script_file(script_path, &content)
 }
 
 /// Handler appended to Claude's `PermissionRequest` hook group in `Ask` mode: runs `approve-hook.sh`, which blocks up
