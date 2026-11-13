@@ -12081,8 +12081,27 @@ mod tests {
                 && !st.session_dir.join("hooks.json").exists(),
             "canvas sync must keep the running tab's Ask hook after the global mode switches to Skip"
         );
+        assert_eq!(st.tabs[idx].permission_mode, AgentPermissionMode::Ask);
+        let new_idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn new tab");
+        assert_eq!(st.tabs[new_idx].permission_mode, AgentPermissionMode::Skip, "the global mode still applies to new tabs");
         kill_tabs(&mut st);
         st.shutdown();
+    }
+
+    #[test]
+    fn app_permission_mode_switch_does_not_rewrite_running_tabs() {
+        use crate::agent_permissions::AgentPermissionMode;
+        let mut app = crate::app::App::new(Document::new("permission-mode-setter"));
+        let first = app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn first tab");
+        app.terminal.tabs[first].permission_mode = AgentPermissionMode::Ask;
+
+        app.set_agent_permission_mode(AgentPermissionMode::Skip);
+
+        assert_eq!(app.terminal.tabs[first].permission_mode, AgentPermissionMode::Ask);
+        let second = app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn second tab");
+        assert_eq!(app.terminal.tabs[second].permission_mode, AgentPermissionMode::Skip);
+        kill_tabs(&mut app.terminal);
+        app.terminal.shutdown();
     }
 
     /// Runs last among the tests `real_cli_launch_tests` starts in a child process (the name sorts after theirs), so that a CLI
