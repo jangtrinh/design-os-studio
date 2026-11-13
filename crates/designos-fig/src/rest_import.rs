@@ -1778,6 +1778,12 @@ impl<'a> Ctx<'a> {
                     }
                     _ => continue,
                 };
+                if matches!(kind, PropKind::Boolean | PropKind::Text | PropKind::Variant { .. }) {
+                    let alias = d.get("boundVariables").and_then(|b| b.get("defaultValue").or_else(|| b.get("value")));
+                    if let Some(var) = alias.and_then(|a| fstr(a, "id").or_else(|| a.as_str())).filter(|s| !s.is_empty()) {
+                        n.component.prop_default_variables.insert(name.clone(), var.to_string());
+                    }
+                }
                 n.component.props.push(ComponentPropDef { name, kind, default });
             }
         }

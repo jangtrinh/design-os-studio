@@ -1884,6 +1884,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     }
                 }
             }
+            if !matches!(p.kind, PropKind::Slot) {
+                if let Some(alias) = prop_def_alias(cx, &node, p) {
+                    df.push(("varValue", alias));
+                }
+            }
             prop_defs.push(msg(df));
         }
         fields.push(("componentPropDefs", V::Array(prop_defs)));
@@ -3339,6 +3344,35 @@ fn prop_alias(cx: &ExportCtx, node: &Node, prop_name: &str) -> Option<V> {
         VariableKind::String => "STRING",
         VariableKind::Number => "FLOAT",
         VariableKind::Color => "COLOR",
+    };
+    Some(msg(vec![("dataType", en("ALIAS")), ("resolvedDataType", en(resolved)), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))]))
+}
+
+fn prop_def_alias(cx: &ExportCtx, node: &Node, p: &ComponentPropDef) -> Option<V> {
+    let var_id = node.component.prop_default_variables.get(&p.name)?;
+    if let Some(key) = var_id.strip_prefix("key:") {
+        let resolved = match &p.kind {
+            PropKind::Boolean => "BOOLEAN",
+            PropKind::Text | PropKind::Variant { .. } => "STRING",
+            PropKind::InstanceSwap { .. } | PropKind::Slot => return None,
+        };
+        return Some(msg(vec![
+            ("dataType", en("ALIAS")),
+            ("resolvedDataType", en(resolved)),
+            ("value", msg(vec![("alias", msg(vec![("assetRef", msg(vec![("key", V::String(key.to_string())), ("version", V::String(String::new()))]))]))])),
+        ]));
+    }
+    let vg = cx.resolve_var_guid(var_id)?;
+    let resolved = match cx.doc.variables.get(var_id).map(|v| v.kind) {
+        Some(VariableKind::Boolean) => "BOOLEAN",
+        Some(VariableKind::String) => "STRING",
+        Some(VariableKind::Number) => "FLOAT",
+        Some(VariableKind::Color) => "COLOR",
+        None => match &p.kind {
+            PropKind::Boolean => "BOOLEAN",
+            PropKind::Text | PropKind::Variant { .. } => "STRING",
+            PropKind::InstanceSwap { .. } | PropKind::Slot => return None,
+        },
     };
     Some(msg(vec![("dataType", en("ALIAS")), ("resolvedDataType", en(resolved)), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))]))
 }

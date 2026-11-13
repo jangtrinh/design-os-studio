@@ -225,3 +225,227 @@ fn a_variant_assignment_bound_to_a_string_variable_swaps_the_variant_and_round_t
     assert_eq!(instance_component(reopened.get(cta_id).unwrap()), Some(small_re), "dark mode swaps reopened instance to Size=Small");
     let _ = small;
 }
+
+fn bound_default_name(doc: &Document, comp: &Node, prop: &str) -> Option<String> {
+    let id = comp.component.prop_default_variables.get(prop)?;
+    doc.variables.get(id).map(|v| v.name.clone())
+}
+
+fn fig_with_bound_prop_defaults() -> Vec<Value> {
+    let mut nodes = document_and_page();
+    let set = fig_node(
+        SET,
+        (0, 1),
+        "VARIABLE_SET",
+        "Theme",
+        json!({"key": "theme", "variableSetModes": [
+            {"id": guid(LIGHT.0, LIGHT.1), "name": "Light", "sortPosition": "!"},
+            {"id": guid(DARK.0, DARK.1), "name": "Dark", "sortPosition": "\""}]}),
+    );
+    let show_var = (1, 7);
+    let label_var = (1, 8);
+    let size_var = (1, 9);
+    let defs = json!([
+        {
+            "id": guid(7, 1),
+            "name": "Show icon",
+            "type": "BOOL",
+            "initialValue": {"boolValue": false},
+            "varValue": {
+                "dataType": "ALIAS",
+                "resolvedDataType": "BOOLEAN",
+                "value": {"alias": {"guid": guid(show_var.0, show_var.1)}}
+            }
+        },
+        {
+            "id": guid(7, 2),
+            "name": "Label",
+            "type": "TEXT",
+            "initialValue": {"textValue": {"characters": "Submit"}},
+            "varValue": {
+                "dataType": "ALIAS",
+                "resolvedDataType": "STRING",
+                "value": {"alias": {"guid": guid(label_var.0, label_var.1)}}
+            }
+        }
+    ]);
+    let set_defs = json!([
+        {
+            "id": guid(7, 3),
+            "name": "Size",
+            "type": "VARIANT",
+            "initialValue": {"textValue": {"characters": "Small"}},
+            "varValue": {
+                "dataType": "ALIAS",
+                "resolvedDataType": "STRING",
+                "value": {"alias": {"guid": guid(size_var.0, size_var.1)}}
+            }
+        }
+    ]);
+    let orders = json!([{"property": "Size", "values": ["Small", "Large"]}]);
+    nodes.extend([
+        set,
+        variable(show_var, "ShowIcon", "BOOLEAN", json!({"boolValue": true}), json!({"boolValue": false})),
+        variable(label_var, "Title", "STRING", json!({"textValue": "Pay"}), json!({"textValue": "Buy now"})),
+        variable(size_var, "BtnSize", "STRING", json!({"textValue": "Large"}), json!({"textValue": "Small"})),
+        fig_node((1, 1), (0, 1), "SYMBOL", "Button", json!({"size": {"x": 120.0, "y": 40.0}, "componentPropDefs": defs})),
+        fig_node(
+            (5, 10),
+            (0, 1),
+            "FRAME",
+            "Chip",
+            json!({"isStateGroup": true, "size": {"x": 240.0, "y": 60.0}, "componentPropDefs": set_defs, "stateGroupPropertyValueOrders": orders}),
+        ),
+        fig_node((5, 11), (5, 10), "SYMBOL", "Size=Small", json!({"size": {"x": 80.0, "y": 32.0}})),
+        fig_node((5, 12), (5, 10), "SYMBOL", "Size=Large", json!({"size": {"x": 120.0, "y": 48.0}})),
+    ]);
+    nodes
+}
+
+#[test]
+fn both_fig_and_rest_readers_keep_a_bound_property_default() {
+    let fig_doc = import_fig_node_changes(&Value::Array(fig_with_bound_prop_defaults()), "bound prop defaults").expect("import fig");
+    let fig_comp = by_name(&fig_doc, "Button");
+    assert_eq!(fig_comp.component.prop_default_variables.get("Show icon").map(String::as_str), Some("VariableID:1:7"));
+    assert_eq!(fig_comp.component.prop_default_variables.get("Label").map(String::as_str), Some("VariableID:1:8"));
+    assert_eq!(bound_default_name(&fig_doc, fig_comp, "Show icon").as_deref(), Some("ShowIcon"));
+    assert_eq!(bound_default_name(&fig_doc, fig_comp, "Label").as_deref(), Some("Title"));
+    let fig_set = by_name(&fig_doc, "Chip");
+    assert_eq!(fig_set.component.prop_default_variables.get("Size").map(String::as_str), Some("VariableID:1:9"));
+    assert_eq!(bound_default_name(&fig_doc, fig_set, "Size").as_deref(), Some("BtnSize"));
+
+    let rest = json!({
+        "name": "rest bound prop defaults",
+        "document": {
+            "id": "0:0",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "type": "CANVAS",
+                "name": "Page 1",
+                "children": [{
+                    "id": "1:1",
+                    "type": "COMPONENT",
+                    "name": "Button",
+                    "absoluteBoundingBox": {"x": 0.0, "y": 0.0, "width": 120.0, "height": 40.0},
+                    "componentPropertyDefinitions": {
+                        "Show icon#7:1": {
+                            "type": "BOOLEAN",
+                            "defaultValue": false,
+                            "boundVariables": {
+                                "defaultValue": {"type": "VARIABLE_ALIAS", "id": "VariableID:1:7"}
+                            }
+                        },
+                        "Label#7:2": {
+                            "type": "TEXT",
+                            "defaultValue": "Submit",
+                            "boundVariables": {
+                                "defaultValue": {"type": "VARIABLE_ALIAS", "id": "VariableID:1:8"}
+                            }
+                        }
+                    },
+                    "children": []
+                }, {
+                    "id": "5:10",
+                    "type": "COMPONENT_SET",
+                    "name": "Chip",
+                    "absoluteBoundingBox": {"x": 0.0, "y": 60.0, "width": 240.0, "height": 60.0},
+                    "componentPropertyDefinitions": {
+                        "Size": {
+                            "type": "VARIANT",
+                            "defaultValue": "Small",
+                            "variantOptions": ["Small", "Large"],
+                            "boundVariables": {
+                                "defaultValue": {"type": "VARIABLE_ALIAS", "id": "VariableID:1:9"}
+                            }
+                        }
+                    },
+                    "children": []
+                }]
+            }]
+        }
+    });
+    let rest_doc = designos_fig::import_rest_json(&rest.to_string()).expect("import rest");
+    let rest_comp = by_name(&rest_doc, "Button");
+    assert_eq!(rest_comp.component.prop_default_variables.get("Show icon").map(String::as_str), Some("VariableID:1:7"));
+    assert_eq!(rest_comp.component.prop_default_variables.get("Label").map(String::as_str), Some("VariableID:1:8"));
+    let rest_set = by_name(&rest_doc, "Chip");
+    assert_eq!(rest_set.component.prop_default_variables.get("Size").map(String::as_str), Some("VariableID:1:9"));
+}
+
+#[test]
+fn native_save_and_load_keep_a_bound_property_default() {
+    let mut doc = Document::new("native bound prop defaults");
+    let page = doc.add_page("Page 1");
+    let cid = doc.alloc_id();
+    let mut comp = Node::new(cid, NodeKind::Component(FrameProps::default()));
+    comp.name = "Button".into();
+    comp.component.props = vec![
+        ComponentPropDef { name: "Show icon".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) },
+        ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Submit".into()) },
+    ];
+    comp.component.prop_default_variables.insert("Show icon".into(), "VariableID:1:7".into());
+    comp.component.prop_default_variables.insert("Label".into(), "VariableID:1:8".into());
+    doc.insert(page, comp).unwrap();
+
+    let json = doc.to_json().expect("serialize");
+    let loaded = Document::from_json(&json).expect("deserialize");
+    assert_eq!(
+        loaded.get(cid).unwrap().component.prop_default_variables,
+        doc.get(cid).unwrap().component.prop_default_variables,
+        "native save and load must preserve bound property defaults"
+    );
+}
+
+#[test]
+fn a_fig_round_trip_keeps_a_bound_property_default() {
+    let mut doc = import(true);
+    let comp_id = by_name(&doc, "Button").id;
+    let show_var_id = doc.variables.values().find(|v| v.name == "ShowIcon").unwrap().id.clone();
+    let label_var_id = doc.variables.values().find(|v| v.name == "Title").unwrap().id.clone();
+    let comp_mut = doc.get_mut(comp_id).unwrap();
+    comp_mut.component.prop_default_variables.insert("Show icon".into(), show_var_id);
+    comp_mut.component.prop_default_variables.insert("Label".into(), label_var_id);
+
+    let saved = export_fig(&doc).expect("export small .fig through Studio writer");
+    let nodes = node_changes(&saved);
+    let saved_comp = nodes.iter().find(|n| n["name"] == "Button").expect("component saved");
+    let defs = saved_comp["componentPropDefs"].as_array().expect("componentPropDefs");
+    let aliased: Vec<&Value> = defs.iter().filter(|d| d["varValue"]["dataType"] == "ALIAS").collect();
+    assert_eq!(aliased.len(), 2, "both bound property defaults must write an ALIAS varValue: {defs:?}");
+
+    let reopened = import_fig(&saved).expect("reopen .fig");
+    let reopened_comp = by_name(&reopened, "Button");
+    assert_eq!(bound_default_name(&reopened, reopened_comp, "Show icon").as_deref(), Some("ShowIcon"));
+    assert_eq!(bound_default_name(&reopened, reopened_comp, "Label").as_deref(), Some("Title"));
+}
+
+#[test]
+fn the_scan_file_lists_a_bound_property_default_in_component_bound_variables() {
+    let doc = import_fig_node_changes(&Value::Array(fig_with_bound_prop_defaults()), "scan bound prop defaults").expect("import fig");
+    let scan = designos_fig::scan_design_system(&doc).expect("scan design system");
+    let button = scan.components.iter().find(|c| c.name == "Button").expect("Button component in scan");
+    assert_eq!(
+        button.bound_variables,
+        Some(vec!["VariableID:1:7".to_string(), "VariableID:1:8".to_string()]),
+        "components[].boundVariables must list variable ids bound to property defaults"
+    );
+    let chip = scan.components.iter().find(|c| c.name == "Chip").expect("Chip component set in scan");
+    assert_eq!(
+        chip.bound_variables,
+        Some(vec!["VariableID:1:9".to_string()]),
+        "components[].boundVariables on a component set must list variable ids bound to variant property defaults"
+    );
+}
+
+#[test]
+fn a_property_definition_without_a_binding_serializes_as_before() {
+    let doc = import(true);
+    let json = doc.to_json().expect("serialize");
+    assert!(!json.contains("prop_default_variables"), "unbound property definitions must not write prop_default_variables in native JSON");
+
+    let nodes = node_changes(&export_fig(&doc).expect("export"));
+    let saved_comp = nodes.iter().find(|n| n["name"] == "Button").expect("component saved");
+    let defs = saved_comp["componentPropDefs"].as_array().expect("componentPropDefs");
+    assert!(defs.iter().all(|d| d.get("varValue").is_none()), "unbound property definitions must not write varValue in .fig: {defs:?}");
+}
