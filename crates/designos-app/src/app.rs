@@ -500,15 +500,15 @@ impl App {
     }
 
     /// Adds `next` at the back of the queue. The queue keeps only the latest plain notice (a newer progress or
-    /// info toast replaces an older queued one) and holds at most [`TOAST_QUEUE_CAP`] toasts by dropping the oldest
-    /// plain notice. An error toast or a toast with an action is never merged away or dropped.
+    /// info toast replaces an older queued one) and holds at most [`TOAST_QUEUE_CAP`] errors by dropping the oldest
+    /// queued error when a burst fills the queue. Toasts with an action are never dropped.
     fn enqueue_toast(&mut self, next: Toast) -> &mut Toast {
         let is_plain = |t: &Toast| !t.error && !t.has_action();
         if is_plain(&next) {
             self.toast_queue.retain(|t| !is_plain(t));
         }
         if self.toast_queue.len() >= TOAST_QUEUE_CAP {
-            if let Some(i) = self.toast_queue.iter().position(is_plain) {
+            if let Some(i) = self.toast_queue.iter().position(is_plain).or_else(|| self.toast_queue.iter().position(|t| t.error)) {
                 self.toast_queue.remove(i);
             }
         }
