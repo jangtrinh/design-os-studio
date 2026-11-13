@@ -475,7 +475,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 92;
+const MAX_PURPOSE_CHARS: usize = 89;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -521,7 +521,9 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`OUTSIDE_OWNED_FRAMES`",
             "`TOOL_DISABLED`",
         ],
-        "designos_delete_node" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`PAGE_ROOT_PROTECTED`", "`OUTSIDE_OWNED_FRAMES`", "`TOOL_DISABLED`"],
+        "designos_delete_node" => {
+            &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`PAGE_ROOT_PROTECTED`", "`INSTANCE_CHILD`", "`OUTSIDE_OWNED_FRAMES`", "`TOOL_DISABLED`"]
+        }
         "designos_list_comments" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
         "designos_add_comment" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TEXT_TOO_LONG`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_reply_comment" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
@@ -966,6 +968,12 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rules_pack_tells_the_agent_not_to_retry_or_work_around_a_needs_human_error() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("`needs_human` = stop and ask the user; do not retry or work around"));
+    }
+
     /// The section of the rules pack for `tool`, from its heading to the next one.
     fn pack_section(pack: &str, tool: &str) -> String {
         let start = pack.find(&format!("### `{tool}`")).unwrap_or_else(|| panic!("{tool} is in the pack"));
@@ -1387,6 +1395,8 @@ mod tests {
             "`value: false`",
             "`idempotency_key`",
             "re-read",
+            "needs_human",
+            "do not retry or work around",
             "every group in a card",
             "gradients, shadows, and corner radii",
             "never hand-draw logos",

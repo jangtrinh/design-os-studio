@@ -2,6 +2,43 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.13] - 2026-11-12
+
+A patch release from `main` that finishes the basics of auto layout and components for imported Figma files. Re-solving every auto-layout frame of the imported Untitled UI PRO v8.0 kit moved 61,948 of 194,397 layers by more than 0.5 px before this release and moves 2,039 now (#1669). A nested instance whose variant is bound to a variable now follows the mode where it sits (#1824, PR #1912). It also includes fixes carried from @NamAIEngineer.
+
+### Fixed
+- **Auto layout.**
+  - A wrapped auto-layout frame from a `.fig` or Figma REST import that has no counter-axis gap takes its item spacing as the line gap, so wrapped rows no longer collapse onto each other (#1881, PR #1884).
+  - A Fill child held back by a max or min size is placed by the frame's counter alignment, so a 1280 px max-width child in a centred 1440 px frame sits at 80 instead of 0 (#1880, PR #1886).
+  - Rotated and flipped children are laid out by their visual bounding box, as Figma does: a 72 x 18 text turned 270 degrees takes 18 px of a row, not 72. A child at any other angle keeps its own size. In a file made in Studio, a flipped child moves by its own size on the next relayout, to the place Figma gives it (#1882, PR #1897).
+  - A `.fig` auto-layout frame with no right or bottom padding imports it as 0 instead of copying the left or top value, so end-aligned and centred frames no longer shift their children and hug frames no longer grow (#1668, PR #1671).
+- **Components.**
+  - A `.fig` save keeps the overrides of an instance on a page that was never opened after its main component is edited; a reopened file showed "Button CTA" where it should show "Go back"; by @NamAIEngineer (#1695, PR #1889).
+  - When the cycle guard refuses an edit, such as an instance swap, a variant switch or a layers-panel drop, an error toast now says why, for example `Can't swap: Card would contain itself (Card → Icon → Row → Card)`. A drop or paste that lands outside the container says where it went; by @NamAIEngineer (#1837, PR #1899).
+  - An instance keeps its own ring arc (start, sweep, inner radius) when the main component's arc changes, through a variant swap and a native or `.fig` save and reopen, and Reset gives the main's arc back. Dragging a ring's sweep, start or inner radius now redraws rings imported from Figma, and the same fix covers star and polygon handles and the polygon corner radius (#1727, PR #1911).
+  - A nested instance whose variant is bound to a variable switches variant when the variable resolves differently where the copy sits: a mode set on the host frame, an ancestor, the wrapper instance or the page, a changed value or default mode, or a move or paste into a frame with another mode. Text, fill and inner swap overrides are kept, and a variant picked by hand holds until reset (#1824, PR #1912).
+- **Export.**
+  - Dashed, gradient and width-bound per-side Inside strokes on a grid that are wider than the padding export as an inset shadow with the padding the layout reserves, so content no longer shifts. CSS and HTML carry a short note where CSS has no border-free primitive; by @NamAIEngineer (#1792, PR #1883).
+  - SwiftUI export splits unequal flexible grid columns, such as 2fr 1fr, by their weights inside a `GeometryReader`, so the columns follow the container; it needs iOS 16 or macOS 13 (#1823, PR #1892).
+- **Canvas.** The grid overlay takes its row gap, column widths and row heights from the layout solver, so the gap bands sit in the real gaps instead of across the cards; by @NamAIEngineer (#1691, PR #1893).
+
+### Changed
+- **Colour.** In a Display P3 document the converted-image cache is capped at 64 MiB, releases images that nothing can show, and converts an oversized image once instead of on every eyedropper loupe frame. Swatches follow the profile in the same frame after undo, redo or a profile change, and closing the active library tab saves its pending edit first; by @NamAIEngineer (#1805, PR #1890).
+
+### Internal
+- A properties-panel spacing check passes again: the linked Animation style row uses the row spacing token, with the same pixels as before (PR #1874).
+- Tests pin that Card and Button main syncs, repeated syncs, a swapped nested instance and every horizontal constraint keep a nested Stretch instance's size and position, and that the editor resize-then-edit path keeps its width. The snap-back no longer reproduced on `main`, so this closes the issue with tests only (#1445, PR #1879).
+- Tests pin that a vector resized inside an instance keeps its size and scaled paths through a `.fig` save, a reopen and a main sync, including on a page that was never opened. The behaviour already held, so this closes the issue with tests only (#1725, PR #1910).
+- The layout-unchanged check pairs unnamed widgets by closest size and position instead of by order, so inserting one no longer reports false drift, and a real move is still reported; by @NamAIEngineer (#1789, PR #1894).
+
+### Known issues
+- A native file in which an instance has its own ring arc cannot be opened by Studio 0.7.12 or older.
+- Re-solving the imported Untitled UI PRO v8.0 kit still moves 2,039 layers, about 1% (#1920).
+- A nested instance can lose its overrides when its variant is switched by hand and back (#1909). An override on a layer the other variant lacks, and a text override when the two variants hold different default text, are lost on a variant switch (#1915, #1916).
+- A main component sync with no change can resize instances imported from a `.fig` (#1919).
+- The variable-bound nested variant is checked on files made in Studio only: the kit has no bound component property, and no file authored in Figma with one was available.
+- After a `.fig` save and reopen, a change made inside a nested instance can be lost at the next edit of the main component (#1925). It also affects 0.7.12 and older files saved natively after such an import.
+
 ## [0.7.12] - 2026-11-11
 
 A patch release from `main` that finishes the Styles & Variables epic. Variables now bind to effects, glass, size limits, typography, easing and durations. Animation styles are new, and extended collections work across libraries and branch merges. It also includes fixes carried from @NamAIEngineer.

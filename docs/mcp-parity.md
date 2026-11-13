@@ -155,6 +155,7 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `UNKNOWN_COMPONENT_PROPERTY` | `retryable` | active |
 | `PROPERTY_TYPE_MISMATCH` | `retryable` | active |
 | `FIELD_NOT_ALLOWED_ON_INSTANCE` | `retryable` | active |
+| `INSTANCE_CHILD` | `fatal` | active |
 | `UNKNOWN_SLOT` | `retryable` | active |
 | `SLOT_FILL_NOT_ALLOWED` | `retryable` | active |
 | `SLOT_CHILD_COUNT` | `retryable` | active |

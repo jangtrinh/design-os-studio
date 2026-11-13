@@ -33,6 +33,10 @@ mod component_nested_variant_binding_tests;
 mod component_prop_variables;
 #[cfg(test)]
 mod component_prop_variables_tests;
+#[cfg(test)]
+mod component_variant_picks_round_tests;
+#[cfg(test)]
+mod component_variant_picks_tests;
 mod components;
 mod connector_home;
 mod connector_index;
@@ -193,6 +197,8 @@ pub struct NodeId(pub u64);
 pub enum DocError {
     #[error("node {0:?} not found")]
     NotFound(NodeId),
+    #[error("node {0:?} already exists")]
+    DuplicateNode(NodeId),
     #[error("cannot move node {0:?} into its own subtree")]
     Cycle(NodeId),
     #[error("node {0:?} cannot have children")]
@@ -224,7 +230,7 @@ impl Clone for DerivedId {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct DirtyLog {
     runtime_id: u64,
     epoch: u64,
@@ -1233,11 +1239,15 @@ impl Document {
 
     /// Inserts `node` as the last (topmost) child of `parent`.
     pub fn insert(&mut self, parent: NodeId, mut node: Node) -> Result<NodeId, DocError> {
-        let p = self.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
-        if !p.kind.can_hold_children() {
+        let can_hold = self.nodes.get(&parent).ok_or(DocError::NotFound(parent))?.kind.can_hold_children();
+        if !can_hold {
             return Err(DocError::NotAContainer(parent));
         }
         let id = node.id;
+        if self.nodes.contains_key(&id) {
+            return Err(DocError::DuplicateNode(id));
+        }
+        let p = self.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
         p.children.push(id);
         node.parent = Some(parent);
         self.next_id = self.next_id.max(id.0);

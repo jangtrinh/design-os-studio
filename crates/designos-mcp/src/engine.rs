@@ -80,6 +80,8 @@ pub struct Engine {
     /// Edits executed since the last [`Engine::take_live_ops`], recorded while an open editor
     /// mirrors this session (`None` = not recording).
     pub live_ops: Option<Vec<LiveOp>>,
+    /// Connector reroute warnings produced by the last mutating tool call.
+    pub reroute_warnings: Vec<designos_doc::SpecWarning>,
     /// Undo-group label attached to the next [`designos_doc::live_patch::LivePatch`] line when set.
     pub live_patch_label: Option<String>,
     /// Optional RD-3 frame ownership lock: when `Some`, writes outside these root frames are refused.
@@ -118,6 +120,15 @@ pub struct Engine {
     pub ledger_entries: usize,
 }
 
+/// Layers mirrored inside a component instance cannot be deleted one by one: the
+/// editor refuses it, and a recursive remove would leave the instance with stale
+/// geometry. Direct children of an instance slot and instance roots stay deletable.
+pub(crate) fn is_protected_instance_child(doc: &Document, node: &Node, former_parent: NodeId) -> bool {
+    designos_doc::is_linked(node) && !designos_doc::is_top_instance(node) && !designos_doc::is_instance_slot(doc, former_parent)
+}
+
+pub(crate) const INSTANCE_CHILD_DELETE_MESSAGE: &str = "layers inside an instance cannot be deleted; hide the layer or edit an instance slot instead";
+
 impl Engine {
     pub fn new() -> Self {
         Self::default()
@@ -136,6 +147,7 @@ impl Default for Engine {
             default_run_id: None,
             default_agent: None,
             live_ops: None,
+            reroute_warnings: Vec::new(),
             live_patch_label: None,
             owned_frames: None,
             lint_call_max_nodes: 100_000,
@@ -413,6 +425,23 @@ impl Engine {
             .ok_or_else(|| ToolError::new(ErrorCode::PageNotFound, "/page_id", "Document has no pages"))
     }
 
+    /// Expands the deferred component instances on the page that owns a targeted read.
+    /// The desktop app performs this step when a page becomes active; MCP has no page-switch
+    /// event, so every targeted read must make the same transition before inspecting the tree.
+    pub(crate) fn ensure_page_hydrated_for_node(&mut self, node: NodeId) -> Result<(), ToolError> {
+        let Some(page) = self.doc.page_of(node) else { return Ok(()) };
+        self.doc.ensure_page_hydrated(page);
+        if let Some(err) = self.doc.take_hydration_error() {
+            return Err(ToolError::new(ErrorCode::InternalError, "", format!("Cannot hydrate page {}: {err}", page.0)).with_safe_to_retry(false));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ensure_active_page_hydrated(&mut self) -> Result<(), ToolError> {
+        let Ok(page) = self.resolve_default_page() else { return Ok(()) };
+        self.ensure_page_hydrated_for_node(page)
+    }
+
     pub(crate) fn collect_library_snapshots(&self, _spec: &NodeSpec) -> Vec<designos_doc::LibrarySnapshot> {
         crate::tools::library_source::load_enabled_snapshots(&self.doc)
     }
@@ -439,8 +468,18 @@ impl Engine {
         // or serialize a document with deferred layout still in it.
         self.settle_layout();
         match name {
-            "designos_get_app_state" => crate::tools::bootstrap::call_get_app_state(self, args).map_err(ToolError::from),
+            "designos_get_app_state" => {
+                // The outline walks the frames this call reports on, so the pages that own them are filled in first.
+                self.ensure_active_page_hydrated()?;
+                if let Some(ids) = args.get("target_node_ids").and_then(Value::as_array) {
+                    for id in ids.iter().filter_map(Value::as_u64).filter(|id| *id > 0) {
+                        self.ensure_page_hydrated_for_node(NodeId(id))?;
+                    }
+                }
+                crate::tools::bootstrap::call_get_app_state(self, args).map_err(ToolError::from)
+            }
             "designos_get_document" => {
+                self.ensure_active_page_hydrated()?;
                 let _: Empty = parse(args)?;
                 let in_progress_nodes: Vec<Value> = self
                     .doc
@@ -513,6 +552,9 @@ impl Engine {
                 }
                 if let Some(id) = a.parent_id {
                     self.node_at(id, "/parent_id")?;
+                    self.ensure_page_hydrated_for_node(NodeId(id))?;
+                } else {
+                    self.ensure_active_page_hydrated()?;
                 }
                 if let Some(q) = &a.query {
                     bounded_text("query", q, 1024)?;
@@ -531,6 +573,7 @@ impl Engine {
             }
             "designos_get_node" => {
                 let a: NodeArgs = parse(args)?;
+                self.ensure_page_hydrated_for_node(NodeId(a.node_id))?;
                 let n = self.node(a.node_id)?;
                 let mut node_val = self.node_reply_json(n.id);
                 let ip = self.doc.get_in_progress(n.id).cloned();
@@ -543,13 +586,29 @@ impl Engine {
                 }
                 Ok(out)
             }
-            "designos_get_screenshot" | "get_screenshot" => crate::tools::screenshot::execute_get_screenshot(&self.doc, args).map_err(ToolError::from),
+            "designos_get_screenshot" | "get_screenshot" => {
+                let a: crate::tools::screenshot::ScreenshotArgs = parse(args.clone())?;
+                let target = a.resolve_target().map_err(|e| ToolError::from(e.to_err_string()))?;
+                match target {
+                    crate::tools::screenshot::ScreenshotTarget::Node(id) => self.ensure_page_hydrated_for_node(id)?,
+                    crate::tools::screenshot::ScreenshotTarget::Nodes(ids) => {
+                        for id in ids {
+                            self.ensure_page_hydrated_for_node(id)?;
+                        }
+                    }
+                    crate::tools::screenshot::ScreenshotTarget::Region(region) => self.ensure_page_hydrated_for_node(NodeId(region.page_id))?,
+                }
+                crate::tools::screenshot::execute_get_screenshot(&self.doc, args).map_err(ToolError::from)
+            }
             "designos_get_design_context" | "get_design_context" => {
+                let a: crate::tools::design_context::DesignContextArgs = parse(args.clone())?;
+                self.ensure_page_hydrated_for_node(NodeId(a.node_id))?;
                 crate::tools::design_context::execute_get_design_context(&self.doc, args).map_err(ToolError::from)
             }
             "designos_get_variables" => {
                 let a: VariablesArgs = parse(args)?;
                 let effective = if let Some(id) = a.node_id {
+                    self.ensure_page_hydrated_for_node(NodeId(id))?;
                     let n = self.node(id)?;
                     Some(
                         n.variables
@@ -604,6 +663,7 @@ impl Engine {
             }
             "designos_generate_code" => {
                 let a: CodeArgs = parse(args)?;
+                self.ensure_page_hydrated_for_node(NodeId(a.node_id))?;
                 let id = self.node(a.node_id)?.id;
                 let doc = designos_doc::apply_bound_variables(&self.doc);
                 let code = if a.language == "svg" {
@@ -644,6 +704,9 @@ impl Engine {
                 };
                 let id = n.id;
                 self.check_owned_frames(id, "/node_id")?;
+                if is_protected_instance_child(&self.doc, n, former_parent) {
+                    return Err(ToolError::new(ErrorCode::InstanceChild, "/node_id", INSTANCE_CHILD_DELETE_MESSAGE));
+                }
                 let before_doc = a.diff_image.then(|| self.doc.clone());
                 let baseline =
                     crate::tools::issues::PreCallBaseline::capture(&self.doc, &[former_parent], &self.session_options.issues, a.lint, self.lint_env());
@@ -728,7 +791,7 @@ impl Engine {
                         author_id: None,
                         author_color: None,
                         text: a.text.trim().into(),
-                        created: "2026-10-14T23:30:00Z".into(),
+                        created: crate::time::now_rfc3339(),
                         edited: None,
                     }],
                     resolved: false,
@@ -771,7 +834,7 @@ impl Engine {
                     author_id: None,
                     author_color: None,
                     text: a.text.trim().into(),
-                    created: "2026-10-14T23:30:00Z".into(),
+                    created: crate::time::now_rfc3339(),
                     edited: None,
                 });
                 if let Some(resolved) = a.resolved {
@@ -1058,10 +1121,23 @@ impl Engine {
                 }))
             }
             "designos_query_xpath" | "query_nodes" => {
+                let a: crate::tools::query::QueryXpathToolArgs = parse(args.clone())?;
+                if let Some(id) = a.node_id.or_else(|| a.node_ids.as_ref().and_then(|ids| ids.first().copied())) {
+                    self.ensure_page_hydrated_for_node(NodeId(id))?;
+                } else if let Some(page) = a.page_id {
+                    self.ensure_page_hydrated_for_node(NodeId(page))?;
+                } else {
+                    self.ensure_active_page_hydrated()?;
+                }
                 self.settle_layout();
                 crate::tools::query::execute_query_xpath(&self.doc, self.resolve_default_page().ok(), self.lint_env(), args)
             }
             "designos_get_metadata" | "get_metadata" => {
+                let a: crate::tools::metadata::MetadataArgs = parse(args.clone())?;
+                let root = a.node_id.or(a.page_id).map(NodeId).or_else(|| self.resolve_default_page().ok());
+                if let Some(root) = root {
+                    self.ensure_page_hydrated_for_node(root)?;
+                }
                 let mut res = crate::tools::metadata::call_get_metadata(self, args).map_err(ToolError::from)?;
                 if let Some(xml) = res.get("xml").and_then(Value::as_str) {
                     let enriched = enrich_metadata_xml_connectors(&self.doc, xml);
@@ -1079,11 +1155,13 @@ impl Engine {
                     return Err("limit must be between 1 and 500 (safe_to_retry: true)".into());
                 }
                 let roots: Vec<NodeId> = if let Some(pid) = a.page_id {
+                    self.ensure_page_hydrated_for_node(NodeId(pid))?;
                     if pid == 0 || self.doc.get(NodeId(pid)).is_none() {
                         return Err(format!("NODE_NOT_FOUND: page {pid} not found (safe_to_retry: true)").into());
                     }
                     vec![NodeId(pid)]
                 } else if let Some(nid) = a.node_id {
+                    self.ensure_page_hydrated_for_node(NodeId(nid))?;
                     if nid == 0 || self.doc.get(NodeId(nid)).is_none() {
                         return Err(format!("NODE_NOT_FOUND: node {nid} not found (safe_to_retry: true)").into());
                     }
@@ -1094,6 +1172,7 @@ impl Engine {
                     }
                     let mut out = Vec::with_capacity(ids.len());
                     for &nid in ids {
+                        self.ensure_page_hydrated_for_node(NodeId(nid))?;
                         if nid == 0 || self.doc.get(NodeId(nid)).is_none() {
                             return Err(format!("NODE_NOT_FOUND: node {nid} not found (safe_to_retry: true)").into());
                         }
@@ -1101,6 +1180,7 @@ impl Engine {
                     }
                     out
                 } else {
+                    self.ensure_active_page_hydrated()?;
                     match self.resolve_default_page() {
                         Ok(p) => vec![p],
                         Err(_) => self.doc.pages.clone(),
@@ -1224,12 +1304,14 @@ impl Engine {
             "designos_apply_batch" => {
                 let depth_before = self.history.undo_depth();
                 let epoch_before = self.doc.mutation_epoch();
-                let res = crate::tools::batch::apply(self, args)?;
+                self.reroute_warnings.clear();
+                let mut res = crate::tools::batch::apply(self, args)?;
                 if self.history.undo_depth() > depth_before {
                     if let Some(inv) = self.history.peek_undo().cloned() {
                         self.reroute_after_batch_layout(&inv, epoch_before)?;
                     }
                 }
+                attach_warnings(&mut res, &self.reroute_warnings);
                 Ok(res)
             }
             "designos_configure_session" => self.session_options.apply_patch(args).map_err(ToolError::from),
@@ -1477,15 +1559,93 @@ impl Engine {
             return Ok(false);
         }
         let plan = designos_doc::plan_reroute(&self.doc, touched, None);
-        if plan.updates.is_empty() {
+        if plan.updates.is_empty() && plan.rehomes.is_empty() && plan.detached.is_empty() {
             return Ok(false);
         }
-        let mut reroute_parts = Vec::with_capacity(plan.updates.len());
+        let mut structural_connectors = std::collections::HashSet::new();
+        // Build the same endpoint detach/rehome transaction as Studio.  Commands are
+        // planned against a scratch document so every geometry update sees the preceding
+        // structural change, while the real document is changed only by the folded history step.
+        let mut scratch = self.doc.clone();
+        let mut reroute_parts = Vec::with_capacity(plan.updates.len() + plan.rehomes.len() * 2 + plan.detached.len());
+        for (cid, end) in plan.detached {
+            let Some(cur) = scratch.get(cid) else { continue };
+            let mut updated = cur.clone();
+            if let NodeKind::Connector(c) = &mut updated.kind {
+                match end {
+                    designos_doc::End::Start => c.start.node = None,
+                    designos_doc::End::End => c.end.node = None,
+                }
+            }
+            let update = Command::Update { node: Box::new(updated) };
+            update.clone().apply(&mut scratch).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            let Some(g) = designos_doc::connector_geometry(&scratch, cid) else { continue };
+            let mut updated = scratch.get(cid).cloned().unwrap();
+            g.apply(&mut updated);
+            let update = Command::Update { node: Box::new(updated) };
+            update.clone().apply(&mut scratch).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            reroute_parts.push(update);
+            structural_connectors.insert(cid);
+            self.reroute_warnings.push(designos_doc::SpecWarning {
+                code: "CONNECTOR_ENDPOINT_DETACHED".to_string(),
+                path: format!(
+                    "/connectors/{}/{}",
+                    cid.0,
+                    match end {
+                        designos_doc::End::Start => "start",
+                        designos_doc::End::End => "end",
+                    }
+                ),
+                token: None,
+                replacement: None,
+                message: Some("The connector endpoint was detached because its layer moved to another page.".to_string()),
+            });
+        }
+        for (cid, new_home) in plan.rehomes {
+            if !connector_ends_moved_with(&self.doc, cid, touched) {
+                continue;
+            }
+            let Some(cur) = scratch.get(cid) else { continue };
+            let Some(old_parent) = cur.parent else { continue };
+            if old_parent == new_home {
+                continue;
+            }
+            let old_world = scratch.world_transform(old_parent);
+            let new_inv = scratch.world_transform(new_home).invert().unwrap_or(designos_doc::Affine::IDENTITY);
+            let reparent = Command::Reparent { id: cid, parent: new_home, index: usize::MAX };
+            reparent.clone().apply(&mut scratch).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            reroute_parts.push(reparent);
+            structural_connectors.insert(cid);
+            let Some(cur) = scratch.get(cid) else { continue };
+            let mut updated = cur.clone();
+            updated.layout_child.absolute = true;
+            let xform = new_inv * old_world;
+            if let NodeKind::Connector(c) = &mut updated.kind {
+                for end in [&mut c.start, &mut c.end] {
+                    if end.node.is_none() {
+                        end.point = xform.apply(end.point);
+                    }
+                }
+            }
+            let point_update = Command::Update { node: Box::new(updated) };
+            point_update.clone().apply(&mut scratch).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            let Some(g) = designos_doc::connector_geometry(&scratch, cid) else { continue };
+            let mut updated = scratch.get(cid).cloned().unwrap();
+            g.apply(&mut updated);
+            let update = Command::Update { node: Box::new(updated) };
+            update.clone().apply(&mut scratch).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            reroute_parts.push(update);
+        }
         for (cid, g) in plan.updates {
-            if let Some(cur) = self.doc.get(cid) {
+            if structural_connectors.contains(&cid) {
+                continue;
+            }
+            if let Some(cur) = scratch.get(cid) {
                 let mut updated = cur.clone();
                 g.apply(&mut updated);
-                reroute_parts.push(Command::Update { node: Box::new(updated) });
+                let update = Command::Update { node: Box::new(updated) };
+                update.clone().apply(&mut scratch).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+                reroute_parts.push(update);
             }
         }
         if reroute_parts.is_empty() {
@@ -1531,7 +1691,13 @@ impl Engine {
         if self.live_ops.is_none() {
             return Ok(Vec::new());
         }
-        live_ops_for_independent(&self.doc, parts).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e))
+        if designos_doc::live_patch::is_independent_batch(&self.doc, parts) {
+            return live_ops_for_independent(&self.doc, parts).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e));
+        }
+        // A rehome is followed by a dependent geometry update for the same connector.  Record
+        // those parts as one sequential batch so the second LiveOp is derived from the document
+        // after the Reparent, matching the command history and editor replay order.
+        live_ops_for_command(&self.doc, &Command::Batch(parts.to_vec())).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e))
     }
 
     pub(crate) fn record(&mut self, ops: Vec<LiveOp>) {
@@ -1832,13 +1998,37 @@ fn auto_layout_root(doc: &Document, id: NodeId) -> Option<NodeId> {
     top
 }
 
+/// Whether a connector end, or one of its ancestors, is among the nodes changed by this command.
+/// Re-homing is only valid when an endpoint actually moved; this keeps unrelated connector plans
+/// from changing parent as a side effect of a later layout pass.
+fn connector_ends_moved_with(doc: &Document, cid: NodeId, touched: &[NodeId]) -> bool {
+    let Some(NodeKind::Connector(c)) = doc.get(cid).map(|n| &n.kind) else { return false };
+    [c.start.node, c.end.node].into_iter().flatten().any(|end| {
+        let mut cur = Some(end);
+        for _ in 0..=doc.nodes.len() {
+            let Some(id) = cur else { return false };
+            if touched.contains(&id) {
+                return true;
+            }
+            cur = doc.get(id).and_then(|n| n.parent);
+        }
+        false
+    })
+}
+
 /// Adds the bind warnings (such as a variable that has no value in the node's mode) to a write reply, as `apply_spec` does.
 fn attach_warnings(out: &mut Value, warnings: &[designos_doc::SpecWarning]) {
     if warnings.is_empty() {
         return;
     }
-    if let (Some(obj), Ok(v)) = (out.as_object_mut(), serde_json::to_value(warnings)) {
-        obj.insert("warnings".into(), v);
+    let Some(obj) = out.as_object_mut() else { return };
+    let Ok(extra) = serde_json::to_value(warnings) else { return };
+    let Some(extra) = extra.as_array() else { return };
+    match obj.get_mut("warnings") {
+        Some(Value::Array(existing)) => existing.extend(extra.iter().cloned()),
+        _ => {
+            obj.insert("warnings".into(), Value::Array(extra.clone()));
+        }
     }
 }
 
@@ -2914,7 +3104,81 @@ fn extension_report(doc: &Document, c: &designos_doc::VariableCollection, ext: &
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designos_doc::{NodeKind, Rect};
+    use designos_doc::{FrameProps, NodeKind, PageHydrator, Rect};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Debug)]
+    struct DeferredPageFixture {
+        page: NodeId,
+        instance: NodeId,
+        hydrated: bool,
+    }
+
+    impl PageHydrator for DeferredPageFixture {
+        fn hydrate_page(&mut self, doc: &mut Document, page: NodeId) -> bool {
+            if self.hydrated || page != self.page {
+                return false;
+            }
+            self.hydrated = true;
+            let child = doc.alloc_id();
+            doc.insert(self.instance, designos_doc::Node::rectangle(child, Rect::new(8.0, 8.0, 24.0, 24.0))).is_ok()
+        }
+
+        fn hydrate_all(&mut self, doc: &mut Document) -> bool {
+            self.hydrate_page(doc, self.page)
+        }
+
+        fn is_hydrated(&self, page: NodeId) -> bool {
+            page != self.page || self.hydrated
+        }
+    }
+
+    fn deferred_page_engine() -> (Engine, NodeId, NodeId) {
+        let mut engine = Engine::default();
+        let page = engine.doc.add_page("Deferred");
+        let instance = engine.doc.alloc_id();
+        let mut node = designos_doc::Node::new(instance, NodeKind::Instance { frame: FrameProps::default(), component: None, component_key: None });
+        node.size = designos_doc::Vec2::new(48.0, 48.0);
+        engine.doc.insert(page, node).unwrap();
+        engine.active_page_id = Some(page);
+        engine.doc.page_hydrator = Some(Arc::new(Mutex::new(DeferredPageFixture { page, instance, hydrated: false })));
+        (engine, page, instance)
+    }
+
+    #[test]
+    fn mcp_reads_hydrate_the_owning_deferred_page() {
+        let (mut engine, page, instance) = deferred_page_engine();
+        let node = engine.call("designos_get_node", json!({"node_id": instance.0})).unwrap();
+        assert_eq!(node["node"]["children"].as_array().map(Vec::len), Some(1), "node reads must hydrate deferred instance content");
+
+        let (mut expected, _, expected_instance) = deferred_page_engine();
+        expected.doc.ensure_page_hydrated(page);
+        let expected_screenshot = expected.call("designos_get_screenshot", json!({"node_id": expected_instance.0, "scale": 1.0, "max_long_edge": 0})).unwrap();
+        let actual_screenshot = engine.call("designos_get_screenshot", json!({"node_id": instance.0, "scale": 1.0, "max_long_edge": 0})).unwrap();
+        assert_eq!(actual_screenshot["content"], expected_screenshot["content"], "MCP renders must include hydrated instance content");
+
+        let metadata = engine.call("designos_get_metadata", json!({"node_id": instance.0})).unwrap();
+        assert!(metadata["xml"].as_str().unwrap().contains("Rectangle"), "metadata must expose hydrated children");
+    }
+
+    #[test]
+    fn app_state_outline_hydrates_the_active_deferred_page() {
+        let (mut engine, _, instance) = deferred_page_engine();
+        let state = engine.call("designos_get_app_state", json!({"sections": ["outline"]})).unwrap();
+        let outline = state["markdown"].as_str().unwrap().to_string();
+        assert!(engine.doc.get(instance).unwrap().children.len() == 1, "the call hydrated the page it outlines: {outline}");
+        assert!(outline.contains("Rectangle"), "the outline lists the instance's hydrated child: {outline}");
+    }
+
+    #[test]
+    fn app_state_outline_hydrates_the_page_of_an_explicit_target() {
+        let (mut engine, _, instance) = deferred_page_engine();
+        let other = engine.doc.add_page("Other");
+        engine.active_page_id = Some(other);
+        let state = engine.call("designos_get_app_state", json!({"sections": ["outline"], "target_node_ids": [instance.0]})).unwrap();
+        let outline = state["markdown"].as_str().unwrap().to_string();
+        assert!(outline.contains("Rectangle"), "the outline lists the target's hydrated child: {outline}");
+    }
 
     #[test]
     fn variable_inspection_and_codegen_resolve_inherited_cross_collection_aliases() {
@@ -3163,6 +3427,57 @@ mod tests {
         e.doc.variables = store.variables.clone();
         e.doc.variable_collections = store.collections.clone();
         (theme, light, bg, brand, brand_light)
+    }
+
+    fn subscribed_library_variable() -> (Engine, String, String) {
+        use designos_doc::{VariableKind, VariableStore};
+        let mut engine = Engine::default();
+        let mut store = VariableStore::default();
+        let collection = store.add_collection("Library");
+        let mode = store.collections[&collection].default_mode.clone();
+        let variable = store.add_variable(&collection, "token", VariableKind::Number).unwrap();
+        assert!(store.set_value(&variable, &mode, designos_doc::VariableValue::Number(8.0)));
+        store.collections.get_mut(&collection).unwrap().source_library_key = Some("library-key".into());
+        engine.doc.variables = store.variables;
+        engine.doc.variable_collections = store.collections;
+        (engine, collection, variable)
+    }
+
+    #[test]
+    fn set_variables_refuses_every_write_to_subscribed_library_data_with_a_specific_error() {
+        for index in 0..5 {
+            let (mut engine, collection, variable) = subscribed_library_variable();
+            let before = (engine.doc.variables.clone(), engine.doc.variable_collections.clone());
+            let op = match index {
+                0 => json!({"upsert_variables": [{"id": variable, "name": "renamed"}]}),
+                1 => json!({"delete_variables": [variable]}),
+                2 => json!({"upsert_collections": [{"id": collection, "name": "renamed"}]}),
+                3 => json!({"upsert_variables": [{"id": "new", "collection": collection, "kind": "number", "values": {"light": 3}}]}),
+                _ => json!({"upsert_collections": [{"id": "new-library", "source_library_key": "library-key"}]}),
+            };
+            let error = set_variables(&mut engine, op).expect_err("library write must be refused");
+            assert_eq!(error.code, ErrorCode::BatchOpFailed, "case {index}: {error}");
+            assert_eq!(error.cause.as_deref().map(|cause| cause.message.as_str()), Some("library variables are read-only"), "case {index}: {error}");
+            assert_eq!((engine.doc.variables, engine.doc.variable_collections), before, "case {index} must be atomic");
+        }
+    }
+
+    #[test]
+    fn set_variables_still_edits_a_local_collection_next_to_a_subscribed_library() {
+        use designos_doc::{VariableKind, VariableStore};
+        let (mut engine, library_collection, library_variable) = subscribed_library_variable();
+        let mut store = VariableStore { variables: engine.doc.variables.clone(), collections: engine.doc.variable_collections.clone() };
+        let local_collection = store.add_collection("Local");
+        let local_variable = store.add_variable(&local_collection, "spacing", VariableKind::Number).unwrap();
+        engine.doc.variables = store.variables;
+        engine.doc.variable_collections = store.collections;
+
+        let reply = set_variables(&mut engine, json!({"upsert_variables": [{"id": local_variable, "name": "gap"}]}));
+
+        assert!(reply.is_ok(), "an ordinary collection stays writable: {reply:?}");
+        assert_eq!(engine.doc.variables[&local_variable].name, "gap");
+        assert_eq!(engine.doc.variables[&library_variable].name, "token", "the library variable is untouched");
+        assert_eq!(engine.doc.variable_collections[&library_collection].name, "Library");
     }
 
     #[test]
@@ -3566,6 +3881,24 @@ mod tests {
         assert!(err.message.contains("uikit") && err.message.contains(android_id) && err.message.contains("html"), "{err}");
         assert!(e.call("designos_list_nodes", json!({"limit":501})).is_err());
         assert!(e.call("designos_get_node", json!({"node_id":"2"})).is_err());
+    }
+
+    #[test]
+    fn mcp_comments_use_the_write_time_clock() {
+        designos_doc::set_thread_mock_now_ms(Some(1_700_000_000_000));
+        let mut e = Engine::default();
+        let added = e.call("designos_add_comment", json!({"author": "A", "text": "one"})).unwrap();
+        assert_eq!(added["messages"][0]["created"], "2023-11-14T22:13:20.000Z");
+
+        designos_doc::advance_thread_mock_now_ms(2_000);
+        let replied = e.call("designos_reply_comment", json!({"thread_id": "t1", "author": "B", "text": "two"})).unwrap();
+        let messages = replied["thread"]["messages"].as_array().unwrap();
+        assert_eq!(messages[1]["created"], "2023-11-14T22:13:22.000Z");
+        assert!(messages[1]["created"].as_str().unwrap() > messages[0]["created"].as_str().unwrap());
+
+        let listed = e.call("designos_list_comments", json!({})).unwrap();
+        assert_eq!(listed["comments"][0]["messages"][0]["created"], "2023-11-14T22:13:20.000Z");
+        designos_doc::set_thread_mock_now_ms(None);
     }
 
     #[test]
@@ -5014,6 +5347,30 @@ mod tests {
     }
 
     #[test]
+    fn mcp_delete_rejects_a_linked_instance_child() {
+        let mut e = Engine::default();
+        let page = e.active_page_id.unwrap();
+        let component_id = e.doc.alloc_id();
+        let mut component = Node::new(component_id, NodeKind::Component(designos_doc::FrameProps::default()));
+        component.name = "Card".into();
+        e.doc.insert(page, component).unwrap();
+        let child_id = e.doc.alloc_id();
+        e.doc.insert(component_id, Node::rectangle(child_id, Rect::new(0.0, 0.0, 80.0, 24.0))).unwrap();
+        designos_doc::create_instance(&mut e.doc, component_id, page, Vec2::new(160.0, 0.0)).apply(&mut e.doc).unwrap();
+        let instance_id = designos_doc::instances_of(&e.doc, component_id)[0];
+        let instance_child = e.doc.get(instance_id).unwrap().children[0];
+        let before = e.doc.to_json().unwrap();
+
+        let err = e.call("designos_delete_node", json!({"node_id": instance_child.0})).unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::InstanceChild);
+        assert!(!err.safe_to_retry, "{err}");
+        assert!(err.message.contains("instance"), "{err}");
+        assert_eq!(e.doc.to_json().unwrap(), before);
+        assert!(!e.history.can_undo(), "a rejected delete must not create history");
+    }
+
+    #[test]
     fn recording_a_marked_insert_does_not_clone_the_document() {
         use designos_doc::live_patch::batch_doc_clones;
 
@@ -5894,6 +6251,45 @@ mod tests {
         let mut e = Engine::new();
         e.doc = doc;
         (e, a, b, c)
+    }
+
+    #[test]
+    fn mcp_batch_preserves_existing_warnings_when_reroute_adds_warning() {
+        use designos_doc::{sync_connector, ConnectorEnd, ConnectorProps, Magnet};
+
+        let mut doc = Document::new("mcp_warning_merge");
+        let page = doc.add_page("Page 1");
+        let other_page = doc.add_page("Page 2");
+        let start = doc.alloc_id();
+        doc.insert(page, Node::frame(start, Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let end = doc.alloc_id();
+        doc.insert(page, Node::frame(end, Rect::new(300.0, 0.0, 120.0, 80.0))).unwrap();
+        let connector = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(start, Magnet::Auto), end: ConnectorEnd::attached(end, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(connector, props)).unwrap();
+        sync_connector(&mut doc, connector);
+
+        let mut e = Engine::new();
+        e.doc = doc;
+        e.active_page_id = Some(page);
+        let reply = e
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        {
+                            "op": "apply_spec",
+                            "parent_id": page.0,
+                            "spec": {"kind": "rectangle", "fill": "$easeui.bg.panel"}
+                        },
+                        {"op": "move", "node": end.0, "parent": other_page.0}
+                    ]
+                }),
+            )
+            .unwrap();
+        let warnings = reply["warnings"].as_array().expect("combined warnings array");
+        assert!(warnings.iter().any(|w| w["code"] == "DEPRECATED_EASEUI_TOKEN"), "batch warning was lost: {warnings:?}");
+        assert!(warnings.iter().any(|w| w["code"] == "CONNECTOR_ENDPOINT_DETACHED"), "reroute warning missing: {warnings:?}");
     }
 
     #[test]

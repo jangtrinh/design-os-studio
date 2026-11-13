@@ -1,0 +1,14 @@
+# Task: DEV · Tables T5b (#1231): MCP `table` operation in `designos_apply_batch`
+
+Role: DEV (Argon). Controller: Claude Code session (Opus), 2026-11-08. Your "done" is not evidence: the controller reruns the gates and Claude Opus reviews your change. Every symbol, file:line and SHA you cite must exist.
+- Work in the Orca worktree you were started in (named agy-t5b-mcp-table-op). Create branch `jangtrinh/tables-t5b-mcp` from `origin/main` (T1, T1b and T2 are merged there). Run `git branch --show-current` first and before every commit. Never commit on `main`. Never rebase, amend or force-push.
+- **Read and follow `/Users/jangtrinh/Products/design-os-studio/plans/261030-2041-e1-wave-1/brief-common-argon.txt` in full** (test harness with sibling HOME/TMPDIR, disk check, never the VSF-PCP file). Do NOT run `brv`. Never end your turn while a cargo task you started is still running.
+- The spec is the whole of `/Users/jangtrinh/Products/design-os-studio/plans/261106-2245-epic-waves/specs/tables-0710/T5b-mcp-batch-table-op.md`. Also read `controller-rulings.md` in the same folder (R-T1-2: commit paths call `check_table_positions`; `NoChange` = no-op, no undo step). Load `/es:rust`.
+- Files you may modify: `crates/designos-mcp` only (plus its tests and the tool description text). Other builders are working in designos-app (T4), designos-render/designos-doc table layout/designos-export (T2b). If you need a change outside designos-mcp, stop and report it.
+
+## Acceptance (paste commands and raw output on your FINAL commit)
+1. Every acceptance item in the T5b spec, each with a named test (red on base, green on head).
+2. Gates with exit codes: `cargo fmt --all -- --check`; `cargo clippy -p designos-mcp --locked --bins --tests -- -D warnings`; `cargo test -p designos-mcp --locked` (rerun a load-timing flake alone and say so).
+3. `designos_get_screenshot` evidence the spec asks for, saved as PNG under `plans/261106-2245-epic-waves/specs/tables-0710/evidence/t5b/` (synthetic documents only, no kit pixels).
+4. Push fast-forward: `git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/jangtrinh/design-os-studio.git HEAD:refs/heads/jangtrinh/tables-t5b-mcp`. Open a DRAFT PR against `main`, title `feat(mcp): a table operation in designos_apply_batch`, public body, no AI references, `Refs #1231`, milestone v0.7.11.
+5. Report `/Users/jangtrinh/Products/design-os-studio/plans/261106-2245-epic-waves/specs/tables-0710/reports/agy-t5b-mcp-table-op.md`: what could NOT be verified first; acceptance table with pasted output; assumptions; `git ls-remote` equal to HEAD; last line `Status: …`. Delete only `out/cargo`. This is a handoff: the report file and the draft PR are your deliverables.

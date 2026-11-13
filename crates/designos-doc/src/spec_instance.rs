@@ -1305,17 +1305,12 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                 .unwrap_or(cur_comp);
             let new_comp = resolve_variant_component(doc, owner, &ov.variant, Some(cur_comp), None)?;
             if new_comp != cur_comp {
-                if let Some((held, path)) = held_main_cycle_path_at(doc, new_comp, target_id, &[]) {
-                    let message = cycle_refusal_message(CycleAction::SwitchVariant, &cycle_node_label(doc, held), &path);
-                    return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.variant".into()), Vec::new(), None));
-                }
-            }
-            for (k, v) in &ov.variant {
-                let cmd = set_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
+                let cmd = swap_instance(doc, target_id, new_comp);
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
             }
-            if new_comp != cur_comp {
-                let cmd = swap_instance(doc, target_id, new_comp);
+            // Each entry is a pick as the panel's is: one that names the variant the copy shows holds a bound property.
+            for (k, v) in &ov.variant {
+                let cmd = set_nested_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
             }
         }

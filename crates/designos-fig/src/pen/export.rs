@@ -378,17 +378,7 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
         match &n.kind {
             NodeKind::Ellipse(arc) => {
                 if *arc != ArcData::default() {
-                    let start_deg = ((arc.start.to_degrees() * 1000.0).round()) / 1000.0;
-                    let sweep_deg = (((arc.end - arc.start).to_degrees() * 1000.0).round()) / 1000.0;
-                    if start_deg.abs() > 1e-3 {
-                        obj.insert("startAngle".into(), json!(start_deg));
-                    }
-                    if (sweep_deg - 360.0).abs() > 1e-3 {
-                        obj.insert("sweepAngle".into(), json!(sweep_deg));
-                    }
-                    if arc.inner_radius > 1e-4 {
-                        obj.insert("innerRadius".into(), json!(arc.inner_radius));
-                    }
+                    insert_arc_keys(arc, false, &mut obj);
                 }
             }
             NodeKind::Polygon { count } => {
@@ -676,6 +666,23 @@ fn export_effect(eff: &Effect) -> Option<Value> {
     }
 }
 
+/// Writes an ellipse's arc as startAngle, sweepAngle (degrees) and innerRadius. A node leaves out the keys that
+/// hold the default (whole is false); an override writes all three, because the importer takes only the keys an entry
+/// carries and would leave the others at what the main shows.
+fn insert_arc_keys(arc: &ArcData, whole: bool, obj: &mut Map<String, Value>) {
+    let start_deg = ((arc.start.to_degrees() * 1000.0).round()) / 1000.0;
+    let sweep_deg = (((arc.end - arc.start).to_degrees() * 1000.0).round()) / 1000.0;
+    if whole || start_deg.abs() > 1e-3 {
+        obj.insert("startAngle".into(), json!(start_deg));
+    }
+    if whole || (sweep_deg - 360.0).abs() > 1e-3 {
+        obj.insert("sweepAngle".into(), json!(sweep_deg));
+    }
+    if whole || arc.inner_radius > 1e-4 {
+        obj.insert("innerRadius".into(), json!(arc.inner_radius));
+    }
+}
+
 fn collect_instance_descendant_overrides(doc: &Document, inst_node: &Node, out: &mut Map<String, Value>) {
     for &cid in &inst_node.children {
         let Some(cn) = doc.get(cid) else { continue };
@@ -740,6 +747,9 @@ fn collect_instance_descendant_overrides(doc: &Document, inst_node: &Node, out: 
                 }
                 if cn.component.overrides.contains(&OverrideField::Visible) {
                     ov.insert("enabled".into(), json!(cn.visible));
+                }
+                if let (true, NodeKind::Ellipse(arc)) = (cn.component.overrides.contains(&OverrideField::Arc), &cn.kind) {
+                    insert_arc_keys(arc, true, &mut ov);
                 }
                 if cn.component.overrides.contains(&OverrideField::CornerRadii) {
                     let r0 = cn.corner_radii[0];

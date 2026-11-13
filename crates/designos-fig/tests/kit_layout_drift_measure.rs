@@ -105,7 +105,7 @@ fn moved_direct(doc: &Document, s: &Solved) -> (usize, usize, f32) {
     for (cid, r) in &s.1 {
         let Some(c) = doc.get(*cid) else { continue };
         let t = c.transform.translation();
-        let r0 = [t.x, t.y, t.x + c.size.x, t.y + c.size.y];
+        let r0 = page_space_bounds(c.transform, c.size);
         let r1 = [r.x, r.y, r.x + r.w, r.y + r.h];
         let d = edge_diff(&r0, &r1);
         if d > 0.5 {
@@ -131,6 +131,24 @@ fn moved_direct_aabb(doc: &Document, s: &Solved) -> usize {
 
 fn variant_count(doc: &Document, fid: NodeId, o: Opts) -> usize {
     solve(doc, fid, o).map_or(0, |s| moved_direct(doc, &s).0)
+}
+
+/// Whether the layer, or an ancestor below its page, is hidden. Figma defers building invisible instance subtrees, so the
+/// stored geometry in there is not a layout result: the census reports those layers apart from the visible ones.
+fn in_hidden_subtree(doc: &Document, mut id: NodeId) -> bool {
+    loop {
+        let Some(n) = doc.get(id) else { return false };
+        if matches!(n.kind, NodeKind::Page { .. }) {
+            return false;
+        }
+        if !n.visible {
+            return true;
+        }
+        match n.parent {
+            Some(parent) => id = parent,
+            None => return false,
+        }
+    }
 }
 
 fn kind_label(n: &Node) -> &'static str {
@@ -196,8 +214,7 @@ fn kit_layout_drift_measure() {
     for (fid, s) in &base {
         for (cid, r) in &s.1 {
             let c = doc.get(*cid).unwrap();
-            let t = c.transform.translation();
-            if edge_diff(&[t.x, t.y, t.x + c.size.x, t.y + c.size.y], &[r.x, r.y, r.x + r.w, r.y + r.h]) > 0.5 {
+            if edge_diff(&page_space_bounds(c.transform, c.size), &[r.x, r.y, r.x + r.w, r.y + r.h]) > 0.5 {
                 local_moved.entry(*fid).or_default().push(*cid);
             }
         }
@@ -211,9 +228,9 @@ fn kit_layout_drift_measure() {
         }
         for (cid, r) in &s.1 {
             if let Some(c) = after_doc.get_mut(*cid) {
-                c.transform.tx = r.x;
-                c.transform.ty = r.y;
-                c.size = Vec2::new(r.w, r.h);
+                let write = designos_doc::slot_write(&c.transform, c.size, *r);
+                c.transform = write.transform;
+                c.size = write.size;
             }
         }
     }
@@ -337,7 +354,7 @@ fn kit_layout_drift_measure() {
         for (cid, r) in &s.1 {
             let c = doc.get(*cid).unwrap();
             let t = c.transform.translation();
-            let d = edge_diff(&[t.x, t.y, t.x + c.size.x, t.y + c.size.y], &[r.x, r.y, r.x + r.w, r.y + r.h]);
+            let d = edge_diff(&page_space_bounds(c.transform, c.size), &[r.x, r.y, r.x + r.w, r.y + r.h]);
             if d > 0.5 {
                 let _ = writeln!(
                     kids_csv,
@@ -473,4 +490,6 @@ fn kit_layout_drift_measure() {
     }
     std::fs::write(out_dir.join("local-movers.csv"), local).unwrap();
     eprintln!("total_page_layers={} moved={} attributed={}", before.len(), moved.len(), summary_total);
+    let moved_in_hidden_subtree = moved.iter().filter(|(id, _)| in_hidden_subtree(&doc, *id)).count();
+    eprintln!("moved_in_hidden_subtree={} moved_visible={}", moved_in_hidden_subtree, moved.len() - moved_in_hidden_subtree);
 }

@@ -988,6 +988,7 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
         n.component.overrides = OverrideField::ALL.into_iter().collect();
         n.component.grid_align_overrides = [true, true];
         n.component.values.clear();
+        release_own_variant_bindings(&mut n);
     } else {
         n.component = ComponentLink::default();
     }
@@ -1034,7 +1035,13 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
     let mut c = Ctx::new(doc);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        let before = (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len(), n.component.own_variant_bindings.len());
+        let before = (
+            n.component.overrides.len(),
+            n.component.grid_align_overrides,
+            n.plugin_data.len(),
+            n.component.own_variant_bindings.len(),
+            n.component.variant_picks.len(),
+        );
         for f in fields {
             n.component.overrides.remove(f);
             match f {
@@ -1055,7 +1062,14 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
                 _ => {}
             }
         }
-        if (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len(), n.component.own_variant_bindings.len()) != before {
+        if (
+            n.component.overrides.len(),
+            n.component.grid_align_overrides,
+            n.plugin_data.len(),
+            n.component.own_variant_bindings.len(),
+            n.component.variant_picks.len(),
+        ) != before
+        {
             c.update(n);
         }
     }
@@ -1726,7 +1740,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             if is_swapped_inst {
                 // Only a nested instance the old main itself holds has a counterpart in the new main; anything else cannot move.
                 match (orig, instance_component(kn)) {
-                    (Some(_), Some(shown)) => inner.movable.push(InnerSwap { path: path.clone(), shown }),
+                    (Some(_), Some(shown)) => inner.movable.push(InnerSwap { path: path.clone(), shown, picks: kn.component.variant_picks.clone() }),
                     _ => inner.dropped += 1,
                 }
             }
@@ -1866,6 +1880,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 }
                 if let Some(mut tn) = c.s.get(t.id).cloned() {
                     tn.component.overrides.insert(OverrideField::MainComponent);
+                    tn.component.variant_picks = sw.picks.clone();
                     c.update(tn);
                 }
             }
@@ -2138,6 +2153,8 @@ struct InnerSwaps {
 struct InnerSwap {
     path: Vec<NestedStep>,
     shown: NodeId,
+    /// The bound variant properties picked by hand on it, which travel with the swap.
+    picks: BTreeSet<String>,
 }
 
 fn text_nodes(d: &Document, root: NodeId) -> Vec<NodeId> {
@@ -2217,33 +2234,49 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
             }
         }
         let bindings: BTreeMap<_, _> = rn.component.bindings.iter().chain(inode.component.bindings.iter()).map(|(k, v)| (*k, v.clone())).collect();
+        let mut prop_target = false;
         if let Some(PropValue::Instance(sw)) = bindings.get(&OverrideField::MainComponent).and_then(|p| values.get(p)) {
             if matches!(c.s.get(*sw).map(|n| &n.kind), Some(NodeKind::Component(_))) {
                 desired = *sw;
+                prop_target = true;
             }
         }
+        let mut bound_switch = false;
         if top {
             if let Some(v) = variant_target(&c.s, &inode) {
                 desired = v;
             }
-        } else if nested_variant_follows_binding(&inode) {
+        } else {
             // A bound variant property of a nested instance resolves its variable where this copy sits (the modes of
-            // its ancestors), and the switch below is the one a person's pick makes.
-            let choices = bound_variant_choices(c.s, i, &inode, cur);
-            if let Some(v) = variant_target_from(&c.s, desired, &choices).filter(|_| !choices.is_empty()) {
-                desired = v;
+            // its ancestors), and the switch below is the one a person's pick makes. A property picked by hand keeps the
+            // variant the copy shows; the others lie over it.
+            let mut choices = bound_variant_choices(c.s, i, &inode, cur);
+            choices.retain(|name, _| !inode.component.variant_picks.contains(name));
+            // The bindings belong to the component the copy shows, not to the one an instance-swap property chose for it.
+            if !choices.is_empty() && !prop_target {
+                if let Some(v) = variant_target_from(&c.s, desired, &choices) {
+                    desired = v;
+                    bound_switch = true;
+                }
             }
         }
         // not a main that would hold itself: the instance stays on the main it has
         if desired != cur && would_hold_itself(c.s, desired, i) {
             c.refused_swap.push((cur, desired));
         } else if desired != cur {
+            // The switch a bound variant property makes on a copy holding a pick leaves the pick recorded (the swap drops
+            // the record); a switch any other way (an instance-swap property) takes the record with it, as it always did.
+            let holds_pick = bound_switch && inode.component.overrides.contains(&OverrideField::MainComponent);
             swap_main(c, i, desired);
             swapped_here = true;
             inode = match c.s.get(i) {
                 Some(n) => n.clone(),
                 None => return,
             };
+            if holds_pick {
+                inode.component.overrides.insert(OverrideField::MainComponent);
+                c.update(inode.clone());
+            }
         }
         // Top instances mirror their component; swapped nested ones their own component too.
         let mine = instance_component(&inode);
@@ -2646,9 +2679,11 @@ fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
     if new_comp == instance || would_hold_itself(c.s, new_comp, instance) {
         return false;
     }
+    let old_comp = c.s.get(instance).and_then(instance_component);
     swap_main(c, instance, new_comp);
     if let Some(mut n) = c.s.get(instance).cloned() {
         n.component.overrides.insert(OverrideField::MainComponent);
+        record_variant_swap(c.s, &mut n, old_comp, new_comp);
         c.update(n);
     }
     true
@@ -2663,10 +2698,14 @@ pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value
 fn set_instance_prop_inner(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize) {
     set_instance_prop_edit(doc, instance, |n| match value {
         Some(v) => {
+            if matches!(v, PropValue::Variant(_)) {
+                record_variant_pick(n, name);
+            }
             n.component.values.insert(name.to_string(), v);
         }
         None => {
             n.component.values.remove(name);
+            n.component.variant_picks.remove(name);
         }
     })
 }
@@ -2706,7 +2745,7 @@ pub fn set_nested_instance_prop(doc: &mut Document, nested: NodeId, name: &str, 
     let Some(PropValue::Variant(choice)) = &value else { return set_instance_prop(doc, nested, name, value) };
     let Some(current) = doc.get(nested).and_then(instance_component) else { return nothing() };
     let chosen = BTreeMap::from([(name.to_string(), PropValue::Variant(choice.clone()))]);
-    let Some(target) = variant_target_from(doc, current, &chosen) else { return nothing() };
+    let Some(target) = variant_target_from(doc, current, &chosen) else { return pin_shown_variant(doc, nested, name, choice, current) };
     let mut c = Ctx::new(doc);
     if !swap_recorded(&mut c, nested, target) {
         return nothing();
@@ -2721,6 +2760,26 @@ pub fn set_nested_instance_prop(doc: &mut Document, nested: NodeId, name: &str, 
     // swap, a boolean, a text) are applied to them in this command. The variant is not resolved or swapped again, as the
     // nested instance is not a top instance and holds its swap.
     sync_one(&mut c, nested);
+    c.finish()
+}
+
+/// A pick of the variant a nested copy shows already: nothing switches, but a bound property is held on it from now on (the
+/// copy keeps the main it shows, and `name` stays out of what the binding moves). Nothing changes for a property that is
+/// not bound, or when `choice` is not what the copy shows.
+fn pin_shown_variant(doc: &mut Document, nested: NodeId, name: &str, choice: &str, shown: NodeId) -> Command {
+    let shows_choice = doc.get(shown).is_some_and(|c| parse_variant_name(&c.name).iter().any(|(k, v)| k == name && v == choice));
+    let Some(mut n) = doc.get(nested).cloned().filter(|n| shows_choice && n.variables.bindings.contains_key(&prop_binding_key(name))) else {
+        return nothing();
+    };
+    let before = n.clone();
+    n.component.overrides.insert(OverrideField::MainComponent);
+    n.component.variant_picks.insert(name.to_string());
+    n.component.values.remove(name);
+    if n == before {
+        return nothing();
+    }
+    let mut c = Ctx::new(doc);
+    c.update(n);
     c.finish()
 }
 
@@ -3004,6 +3063,9 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
         if let Some(v) = n.component.values.remove(old) {
             n.component.values.insert(new.to_string(), v);
         }
+        if n.component.variant_picks.remove(old) {
+            n.component.variant_picks.insert(new.to_string());
+        }
         if let Some(var) = n.variables.bindings.remove(&prop_binding_key(old)) {
             n.variables.bindings.insert(prop_binding_key(new), var);
         }
@@ -3037,6 +3099,7 @@ pub fn delete_prop(doc: &mut Document, owner: NodeId, name: &str) -> Command {
     for inst in instances_of_any(c.s, &comps) {
         let Some(mut n) = c.s.get(inst).cloned() else { continue };
         n.component.values.remove(name);
+        n.component.variant_picks.remove(name);
         n.component.slot_content_ids.remove(name);
         n.variables.bindings.remove(&prop_binding_key(name));
         c.update(n);
