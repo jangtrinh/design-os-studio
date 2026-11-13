@@ -1436,12 +1436,7 @@ pub fn swap_instance_to_component(doc: &mut Document, instance_id: NodeId, dest_
         }
     }
     refit_group_ancestors(doc, instance_id);
-    let relayout_root = doc
-        .get(instance_id)
-        .and_then(|n| n.parent)
-        .and_then(|p| doc.get(p).and_then(|n| n.parent))
-        .or_else(|| doc.get(instance_id).and_then(|n| n.parent))
-        .unwrap_or(instance_id);
+    let relayout_root = relayout_root_after_group(doc, instance_id);
     relayout_subtree(doc, relayout_root);
     Ok(dest_comp)
 }
@@ -1458,14 +1453,20 @@ pub fn swap_instance_variant(doc: &mut Document, instance_id: NodeId, prop_name:
         }
     }
     refit_group_ancestors(doc, instance_id);
-    let relayout_root = doc
-        .get(instance_id)
-        .and_then(|n| n.parent)
-        .and_then(|p| doc.get(p).and_then(|n| n.parent))
-        .or_else(|| doc.get(instance_id).and_then(|n| n.parent))
-        .unwrap_or(instance_id);
+    let relayout_root = relayout_root_after_group(doc, instance_id);
     relayout_subtree(doc, relayout_root);
     Ok(new_comp)
+}
+
+fn relayout_root_after_group(doc: &Document, id: NodeId) -> NodeId {
+    let mut root = doc.get(id).and_then(|n| n.parent).unwrap_or(id);
+    while matches!(doc.get(root).map(|n| &n.kind), Some(NodeKind::Group)) {
+        root = doc.get(root).and_then(|n| n.parent).unwrap_or(root);
+        if doc.get(root).is_none() {
+            break;
+        }
+    }
+    root
 }
 
 fn refit_group_ancestors(doc: &mut Document, id: NodeId) {
