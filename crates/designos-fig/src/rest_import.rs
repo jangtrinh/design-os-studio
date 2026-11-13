@@ -2144,6 +2144,9 @@ impl<'a> Ctx<'a> {
         // The derived data of the instance was computed for the size it has now, flagged or not.
         if holds_derived {
             digests.entry(OverrideField::Size).or_insert_with(|| crate::instance_self_digest::size_digest(node));
+            // A derived self entry can also restate the instance transform. Capture it even when
+            // the own entry did not flag Transform, so a direct move cannot be undone on reopen.
+            digests.entry(OverrideField::Transform).or_insert_with(|| crate::instance_self_digest::transform_digest(node));
         }
         digests
     }

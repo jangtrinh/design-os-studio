@@ -60,10 +60,21 @@ pub(crate) fn size_digest(node: &Node) -> u64 {
     digest(node, OverrideField::Size)
 }
 
+pub(crate) fn transform_digest(node: &Node) -> u64 {
+    digest(node, OverrideField::Transform)
+}
+
 /// Whether `node` has another size than it had when the file was opened, whether or not the instance overrides its
 /// size. An edit that sets no override flag (the agent tools write the node's fields directly) is found this way.
 pub(crate) fn size_moved(node: &Node, opened: &BTreeMap<OverrideField, u64>) -> bool {
     opened.get(&OverrideField::Size).is_some_and(|d| *d != size_digest(node))
+}
+
+/// Whether an unopened instance moved since the file was opened. A derived self entry can
+/// restate the recorded transform during reopen, so it is stale after a move even when no
+/// `OverrideField::Transform` flag was set by the caller.
+pub(crate) fn transform_moved(node: &Node, opened: &BTreeMap<OverrideField, u64>) -> bool {
+    opened.get(&OverrideField::Transform).is_some_and(|d| *d != digest(node, OverrideField::Transform))
 }
 
 /// The digest of each field of `node` that the instance overrides and a save can restate.
