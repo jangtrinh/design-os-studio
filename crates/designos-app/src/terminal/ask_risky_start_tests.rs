@@ -1,4 +1,4 @@
-//! Ask for risky only runs an agent CLI only when it shares the approval hook. Every way of starting a session asks that first and
+//! Ask when risky runs an agent CLI only when it shares the approval hook. Every way of starting a session asks that first and
 //! fails closed: nothing starts, the status line gives the reason the agent menu shows for that CLI, and the text of a prompt that
 //! asked for the start stays in the composer.
 

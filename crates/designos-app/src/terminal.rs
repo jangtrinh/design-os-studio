@@ -1250,7 +1250,7 @@ impl TerminalTab {
         self.preset == AgentCliPreset::Shell && self.spawned_command.is_some() && !self.is_shell_process()
     }
 
-    /// Why the mode this tab runs in cannot take prompts for its CLI (Ask for risky only with no approval hook), or `None`.
+    /// Why the mode this tab runs in cannot take prompts for its CLI (Ask when risky with no approval hook), or `None`.
     pub fn mode_refusal(&self) -> Option<&'static str> {
         crate::agent_permissions::start_refusal_in_mode(self.spawn_preset, self.is_custom_cli(), self.permission_mode)
     }
@@ -1562,7 +1562,7 @@ pub struct TerminalState {
     /// What the last provisioning has to tell the user about the start, as sentences for the Spawned line (`None` when nothing): what it
     /// moved out of the way of Grok or Antigravity, and the `designos` server it left out of an untitled design that has no workspace.
     set_aside_note: Option<String>,
-    /// The reason the last start was refused because Ask for risky only cannot run that CLI, for the prompt that asked for it to read
+    /// The reason the last start was refused because Ask when risky cannot run that CLI, for the prompt that asked for it to read
     /// and keep its text; cleared by the next start that goes ahead.
     pub(crate) last_start_refusal: Option<&'static str>,
     /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
@@ -3407,7 +3407,7 @@ impl TerminalState {
         }
     }
 
-    /// Fails closed when `mode` is Ask for risky only and the CLI has no approval hook: nothing starts, and the status line and the
+    /// Fails closed when `mode` is Ask when risky and the CLI has no approval hook: nothing starts, and the status line and the
     /// returned error carry the reason the agent menu shows for that CLI. Every way of starting an agent session asks this first.
     fn refuse_start_in_mode(&mut self, preset: AgentCliPreset, custom: bool, mode: PermissionMode) -> Result<(), String> {
         match crate::agent_permissions::start_refusal_in_mode(preset, custom, mode) {
@@ -6130,7 +6130,7 @@ mod workspace_dir_tests {
     }
 
     /// Every mode with the approval hook starts Grok and Antigravity on a project config that is exactly Studio's: a hook file an
-    /// agent planted in the session folder is moved aside before the tab starts, in Ask for risky only as in Ask.
+    /// agent planted in the session folder is moved aside before the tab starts, in Ask when risky as in Ask.
     #[test]
     fn a_grok_tab_in_every_approval_mode_starts_on_the_exact_project_config() {
         for mode in [crate::agent_permissions::AgentPermissionMode::Ask, crate::agent_permissions::AgentPermissionMode::AskRisky] {

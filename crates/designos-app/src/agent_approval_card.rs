@@ -403,7 +403,7 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
             (
                 AgentPermissionMode::AskRisky,
                 "agent-perm-ask-risky",
-                "Ask for risky only",
+                "Ask when risky",
                 "Reads and additions run. A change on one target can be allowed for this session. Deletes always ask.",
             ),
         ];
@@ -603,7 +603,7 @@ mod tests {
             let row = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agent-perm-ask-risky".to_string())))).expect("the option row");
             let title = runs
                 .iter()
-                .find(|t| t.text == "Ask for risky only")
+                .find(|t| t.text == "Ask when risky")
                 .unwrap_or_else(|| panic!("the full name at {w}x{h}: {:?}", runs.iter().map(|t| &t.text).collect::<Vec<_>>()));
             eprintln!("MEASURED dialog at {w}x{h}: option {:.1} wide, name {:.1} wide, {:.1} high", row.width(), title.rect.width(), title.rect.height());
             assert!(row.contains_rect(title.rect), "{w}x{h}: the name {:?} leaves its option {row:?}", title.rect);
@@ -636,7 +636,7 @@ mod tests {
             let texts = modal_texts(selected);
             assert!(texts.iter().any(|t| t == "Ask before acting (default)"), "{selected:?}: Ask carries the default mark: {texts:?}");
             assert!(texts.iter().any(|t| t == "Skip permissions"), "{selected:?}: Skip stays on offer, unmarked: {texts:?}");
-            assert!(texts.iter().any(|t| t == "Ask for risky only"), "{selected:?}: the third mode is on the selector: {texts:?}");
+            assert!(texts.iter().any(|t| t == "Ask when risky"), "{selected:?}: the third mode is on the selector: {texts:?}");
             assert!(!texts.iter().any(|t| t.contains("Skip permissions (default)")), "{selected:?}: Skip is no longer the default: {texts:?}");
             assert!(texts.iter().any(|t| t == "Applies to new agent tabs."), "{selected:?}: permission modes keep their footnote: {texts:?}");
             assert!(texts.iter().any(|t| t.contains("This session too.")), "{selected:?}: autosave says it applies to this session: {texts:?}");

@@ -310,7 +310,7 @@ A fix release from `main`: Untitled UI-style kits import with the right text siz
   - Instance properties are listed in the order the designer set in Figma, with the source component, its description, and an ellipsis for long values (PR #1403).
 - **Agents.**
   - The Agents panel is simpler and uses the dark kit (#1144, PR #1438).
-  - Approvals: an "Ask for risky only" mode, and a grant that lasts for the session for edits you have already allowed (PR #1312).
+  - Approvals: an "Ask when risky" mode, and a grant that lasts for the session for edits you have already allowed (PR #1312).
 - **`designos-mcp`.**
   - Each tool publishes its risk tier and accurate tool annotations (PR #1310).
   - `designos_close_document` closes a document with an explicit policy for unsaved changes and an optional save path, so an agent is no longer stuck on a "Save changes?" dialog (#1282, PR #1353).

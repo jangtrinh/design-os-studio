@@ -275,7 +275,7 @@ Captured with the 0.7.12 release build, headlessly with `designos-studio --scree
 ### 0.7.6
 
 - **Inspector.** Bind variables on a layer's effect rows and on gradient stops. Instance properties are listed in the order the designer set in Figma, with the source component, its description, and an ellipsis for long values.
-- **Agents.** The Agents panel is simpler and uses the dark kit. Approvals gain an `Ask for risky only` mode and a grant that lasts for the session for edits you have already allowed.
+- **Agents.** The Agents panel is simpler and uses the dark kit. Approvals gain an `Ask when risky` mode and a grant that lasts for the session for edits you have already allowed.
 - **`designos-mcp`.** Each tool publishes its risk tier and tool annotations. `designos_close_document` closes a document with an explicit policy for unsaved changes and an optional save path, so an agent is no longer stuck on a "Save changes?" dialog. A `LOOP_SUSPECTED` hint appears when an agent repeats the same call, alternates between two, or keeps calling a failing tool, and errors carry an `error_kind` (retryable, fatal or needs a person).
 - **`.fig` import.** An instance text override that names a text style now links that style, so text in kits such as Untitled UI no longer comes out one size too big and clipped. Design-token aliases resolve by their manifest group.
 - **Components, Typography and export.** Swapping an instance keeps the overrides set on its layers, the way Figma does. Editing a Typography field that a text style owns detaches the style, so the panel never shows a style the text no longer matches. CSS and Tailwind grids export with the layout solver's track sizes and row heights.

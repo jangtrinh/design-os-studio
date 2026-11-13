@@ -10,7 +10,7 @@ pub fn placeholder(state: &TerminalState, pill: &str, shell: bool, any_cli: bool
     if !any_cli && new_chat {
         return "No agent CLI found. Open the agent menu to install one.".to_string();
     }
-    // An agent tab Ask for risky only cannot take prompts for says why, instead of the shell or pill wording below.
+    // An agent tab Ask when risky cannot take prompts for says why, instead of the shell or pill wording below.
     if !new_chat {
         if let Some(reason) = state.active_tab().and_then(crate::terminal::TerminalTab::mode_refusal) {
             return reason.to_string();

@@ -203,7 +203,7 @@ pub fn rows_for_state(state: &mut TerminalState) -> Vec<PickerRow> {
     rows
 }
 
-/// In Ask for risky only, a CLI with no shared approval hook cannot be started from the picker.
+/// In Ask when risky, a CLI with no shared approval hook cannot be started from the picker.
 fn apply_ask_risky_availability(state: &TerminalState, rows: &mut [PickerRow]) {
     if state.permission_mode != crate::terminal::PermissionMode::AskRisky {
         return;
@@ -1061,7 +1061,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The pill is cached between frames. A switch to Ask for risky only must not leave it naming an agent the menu now marks
+    /// The pill is cached between frames. A switch to Ask when risky must not leave it naming an agent the menu now marks
     /// unavailable, and Send in New chat must not start that agent.
     #[test]
     fn switching_to_ask_for_risky_only_drops_the_cached_pill_agent_and_send_starts_nothing() {
@@ -1082,7 +1082,7 @@ mod tests {
 
         st.set_composer_draft("make a hero");
         let _ = st.send_from_composer_box("make a hero", None);
-        assert!(st.tabs.iter().all(|tab| tab.spawn_preset != AgentCliPreset::Codex), "Send started Codex in Ask for risky only");
+        assert!(st.tabs.iter().all(|tab| tab.spawn_preset != AgentCliPreset::Codex), "Send started Codex in Ask when risky");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);

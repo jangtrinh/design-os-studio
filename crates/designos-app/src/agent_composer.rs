@@ -68,7 +68,7 @@ pub enum RefuseReason {
     StartFailed,
     /// More skills are attached than a run allows, or their text is too long (`#573`).
     SkillLimit,
-    /// Ask for risky only cannot run this CLI (it has no approval hook). The notice names the CLI's own reason.
+    /// Ask when risky cannot run this CLI (it has no approval hook). The notice names the CLI's own reason.
     ModeUnavailable,
 }
 
@@ -84,7 +84,7 @@ impl RefuseReason {
             Self::NotWritable => "Not delivered: check the terminal",
             Self::StartFailed => "Not delivered: check the terminal",
             Self::SkillLimit => "Remove a skill to send",
-            Self::ModeUnavailable => "Not available in Ask for risky only",
+            Self::ModeUnavailable => "Not available in Ask when risky",
         }
     }
 }
@@ -1007,7 +1007,7 @@ impl TerminalState {
                 let _ = self.spawn_tab(self.active_runtime, file_path);
             }
         }
-        // Ask for risky only cannot run the CLI that would start (a resumed session or the active runtime): nothing starts, and the
+        // Ask when risky cannot run the CLI that would start (a resumed session or the active runtime): nothing starts, and the
         // text goes back into the composer with the reason, never lost.
         if !covered_agent && self.tabs.len() == tabs_before {
             if let Some(reason) = self.last_start_refusal {
@@ -2217,7 +2217,7 @@ mod tests {
         (st, rec)
     }
 
-    /// The boundary is the approval hook: Claude has it, so Ask for risky only must not cost it its composer, and the other modes
+    /// The boundary is the approval hook: Claude has it, so Ask when risky must not cost it its composer, and the other modes
     /// never refuse a CLI for lacking it.
     #[test]
     fn ask_risky_and_the_other_modes_still_send_to_what_they_can_run() {
