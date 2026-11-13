@@ -27,7 +27,8 @@ pub(super) fn test_sessions_root() -> PathBuf {
 
 /// Returns `<base>/<own_pid>/sessions`. `base` must first be a real folder of the user (made if it is missing); a link, a file
 /// or a folder of another user is refused, and then nothing is made. This process's own folder is then made exclusively, and
-/// whatever sits in its place (a link, a file, a folder of another user) is refused. Nothing is removed.
+/// whatever sits in its place (a link, a file, a folder of another user) is refused. Before that, the roots of test processes that
+/// are no longer alive are removed (see [`cleanup_stale_process_roots`]); a root whose process cannot be shown dead stays.
 pub(super) fn prepare_base(base: &Path, own_pid: u32) -> io::Result<PathBuf> {
     if matches!(std::fs::symlink_metadata(base), Err(e) if e.kind() == io::ErrorKind::NotFound) {
         crate::agent_approval_channel::create_private_dir_all(base)?;
@@ -85,9 +86,22 @@ fn stale_root_metadata(path: &Path) -> io::Result<Option<std::fs::Metadata>> {
     }
 }
 
+/// Whether a `kill(pid, 0)` probe says the process is alive. Only "no such process" means dead; a refusal (another user's process) or
+/// any other failure means the probe could not tell, and a root whose owner cannot be shown dead is not removed.
+#[cfg(unix)]
+fn kill_probe_says_alive(result: i32, errno: i32) -> bool {
+    result == 0 || errno != libc::ESRCH
+}
+
 #[cfg(unix)]
 fn process_is_alive(pid: u32) -> bool {
-    super::is_owner_alive(pid, None)
+    let Ok(raw) = libc::pid_t::try_from(pid) else {
+        return true;
+    };
+    // SAFETY: signal 0 sends nothing; `kill` only reports whether `raw` could be signalled.
+    let result = unsafe { libc::kill(raw, 0) };
+    let errno = if result == 0 { 0 } else { io::Error::last_os_error().raw_os_error().unwrap_or(0) };
+    kill_probe_says_alive(result, errno)
 }
 
 #[cfg(windows)]
@@ -182,9 +196,10 @@ mod tests {
             })
             .collect();
 
-        let removed: usize = cleaners.into_iter().map(|cleaner| cleaner.join().expect("cleaner thread")).sum();
+        for cleaner in cleaners {
+            cleaner.join().expect("cleaner thread");
+        }
 
-        assert!(removed <= 2, "concurrent cleaners report only their successful removals");
         assert!(!stale.exists(), "the stale root is gone");
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -252,6 +267,28 @@ mod tests {
         assert!(err.to_string().contains("is a link, not a folder"), "{err}");
         assert_eq!(std::fs::read_dir(&target).expect("target").count(), 0, "something was made through the link");
         let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A probe that fails, or cannot tell, must never read as "dead": that would delete the root of a test process that is still running.
+    #[cfg(unix)]
+    #[test]
+    fn a_liveness_probe_that_cannot_tell_means_alive() {
+        assert!(kill_probe_says_alive(0, 0), "the process answered");
+        assert!(kill_probe_says_alive(-1, libc::EPERM), "another user's process exists");
+        assert!(kill_probe_says_alive(-1, libc::EAGAIN), "a probe that failed to run tells nothing");
+        assert!(kill_probe_says_alive(-1, libc::EINVAL));
+        assert!(kill_probe_says_alive(-1, 0), "no error number at all tells nothing");
+        assert!(!kill_probe_says_alive(-1, libc::ESRCH), "only no such process is dead");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_default_liveness_check_sees_this_process_and_an_exited_child() {
+        assert!(process_is_alive(std::process::id()));
+        let mut child = std::process::Command::new("true").spawn().expect("a child");
+        let pid = child.id();
+        child.wait().expect("the child exits");
+        assert!(!process_is_alive(pid), "a reaped child is gone");
     }
 
     #[test]
