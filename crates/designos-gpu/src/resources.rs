@@ -350,7 +350,7 @@ impl ImageUpload<'_> {
             let ub = self.ring.alloc(
                 self.dev,
                 self.queue,
-                &BlitParams { src_extent: [sw as f32, sh as f32], dst_extent: [dw as f32, dh as f32], src_tex: [sw as f32, sh as f32], pad: [0.0; 2] },
+                &BlitParams { src_extent: [sw as f32, sh as f32], dst_extent: [dw as f32, dh as f32], src_tex: [sw as f32, sh as f32], edge_mode: 0, pad: 0 },
             );
             let bg = uniform_bg(
                 self.dev,
