@@ -170,11 +170,11 @@ fn a_refused_spec_swap_says_what_the_editor_says() {
     // the nested Dot swapped to Card inside Row: Row would hold Card, which holds Row
     let err = e.call("designos_apply_spec", json!({"parent_id": layer_of(&e.doc, row).0, "spec": spec})).unwrap_err();
     assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
-    assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} \u{2026} \u{2192} Row)");
+    assert_eq!(err.message, "Can't swap: Row would contain itself (Row \u{2192} Card \u{2192} \u{2026} \u{2192} Row)");
     let err = e.call("designos_apply_batch", json!({"ops": [{"op": "apply_spec", "parent_id": layer_of(&e.doc, row).0, "spec": spec}]})).unwrap_err();
     assert_eq!(
         err.cause.as_ref().map(|c| c.message.as_str()),
-        Some("Can't swap: Row would contain itself (Row \u{2192} Layer \u{2192} \u{2026} \u{2192} Row)"),
+        Some("Can't swap: Row would contain itself (Row \u{2192} Card \u{2192} \u{2026} \u{2192} Row)"),
         "{err}"
     );
     assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
