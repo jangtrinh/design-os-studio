@@ -1254,6 +1254,11 @@ impl TerminalTab {
         self.preset == AgentCliPreset::Shell && self.spawned_command.is_some() && !self.is_shell_process()
     }
 
+    /// Why the mode this tab runs in cannot take prompts for its CLI (Ask for risky only with no approval hook), or `None`.
+    pub fn mode_refusal(&self) -> Option<&'static str> {
+        crate::agent_permissions::start_refusal_in_mode(self.spawn_preset, self.is_custom_cli(), self.permission_mode)
+    }
+
     /// True when this tab is Claude Code and its session has a hook folder, so Claude reads attached skills from its `UserPromptSubmit`
     /// hook. Every other CLI, a custom command included, never reads that hook and gets the skills in the pasted prompt (`#573`), and so
     /// does a Claude tab whose session has no hook folder: none of its hooks is installed (`hooks_without_a_folder`), so a reply file
@@ -1561,6 +1566,9 @@ pub struct TerminalState {
     /// What the last provisioning has to tell the user about the start, as sentences for the Spawned line (`None` when nothing): what it
     /// moved out of the way of Grok or Antigravity, and the `designos` server it left out of an untitled design that has no workspace.
     set_aside_note: Option<String>,
+    /// The reason the last start was refused because Ask for risky only cannot run that CLI, for the prompt that asked for it to read
+    /// and keep its text; cleared by the next start that goes ahead.
+    pub(crate) last_start_refusal: Option<&'static str>,
     /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
     pub viewport_size: (u16, u16),
 }
@@ -1850,6 +1858,7 @@ impl TerminalState {
             session_closed: false,
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
             set_aside_note: None,
+            last_start_refusal: None,
             viewport_size: (28, 100),
         }
     }
@@ -3402,10 +3411,28 @@ impl TerminalState {
         }
     }
 
+    /// Fails closed when `mode` is Ask for risky only and the CLI has no approval hook: nothing starts, and the status line and the
+    /// returned error carry the reason the agent menu shows for that CLI. Every way of starting an agent session asks this first.
+    fn refuse_start_in_mode(&mut self, preset: AgentCliPreset, custom: bool, mode: PermissionMode) -> Result<(), String> {
+        match crate::agent_permissions::start_refusal_in_mode(preset, custom, mode) {
+            Some(reason) => {
+                self.last_start_refusal = Some(reason);
+                self.status_msg = Some(reason.to_string());
+                Err(reason.to_string())
+            }
+            None => {
+                self.last_start_refusal = None;
+                Ok(())
+            }
+        }
+    }
+
     /// Spawns a custom CLI command tab (`"Other CLI…"` / `custom_clis`) in this file's session folder
     /// with the `DESIGNOS_*` environment, without registering a resumable session (`#652` §3 rule 7).
     pub fn spawn_custom_cli_tab(&mut self, label: &str, command: &str, file_path: Option<&Path>) -> Result<usize, String> {
         let clean_title = if label.trim().is_empty() { command.trim() } else { label.trim() };
+        self.refresh_permission_mode_from_disk();
+        self.refuse_start_in_mode(AgentCliPreset::Claude, true, self.permission_mode)?;
         if let Err(e) = crate::agent_session_files::ensure_session_dir(&self.session_dir) {
             let message = crate::agent_session_files::start_failure_message(clean_title, &e);
             self.status_msg = Some(message.clone());
@@ -3465,6 +3492,7 @@ impl TerminalState {
         self.refresh_permission_mode_from_disk();
         let mode = self.permission_mode;
         if crate::agent_sessions::is_agent_cli_preset(preset) {
+            self.refuse_start_in_mode(preset, false, mode)?;
             let session_uuid =
                 if crate::agent_sessions::uses_preassigned_session_id(preset) { Some(crate::agent_sessions::generate_session_uuid()) } else { None };
             let launch_cmd = crate::agent_permissions::build_new_session_command_for_mode(preset, mode, session_uuid.as_deref());
@@ -3707,6 +3735,7 @@ impl TerminalState {
         let mode = self.permission_mode;
         let preset =
             crate::agent_sessions::preset_from_cli_name(&entry_clone.cli).ok_or_else(|| format!("Unsupported CLI '{}' in sessions.json", entry_clone.cli))?;
+        self.refuse_start_in_mode(preset, false, mode)?;
         let cmd_str = crate::agent_permissions::build_resume_command_for_mode(entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped, mode)
             .ok_or_else(|| format!("CLI '{}' does not support safe session resume", entry_clone.cli))?;
 
@@ -4361,7 +4390,9 @@ impl TerminalState {
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
         let outcome = self.send_to_agent(cli_prompt, file_path);
         if self.tabs.is_empty() && self.picker_open {
-            if outcome != crate::agent_composer::SendOutcome::Queued {
+            // A refusal for the mode keeps the text in the composer: held here too it would be sent a second time later.
+            let kept_in_composer = matches!(outcome, crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::ModeUnavailable));
+            if outcome != crate::agent_composer::SendOutcome::Queued && !kept_in_composer {
                 self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
             }
         } else if matches!(outcome, crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued) {
@@ -7504,6 +7535,9 @@ pub(crate) fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[Ag
 
 #[cfg(test)]
 mod ask_mode_tests;
+
+#[cfg(test)]
+mod ask_risky_start_tests;
 
 #[cfg(all(test, unix))]
 mod ask_hooks_tests;

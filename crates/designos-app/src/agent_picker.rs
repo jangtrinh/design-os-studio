@@ -214,9 +214,7 @@ fn apply_ask_risky_availability(state: &TerminalState, rows: &mut [PickerRow]) {
         }
         let reason = match &row.kind {
             PickerRowKind::CatalogCli { preset, .. } => crate::agent_permissions::ask_risky_unsupported_reason(*preset),
-            PickerRowKind::CustomCli { .. } | PickerRowKind::OtherCli => {
-                Some("A custom command does not share the approval hook, so Ask for risky only is unavailable.")
-            }
+            PickerRowKind::CustomCli { .. } | PickerRowKind::OtherCli => Some(crate::agent_permissions::CUSTOM_CLI_ASK_RISKY_REASON),
             PickerRowKind::Shell => None,
         };
         let Some(reason) = reason else { continue };

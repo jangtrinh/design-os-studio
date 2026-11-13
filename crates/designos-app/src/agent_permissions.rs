@@ -1034,6 +1034,21 @@ pub fn ask_risky_unsupported_reason(preset: AgentCliPreset) -> Option<&'static s
     }
 }
 
+/// The reason Ask for risky only gives for a custom command, which never shares the approval hook.
+pub const CUSTOM_CLI_ASK_RISKY_REASON: &str = "A custom command does not share the approval hook, so Ask for risky only is unavailable.";
+
+/// Why `mode` cannot start `preset` (a custom command when `custom`), in the words the agent menu already shows for it; `None`
+/// when it can. Only Ask for risky only refuses, and only a CLI that does not share the approval hook.
+pub fn start_refusal_in_mode(preset: AgentCliPreset, custom: bool, mode: PermissionMode) -> Option<&'static str> {
+    if mode != PermissionMode::AskRisky {
+        return None;
+    }
+    if custom {
+        return Some(CUSTOM_CLI_ASK_RISKY_REASON);
+    }
+    ask_risky_unsupported_reason(preset)
+}
+
 /// Whether a CLI can be offered under the selected permission mode.
 /// Ask for risky only requires the shared approval hook used by Claude.
 pub fn preset_available_in_mode(preset: AgentCliPreset, mode: PermissionMode) -> bool {

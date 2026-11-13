@@ -68,6 +68,8 @@ pub enum RefuseReason {
     StartFailed,
     /// More skills are attached than a run allows, or their text is too long (`#573`).
     SkillLimit,
+    /// Ask for risky only cannot run this CLI (it has no approval hook). The notice names the CLI's own reason.
+    ModeUnavailable,
 }
 
 impl RefuseReason {
@@ -82,6 +84,7 @@ impl RefuseReason {
             Self::NotWritable => "Not delivered: check the terminal",
             Self::StartFailed => "Not delivered: check the terminal",
             Self::SkillLimit => "Remove a skill to send",
+            Self::ModeUnavailable => "Not available in Ask for risky only",
         }
     }
 }
@@ -861,14 +864,19 @@ impl TerminalState {
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
         if !self.in_new_chat() {
             if let Some(tab) = self.tabs.get_mut(active_idx) {
-                if tab.permission_mode == crate::terminal::PermissionMode::AskRisky
-                    && (tab.is_custom_cli() || !crate::agent_permissions::preset_available_in_mode(tab.spawn_preset, tab.permission_mode))
-                {
-                    let msg = RefuseReason::NoAgent.message().to_string();
-                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
-                    tab.composer.notice = Some(msg.clone());
-                    self.status_msg = Some(msg);
-                    return SendOutcome::Refused(RefuseReason::NoAgent);
+                if let Some(reason) = tab.mode_refusal() {
+                    // A prompt entry point's text was never in the composer: put it there, as the shell branch below does.
+                    if !system && !from_box {
+                        if tab.composer.draft.trim().is_empty() {
+                            tab.composer.draft = text.to_string();
+                        } else {
+                            tab.composer.draft = format!("{}\n\n{text}", tab.composer.draft);
+                        }
+                    }
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+                    tab.composer.notice = Some(reason.to_string());
+                    self.status_msg = Some(reason.to_string());
+                    return SendOutcome::Refused(RefuseReason::ModeUnavailable);
                 }
                 if let Some(failure) = &tab.start_failure {
                     let headline = failure.headline();
@@ -983,6 +991,7 @@ impl TerminalState {
             self.mention_popup.close();
         }
         let tabs_before = self.tabs.len();
+        self.last_start_refusal = None;
         self.open_for_agent_use(file_path);
 
         // If `open_for_agent_use` did not leave us on a live non-shell agent tab (because no previous session
@@ -991,8 +1000,28 @@ impl TerminalState {
         let runtime_installed = self.active_runtime.is_installed() || self.path_prepend.iter().any(|d| d.join(self.active_runtime.binary_name()).is_file());
         let startable = !matches!(self.active_runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp);
         let covered_agent = self.active_tab_mut().is_some_and(|t| t.is_alive() && !t.is_shell_process());
-        if !covered_agent && self.tabs.len() == tabs_before && startable && runtime_installed {
-            let _ = self.spawn_tab(self.active_runtime, file_path);
+        if !covered_agent && self.tabs.len() == tabs_before && startable {
+            if let Some(reason) = crate::agent_permissions::start_refusal_in_mode(self.active_runtime, false, self.permission_mode) {
+                self.last_start_refusal = Some(reason);
+            } else if runtime_installed {
+                let _ = self.spawn_tab(self.active_runtime, file_path);
+            }
+        }
+        // Ask for risky only cannot run the CLI that would start (a resumed session or the active runtime): nothing starts, and the
+        // text goes back into the composer with the reason, never lost.
+        if !covered_agent && self.tabs.len() == tabs_before {
+            if let Some(reason) = self.last_start_refusal {
+                let comp = self.active_composer_mut();
+                if comp.draft.trim().is_empty() {
+                    comp.draft = text.to_string();
+                } else if !from_box {
+                    comp.draft = format!("{}\n\n{text}", comp.draft);
+                }
+                comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+                comp.notice = Some(reason.to_string());
+                self.status_msg = Some(reason.to_string());
+                return SendOutcome::Refused(RefuseReason::ModeUnavailable);
+            }
         }
         if !self.in_new_chat() && self.active_tab().is_some_and(|t| t.is_shell_process()) {
             let msg = RefuseReason::NoAgent.message().to_string();
@@ -1048,6 +1077,11 @@ impl TerminalState {
         };
         if self.spawn_tab(preset, file_path).is_err() {
             let comp = &mut self.unattached_composer;
+            if let Some(reason) = self.last_start_refusal {
+                comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+                comp.notice = Some(reason.to_string());
+                return SendOutcome::Refused(RefuseReason::ModeUnavailable);
+            }
             comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
             comp.notice = Some(RefuseReason::StartFailed.message().to_string());
             return SendOutcome::Refused(RefuseReason::StartFailed);
@@ -1335,14 +1369,7 @@ pub fn show_composer(
     }
 
     let choose_agent = new_chat && pill_preset.is_none();
-    let mode_available = if new_chat {
-        pill_preset.is_some()
-    } else {
-        state.active_tab().is_some_and(|tab| {
-            tab.permission_mode != crate::terminal::PermissionMode::AskRisky
-                || (!tab.is_custom_cli() && crate::agent_permissions::preset_available_in_mode(tab.spawn_preset, tab.permission_mode))
-        })
-    };
+    let mode_available = if new_chat { pill_preset.is_some() } else { state.active_tab().is_some_and(|tab| tab.mode_refusal().is_none()) };
     let skills_violation = state.skills.limit_violation();
     // The selection chip is a suggestion, not a message. An attached PRD is: Send then sends its reference alone.
     let has_payload = !state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty() || state.active_composer().attach_prd;
@@ -2128,7 +2155,7 @@ mod tests {
         }
         st.set_composer_draft("delete the node");
 
-        assert_eq!(st.send_from_composer_box("delete the node", None), SendOutcome::Refused(RefuseReason::NoAgent));
+        assert_eq!(st.send_from_composer_box("delete the node", None), SendOutcome::Refused(RefuseReason::ModeUnavailable));
         assert_eq!(st.composer_draft(), "delete the node", "a mode-unavailable send must preserve the draft");
         assert!(rec.lock().expect("recorder lock").is_empty(), "unsupported CLI must not receive a prompt");
 
@@ -2149,7 +2176,7 @@ mod tests {
             tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
         }
         st.set_composer_draft("change the file");
-        assert_eq!(st.send_from_composer_box("change the file", None), SendOutcome::Refused(RefuseReason::NoAgent));
+        assert_eq!(st.send_from_composer_box("change the file", None), SendOutcome::Refused(RefuseReason::ModeUnavailable));
         assert_eq!(st.composer_draft(), "change the file");
         assert!(st.active_tab().is_some_and(|tab| tab.is_custom_cli()));
 
