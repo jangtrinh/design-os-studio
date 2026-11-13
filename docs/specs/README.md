@@ -16,11 +16,11 @@ All 24 GitHub Epics (`#14` through `#1788`), Proactive Epic `E21` Multiplayer, a
 - **Proactive Epic E21 Multiplayer**: [`epics-figma-rea/e21-multiplayer-realtime-sync/`](epics-figma-rea/e21-multiplayer-realtime-sync/) (Real-Time Multiplayer & Multi-Agent Co-Editing)
 - **Open Parity & UX Bugs REA Specs**: [`epics-figma-rea/open-bugs-rea/`](epics-figma-rea/open-bugs-rea/) (56 Open Parity/UX Bugs across the 570-issue repo audit)
 
-Before work on an Epic or one of its issues, read [`EPIC-FIGMA-SPECS-INDEX.md`](epics-figma-rea/EPIC-FIGMA-SPECS-INDEX.md) (for an open bug, also [`open-bugs-rea/README.md`](epics-figma-rea/open-bugs-rea/README.md)).
-Every spec carries a review status at its top and in the index. Implement only from a spec marked READY, or from a spec marked READY AFTER FIXES together with the corrections listed in its [review](epics-figma-rea/reviews/README.md).
-A spec marked NEEDS EVIDENCE, NEEDS OWNER DECISION, SUPERSEDED, SPLIT (outside the slices its review clears) or NOT REVIEWED is reference only.
+The specs are reference material to implement faster, not a contract. Before work on an Epic or one of its issues, read [`EPIC-FIGMA-SPECS-INDEX.md`](epics-figma-rea/EPIC-FIGMA-SPECS-INDEX.md) (for an open bug, also [`open-bugs-rea/README.md`](epics-figma-rea/open-bugs-rea/README.md)) and the matching spec, and take from it what helps: data models, Kiwi field tables, acceptance ideas, slice order.
+Each spec carries a review status at its top and in the index; read the linked [review](epics-figma-rea/reviews/README.md) first, it lists the known errors and the corrections.
+Check every symbol, path and line number against main before relying on it.
 When a spec disagrees with code on main, the CHANGELOG or an owner ruling, the spec loses.
-A statement about Figma's behaviour counts as a fact only with a checkable source: the Kiwi schema, a Figma-authored file, Figma's documentation or interface strings, or a recorded observation.
+A statement about Figma's behaviour is a fact only with a checkable source (the Kiwi schema, a Figma-authored file, Figma's documentation or interface strings, a recorded observation); without one, treat it as a hypothesis and verify it before relying on it.
 
 ---
 
