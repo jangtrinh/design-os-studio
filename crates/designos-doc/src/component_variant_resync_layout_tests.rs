@@ -303,7 +303,11 @@ fn grouped_bound_variant_resync_hugs_through_nested_groups_and_undo_redo() {
     inner_node.size = Vec2::new(108.0, 48.0);
     let inner = f.d.insert(outer, inner_node).unwrap();
     f.d.reparent(f.top, inner, 0).unwrap();
+    let mut offset = f.d.get(f.top).unwrap().clone();
+    offset.transform.tx = 17.0;
+    f.d.get_mut(f.top).unwrap().transform.tx = 17.0;
     f.d.relayout_subtree(f.stage);
+    let original_child = (f.d.get(f.top).unwrap().transform, f.d.get(f.top).unwrap().size);
     let initial_host = width(&f, f.hug_top);
     assert!(initial_host >= 108.0);
 
@@ -315,6 +319,7 @@ fn grouped_bound_variant_resync_hugs_through_nested_groups_and_undo_redo() {
 
     assert!(f.h.undo(&mut f.d).unwrap());
     assert_eq!(shown(&f, f.top), SMALL);
+    assert_eq!((f.d.get(f.top).unwrap().transform, f.d.get(f.top).unwrap().size), original_child, "undo restores asymmetric child geometry");
     assert_eq!(width(&f, f.hug_top), initial_host);
     assert!(f.h.redo(&mut f.d).unwrap());
     assert_eq!((width(&f, outer), width(&f, inner)), (200.0, 200.0));
