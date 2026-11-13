@@ -105,7 +105,7 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 
 ## Watch
 
-Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.13, with 39 MCP tools. FREE and source-available (PolyForm Shield).
+Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.13. FREE and source-available (PolyForm Shield).
 
 <p align="left">
   <a href="https://www.youtube.com/watch?v=_LtPH2uREr0"><img src="https://i.ytimg.com/vi/_LtPH2uREr0/mqdefault.jpg" alt="An agent edits a .fig headless, without Figma | DESIGN:OS Studio (YouTube, 0:57)" width="320"></a>
