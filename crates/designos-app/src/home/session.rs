@@ -12,6 +12,11 @@ use std::path::PathBuf;
 pub const AUTOSAVE_IDLE: f64 = 1.5;
 /// Seconds of calm after which a revision change is compared with the saved document.
 const PROBE_DELAY: f64 = 0.3;
+const MAX_THUMBNAIL_NODES: usize = 25_000;
+
+fn should_refresh_thumbnail(doc: &Document) -> bool {
+    doc.nodes.len() <= MAX_THUMBNAIL_NODES
+}
 
 /// Bundled offline starter document (`crates/designos-app/assets/starter/designos-studio-starter.designos`).
 pub const STARTER_BYTES: &[u8] = include_bytes!("../../assets/starter/designos-studio-starter.designos");
@@ -769,7 +774,7 @@ impl App {
                 // The tab's own file state came back with it: the file is not read again unless it changed meanwhile.
                 self.history_open_file();
                 let _ = lib.mark_opened(id);
-                if needs_thumb && self.doc.nodes.len() <= 25_000 {
+                if needs_thumb && should_refresh_thumbnail(&self.doc) {
                     thumb::refresh_in_background(lib, entry.id, self.export_doc().into_owned());
                 }
                 return;
@@ -810,7 +815,7 @@ impl App {
             tabs.reconcile_frame(self);
             self.tabs = tabs;
         }
-        if needs_thumb && self.doc.nodes.len() <= 25_000 {
+        if needs_thumb && should_refresh_thumbnail(&self.doc) {
             thumb::refresh_in_background(lib, entry.id, self.export_doc().into_owned());
         }
     }
@@ -952,7 +957,7 @@ impl App {
         self.autosave.save_failed_at = None;
         self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
         self.autosave.note_known_mtime(self.autosave.disk_mtime);
-        if self.doc.nodes.len() <= 25_000 {
+        if should_refresh_thumbnail(&self.doc) {
             thumb::refresh_in_background(lib, lf.id, self.export_doc().into_owned());
         }
         Ok(notice)
@@ -1334,7 +1339,9 @@ impl App {
                 let disk_path = self.watched_disk_path();
                 self.autosave.disk_mtime = disk_path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
                 self.history_open_file();
-                thumb::refresh_in_background(lib, e.id, self.export_doc().into_owned());
+                if should_refresh_thumbnail(&self.doc) {
+                    thumb::refresh_in_background(lib, e.id, self.export_doc().into_owned());
+                }
                 let non_finite = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced));
                 let notices: Vec<String> = non_finite.into_iter().chain(left_empty_notice).collect();
                 if notices.is_empty() {
@@ -1424,6 +1431,20 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thumbnail_refresh_guard_skips_documents_over_the_memory_budget() {
+        let mut small = Document::new("small");
+        for _ in 0..MAX_THUMBNAIL_NODES {
+            let id = small.alloc_id();
+            small.nodes.insert(id, designos_doc::Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 1.0, 1.0)));
+        }
+        assert!(should_refresh_thumbnail(&small));
+
+        let id = small.alloc_id();
+        small.nodes.insert(id, designos_doc::Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 1.0, 1.0)));
+        assert!(!should_refresh_thumbnail(&small));
+    }
 
     #[test]
     fn idle_editor_with_open_file_requests_no_periodic_repaint() {
