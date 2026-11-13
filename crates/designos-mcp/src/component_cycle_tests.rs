@@ -180,26 +180,24 @@ fn a_refused_spec_swap_says_what_the_editor_says() {
     assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
 }
 
-/// A text variable named state in a Theme collection that reads the given value in its only mode.
-fn text_variable_state(e: &mut Engine, value: &str) {
-    e.doc.variable_collections.insert(
-        "theme".into(),
-        VariableCollection {
-            id: "theme".into(),
-            name: "Theme".into(),
-            modes: vec![VariableMode { id: "light".into(), name: "Light".into() }],
-            default_mode: "light".into(),
-            variables: vec!["state".into()],
-            key: None,
-            source_library_key: None,
-            extensions: Default::default(),
-        },
-    );
+/// A text variable in a Theme collection that reads the given value in its only mode.
+fn text_variable(e: &mut Engine, id: &str, value: &str) {
+    let collection = e.doc.variable_collections.entry("theme".into()).or_insert_with(|| VariableCollection {
+        id: "theme".into(),
+        name: "Theme".into(),
+        modes: vec![VariableMode { id: "light".into(), name: "Light".into() }],
+        default_mode: "light".into(),
+        variables: vec![],
+        key: None,
+        source_library_key: None,
+        extensions: Default::default(),
+    });
+    collection.variables.push(id.into());
     e.doc.variables.insert(
-        "state".into(),
+        id.into(),
         Variable {
-            id: "state".into(),
-            name: "state".into(),
+            id: id.into(),
+            name: id.into(),
             collection: "theme".into(),
             kind: VariableKind::String,
             values: [("light".to_string(), VariableValue::String(value.into()))].into_iter().collect(),
@@ -226,7 +224,7 @@ fn a_variable_bound_variant_that_would_make_a_main_hold_itself_is_refused_with_t
     combine_as_variants(&mut e.doc, &[one, two]).apply(&mut e.doc).unwrap();
     let i = place(&mut e, one, b);
     place(&mut e, b, two); // State=Two holds B, so the instance of State=One inside B must not become State=Two
-    text_variable_state(&mut e, "Two");
+    text_variable(&mut e, "state", "Two");
     let before = e.doc.to_json().unwrap();
     let res = e.call("designos_update_node", json!({"node_id": i.0, "prop_vars": {"State": "var:Theme/state"}}));
     let err = res.unwrap_err();
@@ -246,12 +244,73 @@ fn a_spec_that_binds_a_variant_to_a_variable_that_would_make_a_main_hold_itself_
     let two = main_on(&mut e, page, "State=Two", 600.0);
     combine_as_variants(&mut e.doc, &[one, two]).apply(&mut e.doc).unwrap();
     place(&mut e, b, two);
-    text_variable_state(&mut e, "Two");
+    text_variable(&mut e, "state", "Two");
     let before = e.doc.to_json().unwrap();
     let spec = json!({"kind": "instance", "component": "Component set", "props": {"State": "var:Theme/state"}});
     let res = e.call("designos_apply_spec", json!({"parent_id": b.0, "spec": spec}));
     let err = res.unwrap_err();
     assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
     assert_eq!(err.message, "Can't switch variant: B would contain itself (B \u{2192} Component set \u{2192} State=Two \u{2192} B)");
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
+}
+
+/// A set with two variant properties (Size S or L, State One or Two), an instance of Size=S, State=One inside main B,
+/// and the variant `held` (a Size and State pair) holding B. Returns (engine, B, the instance, the variants by name).
+fn size_state_set(held: (&str, &str)) -> (Engine, NodeId, NodeId, std::collections::BTreeMap<String, NodeId>) {
+    let mut e = Engine::default();
+    let page = e.active_page_id.unwrap();
+    let b = main_on(&mut e, page, "B", 0.0);
+    let mut mains = Vec::new();
+    for (x, (size, state)) in [("S", "One"), ("S", "Two"), ("L", "One"), ("L", "Two")].into_iter().enumerate() {
+        mains.push((format!("Size={size}, State={state}"), main_on(&mut e, page, &format!("Size={size}, State={state}"), 300.0 + 300.0 * x as f32)));
+    }
+    let ids: Vec<NodeId> = mains.iter().map(|(_, id)| *id).collect();
+    combine_as_variants(&mut e.doc, &ids).apply(&mut e.doc).unwrap();
+    let variants: std::collections::BTreeMap<String, NodeId> = mains.into_iter().collect();
+    let i = place(&mut e, variants["Size=S, State=One"], b);
+    place(&mut e, b, variants[&format!("Size={}, State={}", held.0, held.1)]);
+    text_variable(&mut e, "size", "L");
+    text_variable(&mut e, "state", "Two");
+    (e, b, i, variants)
+}
+
+/// What the instance shows, by name.
+fn shown(e: &Engine, instance: NodeId) -> String {
+    e.doc.get(instance_component(e.doc.get(instance).unwrap()).unwrap()).unwrap().name.clone()
+}
+
+/// Binding both variant properties in one call selects one variant, Size=L, State=Two. That variant holds nothing, so
+/// the call is legal, even though Size=S, State=Two (the State change alone) holds B.
+#[test]
+fn binding_two_variant_properties_whose_combined_variant_is_legal_is_applied() {
+    let (mut e, _b, i, _variants) = size_state_set(("S", "Two"));
+    let both = json!({"Size": "var:Theme/size", "State": "var:Theme/state"});
+    e.call("designos_update_node", json!({"node_id": i.0, "prop_vars": both})).unwrap();
+    assert_eq!(shown(&e, i), "Size=L, State=Two");
+
+    let (mut e, b, _i, _variants) = size_state_set(("S", "Two"));
+    let spec = json!({"kind": "instance", "component": "Component set", "props": both});
+    let reply = e.call("designos_apply_spec", json!({"parent_id": b.0, "spec": spec})).unwrap();
+    assert_eq!(shown(&e, NodeId(reply["root_node_id"].as_u64().unwrap())), "Size=L, State=Two");
+}
+
+/// The combined variant holds B, although each property alone selects a legal one: the call is refused with the
+/// sentence that names the variant that the call asked for, and nothing changes.
+#[test]
+fn binding_two_variant_properties_whose_combined_variant_would_make_a_main_hold_itself_is_refused() {
+    let (mut e, b, i, _variants) = size_state_set(("L", "Two"));
+    let before = e.doc.to_json().unwrap();
+    let both = json!({"Size": "var:Theme/size", "State": "var:Theme/state"});
+    let sentence = "Can't switch variant: B would contain itself (B \u{2192} Component set \u{2192} Size=L, State=Two \u{2192} B)";
+    let err = e.call("designos_update_node", json!({"node_id": i.0, "prop_vars": both})).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, sentence);
+    assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
+    assert_eq!(shown(&e, i), "Size=S, State=One");
+
+    let spec = json!({"kind": "instance", "component": "Component set", "props": both});
+    let err = e.call("designos_apply_spec", json!({"parent_id": b.0, "spec": spec})).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InstanceCycle, "{err}");
+    assert_eq!(err.message, sentence);
     assert_eq!(e.doc.to_json().unwrap(), before, "a refused call changes nothing");
 }

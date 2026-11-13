@@ -201,6 +201,51 @@ fn apply_spec_create_refuses_a_held_main_without_mutating() {
     assert_eq!(d.to_json().unwrap(), before);
 }
 
+/// A set whose State=One and State=Two are both mains, the variant named by `holds` holding an instance of B. B holds an
+/// instance of W, which holds an instance of Z. Returns (document, the instance of W in B, the name of the Z instance).
+fn swap_and_variant_fixture(holds: &str) -> (Document, NodeId, String) {
+    let mut d = Document::new("swap and variant");
+    let page = d.add_page("P");
+    let b = main_on(&mut d, page, "B");
+    let one = main_on(&mut d, page, "State=One");
+    let two = main_on(&mut d, page, "State=Two");
+    combine_as_variants(&mut d, &[one, two]).apply(&mut d).unwrap();
+    place(&mut d, b, if holds == "One" { one } else { two });
+    let z = main_on(&mut d, page, "Z");
+    let w = main_on(&mut d, page, "W");
+    place(&mut d, z, w);
+    let root = place(&mut d, w, b);
+    let nested = *d.get(root).unwrap().children.iter().find(|c| matches!(d.get(**c).unwrap().kind, NodeKind::Instance { .. })).unwrap();
+    let name = d.get(nested).unwrap().name.clone();
+    (d, root, name)
+}
+
+/// A swap and a variant in one override are one choice: the variant of the set that the pair selects.
+#[test]
+fn a_swap_with_a_variant_that_together_would_make_a_main_hold_itself_is_refused() {
+    let (mut d, root, name) = swap_and_variant_fixture("Two");
+    let before = d.to_json().unwrap();
+    let ov: OverrideSpec = serde_json::from_value(json!({"path": name, "swap": "Component set", "variant": {"State": "Two"}})).unwrap();
+    let err = apply_overrides(&mut d, root, &[ov], &[]).unwrap_err();
+    assert_eq!(err.code, "INSTANCE_CYCLE");
+    assert_eq!(err.message, "Can't swap: B would contain itself (B \u{2192} W \u{2192} Z \u{2192} State=Two \u{2192} B)");
+    assert_eq!(d.to_json().unwrap(), before);
+}
+
+/// The default variant of the set holds B, so a swap alone is refused; with the variant that holds nothing the pair is
+/// legal and applies.
+#[test]
+fn a_swap_with_a_variant_that_together_close_no_cycle_is_applied() {
+    let (mut d, root, name) = swap_and_variant_fixture("One");
+    let alone: OverrideSpec = serde_json::from_value(json!({"path": name, "swap": "Component set"})).unwrap();
+    assert!(apply_overrides(&mut d.clone(), root, &[alone], &[]).is_err(), "the swap alone selects State=One, which holds B");
+    let pair: OverrideSpec = serde_json::from_value(json!({"path": name, "swap": "Component set", "variant": {"State": "Two"}})).unwrap();
+    apply_overrides(&mut d, root, &[pair], &[]).unwrap();
+    let nested = *d.get(root).unwrap().children.iter().find(|c| matches!(d.get(**c).unwrap().kind, NodeKind::Instance { .. })).unwrap();
+    assert_eq!(d.get(instance_component(d.get(nested).unwrap()).unwrap()).unwrap().name, "State=Two");
+    assert!(self_holding(&d).is_empty());
+}
+
 #[test]
 fn apply_spec_variant_override_that_would_make_a_main_hold_itself_refuses_with_the_same_sentence() {
     let (mut d, b, _two, i) = variant_cycle();

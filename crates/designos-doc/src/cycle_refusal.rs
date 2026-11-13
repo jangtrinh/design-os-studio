@@ -5,7 +5,7 @@
 //! branch merge) builds its sentence here, so the same edit reads the same everywhere. Machine clients keep their
 //! error code next to the sentence, never inside it.
 
-use crate::components::{container_labels_between, cycle_node_label, held_main_cycle_path_at, instance_component, parse_variant_name};
+use crate::components::{container_labels_between, cycle_node_label, held_main_cycle_path_at, instance_component, parse_variant_name, would_hold_itself};
 use crate::{Document, NodeId, NodeKind, OverrideField, PropValue};
 use std::collections::BTreeMap;
 
@@ -112,6 +112,27 @@ pub fn prop_cycle_refusal(doc: &Document, instance: NodeId, name: &str, value: &
             Some(cycle_refusal_message(CycleAction::Swap, &cycle_node_label(doc, held), &path))
         }
         _ => None,
+    }
+}
+
+/// The sentence for a swap of `shown` to `wanted` that the guard refused somewhere in `root` (an instance and what it
+/// holds). The guard has said no already; this only finds the layer the swap was for, to tell the loop it would close.
+pub(crate) fn refused_swap_message(doc: &Document, root: NodeId, (shown, wanted): (NodeId, NodeId)) -> String {
+    let mut at = None;
+    doc.walk(root, |n, _| {
+        if at.is_none() && instance_component(n) == Some(shown) && would_hold_itself(doc, wanted, n.id) {
+            at = Some(n.id);
+        }
+    });
+    let sibling_variants = doc.get(shown).and_then(|n| n.parent).is_some_and(|set| doc.get(wanted).and_then(|n| n.parent) == Some(set))
+        && doc.get(shown).and_then(|n| n.parent).and_then(|set| doc.get(set)).is_some_and(|set| matches!(set.kind, NodeKind::ComponentSet(_)));
+    let action = if sibling_variants { CycleAction::SwitchVariant } else { CycleAction::Swap };
+    match at.and_then(|at| held_main_cycle_path_at(doc, wanted, at, &[])) {
+        Some((held, path)) => cycle_refusal_message(action, &cycle_node_label(doc, held), &path),
+        None => {
+            let (shown, wanted) = (cycle_node_label(doc, shown), cycle_node_label(doc, wanted));
+            cycle_refusal_message(action, &wanted, &[wanted.clone(), shown, wanted.clone()])
+        }
     }
 }
 

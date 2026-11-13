@@ -268,17 +268,6 @@ pub(crate) fn follow_reference_variant_bindings(doc: &Document, n: &Node, r: &No
     Some(out)
 }
 
-/// Why binding the properties of `inst` to variables as `edits` says is refused, when a bound variable names a variant
-/// whose main would hold itself where the instance sits: the sync would keep the instance on the variant it shows.
-pub fn prop_bindings_cycle_refusal(doc: &Document, inst: NodeId, edits: &[(&str, Option<&str>)]) -> Option<String> {
-    let n = doc.get(inst)?;
-    edits.iter().find_map(|&(name, var)| {
-        let def = def_of(doc, n, name)?;
-        let value = resolve_for_def(doc, inst, &def, var?).ok()?;
-        crate::prop_cycle_refusal(doc, inst, name, &value)
-    })
-}
-
 /// Binds property `name` of instance `inst` to `var`, or with `None` unbinds it; see [`bind_prop_variables`].
 pub fn bind_prop_variable(doc: &mut Document, inst: NodeId, name: &str, var: Option<&str>) -> Result<Command, PropBindError> {
     bind_prop_variables(doc, inst, &[(name, var)])
@@ -289,6 +278,18 @@ pub fn bind_prop_variable(doc: &mut Document, inst: NodeId, name: &str, var: Opt
 /// variable whose value the property cannot take (a variant name that is no option) is still bound; the property keeps
 /// its last valid value and [`prop_binding_problem`] says why. Nothing changes when any entry is refused.
 pub fn bind_prop_variables(doc: &mut Document, inst: NodeId, edits: &[(&str, Option<&str>)]) -> Result<Command, PropBindError> {
+    bind_prop_variables_reporting(doc, inst, edits).map(|(cmd, _)| cmd)
+}
+
+/// [`bind_prop_variables`], also why the guard refused the bind when it did: the sentence of
+/// [`crate::cycle_refusal_message`] for the variant that the bound values select together. The command is then empty.
+pub fn bind_prop_variables_explained(doc: &mut Document, inst: NodeId, edits: &[(&str, Option<&str>)]) -> Result<(Command, Option<String>), PropBindError> {
+    let (cmd, refused) = bind_prop_variables_reporting(doc, inst, edits)?;
+    let reason = refused.first().map(|swap| crate::refused_swap_message(doc, inst, *swap));
+    Ok((cmd, reason))
+}
+
+fn bind_prop_variables_reporting(doc: &mut Document, inst: NodeId, edits: &[(&str, Option<&str>)]) -> Result<(Command, Vec<(NodeId, NodeId)>), PropBindError> {
     let n = doc.get(inst).filter(|n| matches!(n.kind, NodeKind::Instance { .. })).ok_or(PropBindError::NotAnInstance(inst))?;
     // (property name, variable to bind or None, value the variable gives now, what binding it on a nested copy means)
     let mut planned: Vec<(String, Option<String>, Option<PropValue>, CopyBinding)> = Vec::with_capacity(edits.len());
@@ -314,7 +315,7 @@ pub fn bind_prop_variables(doc: &mut Document, inst: NodeId, edits: &[(&str, Opt
         }
         planned.push((name.to_string(), Some(var.to_string()), resolve_for_def(doc, inst, &def, var).ok(), kind));
     }
-    Ok(set_instance_prop_edit(doc, inst, |n| {
+    let (cmd, _, refused) = set_instance_prop_edit_reporting(doc, inst, |n| {
         for (name, var, value, kind) in planned {
             let key = prop_binding_key(&name);
             // Binding means "follow from now on", and an unbound property has no pick to hold.
@@ -344,8 +345,8 @@ pub fn bind_prop_variables(doc: &mut Document, inst: NodeId, edits: &[(&str, Opt
                 }
             }
         }
-    })
-    .0)
+    });
+    Ok((cmd, refused))
 }
 
 /// The nodes a command can change a property binding's value for.

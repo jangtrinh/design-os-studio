@@ -1107,10 +1107,10 @@ pub(crate) fn apply_instance_props_with_ctx(
 
         let is_text_prop = matches!(def.kind, PropKind::Text);
         let def_name = def.name.clone();
-        if let Some(message) = prop_cycle_refusal(doc, instance_id, &def_name, &pv) {
+        let (cmd, refusal) = set_instance_prop_explained(doc, instance_id, &def_name, Some(pv));
+        if let Some(message) = refusal {
             return Err(SpecError::named("INSTANCE_CYCLE", message, Some(format!("props.{key}")), Vec::new(), None));
         }
-        let cmd = set_instance_prop(doc, instance_id, &def_name, Some(pv));
         cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
         if is_text_prop {
             let mut bound_text_ids = Vec::new();
@@ -1192,11 +1192,11 @@ fn bind_instance_props(
         edits.push((def.name.clone(), var_id));
     }
     let refs: Vec<(&str, Option<&str>)> = edits.iter().map(|(n, v)| (n.as_str(), Some(v.as_str()))).collect();
-    if let Some(message) = prop_bindings_cycle_refusal(doc, instance_id, &refs) {
+    let (cmd, refusal) = bind_prop_variables_explained(doc, instance_id, &refs)
+        .map_err(|e| SpecError::named("PROPERTY_TYPE_MISMATCH", e.to_string(), Some("props".into()), Vec::new(), None))?;
+    if let Some(message) = refusal {
         return Err(SpecError::named("INSTANCE_CYCLE", message, Some("props".into()), Vec::new(), None));
     }
-    let cmd = bind_prop_variables(doc, instance_id, &refs)
-        .map_err(|e| SpecError::named("PROPERTY_TYPE_MISMATCH", e.to_string(), Some("props".into()), Vec::new(), None))?;
     cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
     ctx.bindings_created += edits.len();
     for (name, _) in &edits {
@@ -1306,6 +1306,11 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             let new_comp = resolve_variant_component(doc, owner, &ov.variant, Some(cur_comp), None)?;
             if new_comp != cur_comp {
                 let cmd = swap_instance(doc, target_id, new_comp);
+                // the guard answers an empty command: the instance would hold a main that holds itself
+                if matches!(&cmd, Command::Batch(parts) if parts.is_empty()) {
+                    let message = crate::refused_swap_message(doc, target_id, (cur_comp, new_comp));
+                    return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.variant".into()), Vec::new(), None));
+                }
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
             }
             // Each entry is a pick as the panel's is: one that names the variant the copy shows holds a bound property.

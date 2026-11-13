@@ -2695,8 +2695,21 @@ pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value
     set_instance_prop_inner(doc, instance, name, value).0
 }
 
+/// [`set_instance_prop`], also why the edit was refused when the guard refused it: the sentence of
+/// [`crate::cycle_refusal_message`] for the swap that the value would make. `None` when the edit went through.
+pub fn set_instance_prop_explained(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, Option<String>) {
+    let (cmd, _, refused) = set_instance_prop_reporting(doc, instance, name, value);
+    let reason = refused.first().map(|swap| crate::refused_swap_message(doc, instance, *swap));
+    (cmd, reason)
+}
+
 fn set_instance_prop_inner(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize) {
-    set_instance_prop_edit(doc, instance, |n| match value {
+    let (cmd, dropped, _) = set_instance_prop_reporting(doc, instance, name, value);
+    (cmd, dropped)
+}
+
+fn set_instance_prop_reporting(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize, Vec<(NodeId, NodeId)>) {
+    set_instance_prop_edit_reporting(doc, instance, |n| match value {
         Some(v) => {
             if matches!(v, PropValue::Variant(_)) {
                 record_variant_pick(n, name);
@@ -2713,6 +2726,13 @@ fn set_instance_prop_inner(doc: &mut Document, instance: NodeId, name: &str, val
 /// [`set_instance_prop`] for any edit of the instance root (its stored values, its variable bindings): the edit is
 /// applied, then the instance is synced, so a changed value reaches the layers (or the variant) it drives in one command.
 pub(crate) fn set_instance_prop_edit(doc: &mut Document, instance: NodeId, edit: impl FnOnce(&mut Node)) -> (Command, usize) {
+    let (cmd, dropped, _) = set_instance_prop_edit_reporting(doc, instance, edit);
+    (cmd, dropped)
+}
+
+/// [`set_instance_prop_edit`], also the swaps the guard refused that stopped the edit, as `(main shown, main wanted)`.
+/// The list is empty when the edit went through, and when it changed nothing for another reason.
+pub(crate) fn set_instance_prop_edit_reporting(doc: &mut Document, instance: NodeId, edit: impl FnOnce(&mut Node)) -> (Command, usize, Vec<(NodeId, NodeId)>) {
     let mut c = Ctx::new(doc);
     if let Some(mut n) = c.s.get(instance).cloned() {
         edit(&mut n);
@@ -2723,16 +2743,17 @@ pub(crate) fn set_instance_prop_edit(doc: &mut Document, instance: NodeId, edit:
     let dropped = c.dropped_inner_swaps;
     let cmd = c.finish();
     if refused.is_empty() {
-        return (cmd, dropped);
+        return (cmd, dropped, Vec::new());
     }
     // A value that would swap the instance to a main that holds itself in it is not stored: nothing changes. A swap
     // the instance already refuses without this value (a stored variant that a rename or an older build left pointing
     // at such a main) is not this value's doing, so it does not stop the edit.
     let stored = refused_swaps(doc, instance);
-    if refused.iter().any(|r| !stored.contains(r)) {
-        (nothing(), 0)
+    let blocking: Vec<(NodeId, NodeId)> = refused.into_iter().filter(|r| !stored.contains(r)).collect();
+    if blocking.is_empty() {
+        (cmd, dropped, Vec::new())
     } else {
-        (cmd, dropped)
+        (nothing(), 0, blocking)
     }
 }
 
