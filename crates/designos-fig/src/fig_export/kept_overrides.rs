@@ -171,25 +171,52 @@ pub(super) fn size_edited(doc: &Document, inst_id: NodeId) -> bool {
 /// place of what the record says for it; every other part of the record is written as it was.
 fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid: (u32, u32), entries: &mut Vec<V>) {
     let edited = edited_self_fields(cx.doc, inst_id);
-    if edited.is_empty() {
+    let opened = cx.doc.pending_instance_self_digests(inst_id).unwrap_or_default();
+    let Some(node) = cx.doc.get(inst_id) else { return };
+    // A reset removes the override flag before export. The opened digest still records that field, but
+    // `edited_fields` cannot see it because it only walks fields currently flagged on the node. Remove the
+    // corresponding kept record instead of writing the stale value back.
+    let mut reset = BTreeSet::new();
+    for entry in entries.iter() {
+        if !is_own_entry(entry, main_guid) {
+            continue;
+        }
+        let fields = match entry {
+            V::Message(fields) | V::Struct(fields) => fields,
+            _ => continue,
+        };
+        for (key, _) in fields.iter() {
+            if let Some(field) = field_removed_with(key) {
+                if opened.contains_key(&field) && !node.component.overrides.contains(&field) {
+                    reset.insert(field);
+                }
+            }
+        }
+    }
+    if edited.is_empty() && reset.is_empty() {
         return;
     }
-    // The instance has no children, so what it reads from the node is its own entry alone.
-    let Some(mut fresh) = collect_instance_overrides_for(cx, inst_id, Some(&edited)).into_iter().find(|e| is_own_entry(e, main_guid)) else { return };
+    // The instance has no children, so what it reads from the node is its own entry alone. A reset has no fresh
+    // value to append; edited fields still replace the old value with the current node state.
+    let mut fresh = collect_instance_overrides_for(cx, inst_id, Some(&edited)).into_iter().find(|e| is_own_entry(e, main_guid));
     let own: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| is_own_entry(e, main_guid)).map(|(i, _)| i).collect();
     let Some(&last) = own.last() else {
-        entries.insert(0, fresh);
+        if let Some(fresh) = fresh {
+            entries.insert(0, fresh);
+        }
         return;
     };
-    let Some(restated) = message_fields_mut(&mut fresh) else { return };
-    restated.retain(|(k, _)| &**k != "guidPath");
+    let mut restated = fresh.as_mut().and_then(message_fields_mut);
+    if let Some(fields) = restated.as_mut() {
+        fields.retain(|(k, _)| &**k != "guidPath");
+    }
     // Entries on one path apply in list order, so a key left in an earlier one would still be read where the last does not
     // override it: the old value goes from all of them and the new one is stated by the last.
     for &i in &own {
         let Some(record) = message_fields_mut(&mut entries[i]) else { continue };
-        record.retain(|(k, _)| !field_removed_with(k).is_some_and(|f| edited.contains(&f)));
+        record.retain(|(k, _)| !field_removed_with(k).is_some_and(|f| edited.contains(&f) || reset.contains(&f)));
     }
-    if let Some(record) = message_fields_mut(&mut entries[last]) {
+    if let (Some(record), Some(restated)) = (message_fields_mut(&mut entries[last]), restated.take()) {
         record.append(restated);
     }
 }
