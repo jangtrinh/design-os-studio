@@ -100,6 +100,31 @@ fn opening_a_deferred_page_after_main_edit_does_not_apply_stale_derived_size() {
 }
 
 #[test]
+fn opening_a_deferred_page_after_main_edit_keeps_instance_overrides() {
+    let fig = derived_fixture(Vec::new());
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    let main_label = live
+        .nodes
+        .values()
+        .find(|n| n.name == "Text" && n.parent.and_then(|p| live.get(p)).is_some_and(|p| p.name == "Buttons/Button"))
+        .map(|n| n.id)
+        .expect("main label");
+    assert!(!page_hydrated(&live, page));
+    live.get_mut(main_label).expect("main label").size = Vec2::new(125.0, 48.0);
+    assert!(live.ensure_page_hydrated(page), "page opens");
+
+    let instance = variant_button(&live);
+    assert_eq!(label_of(&live, instance), "Go back", "clearing stale derived data must keep text override on the instance");
+    let icon = live.get(instance).expect("hydrated instance").children.iter().filter_map(|&c| live.get(c)).find(|n| n.name == "Icon").expect("hydrated icon");
+    assert!((icon.stroke.weight - 1.6666666).abs() < 1e-5, "clearing stale derived data must keep stroke override on the instance");
+
+    let saved = export_fig(&live).expect("export");
+    assert_eq!(reopened_label_size(&saved), Vec2::new(125.0, 48.0), "saving after opening the page must not write stale derived size back");
+    assert_eq!(reopened_label(&saved), "Go back", "override survives save after opening the page");
+}
+
+#[test]
 fn a_deferred_instance_keeps_its_derived_data_through_a_save() {
     let fig = derived_fixture(Vec::new());
     let original = saved_derived(&fig, INSTANCE);
