@@ -2143,6 +2143,65 @@ mod tests {
         st.shutdown();
     }
 
+    /// Measures the composer toolbar at and above the narrowest panel the person can drag to (260 px) for every mode label: no
+    /// control leaves the composer box, none overlaps its neighbour, and a label that is drawn as text is not clipped. Where the
+    /// label does not fit, the toolbar's own fallback (the icon alone, label as the tooltip) takes over; nothing is shortened.
+    #[test]
+    fn every_mode_label_fits_the_composer_toolbar_down_to_the_narrowest_panel() {
+        use crate::terminal::PermissionMode;
+        for width in [260.0_f32, 300.0, 340.0, 420.0] {
+            for mode in [PermissionMode::Ask, PermissionMode::Skip, PermissionMode::AskRisky] {
+                let ctx = egui::Context::default();
+                crate::theme::install_fonts(&ctx);
+                crate::theme::apply(&ctx);
+                let mut st = crate::test_timing::ScopedTerminalState::default();
+                st.permission_mode = mode;
+                let panel = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(width, 800.0));
+                let mut label_w = 0.0;
+                for _ in 0..2 {
+                    let _ = ctx.run_ui(
+                        egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), ..Default::default() },
+                        |ui| {
+                            let mut acts = Vec::new();
+                            let _ = show_composer(&mut st, ui, panel, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
+                            let font = crate::theme::font_text(crate::theme::FONT_SIZE_TEXT_SM, crate::theme::TextWeight::Semibold);
+                            label_w = widgets::text_width(&ui.painter().clone(), crate::agent_composer_toolbar::mode_label(mode), &font);
+                        },
+                    );
+                }
+                let rect_of =
+                    |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("{name} at {width}"));
+                let (boxr, add, pill, mode_r, send) = (
+                    rect_of("agents-composer-box"),
+                    rect_of("agents-composer-add-btn"),
+                    rect_of("agents-composer-agent-pill"),
+                    rect_of("agents-composer-mode-btn"),
+                    rect_of("agents-composer-send"),
+                );
+                let icon_only = mode_r.width() < label_w;
+                eprintln!(
+                    "MEASURED panel {width} px, {:?} {:?}: box {:.1} wide, label text {label_w:.1}, mode control {:.1} ({}), agent pill {:.1}, free between add and pill {:.1}",
+                    mode,
+                    crate::agent_composer_toolbar::mode_label(mode),
+                    boxr.width(),
+                    mode_r.width(),
+                    if icon_only { "icon only" } else { "text" },
+                    pill.width(),
+                    pill.left() - add.right(),
+                );
+                for (name, r) in [("add", add), ("pill", pill), ("mode", mode_r), ("send", send)] {
+                    assert!(boxr.contains_rect(r), "{mode:?} at {width}: {name} {r:?} leaves the composer box {boxr:?}");
+                }
+                assert!(add.right() <= pill.left() + 0.5, "{mode:?} at {width}: the add button overlaps the pill");
+                assert!(pill.right() <= mode_r.left() + 0.5, "{mode:?} at {width}: the pill {pill:?} overlaps the mode control {mode_r:?}");
+                assert!(mode_r.right() <= send.left() + 0.5, "{mode:?} at {width}: the mode control overlaps Send");
+                if !icon_only {
+                    assert!(label_w + crate::theme::SPACE_INLINE * 2.0 <= mode_r.width() + 0.5, "{mode:?} at {width}: the label text is clipped");
+                }
+            }
+        }
+    }
+
     fn claude_tab_with_recorder() -> (crate::test_timing::ScopedTerminalState, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
         let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");

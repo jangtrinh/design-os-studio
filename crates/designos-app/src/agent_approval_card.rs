@@ -403,7 +403,7 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
             (
                 AgentPermissionMode::AskRisky,
                 "agent-perm-ask-risky",
-                "Ask risky only",
+                "Ask for risky only",
                 "Reads and additions run. A change on one target can be allowed for this session. Deletes always ask.",
             ),
         ];
@@ -584,6 +584,33 @@ mod tests {
         texts
     }
 
+    /// The mode's name sits whole inside its option, on one line, at the window sizes the dialog is used at (the dialog does not
+    /// follow the Agents panel's width).
+    #[test]
+    fn the_risky_mode_name_fits_its_option_in_the_permissions_dialog() {
+        for (w, h) in [(1600.0_f32, 900.0_f32), (900.0, 600.0), (600.0, 500.0)] {
+            let ctx = Context::default();
+            theme::install_fonts(&ctx);
+            theme::apply(&ctx);
+            let (mut open, mut mode) = (true, AgentPermissionMode::AskRisky);
+            let mut runs = Vec::new();
+            for _ in 0..2 {
+                let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(w, h))), ..Default::default() }, |_ui| {
+                    let _ = paint_permissions_modal(&ctx, &mut open, &mut mode, None);
+                });
+                runs = crate::lint::scan_shapes(&out.shapes).0;
+            }
+            let row = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agent-perm-ask-risky".to_string())))).expect("the option row");
+            let title = runs
+                .iter()
+                .find(|t| t.text == "Ask for risky only")
+                .unwrap_or_else(|| panic!("the full name at {w}x{h}: {:?}", runs.iter().map(|t| &t.text).collect::<Vec<_>>()));
+            eprintln!("MEASURED dialog at {w}x{h}: option {:.1} wide, name {:.1} wide, {:.1} high", row.width(), title.rect.width(), title.rect.height());
+            assert!(row.contains_rect(title.rect), "{w}x{h}: the name {:?} leaves its option {row:?}", title.rect);
+            assert!(title.rect.height() < theme::LINE_TEXT_SM * 1.5, "{w}x{h}: the name wraps onto a second line");
+        }
+    }
+
     /// Dialog footer actions are 40 high. The options stay radio cards; these two commit or discard the draft.
     #[test]
     fn permissions_modal_footer_is_control_md() {
@@ -609,7 +636,7 @@ mod tests {
             let texts = modal_texts(selected);
             assert!(texts.iter().any(|t| t == "Ask before acting (default)"), "{selected:?}: Ask carries the default mark: {texts:?}");
             assert!(texts.iter().any(|t| t == "Skip permissions"), "{selected:?}: Skip stays on offer, unmarked: {texts:?}");
-            assert!(texts.iter().any(|t| t == "Ask risky only"), "{selected:?}: the third mode is on the selector: {texts:?}");
+            assert!(texts.iter().any(|t| t == "Ask for risky only"), "{selected:?}: the third mode is on the selector: {texts:?}");
             assert!(!texts.iter().any(|t| t.contains("Skip permissions (default)")), "{selected:?}: Skip is no longer the default: {texts:?}");
             assert!(texts.iter().any(|t| t == "Applies to new agent tabs."), "{selected:?}: permission modes keep their footnote: {texts:?}");
             assert!(texts.iter().any(|t| t.contains("This session too.")), "{selected:?}: autosave says it applies to this session: {texts:?}");
