@@ -500,6 +500,13 @@ pub fn settle_bound_props(doc: &mut Document) {
     let _ = apply_prop_resync(doc, &scope);
 }
 
+/// Re-applies component properties bound to variables after a caller changes the variable mode
+/// outside [`History`], such as the prototype player scratch document.
+pub fn resync_bound_properties(doc: &mut Document) {
+    let scope = PropResyncScope { all: true, ..Default::default() };
+    let _ = apply_prop_resync(doc, &scope);
+}
+
 fn release_bound_variants_the_file_stored(doc: &mut Document) {
     let mut released: Vec<NodeId> = Vec::new();
     let mut picked: Vec<(NodeId, BTreeSet<String>)> = Vec::new();
