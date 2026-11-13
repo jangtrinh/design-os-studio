@@ -170,7 +170,7 @@ impl<'a> PaintEnv<'a> {
 type ImgKey = (u64, u32, u32);
 type ConvertedKey = (ImgKey, d::ColorProfile);
 
-/// Byte budget for decoded RGBA pixmaps kept by the per-thread image cache.
+/// Byte budget for the per-thread decoded-image cache (64 MiB), exceeded only when a single image and its most recent reduced copy together exceed the bound.
 pub const MAX_DECODED_IMAGE_BYTES: usize = 64 << 20;
 const MAX_DECODED_IMAGE_ENTRIES: usize = 2048;
 
@@ -242,10 +242,16 @@ impl DecodedCache {
             self.order.retain(|k| *k != key);
         }
         let new_bytes = image.as_ref().map_or(0, |pm| pm.data().len());
-        // An image over the budget is still kept so repeated paints do not decode it again, but
-        // alone: it evicts everything else, and the next insert evicts it.
+        let keep_full = (key.1 != 0 || key.2 != 0).then_some((key.0, 0, 0));
+        let mut skipped_full = false;
+        // An image over the budget may be held together with its own most recent reduced copy so
+        // repeated reduced paints do not decode it again; everything else is evicted oldest first.
         while (self.bytes + new_bytes > MAX_DECODED_IMAGE_BYTES || self.entries.len() >= MAX_DECODED_IMAGE_ENTRIES) && !self.order.is_empty() {
             if let Some(oldest) = self.order.pop_front() {
+                if Some(oldest) == keep_full {
+                    skipped_full = true;
+                    continue;
+                }
                 if let Some(old) = self.entries.remove(&oldest).flatten() {
                     self.bytes = self.bytes.saturating_sub(old.data().len());
                 }
@@ -254,6 +260,9 @@ impl DecodedCache {
         self.bytes += new_bytes;
         self.entries.insert(key, image);
         self.order.push_back(key);
+        if skipped_full {
+            self.order.push_back((key.0, 0, 0));
+        }
     }
 
     fn retain_ids(&mut self, keep: &HashSet<u64>) {
@@ -715,5 +724,26 @@ mod tests {
         cache.insert((1, 0, 0), Some(pm_b.clone()));
         assert_eq!(cache.bytes, pm_b.data().len());
         assert_eq!(cache.entries.len(), 1);
+
+        let full = Rc::new(super::sk::Pixmap::new(4100, 4100).unwrap());
+        let red1 = Rc::new(super::sk::Pixmap::new(64, 64).unwrap());
+        let red2 = Rc::new(super::sk::Pixmap::new(32, 32).unwrap());
+        cache.insert((2, 0, 0), Some(full.clone()));
+        cache.insert((2, 64, 64), Some(red1.clone()));
+        assert!(cache.entries.contains_key(&(2, 0, 0)));
+        assert!(cache.entries.contains_key(&(2, 64, 64)));
+        assert_eq!(cache.bytes, full.data().len() + red1.data().len());
+
+        cache.insert((2, 32, 32), Some(red2.clone()));
+        assert!(cache.entries.contains_key(&(2, 0, 0)));
+        assert!(!cache.entries.contains_key(&(2, 64, 64)));
+        assert!(cache.entries.contains_key(&(2, 32, 32)));
+        assert_eq!(cache.bytes, full.data().len() + red2.data().len());
+
+        cache.insert((3, 0, 0), Some(pm_a.clone()));
+        assert!(!cache.entries.contains_key(&(2, 0, 0)));
+        assert!(!cache.entries.contains_key(&(2, 32, 32)));
+        assert!(cache.entries.contains_key(&(3, 0, 0)));
+        assert_eq!(cache.bytes, pm_a.data().len());
     }
 }

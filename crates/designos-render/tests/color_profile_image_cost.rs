@@ -129,6 +129,11 @@ fn render_one_px(d: &Document, page: NodeId) {
     render_page_native(d, page, &Viewport::default(), &mut pm);
 }
 
+fn render_at_zoom(d: &Document, page: NodeId, zoom: f32) {
+    let mut pm = Pixmap::new(1, 1).unwrap();
+    render_page_native(d, page, &Viewport { offset: Vec2::ZERO, zoom, dpr: 1.0 }, &mut pm);
+}
+
 #[test]
 fn converted_image_cache_stays_within_byte_budget_and_evicts_oldest_first() {
     // 2500 x 2500 RGBA8 is 25 MB: two fit in the 64 MiB budget (50 MB <= 64 MiB), the third (75 MB) evicts the first.
@@ -254,6 +259,56 @@ fn an_oversized_decoded_image_is_cached_alone_decoded_once_and_evicted_by_the_ne
     render_one_px(&small_b, page_b);
     assert!(decoded_image_bytes() <= MAX_DECODED_IMAGE_BYTES, "multiple cached entries stay within the byte bound");
     assert_eq!(decoded_image_bytes(), 2 * 64 * 64 * 4);
+}
+
+#[test]
+fn an_oversized_image_painted_reduced_decodes_once_replaces_reduced_copy_and_evicts_both_on_next_image() {
+    // 1. Pin two ordinary images under the bound (2500 x 2500 = 25,000,000 bytes each), painted reduced at zoom 0.2 (500 x 500 = 1,000,000 bytes each).
+    let (ord0, ord_p0) = single_image_doc("ordinary-reduced-0", 2500, 91);
+    let (ord1, ord_p1) = single_image_doc("ordinary-reduced-1", 2500, 92);
+    let (ord2, ord_p2) = single_image_doc("ordinary-reduced-2", 2500, 93);
+    retain_converted_images(std::iter::empty());
+    let ord_dec0 = designos_render::image_decodes();
+    render_at_zoom(&ord0, ord_p0, 0.2);
+    assert_eq!(designos_render::image_decodes() - ord_dec0, 1);
+    assert_eq!(decoded_image_bytes(), 2500 * 2500 * 4 + 500 * 500 * 4);
+
+    render_at_zoom(&ord1, ord_p1, 0.2);
+    assert_eq!(designos_render::image_decodes() - ord_dec0, 2);
+    assert_eq!(decoded_image_bytes(), 2 * (2500 * 2500 * 4 + 500 * 500 * 4));
+
+    // Painting a third 2500 x 2500 image at zoom 0.2 evicts the oldest entry ((ord0, 0, 0) = 25,000,000 bytes) first,
+    // leaving (ord0, 500, 500) + ord1 (full + reduced) + ord2 (full + reduced) = 53,000,000 bytes.
+    render_at_zoom(&ord2, ord_p2, 0.2);
+    assert_eq!(designos_render::image_decodes() - ord_dec0, 3);
+    assert_eq!(decoded_image_bytes(), 2 * (2500 * 2500 * 4) + 3 * (500 * 500 * 4));
+    let before_recheck = designos_render::image_decodes();
+    render_at_zoom(&ord1, ord_p1, 0.2);
+    assert_eq!(designos_render::image_decodes() - before_recheck, 0, "newer ordinary image stays cached");
+    render_at_zoom(&ord0, ord_p0, 0.2);
+    assert_eq!(designos_render::image_decodes() - before_recheck, 1, "oldest ordinary image full decode was evicted first");
+
+    // 2. Over-budget 4100 x 4100 image (67,240,000 bytes > MAX_DECODED_IMAGE_BYTES) painted three times at zoom 0.25 (1025 x 1025 = 4,202,500 bytes).
+    let (big, big_page) = single_image_doc("oversized-reduced", 4100, 94);
+    let (small, small_page) = single_image_doc("after-oversized-reduced", 64, 95);
+    retain_converted_images(std::iter::empty());
+    let dec_before = designos_render::image_decodes();
+    render_at_zoom(&big, big_page, 0.25);
+    render_at_zoom(&big, big_page, 0.25);
+    render_at_zoom(&big, big_page, 0.25);
+    assert_eq!(designos_render::image_decodes() - dec_before, 1, "an oversized image painted three times at a reduced size decodes once, not three times");
+    assert_eq!(decoded_image_bytes(), 4100 * 4100 * 4 + 1025 * 1025 * 4, "reduced path ran and kept both full (4100x4100) and reduced (1025x1025) pixmaps");
+
+    // 3. Same oversized image painted at a second reduced size (zoom 0.1 -> 410 x 410 = 672,400 bytes):
+    // still 1 decode, first reduced copy (1025x1025) is gone, full entry is still cached, byte count equals full + second reduced copy.
+    render_at_zoom(&big, big_page, 0.1);
+    assert_eq!(designos_render::image_decodes() - dec_before, 1, "second reduced size reuses the cached full decode");
+    assert_eq!(decoded_image_bytes(), 4100 * 4100 * 4 + 410 * 410 * 4, "first reduced copy is evicted while full + second reduced copy remain cached");
+
+    // 4. Another image inserted afterwards evicts both entries of the big one, and total is within the bound again.
+    render_one_px(&small, small_page);
+    assert!(decoded_image_bytes() <= MAX_DECODED_IMAGE_BYTES, "decoded cache bytes {} exceed {}", decoded_image_bytes(), MAX_DECODED_IMAGE_BYTES);
+    assert_eq!(decoded_image_bytes(), 64 * 64 * 4, "inserting another image evicts both entries of the oversized image");
 }
 
 /// Release timing of a 1x1 native sample over the 4000x3000 photo, as the eyedropper loupe takes it every frame:
