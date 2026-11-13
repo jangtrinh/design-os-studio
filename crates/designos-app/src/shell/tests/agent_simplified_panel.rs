@@ -1067,6 +1067,25 @@ fn a_refused_send_paints_the_whole_sentence_in_the_caption() {
     }
 }
 
+/// The sentence for a custom command reaches the caption through the composer's notice (a refused resume; the agent menu does not
+/// offer a custom command in this mode). The caption has room for the whole sentence at both widths.
+#[test]
+fn the_custom_command_sentence_fits_the_caption_at_both_widths() {
+    use crate::agent_composer::{RefuseReason, SendOutcome};
+    use crate::agent_permissions::CUSTOM_CLI_ASK_RISKY_REASON;
+    for width in [DEFAULT_PANEL_W, NARROWEST_PANEL_W] {
+        let mut s = login_refusal_sim_at(AgentCliPreset::Claude, width);
+        let comp = s.shell.app.terminal.active_composer_mut();
+        comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+        comp.notice = Some(CUSTOM_CLI_ASK_RISKY_REASON.to_string());
+        frames(&mut s, 3);
+        let (caption, note) = composer_caption(&s).unwrap_or_else(|| panic!("at {width} px the notice is painted nowhere; painted: {:?}", painted(&s)));
+        eprintln!("PAINTED caption, custom command at {width} px: {caption:?} in a caption {:.0} px wide", note.width());
+        assert_eq!(caption, CUSTOM_CLI_ASK_RISKY_REASON, "at {width} px the whole sentence is painted, with no ellipsis");
+        finish(s);
+    }
+}
+
 /// The sentence for a custom command, and none of them is longer than the caption of the narrowest panel holds.
 #[test]
 fn every_refusal_sentence_names_what_happened_and_the_next_action_in_few_characters() {
