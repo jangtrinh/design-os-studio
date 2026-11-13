@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): SPLIT.** The motion model and evaluator already exist (do not add a second evaluate_motion); only the lint rules (all 16) and text stagger are usable after fixes, while Lottie output and the preset table need evidence. See the [review](../reviews/review-e4-e5-e6-e7.md#e6-motion-lottie).
+
 # True Figma Specification: Motion Engine, Timeline, Lottie & Media Export (#140–#142, #164–#167, #209–#237)
 
 **Date:** 2026-11-12  

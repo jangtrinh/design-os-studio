@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): READY AFTER FIXES.** The export core is sound, but its zip probe slice rests on a file and an enum that do not exist, the transition table is unsourced and export must run off the UI thread; apply the corrections in the review. See the [review](../reviews/review-e8-to-e13.md#e8-pptx).
+
 # True Figma PPTX Interop: Import & Export Spec (`#290`, `#294`)
 
 **Date:** 2026-11-12  

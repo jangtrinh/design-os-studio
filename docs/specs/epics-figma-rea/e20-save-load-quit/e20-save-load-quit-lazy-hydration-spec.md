@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): SPLIT.** Four slices duplicate contributor drafts, compact pages and the lazy reader need a design first, and only the dropped copy, clone lock and remaining quit fixes (#1716, #1715, rest of #1648) are usable, with the corrections in the review. See the [review](../reviews/review-e1-e2-e19-e20.md#e20-save-load-quit).
+
 # E20 Document Save, Load & Quit Reliability Spec (Epic #1788)
 
 Date: 2026-11-12 | Milestone: v0.8.0 | Base: `origin/main@e0e44f3c2`

@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): NEEDS EVIDENCE.** It contradicts main on the Auto gap value and its tilted child rule has no Figma source; wait for the runtime observations in issue #1942 before implementing the wrap gap (#1885) and tilted Fill (#1895) slices, and file an issue before any grid work. See the [review](../reviews/review-e1-e2-e19-e20.md#e2-layout-grid).
+
 # E2 Auto Layout & CSS Grid: Space-Between Backing Stores, Rotated Bounds & Unbounded Tracks (#1885, #1895, Grid 2.0)
 
 **Date:** 2026-11-12  

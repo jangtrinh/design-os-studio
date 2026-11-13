@@ -1,3 +1,5 @@
+> **Review status: NOT REVIEWED.** Reference only until a review is attached; code on main and the CHANGELOG win over this file.
+
 # True Figma Implementation Spec: Open Parity Bugs Cluster C3 (Vector Lines/Arrows, Parametric Primitives, Masks, Strokes, GPU Blur & UX Micro-Interactions)
 
 **Epic / Cluster:** Cluster C3 — Vectors, Strokes, Baked Outlines, Masks, Blur & UX Micro-Interactions  

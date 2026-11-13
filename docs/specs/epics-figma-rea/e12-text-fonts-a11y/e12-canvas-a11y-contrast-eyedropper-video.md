@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): READY AFTER FIXES.** The F6 keys differ per platform, the AccessKit snippet does not fit egui and nudge and resize already shipped; the video slice needs an owner decision. See the [review](../reviews/review-e8-to-e13.md#e12-canvas-a11y).
+
 # E12 Canvas Accessibility, Contrast, Eyedropper & On-Canvas Video Playback
 
 **Date:** 2026-11-12  

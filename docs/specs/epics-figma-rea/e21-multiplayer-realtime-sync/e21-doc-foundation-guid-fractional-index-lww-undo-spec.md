@@ -1,3 +1,5 @@
+> **Review status: NOT REVIEWED.** Reference only until a review is attached; code on main and the CHANGELOG win over this file.
+
 # E21 Document Foundation Spec: 64-Bit NodeId, Base-94 Fractional Index, Field-Level LWW & Cycle-Free Undo
 
 **Epic:** E21 (Multiplayer & Real-Time Sync) | **Slices:** E21.1, E21.2, E21.3  

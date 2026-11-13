@@ -1,3 +1,5 @@
+> **Review status: NOT REVIEWED.** Reference only until a review is attached; code on main and the CHANGELOG win over this file.
+
 # True Figma Parity Specification: Cluster C2 — Auto-Layout Edge Cases, Text Shaping/Settlement & Export/Color Drift
 
 **Document Identifier:** `SPEC-PARITY-C2-LAYOUT-TEXT-EXPORT-DRIFT`  

@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): SUPERSEDED.** The slot and selection outline fixes are already on main and the hydration slices duplicate the nested copy spec; only the ring arc repair (#1907) is usable, with the corrected override field and arc field names. See the [review](../reviews/review-e1-e2-e19-e20.md#e19-slots-clip-hydration).
+
 # True Figma Component, Slot, Clip & Hydration Follow-ups Spec
 
 **Date:** 2026-11-12  

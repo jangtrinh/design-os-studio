@@ -1,3 +1,5 @@
+> **Review status (2026-11-12): READY AFTER FIXES.** Schema fields and easing curves are sourced, but the bounds formulas are Studio's own code and the critical-damping settle formula and two test vectors are wrong; apply the corrections in the review. See the [review](../reviews/review-e4-e5-e6-e7.md#e6-export-easing).
+
 # True Figma Specification: Export Bounds, ExportSettings Kiwi Parity & Analytical Easing/Springs (#528, #213, #457, #459)
 
 **Date:** 2026-11-12  

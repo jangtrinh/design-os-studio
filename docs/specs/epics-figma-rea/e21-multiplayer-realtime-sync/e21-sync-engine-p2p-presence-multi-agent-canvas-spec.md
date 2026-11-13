@@ -1,3 +1,5 @@
+> **Review status: NOT REVIEWED.** Reference only until a review is attached; code on main and the CHANGELOG win over this file.
+
 # E21 Sync Engine Spec: crates/designos-sync, Serverless P2P, Zero-Invalidation Presence & Multi-Agent Canvas
 
 **Epic:** E21 (Multiplayer & Real-Time Sync) | **Slices:** E21.4, E21.5, E21.6, E21.7  
