@@ -73,10 +73,13 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
     if send_resp.clicked() && send_on {
         out.send = true;
     }
-    let mode_icon = wants_icon_mode(&p, composer.width(), state.permission_mode);
-    let mode_w = if mode_icon { theme::CONTROL_XS } else { mode_width(&p, state.permission_mode) };
+    // The closed control describes the focused tab; the popup still edits the
+    // window default used by future tabs.
+    let display_mode = state.active_tab().map(|tab| tab.permission_mode).unwrap_or(state.permission_mode);
+    let mode_icon = wants_icon_mode(&p, composer.width(), display_mode);
+    let mode_w = if mode_icon { theme::CONTROL_XS } else { mode_width(&p, display_mode) };
     let mode = Rect::from_min_size(Pos2::new(send.left() - theme::SPACE_ROW - mode_w, y), Vec2::new(mode_w, theme::CONTROL_XS));
-    if mode_btn(ui, &p, mode, state.permission_mode, state.mode_menu_open, mode_icon) {
+    if mode_btn(ui, &p, mode, display_mode, state.mode_menu_open, mode_icon) {
         state.mode_menu_open = !state.mode_menu_open;
         state.attach_menu_open = false;
         if state.mode_menu_open {
