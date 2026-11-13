@@ -854,10 +854,12 @@ fn large_fixture_off_thread_budget() {
     // takes too long, goes over the budget on every run and still fails. Stops at the first run within budget.
     const ATTEMPTS: usize = 3;
     const UI_FRAME_BUDGET: Duration = Duration::from_millis(8);
+    const MAX_UI_FRAMES_OVER_BUDGET: usize = 3;
+    const UI_FRAME_HARD_CAP: Duration = Duration::from_millis(50);
     const TOTAL_BUDGET: Duration = Duration::from_secs(6);
     // The count asserts below prove the scan; wall time against TOTAL_BUDGET is bounded in release builds only.
     let total_within = |total: Duration| cfg!(debug_assertions) || total <= TOTAL_BUDGET;
-    let mut best: Option<(Duration, Duration, usize, SliceRunStats)> = None;
+    let mut best: Option<(usize, Duration, Duration, usize, SliceRunStats)> = None;
     let mut history = Vec::new();
     for _ in 0..ATTEMPTS {
         let total_start = Instant::now();
@@ -893,31 +895,34 @@ fn large_fixture_off_thread_budget() {
         std::hint::black_box(visible_hits);
         let stats = worker.join().expect("worker thread panicked");
         let total_elapsed = total_start.elapsed();
-        ui_frame_samples.sort_unstable();
-        let p99_index = (ui_frame_samples.len() * 99).div_ceil(100).saturating_sub(1);
-        let p99_ui_frame = ui_frame_samples.get(p99_index).copied().unwrap_or_default();
-        let worst_ui_frame = ui_frame_samples.last().copied().unwrap_or_default();
         let ui_frames = ui_frame_samples.len();
-        history.push(format!("p99_ui_frame={p99_ui_frame:?} worst_ui_frame={worst_ui_frame:?} total={total_elapsed:?} frames={ui_frames}"));
+        let frames_over_budget = ui_frame_samples.iter().filter(|&&d| d > UI_FRAME_BUDGET).count();
+        let worst_ui_frame = ui_frame_samples.iter().copied().max().unwrap_or(Duration::MAX);
+        history.push(format!("over_budget={frames_over_budget} worst_ui_frame={worst_ui_frame:?} total={total_elapsed:?} frames={ui_frames}"));
 
-        // A single descheduled sample measures runner load, not UI work. Keep the same 8 ms
-        // budget, but judge the p99 so a sustained UI stall still fails while scheduler noise
-        // cannot block unrelated PRs.
-        let within = p99_ui_frame <= UI_FRAME_BUDGET && total_within(total_elapsed);
-        let rank = |p99: Duration, t: Duration| (p99 > UI_FRAME_BUDGET || !total_within(t), p99, t);
-        let better = best.as_ref().is_none_or(|(best_p99, best_total, _, _)| rank(p99_ui_frame, total_elapsed) < rank(*best_p99, *best_total));
+        // One attempt is within budget when it recorded at least one UI frame, at most
+        // MAX_UI_FRAMES_OVER_BUDGET (3) frames exceeded UI_FRAME_BUDGET (8 ms), no frame
+        // exceeded UI_FRAME_HARD_CAP (50 ms), and total elapsed time is within TOTAL_BUDGET.
+        let frame_within = ui_frames > 0 && frames_over_budget <= MAX_UI_FRAMES_OVER_BUDGET && worst_ui_frame <= UI_FRAME_HARD_CAP;
+        let within = frame_within && total_within(total_elapsed);
+        let rank = |frames: usize, over: usize, worst: Duration, t: Duration| {
+            (!(frames > 0 && over <= MAX_UI_FRAMES_OVER_BUDGET && worst <= UI_FRAME_HARD_CAP && total_within(t)), worst > UI_FRAME_HARD_CAP, over, worst, t)
+        };
+        let better = best.as_ref().is_none_or(|(best_over, best_worst, best_total, best_frames, _)| {
+            rank(ui_frames, frames_over_budget, worst_ui_frame, total_elapsed) < rank(*best_frames, *best_over, *best_worst, *best_total)
+        });
         if better {
-            best = Some((p99_ui_frame, total_elapsed, ui_frames, stats));
+            best = Some((frames_over_budget, worst_ui_frame, total_elapsed, ui_frames, stats));
         }
         if within {
             break;
         }
     }
-    let (p99_ui_frame, total_elapsed, ui_frames, stats) = best.expect("at least one run");
+    let (frames_over_budget, worst_ui_frame, total_elapsed, ui_frames, stats) = best.expect("at least one run");
 
     assert!(
-        p99_ui_frame <= UI_FRAME_BUDGET,
-        "UI frame p99 budget exceeded while worker linted 112,474 nodes in every run: best p99_ui_frame={p99_ui_frame:?} (frames={ui_frames}); runs: {history:?}"
+        ui_frames > 0 && frames_over_budget <= MAX_UI_FRAMES_OVER_BUDGET && worst_ui_frame <= UI_FRAME_HARD_CAP,
+        "UI frame budget exceeded while worker linted 112,474 nodes in every run (allowed <={MAX_UI_FRAMES_OVER_BUDGET} frames > {UI_FRAME_BUDGET:?} and no frame > {UI_FRAME_HARD_CAP:?}): best over_budget={frames_over_budget} worst_ui_frame={worst_ui_frame:?} (frames={ui_frames}); runs: {history:?}"
     );
     assert!(total_within(total_elapsed), "total worker lint elapsed {total_elapsed:?} exceeded 6s budget in every run: {history:?}");
     assert_eq!(stats.report.scanned, FIXTURE_NODES, "worker scan must visit all 112,474 nodes");
