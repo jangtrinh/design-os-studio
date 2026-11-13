@@ -67,7 +67,7 @@ fn a_fixture_without_motion_re_serializes_byte_identical() {
     let raw = std::fs::read_to_string(path).expect("committed fixture");
     let doc = Document::from_json(&raw).unwrap();
     assert!(doc.nodes.values().all(|n| n.motion.is_none()));
-    assert_eq!(crate::copy_layer_links::without_marker(&doc.to_json().unwrap()), raw.trim());
+    assert_eq!(doc.to_json().unwrap(), raw.trim());
 }
 
 #[test]

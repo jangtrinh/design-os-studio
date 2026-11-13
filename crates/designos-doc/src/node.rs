@@ -1334,8 +1334,7 @@ mod mask_type_serde_tests {
         let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../designos-app/tests/fixtures/mask-types.designos");
         let raw = std::fs::read_to_string(&fixture_path).expect("committed synthetic mask types fixture must exist");
         let mut doc = Document::from_json(&raw).expect("parse synthetic mask types fixture");
-        let saved = crate::copy_layer_links::without_marker(&doc.to_json().expect("re-serialise fixture"));
-        assert_eq!(saved, raw.trim(), "synthetic fixture must re-serialise byte-identical");
+        assert_eq!(doc.to_json().expect("re-serialise fixture"), raw.trim(), "synthetic fixture must re-serialise byte-identical");
 
         let mut seen_alpha = false;
         let mut seen_vector = false;

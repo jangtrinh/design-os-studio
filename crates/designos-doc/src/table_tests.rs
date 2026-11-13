@@ -176,8 +176,7 @@ fn document_without_tables_saves_the_same_bytes() {
     d.insert(f, Node::text(t, Rect::new(4.0, 4.0, 60.0, 20.0), "Xin chào", crate::TextStyle::default())).unwrap();
     let json = d.to_json().unwrap();
     assert!(!json.contains("Table"), "no table tag appears in a table-free file");
-    let golden = include_str!("table_free_golden.json").trim_end();
-    assert_eq!(crate::copy_layer_links::without_marker(&json), golden, "bytes match the file saved by the base commit");
+    assert_eq!(json, include_str!("table_free_golden.json").trim_end(), "bytes match the file saved by the base commit");
 }
 
 // ---------------------------------------------------------------- load repair

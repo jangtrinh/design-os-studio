@@ -316,12 +316,6 @@ pub struct Document {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub in_progress: BTreeMap<NodeId, InProgress>,
     next_id: u64,
-    /// Whether the links of the copy layers inside nested instances have been checked by this release (see
-    /// [`relink_copy_layers`]). A file saved by an earlier release does not carry it and reads as `false`, and the load
-    /// checks it. A document is only ever saved after that check or made by this release, so it is always written as
-    /// `true` and a file saved by this release is not examined again.
-    #[serde(default, serialize_with = "copy_layer_links::serialize_checked")]
-    copy_links_checked: bool,
     /// Where the exhausted-counter fallback resumes scanning, so one id is never handed out twice
     /// before its node is inserted. Runtime only.
     #[serde(skip)]
@@ -797,7 +791,6 @@ impl Document {
             images,
             in_progress: self.in_progress.clone(),
             next_id: self.next_id,
-            copy_links_checked: self.copy_links_checked,
             gap_cursor: self.gap_cursor,
             dirty: self.dirty.clone(),
             pending_relayout: self.pending_relayout.clone(),
@@ -1657,8 +1650,6 @@ impl Document {
                 #[serde(skip_serializing_if = "BTreeMap::is_empty")]
                 in_progress: BTreeMap<NodeId, &'a InProgress>,
                 next_id: u64,
-                #[serde(serialize_with = "copy_layer_links::serialize_checked")]
-                copy_links_checked: bool,
             }
             let filtered_in_progress: BTreeMap<NodeId, &InProgress> = self
                 .in_progress
@@ -1686,7 +1677,6 @@ impl Document {
                 images: &self.images,
                 in_progress: filtered_in_progress,
                 next_id: self.next_id,
-                copy_links_checked: self.copy_links_checked,
             };
             return finite_json::to_writer_finite(writer, &view);
         }
@@ -1800,12 +1790,10 @@ impl Document {
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
         // A file an earlier release saved after reading a Studio-written `.fig` can link nested copy layers past a level.
-        // Examine its links once; the file this release saves carries the marker, so no later load repeats it. This runs
-        // before the migrations below so that their full-dirty mark is the last thing the load does, as for any file.
-        if !doc.copy_links_checked {
-            report.copy_links_relinked = relink_copy_layers(&mut doc);
-            doc.copy_links_checked = true;
-        }
+        // The pass reads a document whose links are right once and writes nothing, so it runs on every load; a file it
+        // repaired and that was saved reads clean the next time. It runs before the migrations below so that their
+        // full-dirty mark is the last thing the load does, as for any file.
+        report.copy_links_relinked = relink_copy_layers(&mut doc);
         doc.migrate_text();
         doc.normalize_extensions();
         (doc, report)

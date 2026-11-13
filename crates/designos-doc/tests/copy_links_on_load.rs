@@ -1,8 +1,7 @@
 //! Opening a native file saved by an earlier release that read a Studio-written `.fig`: its nested copy layers link to
-//! the layer of the innermost main. The load repairs those links once, says how many, and writes a marker so a file
-//! saved afterwards is not examined again.
+//! the layer of the innermost main. The load repairs those links and says how many; the file saved afterwards reads clean.
 use designos_doc::*;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 const DEPTH1: &str = include_str!("fixtures/older-native-after-fig-import-depth1.designos.json");
 const DEPTH2: &str = include_str!("fixtures/older-native-after-fig-import-depth2.designos.json");
@@ -77,72 +76,37 @@ fn an_older_native_file_keeps_a_nested_override_after_a_main_edit_and_the_load_s
 }
 
 #[test]
-fn a_file_saved_after_the_repair_carries_the_marker_and_is_not_examined_again() {
-    let (doc, report) = Document::from_json_with_report(DEPTH2).unwrap();
-    assert_eq!(report.copy_links_relinked, 3);
-    let saved = doc.to_json().unwrap();
-    let mut value: Value = serde_json::from_str(&saved).unwrap();
-    assert_eq!(value["copy_links_checked"], json!(true), "the saved file carries the marker");
-
-    // Break one link by hand in the saved file. Only a load that examines the copies again could repair it.
-    let shape = target_shape(&doc);
-    let main_shape = doc.get(named(&doc, "A", true)).unwrap().children[0];
-    let right = doc.get(shape).unwrap().component.source.expect("linked");
-    assert_ne!(right, main_shape);
-    value["nodes"][shape.0.to_string()]["component"]["source"] = json!(main_shape.0);
-    let broken = value.to_string();
-
-    let (again, report) = Document::from_json_with_report(&broken).unwrap();
-    assert_eq!(report.copy_links_relinked, 0, "the marker keeps the pass off");
-    assert_eq!(again.get(shape).unwrap().component.source, Some(main_shape), "the planted link stays as it is: no pass ran");
-    let (streamed, report) = Document::from_reader_with_report(std::io::Cursor::new(broken.as_bytes())).unwrap();
-    assert_eq!(report.copy_links_relinked, 0, "a file read as a stream skips the pass too");
-    assert_eq!(streamed.get(shape).unwrap().component.source, Some(main_shape));
-
-    // the same file without the marker is examined and repaired
-    value["copy_links_checked"] = json!(false);
-    let (repaired, report) = Document::from_json_with_report(&value.to_string()).unwrap();
-    assert_eq!(report.copy_links_relinked, 1);
-    assert_eq!(repaired.get(shape).unwrap().component.source, Some(right));
+fn a_repaired_file_that_is_saved_and_loaded_again_reports_nothing_the_second_time() {
+    for (depth, text, repaired) in [(1usize, DEPTH1, 1usize), (2, DEPTH2, 3)] {
+        let (doc, report) = Document::from_json_with_report(text).unwrap();
+        assert_eq!(report.copy_links_relinked, repaired, "depth {depth}: first load");
+        let saved = doc.to_json().unwrap();
+        let (again, report) = Document::from_json_with_report(&saved).unwrap();
+        assert_eq!(report.copy_links_relinked, 0, "depth {depth}: second load");
+        assert!(report.is_clean(), "depth {depth}: {report:?}");
+        assert_eq!(again.to_json().unwrap(), saved, "depth {depth}: the second save is the first");
+        let (_, streamed) = Document::from_reader_with_report(std::io::Cursor::new(saved.as_bytes())).unwrap();
+        assert_eq!(streamed.copy_links_relinked, 0, "depth {depth}: a stream reads clean too");
+    }
 }
 
 #[test]
-fn a_new_document_is_saved_with_the_marker_also_when_a_stale_work_flag_is_dropped_on_save() {
-    let mut doc = Document::new("fresh");
-    let value: Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();
-    assert_eq!(value["copy_links_checked"], json!(true), "a document made by this release needs no examination");
-
-    let value: Value = serde_json::from_str(&Document::default().to_json().unwrap()).unwrap();
-    assert_eq!(value["copy_links_checked"], json!(true), "so is a document built without the constructor");
-
-    // an `in_progress` flag of a layer that no longer exists is dropped through a separate writer path
-    doc.in_progress.insert(NodeId(99_999), InProgress::new(None, None, 1));
-    let value: Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();
-    assert_eq!(value["in_progress"], Value::Null, "fixture: the stale flag was dropped by the filtered writer");
-    assert_eq!(value["copy_links_checked"], json!(true), "the filtered writer carries the marker too");
-}
-
-#[test]
-fn the_previous_release_opens_a_file_that_carries_the_marker() {
-    // The previous release has no such field and no `deny_unknown_fields` on the document, so it reads a file with an
-    // unknown field next to the other fields. This is the same shape of file, with the marker and one more unknown field.
-    let mut value: Value = serde_json::from_str(&Document::new("compat").to_json().unwrap()).unwrap();
-    value["copy_links_checked"] = json!(true);
-    value["a_field_of_a_later_release"] = json!({"x": [1, 2, 3]});
-    let text = value.to_string();
-    let (doc, report) = Document::from_json_with_report(&text).unwrap();
-    assert_eq!(doc.name, "compat");
-    assert!(report.is_clean(), "{report:?}");
-    Document::from_reader_with_report(std::io::Cursor::new(text.as_bytes())).expect("read as a stream");
+fn the_saved_file_carries_no_field_of_this_repair() {
+    let (doc, _) = Document::from_json_with_report(DEPTH2).unwrap();
+    let saved: Value = serde_json::from_str(&doc.to_json().unwrap()).unwrap();
+    let before: Value = serde_json::from_str(DEPTH2).unwrap();
+    let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
+    let extra: Vec<_> = keys(&saved).difference(&keys(&before)).cloned().collect();
+    assert!(extra.is_empty(), "the load and save added a document field: {extra:?}");
 }
 
 #[test]
 fn the_repair_is_no_undo_step_and_leaves_the_document_as_a_plain_load_does() {
     let (mut repaired, report) = Document::from_json_with_report(DEPTH2).unwrap();
     assert_eq!(report.copy_links_relinked, 3);
-    let marked = DEPTH2.replacen("\"next_id\"", "\"copy_links_checked\":true,\"next_id\"", 1);
-    let (plain, plain_report) = Document::from_json_with_report(&marked).unwrap();
-    assert_eq!(plain_report.copy_links_relinked, 0, "fixture: the marked copy of the file is a plain load");
+    // the same file after its repair was saved: a load with nothing to repair
+    let (plain, plain_report) = Document::from_json_with_report(&repaired.to_json().unwrap()).unwrap();
+    assert_eq!(plain_report.copy_links_relinked, 0, "fixture: the saved copy of the file is a plain load");
 
     for (label, doc) in [("repaired", &repaired), ("plain", &plain)] {
         assert_eq!(first_epoch_with_a_precise_answer(doc), doc.mutation_epoch(), "{label}: the load ended by marking the whole document dirty");
