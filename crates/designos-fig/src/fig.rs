@@ -2438,6 +2438,14 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
         if let Some(v) = held(d, "initialValue") {
             def.insert("defaultValue".into(), v);
         }
+        if let Some(var) = d
+            .get("varValue")
+            .and_then(|v| v.get("value"))
+            .and_then(|x| x.get("alias"))
+            .and_then(|al| lk.variable_id(al).or_else(|| asset_key(al).map(|k| format!("key:{k}"))))
+        {
+            def.insert("boundVariables".into(), json!({"defaultValue": {"type": "VARIABLE_ALIAS", "id": var}}));
+        }
         if *ty == "VARIANT" {
             let options: Vec<Value> = rest_import::farr(nc, "stateGroupPropertyValueOrders")
                 .iter()
