@@ -121,6 +121,22 @@ fn a_failed_reveal_shows_an_error_toast_that_names_the_folder() {
 }
 
 #[test]
+fn a_reveal_failure_waits_behind_a_live_error_instead_of_replacing_it() {
+    let mut s = Sim::new();
+    s.shell.app.reveal_file = no_file_manager;
+    s.shell.app.show_toast("Cannot save: disk full", true);
+    s.frame(vec![]);
+    let path = reveal_path("other.png");
+    s.shell.app.show_reveal_failure(&path, "Couldn't open /tmp/designos-toast-queue: no file manager".into());
+
+    let on_screen = s.app().toast.as_ref().expect("the original error remains visible");
+    assert_eq!(on_screen.text, "Cannot save: disk full");
+    assert!(on_screen.error);
+    assert_eq!(s.app().toast_queue.len(), 1);
+    assert_eq!(s.app().toast_queue[0].text, "Couldn't open /tmp/designos-toast-queue: no file manager");
+}
+
+#[test]
 fn a_status_toast_takes_the_slot_and_the_export_toast_comes_back_after_it() {
     let mut s = Sim::new();
     let path = reveal_path("status.png");
