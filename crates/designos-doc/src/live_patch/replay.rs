@@ -760,6 +760,10 @@ fn resolve_insert(
                     path.push(held_name.clone());
                 } else {
                     path.extend(crate::component_chain_path(doc, comp, pid).unwrap_or_else(|| vec![crate::cycle_node_label(doc, comp), held_name.clone()]));
+                    // the new main is not in the document yet, so the chain closes on a label it could not look up
+                    if let Some(last) = path.last_mut() {
+                        *last = held_name.clone();
+                    }
                 }
                 report.skipped.push(crate::cycle_refusal_message(crate::CycleAction::Add, &held_name, &path));
                 return None;

@@ -187,6 +187,44 @@ fn replay_insert_refuses_new_main_component_holding_instance_of_itself() {
     assert_eq!(report.skipped, ["Can't add: SelfComp would contain itself (SelfComp \u{2192} SelfComp)"]);
 }
 
+/// A new main that holds itself through another main, `Card`, which already holds an instance of the id the new main
+/// takes: the sentence closes the loop on the new main's own name, although the document has no layer with that name.
+#[test]
+fn replay_insert_of_a_main_that_holds_itself_through_another_main_names_the_loop_with_the_new_name() {
+    let mut doc = Document::new("insert-via-held-main");
+    let page = doc.add_page("Page");
+    let card = doc.alloc_id();
+    let mut card_node = Node::new(card, crate::NodeKind::Component(crate::FrameProps::default()));
+    card_node.name = "Card".into();
+    doc.insert(page, card_node).unwrap();
+    let wrapper = doc.alloc_id();
+    let slot = doc.alloc_id();
+    let mut slot_node = Node::new(slot, crate::NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(wrapper), component_key: None });
+    slot_node.name = "Slot".into();
+    doc.insert(card, slot_node).unwrap();
+    assert!(doc.get(wrapper).is_none(), "the document has no layer for the id that Card's instance points at");
+
+    let mut branch = doc.clone();
+    let mut wrapper_node = Node::new(wrapper, crate::NodeKind::Component(crate::FrameProps::default()));
+    wrapper_node.name = "Wrapper".into();
+    branch.insert(page, wrapper_node).unwrap();
+    let inner = branch.alloc_id();
+    let mut inner_node = Node::new(inner, crate::NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(card), component_key: None });
+    inner_node.name = "CardInst".into();
+    branch.insert(wrapper, inner_node).unwrap();
+    let ops = live_ops_for_command(
+        &branch,
+        &Command::Insert { parent: page, index: 1, nodes: vec![branch.get(wrapper).unwrap().clone(), branch.get(inner).unwrap().clone()] },
+    )
+    .unwrap();
+
+    let before = doc.to_json().unwrap();
+    let report = replay(&mut doc, ops, &mut LivePatchState::default());
+    assert_eq!(report.applied, 0);
+    assert_eq!(report.skipped, ["Can't add: Wrapper would contain itself (Wrapper \u{2192} Card \u{2192} Wrapper)"]);
+    assert_eq!(doc.to_json().unwrap(), before);
+}
+
 /// A page with `frames` top-level frames of `kids` rectangles each, one style, one comment.
 fn full_doc(frames: usize, kids: usize) -> (Document, NodeId, Vec<NodeId>) {
     let mut d = Document::new("full");
