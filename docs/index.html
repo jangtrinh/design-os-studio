@@ -66,7 +66,7 @@
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "downloadUrl": "https://github.com/jangtrinh/design-os-studio/releases",
       "softwareVersion": "0.7.13",
-      "dateModified": "2026-11-12",
+      "dateModified": "2026-11-13",
       "@id": "https://jangtrinh.github.io/design-os-studio/#app",
       "isBasedOn": {
         "@id": "https://jangtrinh.github.io/design-os-studio/#source"
@@ -89,6 +89,38 @@
           "acceptedAnswer": {
             "@type": "Answer",
             "text": "Yes. Studio opens and saves .fig files. You can also copy layers in Figma desktop and paste them onto the Studio canvas with Cmd+V. They land centered in the view as one undo step, images included."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is DESIGN:OS Studio free?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. It is FREE to use and modify, including for paid work. The terms are PolyForm Shield 1.0.0 (source-available). You cannot resell it or offer a product that competes with it. Nothing is sold."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does saving a .fig file keep everything?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Not yet. A .fig save drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values (known issue #834). Keep the original .fig, or save as .designos, until it is fixed."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is DESIGN:OS Studio affiliated with Figma?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. It is an independent tool by Jang Trịnh, a creative technologist and autonomous system architect. It is not affiliated with, endorsed by, or sponsored by Figma, Inc. Figma is named only to describe .fig file compatibility."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can a coding agent edit a .fig without opening the Studio window?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Use designos-mcp (39 tools in v0.7.13) or the designos CLI (--inspect-json, --export-fig, --scan-design-system, --codegen). Disclose issue #834 on any write."
           }
         },
         {
@@ -483,7 +515,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
           <h2 id="figma-h">Bring your Figma in.</h2>
           <ul class="wf__facts">
             <li><strong>Paste from Figma desktop.</strong> Press Cmd+V on the canvas. Images come along.</li>
-            <li><strong>Read and write <code>.fig</code> files.</strong> Open a Figma file, edit it, save it back.</li>
+            <li><strong>Read and write <code>.fig</code> files.</strong> Open a Figma file, edit it, save it back. Saving a .fig has known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>: numbered-list formatting is dropped, and inherited or variable-bound paints on instances are written as fixed values.</li>
             <li><strong>Styles and variables travel with the file.</strong> A <code>.fig</code> file brings its effect styles, grid styles and variable modes with it.</li>
           </ul>
           <img class="wf__poster" src="images/designos-components.png" width="2880" height="1800" loading="lazy" decoding="async" alt="DESIGN:OS Studio with the Untitled UI PRO v8.0 kit open on the Buttons page: the Button component set is selected on the canvas, with its variants and properties in the Design panel">
@@ -873,6 +905,22 @@ rm -rf /tmp/design-os-studio</code></pre></div>
         <details>
           <summary>Can I use my Figma files?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
           <p>Yes. Studio opens and saves <code>.fig</code> files. You can also copy layers in Figma desktop and paste them onto the Studio canvas with Cmd+V. They land centered in the view as one undo step, images included.</p>
+        </details>
+        <details>
+          <summary>Is DESIGN:OS Studio free?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>Yes. It is FREE to use and modify, including for paid work. The terms are PolyForm Shield 1.0.0 (source-available). You cannot resell it or offer a product that competes with it. Nothing is sold.</p>
+        </details>
+        <details>
+          <summary>Does saving a .fig file keep everything?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>Not yet. A <code>.fig</code> save drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values (known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>). Keep the original <code>.fig</code>, or save as <code>.designos</code>, until it is fixed.</p>
+        </details>
+        <details>
+          <summary>Is DESIGN:OS Studio affiliated with Figma?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>No. It is an independent tool by Jang Trịnh, a creative technologist and autonomous system architect. It is not affiliated with, endorsed by, or sponsored by Figma, Inc. Figma is named only to describe .fig file compatibility.</p>
+        </details>
+        <details>
+          <summary>Can a coding agent edit a .fig without opening the Studio window?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>Yes. Use <code>designos-mcp</code> (39 tools in v0.7.13) or the <code>designos</code> CLI (<code>--inspect-json</code>, <code>--export-fig</code>, <code>--scan-design-system</code>, <code>--codegen</code>). Disclose issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> on any write.</p>
         </details>
         <details>
           <summary>How do coding agents work with it?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
