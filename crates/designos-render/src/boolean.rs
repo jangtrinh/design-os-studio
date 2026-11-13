@@ -114,7 +114,11 @@ fn child_shapes(doc: &Document, child: &Node, tol: f32) -> Option<Shapes> {
         }
         let shape: Shape = node_shape(doc, child, tol)?;
         if !shape.fillable {
-            return None;
+            // A valid non-fillable shape (for example a line or a closed
+            // hairline ring) is a zero-area operand, not a missing operand.
+            // Keeping it in the fold preserves boolean identities such as
+            // intersecting with an empty operand yielding an empty result.
+            return Some(Shapes::new());
         }
         let mut acc: Option<Shapes> = None;
         for (path, rule) in &shape.paths {
@@ -128,7 +132,10 @@ fn child_shapes(doc: &Document, child: &Node, tol: f32) -> Option<Shapes> {
                 Some(a) => a.overlay(&s, OverlayRule::Union, FillRule::NonZero),
             });
         }
-        acc?
+        // A valid shape with no filled contours is still a zero-area operand.
+        // Keep it distinct from `None`, which means the node had no usable
+        // geometry at all.
+        acc.unwrap_or_default()
     };
     transform_shapes(&mut shapes, &child.transform);
     Some(shapes)
@@ -168,6 +175,6 @@ pub fn boolean_shape(doc: &Document, node: &Node, op: d::BooleanOp, tol: f32) ->
             pb.close();
         }
     }
-    let path = pb.finish()?;
-    Some(Shape { paths: vec![(path, sk::FillRule::EvenOdd)], closed: true, fillable: true, is_rect: false, stroke_paths: None, fill_only: None })
+    let paths = pb.finish().map(|path| vec![(path, sk::FillRule::EvenOdd)]).unwrap_or_default();
+    Some(Shape { paths, closed: true, fillable: true, is_rect: false, stroke_paths: None, fill_only: None })
 }
