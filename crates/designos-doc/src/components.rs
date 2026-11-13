@@ -2980,6 +2980,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
         && !swapped_here
         && (has_prop_binding(&inode) || inode.component.overrides.contains(&OverrideField::MainComponent))
         && matches!(rn.kind, NodeKind::Instance { .. })
+        && !rn.component.overrides.contains(&OverrideField::MainComponent)
         && instance_component(&inode) == instance_component(&rn)
     {
         relink_swapped_slot_children(c, ref_id, i);
