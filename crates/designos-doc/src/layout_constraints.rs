@@ -251,6 +251,14 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                 scale_paths(sg, kx, ky);
             }
         }
+        NodeKind::Line => {
+            if let Some(fg) = &mut node.fill_geometry {
+                scale_paths(fg, kx, ky);
+            }
+            if let Some(sg) = &mut node.stroke_geometry {
+                scale_paths(sg, kx, ky);
+            }
+        }
         _ => {
             node.fill_geometry = None;
             node.stroke_geometry = None;

@@ -389,14 +389,26 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
     );
     match key {
         "width" => {
-            n.size.x = x.max(0.0);
+            let mut new_size = n.size;
+            new_size.x = x.max(0.0);
+            if matches!(n.kind, NodeKind::Line) {
+                crate::apply_constrained_geometry(n, n.transform, new_size);
+            } else {
+                n.size = new_size;
+            }
             if is_rect_like {
                 n.fill_geometry = None;
                 n.stroke_geometry = None;
             }
         }
         "height" => {
-            n.size.y = x.max(0.0);
+            let mut new_size = n.size;
+            new_size.y = x.max(0.0);
+            if matches!(n.kind, NodeKind::Line) {
+                crate::apply_constrained_geometry(n, n.transform, new_size);
+            } else {
+                n.size = new_size;
+            }
             if is_rect_like {
                 n.fill_geometry = None;
                 n.stroke_geometry = None;
@@ -730,6 +742,28 @@ mod tests {
         let NodeKind::Text(t) = n.kind else { panic!() };
         assert_eq!(t.style.font_weight, 700);
         assert_eq!(t.style.get_axis("wght"), Some(700.0));
+    }
+
+    #[test]
+    fn width_binding_scales_an_imported_line_outline() {
+        let mut n = Node::new(NodeId(1), NodeKind::Line);
+        n.size = Vec2::new(20.0, 20.0);
+        n.stroke_geometry = Some(vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(1.0, 1.0)),
+                PathCmd::LineTo(Vec2::new(19.0, 1.0)),
+                PathCmd::LineTo(Vec2::new(19.0, 19.0)),
+                PathCmd::LineTo(Vec2::new(1.0, 19.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }]);
+
+        set_bound_property(&mut n, "width", &VariableValue::Number(40.0));
+
+        let path = &n.stroke_geometry.as_ref().expect("stored outline")[0];
+        assert_eq!(path.cmds[0], PathCmd::MoveTo(Vec2::new(2.0, 1.0)));
+        assert_eq!(n.size.x, 40.0);
     }
 
     #[test]

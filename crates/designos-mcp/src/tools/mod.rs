@@ -292,7 +292,7 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
         }
     }
     geometry(new_transform.tx, new_transform.ty, new_size.x, new_size.y)?;
-    if matches!(node.kind, NodeKind::Vector { .. }) {
+    if matches!(node.kind, NodeKind::Vector { .. } | NodeKind::Line) {
         designos_doc::apply_constrained_geometry(&mut node, new_transform, new_size);
     } else {
         node.transform = new_transform;
