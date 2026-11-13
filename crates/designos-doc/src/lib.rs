@@ -41,6 +41,7 @@ mod components;
 mod connector_home;
 mod connector_index;
 mod connector_route_cache;
+mod copy_layer_links;
 mod cycle_refusal;
 mod dev;
 pub mod diff;
@@ -134,6 +135,7 @@ pub use connector_index::*;
 pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
 #[cfg(any(test, feature = "fixtures"))]
 pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
+pub use copy_layer_links::{authored_layer, relink_copy_layers};
 pub use cycle_refusal::*;
 pub use dev::*;
 pub use diff::*;
@@ -1789,6 +1791,11 @@ impl Document {
         }
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
+        // A file an earlier release saved after reading a Studio-written `.fig` can link nested copy layers past a level.
+        // The pass reads a document whose links are right once and writes nothing, so it runs on every load; a file it
+        // repaired and that was saved reads clean the next time. It runs before the migrations below so that their
+        // full-dirty mark is the last thing the load does, as for any file.
+        report.copy_links_relinked = relink_copy_layers(&mut doc);
         doc.migrate_text();
         doc.normalize_extensions();
         (doc, report)
