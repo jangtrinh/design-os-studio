@@ -410,9 +410,11 @@ pub fn settle_bound_props_after(before: &Document, after: &mut Document, cmds: &
 
 /// [`apply_prop_resync`], then solves the auto layout the swapped instances feed. A variant switch changes an
 /// instance's size after the layout pass of the command that moved the variable, so the hugging frames around it would
-/// keep the old size for one more edit. Each auto-layout frame holding a changed node is solved once, deepest first,
-/// and the climb goes up only while a frame's own size changes; frames off that chain keep their positions.
-/// A history step and the trial copy of a batch both call this, so the committed document and the trial stay equal.
+/// keep the old size for one more edit. The parent of each changed node is one seed; a seed is solved once however
+/// many instances sit under it, and the climb goes up only while a frame's own size changes. Frames off that chain
+/// keep their positions. A hug ancestor that several separate chains share is solved once per chain: that is how
+/// `relayout_seeds_upward` climbs today. For a variant switch a history step and the trial copy of a batch run the
+/// same resync and the same layout.
 pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropResyncScope) -> Result<Option<Command>, DocError> {
     let inv = apply_prop_resync(doc, scope)?;
     if let Some(resync_inv) = &inv {
