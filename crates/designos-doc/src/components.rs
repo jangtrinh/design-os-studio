@@ -1992,10 +1992,11 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 }
                 let diff = transfer_gate_diff(&orig, &new_orig);
                 let same_text_metrics = same_text_sizing(&orig, &new_orig);
+                let has_characters_override = fields.contains(&OverrideField::Characters);
                 fields.retain(|f| {
                     *f == OverrideField::Name
                         || (preserves_text_override && *f == OverrideField::Characters)
-                        || (preserves_text_override && same_text_metrics && *f == OverrideField::Size)
+                        || (preserves_text_override && has_characters_override && same_text_metrics && *f == OverrideField::Size)
                         || (!same_family && *f == OverrideField::TextStyle)
                         || !diff.contains(f)
                 });
@@ -7752,13 +7753,13 @@ mod tests {
     fn variant_switch_round_trip_keeps_long_text_size_override() {
         let mut d = Document::new("LongTextRoundTrip");
         let page = d.add_page("P");
-        let mk = |d: &mut Document, name: &str, y: f32, text: &str| -> NodeId {
+        let mk = |d: &mut Document, name: &str, y: f32, text: &str, w: f32| -> NodeId {
             let id = d.alloc_id();
             let mut f = Node::frame(id, Rect::new(0.0, y, 100.0, 40.0));
             f.name = name.into();
             let comp = d.insert(page, f).unwrap();
             let tid = d.alloc_id();
-            let mut t = Node::text(tid, Rect::new(4.0, 4.0, 40.0, 20.0), text, crate::TextStyle::default());
+            let mut t = Node::text(tid, Rect::new(4.0, 4.0, w, 20.0), text, crate::TextStyle::default());
             t.name = "label".into();
             if let NodeKind::Text(tp) = &mut t.kind {
                 tp.auto_resize = TextAutoResize::WidthAndHeight;
@@ -7768,8 +7769,8 @@ mod tests {
             apply(d, c);
             comp
         };
-        let a = mk(&mut d, "State=A", 0.0, "A");
-        let b = mk(&mut d, "State=B", 100.0, "B");
+        let a = mk(&mut d, "State=A", 0.0, "A", 40.0);
+        let b = mk(&mut d, "State=B", 100.0, "Longer B", 80.0);
         let c = combine_as_variants(&mut d, &[a, b]);
         apply(&mut d, c);
         let c = create_instance(&mut d, a, page, Vec2::new(300.0, 0.0));
@@ -7813,6 +7814,104 @@ mod tests {
         let after2 = d.get(child_named(&d, inst2, "label")).unwrap();
         assert_eq!(after2.size.x, 180.0, "derived auto-resize text width must round-trip when text style matches");
         assert!(!after2.component.overrides.contains(&OverrideField::Size));
+    }
+
+    #[test]
+    fn variant_switch_drops_size_only_text_override_when_variant_boxes_differ() {
+        let mut d = Document::new("SizeOnlyText");
+        let page = d.add_page("P");
+        let mk = |d: &mut Document, name: &str, y: f32, w: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, y, 200.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let mut t = Node::text(tid, Rect::new(4.0, 4.0, w, 20.0), "Same", crate::TextStyle::default());
+            t.name = "label".into();
+            if let NodeKind::Text(tp) = &mut t.kind {
+                tp.auto_resize = TextAutoResize::None;
+            }
+            d.insert(comp, t).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let a = mk(&mut d, "State=A", 0.0, 60.0);
+        let b = mk(&mut d, "State=B", 100.0, 120.0);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, a, page, Vec2::new(300.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let label = child_named(&d, inst, "label");
+        let before = d.get(label).unwrap().clone();
+        let mut edited = before.clone();
+        edited.size.x = 80.0;
+        edited.component.overrides = record_override(&before, &edited);
+        apply(&mut d, Command::Update { node: Box::new(edited) });
+        let c = set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        let after = d.get(child_named(&d, inst, "label")).unwrap();
+        assert_eq!(after.size.x, 120.0, "a size-only override without a Characters override is gated when variant boxes differ");
+    }
+
+    #[test]
+    fn variant_switch_does_not_carry_text_size_when_variant_font_sizes_differ() {
+        let mut d = Document::new("DiffFontTextSize");
+        let page = d.add_page("P");
+        let mk = |d: &mut Document, name: &str, y: f32, text: &str, w: f32, fs: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, y, 200.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let style = crate::TextStyle { font_size: fs, ..crate::TextStyle::default() };
+            let mut t = Node::text(tid, Rect::new(4.0, 4.0, w, 20.0), text, style);
+            t.name = "label".into();
+            if let NodeKind::Text(tp) = &mut t.kind {
+                tp.auto_resize = TextAutoResize::WidthAndHeight;
+            }
+            d.insert(comp, t).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let a = mk(&mut d, "Size=Sm", 0.0, "A", 40.0, 14.0);
+        let b = mk(&mut d, "Size=Lg", 100.0, "B", 90.0, 20.0);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+
+        // Case 1: explicit Characters + Size overrides when font_size differs across variants.
+        let c = create_instance(&mut d, a, page, Vec2::new(300.0, 0.0));
+        apply(&mut d, c);
+        let inst1 = *d.get(page).unwrap().children.last().unwrap();
+        let label1 = child_named(&d, inst1, "label");
+        let before1 = d.get(label1).unwrap().clone();
+        let mut edited1 = before1.clone();
+        if let NodeKind::Text(tp) = &mut edited1.kind {
+            tp.content = "Overridden label".into();
+        }
+        edited1.size.x = 240.0;
+        edited1.component.overrides = record_override(&before1, &edited1);
+        apply(&mut d, Command::Update { node: Box::new(edited1) });
+        let c = set_instance_prop(&mut d, inst1, "Size", Some(PropValue::Variant("Lg".into())));
+        apply(&mut d, c);
+        let after1 = d.get(child_named(&d, inst1, "label")).unwrap();
+        assert_eq!(after1.size.x, 90.0, "explicit Size override on an overridden text must not carry across variants with different font sizes");
+
+        // Case 2: Characters override with derived box (no Size override flag) when font_size differs across variants.
+        let c = create_instance(&mut d, a, page, Vec2::new(520.0, 0.0));
+        apply(&mut d, c);
+        let inst2 = *d.get(page).unwrap().children.last().unwrap();
+        let label2 = child_named(&d, inst2, "label");
+        override_text(&mut d, label2, "Overridden label");
+        let mut refit2 = d.get(label2).unwrap().clone();
+        refit2.size.x = 180.0;
+        apply(&mut d, Command::Update { node: Box::new(refit2) });
+        let c = set_instance_prop(&mut d, inst2, "Size", Some(PropValue::Variant("Lg".into())));
+        apply(&mut d, c);
+        let after2 = d.get(child_named(&d, inst2, "label")).unwrap();
+        assert_eq!(after2.size.x, 90.0, "derived auto-resize text box must not carry across variants with different font sizes");
     }
 
     #[test]
