@@ -94,11 +94,14 @@ pub(crate) fn should_terminate(ctx: &Context) -> NSApplicationTerminateReply {
 }
 
 extern "C-unwind" fn application_should_terminate(_this: *mut AnyObject, _cmd: Sel, _sender: *mut AnyObject) -> NSApplicationTerminateReply {
-    let ctx = ACTIVE_CTX.with(|slot| slot.borrow().clone()).or_else(|| MAIN_CTX.get().cloned());
-    match ctx {
-        Some(ctx) => should_terminate(&ctx),
-        None => NSApplicationTerminateReply::TerminateNow,
-    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let ctx = ACTIVE_CTX.with(|slot| slot.borrow().clone()).or_else(|| MAIN_CTX.get().cloned());
+        match ctx {
+            Some(ctx) => should_terminate(&ctx),
+            None => NSApplicationTerminateReply::TerminateNow,
+        }
+    }))
+    .unwrap_or(NSApplicationTerminateReply::TerminateNow)
 }
 
 /// Adds or replaces `applicationShouldTerminate:` on `cls` and binds `ctx` as the active context on this thread.
@@ -249,5 +252,16 @@ pub(crate) mod tests {
             out.viewport_output[&egui::ViewportId::ROOT].commands.contains(&egui::ViewportCommand::Close),
             "cancelling immediate termination posts a window close request into the egui loop"
         );
+    }
+
+    #[test]
+    fn terminate_callback_falls_back_when_context_access_panics() {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ACTIVE_CTX.with(|slot| {
+                let _borrow = slot.borrow_mut();
+                application_should_terminate(std::ptr::null_mut(), sel!(applicationShouldTerminate:), std::ptr::null_mut())
+            })
+        }));
+        assert_eq!(result.unwrap(), NSApplicationTerminateReply::TerminateNow);
     }
 }
