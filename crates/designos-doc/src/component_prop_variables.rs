@@ -404,8 +404,25 @@ pub fn settle_bound_props_after(before: &Document, after: &mut Document, cmds: &
     let mut scope = PropResyncScope::default();
     cmds.iter().for_each(|c| collect_prop_resync_scope(before, c, &mut scope));
     if !scope.is_empty() {
-        let _ = apply_prop_resync(after, &scope);
+        let _ = apply_prop_resync_and_relayout(after, &scope);
     }
+}
+
+/// [`apply_prop_resync`], then solves the auto layout the swapped instances feed. A variant switch changes an
+/// instance's size after the layout pass of the command that moved the variable, so the hugging frames around it would
+/// keep the old size for one more edit. Each auto-layout frame holding a changed node is solved once, deepest first,
+/// and the climb goes up only while a frame's own size changes; frames off that chain keep their positions.
+/// A history step and the trial copy of a batch both call this, so the committed document and the trial stay equal.
+pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropResyncScope) -> Result<Option<Command>, DocError> {
+    let inv = apply_prop_resync(doc, scope)?;
+    if let Some(resync_inv) = &inv {
+        // The inverse holds the nodes as they were; the seeds are the ones whose layout inputs differ from the
+        // document now, which `collect_relayout_seeds` tells by comparing them with the live node.
+        let mut seeds = Vec::new();
+        collect_relayout_seeds(doc, resync_inv, &mut seeds);
+        doc.relayout_seeds_upward(&seeds);
+    }
+    Ok(inv)
 }
 
 /// Whether `def` is a variant property of instance `n`, top-level or nested, that a person picked by hand (see
