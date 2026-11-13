@@ -389,6 +389,21 @@ class WhatsNewParityTests(unittest.TestCase):
             homepage_whats_new_versions(drifted),
         )
 
+    def test_homepage_places_newest_releases_before_older_explicit_rows(self):
+        css = (self.REPO_ROOT / "docs" / "assets" / "v2-new.css").read_text()
+        expected = {
+            "0714": "grid-column: 1 / -1; grid-row: 1;",
+            "0713": "grid-column: 1 / -1; grid-row: 2;",
+            "0712": "grid-column: 1 / -1; grid-row: 3;",
+            "0711": "grid-column: 1 / -1; grid-row: 4;",
+        }
+        for version, placement in expected.items():
+            self.assertIn(
+                f".new-release--{version} {{ {placement} }}",
+                css,
+                f"What's new release {version} must be placed before the older explicit rows",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
