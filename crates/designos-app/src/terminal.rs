@@ -2949,8 +2949,8 @@ impl TerminalState {
                 run_id: self.active_run_id.clone(),
                 bootstrap_run_id: self.run_id,
                 agent_runtime: self.active_mcp_runtime_name().to_string(),
-                ask_mode: self.permission_mode.installs_approval_hook(),
-                ask_risky: self.permission_mode.auto_allows_safe_tiers(),
+                ask_mode: self.active_tab().map(|tab| tab.permission_mode).unwrap_or(self.permission_mode).installs_approval_hook(),
+                ask_risky: self.active_tab().map(|tab| tab.permission_mode).unwrap_or(self.permission_mode).auto_allows_safe_tiers(),
                 unread_probe: Some(self.live_patch.unread_probe()),
                 exact_project_config: None,
             });
@@ -12055,6 +12055,34 @@ mod tests {
         kill_tabs(&mut st);
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn running_tab_keeps_its_permission_mode_when_canvas_sync_follows_global_switch() {
+        use crate::agent_permissions::AgentPermissionMode;
+        let mut st = isolated_683_state(1970);
+        let idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        st.tabs[idx].permission_mode = AgentPermissionMode::Ask;
+
+        let mut doc = Document::new("permission-mode");
+        let page = doc.add_page("Page 1");
+        let private_hooks = crate::agent_approval_channel::hooks_file_path(&st.session_dir).expect("private Ask hook path");
+        assert!(private_hooks.exists());
+
+        st.permission_mode = AgentPermissionMode::Skip;
+        let id = doc.alloc_id();
+        let _ = doc.insert(page, Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 1.0, 1.0)));
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+
+        assert!(
+            private_hooks.exists()
+                && std::fs::read_to_string(&private_hooks).unwrap_or_default().contains(crate::agent_approval_channel::HOOK_SCRIPT_NAME)
+                && !st.session_dir.join("hooks.json").exists(),
+            "canvas sync must keep the running tab's Ask hook after the global mode switches to Skip"
+        );
+        kill_tabs(&mut st);
+        st.shutdown();
     }
 
     /// Runs last among the tests `real_cli_launch_tests` starts in a child process (the name sorts after theirs), so that a CLI
