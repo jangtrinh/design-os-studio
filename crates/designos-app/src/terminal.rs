@@ -3894,7 +3894,7 @@ impl TerminalState {
                         self.unattached_composer.draft.push_str("\n\n");
                         self.unattached_composer.draft.push_str(&recovered);
                     }
-                    self.unattached_composer.notice = Some("Queued message restored after tab close".into());
+                    self.unattached_composer.notice = Some("Queued message restored in New chat".into());
                     // The caption line shows a notice only beside a refused outcome, as it does for a draft returned by a failed start.
                     self.unattached_composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
                     restored_text = true;
@@ -3920,13 +3920,10 @@ impl TerminalState {
                 self.session_grants.clear();
             }
             self.sync_active_tab_approvals();
-            // The text waits in New chat, which is not on screen while another tab stays: say so where the person is looking.
+            // The text waits in New chat, which is not on screen while another tab stays. Keep that tab's own notice intact
+            // and surface the recovery in the global status line instead.
             if restored_text {
-                if let Some(tab) = self.active_tab_mut() {
-                    tab.composer.notice = Some("Queued message restored after tab close".into());
-                    tab.composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
-                    self.status_msg = Some("Queued message restored after tab close".into());
-                }
+                self.status_msg = Some("Queued message restored in New chat".into());
             }
         }
         if self.tabs.is_empty() {
