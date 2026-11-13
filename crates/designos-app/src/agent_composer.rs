@@ -1965,7 +1965,7 @@ mod tests {
 
         assert!(st.tabs.is_empty());
         assert_eq!(st.unattached_composer.draft, "Keep this queued");
-        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored after tab close"));
+        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored in New chat"));
         assert!(st.unattached_composer.pending_send.is_empty());
 
         st.shutdown();
@@ -1982,7 +1982,7 @@ mod tests {
 
         st.close_tab(0);
 
-        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored after tab close"));
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored in New chat"));
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -2042,13 +2042,15 @@ mod tests {
         assert_eq!(st.tabs.len(), 2);
         st.active_tab = 1;
         st.tabs[0].composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+        st.tabs[1].composer.pending_send.extend([QueuedSend::new("existing one", false), QueuedSend::new("existing two", false)]);
+        st.tabs[1].composer.notice = Some("2 messages waiting to send".into());
 
         st.close_tab(0);
 
         assert_eq!(st.tabs.len(), 1);
         assert_eq!(st.unattached_composer.draft, "Keep this queued", "the text waits in New chat");
-        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored after tab close"));
-        assert_eq!(st.status_msg.as_deref(), Some("Queued message restored after tab close"));
+        assert_eq!(st.active_composer().notice.as_deref(), Some("2 messages waiting to send"));
+        assert_eq!(st.status_msg.as_deref(), Some("Queued message restored in New chat"));
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
