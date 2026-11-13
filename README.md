@@ -866,6 +866,12 @@ Pre-built packages are available for macOS (`.dmg` + `.tar.gz`, verified on Appl
 
 ---
 
+## Author
+
+Built by [Jang Trịnh](https://www.jang.work/?utm_source=github&utm_medium=readme&utm_campaign=design-os-studio). More projects, case studies and writing at [jang.work](https://www.jang.work/?utm_source=github&utm_medium=readme&utm_campaign=design-os-studio).
+
+---
+
 ## License
 
 DESIGN:OS Studio is source-available under [PolyForm Shield 1.0.0](LICENSE) © [Jang Trinh](https://github.com/jangtrinh). You can use and modify it freely, including for paid work. You cannot resell it or use it to build a product that competes with it.
