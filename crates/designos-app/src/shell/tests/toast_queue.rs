@@ -263,7 +263,7 @@ fn relayout_notices_behind_an_export_toast_keep_only_the_latest_and_never_an_err
 }
 
 #[test]
-fn plain_notices_merge_and_error_toasts_are_never_dropped_from_the_queue() {
+fn plain_notices_merge_and_error_toasts_stay_bounded() {
     let mut s = Sim::new();
     export_toast_on_screen(&mut s, "a.png");
     for i in 0..30 {
@@ -271,8 +271,21 @@ fn plain_notices_merge_and_error_toasts_are_never_dropped_from_the_queue() {
         s.shell.app.show_toast(format!("Failed {i}"), true);
     }
     let queue = &s.app().toast_queue;
-    assert_eq!(queue.iter().filter(|t| t.error).count(), 30, "no error toast is dropped");
+    assert!(queue.iter().filter(|t| t.error).count() <= crate::app::TOAST_QUEUE_CAP, "error queue holds {} toasts", queue.iter().filter(|t| t.error).count());
     assert!(queue.iter().filter(|t| !t.error).count() <= 1, "plain notices merge to the latest, or give way once the queue is full");
+}
+
+#[test]
+fn distinct_error_toasts_stay_within_the_queue_cap() {
+    let mut s = Sim::new();
+    export_toast_on_screen(&mut s, "error-cap.png");
+    for i in 0..(crate::app::TOAST_QUEUE_CAP + 4) {
+        s.shell.app.show_toast(format!("Distinct failure {i}"), true);
+    }
+
+    let errors: Vec<_> = s.app().toast_queue.iter().filter(|t| t.error).collect();
+    assert_eq!(errors.len(), crate::app::TOAST_QUEUE_CAP);
+    assert_eq!(errors.last().map(|t| t.text.as_str()), Some("Distinct failure 11"));
 }
 
 #[test]
