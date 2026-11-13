@@ -1,6 +1,6 @@
 # Master Epic-to-Figma-Spec Index & Coding-Agent Execution Playbook
 
-**Status:** Canonical & Binding  
+**Status:** Reference material for implementation (see [Review status](#review-status))  
 **Date:** 2026-11-12  
 **Target File:** `docs/specs/epics-figma-rea/EPIC-FIGMA-SPECS-INDEX.md`  
 **Base Repository Commit:** `origin/main` (2026-11-12)  
@@ -61,7 +61,7 @@ Whenever an autonomous coding agent (Claude Code, Codex, Antigravity, Grok, or O
 ```mermaid
 flowchart TD
     Step1["1. Lookup Epic #N in Section 1<br/>Open Linked Implementation Spec(s)"] --> Step2["2. Check Section 3 Invariants & Queue<br/>Verify Hot-File Status Before Worktree Branching"]
-    Step2 --> Step3["3. Implement Strictly from Spec<br/>Run Spec Acceptance Gate Commands (--skip vsf_pcp)<br/>Verify CPU vs GPU Parity<br/>Clean Up Worktree & Target Dirs on Merge"]
+    Step2 --> Step3["3. Implement with the Spec as Reference<br/>Run Spec Acceptance Gate Commands (--skip vsf_pcp)<br/>Verify CPU vs GPU Parity<br/>Clean Up Worktree & Target Dirs on Merge"]
 ```
 
 ### The 3-Step Execution Workflow
@@ -73,7 +73,8 @@ flowchart TD
    - If your task touches any of the 4 hot files (`crates/designos-fig/src/{fig.rs, fig_export.rs, kiwi.rs, rest_import.rs}`), ensure you hold the **Single-Writer Token**. Rebase onto `origin/main` immediately before opening or merging PRs.
    - Non-hot crates (`designos-doc`, `designos-render`, `designos-gpu`, `designos-export`, `designos-proto`, `designos-motion`, `designos-mcp`, `designos-app` disjoint panels) execute in parallel waves.
    - Memorize the 4 Engine Safety Invariants (`AGENTS.md` §4): zero `doc.to_json()` in `doc_hash`, zero `ctx.load_texture` in `ctx.data_mut`, preserve `self.interactive()` guard in `designos-gpu`, and cap offscreen GPU programs at `< 64`.
-3. **Implement Strictly from Spec (Zero Guessing):**
+3. **Implement with the spec as reference (zero guessing):**
+   - Read the spec's review status and its corrections first; check every symbol against main. Code on main, the CHANGELOG and owner rulings win over the spec.
    - Consult the linked clean-room REA Dossier in [Section 2](#section-2-clean-room-figma-126117-rea-evidence-dossiers-inventory) if verifying raw Kiwi wire IDs, binary chunk offsets, or UI localization keys.
    - Run the spec's machine-checkable acceptance commands. When testing `designos-fig`, always pass `-- --skip vsf_pcp` unless executing the single-process locked kit gate.
    - Verify CPU (`tiny-skia`) vs `--gpu` (`wgpu`) parity where applicable.
