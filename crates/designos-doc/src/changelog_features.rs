@@ -1435,8 +1435,7 @@ pub fn swap_instance_to_component(doc: &mut Document, instance_id: NodeId, dest_
             inst.component.values.insert(k, PropValue::Variant(v));
         }
     }
-    let relayout_root = doc.get(instance_id).and_then(|n| n.parent).unwrap_or(instance_id);
-    relayout_subtree(doc, relayout_root);
+    refit_and_relayout_after_swap(doc, instance_id);
     Ok(dest_comp)
 }
 
@@ -1451,9 +1450,65 @@ pub fn swap_instance_variant(doc: &mut Document, instance_id: NodeId, prop_name:
             inst.size = comp_size;
         }
     }
-    let relayout_root = doc.get(instance_id).and_then(|n| n.parent).unwrap_or(instance_id);
-    relayout_subtree(doc, relayout_root);
+    refit_and_relayout_after_swap(doc, instance_id);
     Ok(new_comp)
+}
+
+fn refit_and_relayout_after_swap(doc: &mut Document, id: NodeId) {
+    let is_al = |doc: &Document, n_id: NodeId| doc.get(n_id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some());
+    let geom_moved = |before: Option<(Vec2, f32, f32)>, after: Option<(Vec2, f32, f32)>| match (before, after) {
+        (Some((bs, btx, bty)), Some((as_, atx, aty))) => {
+            (bs.x - as_.x).abs() > 1e-3 || (bs.y - as_.y).abs() > 1e-3 || (btx - atx).abs() > 1e-3 || (bty - aty).abs() > 1e-3
+        }
+        _ => false,
+    };
+    let snap = |doc: &Document, n_id: NodeId| doc.get(n_id).map(|n| (n.size, n.transform.tx, n.transform.ty));
+
+    let Some(parent) = doc.get(id).and_then(|n| n.parent) else {
+        relayout_subtree(doc, id);
+        return;
+    };
+
+    let mut cur = if matches!(doc.get(parent).map(|n| &n.kind), Some(NodeKind::Group)) {
+        relayout_subtree(doc, id);
+        Some(parent)
+    } else {
+        let before = snap(doc, parent);
+        relayout_subtree(doc, parent);
+        if geom_moved(before, snap(doc, parent)) {
+            doc.get(parent).and_then(|n| n.parent)
+        } else {
+            None
+        }
+    };
+
+    while let Some(node_id) = cur {
+        if matches!(doc.get(node_id).map(|n| &n.kind), Some(NodeKind::Group)) {
+            let before = snap(doc, node_id);
+            let _ = crate::layout_constraints::apply_resize_to_fit_one(doc, node_id, |_d, _id| {});
+            if !geom_moved(before, snap(doc, node_id)) {
+                break;
+            }
+            cur = doc.get(node_id).and_then(|n| n.parent);
+        } else if is_al(doc, node_id) {
+            let mut top_al = node_id;
+            while let Some(p) = doc.get(top_al).and_then(|n| n.parent) {
+                if is_al(doc, p) {
+                    top_al = p;
+                } else {
+                    break;
+                }
+            }
+            let before = snap(doc, top_al);
+            doc.relayout_seeds_upward(&[node_id]);
+            if !geom_moved(before, snap(doc, top_al)) {
+                break;
+            }
+            cur = doc.get(top_al).and_then(|n| n.parent);
+        } else {
+            break;
+        }
+    }
 }
 
 // ===========================================================================

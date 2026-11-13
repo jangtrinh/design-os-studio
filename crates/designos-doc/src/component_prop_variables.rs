@@ -354,12 +354,13 @@ fn bind_prop_variables_reporting(doc: &mut Document, inst: NodeId, edits: &[(&st
 pub(crate) struct PropResyncScope {
     nodes: BTreeSet<NodeId>,
     subtrees: BTreeSet<NodeId>,
+    switched: BTreeMap<NodeId, (Vec2, Affine, bool)>,
     all: bool,
 }
 
 impl PropResyncScope {
     pub(crate) fn is_empty(&self) -> bool {
-        !self.all && self.nodes.is_empty() && self.subtrees.is_empty()
+        !self.all && self.nodes.is_empty() && self.subtrees.is_empty() && self.switched.is_empty()
     }
 }
 
@@ -381,6 +382,12 @@ fn collect_prop_resync_scope(doc: &Document, cmd: &Command, out: &mut PropResync
             }
             if !prop_bindings_of(cur).eq(prop_bindings_of(node)) || cur.component.variant_picks != node.component.variant_picks {
                 out.nodes.insert(node.id);
+            }
+            if matches!(cur.kind, NodeKind::Instance { .. })
+                && (instance_component(cur) != instance_component(node) || cur.component.variant_picks != node.component.variant_picks)
+                && (cur.size != node.size || cur.transform != node.transform || cur.visible != node.visible)
+            {
+                out.switched.entry(node.id).or_insert((cur.size, cur.transform, cur.visible));
             }
         }
         Command::SetVariables { .. } => out.all = true,
@@ -416,15 +423,150 @@ pub fn settle_bound_props_after(before: &Document, after: &mut Document, cmds: &
 /// `relayout_seeds_upward` climbs today. For a variant switch a history step and the trial copy of a batch run the
 /// same resync and the same layout.
 pub(crate) fn apply_prop_resync_and_relayout(doc: &mut Document, scope: &PropResyncScope) -> Result<Option<Command>, DocError> {
-    let inv = apply_prop_resync(doc, scope)?;
-    if let Some(resync_inv) = &inv {
-        // The inverse holds the nodes as they were; the seeds are the ones whose layout inputs differ from the
-        // document now, which `collect_relayout_seeds` tells by comparing them with the live node.
-        let mut seeds = Vec::new();
-        collect_relayout_seeds(doc, resync_inv, &mut seeds);
-        doc.relayout_seeds_upward(&seeds);
+    let resync_inv = apply_prop_resync(doc, scope)?;
+    // Variant resync or an explicit variant/component switch changes an instance size below plain Groups.
+    // Refit only these ancestors on this explicit switch path; generic command replay preserves imported group bounds.
+    let mut changed = Vec::new();
+    let mut seeds = Vec::new();
+    if let Some(inv) = &resync_inv {
+        collect_update_ids(doc, inv, &mut changed);
+        collect_relayout_seeds(doc, inv, &mut seeds);
     }
-    Ok(inv)
+    for (&id, &(old_size, old_tf, old_vis)) in &scope.switched {
+        if let Some(cur) = doc.get(id) {
+            if cur.size != old_size || cur.transform != old_tf || cur.visible != old_vis {
+                if !changed.contains(&id) {
+                    changed.push(id);
+                }
+                if has_auto_layout(doc, id) {
+                    seeds.push(id);
+                }
+                if let Some(p) = cur.parent {
+                    seeds.push(p);
+                }
+            }
+        }
+    }
+    if resync_inv.is_none() && changed.is_empty() {
+        return Ok(None);
+    }
+    let old_nodes = climb_groups_and_relayout(doc, &changed, &seeds);
+    let group_inv = (!old_nodes.is_empty()).then(|| Command::Batch(old_nodes.into_values().map(|n| Command::Update { node: Box::new(n) }).collect()));
+    Ok(match (group_inv, resync_inv) {
+        (None, None) => None,
+        (Some(g), None) => Some(g),
+        (None, Some(r)) => Some(r),
+        (Some(g), Some(r)) => Some(Command::Batch(vec![g, r])),
+    })
+}
+
+fn has_auto_layout(doc: &Document, id: NodeId) -> bool {
+    doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some())
+}
+
+/// Walks the ancestors of `changed` from the inside out (deepest first), one level at a time:
+/// each `NodeKind::Group` is fitted to its children and each auto-layout frame is solved, so
+/// alternating groups and auto-layout frames each read the updated size of the level below.
+/// Stops on any branch where a container's bounds did not change.
+fn climb_groups_and_relayout(doc: &mut Document, changed: &[NodeId], initial_seeds: &[NodeId]) -> BTreeMap<NodeId, Node> {
+    let mut groups = BTreeSet::new();
+    for &id in changed {
+        let mut cur = doc.get(id).and_then(|n| n.parent);
+        while let Some(parent) = cur {
+            if doc.get(parent).is_some_and(|n| matches!(n.kind, NodeKind::Group)) {
+                groups.insert(parent);
+            }
+            cur = doc.get(parent).and_then(|n| n.parent);
+        }
+    }
+    if groups.is_empty() {
+        doc.relayout_seeds_upward(initial_seeds);
+        return BTreeMap::new();
+    }
+    let mut before_group_fit = BTreeMap::new();
+    for &gid in &groups {
+        if let Some(g) = doc.get(gid).cloned() {
+            for &cid in &g.children {
+                if let Some(c) = doc.get(cid).cloned() {
+                    before_group_fit.entry(cid).or_insert(c);
+                }
+            }
+            before_group_fit.entry(gid).or_insert(g);
+        }
+    }
+    let mut worklist: BTreeSet<(usize, NodeId)> = BTreeSet::new();
+    for &s in initial_seeds {
+        worklist.insert((group_depth(doc, s), s));
+    }
+    for &id in changed {
+        if let Some(p) = doc.get(id).and_then(|n| n.parent) {
+            worklist.insert((group_depth(doc, p), p));
+        }
+    }
+    let mut old_nodes = BTreeMap::new();
+    let mut final_al_seeds = Vec::new();
+    while let Some((_depth, cur)) = worklist.pop_last() {
+        if doc.get(cur).is_some_and(|n| matches!(n.kind, NodeKind::Group)) {
+            let before_rect = doc.get(cur).map(|n| (n.size, n.transform));
+            let _ = apply_resize_to_fit_one(doc, cur, |d, touched| {
+                if let Some(n) = before_group_fit.get(&touched).cloned().or_else(|| d.get(touched).cloned()) {
+                    old_nodes.entry(touched).or_insert(n);
+                }
+            });
+            let moved = doc.get(cur).map(|n| (n.size, n.transform)) != before_rect;
+            if moved {
+                if let Some(p) = doc.get(cur).and_then(|n| n.parent) {
+                    worklist.insert((group_depth(doc, p), p));
+                }
+            }
+        } else if has_auto_layout(doc, cur) {
+            let mut top_al = cur;
+            while let Some(p) = doc.get(top_al).and_then(|n| n.parent) {
+                if has_auto_layout(doc, p) {
+                    top_al = p;
+                } else {
+                    break;
+                }
+            }
+            let non_al_parent = doc.get(top_al).and_then(|n| n.parent);
+            if let Some(enclosing_group) = non_al_parent.filter(|&p| doc.get(p).is_some_and(|n| matches!(n.kind, NodeKind::Group))) {
+                let before_top = doc.get(top_al).map(|n| (n.size, n.transform));
+                doc.relayout_seeds_upward(&[cur]);
+                let moved = doc.get(top_al).map(|n| (n.size, n.transform)) != before_top;
+                if moved {
+                    worklist.insert((group_depth(doc, enclosing_group), enclosing_group));
+                }
+            } else {
+                final_al_seeds.push(cur);
+            }
+        }
+    }
+    if !final_al_seeds.is_empty() {
+        doc.relayout_seeds_upward(&final_al_seeds);
+    }
+    old_nodes.retain(|id, old| doc.get(*id) != Some(old));
+    old_nodes
+}
+
+fn collect_update_ids(doc: &Document, cmd: &Command, out: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Update { node } => {
+            if doc.get(node.id).is_some_and(|cur| cur.size != node.size || cur.transform != node.transform || cur.visible != node.visible) {
+                out.push(node.id);
+            }
+        }
+        Command::Batch(cs) => cs.iter().for_each(|c| collect_update_ids(doc, c, out)),
+        _ => {}
+    }
+}
+fn group_depth(doc: &Document, id: NodeId) -> usize {
+    let mut d = 0;
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(p) = cur {
+        d += 1;
+        cur = doc.get(p).and_then(|n| n.parent);
+    }
+    d
 }
 
 /// Whether `def` is a variant property of instance `n`, top-level or nested, that a person picked by hand (see

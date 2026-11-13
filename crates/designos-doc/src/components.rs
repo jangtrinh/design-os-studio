@@ -4431,6 +4431,35 @@ mod tests {
     }
 
     #[test]
+    fn variant_switch_refits_hug_frame_through_group() {
+        let (mut f, _set, small, big) = variant_fixture();
+        let outer_id = f.d.alloc_id();
+        let mut outer_node = Node::frame(outer_id, Rect::new(0.0, 0.0, 400.0, 100.0));
+        outer_node.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Hug,
+                ..AutoLayout::default()
+            }),
+            ..FrameProps::default()
+        });
+        let outer = f.d.insert(f.page, outer_node).unwrap();
+        let group = f.d.alloc_id();
+        let mut group_node = Node::new(group, NodeKind::Group);
+        group_node.size = Vec2::new(100.0, 40.0);
+        let group = f.d.insert(outer, group_node).unwrap();
+        let c = create_instance(&mut f.d, small, group, Vec2::ZERO);
+        apply(&mut f.d, c);
+        let inst = *f.d.get(group).unwrap().children.last().unwrap();
+        f.d.relayout_subtree(outer);
+        let old = f.d.get(outer).unwrap().size.x;
+        swap_instance_to_component(&mut f.d, inst, big).unwrap();
+        assert!(f.d.get(inst).unwrap().size.x > 100.0);
+        assert!(f.d.get(outer).unwrap().size.x > old, "hug frame stayed at {old}, group was not refit");
+    }
+
+    #[test]
     fn combine_builds_component_set() {
         let (f, set, small, big) = variant_fixture();
         let s = f.d.get(set).unwrap();
