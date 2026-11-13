@@ -225,9 +225,12 @@ fn match_root_style(root: &mut Node, target: &Node, painted_fills: &[Paint], tar
     root.effects = target.effects.clone();
     root.opacity = target.opacity;
     root.blend = target.blend;
+    let radii_changed = root.corner_radii != target.corner_radii;
     root.corner_radii = target.corner_radii;
     root.corner_smoothing = target.corner_smoothing;
-    crate::canvas::interact::drop_baked_outline_of_parametric_shape(root);
+    if radii_changed {
+        crate::canvas::interact::drop_baked_outline_of_parametric_shape(root);
+    }
     root.fills = if matches!(root.kind, NodeKind::Text(_)) { Vec::new() } else { painted_fills.to_vec() };
     match_style_links(root, target, &["fill", "stroke", "effect"]);
     let typography = target_is_text && root.kind.any_text().is_some();
@@ -1130,9 +1133,12 @@ impl App {
                 n.effects = snap.effects.clone();
                 n.opacity = snap.opacity;
                 n.blend = snap.blend_mode;
+                let radii_changed = n.corner_radii != snap.corner_radii;
                 n.corner_radii = snap.corner_radii;
                 n.corner_smoothing = snap.corner_smoothing;
-                crate::canvas::interact::drop_baked_outline_of_parametric_shape(n);
+                if radii_changed {
+                    crate::canvas::interact::drop_baked_outline_of_parametric_shape(n);
+                }
                 if let Some(style) = snap.text_style.clone() {
                     if n.kind.any_text().is_some() {
                         let is_text = matches!(n.kind, NodeKind::Text(_));
@@ -3600,6 +3606,44 @@ mod tests {
         let pasted = app.doc.get(app.selection[0]).unwrap();
         assert_eq!(pasted.corner_radii, [24.0; 4]);
         assert!(pasted.fill_geometry.is_none() && pasted.stroke_geometry.is_none(), "matching a radius must drop imported geometry");
+    }
+
+    #[test]
+    fn paste_properties_and_match_style_keep_baked_outline_when_corner_radius_is_unchanged() {
+        let mut d = Document::new("paste-same-radius-outline");
+        let page = d.add_page("p");
+        let source = d.alloc_id();
+        let mut source_node = Node::rectangle(source, Rect::new(0.0, 0.0, 50.0, 50.0));
+        source_node.corner_radii = [8.0; 4];
+        d.insert(page, source_node).unwrap();
+        let target_a = add_baked_rectangle(&mut d, page, 100.0, 0.0);
+        let target_b = add_baked_rectangle(&mut d, page, 220.0, 0.0);
+        let target_diff_corner = add_baked_rectangle(&mut d, page, 340.0, 0.0);
+        d.get_mut(target_a).unwrap().corner_radii = [8.0; 4];
+        d.get_mut(target_b).unwrap().corner_radii = [8.0; 4];
+        d.get_mut(target_diff_corner).unwrap().corner_radii = [8.0, 8.0, 8.0, 4.0];
+
+        let mut app = App::new(d);
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![target_a, target_b, target_diff_corner];
+        app.paste_properties();
+        for id in [target_a, target_b] {
+            let node = app.doc.get(id).unwrap();
+            assert_eq!(node.corner_radii, [8.0; 4]);
+            assert!(node.fill_geometry.is_some() && node.stroke_geometry.is_some(), "same corner radii must keep imported geometry on paste_properties");
+        }
+        let diff_node = app.doc.get(target_diff_corner).unwrap();
+        assert_eq!(diff_node.corner_radii, [8.0; 4]);
+        assert!(diff_node.fill_geometry.is_none() && diff_node.stroke_geometry.is_none(), "different corner radius on one corner must drop imported geometry");
+
+        app.selection = vec![target_a];
+        app.copy_selection();
+        app.selection = vec![source];
+        app.paste_and_match_style();
+        let pasted = app.doc.get(app.selection[0]).unwrap();
+        assert_eq!(pasted.corner_radii, [8.0; 4]);
+        assert!(pasted.fill_geometry.is_some() && pasted.stroke_geometry.is_some(), "same corner radii must keep imported geometry on paste_and_match_style");
     }
 
     #[test]
