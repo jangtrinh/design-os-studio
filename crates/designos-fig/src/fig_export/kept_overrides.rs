@@ -334,6 +334,45 @@ pub(super) fn size_edited(doc: &Document, inst_id: NodeId) -> bool {
     doc.get(inst_id).is_some_and(|node| crate::instance_self_digest::size_moved(node, &opened) || edited_fields(node, &opened).contains(&OverrideField::Size))
 }
 
+fn ordered_track_guids(entry: &V, key: &str) -> Option<Vec<(u32, u32)>> {
+    let V::Array(items) = entry.get(key)?.get("entries")? else { return None };
+    let mut pairs: Vec<(&str, (u32, u32))> = items
+        .iter()
+        .filter_map(|item| {
+            let pos = match item.get("position")? {
+                V::String(s) => s.as_ref(),
+                _ => return None,
+            };
+            Some((pos, field_guid(item.get("id")?)?))
+        })
+        .collect();
+    if pairs.is_empty() {
+        return None;
+    }
+    pairs.sort_by(|a, b| a.0.cmp(b.0));
+    Some(pairs.into_iter().map(|(_, g)| g).collect())
+}
+
+fn ordered_track_guids_in_own(entries: &[V], own: &[usize], key: &str) -> Vec<(u32, u32)> {
+    own.iter().rev().find_map(|&i| ordered_track_guids(&entries[i], key)).unwrap_or_default()
+}
+
+fn remap_child_grid_anchors(entries: &mut [V], own: &[usize], anchor_key: &str, old_ids: &[(u32, u32)], new_ids: &[(u32, u32)]) {
+    if old_ids.is_empty() || new_ids.is_empty() {
+        return;
+    }
+    for (i, entry) in entries.iter_mut().enumerate() {
+        if own.contains(&i) {
+            continue;
+        }
+        let Some(slot) = entry.get_mut(anchor_key) else { continue };
+        let Some(old) = field_guid(slot) else { continue };
+        if let Some(&(s, l)) = old_ids.iter().position(|&g| g == old).and_then(|idx| new_ids.get(idx)) {
+            *slot = guid(s, l);
+        }
+    }
+}
+
 /// The record states the instance's own fields as they were when the file was opened. A field the user changed on the
 /// instance since then (its digest moved, see [`crate::instance_self_digest`]) is written from the node instead, in
 /// place of what the record says for it; every other part of the record is written as it was.
@@ -374,6 +413,14 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: Nod
         }
         return;
     };
+    let track_remap = edited.contains(&OverrideField::Layout).then(|| {
+        (
+            ordered_track_guids_in_own(entries, &own, "gridColumns"),
+            fresh.as_ref().and_then(|f| ordered_track_guids(f, "gridColumns")).unwrap_or_default(),
+            ordered_track_guids_in_own(entries, &own, "gridRows"),
+            fresh.as_ref().and_then(|f| ordered_track_guids(f, "gridRows")).unwrap_or_default(),
+        )
+    });
     let mut restated = fresh.as_mut().and_then(message_fields_mut);
     if let Some(fields) = restated.as_mut() {
         fields.retain(|(k, _)| &**k != "guidPath");
@@ -395,6 +442,10 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: Nod
     }
     if let (Some(record), Some(restated)) = (message_fields_mut(&mut entries[last]), restated.take()) {
         record.append(restated);
+    }
+    if let Some((old_cols, new_cols, old_rows, new_rows)) = track_remap {
+        remap_child_grid_anchors(entries, &own, "gridColumnAnchor", &old_cols, &new_cols);
+        remap_child_grid_anchors(entries, &own, "gridRowAnchor", &old_rows, &new_rows);
     }
     entries.retain(|entry| {
         !is_own_entry(entry, main_guid)

@@ -406,8 +406,7 @@ fn an_unopened_instance_layout_edit_replaces_recorded_spacing_without_rewriting_
     }));
     let fig = deferred_layout_fixture(json!([own]));
     let saved = edit_and_save(&fig, |n| {
-        n.kind.frame_props_mut().expect("instance frame").auto_layout =
-            Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: 20.0, ..AutoLayout::default() });
+        n.kind.frame_props_mut().expect("instance frame").auto_layout.as_mut().expect("recorded auto layout").item_spacing = 20.0;
     });
     let edited = own_entry_of(&saved_entries(&saved, INSTANCE));
     assert_eq!(edited["stackSpacing"].as_f64(), Some(20.0), "edited spacing must replace the record: {edited}");
@@ -417,6 +416,79 @@ fn an_unopened_instance_layout_edit_replaces_recorded_spacing_without_rewriting_
     let reopened = import_fig(&saved).expect("reopen saved fig");
     let instance = variant_button(&reopened);
     assert_eq!(reopened.get(instance).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).map(|al| al.item_spacing), Some(20.0),);
+}
+
+#[test]
+fn an_unopened_instance_spacing_edit_preserves_other_recorded_own_layout_fields_and_grid_anchors() {
+    let col_a = guid(9, 10);
+    let col_b = guid(9, 11);
+    let own = own_entry_json(json!({
+        "stackMode": "HORIZONTAL",
+        "stackSpacing": 4.0,
+        "stackPrimaryAlignItems": "CENTER",
+        "stackCounterAlignContent": "SPACE_BETWEEN",
+        "stackLayoutVersion": 1,
+        "stackPadding": 16.0,
+        "frameMaskDisabled": false,
+        "layoutGrids": [{"pattern": "GRID", "sectionSize": 8.0, "visible": true, "color": rgba(1.0, 0.0, 0.0)}],
+        "gridColumns": {"entries": [
+            {"id": col_a, "position": "!"},
+            {"id": col_b, "position": "\""}
+        ]},
+        "gridColumnsSizing": {"entries": [
+            {"id": col_a, "trackSize": {"minSizing": {"type": "FLEX", "value": 1.0}, "maxSizing": {"type": "FLEX", "value": 1.0}}},
+            {"id": col_b, "trackSize": {"minSizing": {"type": "FIXED", "value": 120.0}, "maxSizing": {"type": "FIXED", "value": 120.0}}}
+        ]}
+    }));
+    let child_anchor = json!({
+        "guidPath": {"guids": [guid(LABEL.0, LABEL.1)]},
+        "gridColumnAnchor": col_b
+    });
+    let fig = deferred_layout_fixture(json!([own, child_anchor]));
+
+    // Edit only the spacing via the existing frame_props.auto_layout path used by
+    // properties::update_al, variables_apply::set_bound_node_property, and spec::apply_spec_to_node.
+    let saved = edit_and_save(&fig, |n| {
+        n.kind.frame_props_mut().expect("instance frame").auto_layout.as_mut().expect("recorded auto layout").item_spacing = 20.0;
+    });
+
+    let mut reopened = import_fig(&saved).expect("reopen saved fig");
+    assert_page_stays_unloaded(&reopened);
+    reopened.hydrate_all_pages();
+
+    let instance = variant_button(&reopened);
+    let inst_node = reopened.get(instance).expect("hydrated instance");
+    let fp = inst_node.kind.frame_props().expect("hydrated instance frame");
+    let al = fp.auto_layout.as_ref().expect("hydrated instance auto-layout");
+    let label_id =
+        inst_node.children.iter().copied().find(|&c| reopened.get(c).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)))).expect("hydrated label child");
+    let label_col = reopened.get(label_id).expect("label").layout_child.grid_column;
+    assert_eq!(
+        (
+            al.item_spacing,
+            al.primary_align,
+            al.counter_align_content,
+            al.layout_version,
+            al.padding,
+            fp.clips_content,
+            fp.grids.len(),
+            al.grid_columns,
+            &al.grid_col_tracks[..2],
+            label_col,
+        ),
+        (
+            20.0,
+            LayoutAlign::Center,
+            CounterAlignContent::SpaceBetween,
+            1,
+            [16.0, 16.0, 16.0, 16.0],
+            true,
+            1,
+            2,
+            &[GridTrack::Flex(1.0), GridTrack::Fixed(120.0)][..],
+            Some(1),
+        ),
+    );
 }
 
 #[test]

@@ -2793,7 +2793,10 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "gridRowAnchor"
             | "gridRowAnchorIndex"
             | "gridChildHorizontalAlign"
-            | "gridChildVerticalAlign" => {
+            | "gridChildVerticalAlign"
+            | "layoutGrids"
+            | "styleIdForGrid"
+            | "inheritGridStyleID" => {
                 has_layout = true;
             }
             "fontName"
@@ -2989,6 +2992,9 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
         if let Some(r) = obj.get("gridRowAnchor").or_else(|| obj.get("gridRowAnchorIndex")) {
             m.insert("gridRowAnchorIndex".into(), r.clone());
+        }
+        if let Some(g) = convert_grids(lk.style_node_of(o, "styleIdForGrid", "inheritGridStyleID").unwrap_or(o)) {
+            m.insert("layoutGrids".into(), g);
         }
     }
     if has_text {
