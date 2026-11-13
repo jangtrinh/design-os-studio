@@ -293,6 +293,7 @@ pub struct OverrideSpec {
     pub slots: BTreeMap<String, SlotFillSpec>,
     /// Override arc data on a descendant ellipse. `sweep_angle` is added to `start_angle` on apply.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(skip))]
     pub arc: Option<ArcOverrideSpec>,
 }
 
