@@ -148,6 +148,15 @@
           }
         }
       ]
+    },
+    {
+      "@type": "VideoObject",
+      "name": "An agent edits a .fig headless, without Figma | DESIGN:OS Studio",
+      "description": "A coding agent edits a .fig headless in DESIGN:OS Studio, with no Figma app and no display. FREE and source-available (PolyForm Shield). As of v0.7.13 it ships 39 MCP tools. A .fig save has known issue #834.",
+      "thumbnailUrl": "https://i.ytimg.com/vi/_LtPH2uREr0/maxresdefault.jpg",
+      "uploadDate": "2026-11-12T05:06:23+00:00",
+      "contentUrl": "https://www.youtube.com/watch?v=_LtPH2uREr0",
+      "embedUrl": "https://www.youtube.com/embed/_LtPH2uREr0"
     }
   ]
 }
@@ -345,6 +354,17 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
   .brand{font-size:.8125rem}
   .topbar .btn{padding:0 10px}
 }
+
+/* watch: four film cards, thumbs from i.ytimg.com, no embeds */
+.watch-lead{margin-top:16px;max-width:var(--measure);color:var(--muted);text-wrap:pretty}
+.watch-lead a{color:inherit}
+.watch-grid{display:grid;gap:20px;margin-top:32px;grid-template-columns:1fr;list-style:none;padding:0}
+@media (min-width:640px){.watch-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:1000px){.watch-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.watch-grid a{display:flex;flex-direction:column;gap:12px;color:var(--text);text-decoration:none;min-height:44px}
+.watch-grid img{width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;border:1px solid var(--border);background:var(--surface)}
+.watch-grid span{font-size:.9375rem;font-weight:500;line-height:1.35;text-wrap:pretty}
+@media (hover:hover) and (pointer:fine){.watch-grid a:hover span{text-decoration:underline;text-underline-offset:.2em}}
 </style>
 <link rel="stylesheet" href="assets/v2-story.css">
 <link rel="stylesheet" href="assets/v2-new.css">
@@ -370,6 +390,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <li><a href="#scale">Big files</a></li>
       <li><a href="#new">What’s new</a></li>
       <li><a href="#install">Install</a></li>
+      <li><a href="#watch">Watch</a></li>
       <li><a href="#faq">FAQ</a></li>
     </ul>
     <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.13/designos-0.7.13-macos.dmg">Download for macOS</a>
@@ -835,6 +856,40 @@ rm -rf /tmp/design-os-studio</code></pre></div>
           </div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- Watch -->
+  <section id="watch" class="sec" aria-labelledby="watch-h">
+    <div class="wrap">
+      <h2 id="watch-h">Watch.</h2>
+      <p class="watch-lead">Four short films of DESIGN:OS Studio, starting with an agent editing a <code>.fig</code> headless, with no Figma app and no display. Writing <code>.fig</code> files is still known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>. Current release is v0.7.13, with 39 MCP tools. FREE and source-available (PolyForm Shield). More on the <a href="https://www.youtube.com/@designosbyjang">design:os by Jang</a> channel and the <a href="https://jangtrinh.github.io/videos/">videos hub</a>.</p>
+      <ul class="watch-grid">
+        <li>
+          <a href="https://www.youtube.com/watch?v=_LtPH2uREr0">
+            <img src="https://i.ytimg.com/vi/_LtPH2uREr0/mqdefault.jpg" width="320" height="180" alt="An agent edits a .fig headless, without Figma | DESIGN:OS Studio (YouTube, 0:57)" loading="lazy" decoding="async">
+            <span>An agent edits a .fig headless, without Figma | DESIGN:OS Studio</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://www.youtube.com/watch?v=LJQwnIcHIUA">
+            <img src="https://i.ytimg.com/vi/LJQwnIcHIUA/mqdefault.jpg" width="320" height="180" alt="DESIGN:OS Studio v0.7.10: live connectors that follow your screens (YouTube, 1:00)" loading="lazy" decoding="async">
+            <span>DESIGN:OS Studio v0.7.10: live connectors that follow your screens</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://www.youtube.com/watch?v=4aDiDqNm8a0">
+            <img src="https://i.ytimg.com/vi/4aDiDqNm8a0/mqdefault.jpg" width="320" height="180" alt="DESIGN:OS Studio 0.7.0 → 0.7.7: masks, style folders, shadow blend modes, Ask for risky only (YouTube, 1:00)" loading="lazy" decoding="async">
+            <span>DESIGN:OS Studio 0.7.0 → 0.7.7: masks, style folders, shadow blend modes, Ask for risky only</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://www.youtube.com/watch?v=LDzKn-GSwUk">
+            <img src="https://i.ytimg.com/vi/LDzKn-GSwUk/mqdefault.jpg" width="320" height="180" alt="DESIGN:OS Studio: open and write .fig files without Figma (YouTube, 1:10)" loading="lazy" decoding="async">
+            <span>DESIGN:OS Studio: open and write .fig files without Figma</span>
+          </a>
+        </li>
+      </ul>
     </div>
   </section>
 
