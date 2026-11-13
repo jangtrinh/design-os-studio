@@ -105,7 +105,7 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 
 ## Watch
 
-Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.13. FREE and source-available (PolyForm Shield).
+Four short films of DESIGN:OS Studio, starting with an agent editing a `.fig` headless, with no Figma app and no display. Writing `.fig` files is still [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834). Current release is v0.7.14. FREE and source-available (PolyForm Shield).
 
 <p align="left">
   <a href="https://www.youtube.com/watch?v=_LtPH2uREr0"><img src="https://i.ytimg.com/vi/_LtPH2uREr0/mqdefault.jpg" alt="An agent edits a .fig headless, without Figma | DESIGN:OS Studio (YouTube, 0:57)" width="320"></a>
@@ -189,7 +189,16 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.13. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.14. The latest captures are from the 0.7.12 release build, and older releases are short lists.
+
+<a id="new-in-v0714"></a>
+### 0.7.14
+
+- **Components.** A component property whose default is bound to a variable in Figma keeps that binding through `.fig` and Figma REST import, `.fig` export and the design-system scan. A value picked by hand for one variable-bound variant property holds only that property, and the others keep following their variables. A variant switch keeps a text override and the instance's size, and reports every override it has to drop. A frame that hugs an instance takes its new size in the same step as a variant switch that a variable drives, also when the instance sits inside a group.
+- **Agents.** The approval mode Ask for risky only is now called Ask when risky, and it is enforced for every way of starting an agent: a CLI that does not share the approval hook is refused with its reason and the next step. A running agent tab keeps the permission mode it was started in.
+- **Auto layout.** Older frames with auto spacing, and wrapped frames with room left on the counter axis, are placed as Figma places them. Re-solving every auto-layout frame of the imported Untitled UI PRO v8.0 kit moves 1,910 of 194,397 layers by more than 0.5 px; it was 2,039.
+- **Figma files.** Opening a page for the first time after its main component was edited shows the instances at the main's new size and keeps their overrides. A change made inside a nested component copy survives a `.fig` save, a reopen and an edit of the main component.
+- **Fixes.** Corner radius edits and bindings on imported shapes redraw, a large background blur at the edge of the canvas matches the CPU reference, a `.pen` export keeps an instance's own ring arc, and the agent tools refuse more clearly (`INSTANCE_CHILD`, `INSTANCE_CYCLE`, library variables are read-only). Many fixes were carried from pull requests by @NamAIEngineer.
 
 <a id="new-in-v0713"></a>
 ### 0.7.13
@@ -781,7 +790,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.13. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.13 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.14. Releases are verified on macOS. Test (windows-latest) failed on the v0.7.14 release PR; Windows users are asked to test the published build and report in [#1843](https://github.com/jangtrinh/design-os-studio/issues/1843). Earlier Windows CI failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
