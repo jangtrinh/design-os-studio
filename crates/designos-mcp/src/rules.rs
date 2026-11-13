@@ -475,7 +475,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 89;
+const MAX_PURPOSE_CHARS: usize = 82;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -518,6 +518,8 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`UNKNOWN_VARIABLE`",
             "`VARIABLE_TYPE_MISMATCH`",
             "`AMBIGUOUS_VARIABLE`",
+            "`UNKNOWN_COMPONENT_PROPERTY`",
+            "`OVERRIDE_FIELD_NOT_APPLICABLE`",
             "`OUTSIDE_OWNED_FRAMES`",
             "`TOOL_DISABLED`",
         ],
@@ -873,6 +875,8 @@ mod tests {
     fn per_tool_error_lists_name_the_unsupported_codes_the_tool_returns() {
         let has = |tool: &str, code: &str| tool_error_codes(tool).contains(&format!("`{code}`").as_str());
         assert!(has("designos_create_node", "UNSUPPORTED_NODE_KIND"));
+        assert!(has("designos_update_node", "UNKNOWN_COMPONENT_PROPERTY"));
+        assert!(has("designos_update_node", "OVERRIDE_FIELD_NOT_APPLICABLE"));
         for tool in ["designos_save_file", "designos_render_png", "designos_export_fig_file"] {
             assert!(has(tool, "UNSUPPORTED_EXTENSION"), "{tool}");
         }

@@ -2945,6 +2945,8 @@ impl TerminalState {
             });
             let context_bytes = serde_json::to_vec_pretty(&ctx_val).unwrap_or_default();
             let canvas_doc = if !is_scoped { doc.clone() } else { crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name) };
+            let (ask_mode, ask_risky) = self.snapshot_approval_hook_flags();
+            self.sync_tab_hook_scripts();
             self.last_synced_key = Some(key);
             self.snapshot_worker.enqueue(crate::agent_session_files::SnapshotJob {
                 session_dir: self.session_dir.clone(),
@@ -2964,8 +2966,8 @@ impl TerminalState {
                 run_id: self.active_run_id.clone(),
                 bootstrap_run_id: self.run_id,
                 agent_runtime: self.active_mcp_runtime_name().to_string(),
-                ask_mode: self.permission_mode.installs_approval_hook(),
-                ask_risky: self.permission_mode.auto_allows_safe_tiers(),
+                ask_mode,
+                ask_risky,
                 unread_probe: Some(self.live_patch.unread_probe()),
                 exact_project_config: None,
             });
@@ -3031,6 +3033,35 @@ impl TerminalState {
         self.provision_session_agent_files_exact(file_path, None)
     }
 
+    /// `(ask_mode, ask_risky)` for a canvas snapshot: while any running tab uses the approval hook, the private channel stays
+    /// provisioned, and the shared fallback script only auto-allows safe tiers when every hooked tab is in `Ask when risky`.
+    fn snapshot_approval_hook_flags(&self) -> (bool, bool) {
+        if self.tabs.is_empty() {
+            (self.permission_mode.installs_approval_hook(), self.permission_mode.auto_allows_safe_tiers())
+        } else {
+            let any_ask_hook = self.tabs.iter().any(|tab| tab.permission_mode.installs_approval_hook());
+            let all_risky = any_ask_hook
+                && self.tabs.iter().filter(|tab| tab.permission_mode.installs_approval_hook()).all(|tab| tab.permission_mode.auto_allows_safe_tiers());
+            (any_ask_hook, all_risky)
+        }
+    }
+
+    /// Ensures each running tab with the approval hook keeps its own `<channel>/approve-hook-tab-<id>.sh` for the mode it started in.
+    fn sync_tab_hook_scripts(&self) {
+        if !self.tabs.iter().any(|tab| tab.permission_mode.installs_approval_hook()) {
+            return;
+        }
+        let Ok(channel_dir) = crate::agent_approval_channel::prepare_channel_dir(&self.session_dir) else {
+            return;
+        };
+        let status_file = crate::agent_hook_outputs::HookPaths::prepare(&self.session_dir).ok().map(|p| p.status());
+        for tab in &self.tabs {
+            if tab.permission_mode.installs_approval_hook() {
+                let _ = crate::agent_permissions::install_tab_hook_script(&channel_dir, status_file.as_deref(), tab.id, tab.permission_mode);
+            }
+        }
+    }
+
     /// [`Self::provision_session_agent_files`] that also makes the project config of `exact` exactly Studio's, and then returns
     /// the first error of that CLI's files.
     fn provision_session_agent_files_exact(
@@ -3045,13 +3076,22 @@ impl TerminalState {
         self.write_backoff.clear();
         self.last_synced_key = None;
         let job = self.provisioning_job(file_path, exact);
-        match write_session_agent_files(&job) {
+        let res = match write_session_agent_files(&job) {
             Ok(note) => {
                 self.set_aside_note = note;
                 None
             }
             Err(e) => Some(e),
+        };
+        if !job.ask_mode && self.tabs.iter().any(|tab| tab.permission_mode.installs_approval_hook()) {
+            let mut hook_job = self.provisioning_job(file_path, None);
+            let (ask_mode, ask_risky) = self.snapshot_approval_hook_flags();
+            hook_job.ask_mode = ask_mode;
+            hook_job.ask_risky = ask_risky;
+            let _ = write_session_agent_files(&hook_job);
         }
+        self.sync_tab_hook_scripts();
+        res
     }
 
     /// The job that writes the session's agent files when an agent is about to start: no canvas, this run's id and permission mode.
@@ -3079,7 +3119,8 @@ impl TerminalState {
             bootstrap_run_id: self.run_id,
             agent_runtime: self.active_mcp_runtime_name().to_string(),
             ask_mode: self.permission_mode.installs_approval_hook(),
-            ask_risky: self.permission_mode.auto_allows_safe_tiers(),
+            ask_risky: self.permission_mode.auto_allows_safe_tiers()
+                && self.tabs.iter().filter(|tab| tab.permission_mode.installs_approval_hook()).all(|tab| tab.permission_mode.auto_allows_safe_tiers()),
             unread_probe: None,
             exact_project_config: exact,
         }
@@ -3468,6 +3509,7 @@ impl TerminalState {
             Ok(mut tab) => {
                 tab.preset = AgentCliPreset::Shell;
                 tab.title = clean_title.to_string();
+                tab.permission_mode = self.permission_mode;
                 if self.tabs.is_empty() || self.picker_open {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
@@ -3586,6 +3628,12 @@ impl TerminalState {
         env.tab_session_uuid = session_uuid.clone();
         // A Gemini tab in Ask mode reads its status hooks from a private file, written before the tab starts.
         env.gemini_system_defaults = crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, id, mode, preset).map(|path| path.display().to_string());
+        if mode.installs_approval_hook() {
+            if let Ok(channel_dir) = crate::agent_approval_channel::prepare_channel_dir(&self.session_dir) {
+                let status_file = crate::agent_hook_outputs::HookPaths::prepare(&self.session_dir).ok().map(|p| p.status());
+                let _ = crate::agent_permissions::install_tab_hook_script(&channel_dir, status_file.as_deref(), id, mode);
+            }
+        }
         let cmd_override = match effective_command.as_deref() {
             Some(c) => match build_agent_shell_cmd_checked_for_tab(&default_shell_program(), c, preset, file_path, Some(&env)) {
                 Ok(cmd) => {
@@ -12277,6 +12325,279 @@ mod tests {
         assert_eq!(st.tabs[idx].permission_mode, AgentPermissionMode::Skip);
         kill_tabs(&mut st);
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn switching_global_permission_mode_leaves_existing_project_tabs_in_their_mode() {
+        use crate::agent_permissions::AgentPermissionMode;
+        let mut app = crate::app::App::new(designos_doc::Document::new("Tab 1"));
+        app.terminal.permission_mode = AgentPermissionMode::Ask;
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.open_new_design_tab(&mut app);
+        app.tabs = tabs;
+        assert_eq!(app.tabs.entries[0].terminal.permission_mode, AgentPermissionMode::Ask);
+        app.set_agent_permission_mode(AgentPermissionMode::Skip);
+        assert_eq!(app.terminal.permission_mode, AgentPermissionMode::Skip);
+        assert_eq!(
+            app.tabs.entries[0].terminal.permission_mode,
+            AgentPermissionMode::Ask,
+            "an existing project tab keeps the permission mode it was running in when another tab changes the global setting"
+        );
+        app.terminal.shutdown();
+        for entry in &mut app.tabs.entries {
+            entry.terminal.shutdown();
+        }
+    }
+
+    #[cfg(unix)]
+    fn write_idle_stub_clis(bin_dir: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(bin_dir).expect("create stub bin dir");
+        for name in ["claude", "codex"] {
+            let path = bin_dir.join(name);
+            std::fs::write(&path, "#!/bin/sh\nsleep 30\n").expect("write stub cli");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod stub cli");
+        }
+    }
+
+    #[cfg(unix)]
+    fn spawn_tab_approval_hook(script: &Path, tab_id: usize, payload: &str) -> std::process::Child {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("/bin/sh")
+            .arg(script)
+            .env("DESIGNOS_TAB_ID", tab_id.to_string())
+            .env("DESIGNOS_APPROVAL_TIMEOUT_MS", "2500")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn approval hook");
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(payload.as_bytes());
+        }
+        child
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn running_tab_keeps_asking_after_global_mode_switch_canvas_snapshot_and_new_tab() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode, ApprovalDecision};
+        const SAFE_READ_PAYLOAD: &str = r#"{"tool_name":"mcp__designos__designos_get_document","tool_input":{}}"#;
+
+        for (case_idx, later_mode) in [AgentPermissionMode::AskRisky, AgentPermissionMode::Skip].into_iter().enumerate() {
+            let root = permission_window_root(&format!("running-tab-keeps-ask-{case_idx}"));
+            let bin_dir = root.join("bin");
+            write_idle_stub_clis(&bin_dir);
+            save_permission_mode(&root, AgentPermissionMode::Ask).expect("save Ask");
+
+            let mut app = crate::app::App::new(designos_doc::Document::new("Running Tab Ask"));
+            app.lib = Some(designos_library::Library::open(&root).expect("open library"));
+            app.terminal.bind_library_file(&root, &format!("file-keep-ask-{case_idx}"), &format!("win-keep-ask-{case_idx}"));
+            app.terminal.path_override = Some(bin_dir.clone().into_os_string());
+            app.terminal.path_prepend = vec![bin_dir.clone()];
+            app.set_agent_permission_mode(AgentPermissionMode::Ask);
+
+            let first_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn first Ask tab");
+            let first_tab_id = app.terminal.tabs[first_idx].id;
+            assert_eq!(app.terminal.tabs[first_idx].permission_mode, AgentPermissionMode::Ask);
+
+            let private_hooks = crate::agent_approval_channel::hooks_file_path(&app.terminal.session_dir).expect("private hooks path");
+            let script_path = crate::agent_approval_channel::hook_script_path(&app.terminal.session_dir).expect("private hook script path");
+            assert!(private_hooks.is_file(), "Ask tab provisions private hooks.json");
+            assert!(script_path.is_file(), "Ask tab provisions approve-hook.sh");
+            if later_mode == AgentPermissionMode::Skip {
+                std::fs::remove_file(&private_hooks).expect("clear initial hooks.json so canvas snapshot must rewrite it");
+            }
+
+            app.set_agent_permission_mode(later_mode);
+            let page = app.doc.pages.first().copied().unwrap_or(designos_doc::NodeId(1));
+            app.doc.name = format!("Snapshot After Switch {case_idx}");
+            app.terminal.sync_live_file_context(&app.doc, page, &[], None);
+            app.terminal.flush_live_sync();
+
+            let second_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn second tab in new global mode");
+            assert_eq!(app.terminal.tabs[first_idx].permission_mode, AgentPermissionMode::Ask, "running tab keeps Ask mode");
+            assert_eq!(app.terminal.tabs[second_idx].permission_mode, later_mode, "new tab takes the newly selected global mode");
+
+            app.doc.name = format!("Snapshot After Second Tab {case_idx}");
+            app.terminal.sync_live_file_context(&app.doc, page, &[], None);
+            app.terminal.flush_live_sync();
+
+            assert!(private_hooks.is_file(), "{later_mode:?}: canvas snapshot while an Ask tab is running must keep writing the private Ask hooks");
+
+            let hook_child = spawn_tab_approval_hook(&script_path, first_tab_id, SAFE_READ_PAYLOAD);
+            let asked = crate::test_timing::poll_until(std::time::Duration::from_millis(1200), || {
+                let _ = app.terminal.poll_live_agent_bridge();
+                !app.terminal.tabs[first_idx].pending_approvals.is_empty()
+            });
+            assert!(asked, "{later_mode:?}: first tab started in Ask must still raise an in-panel approval request instead of auto-allowing");
+            let req_id = app.terminal.tabs[first_idx].pending_approvals[0].id.clone();
+            app.terminal.focus_tab_by_id(first_tab_id);
+            app.terminal.answer_pending_approval(&req_id, ApprovalDecision::Allow);
+            let out = hook_child.wait_with_output().expect("wait for approval hook");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(stdout.contains("\"behavior\":\"allow\""), "{later_mode:?}: answering Allow lets the first tab proceed: {stdout}");
+
+            kill_tabs(&mut app.terminal);
+            app.terminal.shutdown();
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn two_running_tabs_with_different_modes_keep_their_own_approval_behavior_across_canvas_snapshots() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode, ApprovalDecision};
+        const SAFE_READ_PAYLOAD: &str = r#"{"tool_name":"mcp__designos__designos_get_document","tool_input":{}}"#;
+
+        let root = permission_window_root("two-tabs-different-modes");
+        let bin_dir = root.join("bin");
+        write_idle_stub_clis(&bin_dir);
+        save_permission_mode(&root, AgentPermissionMode::Ask).expect("save Ask");
+
+        let mut app = crate::app::App::new(designos_doc::Document::new("Two Tabs Different Modes"));
+        app.lib = Some(designos_library::Library::open(&root).expect("open library"));
+        app.terminal.bind_library_file(&root, "file-two-tabs", "win-two-tabs");
+        app.terminal.path_override = Some(bin_dir.clone().into_os_string());
+        app.terminal.path_prepend = vec![bin_dir.clone()];
+        app.set_agent_permission_mode(AgentPermissionMode::Ask);
+
+        // Tab A starts in Ask first.
+        let tab_a_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn tab A in Ask");
+        let tab_a_id = app.terminal.tabs[tab_a_idx].id;
+        assert_eq!(app.terminal.tabs[tab_a_idx].permission_mode, AgentPermissionMode::Ask);
+
+        // Switch global mode to AskRisky and start Tab B (Tab A is now in the background, Tab B is active).
+        app.set_agent_permission_mode(AgentPermissionMode::AskRisky);
+        let tab_b_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn tab B in AskRisky");
+        let tab_b_id = app.terminal.tabs[tab_b_idx].id;
+        assert_eq!(app.terminal.active_tab, tab_b_idx);
+        assert_eq!(app.terminal.tabs[tab_a_idx].permission_mode, AgentPermissionMode::Ask);
+        assert_eq!(app.terminal.tabs[tab_b_idx].permission_mode, AgentPermissionMode::AskRisky);
+
+        // Canvas snapshot runs while Tab B (AskRisky) is active and Tab A (Ask) is in the background.
+        let page = app.doc.pages.first().copied().unwrap_or(designos_doc::NodeId(1));
+        app.doc.name = "Snapshot With Risky Tab Active".to_string();
+        app.terminal.sync_live_file_context(&app.doc, page, &[], None);
+        app.terminal.flush_live_sync();
+
+        let script_path = crate::agent_approval_channel::hook_script_path(&app.terminal.session_dir).expect("private hook script path");
+
+        // Tab A (Ask, background) must NOT be weakened: a safe read tool must still ask.
+        let child_a = spawn_tab_approval_hook(&script_path, tab_a_id, SAFE_READ_PAYLOAD);
+        let a_asked = crate::test_timing::poll_until(std::time::Duration::from_millis(1200), || {
+            let _ = app.terminal.poll_live_agent_bridge();
+            !app.terminal.tabs[tab_a_idx].pending_approvals.is_empty()
+        });
+        assert!(a_asked, "background Ask tab A must still ask after a canvas snapshot while AskRisky tab B is active");
+        let req_id = app.terminal.tabs[tab_a_idx].pending_approvals[0].id.clone();
+        app.terminal.focus_tab_by_id(tab_a_id);
+        app.terminal.answer_pending_approval(&req_id, ApprovalDecision::Allow);
+        let out_a = child_a.wait_with_output().expect("wait for tab A hook");
+        assert!(String::from_utf8_lossy(&out_a.stdout).contains("\"behavior\":\"allow\""));
+
+        // Now Tab A (Ask) is active and Tab B (AskRisky) is in the background; run a canvas snapshot in the other direction.
+        assert_eq!(app.terminal.active_tab, tab_a_idx);
+        app.doc.name = "Snapshot With Ask Tab Active".to_string();
+        app.terminal.sync_live_file_context(&app.doc, page, &[], None);
+        app.terminal.flush_live_sync();
+
+        // Tab B (AskRisky, background) must still auto-allow safe read tools without raising a card.
+        let out_b = spawn_tab_approval_hook(&script_path, tab_b_id, SAFE_READ_PAYLOAD).wait_with_output().expect("wait for tab B hook");
+        let stdout_b = String::from_utf8_lossy(&out_b.stdout);
+        assert!(
+            stdout_b.contains("\"behavior\":\"allow\""),
+            "AskRisky tab B must still auto-allow safe tools after a canvas snapshot while Ask tab A is active: {stdout_b}"
+        );
+        let _ = app.terminal.poll_live_agent_bridge();
+        assert!(app.terminal.tabs[tab_b_idx].pending_approvals.is_empty(), "auto-allowed tool on Tab B leaves no pending request");
+
+        kill_tabs(&mut app.terminal);
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restarted_and_resumed_tabs_take_the_mode_selected_when_they_restart_and_keep_refusing_unsupported_clis_in_ask_risky() {
+        use crate::agent_permissions::{ask_risky_unsupported_reason, save_permission_mode, AgentPermissionMode};
+        use crate::agent_start_failure::FixAction;
+
+        let root = permission_window_root("restart-and-resume-modes");
+        let bin_dir = root.join("bin");
+        write_idle_stub_clis(&bin_dir);
+        save_permission_mode(&root, AgentPermissionMode::Ask).expect("save Ask");
+
+        let mut app = crate::app::App::new(designos_doc::Document::new("Restart And Resume"));
+        app.lib = Some(designos_library::Library::open(&root).expect("open library"));
+        app.terminal.bind_library_file(&root, "file-restart-resume", "win-restart-resume");
+        app.terminal.path_override = Some(bin_dir.clone().into_os_string());
+        app.terminal.path_prepend = vec![bin_dir.clone()];
+        app.terminal.codex_cwd_scoped = true;
+        app.set_agent_permission_mode(AgentPermissionMode::Ask);
+
+        // Start a Claude tab in Ask, then switch global mode to AskRisky and restart via FixAction::NewSession.
+        let first_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn initial Claude tab in Ask");
+        assert_eq!(app.terminal.tabs[first_idx].permission_mode, AgentPermissionMode::Ask);
+
+        app.set_agent_permission_mode(AgentPermissionMode::AskRisky);
+        app.terminal.apply_start_fix(FixAction::NewSession, None);
+        assert_eq!(app.terminal.tabs.len(), 2, "NewSession spawns a restarted tab");
+        let restarted_idx = app.terminal.active_tab;
+        assert_eq!(app.terminal.tabs[first_idx].permission_mode, AgentPermissionMode::Ask, "original tab keeps Ask");
+        assert_eq!(
+            app.terminal.tabs[restarted_idx].permission_mode,
+            AgentPermissionMode::AskRisky,
+            "restarted tab takes the AskRisky mode selected when it restarted"
+        );
+
+        // Record an exited Claude session and resume it after switching global mode to Skip, then AskRisky.
+        let entry = crate::agent_sessions::SessionEntry {
+            tab_id: 90,
+            title: "Claude Code #90".into(),
+            cli: "claude".into(),
+            session_id: Some("11111111-2222-4333-8444-555555555555".into()),
+            created_at: 10,
+            last_active_at: 20,
+            status: crate::agent_sessions::SessionEntryStatus::Exited,
+            extra: Default::default(),
+        };
+        app.terminal.session_registry.sessions.push(entry);
+
+        app.set_agent_permission_mode(AgentPermissionMode::Skip);
+        let resumed_skip_idx = app.terminal.resume_session_by_tab_id(90, None).expect("resume Claude in Skip");
+        assert_eq!(app.terminal.tabs[resumed_skip_idx].permission_mode, AgentPermissionMode::Skip, "resumed tab takes the Skip mode selected when it resumed");
+
+        // Start a Codex tab in Ask, switch global mode to AskRisky: both restarting (NewSession) and resuming Codex stay refused.
+        app.set_agent_permission_mode(AgentPermissionMode::Ask);
+        let codex_idx = app.terminal.spawn_tab(AgentCliPreset::Codex, None).expect("Codex starts in Ask");
+        assert_eq!(app.terminal.tabs[codex_idx].permission_mode, AgentPermissionMode::Ask);
+        let codex_tab_id = 91;
+        app.terminal.session_registry.sessions.push(crate::agent_sessions::SessionEntry {
+            tab_id: codex_tab_id,
+            title: "Codex #91".into(),
+            cli: "codex".into(),
+            session_id: None,
+            created_at: 25,
+            last_active_at: 30,
+            status: crate::agent_sessions::SessionEntryStatus::Exited,
+            extra: Default::default(),
+        });
+
+        app.set_agent_permission_mode(AgentPermissionMode::AskRisky);
+        let tabs_before = app.terminal.tabs.len();
+        app.terminal.active_tab = codex_idx;
+        app.terminal.apply_start_fix(FixAction::NewSession, None);
+        assert_eq!(app.terminal.tabs.len(), tabs_before, "restarting Codex in AskRisky must be refused");
+        assert_eq!(app.terminal.status_msg.as_deref(), ask_risky_unsupported_reason(AgentCliPreset::Codex));
+
+        let err = app.terminal.resume_session_by_tab_id(codex_tab_id, None).expect_err("resuming Codex in AskRisky must be refused");
+        assert_eq!(Some(err.as_str()), ask_risky_unsupported_reason(AgentCliPreset::Codex));
+
+        kill_tabs(&mut app.terminal);
+        app.terminal.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }
 
