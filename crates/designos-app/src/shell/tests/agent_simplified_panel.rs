@@ -201,6 +201,20 @@ fn composer_toolbar_is_plus_pill_mode_send() {
 }
 
 #[test]
+fn composer_mode_control_shows_focused_tab_mode() {
+    let mut s = session_sim();
+    // The running tab keeps the mode it was started with. Changing the global
+    // value only changes the mode used by future tabs.
+    assert_eq!(s.shell.app.terminal.active_tab().unwrap().permission_mode, crate::agent_permissions::AgentPermissionMode::Ask);
+    s.shell.app.terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::Skip;
+    frames(&mut s, 2);
+    let texts = painted(&s);
+    assert!(texts.iter().any(|text| text == "Ask first"), "focused tab mode is visible: {texts:?}");
+    assert!(!texts.iter().any(|text| text == "Skip permissions"), "new-tab mode must not replace focused tab mode: {texts:?}");
+    finish(s);
+}
+
+#[test]
 fn context_row_is_gone() {
     let mut s = session_sim();
     let page = s.shell.app.page;
