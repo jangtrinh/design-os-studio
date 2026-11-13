@@ -3671,6 +3671,7 @@ fn upgrade_owner_prop_to_slot(c: &mut Ctx, owner: NodeId, prop_name: &str, defau
     if !found {
         o.component.props.push(ComponentPropDef { name: prop_name.to_string(), kind: PropKind::Slot, default: PropValue::Slot(default_children) });
     }
+    o.component.prop_default_variables.remove(prop_name);
     if !extracted_preferred.is_empty() {
         o.component.slot_configs.entry(prop_name.to_string()).or_default().preferred = extracted_preferred;
     }
@@ -3679,6 +3680,7 @@ fn upgrade_owner_prop_to_slot(c: &mut Ctx, owner: NodeId, prop_name: &str, defau
             let still_bound = subtree_ids(c.s, owner).into_iter().any(|id| c.s.get(id).is_some_and(|n| n.component.bindings.values().any(|b| b == vp)));
             if !still_bound {
                 o.component.props.retain(|p| p.name != *vp);
+                o.component.prop_default_variables.remove(vp);
             }
         }
     }

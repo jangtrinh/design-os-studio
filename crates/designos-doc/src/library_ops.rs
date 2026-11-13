@@ -2268,6 +2268,7 @@ mod tests {
         let lib_comp = lib.get_mut(lib_comp_id).unwrap();
         lib_comp.component.props.push(ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Submit".into()) });
         lib_comp.component.prop_default_variables.insert("Label".into(), "v_def".into());
+        lib_comp.component.prop_default_variables.insert("Remote".into(), "key:remote_var".into());
         lib_comp.component.prop_default_variables.insert("Dangling".into(), "v_nonexistent".into());
 
         let snap = snapshot(&lib, "L1", "Lib", 1);
@@ -2275,6 +2276,11 @@ mod tests {
         let snap_comp = snap.nodes.values().find(|n| n.name == "Button").unwrap();
         assert!(!snap_comp.component.prop_default_variables.contains_key("Dangling"), "snapshot must prune dangling prop_default_variables");
         assert_eq!(snap_comp.component.prop_default_variables.get("Label").map(String::as_str), Some("v_def"));
+        assert_eq!(
+            snap_comp.component.prop_default_variables.get("Remote").map(String::as_str),
+            Some("key:remote_var"),
+            "key: id must survive library snapshot retain"
+        );
 
         let mut d = consumer();
         let key = button_key(&lib);
@@ -2285,6 +2291,7 @@ mod tests {
         let inst = *d.get(page).unwrap().children.last().unwrap();
         let comp = instance_component(d.get(inst).unwrap()).unwrap();
         assert_eq!(d.get(comp).unwrap().component.prop_default_variables.get("Label").map(String::as_str), Some("L1/v_def"));
+        assert_eq!(d.get(comp).unwrap().component.prop_default_variables.get("Remote").map(String::as_str), Some("key:remote_var"));
         assert!(d.variables.contains_key("L1/v_def"), "the prefixed variable id must exist in the receiving document");
         assert!(d.get(inst).unwrap().component.prop_default_variables.is_empty(), "instance must not store prop_default_variables");
         assert_eq!(pending_updates(&d, &snap), vec![], "fingerprint must strip library prefix on prop_default_variables");

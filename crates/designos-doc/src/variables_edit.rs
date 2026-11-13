@@ -964,5 +964,19 @@ mod tests {
         assert!(!cleaned[0].component.prop_default_variables.contains_key("Show icon"));
         assert_eq!(cleaned[0].component.prop_default_variables.get("Label").map(String::as_str), Some("var_kept"));
         assert_eq!(cleaned[0].component.prop_default_variables.get("Remote").map(String::as_str), Some("key:remote_key"));
+
+        // Executing the variable deletion and cleanup in one History batch and undoing restores the entry.
+        let mut h = crate::History::default();
+        let mut batch: Vec<crate::Command> = vec![crate::Command::SetVariables { variables: Default::default(), collections: Default::default() }];
+        batch.extend(cleaned.into_iter().map(|node| crate::Command::Update { node: Box::new(node) }));
+        h.exec(&mut d, crate::Command::Batch(batch)).unwrap();
+        assert!(!d.get(cid).unwrap().component.prop_default_variables.contains_key("Show icon"));
+
+        h.undo(&mut d).unwrap();
+        assert_eq!(
+            d.get(cid).unwrap().component.prop_default_variables.get("Show icon").map(String::as_str),
+            Some("var_deleted"),
+            "undo after variable delete and cleanup restores the prop_default_variables entry"
+        );
     }
 }

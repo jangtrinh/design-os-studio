@@ -290,6 +290,7 @@ fn detach_foreign_refs(n: &mut Node, map: &HashMap<NodeId, NodeId>) -> usize {
     }
     n.style_refs.clear();
     n.variables = Default::default();
+    n.component.prop_default_variables.clear();
     n.prototype.reactions.clear();
     n.prototype.fixed_children = n.prototype.fixed_children.iter().filter_map(|c| map.get(c).copied()).collect();
     dropped
@@ -1275,5 +1276,61 @@ pub(crate) mod tests {
         let toast = app.toast.as_ref().expect("dropped unknown ids are reported");
         assert!(!toast.error, "dropped foreign ref notice is informational, not a fatal error: {}", toast.text);
         assert!(toast.text.contains("dropped"), "toast reports dropped references: {}", toast.text);
+    }
+
+    #[test]
+    fn figma_paste_drops_bound_property_defaults_for_local_and_key_variables() {
+        use designos_doc::{ComponentPropDef, FrameProps, PropKind, PropValue, Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+        let mut app = app_with_one_rect();
+        let mut frag_doc = Document::new("frag");
+        let fpage = frag_doc.add_page("Page");
+        frag_doc.variable_collections.insert(
+            "VariableCollectionId:1:1".into(),
+            VariableCollection {
+                id: "VariableCollectionId:1:1".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "1:0".into(), name: "Default".into() }],
+                default_mode: "1:0".into(),
+                variables: vec!["VariableID:1:8".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        frag_doc.variables.insert(
+            "VariableID:1:8".into(),
+            Variable {
+                id: "VariableID:1:8".into(),
+                name: "Title".into(),
+                collection: "VariableCollectionId:1:1".into(),
+                kind: VariableKind::String,
+                values: [("1:0".to_string(), VariableValue::String("Confirm".into()))].into(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+
+        let panel_id = frag_doc.alloc_id();
+        let mut panel = Node::new(panel_id, NodeKind::Component(FrameProps::default()));
+        panel.name = "Panel".into();
+        panel.component.props = vec![
+            ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Submit".into()) },
+            ComponentPropDef { name: "Show icon".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) },
+        ];
+        panel.component.prop_default_variables.insert("Label".into(), "VariableID:1:8".into());
+        panel.component.prop_default_variables.insert("Show icon".into(), "key:remote_bool_var_key".into());
+        frag_doc.insert(fpage, panel).unwrap();
+
+        let fig_bytes = designos_fig::export_fig(&frag_doc).unwrap();
+        assert!(paste_figma(&mut app, &figma_html(&fig_bytes)));
+
+        let pasted_panel = by_name(&app, "Panel");
+        assert!(pasted_panel.component.prop_default_variables.is_empty(), "Figma paste must clear prop_default_variables for both local and key: variable ids");
     }
 }

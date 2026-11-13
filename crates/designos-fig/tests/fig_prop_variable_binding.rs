@@ -578,3 +578,33 @@ fn rest_import_clears_prop_default_variables_on_expanded_instances_and_requires_
         assert!(doc.get(kid).unwrap().component.prop_default_variables.is_empty(), "expanded instance child must not inherit prop_default_variables");
     }
 }
+
+#[test]
+fn migrating_a_boolean_property_to_a_slot_removes_its_bound_default_from_the_scan_and_undo_restores_it() {
+    let mut doc = import_fig_node_changes(&Value::Array(fig_with_bound_prop_defaults()), "slot migration scan").expect("import fig");
+    let comp_id = by_name(&doc, "Button").id;
+    let icon_id = doc.alloc_id();
+    let mut icon = Node::new(icon_id, NodeKind::Frame(FrameProps::default()));
+    icon.name = "icon".into();
+    icon.component.bindings.insert(designos_doc::OverrideField::Visible, "Show icon".into());
+    doc.insert(comp_id, icon).unwrap();
+
+    let mut h = designos_doc::History::default();
+    let cmd = designos_doc::migrate_region_to_slot(&mut doc, icon_id).expect("migrate boolean container to slot");
+    h.exec(&mut doc, cmd).unwrap();
+
+    assert!(
+        !doc.get(comp_id).unwrap().component.prop_default_variables.contains_key("Show icon"),
+        "slot migration must remove the migrated property's bound default"
+    );
+    let scan = designos_fig::scan_design_system(&doc).expect("scan after slot migration");
+    let button = scan.components.iter().find(|c| c.name == "Button").expect("Button in scan");
+    assert_eq!(button.bound_variables, Some(vec!["VariableID:1:8".to_string()]), "scan must no longer list the variable of a property migrated to a slot");
+
+    h.undo(&mut doc).unwrap();
+    assert_eq!(
+        doc.get(comp_id).unwrap().component.prop_default_variables.get("Show icon").map(String::as_str),
+        Some("VariableID:1:7"),
+        "undo must restore the bound property default"
+    );
+}
