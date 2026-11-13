@@ -28,7 +28,14 @@ struct Fx {
 }
 
 fn hugging_row(padding: f32) -> AutoLayout {
-    AutoLayout { direction: LayoutDirection::Horizontal, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, padding: [padding; 4], layout_version: 1, ..AutoLayout::default() }
+    AutoLayout {
+        direction: LayoutDirection::Horizontal,
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        padding: [padding; 4],
+        layout_version: 1,
+        ..AutoLayout::default()
+    }
 }
 
 fn hugging_frame(d: &mut Document, parent: NodeId, x: f32, padding: f32) -> NodeId {
@@ -223,7 +230,10 @@ fn hug_frames_off_the_resized_chain_keep_their_positions() {
     assert_eq!(hug_at(&f, f.hug_quiet), quiet_host, "the quiet host");
 }
 
-fn set_variables(f: &mut Fx, edit: impl FnOnce(&mut std::collections::BTreeMap<String, Variable>, &mut std::collections::BTreeMap<String, VariableCollection>)) {
+fn set_variables(
+    f: &mut Fx,
+    edit: impl FnOnce(&mut std::collections::BTreeMap<String, Variable>, &mut std::collections::BTreeMap<String, VariableCollection>),
+) {
     let mut vars = f.d.variables.clone();
     let mut collections = f.d.variable_collections.clone();
     edit(&mut vars, &mut collections);
