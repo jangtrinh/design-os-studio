@@ -494,6 +494,8 @@ impl App {
         let other_action_live = self.toast.as_ref().is_some_and(|t| t.has_action() && (!t.armed || self.now < t.until));
         if other_action_live {
             self.toast_queue.push_front(error);
+        } else if self.toast.as_ref().is_some_and(|t| t.error && t.armed && self.now < t.until) {
+            self.enqueue_toast(error);
         } else {
             self.toast = Some(error);
         }
