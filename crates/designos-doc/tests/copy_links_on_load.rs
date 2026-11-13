@@ -174,3 +174,25 @@ fn running_the_pass_again_on_a_repaired_and_then_edited_document_changes_nothing
         assert_eq!(relink_copy_layers(&mut reopened), 0, "depth {depth}: the pass still finds nothing after the sync");
     }
 }
+
+#[test]
+fn a_load_that_only_relinked_copy_layers_is_clean_and_a_load_that_also_repaired_structure_is_not() {
+    for (depth, text) in [(1usize, DEPTH1), (2, DEPTH2)] {
+        let (_, report) = Document::from_json_with_report(text).unwrap();
+        assert!(report.copy_links_relinked > 0, "depth {depth}: the fixture needs a relink on load");
+        assert!(report.is_clean(), "depth {depth}: relinking copy layers repairs nothing a person would call damage: {report:?}");
+        assert_eq!(report.structural_summary(), None, "depth {depth}");
+        // the stderr line of `Document::from_json` is printed only for a report that is not clean
+        assert!(Document::from_json(text).is_ok(), "depth {depth}");
+
+        // the same file with a real defect (a child id no node has) is still repaired and still reported as such
+        let mut value: Value = serde_json::from_str(text).unwrap();
+        let first_page = value["pages"][0].as_u64().expect("a page id").to_string();
+        value["nodes"][first_page.as_str()]["children"].as_array_mut().expect("children").push(Value::from(9999u64));
+        let (_, damaged) = Document::from_json_with_report(&value.to_string()).unwrap();
+        assert!(damaged.copy_links_relinked > 0, "depth {depth}: the damaged file still needs the relink");
+        assert!(damaged.dangling_ids > 0, "depth {depth}: {damaged:?}");
+        assert!(!damaged.is_clean(), "depth {depth}: a real repair is not clean");
+        assert!(damaged.structural_summary().is_some(), "depth {depth}");
+    }
+}

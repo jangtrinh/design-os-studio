@@ -57,6 +57,7 @@ pub struct RepairReport {
     /// level up (how an earlier release read a Studio-written `.fig`), relinked on load so that a change made on them
     /// survives an edit of a main component. Left out of [`RepairReport::structural_summary`]: no layer, value or flag
     /// changed, only which layer a copy layer follows, so a caller that refuses repaired graphs still opens the file.
+    /// Also left out of [`RepairReport::is_clean`], so it never reads as damage.
     pub copy_links_relinked: usize,
 }
 
@@ -104,8 +105,11 @@ impl TableRepairs {
 }
 
 impl RepairReport {
+    /// True when the load changed nothing a person would call damage. [`RepairReport::copy_links_relinked`] does not
+    /// count: it only moves which layer a copy layer follows, so a healthy file saved by an earlier release is still
+    /// clean after it (callers that print "repaired a damaged document" stay quiet for it).
     pub fn is_clean(&self) -> bool {
-        *self == Self::default()
+        Self { copy_links_relinked: 0, ..*self } == Self::default()
     }
 
     /// Names the node-graph defects that were repaired (dangling ids, cycles or duplicate claims,
