@@ -226,10 +226,6 @@ fn strip_codex_mcp_overrides(command: &str) -> String {
     command.split_once(" -c 'mcp_servers.designos.command=").map_or_else(|| command.to_string(), |(prefix, _)| prefix.to_string())
 }
 
-fn has_no_workspace_note(note: Option<&str>) -> bool {
-    note.is_some_and(|note| note.contains("No design tools in this session:"))
-}
-
 /// The command behind the `--panel agents-start-failure` screenshot fixture. `agy` rejects `--mcp-config` and
 /// exits at once, which is what the failure panel shows. It must never carry a skip or bypass flag: it runs
 /// whatever the user's permission mode is (`#841`).
@@ -3565,7 +3561,9 @@ impl TerminalState {
             return Err(message);
         }
         let effective_command = command.map(|c| {
-            if preset == AgentCliPreset::Codex && has_no_workspace_note(self.set_aside_note.as_deref()) {
+            // The design decides: one with no file and no private workspace has nothing for the server to serve, whatever the
+            // provisioning step managed to write.
+            if preset == AgentCliPreset::Codex && session_workspace_dir(file_path).is_err() {
                 strip_codex_mcp_overrides(c)
             } else {
                 c.to_string()
@@ -3808,8 +3806,15 @@ impl TerminalState {
             // A tab can own prompts waiting for a busy CLI. Preserve user prompts
             // in the unattached composer before dropping the tab so closing it
             // cannot silently lose queued work.
-            if (!removed.composer.pending_send.is_empty() || !removed.composer.sent_in_start_window.is_empty())
-                && removed.composer.recover_undelivered_queue(true, "Queued message restored after tab close", crate::agent_composer::RefuseReason::NotWritable)
+            // Only what still waits comes back: a prompt already written to the agent (`sent_in_start_window`) is in its hands, and
+            // sending it again would repeat what it has done.
+            let mut restored_text = false;
+            if !removed.composer.pending_send.is_empty()
+                && removed.composer.recover_undelivered_queue(
+                    false,
+                    "Queued message restored after tab close",
+                    crate::agent_composer::RefuseReason::NotWritable,
+                )
             {
                 let recovered = std::mem::take(&mut removed.composer.draft);
                 if !recovered.trim().is_empty() {
@@ -3822,6 +3827,7 @@ impl TerminalState {
                     self.unattached_composer.notice = Some("Queued message restored after tab close".into());
                     // The caption line shows a notice only beside a refused outcome, as it does for a draft returned by a failed start.
                     self.unattached_composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
+                    restored_text = true;
                 }
             }
             let _ = removed.child.kill();
@@ -3844,6 +3850,14 @@ impl TerminalState {
                 self.session_grants.clear();
             }
             self.sync_active_tab_approvals();
+            // The text waits in New chat, which is not on screen while another tab stays: say so where the person is looking.
+            if restored_text {
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.composer.notice = Some("Queued message restored after tab close".into());
+                    tab.composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
+                    self.status_msg = Some("Queued message restored after tab close".into());
+                }
+            }
         }
         if self.tabs.is_empty() {
             self.cleanup_ephemeral_session_dir();
@@ -6041,6 +6055,40 @@ mod workspace_dir_tests {
             assert!(!command.contains("--workspace"), "untitled Codex must not pass an empty workspace: {command}");
             assert!(st.status_msg.as_deref().is_some_and(|status| status.contains("No design tools in this session")));
             st.shutdown();
+        });
+    }
+
+    /// The decision follows the design (an untitled one with no private workspace), not a note the provisioning step has to write:
+    /// a provisioning that fails part way writes no note, and Codex must still start without a server with an empty workspace.
+    #[test]
+    fn codex_untitled_launch_registers_no_design_server_even_when_provisioning_fails() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Ask);
+            // A file where Gemini's settings folder belongs makes writing the session files fail.
+            crate::agent_session_files::test_support::plant(&st.session_dir, ".gemini", "not a folder");
+            let provisioned = st.provision_session_agent_files(None);
+            assert!(provisioned.is_some(), "precondition: the provisioning step fails");
+            let idx = st.spawn_tab(AgentCliPreset::Codex, None).expect("Codex tab starts");
+            let command = st.tabs[idx].spawned_command.as_deref().expect("launch command");
+            assert!(!command.contains("mcp_servers.designos"), "no server with an empty workspace: {command}");
+            assert!(!command.contains("--workspace"), "{command}");
+            st.shutdown();
+        });
+    }
+
+    /// A design with a file has a workspace of its own (its folder), so Codex keeps its design server there.
+    #[test]
+    fn codex_keeps_its_design_server_for_a_design_with_a_file() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Ask);
+            let folder = std::env::temp_dir().join(format!("designos-codex-titled-{}", std::process::id()));
+            std::fs::create_dir_all(&folder).expect("a folder");
+            let file = folder.join("design.designos");
+            let idx = st.spawn_tab(AgentCliPreset::Codex, Some(&file)).expect("Codex tab starts");
+            let command = st.tabs[idx].spawned_command.as_deref().expect("launch command");
+            assert!(command.contains("mcp_servers.designos.command"), "{command}");
+            st.shutdown();
+            let _ = std::fs::remove_dir_all(&folder);
         });
     }
 

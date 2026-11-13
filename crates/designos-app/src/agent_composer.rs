@@ -1984,8 +1984,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Start-window prompts come first, then the queue in order; a system job never lands in the draft; what was already typed in
-    /// the New chat composer stays and the recovered text follows it.
+    /// The waiting messages come back in queue order; a system job never lands in the draft; what was already typed in the New chat
+    /// composer stays and the recovered text follows it.
     #[test]
     fn closing_a_tab_keeps_every_waiting_user_message_in_order_after_the_unattached_draft() {
         let dir = temp_composer_dir("close-tab-restores-order");
@@ -1993,7 +1993,6 @@ mod tests {
         let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
         st.unattached_composer.draft = "typed before".into();
         let comp = &mut st.active_tab_mut().expect("agent tab").composer;
-        comp.sent_in_start_window.push("sent while starting".into());
         comp.pending_send.extend([
             QueuedSend::new("first waiting", false),
             QueuedSend::new("system image job", true),
@@ -2002,9 +2001,50 @@ mod tests {
 
         st.close_tab(0);
 
-        assert_eq!(st.unattached_composer.draft, "typed before\n\nsent while starting\n\nfirst waiting\n\nsecond waiting");
+        assert_eq!(st.unattached_composer.draft, "typed before\n\nfirst waiting\n\nsecond waiting");
         assert!(!st.unattached_composer.draft.contains("system image job"), "a system job is not user text");
         assert!(st.unattached_composer.pending_send.is_empty(), "nothing is re-queued for another agent");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A prompt written to the agent within the first seconds is in the agent's hands, not waiting: closing the tab must not bring it
+    /// back as a queued message, because sending it again would repeat edits that already landed.
+    #[test]
+    fn closing_a_tab_does_not_bring_back_a_prompt_the_agent_already_received() {
+        let dir = temp_composer_dir("close-tab-delivered");
+        let mut st = TerminalState::new_for_session("doc-close-delivered", "Close Delivered", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let comp = &mut st.active_tab_mut().expect("agent tab").composer;
+        comp.sent_in_start_window.push("make a hero".into());
+
+        st.close_tab(0);
+
+        assert_eq!(st.unattached_composer.draft, "", "the delivered prompt is not restored");
+        assert_eq!(st.unattached_composer.notice, None);
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Closing a background tab that held waiting text tells the person, in the composer of the tab that stays, where it went.
+    #[test]
+    fn closing_a_background_tab_with_waiting_text_signals_it_in_the_composer_that_stays() {
+        let dir = temp_composer_dir("close-tab-signal");
+        let mut st = TerminalState::new_for_session("doc-close-signal", "Close Signal", Some(&dir));
+        let _first = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _second = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        assert_eq!(st.tabs.len(), 2);
+        st.active_tab = 1;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+
+        st.close_tab(0);
+
+        assert_eq!(st.tabs.len(), 1);
+        assert_eq!(st.unattached_composer.draft, "Keep this queued", "the text waits in New chat");
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored after tab close"));
+        assert_eq!(st.status_msg.as_deref(), Some("Queued message restored after tab close"));
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
