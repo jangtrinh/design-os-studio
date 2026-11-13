@@ -1241,12 +1241,12 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
         Interaction::Resize(r) => update_resize(app, r, cur, inp),
         Interaction::Rotate(r) => update_rotate(app, r, cur, inp),
         Interaction::CornerRadius(cr) => {
+            let before = app.doc.get(cr.id).map(|n| n.corner_radii);
             cr.tx.ed.revert(&mut app.doc);
             let inv = app.doc.world_transform(cr.id).invert().unwrap_or(Affine::IDENTITY);
             let ml = inv.apply(cur);
             let mut changed = false;
             if let Some(n) = cr.tx.ed.node(&mut app.doc, cr.id) {
-                let before = n.corner_radii;
                 let dx = if matches!(cr.corner, 0 | 3) { ml.x } else { n.size.x - ml.x };
                 let dy = if matches!(cr.corner, 0 | 1) { ml.y } else { n.size.y - ml.y };
                 let max_r = (n.size.x.min(n.size.y) * 0.5).max(0.0);
@@ -1258,8 +1258,8 @@ fn follow_pointer(app: &mut App, rect: ERect, inter: &mut Interaction, pos: Pos2
                 } else {
                     n.corner_radii = [new_r; 4];
                 }
-                changed = n.corner_radii != before;
-                if changed {
+                changed = Some(n.corner_radii) != before;
+                if changed || n.corner_radii != cr.start_radii {
                     drop_baked_outline_of_parametric_shape(n);
                 }
             }
@@ -3813,6 +3813,48 @@ mod tests {
         let at = app.doc.world_transform(id).apply(v2(20.0, 20.0));
         follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at, &inp);
         assert!(app.canvas.dirty, "a changed radius must dirty the canvas");
+    }
+
+    #[test]
+    fn a_second_move_at_the_clamp_or_back_to_start_tracks_the_previous_move() {
+        let (mut app, _, _) = app_with_two();
+        let id = baked_shape(&mut app, NodeKind::Rectangle);
+        let mut inter = Interaction::CornerRadius(CornerRadiusDragState { tx: Tx::new(), id, corner: 0, start_radii: app.doc.get(id).unwrap().corner_radii });
+        let inp = Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers::NONE,
+            space: false,
+            z_down: false,
+        };
+
+        // First move reaches the 50px clamp from 0px: marks changed and drops the baked outline.
+        let at_clamp = app.doc.world_transform(id).apply(v2(60.0, 60.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at_clamp, &inp);
+        assert!(app.canvas.dirty, "first move to clamp changes radius from 0 to 50");
+        assert!(app.doc.get(id).unwrap().fill_geometry.is_none(), "baked outline dropped on first move");
+        app.canvas.dirty = false;
+
+        // Second move stays beyond the clamp (still 50px): must not dirty the canvas again, and outline stays dropped.
+        let past_clamp = app.doc.world_transform(id).apply(v2(100.0, 100.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, past_clamp, &inp);
+        assert!(!app.canvas.dirty, "a second move at the clamp must not dirty the canvas");
+        assert!(app.doc.get(id).unwrap().fill_geometry.is_none(), "baked outline stays dropped at the clamp");
+
+        // Dragging back to 0px (the starting radius) changes from 50px to 0px: must dirty the canvas.
+        let at_zero = app.doc.world_transform(id).apply(v2(0.0, 0.0));
+        follow_pointer(&mut app, ERect::NOTHING, &mut inter, Pos2::ZERO, at_zero, &inp);
+        assert!(app.canvas.dirty, "dragging back to the starting radius changes the live radius and must dirty the canvas");
+        assert_eq!(app.doc.get(id).unwrap().corner_radii, [0.0; 4]);
     }
 
     /// A 100 x 100 shape of `kind` that carries the baked fill and stroke outline a `.fig` import leaves.
