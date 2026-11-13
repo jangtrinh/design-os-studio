@@ -61,12 +61,24 @@ struct Ctx<'a> {
     holds_itself: BTreeMap<NodeId, bool>,
     /// Number of nested swaps and override fields dropped during this context's swap operations.
     dropped_changes: usize,
+    /// When `Some`, a nested bound variant property resolves only when its variable reaches this set; otherwise it keeps
+    /// the value the copy currently shows.
+    bound_vars: Option<&'a std::collections::HashSet<String>>,
 }
 
 impl<'a> Ctx<'a> {
     fn new(doc: &'a mut Document) -> Self {
         let saved_dirty = doc.dirty.clone();
-        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: Vec::new(), holds_itself: BTreeMap::new(), dropped_changes: 0 }
+        Ctx {
+            s: doc,
+            cmds: Vec::new(),
+            invs: Vec::new(),
+            saved_dirty,
+            refused_swap: Vec::new(),
+            holds_itself: BTreeMap::new(),
+            dropped_changes: 0,
+            bound_vars: None,
+        }
     }
     fn push(&mut self, c: Command) {
         if let Ok(inv) = c.clone().apply(self.s) {
@@ -2331,7 +2343,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
             // A bound variant property of a nested instance resolves its variable where this copy sits (the modes of
             // its ancestors), and the switch below is the one a person's pick makes. A property picked by hand keeps the
             // variant the copy shows; the others lie over it.
-            let mut choices = bound_variant_choices(c.s, i, &inode, cur);
+            let mut choices = bound_variant_choices_filtered(c.s, i, &inode, cur, c.bound_vars);
             choices.retain(|name, _| !inode.component.variant_picks.contains(name));
             // The bindings belong to the component the copy shows, not to the one an instance-swap property chose for it.
             if !choices.is_empty() && !prop_target {
@@ -2816,16 +2828,33 @@ fn set_instance_prop_reporting(doc: &mut Document, instance: NodeId, name: &str,
 }
 
 /// [`set_instance_prop`] for any edit of the instance root (its stored values, its variable bindings): the edit is
-/// applied, then the instance is synced, so a changed value reaches the layers (or the variant) it drives in one command.
-pub(crate) fn set_instance_prop_edit(doc: &mut Document, instance: NodeId, edit: impl FnOnce(&mut Node)) -> (Command, usize) {
-    let (cmd, dropped, _) = set_instance_prop_edit_reporting(doc, instance, edit);
+/// applied, then the instance is synced (restricting nested bound variant resolution to `bound_vars` when `Some`), so a
+/// changed value reaches the layers (or the variant) it drives in one command.
+pub(crate) fn set_instance_prop_edit_for_vars(
+    doc: &mut Document,
+    instance: NodeId,
+    bound_vars: Option<&std::collections::HashSet<String>>,
+    edit: impl FnOnce(&mut Node),
+) -> (Command, usize) {
+    let (cmd, dropped, _) = set_instance_prop_edit_reporting_for_vars(doc, instance, bound_vars, edit);
     (cmd, dropped)
 }
 
-/// [`set_instance_prop_edit`], also the swaps the guard refused that stopped the edit, as `(main shown, main wanted)`.
-/// The list is empty when the edit went through, and when it changed nothing for another reason.
+/// [`set_instance_prop_edit_for_vars`] across all bound variables, also the swaps the guard refused that stopped the
+/// edit, as `(main shown, main wanted)`. The list is empty when the edit went through, and when it changed nothing for
+/// another reason.
 pub(crate) fn set_instance_prop_edit_reporting(doc: &mut Document, instance: NodeId, edit: impl FnOnce(&mut Node)) -> (Command, usize, Vec<(NodeId, NodeId)>) {
+    set_instance_prop_edit_reporting_for_vars(doc, instance, None, edit)
+}
+
+fn set_instance_prop_edit_reporting_for_vars(
+    doc: &mut Document,
+    instance: NodeId,
+    bound_vars: Option<&std::collections::HashSet<String>>,
+    edit: impl FnOnce(&mut Node),
+) -> (Command, usize, Vec<(NodeId, NodeId)>) {
     let mut c = Ctx::new(doc);
+    c.bound_vars = bound_vars;
     if let Some(mut n) = c.s.get(instance).cloned() {
         edit(&mut n);
         c.update(n);

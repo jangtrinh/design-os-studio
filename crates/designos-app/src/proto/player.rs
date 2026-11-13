@@ -954,7 +954,8 @@ impl Player {
     /// Re-resolves the layers bound to `vars` (and to variables aliasing them), re-fits auto-sized
     /// text, re-runs auto layout and invalidates the frames' textures.
     fn refresh_bound(&mut self, vars: &[String]) {
-        let mut set: HashSet<String> = vars.iter().cloned().collect();
+        let direct: HashSet<String> = vars.iter().cloned().collect();
+        let mut set = direct.clone();
         loop {
             let more: Vec<String> = self
                 .doc
@@ -970,7 +971,7 @@ impl Player {
         }
         // Prototype variable and mode changes bypass History, so resync bound component properties
         // (`componentProperties/...`) and their auto-layout ancestors before reflowing bound fields.
-        let switched = match designos_doc::resync_bound_properties(&mut self.doc, &set) {
+        let switched = match designos_doc::resync_bound_properties(&mut self.doc, &direct) {
             Ok(switched) => switched,
             Err(e) => {
                 self.error(format!("Resync bound properties: {e}"));
@@ -979,6 +980,9 @@ impl Player {
         };
         if !switched.is_empty() {
             for &(inst, old_comp) in &switched {
+                for a in &mut self.actives {
+                    a.undo.retain(|u| !matches!(u, Undo::RestoreComponent { inst: u_inst, .. } if *u_inst == inst));
+                }
                 if let Some(new_comp) = self.doc.get(inst).and_then(instance_component) {
                     self.sync_variant_reactions(inst, old_comp, new_comp);
                 }
@@ -2536,6 +2540,115 @@ mod tests {
         assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
         p.pointer_up(Some(btn_state), false);
         assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Default", "changing the bound variable re-resolves the instance");
+    }
+
+    #[test]
+    fn nested_bound_instance_change_to_holds_unchanged_axis_across_set_variable_and_mode_switch() {
+        let mut f = bound_variant_player_fixture();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, f.copy, react(Trigger::OnClick, Action::ChangeTo { dest: hover_comp }, None));
+
+        // 1. SetVariable on `size` = Large keeps the nested copy's State=Hover from ChangeTo.
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.copy), false);
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Small, State=Hover");
+        p.pointer_up(Some(f.btn_set), false);
+        assert_eq!(shown_variant_name(&p.doc, f.copy), "Size=Large, State=Hover", "SetVariable on size keeps the nested copy's State=Hover from ChangeTo");
+
+        // 2. SetVariableMode on a collection holding only `size` also keeps State=Hover.
+        f.doc.variable_collections.get_mut("theme").unwrap().variables.retain(|v| v == "size");
+        f.doc.variable_collections.insert(
+            "state_coll".into(),
+            VariableCollection {
+                id: "state_coll".into(),
+                name: "StateColl".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "M1".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["state".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        let state_var = f.doc.variables.get_mut("state").unwrap();
+        state_var.collection = "state_coll".into();
+        state_var.values = [("m1".to_string(), VariableValue::String("Default".into()))].into_iter().collect();
+
+        let mut p2 = Player::new(&f.doc, f.screen);
+        p2.pointer_up(Some(f.copy), false);
+        assert_eq!(shown_variant_name(&p2.doc, f.copy), "Size=Small, State=Hover");
+        p2.pointer_up(Some(f.btn_dark), false);
+        assert_eq!(
+            shown_variant_name(&p2.doc, f.copy),
+            "Size=Large, State=Hover",
+            "SetVariableMode on size's collection keeps the nested copy's State=Hover from ChangeTo"
+        );
+    }
+
+    #[test]
+    fn mode_switch_during_while_hovering_is_not_reverted_when_pointer_leaves() {
+        let mut f = bound_variant_player_fixture();
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(Trigger::WhileHovering, Action::ChangeTo { dest: hover_comp }, None));
+        add(
+            &mut f.doc,
+            f.screen,
+            react(Trigger::KeyPress { keys: "M".into() }, Action::SetVariableMode { collection: "theme".into(), mode: "dark".into() }, None),
+        );
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_move(Some(f.top));
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.key("M");
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Large, State=Hover");
+        p.pointer_move(None);
+        assert_eq!(
+            shown_variant_name(&p.doc, f.top),
+            "Size=Large, State=Hover",
+            "leaving after a mode switch during While hovering keeps the new mode's variant"
+        );
+    }
+
+    #[test]
+    fn inactive_mode_alias_does_not_re_resolve_change_to_when_target_variable_changes() {
+        let mut f = bound_variant_player_fixture();
+        f.doc.variable_collections.get_mut("theme").unwrap().variables.push("other".into());
+        f.doc.variables.insert(
+            "other".into(),
+            Variable {
+                id: "other".into(),
+                name: "other".into(),
+                collection: "theme".into(),
+                kind: VariableKind::String,
+                values: [("light".into(), VariableValue::String("Default".into())), ("dark".into(), VariableValue::Alias("size".into()))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let unbind_size = bind_prop_variable(&mut f.doc, f.top, "Size", None).unwrap();
+        f.h.exec(&mut f.doc, unbind_size).unwrap();
+        let bind_other = bind_prop_variable(&mut f.doc, f.top, "State", Some("other")).unwrap();
+        f.h.exec(&mut f.doc, bind_other).unwrap();
+
+        let default_comp = instance_component(f.doc.get(f.top).unwrap()).unwrap();
+        let hover_comp = f.doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Size=Small, State=Hover").unwrap().id;
+        add(&mut f.doc, default_comp, react(Trigger::OnClick, Action::ChangeTo { dest: hover_comp }, None));
+
+        let mut p = Player::new(&f.doc, f.screen);
+        p.pointer_up(Some(f.top), false);
+        assert_eq!(shown_variant_name(&p.doc, f.top), "Size=Small, State=Hover");
+        p.pointer_up(Some(f.btn_set), false);
+        assert_eq!(
+            shown_variant_name(&p.doc, f.top),
+            "Size=Small, State=Hover",
+            "an alias in an inactive mode does not re-resolve a bound property in the active mode"
+        );
     }
 
     #[test]

@@ -153,23 +153,49 @@ pub fn prop_bindings_of(n: &Node) -> impl Iterator<Item = (&str, &str)> {
     n.variables.bindings.iter().filter_map(|(k, v)| Some((prop_binding_name(k)?, v.as_str())))
 }
 
+/// Whether `variable` is in `targets` or reaches a variable in `targets` by following
+/// `VariableValue::Alias` links in the mode that `node` resolves each variable's collection in.
+fn variable_reaches_any(doc: &Document, node: NodeId, variable: &str, targets: &std::collections::HashSet<String>) -> bool {
+    let mut id = variable;
+    for _ in 0..16 {
+        if targets.contains(id) {
+            return true;
+        }
+        let Some(v) = doc.variables.get(id) else { return false };
+        let Some(mode) = doc.variable_mode(node, &v.collection) else { return false };
+        let val = v.values.get(&mode).or_else(|| doc.variable_collections.get(&v.collection).and_then(|c| v.values.get(&c.default_mode)));
+        match val {
+            Some(VariableValue::Alias(next)) => id = next.as_str(),
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// The variant each bound variant property of `n` (the instance node `id`, which sits where its ancestors say) gets from
 /// its variable in the modes of that place. A binding that gives no valid option keeps the value `shown` (the main the
 /// instance shows now) has for that property, so an unusable value changes nothing, as it does for a top instance.
 pub(crate) fn bound_variant_choices(doc: &Document, id: NodeId, n: &Node, shown: NodeId) -> BTreeMap<String, PropValue> {
+    bound_variant_choices_filtered(doc, id, n, shown, None)
+}
+
+/// [`bound_variant_choices`], resolving only bindings whose variable reaches `vars` (or all bindings when `vars` is
+/// `None`) and keeping the value `shown` has now for the others.
+pub(crate) fn bound_variant_choices_filtered(
+    doc: &Document,
+    id: NodeId,
+    n: &Node,
+    shown: NodeId,
+    vars: Option<&std::collections::HashSet<String>>,
+) -> BTreeMap<String, PropValue> {
     let mut out = BTreeMap::new();
     for (name, var) in prop_bindings_of(n) {
         let Some(def) = def_of(doc, n, name).filter(|d| matches!(d.kind, PropKind::Variant { .. })) else { continue };
-        match resolve_for_def(doc, id, &def, var) {
-            Ok(v) => {
-                out.insert(name.to_string(), v);
-            }
-            Err(_) => {
-                let kept = doc.get(shown).and_then(|c| parse_variant_name(&c.name).into_iter().find_map(|(k, v)| (k == name).then_some(v)));
-                if let Some(v) = kept {
-                    out.insert(name.to_string(), PropValue::Variant(v));
-                }
-            }
+        let resolved = if vars.is_none_or(|vs| variable_reaches_any(doc, id, var, vs)) { resolve_for_def(doc, id, &def, var).ok() } else { None };
+        let value = resolved
+            .or_else(|| doc.get(shown).and_then(|c| parse_variant_name(&c.name).into_iter().find_map(|(k, v)| (k == name).then_some(PropValue::Variant(v)))));
+        if let Some(v) = value {
+            out.insert(name.to_string(), v);
         }
     }
     out
@@ -476,7 +502,7 @@ fn apply_prop_resync_filtered(
             doc.nodes
                 .values()
                 .filter(|n| match vars {
-                    Some(vs) => prop_bindings_of(n).any(|(_, var)| vs.contains(var)),
+                    Some(vs) => prop_bindings_of(n).any(|(_, var)| variable_reaches_any(doc, n.id, var, vs)),
                     None => has_prop_binding(n),
                 })
                 .map(|n| n.id),
@@ -491,7 +517,7 @@ fn apply_prop_resync_filtered(
             }
             let changes: Vec<(String, PropValue)> = prop_bindings_of(n)
                 .filter_map(|(name, var)| {
-                    if vars.is_some_and(|vs| !vs.contains(var)) {
+                    if vars.is_some_and(|vs| !variable_reaches_any(doc, id, var, vs)) {
                         return None;
                     }
                     let def = def_of(doc, n, name)?;
@@ -514,7 +540,7 @@ fn apply_prop_resync_filtered(
         // A nested instance shows the variant its own main names, so its variant is switched by the sync below (the
         // same swap a person's pick makes) and no value is stored for it; its other values are stored as on a top one.
         let nested = doc.get(id).is_some_and(|n| !is_top_instance(n));
-        let (cmd, _) = set_instance_prop_edit(doc, id, |n| {
+        let (cmd, _) = set_instance_prop_edit_for_vars(doc, id, vars, |n| {
             for (name, value) in changes {
                 if nested && matches!(value, PropValue::Variant(_)) {
                     continue;
