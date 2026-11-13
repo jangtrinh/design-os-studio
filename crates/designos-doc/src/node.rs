@@ -383,6 +383,94 @@ pub struct ComponentLink {
     /// name (`ComponentPropDef.varValue` / `componentPropertyDefinitions[*].boundVariables.defaultValue`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub prop_default_variables: BTreeMap<String, String>,
+    /// Overrides parked when a variant switch or swap moves to a component that has no layer at the
+    /// override's base-name path; re-applied when a later switch brings that layer back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parked_overrides: Vec<ParkedOverride>,
+}
+
+/// An override parked on an instance while the shown variant or component lacks a layer at `path`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ParkedOverride {
+    pub path: Vec<(String, usize)>,
+    pub field: OverrideField,
+    pub value: ParkedOverrideValue,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bindings: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_source: Option<NodeId>,
+}
+
+/// Stored value of a [`ParkedOverride`], matched to its [`OverrideField`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ParkedOverrideValue {
+    Name(String),
+    Visible(bool),
+    Locked(bool),
+    Opacity(f32),
+    Blend(BlendMode),
+    Size {
+        size: Vec2,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill_geometry: Option<Vec<Path>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stroke_geometry: Option<Vec<Path>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        explicit_width: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        explicit_height: Option<String>,
+    },
+    Transform(Affine),
+    Fills {
+        fills: Vec<Paint>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_fills: Option<Vec<Paint>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style_ref: Option<String>,
+    },
+    Stroke {
+        stroke: Box<Stroke>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        explicit_stroke_fields: Option<String>,
+    },
+    Effects {
+        effects: Vec<Effect>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style_ref: Option<String>,
+    },
+    CornerRadii {
+        radii: [f32; 4],
+        #[serde(default, skip_serializing_if = "is_zero")]
+        smoothing: f32,
+    },
+    Characters {
+        content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fitted_size: Option<Vec2>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sizing_text: Option<Box<TextProps>>,
+    },
+    TextStyle {
+        text: Box<TextProps>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_style_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "OwnedFieldSet::is_empty")]
+        text_style_overrides: OwnedFieldSet,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill_style_ref: Option<String>,
+    },
+    Layout {
+        frame: Box<FrameProps>,
+        layout_child: LayoutChild,
+        #[serde(default, skip_serializing_if = "is_false_pair")]
+        grid_align_overrides: [bool; 2],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grid_style_ref: Option<String>,
+    },
+    LockAspect(bool),
+    Arc(ArcData),
 }
 
 fn is_false_pair(pair: &[bool; 2]) -> bool {
@@ -411,6 +499,7 @@ impl ComponentLink {
             && self.own_variant_bindings.is_empty()
             && self.variant_picks.is_empty()
             && self.prop_default_variables.is_empty()
+            && self.parked_overrides.is_empty()
     }
 }
 
