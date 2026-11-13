@@ -1630,7 +1630,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
     // change on a size-overridden shape) makes those paths stale. Let the renderer rebuild parametric geometry.
     let radii_is_own = ov.contains(&OverrideField::CornerRadii);
     let radii_outline_stale = if radii_is_own {
-        !ov.contains(&OverrideField::Size) || n.fill_geometry.is_some() || n.stroke_geometry.is_some()
+        !ov.contains(&OverrideField::Size)
     } else {
         ov.contains(&OverrideField::Size) && (r.corner_radii, r.corner_smoothing) != own_radii_before
     };
@@ -6905,6 +6905,89 @@ mod tests {
         let synced = d.get(instance_child).unwrap();
         assert_eq!(synced.corner_radii, [24.0; 4]);
         assert!(synced.fill_geometry.is_none() && synced.stroke_geometry.is_none(), "sync must not restore the main's baked corners over an own radius");
+    }
+
+    #[test]
+    fn own_corner_radius_and_size_keep_own_baked_outline_on_unrelated_sync() {
+        let mut d = Document::new("corner-sync-size");
+        let page = d.add_page("P");
+        let main_id = d.alloc_id();
+        let main = d.insert(page, Node::frame(main_id, Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let child_id = d.alloc_id();
+        let mut child = Node::rectangle(child_id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        child.name = "Box".into();
+        child.corner_radii = [10.0; 4];
+        child.fill_geometry = Some(box_outline(40.0));
+        child.stroke_geometry = Some(box_outline(40.0));
+        d.insert(main, child).unwrap();
+        let create = create_component(&mut d, main);
+        apply(&mut d, create);
+
+        let instance_cmd = create_instance(&mut d, main, page, Vec2::new(100.0, 0.0));
+        apply(&mut d, instance_cmd);
+        let instance = *d.get(page).unwrap().children.last().unwrap();
+        let instance_child = child_named(&d, instance, "Box");
+        let mut own = d.get(instance_child).unwrap().clone();
+        own.corner_radii = [24.0; 4];
+        own.size = Vec2::new(60.0, 60.0);
+        own.fill_geometry = Some(box_outline(60.0));
+        own.stroke_geometry = Some(box_outline(60.0));
+        own.component.overrides.insert(OverrideField::CornerRadii);
+        own.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(own) });
+
+        let mut main_node = d.get(main).unwrap().clone();
+        main_node.opacity = 0.5;
+        apply(&mut d, Command::Update { node: Box::new(main_node) });
+        let sync = sync_instances(&mut d, main);
+        apply(&mut d, sync);
+
+        let synced = d.get(instance_child).unwrap();
+        assert_eq!(synced.corner_radii, [24.0; 4]);
+        assert_eq!(synced.size, Vec2::new(60.0, 60.0));
+        assert!(synced.fill_geometry.is_some() && synced.stroke_geometry.is_some(), "own outline for own radius and size must survive an unrelated main sync");
+    }
+
+    #[test]
+    fn main_corner_radius_change_drops_size_overridden_instance_baked_outline_on_sync() {
+        let mut d = Document::new("corner-sync-main-radius");
+        let page = d.add_page("P");
+        let main_id = d.alloc_id();
+        let main = d.insert(page, Node::frame(main_id, Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let child_id = d.alloc_id();
+        let mut child = Node::rectangle(child_id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        child.name = "Box".into();
+        child.corner_radii = [10.0; 4];
+        child.fill_geometry = Some(box_outline(40.0));
+        child.stroke_geometry = Some(box_outline(40.0));
+        let main_child = d.insert(main, child).unwrap();
+        let create = create_component(&mut d, main);
+        apply(&mut d, create);
+
+        let instance_cmd = create_instance(&mut d, main, page, Vec2::new(100.0, 0.0));
+        apply(&mut d, instance_cmd);
+        let instance = *d.get(page).unwrap().children.last().unwrap();
+        let instance_child = child_named(&d, instance, "Box");
+        let mut own = d.get(instance_child).unwrap().clone();
+        own.size = Vec2::new(60.0, 60.0);
+        own.fill_geometry = Some(box_outline(60.0));
+        own.stroke_geometry = Some(box_outline(60.0));
+        own.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(own) });
+
+        let mut main_box = d.get(main_child).unwrap().clone();
+        main_box.corner_radii = [24.0; 4];
+        apply(&mut d, Command::Update { node: Box::new(main_box) });
+        let sync = sync_instances(&mut d, main);
+        apply(&mut d, sync);
+
+        let synced = d.get(instance_child).unwrap();
+        assert_eq!(synced.corner_radii, [24.0; 4]);
+        assert_eq!(synced.size, Vec2::new(60.0, 60.0));
+        assert!(
+            synced.fill_geometry.is_none() && synced.stroke_geometry.is_none(),
+            "a main corner-radius edit must drop the stale baked outline on a size-overridden instance"
+        );
     }
 
     #[test]
