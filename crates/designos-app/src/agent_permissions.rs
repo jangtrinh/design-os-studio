@@ -1023,24 +1023,24 @@ pub fn offer_session_grant(mode: PermissionMode, req: &ApprovalRequest) -> bool 
 
 /// Codex, Grok, Antigravity, Gemini and OpenCode share no approval hook with Claude (no answer-file hook Studio can read), so Ask
 /// when risky cannot run them. The picker shows the mode unavailable for them. The sentence is what a person reads in the one-line
-/// caption under the composer: what happened, then the next action, at most [`MAX_REFUSAL_CHARS`] characters.
+/// caption under the composer: the next action first, naming the mode by its label in the composer (`Ask first`), then the CLI it unlocks, at most [`MAX_REFUSAL_CHARS`] characters so it fits the narrowest panel.
 pub fn ask_risky_unsupported_reason(preset: AgentCliPreset) -> Option<&'static str> {
     match preset {
         AgentCliPreset::Claude => None,
-        AgentCliPreset::Codex => Some("Codex can't run in Ask when risky. Switch to Ask."),
-        AgentCliPreset::Grok => Some("Grok can't run in Ask when risky. Switch to Ask."),
-        AgentCliPreset::Antigravity => Some("Antigravity can't run in Ask when risky. Switch to Ask."),
-        AgentCliPreset::Gemini => Some("Gemini can't run in Ask when risky. Switch to Ask."),
-        AgentCliPreset::OpenCode => Some("OpenCode can't run in Ask when risky. Switch to Ask."),
+        AgentCliPreset::Codex => Some("Switch to Ask first to use Codex."),
+        AgentCliPreset::Grok => Some("Switch to Ask first to use Grok."),
+        AgentCliPreset::Antigravity => Some("Switch to Ask first to use Antigravity."),
+        AgentCliPreset::Gemini => Some("Switch to Ask first to use Gemini."),
+        AgentCliPreset::OpenCode => Some("Switch to Ask first to use OpenCode."),
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => None,
     }
 }
 
 /// The longest refusal sentence: one line of caption must hold it whole.
-pub const MAX_REFUSAL_CHARS: usize = 58;
+pub const MAX_REFUSAL_CHARS: usize = 40;
 
 /// The reason Ask when risky gives for a custom command, which never shares the approval hook.
-pub const CUSTOM_CLI_ASK_RISKY_REASON: &str = "This command can't run in Ask when risky. Switch to Ask.";
+pub const CUSTOM_CLI_ASK_RISKY_REASON: &str = "Switch to Ask first to use this command.";
 
 /// Why `mode` cannot start `preset` (a custom command when `custom`), in the words the agent menu already shows for it; `None`
 /// when it can. Only Ask when risky refuses, and only a CLI that does not share the approval hook.

@@ -930,9 +930,10 @@ fn login_refusal_sim(preset: AgentCliPreset) -> Sim {
     login_refusal_sim_at(preset, DEFAULT_PANEL_W)
 }
 
-/// The Agents panel width the app starts with (`ui.ai_panel_width` default). The narrowest the person can drag it to is 260 px
-/// (`shell/columns.rs` `AI_MIN`), whose caption is 228 px wide: too narrow for any of these sentences (they need 271 to 328 px).
+/// The Agents panel width the app starts with (`ui.ai_panel_width` default).
 const DEFAULT_PANEL_W: f32 = 400.0;
+/// The narrowest width the person can drag the Agents panel to (`shell/columns.rs` `AI_MIN`); its caption is 228 px wide.
+const NARROWEST_PANEL_W: f32 = crate::shell::columns::AI_MIN;
 
 fn login_refusal_sim_at(preset: AgentCliPreset, panel_w: f32) -> Sim {
     let mut s = session_sim();
@@ -998,7 +999,7 @@ fn assert_refusal_on_screen(s: &mut Sim, preset: AgentCliPreset, surface: &str, 
 /// Clicking Run login on the start-failure card in Ask when risky leaves the card up and says why in the caption under the composer.
 #[test]
 fn run_login_on_the_start_failure_card_is_refused_on_screen_in_ask_when_risky() {
-    for (preset, width) in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity].into_iter().map(|p| (p, DEFAULT_PANEL_W)) {
+    for (preset, width) in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity].into_iter().flat_map(|p| [(p, DEFAULT_PANEL_W), (p, NARROWEST_PANEL_W)]) {
         let mut s = login_refusal_sim_at(preset, width);
         s.shell.app.terminal.tabs[0].start_failure = Some(not_signed_in_card(preset));
         frames(&mut s, 3);
@@ -1010,7 +1011,7 @@ fn run_login_on_the_start_failure_card_is_refused_on_screen_in_ask_when_risky() 
 /// The same refusal from the Run login button of the login-expired banner of a running tab.
 #[test]
 fn run_login_on_the_login_expired_banner_is_refused_on_screen_in_ask_when_risky() {
-    for (preset, width) in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity].into_iter().map(|p| (p, DEFAULT_PANEL_W)) {
+    for (preset, width) in [AgentCliPreset::Gemini, AgentCliPreset::Antigravity].into_iter().flat_map(|p| [(p, DEFAULT_PANEL_W), (p, NARROWEST_PANEL_W)]) {
         let mut s = login_refusal_sim_at(preset, width);
         s.shell.app.terminal.tabs[0].session_failure = Some(login_expired_banner(preset));
         frames(&mut s, 3);
@@ -1047,12 +1048,12 @@ fn a_refused_run_login_leaves_the_waiting_notice_of_another_tab_alone() {
 }
 
 /// A send the mode refuses (a tab of a CLI without the approval hook, started before the switch to Ask when risky) paints the whole
-/// sentence under the composer, for every such CLI at the default panel width.
+/// sentence under the composer, for every such CLI at the default panel width and at the narrowest one.
 #[test]
 fn a_refused_send_paints_the_whole_sentence_in_the_caption() {
     use crate::agent_permissions::AgentPermissionMode;
     let presets = [AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::OpenCode];
-    for width in [DEFAULT_PANEL_W] {
+    for width in [DEFAULT_PANEL_W, NARROWEST_PANEL_W] {
         for preset in presets {
             let mut s = login_refusal_sim_at(preset, width);
             s.shell.app.terminal.tabs[0].permission_mode = AgentPermissionMode::AskRisky;
@@ -1066,7 +1067,7 @@ fn a_refused_send_paints_the_whole_sentence_in_the_caption() {
     }
 }
 
-/// The sentence for a custom command, and none of them is longer than the one-line caption was sized for.
+/// The sentence for a custom command, and none of them is longer than the caption of the narrowest panel holds.
 #[test]
 fn every_refusal_sentence_names_what_happened_and_the_next_action_in_few_characters() {
     use crate::agent_permissions::{ask_risky_unsupported_reason, CUSTOM_CLI_ASK_RISKY_REASON, MAX_REFUSAL_CHARS};
@@ -1075,7 +1076,7 @@ fn every_refusal_sentence_names_what_happened_and_the_next_action_in_few_charact
     all.push(CUSTOM_CLI_ASK_RISKY_REASON);
     for sentence in all {
         assert!(sentence.chars().count() <= MAX_REFUSAL_CHARS, "{sentence:?} is {} characters", sentence.chars().count());
-        assert!(sentence.contains("can't run in Ask when risky."), "what happened: {sentence:?}");
-        assert!(sentence.ends_with("Switch to Ask."), "the next action: {sentence:?}");
+        assert!(sentence.starts_with("Switch to Ask first to use "), "the next action comes first, with the mode's own label: {sentence:?}");
+        assert!(sentence.ends_with('.'), "{sentence:?}");
     }
 }
