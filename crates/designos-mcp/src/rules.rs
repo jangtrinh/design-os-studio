@@ -1108,6 +1108,20 @@ mod tests {
         assert!(next.is_whitespace(), "cut must land on a word boundary: {purpose}");
     }
 
+    #[test]
+    fn close_document_add_comment_and_generate_code_purposes_stay_whole() {
+        let pack = generate_default_rules_pack().expect("generate default rules pack");
+        for (tool_name, required_word) in
+            [("designos_close_document", "default fail"), ("designos_add_comment", "coordinates"), ("designos_generate_code", "values")]
+        {
+            let section_header = format!("### `{tool_name}`\n- **Purpose:** ");
+            let after_header = pack.split_once(&section_header).unwrap_or_else(|| panic!("missing section header for {tool_name}")).1;
+            let purpose_line = after_header.lines().next().expect("purpose line");
+            assert!(!purpose_line.ends_with("..."), "{tool_name} purpose in rules pack must not be truncated with '...': {purpose_line}");
+            assert!(purpose_line.contains(required_word), "{tool_name} purpose must retain '{required_word}': {purpose_line}");
+        }
+    }
+
     fn names(items: &[&str]) -> BTreeSet<String> {
         items.iter().map(|s| s.to_string()).collect()
     }

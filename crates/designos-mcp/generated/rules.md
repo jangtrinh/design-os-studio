@@ -59,7 +59,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"node_id":2}`
 
 ### `designos_generate_code`
-- **Purpose:** Generate developer handoff code or SVG for a layer using resolved variable...
+- **Purpose:** Generate handoff code or SVG for a layer using resolved variable values.
 - **Args:** required: `node_id`, `language` (optional: `fragment`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `UNKNOWN_LANGUAGE`
 - **Example:** `{"node_id":2,"language":"react"}`
@@ -89,7 +89,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"resolved":false}`
 
 ### `designos_add_comment`
-- **Purpose:** Pin a new comment thread to a node (with local offset x/y) or page...
+- **Purpose:** Pin a new comment thread to a node (local offset x/y) or page coordinates.
 - **Args:** required: `text` (optional: `author`, `idempotency_key`, `node_id`, `page_id`, `x`, `y`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `TEXT_TOO_LONG`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"node_id":2,"x":24,"y":16,"text":"Increase subtitle contrast"}`
@@ -232,7 +232,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"path":"design.designos","overwrite":true}`
 
 ### `designos_close_document`
-- **Purpose:** Close this session document using unsaved save, discard, or fail (default...
+- **Purpose:** Close this document using unsaved save, discard, or fail (default fail).
 - **Args:** required: none (optional: `path`, `unsaved`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_REQUIRED`, `UNSAVED_CHANGES`
 - **Example:** `{"unsaved":"save"}`
