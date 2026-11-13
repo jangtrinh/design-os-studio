@@ -23,7 +23,7 @@ mod mask;
 mod outline;
 mod paint;
 #[doc(hidden)]
-pub use paint::{converted_image_bytes, image_conversions};
+pub use paint::{converted_image_bytes, image_conversions, image_decodes};
 pub use paint::{decoded_image_bytes, retain_converted_images, MAX_CONVERTED_IMAGE_BYTES, MAX_DECODED_IMAGE_BYTES};
 mod shadow;
 #[cfg(test)]

@@ -233,6 +233,29 @@ fn decoded_image_cache_stays_within_byte_budget() {
     assert!(decoded_image_bytes() <= MAX_DECODED_IMAGE_BYTES, "decoded cache bytes {} exceed {}", decoded_image_bytes(), MAX_DECODED_IMAGE_BYTES);
 }
 
+#[test]
+fn an_oversized_decoded_image_is_cached_alone_decoded_once_and_evicted_by_the_next_image() {
+    // 4100 x 4100 RGBA8 is 67,240,000 bytes > MAX_DECODED_IMAGE_BYTES (67,108,864 bytes).
+    let (big, page) = single_image_doc("oversized-decoded", 4100, 81);
+    let (small_a, page_a) = single_image_doc("small-decoded-a", 64, 82);
+    let (small_b, page_b) = single_image_doc("small-decoded-b", 64, 83);
+    retain_converted_images(std::iter::empty());
+    let dec_before = designos_render::image_decodes();
+    render_one_px(&big, page);
+    render_one_px(&big, page);
+    render_one_px(&big, page);
+    assert_eq!(designos_render::image_decodes() - dec_before, 1, "an oversized image is decoded once across repeated paints");
+    assert_eq!(decoded_image_bytes(), 4100 * 4100 * 4, "the oversized decoded image is held alone");
+
+    render_one_px(&small_a, page_a);
+    assert!(decoded_image_bytes() <= MAX_DECODED_IMAGE_BYTES, "inserting a second image evicts the oversized one: {}", decoded_image_bytes());
+    assert_eq!(decoded_image_bytes(), 64 * 64 * 4);
+
+    render_one_px(&small_b, page_b);
+    assert!(decoded_image_bytes() <= MAX_DECODED_IMAGE_BYTES, "multiple cached entries stay within the byte bound");
+    assert_eq!(decoded_image_bytes(), 2 * 64 * 64 * 4);
+}
+
 /// Release timing of a 1x1 native sample over the 4000x3000 photo, as the eyedropper loupe takes it every frame:
 /// `cargo test --release -p designos-render --test color_profile_image_cost -- --ignored --nocapture`.
 #[test]

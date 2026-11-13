@@ -242,9 +242,8 @@ impl DecodedCache {
             self.order.retain(|k| *k != key);
         }
         let new_bytes = image.as_ref().map_or(0, |pm| pm.data().len());
-        if new_bytes > MAX_DECODED_IMAGE_BYTES {
-            return;
-        }
+        // An image over the budget is still kept so repeated paints do not decode it again, but
+        // alone: it evicts everything else, and the next insert evicts it.
         while (self.bytes + new_bytes > MAX_DECODED_IMAGE_BYTES || self.entries.len() >= MAX_DECODED_IMAGE_ENTRIES) && !self.order.is_empty() {
             if let Some(oldest) = self.order.pop_front() {
                 if let Some(old) = self.entries.remove(&oldest).flatten() {
@@ -277,6 +276,7 @@ thread_local! {
     static CONVERTED_IMAGES: RefCell<ConvertedCache> = RefCell::new(ConvertedCache::default());
     static CONVERSIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static IMAGES: RefCell<DecodedCache> = RefCell::new(DecodedCache::default());
+    static DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// How many image pixmaps this thread has converted to a document profile (a counter for tests: a
@@ -284,6 +284,13 @@ thread_local! {
 #[doc(hidden)]
 pub fn image_conversions() -> usize {
     CONVERSIONS.with(std::cell::Cell::get)
+}
+
+/// How many encoded images this thread has decoded into RGBA pixmaps (a counter for tests: a
+/// repeated render of an unchanged image must not decode it again).
+#[doc(hidden)]
+pub fn image_decodes() -> usize {
+    DECODES.with(std::cell::Cell::get)
 }
 
 /// Bytes currently held by the thread-local converted-image cache.
@@ -349,6 +356,7 @@ pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32
     let full = match IMAGES.with(|c| c.borrow().get(&(id, 0, 0))) {
         Some(f) => f,
         None => {
+            DECODES.with(|n| n.set(n.get() + 1));
             let decoded = image::load_from_memory(data).ok().and_then(|i| premultiplied_pixmap(&i.to_rgba8())).map(Rc::new);
             IMAGES.with(|c| c.borrow_mut().insert((id, 0, 0), decoded.clone()));
             decoded
@@ -695,5 +703,17 @@ mod tests {
         let requested = load_image(&doc, "image", Some((side, side))).unwrap();
         assert!(Rc::ptr_eq(&full, &requested));
         assert_eq!(decoded_image_bytes(), (side * side * 4) as usize);
+    }
+
+    #[test]
+    fn decoded_cache_replaces_and_evicts_oversized_entry_with_exact_byte_count() {
+        let mut cache = super::DecodedCache::default();
+        let pm_a = Rc::new(super::sk::Pixmap::new(16, 16).unwrap());
+        let pm_b = Rc::new(super::sk::Pixmap::new(32, 32).unwrap());
+        cache.insert((1, 0, 0), Some(pm_a.clone()));
+        assert_eq!(cache.bytes, pm_a.data().len());
+        cache.insert((1, 0, 0), Some(pm_b.clone()));
+        assert_eq!(cache.bytes, pm_b.data().len());
+        assert_eq!(cache.entries.len(), 1);
     }
 }
