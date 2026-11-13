@@ -2741,9 +2741,19 @@ pub fn swap_instance(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> 
     swap_instance_inner(doc, instance, new_comp).0
 }
 
+/// Swaps an instance to another component without recording a manual variant pick
+/// (`variant_picks`), for transient prototype player `Change to` swaps.
+pub fn swap_instance_without_pick(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> Command {
+    let mut c = Ctx::new(doc);
+    if !swap_recorded(&mut c, instance, new_comp, false) {
+        return nothing();
+    }
+    c.finish()
+}
+
 pub(crate) fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize) {
     let mut c = Ctx::new(doc);
-    if !swap_recorded(&mut c, instance, new_comp) {
+    if !swap_recorded(&mut c, instance, new_comp, true) {
         return (nothing(), 0);
     }
     let dropped = c.dropped_changes;
@@ -2752,7 +2762,7 @@ pub(crate) fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp
 
 /// Swaps `instance` to `new_comp` and records the swap as a `MainComponent` override. False when nothing changed: the
 /// instance already shows `new_comp`, `new_comp` is no main, or it would hold itself.
-fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
+fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId, record_pick: bool) -> bool {
     let Some(n) = c.s.get(instance) else { return false };
     if instance_component(n) == Some(new_comp) || !matches!(c.s.get(new_comp).map(|x| &x.kind), Some(NodeKind::Component(_))) {
         return false;
@@ -2765,7 +2775,7 @@ fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
     swap_main(c, instance, new_comp);
     if let Some(mut n) = c.s.get(instance).cloned() {
         n.component.overrides.insert(OverrideField::MainComponent);
-        record_variant_swap(c.s, &mut n, old_comp, new_comp);
+        record_variant_swap(c.s, &mut n, old_comp, new_comp, record_pick);
         c.update(n);
     }
     true
@@ -2850,7 +2860,7 @@ pub fn set_nested_instance_prop(doc: &mut Document, nested: NodeId, name: &str, 
     let chosen = BTreeMap::from([(name.to_string(), PropValue::Variant(choice.clone()))]);
     let Some(target) = variant_target_from(doc, current, &chosen) else { return pin_shown_variant(doc, nested, name, choice, current) };
     let mut c = Ctx::new(doc);
-    if !swap_recorded(&mut c, nested, target) {
+    if !swap_recorded(&mut c, nested, target, true) {
         return nothing();
     }
     // The component the nested instance shows now names its variant; a value kept for it would read as the old choice.

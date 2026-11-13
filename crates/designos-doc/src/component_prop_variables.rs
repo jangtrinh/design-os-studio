@@ -220,7 +220,7 @@ pub(crate) fn record_variant_pick(n: &mut Node, name: &str) {
 /// top-level instance, the new value of each such bound variant property is stored too: the instance's variant comes from
 /// its stored values, and the next resync would otherwise move it back to the old one. An instance that binds no variant
 /// property (none at all, or only text or boolean ones) records nothing here, so its file stays as it was.
-pub(crate) fn record_variant_swap(doc: &Document, n: &mut Node, old: Option<NodeId>, new: NodeId) {
+pub(crate) fn record_variant_swap(doc: &Document, n: &mut Node, old: Option<NodeId>, new: NodeId, record_pick: bool) {
     if !has_prop_binding(n) {
         return;
     }
@@ -237,7 +237,7 @@ pub(crate) fn record_variant_swap(doc: &Document, n: &mut Node, old: Option<Node
         if top && changed {
             n.component.values.insert(name.clone(), PropValue::Variant(value));
         }
-        if changed || !same_set {
+        if record_pick && (changed || !same_set) {
             n.component.variant_picks.insert(name);
         }
     }
@@ -452,6 +452,17 @@ fn prop_needs_resync(doc: &Document, id: NodeId, n: &Node, def: &ComponentPropDe
 /// now, and returns the command that undoes it (`None` when nothing changed). A binding that gives no valid value
 /// leaves its property alone.
 pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> Result<Option<Command>, DocError> {
+    apply_prop_resync_filtered(doc, scope, None)
+}
+
+fn apply_prop_resync_filtered(
+    doc: &mut Document,
+    scope: &PropResyncScope,
+    vars: Option<&std::collections::HashSet<String>>,
+) -> Result<Option<Command>, DocError> {
+    if vars.is_some_and(|vs| vs.is_empty()) {
+        return Ok(None);
+    }
     let mut candidates: BTreeSet<NodeId> = scope.nodes.clone();
     for &root in &scope.subtrees {
         doc.walk(root, |n, _| {
@@ -461,7 +472,15 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
         });
     }
     if scope.all {
-        candidates.extend(doc.nodes.values().filter(|n| has_prop_binding(n)).map(|n| n.id));
+        candidates.extend(
+            doc.nodes
+                .values()
+                .filter(|n| match vars {
+                    Some(vs) => prop_bindings_of(n).any(|(_, var)| vs.contains(var)),
+                    None => has_prop_binding(n),
+                })
+                .map(|n| n.id),
+        );
     }
     let mut stale: Vec<(NodeId, Vec<(String, PropValue)>)> = candidates
         .into_iter()
@@ -472,6 +491,9 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
             }
             let changes: Vec<(String, PropValue)> = prop_bindings_of(n)
                 .filter_map(|(name, var)| {
+                    if vars.is_some_and(|vs| !vs.contains(var)) {
+                        return None;
+                    }
                     let def = def_of(doc, n, name)?;
                     if variant_is_picked(n, &def) {
                         return None;
@@ -517,6 +539,22 @@ pub(crate) fn apply_prop_resync(doc: &mut Document, scope: &PropResyncScope) -> 
     Ok(if undo.is_empty() { None } else { Some(Command::Batch(undo)) })
 }
 
+fn collect_old_instance_components(inv: &Command, out: &mut BTreeMap<NodeId, NodeId>) {
+    match inv {
+        Command::Update { node } => {
+            if let Some(old_comp) = instance_component(node) {
+                out.insert(node.id, old_comp);
+            }
+        }
+        Command::Batch(cmds) => {
+            for c in cmds {
+                collect_old_instance_components(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Applies the values of every bound property to its instance, with no undo step: for a document that was just read
 /// (an imported file whose assignment holds only the variable's alias), so its layers show what the variables give.
 ///
@@ -531,12 +569,27 @@ pub fn settle_bound_props(doc: &mut Document) {
     let _ = apply_prop_resync(doc, &scope);
 }
 
-/// Re-applies component properties bound to variables and solves the auto-layout chains their
+/// Re-applies component properties bound to `vars` and solves the auto-layout chains their
 /// switched instances feed after a caller changes variable values or modes outside [`History`],
-/// such as the prototype player scratch document.
-pub fn resync_bound_properties(doc: &mut Document) {
+/// such as the prototype player scratch document. Returns each switched `(instance, old_component)`.
+pub fn resync_bound_properties(doc: &mut Document, vars: &std::collections::HashSet<String>) -> Result<Vec<(NodeId, NodeId)>, DocError> {
     let scope = PropResyncScope { all: true, ..Default::default() };
-    let _ = apply_prop_resync_and_relayout(doc, &scope);
+    let Some(resync_inv) = apply_prop_resync_filtered(doc, &scope, Some(vars))? else {
+        return Ok(Vec::new());
+    };
+    let mut seeds = Vec::new();
+    collect_relayout_seeds(doc, &resync_inv, &mut seeds);
+    doc.relayout_seeds_upward(&seeds);
+    let mut old_comps = BTreeMap::new();
+    collect_old_instance_components(&resync_inv, &mut old_comps);
+    let switched = old_comps
+        .into_iter()
+        .filter_map(|(id, old_comp)| {
+            let new_comp = doc.get(id).and_then(instance_component)?;
+            (new_comp != old_comp).then_some((id, old_comp))
+        })
+        .collect();
+    Ok(switched)
 }
 
 fn release_bound_variants_the_file_stored(doc: &mut Document) {

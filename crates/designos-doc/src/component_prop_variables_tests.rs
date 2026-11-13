@@ -507,13 +507,15 @@ fn resync_bound_properties_switches_variants_solves_hug_hosts_and_keeps_picks() 
 
     // Mutate collection default_mode outside History (as the prototype player does).
     f.d.variable_collections.get_mut("theme").unwrap().default_mode = "dark".into();
-    resync_bound_properties(&mut f.d);
+    let vars: std::collections::HashSet<String> = ["size".into(), "state".into()].into_iter().collect();
+    let switched = resync_bound_properties(&mut f.d, &vars).unwrap();
+    assert!(!switched.is_empty());
 
     assert_eq!(shown(&f, f.top), LARGE_HOVER);
     assert_eq!(shown(&f, n), LARGE_HOVER, "nested copy follows State and holds picked Size");
     assert_eq!(f.d.get(f.host).unwrap().size.x, 618.0, "hug host relayouts in the same resync call");
 
     f.d.variable_collections.get_mut("theme").unwrap().default_mode = "light".into();
-    resync_bound_properties(&mut f.d);
+    resync_bound_properties(&mut f.d, &vars).unwrap();
     assert_eq!(shown(&f, n), LARGE_DEFAULT, "picked Size stays held when returning to light");
 }
