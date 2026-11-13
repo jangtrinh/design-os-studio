@@ -1084,4 +1084,22 @@ mod tests {
             assert_eq!((slot_of(&d, k).1, slot_of(&d, k).3), (152.0, 88.0));
         }
     }
+
+    #[test]
+    fn wrap_auto_content_with_one_fixed_child_among_stretching_ones_still_aligns_the_block() {
+        let eight_rects = [(88.0, 88.0); 8];
+        let (mut d, frame, kids) = fixed_frame_with_rectangles(wrapped_two_line_layout(LayoutAlign::Center), (560.0, 274.0), &eight_rects);
+        // Only the block of lines made of stretching children alone keeps main's start-packed
+        // positions; one fixed child is enough for the block to follow the counter alignment.
+        for &k in &kids[0..7] {
+            d.get_mut(k).unwrap().layout_child.vertical = Sizing::Fill;
+        }
+        d.relayout_subtree(frame);
+        for &k in &kids[0..4] {
+            assert_eq!((slot_of(&d, k).1, slot_of(&d, k).3), (33.0, 88.0));
+        }
+        for &k in &kids[4..8] {
+            assert_eq!((slot_of(&d, k).1, slot_of(&d, k).3), (153.0, 88.0));
+        }
+    }
 }
