@@ -1267,7 +1267,11 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             if !ov.variant.is_empty() {
                 swapped_with_variant = true;
             }
-            if let Some((held, path)) = held_main_cycle_path_at(doc, new_comp, target_id, &[]) {
+            if let Some((held, mut path)) = held_main_cycle_path_at(doc, new_comp, target_id, &[]) {
+                // Do not expose the unnamed override parent as the swap target in the user-facing cycle path.
+                if let Some(label) = path.iter_mut().find(|label| **label == "Layer") {
+                    *label = cycle_node_label(doc, new_comp);
+                }
                 let message = cycle_refusal_message(CycleAction::Swap, &cycle_node_label(doc, held), &path);
                 return Err(SpecError::named("INSTANCE_CYCLE", message, Some("overrides.swap".into()), Vec::new(), None));
             }
