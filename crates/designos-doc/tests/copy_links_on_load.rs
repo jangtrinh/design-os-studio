@@ -128,3 +128,49 @@ fn the_repair_is_no_undo_step_and_leaves_the_document_as_a_plain_load_does() {
     assert!(!history.can_undo(), "the edit was the only step");
     assert_eq!(repaired.get(shape).unwrap().component.source, relinked);
 }
+
+/// Every node of the document with the layer it links to and its children, in id order: the shape of the copy graph.
+fn copy_graph(doc: &Document) -> Vec<(NodeId, Option<NodeId>, Vec<NodeId>)> {
+    doc.nodes.values().map(|n| (n.id, n.component.source, n.children.clone())).collect()
+}
+
+#[test]
+fn running_the_pass_again_on_a_repaired_and_then_edited_document_changes_nothing() {
+    for (depth, text) in [(1usize, DEPTH1), (2, DEPTH2)] {
+        let (mut doc, report) = Document::from_json_with_report(text).unwrap();
+        assert!(report.copy_links_relinked > 0, "depth {depth}: the fixture needs a repair on load");
+
+        // a person edits an override under the nested copy
+        let shape = target_shape(&doc);
+        let mut n = doc.get(shape).unwrap().clone();
+        n.opacity = 0.5;
+        n.component.overrides.insert(OverrideField::Opacity);
+        Command::Update { node: Box::new(n) }.apply(&mut doc).unwrap();
+        assert_eq!(relink_copy_layers(&mut doc), 0, "depth {depth}: the pass finds nothing to do in the edited live document");
+        let graph = copy_graph(&doc);
+
+        // save, reopen: the second load finds nothing, and neither does a pass run by hand
+        let saved = doc.to_json().unwrap();
+        let (mut reopened, report) = Document::from_json_with_report(&saved).unwrap();
+        assert_eq!(report.copy_links_relinked, 0, "depth {depth}: the reopened file needs no repair");
+        assert_eq!(relink_copy_layers(&mut reopened), 0, "depth {depth}: a second run relinks nothing");
+        assert_eq!(relink_copy_layers(&mut reopened), 0, "depth {depth}: nor a third");
+        assert_eq!(copy_graph(&reopened), graph, "depth {depth}: same links, no layer added or dropped");
+        assert_eq!(reopened.to_json().unwrap(), saved, "depth {depth}: the reopened document saves to the same bytes");
+
+        // the override survived the reopen, on the same layer
+        let again = target_shape(&reopened);
+        assert_eq!(again, shape, "depth {depth}: the layer is the same one");
+        assert_eq!(reopened.get(again).unwrap().opacity, 0.5, "depth {depth}: the edited value is kept");
+        assert!(reopened.get(again).unwrap().component.overrides.contains(&OverrideField::Opacity), "depth {depth}: the flag is kept");
+
+        // and a later edit of a main plus a sync of every level still leaves it, with no layer duplicated
+        let layers = reopened.nodes.len();
+        edit_main_and_sync_everything(&mut reopened, false);
+        assert_eq!(reopened.nodes.len(), layers, "depth {depth}: the sync added or dropped a layer");
+        let after_sync = target_shape(&reopened);
+        assert_eq!(after_sync, shape, "depth {depth}: the layer was rebuilt by the sync");
+        assert_eq!(reopened.get(after_sync).unwrap().opacity, 0.5, "depth {depth}: the edited value is gone after the sync");
+        assert_eq!(relink_copy_layers(&mut reopened), 0, "depth {depth}: the pass still finds nothing after the sync");
+    }
+}
