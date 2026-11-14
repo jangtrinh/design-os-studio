@@ -38,5 +38,18 @@ fn an_imported_line_scales_its_stored_outline_when_resized_by_mcp() {
 
     e.call("designos_update_node", json!({"node_id": line.0, "width": 200.0, "height": 0.0})).unwrap();
     let n = e.doc.get(line).unwrap();
+    assert_eq!(
+        n.stroke_geometry,
+        Some(vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(205.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(205.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }])
+    );
     assert_eq!(n, &expected);
 }

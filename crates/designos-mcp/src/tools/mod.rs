@@ -408,3 +408,51 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     let changed = doc.get(id) != Some(&node);
     Ok((node, changed, warnings))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::engine::Engine;
+    use designos_doc::*;
+    use serde_json::json;
+
+    #[test]
+    fn an_imported_line_scales_its_stored_outline_when_resized_by_mcp() {
+        let mut e = Engine::new();
+        let page = NodeId(e.resolve_default_page().unwrap().0);
+        let id = e.doc.alloc_id();
+        let mut line = Node::new(id, NodeKind::Line);
+        line.size = Vec2::new(100.0, 0.0);
+        line.stroke.weight = 10.0;
+        line.stroke_geometry = Some(vec![Path {
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, -10.0)),
+                PathCmd::LineTo(Vec2::new(105.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        }]);
+        let line = e.doc.insert(page, line).unwrap();
+        let mut expected = e.doc.get(line).unwrap().clone();
+        let tf = expected.transform;
+        apply_constrained_geometry(&mut expected, tf, Vec2::new(200.0, 0.0));
+
+        e.call("designos_update_node", json!({"node_id": line.0, "width": 200.0, "height": 0.0})).unwrap();
+        let n = e.doc.get(line).unwrap();
+        assert_eq!(
+            n.stroke_geometry,
+            Some(vec![Path {
+                cmds: vec![
+                    PathCmd::MoveTo(Vec2::new(-5.0, -10.0)),
+                    PathCmd::LineTo(Vec2::new(205.0, -10.0)),
+                    PathCmd::LineTo(Vec2::new(205.0, 0.0)),
+                    PathCmd::LineTo(Vec2::new(-5.0, 0.0)),
+                    PathCmd::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+            }])
+        );
+        assert_eq!(n, &expected);
+    }
+}
