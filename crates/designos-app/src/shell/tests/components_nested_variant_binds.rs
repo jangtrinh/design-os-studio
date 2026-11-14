@@ -242,6 +242,82 @@ fn two_same_named_nested_rows_keep_their_own_pill_and_bind_control() {
     assert!(recorded_rect(&sc.s, &format!("bind:{other}")).is_some(), "the second row offers the bind control under its own name");
 }
 
+/// A variable of the demo document's `Theme` collection with a light and a dark value, returned as its id.
+fn add_theme_variable(
+    s: &mut Sim,
+    name: &str,
+    kind: designos_doc::VariableKind,
+    light: designos_doc::VariableValue,
+    dark: designos_doc::VariableValue,
+) -> String {
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let theme = store.collections.values().find(|c| c.name == "Theme").expect("Theme collection").clone();
+    let var = store.add_variable(&theme.id, name, kind).unwrap();
+    store.set_value(&var, &theme.modes[0].id, light);
+    store.set_value(&var, &theme.modes[1].id, dark);
+    s.shell.app.commit_store(store, &[], &[]);
+    s.frame(vec![]);
+    var
+}
+
+/// Binds property `prop` of the exposed nested badge `Leading badge` of a card instance from its row (bind control, picker, the
+/// variable `var_name`) and compares the whole set of nodes with `designos_update_node` `prop_vars` on a copy of the document, then
+/// takes the bind back with one undo.
+fn bind_from_the_row_equals_the_agent_tool(mut s: Sim, inst_leading: NodeId, prop: &str, var_name: &str) {
+    let row = format!("prop:Leading badge/{prop}");
+    let before = s.app().doc.clone();
+    let expected = agent_result(&before, inst_leading, json!({ prop: format!("var:Theme/{var_name}") }));
+    let bind = recorded_rect(&s, &format!("bind:{row}")).unwrap_or_else(|| panic!("{row} offers the bind control"));
+    s.click(bind.center());
+    assert!(s.app().vars.bind_picker.is_some(), "the bind control opens the variable picker");
+    s.frame(vec![]);
+    s.click(s.rect_of(&format!("pick:{var_name}")).center());
+    let key = designos_doc::prop_binding_key(prop);
+    assert!(s.app().doc.get(inst_leading).unwrap().variables.bindings.contains_key(&key), "the nested copy holds the binding");
+    assert!(s.app().doc.nodes == expected, "{prop}: the bind is node for node what the agent tool writes");
+    assert!(s.app().doc.nodes != before.nodes, "{prop}: the bind changed something");
+    s.frame(vec![]);
+    assert!(recorded_rect(&s, &format!("bound:{row}")).is_some(), "{prop}: the row now paints the pill");
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.nodes == before.nodes, "{prop}: one undo takes the whole bind back, node for node");
+}
+
+fn exposed_card_scene() -> (Sim, NodeId) {
+    let (mut s, _card, leading, _trailing, card_inst, _, _) = super::expose_nested_instances::setup_nested_expose_scene();
+    s.shell.app.set_expose_nested_instance(leading, true);
+    s.shell.app.selection = vec![card_inst];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let inst_leading = child_named(&s.app().doc, card_inst, "Leading badge");
+    (s, inst_leading)
+}
+
+#[test]
+fn binding_a_nested_boolean_from_its_row_writes_what_update_node_prop_vars_writes() {
+    let (mut s, inst_leading) = exposed_card_scene();
+    add_theme_variable(
+        &mut s,
+        "DotOn",
+        designos_doc::VariableKind::Boolean,
+        designos_doc::VariableValue::Boolean(true),
+        designos_doc::VariableValue::Boolean(false),
+    );
+    bind_from_the_row_equals_the_agent_tool(s, inst_leading, "Show dot", "DotOn");
+}
+
+#[test]
+fn binding_a_nested_text_from_its_row_writes_what_update_node_prop_vars_writes() {
+    let (mut s, inst_leading) = exposed_card_scene();
+    add_theme_variable(
+        &mut s,
+        "CaptionText",
+        designos_doc::VariableKind::String,
+        designos_doc::VariableValue::String("Hello".into()),
+        designos_doc::VariableValue::String("Bye".into()),
+    );
+    bind_from_the_row_equals_the_agent_tool(s, inst_leading, "Caption", "CaptionText");
+}
+
 /// Headless pictures of the exposed rows, written only when `DESIGNOS_1905_EVIDENCE_DIR` names a directory: Leading's `Size` as a
 /// pill, the bind control on the other rows, then Trailing's `Size` after a bind through the picker.
 #[test]

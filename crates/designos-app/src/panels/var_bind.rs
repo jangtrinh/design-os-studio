@@ -903,6 +903,12 @@ pub fn pill_field_in(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], key
     true
 }
 
+/// Whether `picker` is the open picker of the row that binds `k0` on `sel`: the key alone would light up every row of the panel that
+/// binds a property of that name, so the nodes count too.
+fn picker_open_for(picker: Option<&BindPicker>, k0: &str, sel: &[NodeId]) -> bool {
+    picker.is_some_and(|b| b.style_key.is_none() && b.keys.first().map(String::as_str) == Some(k0) && b.nodes.as_slice() == sel)
+}
+
 /// Small hexagon button that opens the variable picker when a matching variable exists.
 pub fn hover_button(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) {
     hover_button_in(app, ui, rect, sel, keys, kind, None)
@@ -914,11 +920,7 @@ pub fn hover_button_in(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], k
     let target_kind = node_target_kind(app, sel);
     let k0 = keys[0];
     let has_vars = has_matching_var(app, ui.ctx(), k0, kind, target_kind);
-    let is_open = app
-        .vars
-        .bind_picker
-        .as_ref()
-        .is_some_and(|b| b.style_key.is_none() && b.keys.first().map(String::as_str) == Some(k0) && (scope.is_none() || b.nodes.as_slice() == sel));
+    let is_open = picker_open_for(app.vars.bind_picker.as_ref(), k0, sel);
     if draw_hover_button(ui, rect, || format!("bind:{}", scope.unwrap_or(k0)), ("bind-btn", k0, scope), has_vars, is_open, true) {
         open_picker(app, sel, keys, kind, rect);
     }
@@ -1182,5 +1184,34 @@ mod detach_tests {
         let n = doc.get(id).unwrap();
         assert!(!n.style_refs.contains_key("text"));
         assert!(n.text_style_overrides.is_empty(), "an unlinked layer has no overrides of a style");
+    }
+}
+
+#[cfg(test)]
+mod picker_open_tests {
+    use super::*;
+
+    fn picker(nodes: &[NodeId]) -> BindPicker {
+        BindPicker {
+            keys: vec!["componentProperties/Size".into()],
+            kind: VariableKind::String,
+            nodes: nodes.to_vec(),
+            style_key: None,
+            anchor: Rect::NOTHING,
+            query: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_row_is_open_only_for_the_picker_of_its_own_nodes_scoped_or_not() {
+        let key = "componentProperties/Size";
+        let (top, nested) = ([NodeId(1)], [NodeId(2)]);
+        let open_on_nested = picker(&nested);
+        assert!(picker_open_for(Some(&open_on_nested), key, &nested), "the nested row's own picker");
+        assert!(!picker_open_for(Some(&open_on_nested), key, &top), "an unscoped top-level row with the same key is not open with it");
+        assert!(!picker_open_for(Some(&open_on_nested), key, &[NodeId(3)]), "nor the row of another nested copy");
+        let open_on_top = picker(&top);
+        assert!(picker_open_for(Some(&open_on_top), key, &top), "an unscoped row's own picker");
+        assert!(!picker_open_for(None, key, &top));
     }
 }
