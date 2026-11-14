@@ -3502,9 +3502,13 @@ impl<'a> Ctx<'a> {
                 let sizing = |s: &str| if s == "AUTO" { Sizing::Hug } else { Sizing::Fixed };
                 if let Some(x) = fnum(set, "itemSpacing") {
                     al.item_spacing = x;
+                    if al.counter_spacing_auto && set.get("counterAxisSpacing").is_none() {
+                        al.counter_spacing = x;
+                    }
                 }
                 if let Some(x) = fnum(set, "counterAxisSpacing") {
                     al.counter_spacing = x;
+                    al.counter_spacing_auto = false;
                 }
                 for (idx, k) in [(0, "paddingTop"), (1, "paddingRight"), (2, "paddingBottom"), (3, "paddingLeft")] {
                     if let Some(x) = fnum(set, k) {
@@ -3531,6 +3535,10 @@ impl<'a> Ctx<'a> {
                 }
                 if let Some(w) = fstr(set, "layoutWrap") {
                     al.wrap = w == "WRAP";
+                    al.counter_spacing_auto = al.direction != LayoutDirection::Grid && al.wrap && set.get("counterAxisSpacing").is_none();
+                    if al.counter_spacing_auto {
+                        al.counter_spacing = al.item_spacing;
+                    }
                 }
                 if let Some(b) = fbool(set, "strokesIncludedInLayout") {
                     al.stroke_included = b;
@@ -4510,12 +4518,14 @@ fn frame_props(v: &Value) -> FrameProps {
         let item_spacing = p("itemSpacing");
         // An absent counter gap on a wrap frame is Figma's "Auto" line gap: it follows the item spacing.
         // An explicit value, zero included, is kept.
-        let counter_spacing = fnum(v, "counterAxisSpacing").unwrap_or(if wrap { item_spacing } else { 0.0 });
+        let counter_spacing_auto = direction != LayoutDirection::Grid && wrap && fnum(v, "counterAxisSpacing").is_none();
+        let counter_spacing = fnum(v, "counterAxisSpacing").unwrap_or(if counter_spacing_auto { item_spacing } else { 0.0 });
         AutoLayout {
             direction,
             wrap,
             item_spacing,
             counter_spacing,
+            counter_spacing_auto,
             padding: [p("paddingTop"), p("paddingRight"), p("paddingBottom"), p("paddingLeft")],
             primary_align: align(fstr(v, "primaryAxisAlignItems")),
             counter_align: align(fstr(v, "counterAxisAlignItems")),
