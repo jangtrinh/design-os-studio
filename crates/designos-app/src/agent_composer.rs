@@ -861,8 +861,9 @@ impl TerminalState {
             return self.start_new_chat_session(&payload, trimmed, file_path);
         }
 
+        let in_new_chat = self.in_new_chat();
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
-        if system || !self.in_new_chat() {
+        if system || !in_new_chat {
             if let Some(tab) = self.tabs.get_mut(active_idx) {
                 if let Some(reason) = tab.mode_refusal() {
                     // A prompt entry point's text was never in the composer: put it there, as the shell branch below does.
@@ -900,18 +901,22 @@ impl TerminalState {
                     return SendOutcome::Refused(RefuseReason::NoAgent);
                 }
                 if tab.composer.not_ready_gate {
-                    let msg = RefuseReason::NotReady.message().to_string();
-                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
-                    tab.composer.notice = Some(msg.clone());
-                    self.status_msg = Some(msg);
+                    if !(system && in_new_chat) {
+                        let msg = RefuseReason::NotReady.message().to_string();
+                        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
+                        tab.composer.notice = Some(msg.clone());
+                        self.status_msg = Some(msg);
+                    }
                     return SendOutcome::Refused(RefuseReason::NotReady);
                 }
                 // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
                 if waits_on_the_user(tab) {
-                    let msg = RefuseReason::Permission.message().to_string();
-                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
-                    tab.composer.notice = Some(msg.clone());
-                    self.status_msg = Some(msg);
+                    if !(system && in_new_chat) {
+                        let msg = RefuseReason::Permission.message().to_string();
+                        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
+                        tab.composer.notice = Some(msg.clone());
+                        self.status_msg = Some(msg);
+                    }
                     return SendOutcome::Refused(RefuseReason::Permission);
                 }
                 if tab.is_alive() {
@@ -2164,6 +2169,58 @@ mod tests {
         assert!(app.toast.is_none(), "two closes gave one toast, and nothing stays due");
 
         app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// When an error toast is on screen with an empty queue and a background tab close raises the queued-text recovery line,
+    /// the error toast stays on screen and the recovery line shows after it.
+    #[test]
+    fn the_queued_text_recovery_toast_waits_behind_an_error_toast_on_screen() {
+        let dir = temp_composer_dir("close-toast-behind-error");
+        let ctx = egui::Context::default();
+        let mut shell = crate::shell::Shell::build(&ctx, crate::cli::Options { fixture: Some("demo".into()), ..Default::default() });
+        let mut st = TerminalState::new_for_session("doc-close-behind-err", "Close Behind Err", Some(&dir));
+        let _a = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _b = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab = 1;
+        shell.app.terminal = st;
+
+        let run_at = |shell: &mut crate::shell::Shell, t: f64| {
+            let raw = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))),
+                time: Some(t),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| shell.draw(ui));
+        };
+
+        shell.app.show_toast("Switch to Ask first to use Codex.", true);
+        run_at(&mut shell, 1.0);
+        assert_eq!(shell.app.toast.as_ref().map(|t| (t.text.as_str(), t.error)), Some(("Switch to Ask first to use Codex.", true)));
+        assert!(shell.app.toast_queue.is_empty());
+
+        shell.app.terminal.tabs[0].composer.pending_send.push_back(QueuedSend::new("from the background tab", false));
+        shell.app.terminal.close_tab(0);
+        run_at(&mut shell, 1.05);
+
+        assert_eq!(
+            shell.app.toast.as_ref().map(|t| (t.text.as_str(), t.error)),
+            Some(("Switch to Ask first to use Codex.", true)),
+            "the error toast stays on screen"
+        );
+        let queued: Vec<(&str, bool)> = shell.app.toast_queue.iter().map(|t| (t.text.as_str(), t.error)).collect();
+        assert_eq!(queued, vec![("Queued message restored in New chat", false)], "the recovery line waits in the queue");
+
+        let expires = 1.0 + crate::theme::TOAST_SECONDS + 0.1;
+        run_at(&mut shell, expires);
+        assert_eq!(
+            shell.app.toast.as_ref().map(|t| (t.text.as_str(), t.error)),
+            Some(("Queued message restored in New chat", false)),
+            "the recovery line shows after the error toast expires"
+        );
+        assert!(shell.app.toast_queue.is_empty());
+
+        shell.app.terminal.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -2093,6 +2093,52 @@ mod tests {
         app.terminal.shutdown();
     }
 
+    /// A tab with `not_ready_gate` set refuses the prompt with `NotReady`, and `origin/main` keeps the image job
+    /// Running with its watcher and leaves later jobs Queued behind it.
+    #[test]
+    fn a_not_ready_refusal_keeps_the_image_job_running_and_later_jobs_queued() {
+        let tmp = TestDir::new("not-ready-refusal-main-parity");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("image-not-ready-refusal-{}", std::process::id()));
+        app.terminal.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        app.terminal.active_runtime = AgentCliPreset::Claude;
+        app.image_jobs.agent_script = None;
+        app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        {
+            let tab = app.terminal.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+            tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
+            tab.composer.not_ready_gate = true;
+        }
+
+        let first = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("first job starts");
+        let second = app.start_image_job(orig_id, 0, ImageOp::IsolateSubject).expect("second job queues");
+
+        assert_eq!(
+            app.terminal.status_msg.as_deref(),
+            Some(crate::agent_composer::RefuseReason::NotReady.message()),
+            "the not-ready refusal sets the terminal status message"
+        );
+        assert_eq!(app.image_jobs.jobs[0].id, first);
+        assert_eq!(app.image_jobs.jobs[0].state, ImageJobState::Running, "first job stays Running on a NotReady refusal");
+        assert_eq!(app.image_jobs.jobs[1].id, second);
+        assert_eq!(app.image_jobs.jobs[1].state, ImageJobState::Queued, "second job stays Queued behind the running job");
+        assert_eq!(app.image_jobs.queue.iter().cloned().collect::<Vec<_>>(), vec![second]);
+        assert_eq!(app.image_jobs.watcher.as_ref().map(|w| w.job_id.as_str()), Some(first.as_str()), "watcher runs for the first job");
+        assert_eq!(app.image_jobs.job_timeout, Duration::from_secs(5), "job timeout is unchanged");
+        assert_eq!(
+            app.toast.as_ref().map(|t| (t.text.as_str(), t.error)),
+            Some(("Queued image job · 1 in queue", false)),
+            "only the queue notice is shown, not an error toast"
+        );
+
+        app.cancel_image_job(Some(orig_id));
+        app.cancel_image_job(Some(orig_id));
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+    }
+
     /// Cancelling the running job pumps the queue; when the next jobs are refused permanently, every queued job fails at once
     /// and the refusal sentence replaces the cancel notice as a single error toast.
     #[test]
@@ -2259,6 +2305,55 @@ mod tests {
         app.cancel_image_job(Some(orig_id));
         app.cleanup_image_jobs_on_file_close();
         app.terminal.shutdown();
+    }
+
+    /// With New chat open over a live Claude tab that answers `Permission` (`WaitingForInput`) or `NotReady` (`not_ready_gate`),
+    /// starting an image job leaves the tab's `notice`, `last_outcome`, and `status_msg` unchanged while the job stays `Running`
+    /// with its watcher and timeout.
+    #[test]
+    fn an_image_job_with_new_chat_open_over_a_temporarily_refused_tab_leaves_tab_composer_and_status_unchanged() {
+        for (label, not_ready) in [("waiting-for-input", false), ("not-ready", true)] {
+            let tmp = TestDir::new(&format!("new-chat-temp-refusal-{label}"));
+            let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+            app.terminal.bind_session(&format!("image-new-chat-temp-{label}-{}", std::process::id()));
+            app.terminal.active_runtime = AgentCliPreset::Claude;
+            app.image_jobs.agent_script = None;
+            app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+            {
+                let tab = app.terminal.active_tab_mut().expect("active tab");
+                tab.spawn_preset = AgentCliPreset::Claude;
+                tab.preset = AgentCliPreset::Claude;
+                tab.composer.notice = Some("Prior tab notice".to_string());
+                tab.composer.last_outcome = Some(crate::agent_composer::SendOutcome::Written);
+                if not_ready {
+                    tab.composer.not_ready_gate = true;
+                } else {
+                    if let Ok(mut p) = tab.parser.lock() {
+                        p.process(b"\x1b[?2004h");
+                    }
+                    *tab.agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(None);
+                }
+            }
+            app.terminal.status_msg = Some("Prior status msg".to_string());
+            app.terminal.picker_open = true;
+            app.terminal.unattached_composer.draft = "keep my new chat draft".to_string();
+
+            let job_id = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts");
+
+            assert_eq!(app.terminal.tabs[0].composer.notice.as_deref(), Some("Prior tab notice"), "{label}: tab notice is unchanged");
+            assert_eq!(app.terminal.tabs[0].composer.last_outcome, Some(crate::agent_composer::SendOutcome::Written), "{label}: tab last_outcome is unchanged");
+            assert_eq!(app.terminal.status_msg.as_deref(), Some("Prior status msg"), "{label}: terminal status_msg is unchanged");
+            assert!(app.terminal.in_new_chat(), "{label}: New chat stays open");
+            assert_eq!(app.terminal.composer_draft(), "keep my new chat draft", "{label}: New chat draft is unchanged");
+            let state = app.image_jobs.jobs.iter().find(|j| j.id == job_id).map(|j| j.state.clone());
+            assert_eq!(state, Some(ImageJobState::Running), "{label}: job stays Running");
+            assert_eq!(app.image_jobs.watcher.as_ref().map(|w| w.job_id.as_str()), Some(job_id.as_str()), "{label}: watcher runs");
+            assert_eq!(app.image_jobs.job_timeout, Duration::from_secs(5), "{label}: timeout is unchanged");
+
+            app.cancel_image_job(Some(orig_id));
+            app.cleanup_image_jobs_on_file_close();
+            app.terminal.shutdown();
+        }
     }
 
     /// Only a CLI that cannot run in the mode is refused: Claude in Ask when risky, and Codex in Ask, start and take the job.

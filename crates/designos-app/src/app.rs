@@ -431,7 +431,7 @@ impl App {
     /// Raises the toasts the Agents terminal has due: an info toast when a tab close moved waiting text into New chat that is not on screen.
     pub fn show_terminal_toasts(&mut self) {
         if let Some(text) = self.terminal.take_restore_toast() {
-            self.show_toast(text, false);
+            self.queue_toast(text, false);
         }
     }
 
