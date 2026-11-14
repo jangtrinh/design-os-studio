@@ -691,3 +691,186 @@ fn duplicating_an_unopened_page_then_reordering_the_copy_preserves_child_overrid
     assert_eq!(copy_entries, orig_entries, "duplicated then reordered unopened page must keep its child override records whole");
     assert_reopened_copy_matches_original(&saved);
 }
+
+fn variant_main(doc: &Document) -> NodeId {
+    doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Type=Simple 03, Breakpoint=Desktop").expect("variant").id
+}
+
+#[derive(Debug, PartialEq)]
+struct SubtreeEntry {
+    depth: usize,
+    kind: &'static str,
+    name: String,
+    text: Option<String>,
+    size: (i32, i32),
+    stroke_weight_milli: i32,
+}
+
+fn node_kind_tag(kind: &NodeKind) -> &'static str {
+    match kind {
+        NodeKind::Page { .. } => "Page",
+        NodeKind::Frame(_) => "Frame",
+        NodeKind::Group => "Group",
+        NodeKind::Section => "Section",
+        NodeKind::Rectangle => "Rectangle",
+        NodeKind::Ellipse(_) => "Ellipse",
+        NodeKind::Line => "Line",
+        NodeKind::Polygon { .. } => "Polygon",
+        NodeKind::Star { .. } => "Star",
+        NodeKind::Vector { .. } => "Vector",
+        NodeKind::Text(_) => "Text",
+        NodeKind::BooleanOp(_) => "BooleanOp",
+        NodeKind::Component(_) => "Component",
+        NodeKind::ComponentSet(_) => "ComponentSet",
+        NodeKind::Instance { .. } => "Instance",
+        NodeKind::Sticky(_) => "Sticky",
+        NodeKind::ShapeWithText(_) => "ShapeWithText",
+        NodeKind::Connector(_) => "Connector",
+        NodeKind::Stamp { .. } => "Stamp",
+        NodeKind::Table(_) => "Table",
+        NodeKind::TableCell(_) => "TableCell",
+        NodeKind::Unknown { .. } => "Unknown",
+    }
+}
+
+fn subtree_snapshot(doc: &Document, root: NodeId) -> Vec<SubtreeEntry> {
+    let mut out = Vec::new();
+    doc.walk(root, |n, depth| {
+        let text = match &n.kind {
+            NodeKind::Text(tp) => Some(tp.content.clone()),
+            _ => None,
+        };
+        out.push(SubtreeEntry {
+            depth,
+            kind: node_kind_tag(&n.kind),
+            name: n.name.clone(),
+            text,
+            size: ((n.size.x * 1000.0).round() as i32, (n.size.y * 1000.0).round() as i32),
+            stroke_weight_milli: (n.stroke.weight * 1000.0).round() as i32,
+        });
+    });
+    out
+}
+
+#[test]
+fn new_instance_of_main_holding_deferred_page_instance_copies_nested_children_at_once() {
+    let mut live = import_fig(&deferred_fixture()).expect("import");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+    assert!(!page_hydrated(&live, page_404));
+
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let new_inst = match &cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd.apply(&mut live).expect("create instance");
+
+    assert!(!page_hydrated(&live, page_404), "creating an instance must not mark the deferred page open");
+    let main_nested = variant_button(&live);
+    let nested_copy = live.get(new_inst).expect("new instance").children[0];
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "nested instance copy has its children at once");
+    assert_eq!(child_names(&live, nested_copy), child_names(&live, main_nested), "same child count and names as main's nested instance");
+    assert_eq!(label_of(&live, nested_copy), "Go back", "nested instance copy carries the overridden text");
+    assert_eq!(label_of(&live, nested_copy), label_of(&live, main_nested), "same text as main's nested instance");
+}
+
+#[test]
+fn opening_deferred_page_and_syncing_leaves_new_instance_equal_to_post_open_instance() {
+    let mut live = import_fig(&deferred_fixture()).expect("import");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+    let button = button_main(&live);
+
+    let cmd_before = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let inst_before = match &cmd_before {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd_before.apply(&mut live).expect("create instance before open");
+    let snap_before_open = subtree_snapshot(&live, inst_before);
+    assert_eq!(snap_before_open.len(), 4, "outer instance, nested instance, text, and icon are present at once");
+
+    assert!(live.ensure_page_hydrated(page_404));
+    sync_instances(&mut live, button).apply(&mut live).expect("sync button");
+    sync_instances(&mut live, variant).apply(&mut live).expect("sync variant");
+    let snap_after_open = subtree_snapshot(&live, inst_before);
+
+    let cmd_after = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let inst_after = match &cmd_after {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd_after.apply(&mut live).expect("create instance after open");
+    let snap_post_open = subtree_snapshot(&live, inst_after);
+
+    assert_eq!(snap_before_open, snap_after_open, "opening the deferred page and syncing does not duplicate or alter the subtree");
+    assert_eq!(snap_after_open, snap_post_open, "new instance matches an instance created after opening the deferred page");
+}
+
+#[test]
+fn undo_and_redo_of_new_instance_removes_and_restores_nested_subtree() {
+    let mut live = import_fig(&deferred_fixture()).expect("import");
+    let cover = page_named(&live, "Cover");
+    let variant = variant_main(&live);
+    let cover_children_before = live.get(cover).expect("cover").children.len();
+
+    let mut history = History::default();
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let (new_inst, created_ids): (NodeId, Vec<NodeId>) = match &cmd {
+        Command::Insert { nodes, .. } => (nodes[0].id, nodes.iter().map(|n| n.id).collect()),
+        _ => panic!("expected Insert"),
+    };
+    history.exec(&mut live, cmd).expect("exec create instance");
+
+    let snap_created = subtree_snapshot(&live, new_inst);
+    assert_eq!(snap_created.len(), 4);
+
+    assert!(history.undo(&mut live).expect("undo"), "undo succeeds");
+    assert_eq!(live.get(cover).expect("cover").children.len(), cover_children_before);
+    for &id in &created_ids {
+        assert!(live.get(id).is_none(), "undo removes created node {id:?}");
+    }
+
+    assert!(history.redo(&mut live).expect("redo"), "redo succeeds");
+    assert_eq!(subtree_snapshot(&live, new_inst), snap_created, "redo restores the full nested subtree");
+}
+
+#[test]
+fn saving_after_creating_instance_of_main_with_deferred_nested_instance_keeps_saved_entries() {
+    let fig = deferred_fixture();
+    let original_entries = saved_entries(&fig, INSTANCE);
+
+    let mut live = import_fig(&fig).expect("import");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let new_inst = match &cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd.apply(&mut live).expect("create instance");
+
+    let nested_copy = live.get(new_inst).expect("new instance").children[0];
+    assert_eq!(label_of(&live, nested_copy), "Go back");
+
+    let saved = export_fig(&live).expect("export");
+    assert!(!page_hydrated(&live, page_404), "deferred page remains unopened after save");
+    assert_eq!(children_written_under(&saved, INSTANCE), 0, "unopened page instance writes no child node changes");
+    assert_eq!(saved_entries(&saved, INSTANCE), original_entries, "saved entries of the main's nested instance match main");
+    let new_inst_nc = node_changes(&saved)
+        .into_iter()
+        .find(|nc| nc["parentIndex"]["guid"] == guid(0, 1) && nc["type"] == "INSTANCE")
+        .expect("new outer instance in saved file");
+    let nested_copy_nc = node_changes(&saved)
+        .into_iter()
+        .find(|nc| nc["parentIndex"]["guid"] == new_inst_nc["guid"] && nc["type"] == "INSTANCE")
+        .expect("new nested instance copy in saved file");
+    assert!(saved_entries(&saved, guid_pair_of(&new_inst_nc["guid"])).is_empty(), "new outer instance has no extra override entries");
+    assert!(saved_entries(&saved, guid_pair_of(&nested_copy_nc["guid"])).is_empty(), "new nested instance copy has no extra override entries");
+    assert_eq!(reopened_label(&saved), "Go back");
+}

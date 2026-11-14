@@ -956,6 +956,7 @@ pub fn create_instance_reserving(
     if !doc.get(parent).map(|p| p.kind.is_container()).unwrap_or(false) {
         return nothing();
     }
+    doc.ensure_component_hydrated(component);
     let mut nodes = copy_tree_reserving(doc, component, true, reserved);
     let name = comp
         .parent
@@ -13578,5 +13579,109 @@ mod tests {
         }
         assert_eq!(normalized_subtree(&d, btn_swap), normalized_subtree(&d, btn_panel));
         assert_eq!(normalized_subtree(&d, btn_spec), normalized_subtree(&d, btn_panel));
+    }
+
+    #[test]
+    fn new_instance_hydrates_deferred_nested_instance_in_main_component() {
+        #[derive(Debug)]
+        struct NestedComponentTestHydrator {
+            deferred_page: NodeId,
+            holder_comp: NodeId,
+            nested_inst: NodeId,
+            nested_main: NodeId,
+            hydrated_page: bool,
+        }
+
+        impl crate::PageHydrator for NestedComponentTestHydrator {
+            fn hydrate_page(&mut self, doc: &mut Document, page: NodeId) -> bool {
+                if page != self.deferred_page || self.hydrated_page {
+                    return false;
+                }
+                self.hydrated_page = true;
+                self.hydrate_component(doc, self.holder_comp);
+                true
+            }
+
+            fn hydrate_all(&mut self, doc: &mut Document) -> bool {
+                let p = self.deferred_page;
+                self.hydrate_page(doc, p)
+            }
+
+            fn is_hydrated(&self, page: NodeId) -> bool {
+                page != self.deferred_page || self.hydrated_page
+            }
+
+            fn hydrate_component(&mut self, doc: &mut Document, component: NodeId) -> bool {
+                if component != self.holder_comp {
+                    return false;
+                }
+                if !doc.get(self.nested_inst).is_some_and(|n| n.children.is_empty()) {
+                    return false;
+                }
+                let main_label = doc.get(self.nested_main).unwrap().children[0];
+                let cloned_id = doc.alloc_id();
+                let mut cloned = doc.get(main_label).unwrap().clone();
+                cloned.id = cloned_id;
+                cloned.parent = Some(self.nested_inst);
+                cloned.component.source = Some(main_label);
+                if let NodeKind::Text(tp) = &mut cloned.kind {
+                    tp.content = "Go back".into();
+                }
+                cloned.component.overrides.insert(OverrideField::Characters);
+                doc.insert(self.nested_inst, cloned).unwrap();
+                true
+            }
+        }
+
+        let mut d = Document::new("deferred-nested-inst");
+        let open_page = d.add_page("Cover");
+        let deferred_page = d.add_page("404 pages");
+
+        let btn_main = d.alloc_id();
+        let mut btn_node = Node::frame(btn_main, Rect::new(0.0, 0.0, 120.0, 40.0));
+        btn_node.name = "Buttons/Button".into();
+        d.insert(deferred_page, btn_node).unwrap();
+        let lbl_id = d.alloc_id();
+        let mut lbl_node = Node::text(lbl_id, Rect::new(0.0, 0.0, 80.0, 20.0), "Button CTA", TextStyle::default());
+        lbl_node.name = "Text".into();
+        d.insert(btn_main, lbl_node).unwrap();
+        let c = create_component(&mut d, btn_main);
+        apply(&mut d, c);
+
+        let holder_main = d.alloc_id();
+        let mut holder_node = Node::frame(holder_main, Rect::new(0.0, 0.0, 400.0, 200.0));
+        holder_node.name = "Type=Simple 03".into();
+        d.insert(deferred_page, holder_node).unwrap();
+        let nested_inst = d.alloc_id();
+        let mut nested_node = Node::frame(nested_inst, Rect::new(0.0, 0.0, 120.0, 40.0));
+        nested_node.name = "Buttons/Button".into();
+        nested_node.kind = NodeKind::Instance { frame: FrameProps::default(), component: Some(btn_main), component_key: None };
+        nested_node.component.source = Some(btn_main);
+        d.insert(holder_main, nested_node).unwrap();
+        let c = create_component(&mut d, holder_main);
+        apply(&mut d, c);
+
+        d.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(NestedComponentTestHydrator {
+            deferred_page,
+            holder_comp: holder_main,
+            nested_inst,
+            nested_main: btn_main,
+            hydrated_page: false,
+        })));
+
+        let cmd = create_instance(&mut d, holder_main, open_page, Vec2::ZERO);
+        let new_inst = match &cmd {
+            Command::Insert { nodes, .. } => nodes[0].id,
+            _ => panic!("expected Insert"),
+        };
+        apply(&mut d, cmd);
+
+        let nested_copy = d.get(new_inst).unwrap().children[0];
+        assert_eq!(d.get(nested_copy).unwrap().children.len(), 1);
+        let copy_lbl = d.get(nested_copy).unwrap().children[0];
+        match &d.get(copy_lbl).unwrap().kind {
+            NodeKind::Text(tp) => assert_eq!(tp.content, "Go back"),
+            other => panic!("expected Text, got {other:?}"),
+        }
     }
 }

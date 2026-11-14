@@ -293,7 +293,7 @@ fn remap_prop_assignments(cx: &mut ExportCtx<'_>, kept: &Kept, entry: &mut V, in
 /// Entries that the writer's schema cannot hold whole are written without the parts it cannot hold, never as a value
 /// that stands for something else.
 pub(super) fn pending_symbol_overrides(cx: &mut ExportCtx<'_>, inst_id: NodeId, main: NodeId) -> Option<Vec<V>> {
-    if !cx.doc.get(inst_id)?.children.is_empty() {
+    if !cx.doc.get(inst_id)?.children.is_empty() && !cx.doc.is_component_hydrated_on_unopened_page(inst_id) {
         return None;
     }
     let main_guid = cx.node_guids.get(&main).copied()?;
