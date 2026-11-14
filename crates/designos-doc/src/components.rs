@@ -2042,9 +2042,11 @@ fn family_variants(d: &Document, comp_id: NodeId) -> Vec<NodeId> {
     vec![comp_id]
 }
 
-fn find_layer_at_path<'a>(d: &'a Document, root_comp: NodeId, path: &[NestedStep]) -> Option<&'a Node> {
+fn find_layer_at_path_with_comp<'a>(d: &'a Document, root_comp: NodeId, path: &[NestedStep]) -> Option<(&'a Node, Option<NodeId>)> {
     let mut cur_id = root_comp;
-    let mut active_comp = Some(root_comp);
+    let root_main = d.get(root_comp).and_then(instance_component).or(Some(root_comp));
+    let mut active_comp = root_main;
+    let mut matched_comp = active_comp;
     for (step_name, step_occ) in path {
         let n = d.get(cur_id)?;
         let mut seen_names: BTreeMap<String, usize> = BTreeMap::new();
@@ -2062,13 +2064,136 @@ fn find_layer_at_path<'a>(d: &'a Document, root_comp: NodeId, path: &[NestedStep
             }
         }
         let kn = found?;
-        let orig = orig_in_main(d, Some(root_comp), kn);
+        matched_comp = active_comp;
+        let orig = orig_in_main(d, root_main, kn);
         let is_swapped_inst = matches!(kn.kind, NodeKind::Instance { .. })
             && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
         active_comp = if is_swapped_inst || matches!(kn.kind, NodeKind::Instance { .. }) { instance_component(kn).or(active_comp) } else { active_comp };
         cur_id = kn.id;
     }
-    d.get(cur_id)
+    d.get(cur_id).map(|n| (n, matched_comp))
+}
+
+fn find_layer_at_path<'a>(d: &'a Document, root_comp: NodeId, path: &[NestedStep]) -> Option<&'a Node> {
+    find_layer_at_path_with_comp(d, root_comp, path).map(|(n, _)| n)
+}
+
+fn path_in_instance(d: &Document, inst: NodeId, inst_comp: Option<NodeId>, target: NodeId) -> Option<Vec<NestedStep>> {
+    fn walk(d: &Document, id: NodeId, root_comp: Option<NodeId>, active_comp: Option<NodeId>, target: NodeId, path: &mut Vec<NestedStep>) -> bool {
+        let Some(n) = d.get(id) else { return false };
+        let mut seen_names: BTreeMap<String, usize> = BTreeMap::new();
+        for &k in &n.children {
+            let Some(kn) = d.get(k) else { continue };
+            let orig = orig_in_main(d, root_comp, kn);
+            let base = base_layer(d, active_comp, kn);
+            let base_name = base.name.clone();
+            let seen = seen_names.entry(base_name.clone()).or_insert(0);
+            let occ = *seen;
+            *seen += 1;
+            path.push((base_name, occ));
+            if k == target {
+                return true;
+            }
+            let is_swapped_inst = matches!(kn.kind, NodeKind::Instance { .. })
+                && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn));
+            let child_active_comp = if is_swapped_inst { instance_component(kn).or(active_comp) } else { active_comp };
+            if walk(d, k, root_comp, child_active_comp, target, path) {
+                return true;
+            }
+            path.pop();
+        }
+        false
+    }
+    let mut path = Vec::new();
+    walk(d, inst, inst_comp, inst_comp, target, &mut path).then_some(path)
+}
+
+fn slot_child_reference_for_inst(d: &Document, inst: NodeId, child_id: NodeId, rn: &Node) -> Option<Node> {
+    let holder_node = d.get(inst).filter(|n| !is_top(n))?;
+    let slot_node_id = holder_node.component.source?;
+    let slot_node = d.get(slot_node_id)?;
+    let mine = instance_component(holder_node)?;
+    let slot_comp = instance_component(slot_node)?;
+    if mine == slot_comp {
+        return None;
+    }
+    let path = path_in_instance(d, inst, Some(mine), child_id)?;
+    let single_text_pair = count_text_nodes(d, slot_node_id) == 1 && count_text_nodes(d, mine) == 1;
+    let matched = find_layer_at_path_with_comp(d, slot_node_id, &path);
+    let matched_by_path = matched.is_some();
+    let (slot_child, child_comp) = matched.or_else(|| {
+        (single_text_pair && path.len() == 1 && matches!(rn.kind, NodeKind::Text(_)))
+            .then(|| text_nodes(d, slot_node_id).first().copied().and_then(|tid| d.get(tid)).map(|n| (n, Some(slot_comp))))
+            .flatten()
+    })?;
+    let orig = orig_in_main(d, Some(slot_comp), slot_child).or_else(|| orig_in_main(d, child_comp, slot_child))?;
+    let mut fields = effective_child_overrides(d, child_comp, slot_child);
+    if !matched_by_path {
+        fields.retain(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle));
+    }
+    let transfers_text = text_override_transfers(slot_child, rn, matched_by_path, single_text_pair);
+    if !transfers_text {
+        fields.remove(&OverrideField::Characters);
+        fields.remove(&OverrideField::TextStyle);
+    }
+    if slot_child.kind.frame_props().is_none() || rn.kind.frame_props().is_none() {
+        fields.remove(&OverrideField::Layout);
+    }
+    let same_family = d
+        .get(slot_comp)
+        .and_then(|a| a.parent)
+        .zip(d.get(mine).and_then(|b| b.parent))
+        .is_some_and(|(pa, pb)| pa == pb && matches!(d.get(pa).map(|n| &n.kind), Some(NodeKind::ComponentSet(_))));
+    let mut eff_rn = rn.clone();
+    let mut custom_layout_applied = false;
+    if matched_by_path || same_family {
+        if matched_by_path && fields.contains(&OverrideField::Layout) {
+            fields.remove(&OverrideField::Layout);
+            custom_layout_applied = apply_transferred_layout(orig, rn, slot_child, &mut eff_rn);
+        }
+        let diff = transfer_gate_diff(orig, rn);
+        let preserves_text_override = transfers_text && matched_by_path;
+        let has_characters_override = fields.contains(&OverrideField::Characters);
+        fields.retain(|&f| direct_transfer_gate_allows(f, orig, rn, preserves_text_override, has_characters_override, same_family, &diff));
+    }
+    if fields.is_empty() && !custom_layout_applied {
+        return None;
+    }
+    let kinds_differ = std::mem::discriminant(&slot_child.kind) != std::mem::discriminant(&eff_rn.kind);
+    copy_overridden(slot_child, &mut eff_rn, &fields);
+    if kinds_differ && fields.contains(&OverrideField::Size) && !matches!(eff_rn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+        eff_rn.fill_geometry = None;
+        eff_rn.stroke_geometry = None;
+    }
+    Some(eff_rn)
+}
+
+fn slot_child_reference(d: &Document, holder: NodeId, child_id: NodeId, rn: &Node) -> Option<Node> {
+    let mut inst_ancestors = Vec::new();
+    let mut cur = Some(holder);
+    let mut guard = 0usize;
+    while let Some(id) = cur {
+        guard += 1;
+        if guard > 64 {
+            break;
+        }
+        let Some(node) = d.get(id) else { break };
+        if matches!(node.kind, NodeKind::Instance { .. }) {
+            if is_top(node) {
+                break;
+            }
+            inst_ancestors.push(id);
+        }
+        cur = node.parent;
+    }
+    let mut eff_rn: Option<Node> = None;
+    for inst in inst_ancestors {
+        let base_rn = eff_rn.as_ref().unwrap_or(rn);
+        if let Some(next_rn) = slot_child_reference_for_inst(d, inst, child_id, base_rn) {
+            eff_rn = Some(next_rn);
+        }
+    }
+    eff_rn
 }
 
 fn family_has_compatible_layer(d: &Document, comp_id: NodeId, path: &[NestedStep], field: OverrideField) -> bool {
@@ -2391,7 +2516,8 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
         let kinds_differ = std::mem::discriminant(&old.kind) != std::mem::discriminant(&nn.kind);
         copy_overridden(&old, &mut nn, &fields);
-        if custom_layout_applied {
+        nn.component.overrides.retain(|f| old.component.overrides.contains(f));
+        if custom_layout_applied && old.component.overrides.contains(&OverrideField::Layout) {
             nn.component.overrides.insert(OverrideField::Layout);
         }
         if kinds_differ && fields.contains(&OverrideField::Size) && !matches!(nn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
@@ -2909,6 +3035,12 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
         } else {
             apply_reference(&rn, &mut n, top, &values);
         }
+    } else if !top && !matches!(inode.kind, NodeKind::Instance { .. }) {
+        if let Some(child_ref) = slot_child_reference(c.s, holder, i, &rn) {
+            apply_reference(&child_ref, &mut n, top, &values);
+        } else {
+            apply_reference(&rn, &mut n, top, &values);
+        }
     } else {
         apply_reference(&rn, &mut n, top, &values);
     }
@@ -3221,22 +3353,6 @@ fn relink_swapped_slot_children(c: &mut Ctx, slot_node: NodeId, inst_node: NodeI
         let Some(mut ic_node) = c.s.get(ic).cloned() else { continue };
         let Some(rc) = ic_node.component.source.and_then(|src| slot_by_src.get(&source_root(c.s, src)).copied()) else { continue };
         let same_sub_comp = instance_component(&ic_node) == c.s.get(rc).and_then(instance_component);
-        if same_sub_comp {
-            if let Some(rc_node) = c.s.get(rc) {
-                let own = record_override(rc_node, &ic_node);
-                let text_fills_differ = match (&rc_node.kind, &ic_node.kind) {
-                    (NodeKind::Text(a), NodeKind::Text(b)) => {
-                        a.style.fills != b.style.fills || rc_node.style_refs.get("fill") != ic_node.style_refs.get("fill")
-                    }
-                    _ => false,
-                };
-                ic_node.component.overrides.retain(|f| {
-                    own.contains(f)
-                        || matches!(f, OverrideField::MainComponent | OverrideField::SlotContent)
-                        || (*f == OverrideField::Fills && text_fills_differ)
-                });
-            }
-        }
         ic_node.component.source = Some(rc);
         c.update(ic_node);
         if same_sub_comp {
@@ -3283,10 +3399,22 @@ fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
     }
     let old_comp = c.s.get(instance).and_then(instance_component);
     swap_main(c, instance, new_comp);
+    let mut is_nested = false;
     if let Some(mut n) = c.s.get(instance).cloned() {
+        is_nested = !is_top(&n);
         n.component.overrides.insert(OverrideField::MainComponent);
         record_variant_swap(c.s, &mut n, old_comp, new_comp);
+        if is_nested {
+            if let Some(comp) = c.s.get(new_comp) {
+                for (k, _) in parse_variant_name(&comp.name) {
+                    n.component.values.remove(&k);
+                }
+            }
+        }
         c.update(n);
+    }
+    if is_nested {
+        sync_one(c, instance);
     }
     true
 }
@@ -3389,16 +3517,14 @@ pub fn set_nested_instance_prop(doc: &mut Document, nested: NodeId, name: &str, 
     if !swap_recorded(&mut c, nested, target) {
         return nothing();
     }
-    // The component the nested instance shows now names its variant; a value kept for it would read as the old choice.
-    if let Some(mut n) = c.s.get(nested).cloned() {
-        if n.component.values.remove(name).is_some() {
-            c.update(n);
+    if c.s.get(nested).is_some_and(is_top) {
+        if let Some(mut n) = c.s.get(nested).cloned() {
+            if n.component.values.remove(name).is_some() {
+                c.update(n);
+            }
         }
+        sync_one(&mut c, nested);
     }
-    // The layers of the new variant start from the variant itself: the other values of the nested instance (an instance
-    // swap, a boolean, a text) are applied to them in this command. The variant is not resolved or swapped again, as the
-    // nested instance is not a top instance and holds its swap.
-    sync_one(&mut c, nested);
     c.finish()
 }
 
@@ -13009,5 +13135,227 @@ mod tests {
             expected_c_sub,
             "returning text uses same_text_sizing and keeps target C's box when fontSize binding differs"
         );
+    }
+
+    #[test]
+    fn user_override_equal_to_outer_slot_keeps_flag_across_nested_variant_round_trip() {
+        let mut d = Document::new("UserOverrideEqualToSlot");
+        let page = d.add_page("P");
+
+        let mk_btn = |d: &mut Document, name: &str, x: f32, text: &str, w: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 120.0, 36.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let lbl_id = d.alloc_id();
+            let mut lbl = Node::text(lbl_id, Rect::new(8.0, 8.0, w, 20.0), text, TextStyle::default());
+            lbl.name = "Label".into();
+            d.insert(comp, lbl).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let btn_a = mk_btn(&mut d, "State=A", 0.0, "Primary", 48.0);
+        let btn_b = mk_btn(&mut d, "State=B", 150.0, "Secondary", 64.0);
+        let c = combine_as_variants(&mut d, &[btn_a, btn_b]);
+        apply(&mut d, c);
+
+        let host_id = d.alloc_id();
+        let mut host_f = Node::frame(host_id, Rect::new(0.0, 60.0, 200.0, 60.0));
+        host_f.name = "HostCard".into();
+        let host_main = d.insert(page, host_f).unwrap();
+        let c = create_component(&mut d, host_main);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, btn_a, host_main, Vec2::new(8.0, 8.0));
+        apply(&mut d, c);
+        let slot_btn = d.get(host_main).unwrap().children[0];
+        {
+            let mut sb = d.get(slot_btn).unwrap().clone();
+            sb.name = "SlotBtn".into();
+            apply(&mut d, Command::Update { node: Box::new(sb) });
+        }
+        let slot_lbl = child_named(&d, slot_btn, "Label");
+        override_text(&mut d, slot_lbl, "Save");
+        {
+            let mut n = d.get(slot_lbl).unwrap().clone();
+            n.size = Vec2::new(34.0, 20.0);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+
+        let c = create_instance(&mut d, host_main, page, Vec2::new(240.0, 60.0));
+        apply(&mut d, c);
+        let host_inst = *d.get(page).unwrap().children.last().unwrap();
+        let nested_btn = d.get(host_inst).unwrap().children[0];
+        let nested_lbl = child_named(&d, nested_btn, "Label");
+
+        // User sets nested label to "Pay", then back to "Save": Characters override flag stays on the copy.
+        override_text(&mut d, nested_lbl, "Pay");
+        {
+            let mut n = d.get(nested_lbl).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.content = "Save".into();
+            }
+            n.size = Vec2::new(34.0, 20.0);
+            n.component.overrides.insert(OverrideField::Characters);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        assert!(d.get(nested_lbl).unwrap().component.overrides.contains(&OverrideField::Characters));
+        let mut expected_nested = normalized_subtree(&d, nested_btn);
+        expected_nested[0].component.overrides.insert(OverrideField::MainComponent);
+
+        // Switch nested variant away and back through the panel: Characters flag stays.
+        let c = set_nested_instance_prop(&mut d, nested_btn, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        let c = set_nested_instance_prop(&mut d, nested_btn, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+
+        let after_round_trip_lbl = child_named(&d, nested_btn, "Label");
+        assert!(
+            d.get(after_round_trip_lbl).unwrap().component.overrides.contains(&OverrideField::Characters),
+            "user override equal to the slot must keep its Characters flag after nested variant round-trip"
+        );
+        assert_eq!(normalized_subtree(&d, nested_btn), expected_nested);
+
+        // Author edits the slot to "Submit" and syncs: the copy still shows "Save".
+        {
+            let mut n = d.get(slot_lbl).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.content = "Submit".into();
+            }
+            n.size = Vec2::new(52.0, 20.0);
+            n.component.overrides.insert(OverrideField::Characters);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        let c = sync_instances(&mut d, host_main);
+        apply(&mut d, c);
+
+        let after_sync_lbl = child_named(&d, nested_btn, "Label");
+        assert_eq!(text_of(&d, after_sync_lbl), "Save");
+        assert!(d.get(after_sync_lbl).unwrap().component.overrides.contains(&OverrideField::Characters));
+        assert_eq!(normalized_subtree(&d, nested_btn), expected_nested);
+    }
+
+    #[test]
+    fn nested_variant_round_trip_via_swap_menu_apply_spec_and_panel_leaves_no_slot_flag() {
+        let mut d = Document::new("SwapMenuApplySpecPanelParity");
+        let page = d.add_page("P");
+
+        let mk_badge = |d: &mut Document, name: &str, x: f32, font_size: f32, label_w: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 120.0, 28.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let dot_id = d.alloc_id();
+            let mut dot = Node::rectangle(dot_id, Rect::new(4.0, 8.0, 8.0, 8.0));
+            dot.name = "Dot".into();
+            dot.stroke.paints = vec![Paint::solid(Color::rgb(100, 100, 100))];
+            dot.stroke.weight = 1.0;
+            d.insert(comp, dot).unwrap();
+            let lbl_id = d.alloc_id();
+            let style = TextStyle { font_size, ..TextStyle::default() };
+            let mut lbl = Node::text(lbl_id, Rect::new(16.0, 4.0, label_w, 20.0), "Badge", style);
+            lbl.name = "Label".into();
+            d.insert(comp, lbl).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let badge_a = mk_badge(&mut d, "State=A", 0.0, 12.0, 32.0);
+        let badge_b = mk_badge(&mut d, "State=B", 150.0, 44.0, 44.0);
+        let c = combine_as_variants(&mut d, &[badge_a, badge_b]);
+        apply(&mut d, c);
+
+        let host_id = d.alloc_id();
+        let mut host_f = Node::frame(host_id, Rect::new(0.0, 60.0, 240.0, 60.0));
+        host_f.name = "HostCard".into();
+        let host_main = d.insert(page, host_f).unwrap();
+        let c = create_component(&mut d, host_main);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, badge_a, host_main, Vec2::new(8.0, 8.0));
+        apply(&mut d, c);
+        let slot_badge = d.get(host_main).unwrap().children[0];
+        {
+            let mut sb = d.get(slot_badge).unwrap().clone();
+            sb.name = "SlotBadge".into();
+            apply(&mut d, Command::Update { node: Box::new(sb) });
+        }
+        let slot_lbl = child_named(&d, slot_badge, "Label");
+        {
+            let mut n = d.get(slot_lbl).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.content = "Limited time only".into();
+            }
+            n.size = Vec2::new(98.0, 20.0);
+            n.component.overrides.insert(OverrideField::Characters);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+
+        // (a) Swap menu path (`swap_instance`)
+        let c = create_instance(&mut d, host_main, page, Vec2::new(280.0, 60.0));
+        apply(&mut d, c);
+        let inst_swap = *d.get(page).unwrap().children.last().unwrap();
+        let nested_swap = d.get(inst_swap).unwrap().children[0];
+        assert!(d.get(child_named(&d, nested_swap, "Label")).unwrap().component.overrides.is_empty());
+        let c = swap_instance(&mut d, nested_swap, badge_b);
+        apply(&mut d, c);
+        let c = swap_instance(&mut d, nested_swap, badge_a);
+        apply(&mut d, c);
+
+        // (b) `designos_apply_spec` path (`Document::apply_spec`)
+        let spec: crate::NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "instance",
+            "component": "HostCard",
+            "x": 540.0,
+            "y": 60.0,
+            "overrides": [
+                { "path": "SlotBadge", "variant": { "State": "B" } },
+                { "path": "SlotBadge", "variant": { "State": "A" } }
+            ]
+        }))
+        .unwrap();
+        let inst_spec = d.apply_spec(page, &spec).unwrap();
+        let nested_spec = child_named(&d, inst_spec, "SlotBadge");
+
+        // (c) Panel dropdown path (`set_nested_instance_prop`)
+        let c = create_instance(&mut d, host_main, page, Vec2::new(800.0, 60.0));
+        apply(&mut d, c);
+        let inst_panel = *d.get(page).unwrap().children.last().unwrap();
+        let nested_panel = d.get(inst_panel).unwrap().children[0];
+        assert!(d.get(child_named(&d, nested_panel, "Label")).unwrap().component.overrides.is_empty());
+        let c = set_nested_instance_prop(&mut d, nested_panel, "State", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        let c = set_nested_instance_prop(&mut d, nested_panel, "State", Some(PropValue::Variant("A".into())));
+        apply(&mut d, c);
+
+        for (label_path, nested) in [("swap_instance", nested_swap), ("apply_spec", nested_spec), ("panel", nested_panel)] {
+            let lbl = child_named(&d, nested, "Label");
+            assert!(
+                !d.get(lbl).unwrap().component.overrides.contains(&OverrideField::Characters),
+                "{label_path} must leave the copy with no Characters override flag"
+            );
+        }
+        assert_eq!(normalized_subtree(&d, nested_swap), normalized_subtree(&d, nested_panel));
+        assert_eq!(normalized_subtree(&d, nested_spec), normalized_subtree(&d, nested_panel));
+
+        // Author sets the slot to "New" and syncs: all three copies show "New" and match whole nodes.
+        {
+            let mut n = d.get(slot_lbl).unwrap().clone();
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.content = "New".into();
+            }
+            n.size = Vec2::new(28.0, 20.0);
+            n.component.overrides.insert(OverrideField::Characters);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        let c = sync_instances(&mut d, host_main);
+        apply(&mut d, c);
+
+        for (label_path, nested) in [("swap_instance", nested_swap), ("apply_spec", nested_spec), ("panel", nested_panel)] {
+            let lbl = child_named(&d, nested, "Label");
+            assert_eq!(text_of(&d, lbl), "New", "{label_path} copy must follow the updated slot label");
+            assert!(!d.get(lbl).unwrap().component.overrides.contains(&OverrideField::Characters));
+        }
+        assert_eq!(normalized_subtree(&d, nested_swap), normalized_subtree(&d, nested_panel));
+        assert_eq!(normalized_subtree(&d, nested_spec), normalized_subtree(&d, nested_panel));
     }
 }
