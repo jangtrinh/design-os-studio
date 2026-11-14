@@ -2231,7 +2231,8 @@ impl App {
                 None
             }
             Err(e) => {
-                self.show_toast(format!("Spec error: {e}"), true);
+                let message = if e.code == "INSTANCE_CYCLE" { e.message } else { format!("Spec error: {e}") };
+                self.show_toast(message, true);
                 None
             }
         }
