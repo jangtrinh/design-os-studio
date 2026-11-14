@@ -163,7 +163,7 @@ Concerns/Blockers: The gap check was a keyword grep, not a full read. Questions 
 1. Plugin compatibility corpus: **the coordinator proposes 8 open-source Figma plugins and the owner approves them.**
 2. Getting Figma plugins in: **"Import plugin from manifest…" from a local folder or repo.**
 3. Plugin UI: **an embedded webview (wry/WKWebView), falling back to the system browser.**
-4. MCP default target: **behave like Figma MCP (the editor selection is the default when attached), but more open, so users can customise it. Expose everything** (owner: "Giống Figma MCP nhưng phải mở hơn cho user tự tuỳ biến nếu thích. Open tất cả."). Implementation:
+4. MCP default target: **behave like Figma MCP (the editor selection is the default when attached), but more open, so users can customise it. Expose everything** (owner: "Like Figma MCP, but more open so users can customise it if they want. Open everything."). Implementation:
    - The selection default is configurable per user and per session: selection / require node_id / page.
    - Every tool and every option is exposed, with no hidden or Figma-only restrictions.
 
@@ -187,7 +187,7 @@ Concerns/Blockers: The gap check was a keyword grep, not a full read. Questions 
     - Windows: Media Foundation.
     - Linux: AV1 + Opus.
     - This covers MP4 export and video fills.
-12. **3D transforms (D-E5-3).** Owner: "Reverse engineer Spline? Rive? và schema 126.9.13 rồi tự làm? sau đó Figma có ra thì học hỏi thêm?"
+12. **3D transforms (D-E5-3).** Owner: "Reverse engineer Spline? Rive? And schema 126.9.13, then build it ourselves? Then learn more if Figma ships it?"
     - Do not wait for Figma GA.
     - Task 1: an REA study with `rea` (global hard rule) of the Spline and Rive desktop apps, plus the 3D fields in the Figma 126.9.13 kiwi schema.
     - Task 2: our own 3D transform design and implementation, informed by that study.
@@ -247,7 +247,7 @@ Coordinator (technical): the master list for E1–E10 is `scratchpad/master-task
 34. **D13.3 JavaScript in exported sites: zero JS by default; small scripts only where an interaction needs them.** The owner confirmed this on a re-ask after a mis-click.
 
 ### Round 10 (2026-10-17)
-35. **D14.1, D14.2 and D14.3 (iPad distribution, AI on iPad, native mobile platforms): deferred to backlog** ("Đưa vào backlog đã").
+35. **D14.1, D14.2 and D14.3 (iPad distribution, AI on iPad, native mobile platforms): deferred to backlog** ("Put it in the backlog for now").
     - E14 is filed as an epic with all of its tasks, in pack **Later** with Status Backlog.
     - These three decisions stay open on the E14 epic issue.
 

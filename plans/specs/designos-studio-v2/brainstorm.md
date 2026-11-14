@@ -57,7 +57,7 @@ With **`design`:os studio**, clicking **Make Design (First Draft)**, **Rename La
 ## 4. User Stories Overview (`US-11` & Linked Stories)
 
 1. **`US-11` (Primary — P0)**: As a **Product Designer, Systems Architect, and AI Engineer**, I want 1:1 Figma UI3 AI surfaces (`Actions ⌘K`, `Agents` Left Rail `S11`, and right-click Context Menu AI) wired to a 5-runtime Native PTY Terminal Core (`claude`, `codex`, `agy`, `grok`, `$SHELL`) with `<50ms` live hot-apply and 1-step `Cmd+Z` undo, so I can trigger Figma AI actions in 1 click or collaborate interactively with my authenticated CLI agents on the live `.fig` v106 canvas.
-2. **`US-03` (Linked — P0)**: Embedded PTY Agent Terminal & `Copy cho AI` Spec Reader citation bridge (`state.last_ai_copy`).
+2. **`US-03` (Linked — P0)**: Embedded PTY Agent Terminal & `Copy for AI` Spec Reader citation bridge (`state.last_ai_copy`).
 3. **`US-05` (Linked — P0)**: 1:1 Figma UI3 Chrome, `Type settings` per-tab filtering, Color Picker WCAG contrast bar, Dev Mode 5-tool bottom dock (`Select | Annotate | Measure | Comment | Actions`) + `Re-center ⇧2`, and Variables `/` group headers.
 4. **`US-10` (Linked — P0)**: Multiple Tab Project Workspace (`36px` Desktop Tab Strip `S10`) with green `</>` Dev Mode tab badge and zero-clone per-frame tab sync (`es:rust` Law 10).
 5. **`US-14` (Linked — P0 · `DIR-19`)**: Unified **Phosphor Icons** System (`https://phosphoricons.com/` · `@phosphor-icons/core` `viewBox="0 0 256 256"`, `D17`, `BR-22`) across all `Icon` enum variants, Left Rail, Left Side Panels (`Layers`, `Agents`, `Assets`), Bottom Floating Toolbar & Sub-Toolbar, Top Multi-Tab Bar, Right Inspector, `Actions (⌘K)`, Menus, Popovers, Home Screen, and `PRODUCT:OS Spec Driven v2` Reader.

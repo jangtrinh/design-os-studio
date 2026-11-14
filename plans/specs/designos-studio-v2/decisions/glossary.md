@@ -10,7 +10,7 @@ updated: 2026-10-15
 | Term | Anchor | Definition | Source |
 |---|---|---|---|
 | Spec Format v2 | spec-format-v2 | Canonical 11-stage specification bundle (`spec.manifest.json`, `pipeline.yaml`, `po-spec.md`, `clarifications.md`, `FC-001.md`, `PRD.md`, `US-01..14.md`, `W-01.md`, `P-01.md`, `tokens.md`, `test-plan.md`, `ui-contract.md`, `READY.md`, `review/gates/*.md`). | D3, D5 |
-| Copy cho AI | copy-cho-ai | Deterministic Markdown citation block carrying exact source file path, line range, section breadcrumb, reader view, and project revision. | D4 |
+| Copy for AI | copy-cho-ai | Deterministic Markdown citation block carrying exact source file path, line range, section breadcrumb, reader view, and project revision. | D4 |
 | UI Contract | ui-contract | 12-column behavioral selector table mapping `Screen × State` (`S01..S13` × 6 states = 78 rows) to `US`, `Element`, `Components`, and `SCN`. | D5 |
 | Kiwi v106 | kiwi-v106 | Figma binary container format (`fig-kiwi` header + DEFLATE schema + Zstd/DEFLATE message) preserving unknown schema fields in `raw_fields` across load/save cycles. | D1, D7 |
 | 2D CSS Grid | css-grid-2d | Figma 2025+ Auto-Layout mode (`LayoutDirection::Grid`, `stackMode: "GRID"`) supporting `fr`, `px`, `auto` track sizing and `col_span` / `row_span` placement. | D1, D6 |
