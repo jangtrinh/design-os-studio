@@ -78,16 +78,39 @@ fn resetting_a_size_override_on_the_unopened_instance_drops_the_recorded_size() 
     let mut live = import_fig(&fig).expect("import");
     let button = variant_button(&live);
     let node = live.get_mut(button).expect("instance");
-    assert!(node.component.overrides.contains(&OverrideField::Size), "the fixture records a size override");
+    assert!(node.component.has_override(&OverrideField::Size), "the fixture records a size override");
     node.size = Vec2::new(120.0, 48.0);
-    node.component.overrides.remove(&OverrideField::Size);
+    assert!(node.component.remove_override(&OverrideField::Size));
 
     let saved = export_fig(&live).expect("export");
+    assert_eq!(
+        own_entry(&saved),
+        json!({
+            "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
+            "fillPaints": own_entry(&fig)["fillPaints"]
+        }),
+        "the reset size is removed from the own entry while the untouched fill remains"
+    );
     let back = reopened(&saved);
     let reopened_button = variant_button(&back);
     let size = back.get(reopened_button).expect("instance").size;
     assert_eq!((size.x, size.y), (120.0, 48.0), "a reset pending override follows the main size");
-    assert!(entry_at(&saved_entries(&saved, INSTANCE), BUTTON).get("size").is_none(), "the reset size is removed from the own entry");
+
+    // Resetting the remaining own-entry field removes the own entry completely rather than leaving a bare guidPath.
+    let mut live_all_reset = import_fig(&fig).expect("import");
+    let button_all = variant_button(&live_all_reset);
+    {
+        let n = live_all_reset.get_mut(button_all).expect("instance");
+        n.size = Vec2::new(120.0, 48.0);
+        n.component.remove_override(&OverrideField::Size);
+        n.component.remove_override(&OverrideField::Fills);
+    }
+    let saved_all_reset = export_fig(&live_all_reset).expect("export");
+    assert_eq!(
+        saved_entries(&saved_all_reset, INSTANCE),
+        text_and_stroke_overrides().as_array().expect("entries").as_slice(),
+        "resetting all own-entry fields leaves only the child entries without a bare guidPath own entry"
+    );
 }
 
 #[test]
@@ -96,6 +119,10 @@ fn a_resize_of_a_width_bound_unopened_instance_drops_the_stale_width_binding() {
         "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
         "size": {"x": 130.0, "y": 48.0},
         "variableConsumptionMap": {"entries": [{
+            "variableField": "WIDTH",
+            "variableData": {"dataType": "ALIAS", "resolvedDataType": "FLOAT", "value": {"alias": {"guid": guid(2, 2)}}}
+        }]},
+        "parameterConsumptionMap": {"entries": [{
             "variableField": "WIDTH",
             "variableData": {"dataType": "ALIAS", "resolvedDataType": "FLOAT", "value": {"alias": {"guid": guid(2, 2)}}}
         }]}
@@ -120,9 +147,14 @@ fn a_resize_of_a_width_bound_unopened_instance_drops_the_stale_width_binding() {
     live.get_mut(button).expect("instance").size.x = 200.0;
 
     let saved = export_fig(&live).expect("export");
-    let entries = saved_entries(&saved, INSTANCE);
-    let own = entry_at(&entries, BUTTON);
-    assert!(own.get("variableConsumptionMap").is_none(), "the stale width binding remains in the restated own entry: {own}");
+    assert_eq!(
+        own_entry(&saved),
+        json!({
+            "guidPath": {"guids": [guid(BUTTON.0, BUTTON.1)]},
+            "size": {"x": 200.0, "y": 48.0}
+        }),
+        "the stale width binding is removed from the restated own entry"
+    );
     let back = reopened(&saved);
     assert_eq!(back.get(variant_button(&back)).expect("instance").size.x, 200.0);
 }
@@ -193,8 +225,18 @@ fn a_save_without_edits_writes_the_entries_the_file_stated() {
 fn deferred_own_entry_flags_are_not_serialized_as_native_component_overrides() {
     let live = import_fig(&fixture_with_own_entry()).expect("import");
     let button = variant_button(&live);
-    let node_json = serde_json::to_value(live.get(button).expect("instance")).expect("node JSON");
+    let inst = live.get(button).expect("instance");
+    assert!(inst.fig_metadata.is_empty(), "deferred instance carries no open-time snapshot in fig_metadata");
+    let node_json = serde_json::to_value(inst).expect("node JSON");
     assert!(node_json["component"]["overrides"].is_null(), "transient .fig flags must not reach MCP/node JSON: {node_json}");
+
+    let mut clean_node = inst.clone();
+    clean_node.component.fig_own_entry_flags.clear();
+    assert_eq!(
+        serde_json::to_string(inst).expect("node JSON with transient flags"),
+        serde_json::to_string(&clean_node).expect("node JSON without transient flags"),
+        "node serialization with transient fig_own_entry_flags is byte-identical to one without them"
+    );
 
     let mut loaded = live;
     loaded.hydrate_all_pages();
@@ -202,6 +244,14 @@ fn deferred_own_entry_flags_are_not_serialized_as_native_component_overrides() {
     assert!(loaded.get(hydrated_button).expect("hydrated instance").component.overrides.contains(&OverrideField::Size));
     let native = loaded.to_json().expect("native JSON after hydration");
     assert!(!native.contains("fig_own_entry_flags"), "transient .fig flags must not reach .designos JSON");
+
+    let mut loaded_with_transient = loaded.clone();
+    loaded_with_transient.get_mut(hydrated_button).expect("hydrated instance").component.fig_own_entry_flags.insert(OverrideField::Opacity);
+    assert_eq!(
+        loaded_with_transient.to_json().expect("native JSON with transient flag"),
+        native,
+        "native save of a document is byte-identical whether fig_own_entry_flags is empty or populated"
+    );
 }
 
 #[test]

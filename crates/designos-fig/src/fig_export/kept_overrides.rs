@@ -74,7 +74,25 @@ fn message_fields_mut(v: &mut V) -> Option<&mut Vec<(std::sync::Arc<str>, V)>> {
 }
 
 fn consumption_field_removed(field: &str, key: OverrideField) -> bool {
-    matches!((field, key), ("WIDTH", OverrideField::Size) | ("HEIGHT", OverrideField::Size))
+    matches!(
+        (field, key),
+        ("WIDTH" | "HEIGHT", OverrideField::Size)
+            | ("VISIBLE", OverrideField::Visible)
+            | ("OPACITY", OverrideField::Opacity)
+            | (
+                "STROKE_WEIGHT" | "BORDER_TOP_WEIGHT" | "BORDER_RIGHT_WEIGHT" | "BORDER_BOTTOM_WEIGHT" | "BORDER_LEFT_WEIGHT",
+                OverrideField::Stroke
+            )
+            | (
+                "CORNER_RADIUS"
+                    | "RECTANGLE_CORNER_RADII"
+                    | "RECTANGLE_TOP_LEFT_CORNER_RADIUS"
+                    | "RECTANGLE_TOP_RIGHT_CORNER_RADIUS"
+                    | "RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS"
+                    | "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS",
+                OverrideField::CornerRadii
+            )
+    )
 }
 
 fn drop_stale_consumption_entries(record: &mut Vec<(std::sync::Arc<str>, V)>, fields: &BTreeSet<OverrideField>) {
@@ -218,7 +236,7 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid
         };
         for (key, _) in fields.iter() {
             if let Some(field) = field_removed_with(key) {
-                if opened.contains_key(&field) && !node.component.overrides.contains(&field) {
+                if opened.contains_key(&field) && !node.component.has_override(&field) {
                     reset.insert(field);
                 }
             }
@@ -241,16 +259,25 @@ fn restate_edited_self_fields(cx: &mut ExportCtx<'_>, inst_id: NodeId, main_guid
     if let Some(fields) = restated.as_mut() {
         fields.retain(|(k, _)| &**k != "guidPath");
     }
+    let mut removed = edited;
+    removed.extend(reset);
     // Entries on one path apply in list order, so a key left in an earlier one would still be read where the last does not
     // override it: the old value goes from all of them and the new one is stated by the last.
     for &i in &own {
         let Some(record) = message_fields_mut(&mut entries[i]) else { continue };
-        record.retain(|(k, _)| !field_removed_with(k).is_some_and(|f| edited.contains(&f) || reset.contains(&f)));
-        drop_stale_consumption_entries(record, &edited);
+        record.retain(|(k, _)| !field_removed_with(k).is_some_and(|f| removed.contains(&f)));
+        drop_stale_consumption_entries(record, &removed);
     }
     if let (Some(record), Some(restated)) = (message_fields_mut(&mut entries[last]), restated.take()) {
         record.append(restated);
     }
+    entries.retain(|entry| {
+        !is_own_entry(entry, main_guid)
+            || match entry {
+                V::Message(fields) | V::Struct(fields) => fields.iter().any(|(k, _)| &**k != "guidPath"),
+                _ => true,
+            }
+    });
 }
 
 #[cfg(test)]

@@ -513,9 +513,10 @@ impl ComponentLink {
     }
 
     /// Clears a flag regardless of whether it came from the native document or a deferred `.fig` entry.
-    pub(crate) fn remove_override(&mut self, field: &OverrideField) {
-        self.overrides.remove(field);
-        self.fig_own_entry_flags.remove(field);
+    pub fn remove_override(&mut self, field: &OverrideField) -> bool {
+        let a = self.overrides.remove(field);
+        let b = self.fig_own_entry_flags.remove(field);
+        a || b
     }
 
     pub fn is_empty(&self) -> bool {

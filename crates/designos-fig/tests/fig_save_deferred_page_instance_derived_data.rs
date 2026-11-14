@@ -199,6 +199,17 @@ fn a_move_of_an_unopened_instance_drops_only_its_stale_derived_transform() {
         (reopened_doc.get(reopened_instance).expect("reopened instance").transform.tx - 100.0).abs() < 1e-4,
         "reopen preserves the moved instance position"
     );
+
+    // Moving the unopened instance and returning it to its open-time transform leaves derived data and own entries intact.
+    let no_edit_saved = export_fig(&import_fig(&fig).expect("import")).expect("export");
+    let mut moved_back = import_fig(&fig).expect("import");
+    let b = variant_button(&moved_back);
+    let initial = moved_back.get(b).expect("instance").transform;
+    moved_back.get_mut(b).expect("instance").transform.tx += 100.0;
+    moved_back.get_mut(b).expect("instance").transform = initial;
+    let saved_back = export_fig(&moved_back).expect("export");
+    assert_eq!(saved_derived(&saved_back, INSTANCE), saved_derived(&no_edit_saved, INSTANCE));
+    assert_eq!(saved_entries(&saved_back, INSTANCE), saved_entries(&no_edit_saved, INSTANCE));
 }
 
 #[test]
