@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 struct Decoded {
     archive: Archive,
     message: KiwiValue,
+    is_figjam: bool,
     /// Written by Studio's own old exporter: its schema numbers `Message.nodeChanges` 1 (Figma's id is 4) and its
     /// `StrokeCap` has no `CIRCLE_FILLED`.
     studio_connector_caps: bool,
@@ -58,6 +59,7 @@ pub(crate) fn release_os_memory() {
 
 fn decode_inner(bytes: &[u8], for_import: bool) -> Result<Decoded, FigError> {
     let mut archive = container::open(bytes)?;
+    let is_figjam = archive.canvas.starts_with(container::MAGIC_JAM);
     let (schema_bin, msg_bin) = container::read_archive_chunks(&archive)?;
     archive.canvas = Vec::new();
     let schema = Schema::decode(&schema_bin).map_err(|e| FigError::Format(format!("kiwi schema: {e}")))?;
@@ -68,7 +70,7 @@ fn decode_inner(bytes: &[u8], for_import: bool) -> Result<Decoded, FigError> {
     drop(msg_bin);
     let old_numbering = schema.defs[root].fields.iter().any(|f| &*f.name == "nodeChanges" && f.value == 1);
     let studio_connector_caps = old_numbering && schema.find("StrokeCap").is_some() && !schema.has_enum_variant("StrokeCap", "CIRCLE_FILLED");
-    Ok(Decoded { archive, message, studio_connector_caps })
+    Ok(Decoded { archive, message, is_figjam, studio_connector_caps })
 }
 
 fn decode(bytes: &[u8]) -> Result<Decoded, FigError> {
@@ -275,6 +277,10 @@ pub fn import_fig_with_report(bytes: &[u8]) -> Result<(Document, rest_import::Im
 /// [`import_fig_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
 pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
     let mut d = decode_inner(bytes, true)?;
+    // FigJam's binary container has its own magic. Unlike a REST export, it does
+    // not carry an `editorType` field in the decoded node changes, so preserve
+    // that file-level board marker while handing the data to the REST importer.
+    let is_figjam = d.is_figjam;
     let name = d.archive.meta.as_ref().and_then(|m| fstr(m, "file_name").or_else(|| fstr(m, "name"))).unwrap_or("Untitled").to_string();
     let owned_blobs: Vec<Vec<u8>> = match d.message.take_field("blobs") {
         Some(KiwiValue::Array(arr)) => arr
@@ -322,7 +328,10 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
     let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
     let dropped_variable_bindings = dropped_effect_variable_bindings(&entries);
     let dropped_variable_overrides = count_variable_override_nodes(&entries);
-    let rest = entries_to_rest(entries, &blob_refs, &name);
+    let mut rest = entries_to_rest(entries, &blob_refs, &name);
+    if is_figjam {
+        rest["editorType"] = Value::String("figjam".into());
+    }
     if large {
         release_os_memory();
     }
