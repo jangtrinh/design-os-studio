@@ -79,7 +79,10 @@ fn consumption_field_removed(field: &str, key: OverrideField) -> bool {
         ("WIDTH" | "HEIGHT", OverrideField::Size)
             | ("VISIBLE", OverrideField::Visible)
             | ("OPACITY", OverrideField::Opacity)
-            | ("STROKE_WEIGHT" | "BORDER_TOP_WEIGHT" | "BORDER_RIGHT_WEIGHT" | "BORDER_BOTTOM_WEIGHT" | "BORDER_LEFT_WEIGHT", OverrideField::Stroke)
+            | (
+                "STROKE_WEIGHT" | "BORDER_TOP_WEIGHT" | "BORDER_RIGHT_WEIGHT" | "BORDER_BOTTOM_WEIGHT" | "BORDER_LEFT_WEIGHT",
+                OverrideField::Stroke
+            )
             | (
                 "CORNER_RADIUS"
                     | "RECTANGLE_CORNER_RADII"
