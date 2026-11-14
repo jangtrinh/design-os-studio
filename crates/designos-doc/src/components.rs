@@ -115,6 +115,10 @@ fn copy_tree(d: &mut Document, src: NodeId, link: bool) -> Vec<Node> {
     copy_tree_reserving(d, src, link, &mut std::collections::BTreeSet::new())
 }
 
+fn copy_tree_from(d: &mut Document, tree_doc: &Document, src: NodeId, link: bool) -> Vec<Node> {
+    copy_tree_from_reserving(d, tree_doc, src, link, &mut std::collections::BTreeSet::new())
+}
+
 /// [`copy_tree`] whose Motion ids also avoid `reserved`, the ids of copies made earlier in the same batch.
 fn copy_tree_reserving(d: &mut Document, src: NodeId, link: bool, reserved: &mut std::collections::BTreeSet<crate::MotionId>) -> Vec<Node> {
     let mut out = Vec::new();
@@ -130,6 +134,36 @@ fn copy_tree_reserving(d: &mut Document, src: NodeId, link: bool, reserved: &mut
         }
     }
     out
+}
+
+fn copy_tree_from_reserving(
+    d: &mut Document,
+    tree_doc: &Document,
+    src: NodeId,
+    link: bool,
+    reserved: &mut std::collections::BTreeSet<crate::MotionId>,
+) -> Vec<Node> {
+    let mut out = Vec::new();
+    let mut id_map = std::collections::BTreeMap::new();
+    copy_rec_from(d, tree_doc, src, None, link, &mut out, &mut id_map);
+    let mut copied: Vec<&mut Node> = out.iter_mut().collect();
+    crate::reid_copied_motion_with(d, &mut copied, true, reserved);
+    out
+}
+
+fn live_source_in_doc(doc: &Document, tree_doc: &Document, src: NodeId) -> Option<NodeId> {
+    let mut cur = src;
+    for _ in 0..64 {
+        if doc.get(cur).is_some() {
+            return Some(cur);
+        }
+        let next = tree_doc.get(cur)?.component.source?;
+        if next == cur {
+            break;
+        }
+        cur = next;
+    }
+    None
 }
 
 fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, out: &mut Vec<Node>, id_map: &mut std::collections::BTreeMap<NodeId, NodeId>) {
@@ -164,6 +198,50 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     for c in &orig.children {
         let before = out.len();
         copy_rec(d, *c, Some(id), link, out, id_map);
+        if out.len() > before {
+            kids.push(out[before].id);
+        }
+    }
+    out[idx].children = kids;
+}
+
+fn copy_rec_from(
+    d: &mut Document,
+    tree_doc: &Document,
+    src: NodeId,
+    parent: Option<NodeId>,
+    link: bool,
+    out: &mut Vec<Node>,
+    id_map: &mut std::collections::BTreeMap<NodeId, NodeId>,
+) {
+    let Some(orig) = tree_doc.get(src).cloned() else { return };
+    let id = d.alloc_id();
+    id_map.insert(src, id);
+    let mut n = orig.clone();
+    n.id = id;
+    n.parent = parent;
+    n.source_id = None;
+    n.component.slot_content_id = None;
+    n.children = Vec::new();
+    if link {
+        n.component.source = live_source_in_doc(d, tree_doc, src);
+        n.component.overrides.clear();
+        n.component.clear_fig_own_entry_flags();
+        n.component.parked_overrides.clear();
+        release_own_variant_bindings(&mut n);
+        n.component.values.clear();
+        n.component.grid_align_overrides = [false, false];
+        n.component.props.clear();
+        n.component.slot_configs.clear();
+        n.component.prop_default_variables.clear();
+        n.component.expose_nested_instances = false;
+    }
+    let idx = out.len();
+    out.push(n);
+    let mut kids = Vec::new();
+    for c in &orig.children {
+        let before = out.len();
+        copy_rec_from(d, tree_doc, *c, Some(id), link, out, id_map);
         if out.len() > before {
             kids.push(out[before].id);
         }
@@ -692,6 +770,42 @@ pub fn mains_held_through(doc: &Document, mains: impl IntoIterator<Item = NodeId
     held
 }
 
+fn mains_held_through_in(doc: &Document, tree_doc: &Document, mains: impl IntoIterator<Item = NodeId>) -> Vec<NodeId> {
+    let mut held: Vec<NodeId> = Vec::new();
+    let mut to_walk: Vec<NodeId> = Vec::new();
+    for main in mains {
+        if !held.contains(&main) {
+            held.push(main);
+            to_walk.push(main);
+        }
+    }
+    while let Some(root) = to_walk.pop() {
+        let walk_doc = if tree_doc.get(root).is_some() { tree_doc } else { doc };
+        walk_doc.walk(root, |n, _| {
+            if let Some(main) = instance_component(n).filter(|m| !held.contains(m)) {
+                held.push(main);
+                to_walk.push(main);
+            }
+        });
+    }
+    held
+}
+
+fn held_main_at_in(doc: &Document, tree_doc: &Document, component: NodeId, at: NodeId) -> Option<NodeId> {
+    let mut enclosing = Vec::new();
+    let mut cur = Some(at);
+    while let Some(n) = cur.and_then(|id| doc.get(id)) {
+        if matches!(n.kind, NodeKind::Component(_)) {
+            enclosing.push(n.id);
+        }
+        cur = n.parent;
+    }
+    if enclosing.is_empty() {
+        return None;
+    }
+    mains_held_through_in(doc, tree_doc, [component]).into_iter().find(|m| enclosing.contains(m))
+}
+
 /// The main component that an instance of `component` at `at` (the parent it goes under, or the instance it replaces)
 /// would make hold an instance of itself, if any.
 pub fn held_main_at(doc: &Document, component: NodeId, at: NodeId) -> Option<NodeId> {
@@ -706,7 +820,9 @@ pub fn held_main_at(doc: &Document, component: NodeId, at: NodeId) -> Option<Nod
     if enclosing.is_empty() {
         return None;
     }
-    mains_held_through(doc, [component]).into_iter().find(|m| enclosing.contains(m))
+    let scratch = doc.expand_component_scratch(component);
+    let tree_doc = scratch.as_ref().unwrap_or(doc);
+    mains_held_through_in(doc, tree_doc, [component]).into_iter().find(|m| enclosing.contains(m))
 }
 
 /// User-facing label for a component or layer involved in a cycle refusal.
@@ -950,14 +1066,24 @@ pub fn create_instance_reserving(
     reserved: &mut std::collections::BTreeSet<crate::MotionId>,
 ) -> Command {
     let Some(comp) = doc.get(component).cloned() else { return nothing() };
-    if !matches!(comp.kind, NodeKind::Component(_)) || would_hold_itself(doc, component, parent) {
+    if !matches!(comp.kind, NodeKind::Component(_)) {
         return nothing();
     }
     if !doc.get(parent).map(|p| p.kind.is_container()).unwrap_or(false) {
         return nothing();
     }
-    doc.ensure_component_hydrated(component);
-    let mut nodes = copy_tree_reserving(doc, component, true, reserved);
+    let scratch = doc.expand_component_scratch(component);
+    if let Some(ref sdoc) = scratch {
+        if held_main_at_in(doc, sdoc, component, parent).is_some() {
+            return nothing();
+        }
+    } else if would_hold_itself(doc, component, parent) {
+        return nothing();
+    }
+    let mut nodes = match scratch.as_ref() {
+        Some(sdoc) => copy_tree_from_reserving(doc, sdoc, component, true, reserved),
+        None => copy_tree_reserving(doc, component, true, reserved),
+    };
     let name = comp
         .parent
         .and_then(|p| doc.get(p))
@@ -3114,8 +3240,8 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     // An instance on an unopened page, or one the loader left empty, has no children yet, and the page loader holds what
     // the file recorded for them (its overrides and derived data). Filling it from the main would make the save write it
     // from those nodes instead of from the record, so only its own properties follow the main until the page is opened.
-    let holds_record = |d: &Document| d.pending_instance_overrides(i).is_some() || d.pending_instance_derived(i).is_some();
-    if c.s.get(i).is_some_and(|x| matches!(x.kind, NodeKind::Instance { .. }) && x.children.is_empty()) && holds_record(c.s) {
+    let holds_record_for = |d: &Document, id: NodeId| d.pending_instance_overrides(id).is_some() || d.pending_instance_derived(id).is_some();
+    if c.s.get(i).is_some_and(|x| matches!(x.kind, NodeKind::Instance { .. }) && x.children.is_empty()) && holds_record_for(c.s, i) {
         return;
     }
 
@@ -3123,6 +3249,12 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     // A slot the user has edited keeps its content; once the override is cleared (Reset) the slot
     // mirrors the main component's children again, including dropping anything the user added.
     if inode.component.has_override(&OverrideField::SlotContent) {
+        return;
+    }
+    if c.s.get(ref_id).is_some_and(|x| matches!(x.kind, NodeKind::Instance { .. }) && x.children.is_empty()) && holds_record_for(c.s, ref_id) {
+        if let Some(scratch) = enclosing_component(c.s, ref_id).and_then(|comp| c.s.expand_component_scratch(comp)) {
+            sync_children_from_scratch(c, &scratch, ref_id, i, holder);
+        }
         return;
     }
     // A main that holds an instance of itself, met again inside its own mirror, is a repeat: the instance keeps the
@@ -3145,7 +3277,9 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
     // reference's layers instead of being rebuilt from them, which would drop its overrides.
     if !top
         && !swapped_here
-        && (has_prop_binding(&inode) || inode.component.has_override(&OverrideField::MainComponent))
+        && (has_prop_binding(&inode)
+            || inode.component.has_override(&OverrideField::MainComponent)
+            || inode.children.iter().any(|k| c.s.get(*k).and_then(|x| x.component.source).is_some_and(|s| !rn.children.contains(&s))))
         && matches!(rn.kind, NodeKind::Instance { .. })
         && instance_component(&inode) == instance_component(&rn)
     {
@@ -3213,6 +3347,77 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
         }
     }
     seen.truncate(seen_before);
+}
+
+fn sync_children_from_scratch(c: &mut Ctx, scratch: &Document, ref_id: NodeId, i: NodeId, holder: NodeId) {
+    let Some(rn) = scratch.get(ref_id).cloned() else { return };
+    let Some(inode) = c.s.get(i).cloned() else { return };
+    if inode.component.has_override(&OverrideField::SlotContent) {
+        return;
+    }
+    let values = c.s.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
+    let in_slot = rn.component.bindings.contains_key(&OverrideField::SlotContent) || is_slot_container(&c.s, i);
+    let rkids = rn.children.clone();
+    let ikids = inode.children.clone();
+    let child_holder = if matches!(inode.kind, NodeKind::Instance { .. }) { i } else { holder };
+    let mut by_src: BTreeMap<NodeId, NodeId> = BTreeMap::new();
+    for k in &ikids {
+        if let Some(s) = c.s.get(*k).and_then(|x| x.component.source) {
+            if in_slot {
+                by_src.entry(s).or_insert(*k);
+            } else {
+                by_src.insert(s, *k);
+            }
+        }
+    }
+    let r_live_srcs: BTreeSet<NodeId> = rkids.iter().filter_map(|rc| live_source_in_doc(c.s, scratch, *rc)).collect();
+    for k in &ikids {
+        let stale = match c.s.get(*k).map(|x| x.component.source) {
+            Some(Some(s)) => !r_live_srcs.contains(&s) || (in_slot && by_src.get(&s) != Some(k)),
+            Some(None) => in_slot,
+            None => false,
+        };
+        if stale {
+            c.push(Command::Remove { id: *k });
+        }
+    }
+    let mut desired: Vec<NodeId> = Vec::new();
+    for (idx, rc) in rkids.iter().enumerate() {
+        let rc_src = live_source_in_doc(c.s, scratch, *rc);
+        if let Some(ic) = rc_src.and_then(|s| by_src.get(&s).copied()).filter(|k| c.s.get(*k).is_some()) {
+            if let (Some(rc_node), Some(mut ic_node)) = (scratch.get(*rc), c.s.get(ic).cloned()) {
+                apply_reference(rc_node, &mut ic_node, false, &values);
+                apply_bindings(&mut ic_node, &values);
+                c.update(ic_node);
+            }
+            sync_children_from_scratch(c, scratch, *rc, ic, child_holder);
+            desired.push(ic);
+        } else {
+            let nodes = copy_tree_from(&mut c.s, scratch, *rc, true);
+            let Some(nid) = nodes.first().map(|n| n.id) else { continue };
+            let at = idx.min(c.s.get(i).map(|x| x.children.len()).unwrap_or(0));
+            c.push(Command::Insert { parent: i, index: at, nodes });
+            sync_children_from_scratch(c, scratch, *rc, nid, child_holder);
+            desired.push(nid);
+        }
+    }
+    let cur_kids = c.s.get(i).map(|x| x.children.clone()).unwrap_or_default();
+    for k in &cur_kids {
+        if !desired.contains(k) {
+            desired.push(*k);
+        }
+    }
+    for (k, id) in desired.iter().enumerate() {
+        let cur = c.s.get(i).map(|x| x.children.clone()).unwrap_or_default();
+        if cur.get(k) != Some(id) {
+            c.push(Command::Reparent { id: *id, parent: i, index: k });
+        }
+    }
+    if c.s.get(i).is_some_and(|x| x.kind.is_container()) {
+        if let Some(slot_after) = c.s.get(i).map(|x| x.size).filter(|&sz| sz != rn.size) {
+            apply_instance_constraints(c, i, rn.size, slot_after, 64);
+        }
+    }
 }
 
 fn apply_instance_constraints(c: &mut Ctx, parent: NodeId, old: Vec2, new: Vec2, depth: usize) {
@@ -13598,7 +13803,15 @@ mod tests {
                     return false;
                 }
                 self.hydrated_page = true;
-                self.hydrate_component(doc, self.holder_comp);
+                if let Some(scratch) = self.expand_component_scratch(doc, self.holder_comp) {
+                    if let Some(expanded_inst) = scratch.get(self.nested_inst) {
+                        for &cid in &expanded_inst.children {
+                            if let Some(child) = scratch.get(cid).cloned() {
+                                doc.insert(self.nested_inst, child).unwrap();
+                            }
+                        }
+                    }
+                }
                 true
             }
 
@@ -13611,15 +13824,23 @@ mod tests {
                 page != self.deferred_page || self.hydrated_page
             }
 
-            fn hydrate_component(&mut self, doc: &mut Document, component: NodeId) -> bool {
+            fn expand_component_scratch(&mut self, doc: &Document, component: NodeId) -> Option<Document> {
                 if component != self.holder_comp {
-                    return false;
+                    return None;
                 }
                 if !doc.get(self.nested_inst).is_some_and(|n| n.children.is_empty()) {
-                    return false;
+                    return None;
                 }
+                let mut scratch = Document::new(&doc.name);
+                doc.walk(self.holder_comp, |n, _| {
+                    scratch.nodes.insert(n.id, n.clone());
+                });
+                doc.walk(self.nested_main, |n, _| {
+                    scratch.nodes.insert(n.id, n.clone());
+                });
+                scratch.reserve_ids(doc.peek_next_id());
                 let main_label = doc.get(self.nested_main).unwrap().children[0];
-                let cloned_id = doc.alloc_id();
+                let cloned_id = scratch.alloc_id();
                 let mut cloned = doc.get(main_label).unwrap().clone();
                 cloned.id = cloned_id;
                 cloned.parent = Some(self.nested_inst);
@@ -13628,8 +13849,8 @@ mod tests {
                     tp.content = "Go back".into();
                 }
                 cloned.component.overrides.insert(OverrideField::Characters);
-                doc.insert(self.nested_inst, cloned).unwrap();
-                true
+                scratch.insert(self.nested_inst, cloned).unwrap();
+                Some(scratch)
             }
         }
 

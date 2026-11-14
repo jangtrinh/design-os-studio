@@ -2059,11 +2059,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             // An instance whose page is not loaded has no children to read overrides from: the entries the file stated
             // for it are written as they were. Any other instance is read from its children.
             let kept = component.and_then(|main| kept_overrides::pending_symbol_overrides(cx, id, main));
-            let sym_overrides = if cx.doc.is_component_hydrated_on_unopened_page(id) {
-                kept.unwrap_or_default()
-            } else {
-                kept.unwrap_or_else(|| collect_instance_overrides(cx, id))
-            };
+            let sym_overrides = kept.unwrap_or_else(|| collect_instance_overrides(cx, id));
             if !sym_overrides.is_empty() {
                 sd.push(("symbolOverrides", V::Array(sym_overrides)));
             }
@@ -2409,10 +2405,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
 
     let child_in_comp = in_component || matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_));
-    let skip_children = matches!(node.kind, NodeKind::Instance { .. }) && cx.doc.is_component_hydrated_on_unopened_page(id);
-    let children_to_export = if skip_children { Vec::new() } else { node.children };
-    let child_count = children_to_export.len();
-    for (cidx, cid) in children_to_export.into_iter().enumerate() {
+    let child_count = node.children.len();
+    for (cidx, cid) in node.children.into_iter().enumerate() {
         export_node_rec(cx, cid, nguid, cidx, my_dir, child_in_comp);
     }
     if let Some(motion) = node.motion.as_deref() {
