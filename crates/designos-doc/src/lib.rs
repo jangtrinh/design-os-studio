@@ -590,9 +590,14 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn hydrate_all(&mut self, doc: &mut Document) -> bool;
     fn is_hydrated(&self, page: NodeId) -> bool;
     /// Builds a scratch document holding `component`'s expanded subtree when `component` contains
-    /// deferred nested instances on an unopened page, leaving `doc` and the hydrator's deferred state untouched.
+    /// deferred nested instances on an unopened page. Only parser caches and any clone-budget
+    /// miss count on the hydrator are updated; `doc` and the hydrator's deferred page state stay untouched.
     fn expand_component_scratch(&mut self, _doc: &Document, _component: NodeId) -> Option<Document> {
         None
+    }
+    /// Whether `instance` is a deferred instance on an unopened page that the loader has not expanded yet.
+    fn is_pending_instance(&self, _instance: NodeId) -> bool {
+        false
     }
     fn unexpanded_instances(&self) -> usize {
         0
@@ -859,11 +864,19 @@ impl Document {
     }
 
     /// Builds a scratch document holding `component`'s expanded subtree when `component` contains
-    /// deferred nested instances on an unopened page, leaving `self` and its hydrator untouched.
+    /// deferred nested instances on an unopened page. Only parser caches and any clone-budget
+    /// miss count on the hydrator are updated; `self` and the hydrator's deferred page state stay untouched.
     pub fn expand_component_scratch(&self, component: NodeId) -> Option<Document> {
         let h = self.page_hydrator.as_ref()?;
         let Ok(mut guard) = h.lock() else { return None };
         guard.expand_component_scratch(self, component)
+    }
+
+    /// Whether `instance` is a deferred instance on an unopened page that the loader has not expanded yet.
+    pub fn is_pending_instance(&self, instance: NodeId) -> bool {
+        let Some(h) = self.page_hydrator.as_ref() else { return false };
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.is_pending_instance(instance)
     }
 
     /// Expands all remaining deferred pages (e.g., before full-document export).

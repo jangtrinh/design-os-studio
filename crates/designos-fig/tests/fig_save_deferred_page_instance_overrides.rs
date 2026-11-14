@@ -9,7 +9,7 @@ mod common;
 use common::deferred_fig::*;
 use common::fig_fixture::*;
 use designos_doc::*;
-use designos_fig::{export_fig, import_fig};
+use designos_fig::{export_fig, import_fig, import_fig_with_budget};
 use serde_json::{json, Value};
 
 #[test]
@@ -1069,4 +1069,102 @@ fn creating_instance_editing_main_then_opening_deferred_page_matches_fresh_open(
 
     let live_saved = export_fig(&live).expect("save live");
     assert_eq!(node_changes(&live_saved), node_changes(&fresh_saved), "save after opening equals a save from a fresh open");
+}
+
+#[test]
+fn new_instance_of_main_with_unoverridden_deferred_nested_instance_keeps_children_on_sync() {
+    let fig = fixture(json!([]), Vec::new(), Vec::new());
+    let mut live = import_fig(&fig).expect("import");
+    let cover = page_named(&live, "Cover");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+    let button = button_main(&live);
+    let main_nested = variant_button(&live);
+    assert!(!page_hydrated(&live, page_404));
+    assert!(live.pending_instance_overrides(main_nested).is_none(), "fixture has empty symbolOverrides");
+    assert!(live.pending_instance_derived(main_nested).is_none(), "fixture has no derivedSymbolData");
+
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let new_inst = match &cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd.apply(&mut live).expect("create instance");
+
+    let nested_copy = live.get(new_inst).expect("new instance").children[0];
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "nested instance copy has its children at once");
+    assert_eq!(label_of(&live, nested_copy), "Button CTA");
+
+    live.get_mut(variant).expect("variant").size.x += 40.0;
+    sync_instances(&mut live, variant).apply(&mut live).expect("sync variant after edit");
+    assert!(live.get(main_nested).expect("main nested").children.is_empty(), "deferred nested instance on unopened page is still empty");
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "syncing the holder component keeps the nested instance's children");
+
+    let label = live.get(button).expect("button").children[0];
+    let icon = live.get(button).expect("button").children[1];
+    if let NodeKind::Text(tp) = &mut live.get_mut(label).expect("label").kind {
+        tp.content = "Updated CTA".into();
+        tp.runs.clear();
+    }
+    live.get_mut(icon).expect("icon").stroke.weight = 2.5;
+    sync_instances(&mut live, variant).apply(&mut live).expect("sync variant while nested deferred instance is still empty");
+    assert!(live.get(main_nested).expect("main nested").children.is_empty(), "deferred nested instance on unopened page is still empty");
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "nested instance copy keeps label and icon when variant syncs from scratch");
+    assert_eq!(label_of(&live, nested_copy), "Updated CTA", "nested instance copy shows the edited label text from scratch");
+    sync_instances(&mut live, button).apply(&mut live).expect("sync nested button main after edit");
+
+    assert_eq!(child_names(&live, nested_copy), vec!["Text", "Icon"], "nested instance copy keeps label and icon after button sync");
+    assert_eq!(label_of(&live, nested_copy), "Updated CTA", "nested instance copy shows the edited label text");
+    let icon_copy = live.get(nested_copy).expect("nested copy").children[1];
+    assert!((live.get(icon_copy).expect("icon copy").stroke.weight - 2.5).abs() < 1e-4, "nested instance copy shows the edited icon stroke");
+
+    assert!(live.ensure_page_hydrated(page_404));
+    sync_instances(&mut live, variant).apply(&mut live).expect("sync variant after opening deferred page");
+    let snap_before = subtree_snapshot(&live, new_inst);
+
+    let cmd_after = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let inst_after = match &cmd_after {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd_after.apply(&mut live).expect("create instance after open");
+    let snap_after = subtree_snapshot(&live, inst_after);
+    assert_eq!(snap_before, snap_after, "opening the deferred page later leaves the instance equal to one created after opening");
+}
+
+#[test]
+fn new_instance_when_scratch_expansion_hits_clone_budget_stays_empty_and_counts_miss() {
+    let extra = vec![fig_node((1, 60), (0, 2), "INSTANCE", "Buttons/Button", json!({"symbolData": {"symbolID": guid(BUTTON.0, BUTTON.1)}}))];
+    let fig = fixture_with(json!({}), text_and_stroke_overrides(), extra, Vec::new());
+    let (mut live, rep) = import_fig_with_budget(&fig, 4).expect("import with budget");
+    assert_eq!(rep.instances_left_unexpanded, 0);
+    assert_eq!(live.hydration_unexpanded_instances(), 0);
+    assert!(live.hydration_error().is_none());
+
+    let cover = page_named(&live, "Cover");
+    let page_2 = page_named(&live, "Page 2");
+    let page_404 = page_named(&live, "404 pages");
+    let variant = variant_main(&live);
+    let button = button_main(&live);
+    let icon = live.get(button).expect("button").children[1];
+    let extra_nodes = duplicate_subtree(&mut live, icon);
+    Command::Insert { parent: button, index: 2, nodes: extra_nodes }.apply(&mut live).expect("add third child to button");
+    assert!(live.ensure_page_hydrated(page_2), "hydrating Page 2 uses 3 of the 4 clone budget slots");
+    assert!(!page_hydrated(&live, page_404));
+    assert_eq!(live.hydration_unexpanded_instances(), 0);
+    assert!(live.hydration_error().is_none());
+
+    let cmd = create_instance(&mut live, variant, cover, Vec2::ZERO);
+    let new_inst = match &cmd {
+        Command::Insert { nodes, .. } => nodes[0].id,
+        _ => panic!("expected Insert"),
+    };
+    cmd.apply(&mut live).expect("create instance when budget stops mid-expansion");
+    let nested_copy = live.get(new_inst).expect("new instance").children[0];
+    assert!(
+        live.get(nested_copy).expect("nested copy").children.is_empty(),
+        "nested instance must stay empty as on main rather than publishing a partial expansion"
+    );
+    assert_eq!(live.hydration_unexpanded_instances(), 1, "clone budget miss during scratch expansion must be counted");
+    assert!(live.hydration_error().is_none(), "scratch clone budget stop must not set last_error");
 }
