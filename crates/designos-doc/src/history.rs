@@ -144,21 +144,28 @@ impl Command {
                 }
                 validate_insert_nodes(doc, &nodes)?;
                 let root = root.id;
+                let stash = nodes.first().and_then(|n| n.component.deferred_page_stash.clone());
                 for mut n in nodes {
                     if n.id == root {
                         n.parent = None;
                     }
+                    n.component.deferred_page_stash = None;
                     doc.nodes.insert(n.id, n);
                 }
                 let index = index.min(doc.pages.len());
                 doc.pages.insert(index, root);
+                doc.on_insert_page(root, stash);
                 doc.bump_ids();
                 doc.mark_tree_full_dirty();
                 Command::RemovePage { id: root }
             }
             Command::RemovePage { id } => {
                 let index = doc.pages.iter().position(|p| *p == id).ok_or(DocError::NotFound(id))?;
-                let nodes = doc.remove(id)?;
+                let mut nodes = doc.remove(id)?;
+                let stash = doc.on_remove_page(id);
+                if let Some(root) = nodes.first_mut() {
+                    root.component.deferred_page_stash = stash;
+                }
                 Command::InsertPage { index, nodes }
             }
             Command::SetFlows { flows } => Command::SetFlows { flows: std::mem::replace(&mut doc.flows, flows) },
@@ -223,7 +230,8 @@ impl Command {
             }
             Command::Batch(cmds) => {
                 let mut inv = Vec::with_capacity(cmds.len());
-                for c in cmds {
+                for mut c in cmds {
+                    transfer_same_page_stash(&mut inv, &mut c);
                     inv.push(c.apply(doc)?);
                 }
                 inv.reverse();
@@ -239,7 +247,8 @@ impl Command {
     pub fn apply_atomic(self, doc: &mut Document) -> Result<Command, DocError> {
         let Command::Batch(cmds) = self else { return self.apply(doc) };
         let mut inv = Vec::with_capacity(cmds.len());
-        for c in cmds {
+        for mut c in cmds {
+            transfer_same_page_stash(&mut inv, &mut c);
             match c.apply_atomic(doc) {
                 Ok(i) => inv.push(i),
                 Err(e) => {
@@ -327,6 +336,20 @@ impl Command {
             | Command::SetVariables { .. }
             | Command::SetColorProfile { .. }
             | Command::SetCheckDesignsSettings(_) => {}
+        }
+    }
+}
+
+fn transfer_same_page_stash(inverses: &mut [Command], next: &mut Command) {
+    let Command::InsertPage { nodes, .. } = next else { return };
+    let Some(dst) = nodes.first_mut() else { return };
+    let page_id = dst.id;
+    for inv in inverses.iter_mut().rev() {
+        if let Command::InsertPage { nodes: inv_nodes, .. } = inv {
+            if let Some(src) = inv_nodes.first_mut().filter(|n| n.id == page_id && n.component.deferred_page_stash.is_some()) {
+                dst.component.deferred_page_stash = src.component.deferred_page_stash.take();
+                return;
+            }
         }
     }
 }

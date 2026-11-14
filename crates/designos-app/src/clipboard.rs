@@ -504,6 +504,15 @@ fn instantiate_mapped(doc: &mut Document, clip: &Clip) -> (Vec<Vec<Node>>, HashM
     let mut copied: Vec<&mut Node> = out.iter_mut().flatten().collect();
     // a timeline outside the copied set is only meaningful in the document the layers came from
     designos_doc::reid_copied_motion(doc, &mut copied, clip.origin == Some(Origin::of(doc)));
+    if clip.origin == Some(Origin::of(doc)) {
+        for (src_root, list) in clip.roots.iter().zip(out.iter()) {
+            if let Some(first) = list.first() {
+                if matches!(first.kind, NodeKind::Page { .. }) {
+                    doc.stage_duplicated_page(*src_root, first.id, map.iter().map(|(&k, &v)| (k, v)).collect());
+                }
+            }
+        }
+    }
     (out, map)
 }
 
@@ -1409,7 +1418,14 @@ pub(crate) mod tests {
 
         let mut app = App::new(designos_fig::import_fig(&fig).expect("import"));
         let unopened_page = app.doc.pages.iter().copied().find(|&p| app.doc.get(p).is_some_and(|n| n.name == "404 pages")).expect("404 pages");
-        let copy_page = app.duplicate_page(unopened_page).expect("duplicate unopened page");
+        let pos = app.doc.pages.iter().position(|&p| p == unopened_page).expect("unopened page index");
+        let mut copy_nodes = clone_subtree(&mut app.doc, unopened_page);
+        let copy_page = copy_nodes.first().expect("copy page root").id;
+        copy_nodes[0].name = format!("{} copy", copy_nodes[0].name);
+        app.hist
+            .exec(&mut app.doc, designos_doc::Command::InsertPage { index: pos + 1, nodes: copy_nodes })
+            .expect("insert duplicated unopened page without switching");
+        app.page = copy_page;
         let copied_inst = app.doc.get(copy_page).expect("copy page").children[0];
         assert!(app.doc.get(copied_inst).expect("copied inst").children.is_empty(), "copied instance is unexpanded");
 
