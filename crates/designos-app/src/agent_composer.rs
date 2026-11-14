@@ -1181,6 +1181,10 @@ pub fn show_composer(
     let is_shell_tab = state.active_tab().is_some_and(|t| t.is_shell_process());
     let new_chat = state.in_new_chat();
     let composer_live = !is_shell_tab || new_chat;
+    if !composer_live {
+        // A composer that is not live paints no popup and reads no text, so nothing else would ever close an `@` popup left open.
+        state.mention_popup.dismiss();
+    }
     let (pill_label, pill_preset) = crate::agent_picker::composer_pill(state);
     if state.picker.cache.is_probing() {
         // The pill and the placeholder name the agent a Send would start. Probes finish on another thread and no input follows them, so

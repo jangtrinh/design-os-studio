@@ -462,6 +462,282 @@ fn mode_control_sets_the_permission_mode() {
     finish(s);
 }
 
+/// With a running tab focused the menu draws over the terminal viewport. A row click belongs to the row: the window default for
+/// new tabs changes, the running tab keeps the mode it started with, and the control keeps showing what the next send uses.
+#[test]
+fn a_mode_menu_row_click_over_a_running_tab_sets_the_default_and_leaves_the_tab_alone() {
+    use crate::agent_permissions::AgentPermissionMode;
+    let mut s = session_sim();
+    s.shell.app.terminal.permission_mode = AgentPermissionMode::AskRisky;
+    frames(&mut s, 2);
+    assert_eq!(s.shell.app.terminal.tabs[0].permission_mode, AgentPermissionMode::Ask, "the running tab started in Ask first");
+    let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+    s.click(mode.center());
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.mode_menu_open, "the menu opens");
+    let vp = recorded(&s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    let skip = recorded(&s, "agents-composer-mode-skip").expect("Skip permissions row");
+    assert!(vp.contains(skip.center()), "the row sits over the terminal viewport, which is what makes the test meaningful");
+    s.click(skip.center());
+    frames(&mut s, 3);
+    assert_eq!(s.shell.app.terminal.permission_mode, AgentPermissionMode::Skip, "the row click set the window default");
+    assert_eq!(s.shell.app.terminal.tabs[0].permission_mode, AgentPermissionMode::Ask, "the running tab keeps its own mode");
+    assert!(!s.shell.app.terminal.mode_menu_open, "a pick closes the menu");
+    let texts = painted(&s);
+    assert!(texts.iter().any(|t| t == "Ask first"), "the control shows the mode the next send uses, the focused tab's own: {texts:?}");
+    assert!(!texts.iter().any(|t| t == "Skip permissions"), "not the new-tab default: {texts:?}");
+    finish(s);
+}
+
+/// The attach menu is drawn the same way as the mode menu and overhangs the viewport too: its rows take their clicks as well.
+#[test]
+fn an_attach_menu_row_click_over_a_running_tab_toggles_the_row() {
+    let mut s = session_sim();
+    let before = s.shell.app.terminal.active_composer().attach_prd;
+    let add = recorded(&s, "agents-composer-add-btn").unwrap();
+    s.click(add.center());
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.attach_menu_open, "the menu opens");
+    let vp = recorded(&s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    let row = recorded(&s, "agents-composer-attach-prd").expect("Attach PRD row");
+    assert!(vp.contains(row.center()), "the row sits over the terminal viewport");
+    s.click(row.center());
+    frames(&mut s, 3);
+    assert_ne!(s.shell.app.terminal.active_composer().attach_prd, before, "the row click toggled Attach PRD");
+    finish(s);
+}
+
+/// The `@` mention popup is drawn in the composer pass too, above the caret and over the viewport: its rows take their clicks.
+#[test]
+fn a_mention_row_click_over_a_running_tab_picks_the_row() {
+    let mut s = session_sim();
+    let input = recorded(&s, "agents-composer-input").unwrap();
+    s.click(input.center());
+    frames(&mut s, 2);
+    s.type_text("@");
+    frames(&mut s, 4);
+    assert!(s.shell.app.terminal.mention_popup.is_open(), "typing @ opens the popup");
+    let vp = recorded(&s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    let row = recorded(&s, "agent-mention-row-0").expect("the popup has a first row");
+    assert!(vp.contains(row.center()), "the row sits over the terminal viewport");
+    s.click(row.center());
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "the row click picked the mention and closed the popup");
+    assert!(!s.shell.app.terminal.active_mentions.is_empty(), "the pick is a mention on the composer");
+    finish(s);
+}
+
+/// How a press reaches the app when eframe holds the window events until the redraw: the pointer arrives on `p` and the button goes
+/// down in the same pass (`together`: the release too), so the pass has not yet seen the pointer over the overlay it presses.
+fn press_on_arrival(s: &mut Sim, p: Pos2, together: bool) {
+    s.pos = p;
+    let mut events = vec![Event::PointerMoved(p), Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: s.mods }];
+    if together {
+        events.push(Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: s.mods });
+        s.frame(events);
+    } else {
+        s.frame(events);
+        s.button(false);
+    }
+    s.frame(vec![]);
+}
+
+/// A press that arrives together with the pointer, over a row of an overlay that is already open, still lands on the row: the
+/// viewport's sense this pass is not what egui hit-tests, so the viewport must already be hover-only for the whole overlay time.
+#[test]
+fn a_press_arriving_with_the_pointer_on_a_mode_menu_row_reaches_the_row() {
+    use crate::agent_permissions::AgentPermissionMode;
+    for together in [false, true] {
+        let mut s = session_sim();
+        s.shell.app.terminal.permission_mode = AgentPermissionMode::AskRisky;
+        let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+        s.click(mode.center());
+        frames(&mut s, 2);
+        assert!(s.shell.app.terminal.mode_menu_open);
+        let skip = recorded(&s, "agents-composer-mode-skip").expect("Skip permissions row");
+        press_on_arrival(&mut s, skip.center(), together);
+        assert_eq!(s.shell.app.terminal.permission_mode, AgentPermissionMode::Skip, "together={together}: the row took the press");
+        assert_eq!(s.shell.app.terminal.tabs[0].permission_mode, AgentPermissionMode::Ask, "the running tab keeps its mode");
+        finish(s);
+    }
+}
+
+#[test]
+fn a_press_arriving_with_the_pointer_on_an_attach_menu_row_reaches_the_row() {
+    for together in [false, true] {
+        let mut s = session_sim();
+        let before = s.shell.app.terminal.active_composer().attach_prd;
+        let add = recorded(&s, "agents-composer-add-btn").unwrap();
+        s.click(add.center());
+        frames(&mut s, 2);
+        assert!(s.shell.app.terminal.attach_menu_open);
+        let row = recorded(&s, "agents-composer-attach-prd").expect("Attach PRD row");
+        press_on_arrival(&mut s, row.center(), together);
+        assert_ne!(s.shell.app.terminal.active_composer().attach_prd, before, "together={together}: the row took the press");
+        finish(s);
+    }
+}
+
+#[test]
+fn a_press_arriving_with_the_pointer_on_a_mention_row_reaches_the_row() {
+    for together in [false, true] {
+        let mut s = session_sim();
+        let input = recorded(&s, "agents-composer-input").unwrap();
+        s.click(input.center());
+        frames(&mut s, 2);
+        s.type_text("@");
+        frames(&mut s, 4);
+        assert!(s.shell.app.terminal.mention_popup.is_open());
+        let row = recorded(&s, "agent-mention-row-0").expect("the popup has a first row");
+        press_on_arrival(&mut s, row.center(), together);
+        assert!(!s.shell.app.terminal.mention_popup.is_open(), "together={together}: the row took the press and picked the mention");
+        assert!(!s.shell.app.terminal.active_mentions.is_empty());
+        finish(s);
+    }
+}
+
+/// An outside press still closes an open overlay and still focuses the terminal, whatever the viewport's sense.
+#[test]
+fn an_outside_press_arriving_with_the_pointer_closes_the_menu_and_focuses_the_terminal() {
+    for together in [false, true] {
+        let mut s = session_sim();
+        let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+        s.click(mode.center());
+        frames(&mut s, 2);
+        assert!(s.shell.app.terminal.mode_menu_open);
+        s.shell.app.terminal.viewport_focused = false;
+        let outside = viewport_point(&s);
+        press_on_arrival(&mut s, outside, together);
+        assert!(!s.shell.app.terminal.mode_menu_open, "together={together}: an outside press closes the menu");
+        assert!(s.shell.app.terminal.viewport_focused, "together={together}: and focuses the terminal");
+        finish(s);
+    }
+}
+
+/// The terminal yields pointer input only while a menu is open: with every menu closed it still takes a click (focus) and the wheel
+/// (scrollback).
+#[test]
+fn the_terminal_takes_clicks_and_scroll_when_no_menu_is_open() {
+    let mut s = session_sim();
+    {
+        let mut buf = String::new();
+        for i in 1..=200 {
+            buf.push_str(&format!("LINE_{i:03}\r\n"));
+        }
+        let mut parser = s.shell.app.terminal.tabs[0].parser.lock().unwrap();
+        parser.process(buf.as_bytes());
+        parser.set_scrollback(0);
+    }
+    frames(&mut s, 2);
+    let at = viewport_point(&s);
+    // A menu opened and closed first, so the test also proves the terminal takes input back.
+    let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+    s.click(mode.center());
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.mode_menu_open);
+    s.key(Key::Escape);
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.mode_menu_open);
+    s.shell.app.terminal.viewport_focused = false;
+    s.click(at);
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.viewport_focused, "a click in the viewport focuses the terminal again");
+    s.frame(vec![
+        Event::PointerMoved(at),
+        Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: Vec2::new(0.0, 80.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE },
+    ]);
+    frames(&mut s, 1);
+    let scrolled = s.shell.app.terminal.tabs[0].parser.lock().unwrap().screen().scrollback();
+    assert!(scrolled > 0, "the wheel scrolls the terminal scrollback, got {scrolled}");
+
+    // A stale `open` flag with nothing painted must not make a terminal unclickable: a shell tab paints no popup.
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("a shell tab starts");
+    frames(&mut s, 3);
+    s.shell.app.terminal.mention_popup.open = true;
+    drag_in_viewport(&mut s);
+    assert!(s.shell.app.terminal.active_tab().unwrap().selection.is_some(), "a drag still selects with a stale mention flag and nothing painted");
+    finish(s);
+}
+
+/// A drag inside the viewport, away from any overlay.
+fn drag_in_viewport(s: &mut Sim) {
+    let vp = recorded(s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    s.drag(egui::pos2(vp.left() + 40.0, vp.top() + 40.0), egui::pos2(vp.left() + 160.0, vp.top() + 60.0));
+    frames(s, 1);
+}
+
+/// Types `@` in the composer of the tab on screen and waits for the popup.
+fn open_mention_popup(s: &mut Sim) {
+    let input = recorded(s, "agents-composer-input").unwrap();
+    s.click(input.center());
+    frames(s, 2);
+    s.type_text("@");
+    frames(s, 4);
+    assert!(s.shell.app.terminal.mention_popup.is_open(), "typing @ opens the popup");
+}
+
+/// The popup is state of the whole panel. A tab with no live composer paints none, so it must neither keep the flag nor leave the
+/// terminal under it hover-only.
+#[test]
+fn an_open_mention_popup_leaves_a_shell_tab_clickable_and_is_closed_when_the_agent_tab_returns() {
+    let mut s = session_sim();
+    open_mention_popup(&mut s);
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("a shell tab starts");
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.active_tab().unwrap().is_shell_process(), "the shell tab is on screen");
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "a composer that is not live closes the popup");
+    s.shell.app.terminal.viewport_focused = false;
+    let vp = recorded(&s, "agents-terminal-viewport").unwrap();
+    s.click(egui::pos2(vp.left() + 40.0, vp.top() + 40.0));
+    assert!(s.shell.app.terminal.viewport_focused, "a click focuses the shell terminal");
+    drag_in_viewport(&mut s);
+    assert!(s.shell.app.terminal.active_tab().unwrap().selection.is_some(), "a drag selects in the shell terminal");
+    s.shell.app.terminal.active_tab = 0;
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "back on the agent tab the popup stays closed");
+    finish(s);
+}
+
+/// A press on a blank terminal cell dismisses the popup, as it dismisses the attach and mode menus, and the terminal takes that
+/// press or the next one.
+#[test]
+fn a_press_on_a_blank_terminal_cell_closes_the_mention_popup_and_the_terminal_takes_it() {
+    let mut s = session_sim();
+    open_mention_popup(&mut s);
+    let row = recorded(&s, "agent-mention-popup").expect("the popup rect");
+    let vp = recorded(&s, "agents-terminal-viewport").unwrap();
+    let blank = egui::pos2(vp.center().x, (vp.top() + 20.0).min(row.top() - 10.0).max(vp.top() + 4.0));
+    assert!(!row.contains(blank), "the press is outside the popup");
+    s.shell.app.terminal.viewport_focused = false;
+    s.click(blank);
+    frames(&mut s, 2);
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "the press closed the popup");
+    assert!(s.shell.app.terminal.viewport_focused, "the press focused the terminal");
+    let before = s.shell.app.terminal.active_tab().unwrap().selection;
+    drag_in_viewport(&mut s);
+    assert!(s.shell.app.terminal.active_tab().unwrap().selection.is_some(), "the next drag selects (was {before:?})");
+    finish(s);
+}
+
+/// A tab switch made on the strip closes the popup, even when the tab it lands on carries the same `@` token.
+#[test]
+fn switching_agent_tabs_closes_the_mention_popup() {
+    let mut s = session_sim();
+    s.shell.app.terminal.set_composer_draft("@");
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.mention_popup.is_open());
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second agent tab");
+    s.shell.app.terminal.set_composer_draft("@");
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.mention_popup.is_open());
+    let last = recorded(&s, "agents-left-tab-select").expect("the last tab's rect");
+    s.click(egui::pos2(last.left() - 20.0, last.center().y));
+    frames(&mut s, 3);
+    assert_eq!(s.shell.app.terminal.active_tab, 0, "the click switched to the first tab");
+    assert!(!s.shell.app.terminal.mention_popup.is_open(), "the switch closed the popup");
+    finish(s);
+}
+
 #[test]
 fn chrome_focus_band_is_the_header_only() {
     let mut s = session_sim();

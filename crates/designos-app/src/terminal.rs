@@ -6524,6 +6524,14 @@ pub fn modal_owns_keyboard(app: &crate::app::App) -> bool {
         || app.libs.review
 }
 
+/// True when `pos` is over a composer overlay (attach menu, mode menu, `@` mention popup). They paint before the terminal
+/// viewport, which overhangs them, and egui gives a click to the widget added last, so the viewport yields the pointer there.
+/// Only the overlay's own rect yields: a press anywhere else in the viewport still focuses the terminal, and the overlay closes
+/// on it as before. The runtime dropdown and the sessions popover paint after the viewport and need no yield.
+fn pointer_over_composer_overlay(ctx: &egui::Context, pos: Option<Pos2>) -> bool {
+    pos.is_some_and(|pos| crate::agent_composer_menus::overlay_contains(ctx, pos))
+}
+
 /// Renders the `Agents` Left Side Panel with live [`Document`] access for the `@`-mention picker (`#655`).
 pub fn show_left_with_doc(
     state: &mut TerminalState,
@@ -6595,7 +6603,8 @@ pub fn show_left_with_doc(
 
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                if vp_r.contains(pos) {
+                // A press on a composer overlay that overhangs the viewport belongs to the overlay, not to the terminal.
+                if vp_r.contains(pos) && !pointer_over_composer_overlay(ui.ctx(), Some(pos)) {
                     state.viewport_focused = true;
                     ui.memory_mut(|m| m.surrender_focus(composer_input_id));
                 }
@@ -6936,7 +6945,17 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         return;
     }
 
-    let vp_resp = ui.interact(viewport_rect, Id::new((surface_id, "term-vt100-viewport")), Sense::click_and_drag());
+    // The composer overlays paint before this viewport, so in egui's hit order (later widget on top) the viewport would take the
+    // clicks and the wheel meant for an overlay row that overhangs it. With the pointer over one the viewport only hovers.
+    let pointer_yielded = pointer_over_composer_overlay(ui.ctx(), ui.input(|i| i.pointer.latest_pos()));
+    // egui hit-tests a press against the widgets of the previous pass, and eframe often delivers the move onto a row and the press
+    // in one pass, so the sense chosen from the pointer position would come one pass late. The viewport is therefore hover-only
+    // while an overlay was painted in this pass or the one before. That reads what was painted, never an open flag: a flag left
+    // set on a tab with no live composer must not make the terminal unclickable. An outside press still closes the overlay (the
+    // composer ran first) and still focuses the terminal (the press check above reads the raw press, not this widget).
+    let overlay_open = crate::agent_composer_menus::overlay_painted_recently(ui.ctx());
+    let vp_sense = if overlay_open || pointer_yielded { Sense::hover() } else { Sense::click_and_drag() };
+    let vp_resp = ui.interact(viewport_rect, Id::new((surface_id, "term-vt100-viewport")), vp_sense);
     if vp_resp.clicked() || vp_resp.drag_started() {
         state.viewport_focused = true;
     }
@@ -6973,7 +6992,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         );
         let mut press_in_scrollbar = false;
         let mut sb_active = false;
-        if scrollback_len > 0 && viewport_rect.height() > 0.0 {
+        if scrollback_len > 0 && viewport_rect.height() > 0.0 && !pointer_yielded {
             let sb_resp = ui.interact(track_rect, Id::new((surface_id, "term-scrollbar")), Sense::click_and_drag());
             press_in_scrollbar = sb_resp.clicked()
                 || sb_resp.dragged()
@@ -7035,7 +7054,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
 
         // Mouse wheel: main screen always scrolls Studio's 5,000-line scrollback; alternate screen (`?1049h`)
         // forwards mouse wheel reports in the active mouse encoding or cursor keys when mouse reporting is off.
-        if vp_resp.hovered() {
+        if vp_resp.hovered() && !pointer_yielded {
             let delta_rows = wheel_delta_rows(ui.input(|i| i.smooth_scroll_delta.y));
             if delta_rows != 0 {
                 let cell = ui.input(|i| i.pointer.hover_pos()).map(&pos_to_cell).unwrap_or((0, 0));
