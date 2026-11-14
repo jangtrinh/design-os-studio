@@ -3913,6 +3913,7 @@ impl TerminalState {
             }
             let _ = removed.child.kill();
             Self::withdraw_tab_approvals(&mut removed);
+            crate::agent_permissions::remove_tab_hook_script(&self.session_dir, removed.id);
             if removed.spawn_preset == AgentCliPreset::Gemini {
                 crate::gemini_status_hooks::remove_tab_file(&self.session_dir, removed.id);
             }
@@ -11865,6 +11866,8 @@ mod tests {
         let _ = st.spawn_tab(AgentCliPreset::Shell, None);
         assert_eq!(st.tabs.len(), 2);
         let tab2_id = st.tabs[1].id;
+        let tab2_hook = crate::agent_approval_channel::channel_dir(&st.session_dir).expect("private channel").join(format!("approve-hook-tab-{tab2_id}.sh"));
+        assert!(tab2_hook.is_file(), "an Ask tab owns a per-tab approval script");
         let tab2_approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&st.session_dir, tab2_id).expect("a private approvals folder");
         crate::agent_approval_channel::create_private_dir_all(&tab2_approvals_dir).unwrap();
         let tab2_req_path = tab2_approvals_dir.join("4002-Bash.request.json");
@@ -11879,6 +11882,7 @@ mod tests {
         let _ = st.poll_live_agent_bridge();
         st.close_tab(1);
         assert_eq!(st.tabs.len(), 1);
+        assert!(!tab2_hook.exists(), "closing Tab 2 removes its per-tab approval script");
         assert!(tab2_ans_path.exists(), "Closing Tab 2 must withdraw Tab 2's per-tab request");
         assert!(!tab1_approvals_dir.join("4001-Bash.answer").exists(), "Closing Tab 2 must not withdraw Tab 1's per-tab request");
         assert!(req_path.exists(), "Closing Tab 2 must not delete Tab 1's .request.json");
