@@ -384,18 +384,20 @@ fn parked_size_outline_loaded_without_stamp_restores_and_renders_child_outline()
         let n = t.node(badge_inst);
         assert_eq!(n.stroke.weight, 4.0);
         n.size = Vec2::new(40.0, 40.0);
+        n.stroke.weight = 8.0;
         n.stroke_geometry = Some(vec![rect_path(0.0, 17.0, 40.0, 6.0)]);
         n.stamp_stroke_geometry();
         n.component.overrides.insert(OverrideField::Size);
+        n.component.overrides.insert(OverrideField::Stroke);
     }
     let expected = t.render(40, 40);
     assert_eq!(px(&expected, 20, 20), [0, 0, 255, 255], "child outline bar must be drawn before variant switch");
     assert_eq!(px(&expected, 20, 2), WHITE, "live perimeter stroke must not be drawn when child outline is valid");
 
-    // Switch to State=B so the child's Size + stroke_geometry override is parked on the instance.
+    // Switch to State=B so the child's Size + Stroke overrides are parked on the instance.
     let cmd = set_instance_prop(&mut t.doc, inst, "State", Some(PropValue::Variant("B".into())));
     apply_cmd(&mut t.doc, cmd);
-    assert_eq!(t.doc.get(inst).unwrap().component.parked_overrides.len(), 1);
+    assert_eq!(t.doc.get(inst).unwrap().component.parked_overrides.len(), 2);
 
     // Strip all stamps in JSON to simulate a document saved without stamps.
     let mut val: serde_json::Value = serde_json::from_str(&t.doc.to_json().unwrap()).unwrap();
@@ -404,10 +406,36 @@ fn parked_size_outline_loaded_without_stamp_restores_and_renders_child_outline()
     assert!(!json.contains("\"stroke_geometry_for\""));
     t.doc = Document::from_json(&json).unwrap();
 
-    // Restore the parked override by switching back to State=A.
+    // Restore the parked overrides by switching back to State=A.
     let cmd = set_instance_prop(&mut t.doc, inst, "State", Some(PropValue::Variant("A".into())));
     apply_cmd(&mut t.doc, cmd);
 
     let after_restore = t.render(40, 40);
-    assert_eq!(after_restore.data(), expected.data(), "restored parked size outline on frame child must render pixel-equal to origin/main");
+    assert_eq!(after_restore.data(), expected.data(), "restored parked size outline + stroke override must render pixel-equal to origin/main");
+
+    // Save and reload: the restored stamp must match weight 8 so the stored band is still drawn.
+    let saved_json = t.doc.to_json().unwrap();
+    t.doc = Document::from_json(&saved_json).unwrap();
+    let after_reload = t.render(40, 40);
+    assert_eq!(after_reload.data(), expected.data(), "saved and reloaded document after restore must still draw the stored outline");
+
+    // A parked size outline that already carries a `Some` stamp (parked after this change) keeps it as is.
+    let badge_restored = t.doc.get(inst).unwrap().children[0];
+    let stamp_for_8 = t.doc.get(badge_restored).unwrap().stroke_geometry_for.clone();
+    assert!(stamp_for_8.is_some());
+    t.node(badge_restored).stroke.weight = 12.0;
+    let cmd = set_instance_prop(&mut t.doc, inst, "State", Some(PropValue::Variant("B".into())));
+    apply_cmd(&mut t.doc, cmd);
+    let cmd = set_instance_prop(&mut t.doc, inst, "State", Some(PropValue::Variant("A".into())));
+    apply_cmd(&mut t.doc, cmd);
+    let badge_after_second_restore = t.doc.get(inst).unwrap().children[0];
+    assert_eq!(
+        t.doc.get(badge_after_second_restore).unwrap().stroke_geometry_for,
+        stamp_for_8,
+        "a parked size outline that already carries a Some stamp must keep it as is across park and restore"
+    );
+    assert!(
+        t.doc.get(badge_after_second_restore).unwrap().live_stroke_outline().is_none(),
+        "stale outline parked with a Some stamp must remain invalid after restore"
+    );
 }
