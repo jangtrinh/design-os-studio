@@ -2980,7 +2980,6 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, sync_root: bool, hold
         && !swapped_here
         && (has_prop_binding(&inode) || inode.component.overrides.contains(&OverrideField::MainComponent))
         && matches!(rn.kind, NodeKind::Instance { .. })
-        && !rn.component.overrides.contains(&OverrideField::MainComponent)
         && instance_component(&inode) == instance_component(&rn)
     {
         relink_swapped_slot_children(c, ref_id, i);
@@ -10569,6 +10568,46 @@ mod tests {
     }
 
     #[test]
+    fn nested_label_override_survives_matching_main_nested_swap_sync() {
+        let mut d = Document::new("NestedLabelOverride");
+        let page = d.add_page("P");
+        let button_a = main_with_texts(&mut d, page, "Button/A", 0.0, &["Label"]);
+        let button_b = main_with_texts(&mut d, page, "Button/B", 160.0, &["Label"]);
+        let button_a_label = child_named(&d, button_a, "Label");
+        let button_b_label = child_named(&d, button_b, "Label");
+        set_text(&mut d, button_a_label, "Default A");
+        set_text(&mut d, button_b_label, "Default B");
+
+        let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 240.0, 80.0);
+        let dot = child_named(&d, card, "Dot");
+        apply(&mut d, Command::Remove { id: dot });
+        put_named_instance(&mut d, button_a, card, "Button");
+
+        let c = create_instance(&mut d, card, page, Vec2::new(320.0, 0.0));
+        apply(&mut d, c);
+        let card_instance = *d.get(page).unwrap().children.last().unwrap();
+        let nested_copy = child_named(&d, card_instance, "Button");
+
+        // User changes the nested instance in the Card copy and overrides its label.
+        let c = swap_instance(&mut d, nested_copy, button_b);
+        apply(&mut d, c);
+        let copy_label = child_named(&d, nested_copy, "Label");
+        override_text(&mut d, copy_label, "Pay");
+        let mut expected_nested = normalized_subtree(&d, nested_copy);
+
+        // The Card main makes the same nested swap. Syncing Card must retain Pay.
+        let nested_main = child_named(&d, card, "Button");
+        let c = swap_instance(&mut d, nested_main, button_b);
+        apply(&mut d, c);
+        expected_nested[1].component.source = Some(child_named(&d, nested_main, "Label"));
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+
+        assert_eq!(text_of(&d, child_named(&d, nested_copy, "Label")), "Pay");
+        assert_eq!(normalized_subtree(&d, nested_copy), expected_nested);
+    }
+
+    #[test]
     fn inner_swap_follows_the_swap_even_when_the_new_main_places_another_original() {
         let mut d = Document::new("InnerOtherOriginal");
         let page = d.add_page("P");
@@ -12412,7 +12451,7 @@ mod tests {
     }
 
     #[test]
-    fn main_sync_of_nested_instance_without_parked_entries_matches_main_behavior() {
+    fn main_sync_of_swapped_nested_instance_without_parked_entries_keeps_label_override_when_main_makes_same_swap() {
         let mut d = Document::new("MainSyncNestedNoParked");
         let page = d.add_page("P");
 
@@ -12455,17 +12494,20 @@ mod tests {
         let inst_lbl = child_named(&d, inst_btn, "Label");
         override_text(&mut d, inst_lbl, "Pay");
         assert!(d.get(inst_btn).unwrap().component.parked_overrides.is_empty());
+        let mut expected_btn = normalized_subtree(&d, inst_btn);
 
         // Then Card main's nested button is swapped to B too, and Card's instances are synced.
         let c = set_nested_instance_prop(&mut d, main_btn, "State", Some(PropValue::Variant("B".into())));
         apply(&mut d, c);
+        expected_btn[1].component.source = Some(child_named(&d, main_btn, "Label"));
         let c = sync_instances(&mut d, card_main);
         apply(&mut d, c);
 
-        // On origin/main, with an empty parked list, the sync rebuilds the slot children from the reference and replaces "Pay" with the main label "Cancel".
+        // The sync relinks the swapped nested instance to the main's slot and preserves "Pay".
         let synced_lbl = child_named(&d, inst_btn, "Label");
-        assert_eq!(text_of(&d, synced_lbl), "Cancel", "with an empty parked list, main sync matches main and replaces Pay with Cancel");
-        assert!(d.get(synced_lbl).unwrap().component.overrides.is_empty());
+        assert_eq!(text_of(&d, synced_lbl), "Pay");
+        assert!(d.get(synced_lbl).unwrap().component.overrides.contains(&OverrideField::Characters));
+        assert_eq!(normalized_subtree(&d, inst_btn), expected_btn);
     }
 
     #[test]
