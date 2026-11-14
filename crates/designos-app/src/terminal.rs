@@ -3913,6 +3913,7 @@ impl TerminalState {
             }
             let _ = removed.child.kill();
             Self::withdraw_tab_approvals(&mut removed);
+            crate::agent_approval_channel::remove_tab_hook_script(&self.session_dir, removed.id);
             if removed.spawn_preset == AgentCliPreset::Gemini {
                 crate::gemini_status_hooks::remove_tab_file(&self.session_dir, removed.id);
             }
@@ -10779,6 +10780,10 @@ mod tests {
         let script = crate::agent_permissions::write_approval_hook_script(&st.session_dir).expect("install the hook");
         let channel = crate::agent_approval_channel::channel_dir(&st.session_dir).unwrap();
         let (first_dir, second_dir) = (tab_approvals_of(&st, first), tab_approvals_of(&st, second));
+        let first_id = st.tabs[first].id;
+        let second_id = st.tabs[second].id;
+        crate::agent_permissions::install_tab_hook_script(&channel, None, first_id, crate::agent_permissions::AgentPermissionMode::Ask).unwrap();
+        crate::agent_permissions::install_tab_hook_script(&channel, None, second_id, crate::agent_permissions::AgentPermissionMode::Ask).unwrap();
         for (dir, id) in [(&first_dir, "8001-Bash"), (&second_dir, "8002-Bash")] {
             crate::agent_approval_channel::create_private_dir_all(dir).unwrap();
             let request = serde_json::json!({ "id": id, "tool_name": "Bash", "summary": "ls", "timestamp": crate::agent_sessions::unix_timestamp_secs() });
@@ -10788,6 +10793,8 @@ mod tests {
         st.close_tab(first);
         assert_eq!(std::fs::read_to_string(first_dir.join("8001-Bash.answer")).unwrap().trim(), "withdrawn", "the closed tab's request is withdrawn");
         assert!(!second_dir.join("8002-Bash.answer").exists(), "the other tab's request is left alone");
+        assert!(!channel.join(format!("approve-hook-tab-{first_id}.sh")).exists(), "the closed tab's hook script is removed");
+        assert!(channel.join(format!("approve-hook-tab-{second_id}.sh")).exists(), "the surviving tab's hook script stays");
         assert!(script.is_file() && channel.is_dir(), "a tab is still running: the channel stays");
 
         st.shutdown();
