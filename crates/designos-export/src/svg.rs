@@ -638,7 +638,8 @@ impl Svg<'_> {
             return;
         }
         let w = st.weight;
-        let aligned = geo.closed && geo.fillable;
+        // A full ring has no fill area (`fillable` is false) but its stroke is still aligned, as on the canvas.
+        let aligned = geo.closed && (geo.fillable || matches!(n.kind, NodeKind::Ellipse(_)));
         // A dashed inside or outside rectangle is stroked at its own weight along the inset or outset
         // outline, like the canvas does; it is still clipped to its side of the boundary below.
         let dashed_outline = if aligned && st.align != StrokeAlign::Center {
