@@ -619,6 +619,23 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn pending_instance_self_digests(&self, _instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
         None
     }
+    /// Stages the `old_id -> new_id` layer mapping produced when duplicating `src_page` into `dst_page`,
+    /// to be activated when `dst_page` is inserted into the document.
+    fn stage_duplicated_page(&mut self, _src_page: NodeId, _dst_page: NodeId, _id_map: BTreeMap<NodeId, NodeId>) {}
+    /// Activates or restores deferred records for `page` when it is inserted into `doc` (either from a staged
+    /// duplicate of an unopened page or from a redo / undo re-insertion of a previously removed page).
+    fn insert_page(&mut self, _doc: &Document, _page: NodeId) {}
+    /// Removes active deferred records for `page` when `page` is removed from the document, stashing them so a
+    /// subsequent re-insertion (undo of remove / redo of insert) restores them.
+    fn remove_page(&mut self, _page: NodeId) {}
+    /// Number of deferred override records dropped during page duplication because their layer was missing in the copy.
+    fn dropped_duplicate_records(&self) -> usize {
+        0
+    }
+    /// Drains and returns the count of deferred override records dropped during page duplication.
+    fn take_dropped_duplicate_records(&mut self) -> usize {
+        0
+    }
 }
 
 /// One outline of a [`PendingDerivedEntry`]: the path commands as a `.fig` stores them.
@@ -900,6 +917,30 @@ impl Document {
         let h = self.page_hydrator.as_ref()?;
         let mut guard = h.lock().ok()?;
         guard.take_last_error()
+    }
+
+    /// Stages the `old_id -> new_id` layer mapping produced when duplicating `src_page` into `dst_page`.
+    pub(crate) fn stage_duplicated_page(&mut self, src_page: NodeId, dst_page: NodeId, id_map: BTreeMap<NodeId, NodeId>) {
+        let Some(h) = self.page_hydrator.as_ref() else { return };
+        if let Ok(mut guard) = h.lock() {
+            if !guard.is_hydrated(src_page) {
+                guard.stage_duplicated_page(src_page, dst_page, id_map);
+            }
+        }
+    }
+
+    /// Number of deferred override records dropped during page duplication because their layer was missing in the copy.
+    pub fn dropped_duplicate_page_records(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(guard) = h.lock() else { return 0 };
+        guard.dropped_duplicate_records()
+    }
+
+    /// Drains and returns the count of deferred override records dropped during page duplication.
+    pub fn take_dropped_duplicate_page_records(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(mut guard) = h.lock() else { return 0 };
+        guard.take_dropped_duplicate_records()
     }
 
     /// Hands out a fresh id. The counter never wraps: once it is exhausted (a hostile or

@@ -702,7 +702,7 @@ struct Ctx<'a> {
 
 /// Overrides carried on `.fig` instance JSON as `_overrides` / `_derived`:
 /// `[{"path": ["1:6", ...], "set": {<partial REST node fields>}}]`.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 struct Overrides {
     set: Vec<OverrideEntry>,
     derived: Vec<OverrideEntry>,
@@ -715,7 +715,7 @@ struct Overrides {
     own_keys: Vec<Box<str>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct OverrideEntry {
     path: Vec<String>,
     set: Value,
@@ -2109,6 +2109,10 @@ impl<'a> Ctx<'a> {
             derived_outlines,
             swap_mains_of,
             self_digests,
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            removed_pages: HashMap::new(),
+            dropped_duplicate_records: 0,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
     }
@@ -3795,6 +3799,25 @@ impl<'a> Ctx<'a> {
     }
 }
 
+struct RemovedDeferredPage {
+    insts: Vec<NodeId>,
+    nodes: Vec<NodeId>,
+    targets: BTreeMap<NodeId, NodeId>,
+    done: BTreeSet<NodeId>,
+    overrides: BTreeMap<NodeId, Overrides>,
+    override_keys: HashMap<NodeId, std::sync::Arc<str>>,
+    col_anchor_guids: HashMap<NodeId, String>,
+    row_anchor_guids: HashMap<NodeId, String>,
+    grid_col_track_ids: HashMap<NodeId, Vec<String>>,
+    grid_row_track_ids: HashMap<NodeId, Vec<String>>,
+    no_auto_layout: HashSet<NodeId>,
+    scales: BTreeMap<NodeId, f32>,
+    unexpanded_instances: BTreeSet<NodeId>,
+    instance_fingerprints: HashMap<NodeId, u64>,
+    swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
+    self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
+}
+
 struct DeferredFigHydrator {
     pending_by_page: HashMap<NodeId, Vec<NodeId>>,
     hydrated_pages: HashSet<NodeId>,
@@ -3827,6 +3850,51 @@ struct DeferredFigHydrator {
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
     /// Instance -> digest of each field it overrides on itself, as the file was opened.
     self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
+    /// `dst_page -> (src_page, old_id -> new_id)` staged by `duplicate_subtree` before `InsertPage` lands.
+    staged_copies: HashMap<NodeId, (NodeId, BTreeMap<NodeId, NodeId>)>,
+    /// `page -> nodes` whose per-node hydrator metadata was copied for `page`, so `remove_page` can stash them.
+    page_nodes: HashMap<NodeId, Vec<NodeId>>,
+    /// Stashed records of removed deferred pages so Undo / Redo of page duplication or deletion is lossless.
+    removed_pages: HashMap<NodeId, RemovedDeferredPage>,
+    /// Count of override records dropped during page duplication because their layer was missing in the copy.
+    dropped_duplicate_records: usize,
+}
+
+impl DeferredFigHydrator {
+    fn infer_duplicated_page(&self, doc: &Document, dst_page: NodeId) -> Option<(NodeId, BTreeMap<NodeId, NodeId>)> {
+        fn preorder(doc: &Document, id: NodeId, out: &mut Vec<NodeId>) {
+            let Some(n) = doc.get(id) else { return };
+            out.push(id);
+            for &c in &n.children {
+                preorder(doc, c, out);
+            }
+        }
+        let mut dst_nodes = Vec::new();
+        preorder(doc, dst_page, &mut dst_nodes);
+        let has_unhydrated_inst = dst_nodes.iter().any(|&id| doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Instance { .. }) && n.children.is_empty()));
+        if !has_unhydrated_inst {
+            return None;
+        }
+        for (&src_page, src_insts) in &self.pending_by_page {
+            if src_page == dst_page || self.hydrated_pages.contains(&src_page) || src_insts.is_empty() {
+                continue;
+            }
+            let mut src_nodes = Vec::new();
+            preorder(doc, src_page, &mut src_nodes);
+            if src_nodes.len() != dst_nodes.len() {
+                continue;
+            }
+            let matches_tree = src_nodes.iter().zip(dst_nodes.iter()).enumerate().all(|(i, (&s, &d))| {
+                let (Some(sn), Some(dn)) = (doc.get(s), doc.get(d)) else { return false };
+                sn.children.len() == dn.children.len() && std::mem::discriminant(&sn.kind) == std::mem::discriminant(&dn.kind) && (i == 0 || sn.name == dn.name)
+            });
+            if matches_tree {
+                let map = src_nodes.into_iter().zip(dst_nodes).collect();
+                return Some((src_page, map));
+            }
+        }
+        None
+    }
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -3840,6 +3908,8 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         if !self.hydrated_pages.insert(page) {
             return false;
         }
+        self.page_nodes.remove(&page);
+        self.removed_pages.remove(&page);
         let Some(insts) = self.pending_by_page.remove(&page) else {
             return false;
         };
@@ -3984,7 +4054,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.budget_exhausted = cx.budget_exhausted;
         self.unexpanded_instances.extend(cx.unexpanded_instances);
         *doc = cx.doc;
-        if !self.pending_by_page.is_empty() || !self.unexpanded_instances.is_empty() {
+        if !self.pending_by_page.is_empty() || !self.unexpanded_instances.is_empty() || !self.removed_pages.is_empty() {
             self.ids = cx.ids;
             self.overrides = cx.overrides;
             self.override_keys = cx.override_keys;
@@ -4068,6 +4138,216 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn pending_instance_self_digests(&self, instance: NodeId) -> Option<BTreeMap<OverrideField, u64>> {
         self.self_digests.get(&instance).cloned()
+    }
+
+    fn stage_duplicated_page(&mut self, src_page: NodeId, dst_page: NodeId, id_map: BTreeMap<NodeId, NodeId>) {
+        if !self.hydrated_pages.contains(&src_page) && self.pending_by_page.contains_key(&src_page) {
+            self.staged_copies.insert(dst_page, (src_page, id_map));
+        }
+    }
+
+    fn insert_page(&mut self, doc: &Document, page: NodeId) {
+        if let Some(removed) = self.removed_pages.remove(&page) {
+            self.targets.extend(removed.targets);
+            self.done.extend(removed.done);
+            self.overrides.extend(removed.overrides);
+            self.override_keys.extend(removed.override_keys);
+            self.col_anchor_guids.extend(removed.col_anchor_guids);
+            self.row_anchor_guids.extend(removed.row_anchor_guids);
+            self.grid_col_track_ids.extend(removed.grid_col_track_ids);
+            self.grid_row_track_ids.extend(removed.grid_row_track_ids);
+            self.no_auto_layout.extend(removed.no_auto_layout);
+            self.scales.extend(removed.scales);
+            self.unexpanded_instances.extend(removed.unexpanded_instances);
+            self.instance_fingerprints.extend(removed.instance_fingerprints);
+            self.swap_mains_of.extend(removed.swap_mains_of);
+            self.self_digests.extend(removed.self_digests);
+            self.pending_by_page.insert(page, removed.insts);
+            if !removed.nodes.is_empty() {
+                self.page_nodes.insert(page, removed.nodes);
+            }
+            self.hydrated_pages.remove(&page);
+            return;
+        }
+        let staged = self.staged_copies.remove(&page).or_else(|| {
+            if self.hydrated_pages.contains(&page) || self.pending_by_page.contains_key(&page) {
+                None
+            } else {
+                self.infer_duplicated_page(doc, page)
+            }
+        });
+        let Some((src_page, id_map)) = staged else {
+            return;
+        };
+        if self.hydrated_pages.contains(&src_page) {
+            return;
+        }
+        let Some(src_insts) = self.pending_by_page.get(&src_page).cloned() else {
+            return;
+        };
+        let mut dst_insts = Vec::with_capacity(src_insts.len());
+        let mut dropped = 0usize;
+        for old_inst in src_insts {
+            let Some(new_inst) = id_map.get(&old_inst).copied().filter(|&id| doc.get(id).is_some() && doc.is_ancestor(page, id)) else {
+                dropped += 1;
+                continue;
+            };
+            dst_insts.push(new_inst);
+            if let Some(&target) = self.targets.get(&old_inst) {
+                self.targets.insert(new_inst, target);
+            }
+            if self.done.contains(&old_inst) {
+                self.done.insert(new_inst);
+            }
+            if let Some(ov) = self.overrides.get(&old_inst).cloned() {
+                self.overrides.insert(new_inst, ov);
+            }
+            if let Some(&scale) = self.scales.get(&old_inst) {
+                self.scales.insert(new_inst, scale);
+            }
+            if self.unexpanded_instances.contains(&old_inst) {
+                self.unexpanded_instances.insert(new_inst);
+            }
+            if let Some(&fp) = self.instance_fingerprints.get(&old_inst) {
+                self.instance_fingerprints.insert(new_inst, fp);
+            }
+            if let Some(swaps) = self.swap_mains_of.get(&old_inst).cloned() {
+                self.swap_mains_of.insert(new_inst, swaps);
+            }
+            if let Some(digests) = self.self_digests.get(&old_inst).cloned() {
+                self.self_digests.insert(new_inst, digests);
+            }
+        }
+        let mut dst_nodes = Vec::new();
+        for (&old_id, &new_id) in &id_map {
+            if doc.get(new_id).is_none() || !doc.is_ancestor(page, new_id) {
+                continue;
+            }
+            let mut has_meta = false;
+            if let Some(v) = self.override_keys.get(&old_id).cloned() {
+                self.override_keys.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.col_anchor_guids.get(&old_id).cloned() {
+                self.col_anchor_guids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.row_anchor_guids.get(&old_id).cloned() {
+                self.row_anchor_guids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.grid_col_track_ids.get(&old_id).cloned() {
+                self.grid_col_track_ids.insert(new_id, v);
+                has_meta = true;
+            }
+            if let Some(v) = self.grid_row_track_ids.get(&old_id).cloned() {
+                self.grid_row_track_ids.insert(new_id, v);
+                has_meta = true;
+            }
+            if self.no_auto_layout.contains(&old_id) {
+                self.no_auto_layout.insert(new_id);
+                has_meta = true;
+            }
+            if has_meta {
+                dst_nodes.push(new_id);
+            }
+        }
+        if dropped > 0 {
+            self.dropped_duplicate_records += dropped;
+            eprintln!(
+                "designos-fig: duplicating deferred page {src_page:?} -> {page:?} dropped {dropped} override record(s) whose layer is missing in the copy"
+            );
+        }
+        if !dst_insts.is_empty() {
+            self.pending_by_page.insert(page, dst_insts);
+            if !dst_nodes.is_empty() {
+                self.page_nodes.insert(page, dst_nodes);
+            }
+            self.hydrated_pages.remove(&page);
+        }
+    }
+
+    fn remove_page(&mut self, page: NodeId) {
+        self.staged_copies.remove(&page);
+        let Some(insts) = self.pending_by_page.remove(&page) else {
+            return;
+        };
+        let nodes = self.page_nodes.remove(&page).unwrap_or_default();
+        let mut removed = RemovedDeferredPage {
+            insts: Vec::with_capacity(insts.len()),
+            nodes: Vec::with_capacity(nodes.len()),
+            targets: BTreeMap::new(),
+            done: BTreeSet::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            unexpanded_instances: BTreeSet::new(),
+            instance_fingerprints: HashMap::new(),
+            swap_mains_of: HashMap::new(),
+            self_digests: HashMap::new(),
+        };
+        for inst in insts {
+            if let Some(v) = self.targets.remove(&inst) {
+                removed.targets.insert(inst, v);
+            }
+            if self.done.remove(&inst) {
+                removed.done.insert(inst);
+            }
+            if let Some(v) = self.overrides.remove(&inst) {
+                removed.overrides.insert(inst, v);
+            }
+            if let Some(v) = self.scales.remove(&inst) {
+                removed.scales.insert(inst, v);
+            }
+            if self.unexpanded_instances.remove(&inst) {
+                removed.unexpanded_instances.insert(inst);
+            }
+            if let Some(v) = self.instance_fingerprints.remove(&inst) {
+                removed.instance_fingerprints.insert(inst, v);
+            }
+            if let Some(v) = self.swap_mains_of.remove(&inst) {
+                removed.swap_mains_of.insert(inst, v);
+            }
+            if let Some(v) = self.self_digests.remove(&inst) {
+                removed.self_digests.insert(inst, v);
+            }
+            removed.insts.push(inst);
+        }
+        for node in nodes {
+            if let Some(v) = self.override_keys.remove(&node) {
+                removed.override_keys.insert(node, v);
+            }
+            if let Some(v) = self.col_anchor_guids.remove(&node) {
+                removed.col_anchor_guids.insert(node, v);
+            }
+            if let Some(v) = self.row_anchor_guids.remove(&node) {
+                removed.row_anchor_guids.insert(node, v);
+            }
+            if let Some(v) = self.grid_col_track_ids.remove(&node) {
+                removed.grid_col_track_ids.insert(node, v);
+            }
+            if let Some(v) = self.grid_row_track_ids.remove(&node) {
+                removed.grid_row_track_ids.insert(node, v);
+            }
+            if self.no_auto_layout.remove(&node) {
+                removed.no_auto_layout.insert(node);
+            }
+            removed.nodes.push(node);
+        }
+        self.removed_pages.insert(page, removed);
+    }
+
+    fn dropped_duplicate_records(&self) -> usize {
+        self.dropped_duplicate_records
+    }
+
+    fn take_dropped_duplicate_records(&mut self) -> usize {
+        std::mem::take(&mut self.dropped_duplicate_records)
     }
 }
 
@@ -5128,6 +5408,10 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            removed_pages: HashMap::new(),
+            dropped_duplicate_records: 0,
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -5172,6 +5456,10 @@ mod expand_depth_tests {
             derived_outlines: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            staged_copies: HashMap::new(),
+            page_nodes: HashMap::new(),
+            removed_pages: HashMap::new(),
+            dropped_duplicate_records: 0,
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));

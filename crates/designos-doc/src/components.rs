@@ -118,15 +118,24 @@ fn copy_tree(d: &mut Document, src: NodeId, link: bool) -> Vec<Node> {
 /// [`copy_tree`] whose Motion ids also avoid `reserved`, the ids of copies made earlier in the same batch.
 fn copy_tree_reserving(d: &mut Document, src: NodeId, link: bool, reserved: &mut std::collections::BTreeSet<crate::MotionId>) -> Vec<Node> {
     let mut out = Vec::new();
-    copy_rec(d, src, None, link, &mut out);
+    let mut id_map = std::collections::BTreeMap::new();
+    copy_rec(d, src, None, link, &mut out, &mut id_map);
     let mut copied: Vec<&mut Node> = out.iter_mut().collect();
     crate::reid_copied_motion_with(d, &mut copied, true, reserved);
+    if !link {
+        if let Some(first) = out.first() {
+            if matches!(first.kind, NodeKind::Page { .. }) {
+                d.stage_duplicated_page(src, first.id, id_map);
+            }
+        }
+    }
     out
 }
 
-fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, out: &mut Vec<Node>) {
+fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, out: &mut Vec<Node>, id_map: &mut std::collections::BTreeMap<NodeId, NodeId>) {
     let Some(orig) = d.get(src).cloned() else { return };
     let id = d.alloc_id();
+    id_map.insert(src, id);
     let mut n = orig.clone();
     n.id = id;
     n.parent = parent;
@@ -154,7 +163,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     let mut kids = Vec::new();
     for c in &orig.children {
         let before = out.len();
-        copy_rec(d, *c, Some(id), link, out);
+        copy_rec(d, *c, Some(id), link, out, id_map);
         if out.len() > before {
             kids.push(out[before].id);
         }

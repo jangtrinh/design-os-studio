@@ -152,6 +152,7 @@ impl Command {
                 }
                 let index = index.min(doc.pages.len());
                 doc.pages.insert(index, root);
+                doc.on_insert_page(root);
                 doc.bump_ids();
                 doc.mark_tree_full_dirty();
                 Command::RemovePage { id: root }
@@ -159,6 +160,7 @@ impl Command {
             Command::RemovePage { id } => {
                 let index = doc.pages.iter().position(|p| *p == id).ok_or(DocError::NotFound(id))?;
                 let nodes = doc.remove(id)?;
+                doc.on_remove_page(id);
                 Command::InsertPage { index, nodes }
             }
             Command::SetFlows { flows } => Command::SetFlows { flows: std::mem::replace(&mut doc.flows, flows) },
