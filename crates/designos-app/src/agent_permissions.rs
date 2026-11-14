@@ -592,7 +592,17 @@ pub fn write_approval_hook_script(session_dir: &Path) -> std::io::Result<PathBuf
 }
 
 fn write_hook_script_file(script_path: PathBuf, content: &str) -> std::io::Result<PathBuf> {
-    crate::agent_approval_channel::write_owner_only_file(&script_path, content.as_bytes(), true)?;
+    let bytes = content.as_bytes();
+    if !std::fs::read(&script_path).is_ok_and(|existing| existing == bytes) {
+        crate::agent_approval_channel::write_owner_only_file(&script_path, bytes, true)?;
+    } else {
+        // Keep the owner-only executable contract even when the snapshot content is unchanged.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
     Ok(script_path)
 }
 
@@ -610,6 +620,13 @@ pub(crate) fn install_tab_hook_script(channel_dir: &Path, status_file: Option<&P
     let script_path = channel_dir.join(format!("approve-hook-tab-{tab_id}.sh"));
     let content = approval_hook_script(channel_dir, status_file, mode.auto_allows_safe_tiers());
     write_hook_script_file(script_path, &content)
+}
+
+/// Removes one tab's approval hook script without creating the private channel when it is already gone.
+pub(crate) fn remove_tab_hook_script(session_dir: &Path, tab_id: usize) {
+    if let Some(channel) = crate::agent_approval_channel::channel_dir(session_dir) {
+        let _ = std::fs::remove_file(channel.join(format!("approve-hook-tab-{tab_id}.sh")));
+    }
 }
 
 /// Handler appended to Claude's `PermissionRequest` hook group in `Ask` mode: runs `approve-hook.sh`, which blocks up
@@ -2602,6 +2619,44 @@ mod tests {
         let (rows, _) = load_auto_allow_log(&path);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].tab, Some(7));
+    }
+
+    #[test]
+    fn unchanged_tab_hook_keeps_the_existing_file() {
+        let session = std::env::temp_dir().join(format!("designos-2009-write-{}", crate::live_sync_tests::unique_tab_id()));
+        let _ = std::fs::remove_dir_all(&session);
+        let channel = crate::agent_approval_channel::prepare_channel_dir(&session).expect("channel");
+        let path = install_tab_hook_script(&channel, None, 7, AgentPermissionMode::Ask).expect("first write");
+        let before = std::fs::metadata(&path).expect("script metadata");
+        let before_bytes = std::fs::read(&path).expect("script bytes");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        install_tab_hook_script(&channel, None, 7, AgentPermissionMode::Ask).expect("same content is a no-op");
+        let after = std::fs::metadata(&path).expect("script metadata after");
+        assert_eq!(std::fs::read(&path).unwrap(), before_bytes);
+        assert_eq!(after.modified().unwrap(), before.modified().unwrap(), "same snapshot content must not rewrite the script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_eq!(after.ino(), before.ino(), "same snapshot content must keep the existing inode");
+        }
+        crate::agent_approval_channel::remove_channel(&session);
+        let _ = std::fs::remove_dir_all(&session);
+    }
+
+    #[test]
+    fn closing_one_tab_hook_does_not_leave_it_or_remove_another() {
+        let session = std::env::temp_dir().join(format!("designos-2009-remove-{}", crate::live_sync_tests::unique_tab_id()));
+        let _ = std::fs::remove_dir_all(&session);
+        let channel = crate::agent_approval_channel::prepare_channel_dir(&session).expect("channel");
+        let first = install_tab_hook_script(&channel, None, 7, AgentPermissionMode::Ask).expect("first script");
+        let second = install_tab_hook_script(&channel, None, 8, AgentPermissionMode::AskRisky).expect("second script");
+        remove_tab_hook_script(&session, 7);
+        assert!(!first.exists(), "closing a tab removes its approval script");
+        assert!(second.is_file(), "closing one tab keeps another tab's approval script");
+        remove_tab_hook_script(&session, 8);
+        assert!(!second.exists());
+        crate::agent_approval_channel::remove_channel(&session);
+        let _ = std::fs::remove_dir_all(&session);
     }
 }
 
