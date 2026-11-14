@@ -101,7 +101,12 @@ extern "C-unwind" fn application_should_terminate(_this: *mut AnyObject, _cmd: S
             None => NSApplicationTerminateReply::TerminateNow,
         }
     }))
-    .unwrap_or(NSApplicationTerminateReply::TerminateNow)
+    .unwrap_or_else(|_| {
+        // The panic hook has already printed the message and place. Quitting is what the caller asked for, so a failed
+        // check ends the app instead of leaving a Dock Quit, logout or shutdown unanswered.
+        eprintln!("design:os studio: applicationShouldTerminate: failed unexpectedly; quitting without the unsaved-changes question");
+        NSApplicationTerminateReply::TerminateNow
+    })
 }
 
 /// Adds or replaces `applicationShouldTerminate:` on `cls` and binds `ctx` as the active context on this thread.
