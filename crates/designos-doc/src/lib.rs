@@ -589,6 +589,15 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn hydrate_page(&mut self, doc: &mut Document, page: NodeId) -> bool;
     fn hydrate_all(&mut self, doc: &mut Document) -> bool;
     fn is_hydrated(&self, page: NodeId) -> bool;
+    /// Expands any deferred nested instances inside `component` (and any components they transitively reference)
+    /// without marking their page hydrated.
+    fn hydrate_component(&mut self, _doc: &mut Document, _component: NodeId) -> bool {
+        false
+    }
+    /// Whether `instance` was expanded by [`Self::hydrate_component`] while its own page is still unopened.
+    fn is_component_hydrated_on_unopened_page(&self, _instance: NodeId) -> bool {
+        false
+    }
     fn unexpanded_instances(&self) -> usize {
         0
     }
@@ -851,6 +860,20 @@ impl Document {
             self.mark_tree_full_dirty();
         }
         changed
+    }
+
+    /// Expands any deferred nested instances inside `component` without marking its page hydrated.
+    pub fn ensure_component_hydrated(&mut self, component: NodeId) -> bool {
+        let Some(h) = self.page_hydrator.clone() else { return false };
+        let Ok(mut guard) = h.lock() else { return false };
+        guard.hydrate_component(self, component)
+    }
+
+    /// Whether `instance` was expanded by [`Document::ensure_component_hydrated`] while its own page is still unopened.
+    pub fn is_component_hydrated_on_unopened_page(&self, instance: NodeId) -> bool {
+        let Some(h) = self.page_hydrator.as_ref() else { return false };
+        let guard = h.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.is_component_hydrated_on_unopened_page(instance)
     }
 
     /// Expands all remaining deferred pages (e.g., before full-document export).

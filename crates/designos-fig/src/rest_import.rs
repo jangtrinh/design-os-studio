@@ -2133,6 +2133,7 @@ impl<'a> Ctx<'a> {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            component_hydrated_instances: HashSet::new(),
         }));
         if let Ok(mut guard) = hydrator.lock() {
             guard.self_weak = std::sync::Arc::downgrade(&hydrator);
@@ -3840,6 +3841,7 @@ struct RemovedDeferredPage {
     instance_fingerprints: HashMap<NodeId, u64>,
     swap_mains_of: HashMap<NodeId, Vec<NodeId>>,
     self_digests: HashMap<NodeId, BTreeMap<OverrideField, u64>>,
+    component_hydrated_instances: HashSet<NodeId>,
 }
 
 struct RemovedDeferredPageGuard {
@@ -3907,6 +3909,8 @@ struct DeferredFigHydrator {
     live_stash_records: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     /// Count of override records dropped during page duplication because their layer was missing in the copy.
     dropped_duplicate_records: usize,
+    /// Instances expanded by [`designos_doc::PageHydrator::hydrate_component`] while their own page is still unopened.
+    component_hydrated_instances: HashSet<NodeId>,
 }
 
 impl DeferredFigHydrator {
@@ -3926,6 +3930,7 @@ impl DeferredFigHydrator {
             self.path_cache.clear();
             self.blob_cache.clear();
             self.expanded_comps.clear();
+            self.component_hydrated_instances.clear();
         }
     }
 }
@@ -3947,6 +3952,11 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         };
         if insts.is_empty() {
             return false;
+        }
+        for &inst in &insts {
+            if self.component_hydrated_instances.remove(&inst) {
+                self.overrides.remove(&inst);
+            }
         }
         // `derivedSymbolData` is a cache from the file, valid only for the main
         // components fingerprinted when the file was imported. A main can be
@@ -4118,6 +4128,163 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.hydrated_pages.contains(&page) || !self.pending_by_page.contains_key(&page)
     }
 
+    fn hydrate_component(&mut self, doc: &mut Document, component: NodeId) -> bool {
+        if self.expanded_comps.contains(&component) || self.pending_by_page.is_empty() {
+            return false;
+        }
+        let mut has_pending_nested = false;
+        doc.walk(component, |n, _| {
+            if n.id != component && self.targets.contains_key(&n.id) && !self.done.contains(&n.id) {
+                has_pending_nested = true;
+            }
+        });
+        if !has_pending_nested {
+            return false;
+        }
+        let mut fingerprints = crate::component_fingerprint::Fingerprints::default();
+        let mut cleared_derived = HashMap::new();
+        for (&inst, &main) in &self.targets {
+            if self.done.contains(&inst) {
+                continue;
+            }
+            let Some(&stored) = self.instance_fingerprints.get(&inst) else { continue };
+            let swaps = self.swap_mains_of.get(&inst).map(Vec::as_slice).unwrap_or(&[]);
+            let mains = crate::component_fingerprint::instance_mains(doc, inst, main, swaps);
+            if fingerprints.of_mains(doc, &mains) != stored {
+                if let Some(ov) = self.overrides.get_mut(&inst) {
+                    let taken = std::mem::take(&mut ov.fast_derived);
+                    if !taken.is_empty() {
+                        cleared_derived.insert(inst, taken);
+                    }
+                }
+            }
+        }
+        drop(fingerprints);
+        let next_clone = self.next_clone.max(doc.peek_next_id().0);
+        let saved_insts: Vec<(NodeId, Node)> =
+            self.targets.keys().copied().filter(|id| !self.done.contains(id)).filter_map(|id| doc.get(id).cloned().map(|n| (id, n))).collect();
+        let saved_overrides: BTreeMap<NodeId, Overrides> =
+            self.targets.keys().copied().filter(|id| !self.done.contains(id)).filter_map(|id| self.overrides.get(&id).cloned().map(|ov| (id, ov))).collect();
+        let saved_done = self.done.clone();
+        let taken_doc = std::mem::take(doc);
+        let has_instance_swap_values = taken_doc.nodes.values().any(|n| n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)));
+        let mut cx = Ctx {
+            doc: taken_doc,
+            ids: std::mem::take(&mut self.ids),
+            instances: Vec::new(),
+            unresolved: Vec::new(),
+            overrides: std::mem::take(&mut self.overrides),
+            rest_overrides: Vec::new(),
+            node_lock_fields: HashSet::new(),
+            override_keys: std::mem::take(&mut self.override_keys),
+            col_anchor_guids: std::mem::take(&mut self.col_anchor_guids),
+            row_anchor_guids: std::mem::take(&mut self.row_anchor_guids),
+            grid_col_track_ids: std::mem::take(&mut self.grid_col_track_ids),
+            grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
+            no_auto_layout: std::mem::take(&mut self.no_auto_layout),
+            scales: std::mem::take(&mut self.scales),
+            pending_swaps: Vec::new(),
+            component_keys: BTreeMap::new(),
+            library_keys: BTreeMap::new(),
+            proto: Vec::new(),
+            overlay_props: BTreeMap::new(),
+            flow_pages: Vec::new(),
+            path_cache: std::mem::take(&mut self.path_cache),
+            blob_cache: std::mem::take(&mut self.blob_cache),
+            blobs: &[],
+            fast_derived_map: None,
+            large_file: true,
+            expanded_comps: std::mem::take(&mut self.expanded_comps),
+            next_clone,
+            clone_budget_total: self.clone_budget_total,
+            cloned_nodes: self.cloned_nodes,
+            budget_exhausted: self.budget_exhausted,
+            unexpanded_instances: BTreeSet::new(),
+            has_instance_swap_values,
+            has_connectors: false,
+            connectors: Vec::new(),
+            deferred_pending: None,
+        };
+        if let Err(err) = cx.expand_nested(component, &self.targets, &mut self.done) {
+            for (inst, derived) in cleared_derived {
+                if let Some(ov) = cx.overrides.get_mut(&inst) {
+                    ov.fast_derived = derived;
+                }
+            }
+            for (inst, ov) in saved_overrides {
+                cx.overrides.insert(inst, ov);
+            }
+            cx.doc.nodes.retain(|&id, _| id.0 < next_clone);
+            for (id, node) in saved_insts {
+                cx.doc.nodes.insert(id, node);
+            }
+            self.done = saved_done;
+            self.last_error = Some(err.to_string());
+            *doc = cx.doc;
+            self.ids = cx.ids;
+            self.overrides = cx.overrides;
+            self.override_keys = cx.override_keys;
+            self.col_anchor_guids = cx.col_anchor_guids;
+            self.row_anchor_guids = cx.row_anchor_guids;
+            self.grid_col_track_ids = cx.grid_col_track_ids;
+            self.grid_row_track_ids = cx.grid_row_track_ids;
+            self.no_auto_layout = cx.no_auto_layout;
+            self.scales = cx.scales;
+            self.path_cache = cx.path_cache;
+            self.blob_cache = cx.blob_cache;
+            self.expanded_comps = cx.expanded_comps;
+            return false;
+        }
+        for &inst in &cx.unexpanded_instances {
+            if let Some(derived) = cleared_derived.remove(&inst) {
+                if let Some(ov) = cx.overrides.get_mut(&inst) {
+                    ov.fast_derived = derived;
+                }
+            }
+        }
+        let newly_done: Vec<NodeId> = self.done.difference(&saved_done).copied().collect();
+        for inst in newly_done {
+            if !cx.unexpanded_instances.contains(&inst) {
+                if let Some(node) = cx.doc.get_mut(inst) {
+                    node.component.clear_fig_own_entry_flags();
+                }
+                let on_unopened_page = cx.doc.page_of(inst).is_some_and(|p| !self.hydrated_pages.contains(&p) && self.pending_by_page.contains_key(&p));
+                if on_unopened_page {
+                    if let Some(ov) = saved_overrides.get(&inst).cloned() {
+                        cx.overrides.insert(inst, ov);
+                    }
+                    self.component_hydrated_instances.insert(inst);
+                }
+            }
+        }
+        cx.mark_custom_instance_slots();
+        if cx.next_clone > 1 {
+            cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
+        }
+        self.next_clone = cx.next_clone;
+        self.cloned_nodes = cx.cloned_nodes;
+        self.budget_exhausted = cx.budget_exhausted;
+        self.unexpanded_instances.extend(cx.unexpanded_instances);
+        *doc = cx.doc;
+        self.ids = cx.ids;
+        self.overrides = cx.overrides;
+        self.override_keys = cx.override_keys;
+        self.col_anchor_guids = cx.col_anchor_guids;
+        self.row_anchor_guids = cx.row_anchor_guids;
+        self.grid_col_track_ids = cx.grid_col_track_ids;
+        self.grid_row_track_ids = cx.grid_row_track_ids;
+        self.no_auto_layout = cx.no_auto_layout;
+        self.scales = cx.scales;
+        self.path_cache = cx.path_cache;
+        self.blob_cache = cx.blob_cache;
+        self.expanded_comps = cx.expanded_comps;
+        true
+    }
+
+    fn is_component_hydrated_on_unopened_page(&self, instance: NodeId) -> bool {
+        self.component_hydrated_instances.contains(&instance)
+    }
+
     fn unexpanded_instances(&self) -> usize {
         self.unexpanded_instances.len()
     }
@@ -4192,6 +4359,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
                 self.instance_fingerprints.extend(removed.instance_fingerprints);
                 self.swap_mains_of.extend(removed.swap_mains_of);
                 self.self_digests.extend(removed.self_digests);
+                self.component_hydrated_instances.extend(removed.component_hydrated_instances);
                 self.pending_by_page.insert(page, removed.insts);
                 if !removed.nodes.is_empty() {
                     self.page_nodes.insert(page, removed.nodes);
@@ -4258,6 +4426,9 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             }
             if let Some(digests) = self.self_digests.get(&old_inst).cloned() {
                 self.self_digests.insert(new_inst, digests);
+            }
+            if self.component_hydrated_instances.contains(&old_inst) {
+                self.component_hydrated_instances.insert(new_inst);
             }
         }
         let mut dst_nodes = Vec::new();
@@ -4330,8 +4501,12 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             instance_fingerprints: HashMap::new(),
             swap_mains_of: HashMap::new(),
             self_digests: HashMap::new(),
+            component_hydrated_instances: HashSet::new(),
         };
         for inst in insts {
+            if self.component_hydrated_instances.remove(&inst) {
+                removed.component_hydrated_instances.insert(inst);
+            }
             if let Some(v) = self.targets.remove(&inst) {
                 removed.targets.insert(inst, v);
             }
@@ -5471,6 +5646,7 @@ mod expand_depth_tests {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            component_hydrated_instances: HashSet::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
         assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
@@ -5521,6 +5697,7 @@ mod expand_depth_tests {
             live_stash_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             live_stash_records: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             dropped_duplicate_records: 0,
+            component_hydrated_instances: HashSet::new(),
         };
         doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
         assert!(doc_h.ensure_page_hydrated(p2));
