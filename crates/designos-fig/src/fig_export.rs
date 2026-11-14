@@ -2993,8 +2993,13 @@ fn collect_instance_overrides_for(cx: &mut ExportCtx, inst_id: NodeId, own_field
 
         // The instance's own bindings, override level and detached id are fields of its node change already, so
         // only a flagged field makes an entry for it; they are left out of it below.
+        let combined_ovs;
         let ovs = match own_fields {
             Some(fields) if own => fields,
+            _ if own && !n.component.fig_own_entry_flags.is_empty() => {
+                combined_ovs = n.component.override_fields();
+                &combined_ovs
+            }
             _ => &n.component.overrides,
         };
         // The instance keeps the effects Figma cached for it under a link it inherits. Figma's file states that as the

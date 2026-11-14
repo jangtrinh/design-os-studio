@@ -395,3 +395,60 @@ fn an_instance_the_file_states_no_own_entry_for_gets_one_from_the_edit() {
     assert_eq!((size.x, size.y), (200.0, 60.0));
     assert_eq!(label_of(&back, variant_button(&back)), "Go back", "the label override of the record is kept");
 }
+
+#[test]
+fn duplicating_an_unopened_page_preserves_instance_own_entries_on_save() {
+    let fig = fixture_with_own_entry();
+    let mut live = import_fig(&fig).expect("import");
+    let page = page_named(&live, "404 pages");
+    assert!(!page_hydrated(&live, page), "the page is never opened before duplication");
+
+    let mut copy_nodes = duplicate_subtree(&mut live, page);
+    copy_nodes[0].name = "404 pages copy".into();
+    Command::InsertPage { index: live.pages.len(), nodes: copy_nodes }.apply(&mut live).expect("duplicate page");
+
+    let saved = export_fig(&live).expect("export");
+    let changes = node_changes(&saved);
+    let copy_canvas_guid = changes.iter().find(|nc| nc["type"] == "CANVAS" && nc["name"] == "404 pages copy").expect("copied canvas")["guid"].clone();
+    let copy_variant_guid =
+        changes.iter().find(|nc| nc["parentIndex"]["guid"] == copy_canvas_guid && nc["name"] == "Type=Simple 03, Breakpoint=Desktop").expect("copied variant")
+            ["guid"]
+            .clone();
+    let copy_inst_nc = changes.iter().find(|nc| nc["parentIndex"]["guid"] == copy_variant_guid && nc["type"] == "INSTANCE").expect("copied instance");
+    let copy_entries = copy_inst_nc["symbolData"]["symbolOverrides"].as_array().cloned().unwrap_or_default();
+    let copy_own_entry = copy_entries.iter().find(|e| e["guidPath"]["guids"].as_array().and_then(|g| g.last()) == Some(&guid(BUTTON.0, BUTTON.1))).cloned();
+    assert_eq!(
+        copy_own_entry,
+        Some(own_entry(&saved)),
+        "the duplicated unopened page's instance writes the exact same own entry as the original page's instance"
+    );
+
+    let mut back = reopened(&saved);
+    let orig_page = page_named(&back, "404 pages");
+    let copy_page = page_named(&back, "404 pages copy");
+    let button_on = |doc: &Document, p: NodeId| -> NodeId {
+        let variant = doc
+            .get(p)
+            .expect("page")
+            .children
+            .iter()
+            .copied()
+            .find(|&c| doc.get(c).is_some_and(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Type=Simple 03, Breakpoint=Desktop"))
+            .expect("variant");
+        doc.get(variant).expect("variant").children[0]
+    };
+    let orig_button = button_on(&back, orig_page);
+    let copy_button = button_on(&back, copy_page);
+    assert_eq!(back.get(copy_button).expect("copy").size, Vec2::new(STATED_SIZE.0, STATED_SIZE.1));
+    assert_eq!(first_fill(&back, copy_button), first_fill(&back, orig_button));
+    assert!(back.get(copy_button).expect("copy").component.overrides.contains(&OverrideField::Size));
+    assert!(back.get(copy_button).expect("copy").component.overrides.contains(&OverrideField::Fills));
+
+    // Even after the main component's size and fill change and sync, the duplicated page's instance keeps its own size and fill.
+    let main = main_named(&back, "Buttons/Button");
+    back.get_mut(main).expect("main").size = Vec2::new(300.0, 90.0);
+    back.get_mut(main).expect("main").fills = vec![Paint::solid(Color::rgba(0, 255, 0, 255))];
+    sync_instances(&mut back, main).apply(&mut back).expect("sync");
+    assert_eq!(back.get(copy_button).expect("copy").size, Vec2::new(STATED_SIZE.0, STATED_SIZE.1));
+    assert_eq!(first_fill(&back, copy_button), first_fill(&back, orig_button));
+}

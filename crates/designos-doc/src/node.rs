@@ -505,8 +505,8 @@ impl ComponentLink {
         !self.overrides.is_empty() || !self.fig_own_entry_flags.is_empty()
     }
 
-    /// Returns persistent and deferred flags as one runtime view for sync code.
-    pub(crate) fn override_fields(&self) -> BTreeSet<OverrideField> {
+    /// Returns persistent and deferred flags as one runtime view for sync and `.fig` export.
+    pub fn override_fields(&self) -> BTreeSet<OverrideField> {
         let mut fields = self.overrides.clone();
         fields.extend(self.fig_own_entry_flags.iter().copied());
         fields
