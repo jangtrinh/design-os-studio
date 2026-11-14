@@ -1959,7 +1959,7 @@ pub fn tools() -> Vec<Tool> {
         ),
         (
             "designos_close_document",
-            "Close this session document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard.",
+            "Close this document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard.",
             json!({"unsaved":{"type":"string","enum":["save","discard","fail"],"default":"fail"},"path":{"type":"string"}}),
             vec![],
             json!({

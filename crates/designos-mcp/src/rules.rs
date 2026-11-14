@@ -475,7 +475,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 82;
+const MAX_PURPOSE_CHARS: usize = 78;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -538,6 +538,8 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`UNKNOWN_COMPONENT`",
             "`INSTANCE_CYCLE`",
             "`UNKNOWN_VARIABLE`",
+            "`UNKNOWN_COMPONENT_PROPERTY`",
+            "`OVERRIDE_FIELD_NOT_APPLICABLE`",
             "`UNKNOWN_SLOT`",
             "`TOOL_DISABLED`",
         ],
@@ -877,9 +879,24 @@ mod tests {
         assert!(has("designos_create_node", "UNSUPPORTED_NODE_KIND"));
         assert!(has("designos_update_node", "UNKNOWN_COMPONENT_PROPERTY"));
         assert!(has("designos_update_node", "OVERRIDE_FIELD_NOT_APPLICABLE"));
+        assert!(has("designos_apply_spec", "UNKNOWN_COMPONENT_PROPERTY"));
+        assert!(has("designos_apply_spec", "OVERRIDE_FIELD_NOT_APPLICABLE"));
         for tool in ["designos_save_file", "designos_render_png", "designos_export_fig_file"] {
             assert!(has(tool, "UNSUPPORTED_EXTENSION"), "{tool}");
         }
+    }
+
+    #[test]
+    fn apply_spec_lists_property_binding_errors_it_can_return() {
+        let codes = tool_error_codes("designos_apply_spec");
+        assert!(codes.contains(&"`UNKNOWN_COMPONENT_PROPERTY`"), "{codes:?}");
+        assert!(codes.contains(&"`OVERRIDE_FIELD_NOT_APPLICABLE`"), "{codes:?}");
+    }
+
+    #[test]
+    fn rules_pack_documents_instance_arc_overrides() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("| `arc` |"), "OverrideSpec in the rules pack must document the supported arc override");
     }
 
     #[test]
@@ -1089,6 +1106,20 @@ mod tests {
         assert!(desc.starts_with(body), "{purpose}");
         let next = desc[body.len()..].chars().next().unwrap();
         assert!(next.is_whitespace(), "cut must land on a word boundary: {purpose}");
+    }
+
+    #[test]
+    fn close_document_add_comment_and_generate_code_purposes_stay_whole() {
+        let pack = generate_default_rules_pack().expect("generate default rules pack");
+        for (tool_name, required_word) in
+            [("designos_close_document", "default fail"), ("designos_add_comment", "coordinates"), ("designos_generate_code", "values")]
+        {
+            let section_header = format!("### `{tool_name}`\n- **Purpose:** ");
+            let after_header = pack.split_once(&section_header).unwrap_or_else(|| panic!("missing section header for {tool_name}")).1;
+            let purpose_line = after_header.lines().next().expect("purpose line");
+            assert!(!purpose_line.ends_with("..."), "{tool_name} purpose in rules pack must not be truncated with '...': {purpose_line}");
+            assert!(purpose_line.contains(required_word), "{tool_name} purpose must retain '{required_word}': {purpose_line}");
+        }
     }
 
     fn names(items: &[&str]) -> BTreeSet<String> {

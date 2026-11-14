@@ -2738,7 +2738,7 @@ pub fn tools() -> Vec<Value> {
     let code_langs: Vec<&str> = designos_export::CodeLanguage::ALL.iter().map(|l| l.id()).chain(std::iter::once("svg")).collect();
     add(
         "generate_code",
-        "Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
+        "Generate handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
         json!({"node_id":id,"language":{"type":"string","enum":code_langs},"fragment":{"type":"boolean","default":false,"description":"When language is html, emit only <style> and the root element without <!doctype html>, <html>, <head>, or <body>."}}),
         vec!["node_id", "language"],
         json!({
@@ -2795,7 +2795,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "add_comment",
-        "Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo.",
+        "Pin a new comment thread to a node (local offset x/y) or page coordinates. Supports undo.",
         json!({"text":{"type":"string","minLength":1,"maxLength":10000},"author":{"type":"string","maxLength":256},"node_id":id,"page_id":id,"x":coordinate,"y":coordinate,"idempotency_key":idempotency_key}),
         vec!["text"],
         json!({
