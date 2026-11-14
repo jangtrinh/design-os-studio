@@ -3455,7 +3455,10 @@ impl TerminalState {
             tab.composer.premark = Some(prompt.chars().take(64).collect());
         }
         match self.send_system_prompt(prompt, file_path) {
-            crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued | crate::agent_composer::SendOutcome::Unconfirmed => {
+            crate::agent_composer::SendOutcome::Written
+            | crate::agent_composer::SendOutcome::Queued
+            | crate::agent_composer::SendOutcome::Unconfirmed
+            | crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::Permission | crate::agent_composer::RefuseReason::NotReady) => {
                 self.active_runtime = preset;
                 Ok(())
             }

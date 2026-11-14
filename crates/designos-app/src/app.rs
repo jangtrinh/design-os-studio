@@ -485,6 +485,38 @@ impl App {
         self.toast.insert(next)
     }
 
+    /// Queues `text` behind any live toast already on screen instead of replacing a plain toast (such as a job's
+    /// completion notice when the next queued job is refused in the same poll).
+    pub(crate) fn queue_toast(&mut self, text: impl Into<String>, error: bool) -> &mut Toast {
+        let next = Toast {
+            text: text.into(),
+            until: self.now + theme::TOAST_SECONDS,
+            error,
+            status: false,
+            reveal: None,
+            enter_path: false,
+            duration: theme::TOAST_SECONDS,
+            armed: false,
+        };
+        if next.error {
+            self.error_toast_seq += 1;
+            self.last_error_toast = next.text.clone();
+            let shown = self.toast.as_ref().is_some_and(|t| t.error && t.text == next.text);
+            let queued = self.toast_queue.iter().position(|t| t.error && t.text == next.text);
+            if shown {
+                return self.toast.as_mut().unwrap_or_else(|| unreachable!("checked just above"));
+            }
+            if let Some(i) = queued {
+                return &mut self.toast_queue[i];
+            }
+        }
+        let live = |t: &Toast| !t.armed || self.now < t.until;
+        if self.toast.as_ref().is_some_and(live) || !self.toast_queue.is_empty() {
+            return self.enqueue_toast(next);
+        }
+        self.toast.insert(next)
+    }
+
     /// The error for a Show in folder that did not work for `file`. It is about what the user just did, so it does not
     /// wait behind other toasts: it replaces the toast of `file` when that is on screen, otherwise it goes to the
     /// front of the queue when a toast with an action for another file is on screen, otherwise it takes the slot.

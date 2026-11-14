@@ -690,7 +690,9 @@ impl App {
             if let Some(w) = self.image_jobs.watcher.take() {
                 w.cancel.store(true, Ordering::SeqCst);
             }
-            self.pump_next_queued_image_job();
+            if let Some(refusal) = self.pump_next_queued_image_job() {
+                self.show_toast(refusal, true);
+            }
         }
         self.changed();
     }
@@ -1003,8 +1005,8 @@ impl App {
                 continue;
             };
             any_handled = true;
-            let mut toast_to_show: Option<(String, bool)> = None;
-            {
+            let (toast_to_show, refusal) = {
+                let mut toast_to_show: Option<(String, bool)> = None;
                 let tab = &mut self.tabs.entries[idx];
                 match outcome {
                     WatcherOutcome::Completed { job_id, png_bytes, warning } => {
@@ -1075,12 +1077,15 @@ impl App {
                 let fp = tab.file_path.clone();
                 let tab_preset = preferred_agent_cli_preset_for(&tab.terminal, &tab.image_jobs).unwrap_or(AgentCliPreset::Claude);
                 let refusal = pump_next_queued_image_job_for(&mut tab.image_jobs, &mut tab.terminal, fp.as_deref(), tab_preset);
-                if toast_to_show.is_none() {
-                    toast_to_show = refusal.map(|reason| (reason, true));
-                }
-            }
+                (toast_to_show, refusal)
+            };
             if let Some((msg, is_err)) = toast_to_show {
                 self.show_toast(msg, is_err);
+                if let Some(reason) = refusal {
+                    self.queue_toast(reason, true);
+                }
+            } else if let Some(reason) = refusal {
+                self.show_toast(reason, true);
             }
             self.changed();
         }
@@ -2036,6 +2041,223 @@ mod tests {
         assert!(job_dir.exists(), "the failed job's folder is still there until the file closes");
         app.cleanup_image_jobs_on_file_close();
         assert!(!job_dir.exists(), "closing the file removes the failed job's folder");
+        app.terminal.shutdown();
+    }
+
+    /// A tab that is waiting at a permission prompt refuses the prompt for now, and `origin/main` keeps the image job
+    /// Running with its watcher and leaves later jobs Queued behind it.
+    #[test]
+    fn a_permission_refusal_keeps_the_image_job_running_and_later_jobs_queued() {
+        let tmp = TestDir::new("permission-refusal-main-parity");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("image-perm-refusal-{}", std::process::id()));
+        app.terminal.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        app.terminal.active_runtime = AgentCliPreset::Claude;
+        app.image_jobs.agent_script = None;
+        app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        {
+            let tab = app.terminal.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+            tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
+            if let Ok(mut p) = tab.parser.lock() {
+                p.process(b"\x1b[?2004h");
+            }
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(None);
+        }
+
+        let first = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("first job starts");
+        let second = app.start_image_job(orig_id, 0, ImageOp::IsolateSubject).expect("second job queues");
+
+        assert_eq!(
+            app.terminal.status_msg.as_deref(),
+            Some(crate::agent_composer::RefuseReason::Permission.message()),
+            "the permission refusal sets the terminal status message"
+        );
+        assert_eq!(app.image_jobs.jobs[0].id, first);
+        assert_eq!(app.image_jobs.jobs[0].state, ImageJobState::Running, "first job stays Running on a Permission refusal");
+        assert_eq!(app.image_jobs.jobs[1].id, second);
+        assert_eq!(app.image_jobs.jobs[1].state, ImageJobState::Queued, "second job stays Queued behind the running job");
+        assert_eq!(app.image_jobs.queue.iter().cloned().collect::<Vec<_>>(), vec![second]);
+        assert_eq!(app.image_jobs.watcher.as_ref().map(|w| w.job_id.as_str()), Some(first.as_str()), "watcher runs for the first job");
+        assert_eq!(app.image_jobs.job_timeout, Duration::from_secs(5), "job timeout is unchanged");
+        assert_eq!(
+            app.toast.as_ref().map(|t| (t.text.as_str(), t.error)),
+            Some(("Queued image job · 1 in queue", false)),
+            "only the queue notice is shown, not an error toast"
+        );
+
+        app.cancel_image_job(Some(orig_id));
+        app.cancel_image_job(Some(orig_id));
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+    }
+
+    /// Cancelling the running job pumps the queue; when the next jobs are refused permanently, every queued job fails at once
+    /// and the refusal sentence replaces the cancel notice as a single error toast.
+    #[test]
+    fn cancelling_a_running_job_when_the_next_queued_jobs_are_refused_fails_the_queue_with_one_toast() {
+        let tmp = TestDir::new("cancel-pumps-refusal-toast");
+        let (mut app, node1, img_key) = sample_app_with_image_layer(tmp.path());
+        let node2 = app.doc.alloc_id();
+        let mut rect2 = Node::rectangle(node2, DRect::new(120.0, 0.0, 100.0, 100.0));
+        rect2.name = "Second Photo".to_string();
+        rect2.fills = vec![Paint {
+            visible: true,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+            kind: PaintKind::Image { image_ref: img_key, scale_mode: ImageScaleMode::Fill, params: Default::default() },
+        }];
+        app.doc.insert(app.page, rect2).unwrap();
+
+        app.terminal.bind_session(&format!("image-cancel-refusal-{}", std::process::id()));
+        app.terminal.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        app.terminal.active_runtime = AgentCliPreset::Claude;
+        app.image_jobs.agent_script = None;
+        app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        {
+            let tab = app.terminal.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+            tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
+            if let Ok(mut p) = tab.parser.lock() {
+                p.process(b"\x1b[?2004h");
+            }
+        }
+
+        let first = app.start_image_job(node1, 0, ImageOp::RemoveBackground).expect("first job runs");
+        let second = app.start_image_job(node2, 0, ImageOp::IsolateSubject).expect("second job queues");
+        let third = app.start_image_job(node2, 0, ImageOp::Expand { top: 10, right: 10, bottom: 10, left: 10 }).expect("third job queues");
+        assert_eq!(app.image_jobs.jobs[0].state, ImageJobState::Running);
+        assert_eq!(app.image_jobs.jobs[1].state, ImageJobState::Queued);
+        assert_eq!(app.image_jobs.jobs[2].state, ImageJobState::Queued);
+
+        // Close the Claude tab and switch the target agent to Codex in Ask when risky before cancelling node1's running job.
+        app.terminal.close_tab(0);
+        app.terminal.active_runtime = AgentCliPreset::Codex;
+        let reason = crate::agent_permissions::ask_risky_unsupported_reason(AgentCliPreset::Codex).expect("Codex has no approval hook");
+
+        app.cancel_image_job(Some(node1));
+
+        assert_eq!(app.image_jobs.jobs[0].id, first);
+        assert_eq!(app.image_jobs.jobs[0].state, ImageJobState::Cancelled);
+        for id in [&second, &third] {
+            let state = app.image_jobs.jobs.iter().find(|job| &job.id == id).map(|job| job.state.clone());
+            assert_eq!(state, Some(ImageJobState::Failed(reason.to_string())), "{id}");
+        }
+        assert!(app.image_jobs.watcher.is_none(), "no watcher starts for the refused jobs");
+        assert!(app.image_jobs.queue.is_empty(), "the whole queue behind the refused start is drained");
+        assert!(app.terminal.tabs.is_empty(), "no Codex tab was started");
+        assert_eq!(app.toast.as_ref().map(|t| (t.text.as_str(), t.error)), Some((reason, true)), "cancel_image_job shows the permanent refusal error toast");
+        assert!(app.toast_queue.is_empty(), "only one refusal toast is shown for the failed queue");
+
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+    }
+
+    /// When a parked document's running image job finishes and the next job queued on that document is permanently refused,
+    /// the completion toast stays on screen and the refusal error toast is queued behind it.
+    #[test]
+    fn a_parked_documents_permanent_refusal_toast_queues_behind_its_completion_toast() {
+        let tmp = TestDir::new("parked-refusal-queued-toast");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("image-parked-refusal-{}", std::process::id()));
+        app.terminal.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        app.terminal.active_runtime = AgentCliPreset::Claude;
+        app.image_jobs.agent_script = None;
+        app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        {
+            let tab = app.terminal.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+            tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
+            if let Ok(mut p) = tab.parser.lock() {
+                p.process(b"\x1b[?2004h");
+            }
+        }
+
+        let first = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("first job starts");
+        let second = app.start_image_job(orig_id, 0, ImageOp::IsolateSubject).expect("second job queues");
+        app.toast = None;
+        app.toast_queue.clear();
+
+        // Deliver the first job's completion on the watcher channel without sleeping, and set the next job to Codex in Ask when risky.
+        let stub_png = tmp.path().join("parked_done.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        let png_bytes = std::fs::read(&stub_png).unwrap();
+        if let Some(old_watcher) = app.image_jobs.watcher.take() {
+            old_watcher.cancel.store(true, Ordering::Relaxed);
+        }
+        let (tx, rx) = mpsc::channel();
+        tx.send(WatcherOutcome::Completed { job_id: first.clone(), png_bytes, warning: None }).unwrap();
+        app.image_jobs.watcher = Some(RunningWatcher { job_id: first, cancel: Arc::new(AtomicBool::new(false)), rx });
+        app.terminal.close_tab(0);
+        app.terminal.active_runtime = AgentCliPreset::Codex;
+        let reason = crate::agent_permissions::ask_risky_unsupported_reason(AgentCliPreset::Codex).expect("Codex has no approval hook");
+
+        // Park Tab A by opening Tab B.
+        let mut doc_b = Document::new("Tab B Doc");
+        doc_b.add_page("Page 1");
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        tabs.open_new_tab(&mut app, "Tab B", doc_b, crate::tabs::ProjectTabKind::Design);
+        app.tabs = tabs;
+        assert_eq!(app.tabs.active_idx, 1, "Tab A is parked at index 0 while Tab B is active");
+
+        assert!(app.poll_image_jobs(), "parked Tab A's completed job is harvested");
+
+        assert_eq!(app.toast.as_ref().map(|t| (t.text.as_str(), t.error)), Some(("Applied Remove background", false)), "the completion toast stays on screen");
+        let queued: Vec<(&str, bool)> = app.toast_queue.iter().map(|t| (t.text.as_str(), t.error)).collect();
+        assert_eq!(queued, vec![(reason, true)], "the permanent refusal toast is queued behind the completion toast");
+        let parked_jobs = &app.tabs.entries[0].image_jobs;
+        assert_eq!(parked_jobs.jobs[0].state, ImageJobState::Done);
+        assert_eq!(parked_jobs.jobs[1].id, second);
+        assert_eq!(parked_jobs.jobs[1].state, ImageJobState::Failed(reason.to_string()));
+        assert!(parked_jobs.watcher.is_none());
+
+        app.tabs.entries[0].terminal.shutdown();
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+    }
+
+    /// With New chat open over a live agent tab, starting an image job sends the prompt to that live tab and leaves
+    /// New chat open with its draft intact.
+    #[test]
+    fn an_image_job_with_new_chat_open_over_a_live_tab_sends_to_the_tab_and_keeps_new_chat() {
+        let tmp = TestDir::new("new-chat-over-live-tab");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("image-new-chat-live-{}", std::process::id()));
+        app.terminal.active_runtime = AgentCliPreset::Claude;
+        app.image_jobs.agent_script = None;
+        app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        {
+            let tab = app.terminal.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+            tab.spawned_at = Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW;
+            if let Ok(mut p) = tab.parser.lock() {
+                p.process(b"\x1b[?2004h");
+            }
+        }
+        app.terminal.picker_open = true;
+        app.terminal.unattached_composer.draft = "keep my new chat draft".to_string();
+        assert!(app.terminal.in_new_chat(), "New chat is open over the live Claude tab");
+
+        let job_id = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts");
+
+        let state = app.image_jobs.jobs.iter().find(|j| j.id == job_id).map(|j| j.state.clone());
+        assert_eq!(state, Some(ImageJobState::Running), "the image job runs on the live Claude tab");
+        assert!(app.terminal.in_new_chat(), "New chat stays open");
+        assert_eq!(app.terminal.composer_draft(), "keep my new chat draft", "New chat keeps its draft");
+        assert_eq!(app.terminal.tabs.len(), 1, "the live Claude tab is reused");
+        let written = String::from_utf8_lossy(&app.terminal.tabs[0].written_bytes).into_owned();
+        assert!(
+            written.contains(&format!("Image task {job_id}: {}", ImageOp::RemoveBackground.instruction_text())),
+            "the live Claude tab received the image job prompt: {written:?}"
+        );
+
+        app.cancel_image_job(Some(orig_id));
+        app.cleanup_image_jobs_on_file_close();
         app.terminal.shutdown();
     }
 

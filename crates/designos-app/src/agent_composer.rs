@@ -862,7 +862,7 @@ impl TerminalState {
         }
 
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
-        if !self.in_new_chat() {
+        if system || !self.in_new_chat() {
             if let Some(tab) = self.tabs.get_mut(active_idx) {
                 if let Some(reason) = tab.mode_refusal() {
                     // A prompt entry point's text was never in the composer: put it there, as the shell branch below does.
@@ -2616,9 +2616,19 @@ mod tests {
         st.last_start_refusal = Some("Switch to Ask first to use Codex.");
         st.tabs[0].composer.not_ready_gate = true;
 
-        let result = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 12: Remove background.", None);
+        let not_ready = st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 12: Remove background.", None);
+        assert_eq!(not_ready, Ok(()), "a temporary NotReady refusal does not fail the image job");
+        assert_eq!(st.status_msg.as_deref(), Some(RefuseReason::NotReady.message()));
 
-        assert_eq!(result, Err(RefuseReason::NotReady.message().to_string()));
+        st.tabs[0].composer.not_ready_gate = false;
+        st.tabs[0].spawn_preset = AgentCliPreset::Grok;
+        st.tabs[0].preset = AgentCliPreset::Grok;
+        st.tabs[0].permission_mode = crate::agent_permissions::AgentPermissionMode::AskRisky;
+        let expected = crate::agent_permissions::ask_risky_unsupported_reason(AgentCliPreset::Grok).expect("Grok has no approval hook");
+
+        let result = st.submit_system_image_prompt(AgentCliPreset::Grok, "Image task 12: Remove background.", None);
+
+        assert_eq!(result, Err(expected.to_string()));
         assert_eq!(st.tabs.len(), 1, "the ready tab is reused, not replaced");
 
         st.shutdown();
