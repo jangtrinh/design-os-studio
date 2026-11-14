@@ -47,8 +47,8 @@ pub fn sessions_root_beside(private_root: &Path) -> Option<PathBuf> {
     Some(private_root.parent()?.join(SESSIONS_DIR_NAME))
 }
 
-/// The folder every ephemeral session folder is a direct child of. Each unit-test process gets a root of its own under the
-/// temp folder (see `test_root`), so tests never write into the real data folder; [`default_sessions_root`] is what the
+/// The folder every ephemeral session folder is a direct child of. Each unit-test process gets a root of its own under the Cargo
+/// target profile folder (see `test_root`), so tests never write into the real data folder or the temp folder; [`default_sessions_root`] is what the
 /// tests of the production location check.
 pub fn ephemeral_sessions_root() -> Option<PathBuf> {
     #[cfg(test)]

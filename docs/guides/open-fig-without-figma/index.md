@@ -1,14 +1,16 @@
 ---
 layout: default
-title: "Open a .fig file without Figma (free, offline, desktop — and headless for agents)"
-description: "Open and write a .fig file with no Figma app: free, offline, on your desktop, or headless for a coding agent. DESIGN:OS Studio v0.7.12, source-available under PolyForm Shield."
+title: "Open a .fig file without Figma (free, offline, desktop, and headless for agents)"
+description: "Open and write a .fig file with no Figma app: free, offline, on your desktop, or headless for a coding agent. DESIGN:OS Studio v0.7.14, source-available under PolyForm Shield. Known issue #834 on write. Not affiliated with Figma."
 permalink: /guides/open-fig-without-figma/
+seo:
+  title: "Open a .fig file without Figma (free, offline, desktop, and headless for agents) | DESIGN:OS Studio"
 ---
-# Open a .fig file without Figma (free, offline, desktop — and headless for agents)
+# Open a .fig file without Figma (free, offline, desktop, and headless for agents)
 
-You have a `.fig` file and no Figma seat, no sign-in, or no internet. You still need to see what is inside, change it, and hand it on — or let a coding agent do the same without opening a window.
+You have a `.fig` file and no Figma seat, no sign-in, or no internet. You still need to see what is inside, change it, and hand it on, or let a coding agent do the same without opening a window.
 
-DESIGN:OS Studio is a FREE Figma alternative: an independent native desktop editor that opens and writes `.fig` files on your own computer, with no Figma app. A coding agent can do the same headless, through `designos-mcp` (39 tools in v0.7.12) or the `designos` CLI. It is FREE and source-available ([PolyForm Shield](https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE)). Nothing is sold. It is not affiliated with Figma.
+DESIGN:OS Studio is a FREE Figma alternative: an independent native desktop editor that opens and writes `.fig` files on your own computer, with no Figma app. A coding agent can do the same headless, through `designos-mcp` (39 tools in v0.7.14) or the `designos` CLI. It is FREE and source-available ([PolyForm Shield](https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE)). Nothing is sold. It is not affiliated with Figma.
 
 <figure>
   <img src="{{ '/images/studio-fig-open.png' | relative_url }}" width="1600" height="1000" alt="design:os by Jang" decoding="async">
@@ -18,12 +20,12 @@ DESIGN:OS Studio is a FREE Figma alternative: an independent native desktop edit
 ## What you need
 
 - A `.fig` file. If someone has the design in Figma, they can make one: in Figma, open the file, then Main menu › File › Save local copy. Figma's help center describes these steps ([source](https://help.figma.com/hc/en-us/articles/8403626871063-Save-a-local-copy-of-files)). The copy leaves out version history and comments.
-- A Mac, a Windows PC, or a Linux PC. [Releases are verified on macOS](https://github.com/jangtrinh/design-os-studio/blob/main/docs/install.md). The Windows and Linux packages are built by the same release workflow but are not verified before release. The Windows test suite is advisory for 0.7.12; Test (windows-latest) failed on the v0.7.12 release PR. Windows users are asked to test the published build and report in [issue #1843](https://github.com/jangtrinh/design-os-studio/issues/1843) (still open on 12 November 2026).
+- A Mac, a Windows PC, or a Linux PC. [Releases are verified on macOS](https://github.com/jangtrinh/design-os-studio/blob/main/docs/install.md). The Windows and Linux packages are built by the same release workflow but are not verified before release. The Windows test suite is advisory for 0.7.14; Test (windows-latest) failed on the v0.7.14 release PR. Windows users are asked to test the published build and report in [issue #1843](https://github.com/jangtrinh/design-os-studio/issues/1843) (still open on 13 November 2026).
 - No account. The install steps have no sign-up or sign-in.
 
 ## Step 1. Download Studio
 
-Get the latest package from [GitHub Releases](https://github.com/jangtrinh/design-os-studio/releases). The newest release is **[v0.7.12](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.7.12)** (published 11 November 2026, 19:50 Asia/Saigon).
+Get the latest package from [GitHub Releases](https://github.com/jangtrinh/design-os-studio/releases). The newest release is **[v0.7.14](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.7.14)** (published 13 November 2026, 19:06 Asia/Saigon).
 
 - **macOS (Apple Silicon and Intel):** download `designos-<version>-macos.dmg`, open it, and drag **designos.app** into **Applications**. The app is ad-hoc signed, so the first launch asks for a one-time **Open Anyway** in System Settings › Privacy & Security. Running `install-cli.command` from the disk image clears that flag and puts the command-line tools on your `PATH`.
 - **Windows (x64):** unzip `designos-<version>-x86_64-pc-windows-msvc.zip` and run `powershell -ExecutionPolicy Bypass -File .\install.ps1`. It installs for your user only, with no Administrator prompt, and registers `.fig` files. The binaries are unsigned, so SmartScreen may ask: **More info › Run anyway**.
@@ -41,7 +43,7 @@ Pick one:
 
 Studio reads the `.fig` container as Figma saves it (`fig-kiwi`, compressed with DEFLATE or Zstd, ZIP-wrapped or bare). Pages, layers, components, effect and grid styles, and variables with their modes come in with the file. Studio writes container version 106, in a ZIP with `meta.json` and `images/`.
 
-Big files open as one document. The Untitled UI PRO v8.0 kit, a 336 MB file, opens with 207,601 nodes. A spatial index keeps the work to what is on screen. On that kit, an idle view used 0.01 s of CPU in 20 s (v0.6.0, Apple M4 Max, Metal) — figures from the [live README](https://github.com/jangtrinh/design-os-studio#how-fast-does-designos-studio-render-large-files).
+Big files open as one document. The Untitled UI PRO v8.0 kit, a 336 MB file, opens with 207,601 nodes. A spatial index keeps the work to what is on screen. On that kit, an idle view used 0.01 s of CPU in 20 s (v0.6.0, Apple M4 Max, Metal). Figures from the [live README](https://github.com/jangtrinh/design-os-studio#how-fast-does-designos-studio-render-large-files).
 
 **Proof point (maintainer screenshot, 11 November 2026):** Studio read a shadcn `.fig` of 257,687 nodes and 73 pages in about 6 seconds, without Figma. This figure is not in the README; it comes from Jang's screenshot, confirmed 11 November. Treat it as a maintainer measurement, not a published benchmark.
 
@@ -72,7 +74,7 @@ Edit on the canvas: auto layout, components and variants, styles, variables, tex
 - **Keep working in Studio:** save as `.designos`. It is the only format that keeps canvas comments. A save or export to `.fig` or `.pen` ends with "Comments left out: only .designos files keep them" ([CHANGELOG](https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md)).
 - **Send a .fig back:** use **Export .fig** or **Save .fig copy** in the File menu. Studio writes `.fig` container version 106. An export never replaces an existing file: a taken name becomes `Name 2.fig` (same CHANGELOG). From the CLI, `designos file.fig --export-fig OUT.fig` writes a new file; add `--overwrite` only when you mean to replace.
 
-Keep the original `.fig` until you have checked the new one. See the limits below. A `.fig` save has known issue [#834](https://github.com/jangtrinh/design-os-studio/issues/834) (still open on 12 November 2026): numbered-list formatting is dropped, and inherited or variable-bound paints on instances are written as fixed values.
+Keep the original `.fig` until you have checked the new one. See the limits below. A `.fig` save has known issue [#834](https://github.com/jangtrinh/design-os-studio/issues/834) (still open on 13 November 2026): numbered-list formatting is dropped, and inherited or variable-bound paints on instances are written as fixed values.
 
 `--export-fig` was live-run headless on 12 November 2026, with `DISPLAY` unset: it wrote a 23,325-byte `.fig` and reported `exported_fig: true`. That run is a small test file, not a large-kit benchmark.
 
@@ -87,7 +89,7 @@ Keep the original `.fig` until you have checked the new one. See the limits belo
 
 The **Agents** panel runs a coding agent CLI you already use (Claude Code, Codex, Grok, Antigravity or Gemini CLI) as a live session on the open file. Each CLI uses its own sign-in, so Studio needs no API key.
 
-Studio also ships `designos-mcp`, a local MCP server with **39 tools** in v0.7.12. It runs over stdio. No account, API key, Figma connection, or running editor is needed ([MCP README](https://github.com/jangtrinh/design-os-studio/blob/main/crates/designos-mcp/README.md)).
+Studio also ships `designos-mcp`, a local MCP server with **39 tools** in v0.7.14. It runs over stdio. No account, API key, Figma connection, or running editor is needed ([MCP README](https://github.com/jangtrinh/design-os-studio/blob/main/crates/designos-mcp/README.md)).
 
 A typical agent path, from that README:
 
@@ -145,7 +147,10 @@ There is a Windows package in every release. Releases are verified on macOS; the
 Yes. Export a `.fig` from the File menu, or run `designos file.fig --export-fig OUT.fig`. Check known issue #834 for numbered lists and variable-bound paints on instances.
 
 **Can an agent edit a .fig without opening Studio?**
-Yes. Use `designos-mcp` (39 tools in v0.7.12) or the `designos` CLI. `--inspect-json`, `--export-fig` and `--scan-design-system` were live-run headless on 12 November 2026, with `DISPLAY` unset. Disclose issue #834 on any write.
+Yes. Use `designos-mcp` (39 tools in v0.7.14) or the `designos` CLI. `--inspect-json`, `--export-fig` and `--scan-design-system` were live-run headless on 12 November 2026, with `DISPLAY` unset. Disclose issue #834 on any write.
+
+**Is DESIGN:OS Studio affiliated with Figma?**
+No. It is an independent tool built by Jang Trịnh, a creative technologist and autonomous system architect. It is not affiliated with, endorsed by, or sponsored by Figma, Inc. Figma is a trademark of Figma, Inc., named here only to describe file compatibility.
 
 ## Download
 
@@ -154,3 +159,43 @@ Yes. Use `designos-mcp` (39 tools in v0.7.12) or the `designos` CLI. `--inspect-
 ---
 
 DESIGN:OS Studio is an independent tool built by Jang Trịnh, a creative technologist and autonomous system architect. It reads and writes `.fig` files. It is not affiliated with, endorsed by, or sponsored by Figma, Inc. Figma is a trademark of Figma, Inc., named here only to describe file compatibility.
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://jangtrinh.github.io/design-os-studio/guides/open-fig-without-figma/#page",
+      "url": "https://jangtrinh.github.io/design-os-studio/guides/open-fig-without-figma/",
+      "name": "Open a .fig file without Figma (free, offline, desktop, and headless for agents)",
+      "description": "Open and write a .fig file with no Figma app: free, offline, on your desktop, or headless for a coding agent. DESIGN:OS Studio v0.7.14, source-available under PolyForm Shield. Known issue #834 on write. Not affiliated with Figma.",
+      "isPartOf": { "@id": "https://jangtrinh.github.io/design-os-studio/#app" }
+    },
+    {
+      "@type": "HowTo",
+      "name": "Open and write a .fig file without Figma",
+      "description": "Use DESIGN:OS Studio, a FREE native editor, to open, edit and write a .fig file with no Figma app. Source-available (PolyForm Shield). Known issue #834 on write.",
+      "tool": { "@type": "HowToTool", "name": "DESIGN:OS Studio v0.7.14" },
+      "step": [
+        { "@type": "HowToStep", "position": 1, "name": "Download Studio", "text": "Download the macOS, Windows or Linux package from the GitHub releases page. Releases are verified on macOS; Windows and Linux packages are built but not verified before release." },
+        { "@type": "HowToStep", "position": 2, "name": "Open the .fig", "text": "Open the .fig from disk in DESIGN:OS Studio. You do not need a Figma account. Someone with access in Figma can make a local copy with Save local copy." },
+        { "@type": "HowToStep", "position": 3, "name": "Inspect it", "text": "Use the Layers panel and the inspector, or run designos FILE --inspect-json." },
+        { "@type": "HowToStep", "position": 4, "name": "Edit and save", "text": "Edit on the canvas and save. A .fig save drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values (issue #834). Keep the original .fig, or save as .designos, until it is fixed." },
+        { "@type": "HowToStep", "position": 5, "name": "Export, or hand the file to an agent", "text": "Export a .fig from the File menu, or run designos file.fig --export-fig OUT.fig. For a headless agent path, use designos-mcp (39 tools in v0.7.14) or the designos CLI. Disclose issue #834 on any write." }
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        { "@type": "Question", "name": "Do I need a Figma account to open a .fig file in Studio?", "acceptedAnswer": { "@type": "Answer", "text": "No. You need the .fig file itself. Someone with access in Figma can make one with Save local copy." } },
+        { "@type": "Question", "name": "Is my file uploaded anywhere?", "acceptedAnswer": { "@type": "Answer", "text": "No. Studio opens the file from your disk and has no telemetry. The network requests it does make are listed above." } },
+        { "@type": "Question", "name": "Does it work on Windows?", "acceptedAnswer": { "@type": "Answer", "text": "There is a Windows package in every release. Releases are verified on macOS; the Windows build is not verified before release. See issue #1843." } },
+        { "@type": "Question", "name": "Can I send the edited file back to someone who uses Figma?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Export a .fig from the File menu, or run designos file.fig --export-fig OUT.fig. Check known issue #834 for numbered lists and variable-bound paints on instances." } },
+        { "@type": "Question", "name": "Can an agent edit a .fig without opening Studio?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Use designos-mcp (39 tools in v0.7.14) or the designos CLI. --inspect-json, --export-fig and --scan-design-system were live-run headless on 12 November 2026, with DISPLAY unset. Disclose issue #834 on any write." } },
+        { "@type": "Question", "name": "Is DESIGN:OS Studio affiliated with Figma?", "acceptedAnswer": { "@type": "Answer", "text": "No. It is an independent tool built by Jang Trịnh, a creative technologist and autonomous system architect. It is not affiliated with, endorsed by, or sponsored by Figma, Inc. Figma is a trademark of Figma, Inc., named here only to describe file compatibility." } }
+      ]
+    }
+  ]
+}
+</script>

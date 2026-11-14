@@ -683,10 +683,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 _ => 3,
             };
             n.corner_radii[i] = x.max(0.0);
-            if is_rect_like {
-                n.fill_geometry = None;
-                n.stroke_geometry = None;
-            }
+            crate::drop_baked_outline_of_parametric_shape(n);
         }
         "strokeWeight" => {
             n.stroke.weight = x.max(0.0);
@@ -973,6 +970,44 @@ mod tests {
             tx.variables.bindings.insert(k.into(), v.into());
         }
         (d, page, frame, text)
+    }
+
+    #[test]
+    fn individual_corner_radius_binding_drops_baked_outline_for_parametric_shapes() {
+        let mut d = Document::new("radius-binding");
+        let page = d.add_page("P");
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "C".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }],
+                default_mode: "light".into(),
+                variables: vec!["radius".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert("radius".into(), var("radius", VariableKind::Number, VariableValue::Number(12.0), VariableValue::Number(12.0)));
+
+        let keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
+        for kind in [NodeKind::Ellipse(ArcData::default()), NodeKind::Polygon { count: 5 }, NodeKind::Star { count: 5, inner_ratio: 0.5 }] {
+            for (i, key) in keys.into_iter().enumerate() {
+                let id = d.alloc_id();
+                let mut node = Node::new(id, kind.clone());
+                node.size = Vec2::new(100.0, 100.0);
+                node.fill_geometry = Some(vec![Path::default()]);
+                node.stroke_geometry = Some(vec![Path::default()]);
+                node.variables.bindings.insert(key.into(), "radius".into());
+                let id = d.insert(page, node).unwrap();
+
+                let resolved = resolved_node(&d, id).unwrap();
+                assert_eq!(resolved.corner_radii[i], 12.0, "{key} binding did not update the radius");
+                assert!(resolved.fill_geometry.is_none(), "{key} binding left a stale fill outline for {:?}", resolved.kind);
+                assert!(resolved.stroke_geometry.is_none(), "{key} binding left a stale stroke outline for {:?}", resolved.kind);
+            }
+        }
     }
 
     #[test]

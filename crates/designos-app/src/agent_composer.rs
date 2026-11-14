@@ -68,6 +68,8 @@ pub enum RefuseReason {
     StartFailed,
     /// More skills are attached than a run allows, or their text is too long (`#573`).
     SkillLimit,
+    /// Ask when risky cannot run this CLI (it has no approval hook). The notice names the CLI's own reason.
+    ModeUnavailable,
 }
 
 impl RefuseReason {
@@ -82,6 +84,7 @@ impl RefuseReason {
             Self::NotWritable => "Not delivered: check the terminal",
             Self::StartFailed => "Not delivered: check the terminal",
             Self::SkillLimit => "Remove a skill to send",
+            Self::ModeUnavailable => "Not available in Ask when risky",
         }
     }
 }
@@ -861,6 +864,20 @@ impl TerminalState {
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
         if !self.in_new_chat() {
             if let Some(tab) = self.tabs.get_mut(active_idx) {
+                if let Some(reason) = tab.mode_refusal() {
+                    // A prompt entry point's text was never in the composer: put it there, as the shell branch below does.
+                    if !system && !from_box {
+                        if tab.composer.draft.trim().is_empty() {
+                            tab.composer.draft = text.to_string();
+                        } else {
+                            tab.composer.draft = format!("{}\n\n{text}", tab.composer.draft);
+                        }
+                    }
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+                    tab.composer.notice = Some(reason.to_string());
+                    self.status_msg = Some(reason.to_string());
+                    return SendOutcome::Refused(RefuseReason::ModeUnavailable);
+                }
                 if let Some(failure) = &tab.start_failure {
                     let headline = failure.headline();
                     tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
@@ -974,6 +991,7 @@ impl TerminalState {
             self.mention_popup.close();
         }
         let tabs_before = self.tabs.len();
+        self.last_start_refusal = None;
         self.open_for_agent_use(file_path);
 
         // If `open_for_agent_use` did not leave us on a live non-shell agent tab (because no previous session
@@ -982,8 +1000,28 @@ impl TerminalState {
         let runtime_installed = self.active_runtime.is_installed() || self.path_prepend.iter().any(|d| d.join(self.active_runtime.binary_name()).is_file());
         let startable = !matches!(self.active_runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp);
         let covered_agent = self.active_tab_mut().is_some_and(|t| t.is_alive() && !t.is_shell_process());
-        if !covered_agent && self.tabs.len() == tabs_before && startable && runtime_installed {
-            let _ = self.spawn_tab(self.active_runtime, file_path);
+        if !covered_agent && self.tabs.len() == tabs_before && startable {
+            if let Some(reason) = crate::agent_permissions::start_refusal_in_mode(self.active_runtime, false, self.permission_mode) {
+                self.last_start_refusal = Some(reason);
+            } else if runtime_installed {
+                let _ = self.spawn_tab(self.active_runtime, file_path);
+            }
+        }
+        // Ask when risky cannot run the CLI that would start (a resumed session or the active runtime): nothing starts, and the
+        // text goes back into the composer with the reason, never lost.
+        if !covered_agent && self.tabs.len() == tabs_before {
+            if let Some(reason) = self.last_start_refusal {
+                let comp = self.active_composer_mut();
+                if comp.draft.trim().is_empty() {
+                    comp.draft = text.to_string();
+                } else if !from_box {
+                    comp.draft = format!("{}\n\n{text}", comp.draft);
+                }
+                comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+                comp.notice = Some(reason.to_string());
+                self.status_msg = Some(reason.to_string());
+                return SendOutcome::Refused(RefuseReason::ModeUnavailable);
+            }
         }
         if !self.in_new_chat() && self.active_tab().is_some_and(|t| t.is_shell_process()) {
             let msg = RefuseReason::NoAgent.message().to_string();
@@ -1039,6 +1077,11 @@ impl TerminalState {
         };
         if self.spawn_tab(preset, file_path).is_err() {
             let comp = &mut self.unattached_composer;
+            if let Some(reason) = self.last_start_refusal {
+                comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::ModeUnavailable));
+                comp.notice = Some(reason.to_string());
+                return SendOutcome::Refused(RefuseReason::ModeUnavailable);
+            }
             comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
             comp.notice = Some(RefuseReason::StartFailed.message().to_string());
             return SendOutcome::Refused(RefuseReason::StartFailed);
@@ -1274,7 +1317,7 @@ pub fn show_composer(
     widgets::record(ui, "agents-composer-input", input_rect);
 
     let hint_owned = if state.composer_draft().is_empty() {
-        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current();
+        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current(state.permission_mode);
         crate::agent_composer_text::placeholder(state, pill_label, is_shell_tab, any_cli)
     } else {
         String::new()
@@ -1326,10 +1369,11 @@ pub fn show_composer(
     }
 
     let choose_agent = new_chat && pill_preset.is_none();
+    let mode_available = if new_chat { pill_preset.is_some() } else { state.active_tab().is_some_and(|tab| tab.mode_refusal().is_none()) };
     let skills_violation = state.skills.limit_violation();
     // The selection chip is a suggestion, not a message. An attached PRD is: Send then sends its reference alone.
     let has_payload = !state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty() || state.active_composer().attach_prd;
-    let send_on = composer_live && !choose_agent && skills_violation.is_none() && has_payload;
+    let send_on = composer_live && !choose_agent && mode_available && skills_violation.is_none() && has_payload;
     let bar = crate::agent_composer_toolbar::toolbar(ui, state, composer_rect, pill_label, send_on, skills_violation.as_deref());
     if let Some(pick) = bar.attach {
         match pick {
@@ -1906,6 +1950,123 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn closing_a_tab_restores_waiting_user_messages_to_the_unattached_draft() {
+        let dir = temp_composer_dir("close-tab-restores-queue");
+        let mut st = TerminalState::new_for_session("doc-1495", "Close Queue", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab_mut().expect("agent tab").composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+
+        st.close_tab(0);
+
+        assert!(st.tabs.is_empty());
+        assert_eq!(st.unattached_composer.draft, "Keep this queued");
+        assert_eq!(st.unattached_composer.notice.as_deref(), Some("Queued message restored after tab close"));
+        assert!(st.unattached_composer.pending_send.is_empty());
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The sentence the contributor sets with the restored draft is what the composer's caption line shows in the New chat state.
+    #[test]
+    fn closing_the_last_tab_shows_the_restored_message_notice_in_the_composer_caption() {
+        let dir = temp_composer_dir("close-tab-caption");
+        let mut st = TerminalState::new_for_session("doc-close-caption", "Close Caption", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab_mut().expect("agent tab").composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+
+        st.close_tab(0);
+
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored after tab close"));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The waiting messages come back in queue order; a system job never lands in the draft; what was already typed in the New chat
+    /// composer stays and the recovered text follows it.
+    #[test]
+    fn closing_a_tab_keeps_every_waiting_user_message_in_order_after_the_unattached_draft() {
+        let dir = temp_composer_dir("close-tab-restores-order");
+        let mut st = TerminalState::new_for_session("doc-close-order", "Close Order", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.unattached_composer.draft = "typed before".into();
+        let comp = &mut st.active_tab_mut().expect("agent tab").composer;
+        comp.pending_send.extend([
+            QueuedSend::new("first waiting", false),
+            QueuedSend::new("system image job", true),
+            QueuedSend::new("second waiting", false),
+        ]);
+
+        st.close_tab(0);
+
+        assert_eq!(st.unattached_composer.draft, "typed before\n\nfirst waiting\n\nsecond waiting");
+        assert!(!st.unattached_composer.draft.contains("system image job"), "a system job is not user text");
+        assert!(st.unattached_composer.pending_send.is_empty(), "nothing is re-queued for another agent");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A prompt written to the agent within the first seconds is in the agent's hands, not waiting: closing the tab must not bring it
+    /// back as a queued message, because sending it again would repeat edits that already landed.
+    #[test]
+    fn closing_a_tab_does_not_bring_back_a_prompt_the_agent_already_received() {
+        let dir = temp_composer_dir("close-tab-delivered");
+        let mut st = TerminalState::new_for_session("doc-close-delivered", "Close Delivered", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let comp = &mut st.active_tab_mut().expect("agent tab").composer;
+        comp.sent_in_start_window.push("make a hero".into());
+
+        st.close_tab(0);
+
+        assert_eq!(st.unattached_composer.draft, "", "the delivered prompt is not restored");
+        assert_eq!(st.unattached_composer.notice, None);
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Closing a background tab that held waiting text tells the person, in the composer of the tab that stays, where it went.
+    #[test]
+    fn closing_a_background_tab_with_waiting_text_signals_it_in_the_composer_that_stays() {
+        let dir = temp_composer_dir("close-tab-signal");
+        let mut st = TerminalState::new_for_session("doc-close-signal", "Close Signal", Some(&dir));
+        let _first = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        let _second = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        assert_eq!(st.tabs.len(), 2);
+        st.active_tab = 1;
+        st.tabs[0].composer.pending_send.push_back(QueuedSend::new("Keep this queued", false));
+
+        st.close_tab(0);
+
+        assert_eq!(st.tabs.len(), 1);
+        assert_eq!(st.unattached_composer.draft, "Keep this queued", "the text waits in New chat");
+        assert_eq!(crate::agent_composer_text::caption(&st).as_deref(), Some("Queued message restored after tab close"));
+        assert_eq!(st.status_msg.as_deref(), Some("Queued message restored after tab close"));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A tab that holds only a system job has nothing of the person's to restore: the draft stays as it was.
+    #[test]
+    fn closing_a_tab_with_only_a_system_job_waiting_leaves_the_unattached_draft_alone() {
+        let dir = temp_composer_dir("close-tab-system-only");
+        let mut st = TerminalState::new_for_session("doc-close-system", "Close System", Some(&dir));
+        let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+        st.active_tab_mut().expect("agent tab").composer.pending_send.push_back(QueuedSend::new("system image job", true));
+
+        st.close_tab(0);
+
+        assert_eq!(st.unattached_composer.draft, "");
+        assert_eq!(st.unattached_composer.notice, None);
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // 8. `failed_start_returns_the_text_to_the_draft`
     #[test]
     fn failed_start_returns_the_text_to_the_draft() {
@@ -1982,6 +2143,65 @@ mod tests {
         st.shutdown();
     }
 
+    /// Measures the composer toolbar at and above the narrowest panel the person can drag to (260 px) for every mode label: no
+    /// control leaves the composer box, none overlaps its neighbour, and a label that is drawn as text is not clipped. Where the
+    /// label does not fit, the toolbar's own fallback (the icon alone, label as the tooltip) takes over; nothing is shortened.
+    #[test]
+    fn every_mode_label_fits_the_composer_toolbar_down_to_the_narrowest_panel() {
+        use crate::terminal::PermissionMode;
+        for width in [260.0_f32, 300.0, 340.0, 420.0] {
+            for mode in [PermissionMode::Ask, PermissionMode::Skip, PermissionMode::AskRisky] {
+                let ctx = egui::Context::default();
+                crate::theme::install_fonts(&ctx);
+                crate::theme::apply(&ctx);
+                let mut st = crate::test_timing::ScopedTerminalState::default();
+                st.permission_mode = mode;
+                let panel = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(width, 800.0));
+                let mut label_w = 0.0;
+                for _ in 0..2 {
+                    let _ = ctx.run_ui(
+                        egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), ..Default::default() },
+                        |ui| {
+                            let mut acts = Vec::new();
+                            let _ = show_composer(&mut st, ui, panel, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
+                            let font = crate::theme::font_text(crate::theme::FONT_SIZE_TEXT_SM, crate::theme::TextWeight::Semibold);
+                            label_w = widgets::text_width(&ui.painter().clone(), crate::agent_composer_toolbar::mode_label(mode), &font);
+                        },
+                    );
+                }
+                let rect_of =
+                    |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("{name} at {width}"));
+                let (boxr, add, pill, mode_r, send) = (
+                    rect_of("agents-composer-box"),
+                    rect_of("agents-composer-add-btn"),
+                    rect_of("agents-composer-agent-pill"),
+                    rect_of("agents-composer-mode-btn"),
+                    rect_of("agents-composer-send"),
+                );
+                let icon_only = mode_r.width() < label_w;
+                eprintln!(
+                    "MEASURED panel {width} px, {:?} {:?}: box {:.1} wide, label text {label_w:.1}, mode control {:.1} ({}), agent pill {:.1}, free between add and pill {:.1}",
+                    mode,
+                    crate::agent_composer_toolbar::mode_label(mode),
+                    boxr.width(),
+                    mode_r.width(),
+                    if icon_only { "icon only" } else { "text" },
+                    pill.width(),
+                    pill.left() - add.right(),
+                );
+                for (name, r) in [("add", add), ("pill", pill), ("mode", mode_r), ("send", send)] {
+                    assert!(boxr.contains_rect(r), "{mode:?} at {width}: {name} {r:?} leaves the composer box {boxr:?}");
+                }
+                assert!(add.right() <= pill.left() + 0.5, "{mode:?} at {width}: the add button overlaps the pill");
+                assert!(pill.right() <= mode_r.left() + 0.5, "{mode:?} at {width}: the pill {pill:?} overlaps the mode control {mode_r:?}");
+                assert!(mode_r.right() <= send.left() + 0.5, "{mode:?} at {width}: the mode control overlaps Send");
+                if !icon_only {
+                    assert!(label_w + crate::theme::SPACE_INLINE * 2.0 <= mode_r.width() + 0.5, "{mode:?} at {width}: the label text is clipped");
+                }
+            }
+        }
+    }
+
     fn claude_tab_with_recorder() -> (crate::test_timing::ScopedTerminalState, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
         let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
@@ -1995,6 +2215,72 @@ mod tests {
         }
         let rec = attach_recording_writer(st.active_tab_mut().unwrap());
         (st, rec)
+    }
+
+    /// The boundary is the approval hook: Claude has it, so Ask when risky must not cost it its composer, and the other modes
+    /// never refuse a CLI for lacking it.
+    #[test]
+    fn ask_risky_and_the_other_modes_still_send_to_what_they_can_run() {
+        for (mode, text) in [(crate::terminal::PermissionMode::AskRisky, "risky ok"), (crate::terminal::PermissionMode::Ask, "ask ok")] {
+            let (mut st, rec) = claude_tab_with_recorder();
+            st.active_tab_mut().expect("active tab").permission_mode = mode;
+            assert_eq!(st.send_from_composer_box(text, None), SendOutcome::Written, "{mode:?}: Claude takes the prompt");
+            st.flush_pending_enter_now();
+            let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+            assert!(sent.contains(text), "{mode:?}: the prompt reached the agent: {sent:?}");
+            st.shutdown();
+        }
+        let (mut st, rec) = claude_tab_with_recorder();
+        {
+            let tab = st.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Codex;
+            tab.preset = AgentCliPreset::Codex;
+            tab.permission_mode = crate::terminal::PermissionMode::Ask;
+        }
+        assert_eq!(st.send_from_composer_box("codex in ask", None), SendOutcome::Written, "Codex in Ask mode is not refused");
+        st.flush_pending_enter_now();
+        assert!(String::from_utf8_lossy(&rec.lock().unwrap()).contains("codex in ask"));
+        st.shutdown();
+    }
+
+    #[test]
+    fn ask_risky_refuses_a_cli_without_the_shared_approval_hook_and_keeps_the_draft() {
+        let (mut st, rec) = claude_tab_with_recorder();
+        {
+            let tab = st.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Codex;
+            tab.preset = AgentCliPreset::Codex;
+            tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        }
+        st.set_composer_draft("delete the node");
+
+        assert_eq!(st.send_from_composer_box("delete the node", None), SendOutcome::Refused(RefuseReason::ModeUnavailable));
+        assert_eq!(st.composer_draft(), "delete the node", "a mode-unavailable send must preserve the draft");
+        assert!(rec.lock().expect("recorder lock").is_empty(), "unsupported CLI must not receive a prompt");
+
+        st.shutdown();
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "spawns a POSIX shell stub for the custom CLI")]
+    fn ask_risky_refuses_an_other_cli_without_the_shared_approval_hook() {
+        let dir = temp_composer_dir("ask-risky-custom-cli");
+        let bin_dir = dir.join("bin");
+        let recv = dir.join("custom-recv.txt");
+        let stub = write_executable_stub(&bin_dir, "custom-cli-stub", &recording_agent_script(&recv));
+        let mut st = TerminalState::new_for_session("doc-ask-risky-custom", "Ask risky", Some(&dir));
+        st.spawn_custom_cli_tab("Custom stub", &stub.display().to_string(), None).expect("spawn custom tab");
+        {
+            let tab = st.active_tab_mut().expect("custom tab");
+            tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        }
+        st.set_composer_draft("change the file");
+        assert_eq!(st.send_from_composer_box("change the file", None), SendOutcome::Refused(RefuseReason::ModeUnavailable));
+        assert_eq!(st.composer_draft(), "change the file");
+        assert!(st.active_tab().is_some_and(|tab| tab.is_custom_cli()));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // `attached_prd_chip_sends_the_prd_tag_first`

@@ -1884,6 +1884,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     }
                 }
             }
+            if !matches!(p.kind, PropKind::Slot) {
+                if let Some(alias) = prop_def_alias(cx, &node, p) {
+                    df.push(("varValue", alias));
+                }
+            }
             prop_defs.push(msg(df));
         }
         fields.push(("componentPropDefs", V::Array(prop_defs)));
@@ -3343,6 +3348,31 @@ fn prop_alias(cx: &ExportCtx, node: &Node, prop_name: &str) -> Option<V> {
     Some(msg(vec![("dataType", en("ALIAS")), ("resolvedDataType", en(resolved)), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))]))
 }
 
+fn prop_def_alias(cx: &ExportCtx, node: &Node, p: &ComponentPropDef) -> Option<V> {
+    let var_id = node.component.prop_default_variables.get(&p.name)?;
+    if let Some(key) = var_id.strip_prefix("key:") {
+        let resolved = match &p.kind {
+            PropKind::Boolean => "BOOLEAN",
+            PropKind::Text | PropKind::Variant { .. } => "STRING",
+            PropKind::InstanceSwap { .. } | PropKind::Slot => return None,
+        };
+        return Some(msg(vec![
+            ("dataType", en("ALIAS")),
+            ("resolvedDataType", en(resolved)),
+            ("value", msg(vec![("alias", msg(vec![("assetRef", msg(vec![("key", V::String(key.to_string()))]))]))])),
+        ]));
+    }
+    let var = cx.doc.variables.get(var_id)?;
+    let vg = cx.resolve_var_guid(&var.id)?;
+    let resolved = match var.kind {
+        VariableKind::Boolean => "BOOLEAN",
+        VariableKind::String => "STRING",
+        VariableKind::Number => "FLOAT",
+        VariableKind::Color => "COLOR",
+    };
+    Some(msg(vec![("dataType", en("ALIAS")), ("resolvedDataType", en(resolved)), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))]))
+}
+
 fn bound_prop_variable_of<'a>(node: &'a Node, prop_name: &str) -> Option<&'a str> {
     node.variables.bindings.get(&prop_binding_key(prop_name)).map(String::as_str)
 }
@@ -4318,5 +4348,74 @@ fn blend_name(b: BlendMode) -> &'static str {
         BlendMode::Saturation => "SATURATION",
         BlendMode::Color => "COLOR",
         BlendMode::Luminosity => "LUMINOSITY",
+    }
+}
+
+#[cfg(test)]
+mod parked_override_export_tests {
+    use super::*;
+
+    #[test]
+    fn parked_overrides_are_never_written_to_exported_fig_bytes() {
+        let mut d = Document::new("FigParkedOverrideSkip");
+        let page = d.add_page("Page 1");
+
+        let mk_variant = |d: &mut Document, name: &str, x: f32, with_sub: bool| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 120.0, 60.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let mut title = Node::text(tid, Rect::new(8.0, 8.0, 80.0, 16.0), "Title", TextStyle::default());
+            title.name = "Title".into();
+            d.insert(comp, title).unwrap();
+            if with_sub {
+                let sid = d.alloc_id();
+                let mut sub = Node::text(sid, Rect::new(8.0, 28.0, 80.0, 16.0), "Default subtitle", TextStyle::default());
+                sub.name = "Subtitle".into();
+                d.insert(comp, sub).unwrap();
+            }
+            create_component(d, comp).apply(d).unwrap();
+            comp
+        };
+
+        let a = mk_variant(&mut d, "State=A", 0.0, true);
+        let b = mk_variant(&mut d, "State=B", 160.0, false);
+        combine_as_variants(&mut d, &[a, b]).apply(&mut d).unwrap();
+
+        create_instance(&mut d, a, page, Vec2::new(0.0, 120.0)).apply(&mut d).unwrap();
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let sub = *d.get(inst).unwrap().children.iter().find(|&&c| d.get(c).unwrap().name == "Subtitle").unwrap();
+        let mut sn = d.get(sub).unwrap().clone();
+        if let NodeKind::Text(tp) = &mut sn.kind {
+            tp.content = "Parked subtitle text".into();
+        }
+        sn.component.overrides.insert(OverrideField::Characters);
+        Command::Update { node: Box::new(sn) }.apply(&mut d).unwrap();
+
+        set_instance_prop(&mut d, inst, "State", Some(PropValue::Variant("B".into()))).apply(&mut d).unwrap();
+        assert_eq!(d.get(inst).unwrap().component.parked_overrides.len(), 1);
+
+        let mut clean = d.clone();
+        clean.get_mut(inst).unwrap().component.parked_overrides.clear();
+
+        let bytes_with_parked = export_fig(&d).unwrap();
+        let bytes_without_parked = export_fig(&clean).unwrap();
+        assert_eq!(bytes_with_parked, bytes_without_parked);
+
+        let pen_with_parked = crate::export_pen_json(&d).unwrap();
+        let pen_without_parked = crate::export_pen_json(&clean).unwrap();
+        assert_eq!(pen_with_parked, pen_without_parked, "pen export omits parked overrides and writes only what the instance shows");
+        assert!(!pen_with_parked.contains("parked_overrides"));
+        assert!(!pen_with_parked.contains("Parked subtitle text"));
+
+        let rest_with_parked = crate::export_rest_json(&d).to_string();
+        let rest_without_parked = crate::export_rest_json(&clean).to_string();
+        assert_eq!(rest_with_parked, rest_without_parked, "REST export omits parked overrides and writes only what the instance shows");
+        assert!(!rest_with_parked.contains("parked_overrides"));
+        assert!(!rest_with_parked.contains("Parked subtitle text"));
+
+        let native_json = d.to_json().unwrap();
+        assert!(native_json.contains("parked_overrides"), "native file writes parked_overrides");
     }
 }

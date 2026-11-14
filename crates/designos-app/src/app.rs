@@ -669,9 +669,6 @@ impl App {
 
     pub fn set_agent_permission_mode(&mut self, mode: crate::agent_permissions::AgentPermissionMode) {
         self.terminal.permission_mode = mode;
-        for entry in &mut self.tabs.entries {
-            entry.terminal.permission_mode = mode;
-        }
         if let Some(lib) = &self.lib {
             // A failed save leaves the older mode on disk. The picked mode keeps applying in this process
             // (`save_permission_mode`), and the user is told it did not persist.

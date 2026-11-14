@@ -220,6 +220,12 @@ macro_rules! codex_mcp_overrides {
     };
 }
 
+/// Removes the per-session MCP overrides when an untitled design has no private workspace. The
+/// prefix (including `codex resume` and its permission flags) remains intact.
+fn strip_codex_mcp_overrides(command: &str) -> String {
+    command.split_once(" -c 'mcp_servers.designos.command=").map_or_else(|| command.to_string(), |(prefix, _)| prefix.to_string())
+}
+
 /// The command behind the `--panel agents-start-failure` screenshot fixture. `agy` rejects `--mcp-config` and
 /// exits at once, which is what the failure panel shows. It must never carry a skip or bypass flag: it runs
 /// whatever the user's permission mode is (`#841`).
@@ -1244,6 +1250,11 @@ impl TerminalTab {
         self.preset == AgentCliPreset::Shell && self.spawned_command.is_some() && !self.is_shell_process()
     }
 
+    /// Why the mode this tab runs in cannot take prompts for its CLI (Ask when risky with no approval hook), or `None`.
+    pub fn mode_refusal(&self) -> Option<&'static str> {
+        crate::agent_permissions::start_refusal_in_mode(self.spawn_preset, self.is_custom_cli(), self.permission_mode)
+    }
+
     /// True when this tab is Claude Code and its session has a hook folder, so Claude reads attached skills from its `UserPromptSubmit`
     /// hook. Every other CLI, a custom command included, never reads that hook and gets the skills in the pasted prompt (`#573`), and so
     /// does a Claude tab whose session has no hook folder: none of its hooks is installed (`hooks_without_a_folder`), so a reply file
@@ -1551,6 +1562,9 @@ pub struct TerminalState {
     /// What the last provisioning has to tell the user about the start, as sentences for the Spawned line (`None` when nothing): what it
     /// moved out of the way of Grok or Antigravity, and the `designos` server it left out of an untitled design that has no workspace.
     set_aside_note: Option<String>,
+    /// The reason the last start was refused because Ask when risky cannot run that CLI, for the prompt that asked for it to read
+    /// and keep its text; cleared by the next start that goes ahead.
+    pub(crate) last_start_refusal: Option<&'static str>,
     /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
     pub viewport_size: (u16, u16),
 }
@@ -1840,6 +1854,7 @@ impl TerminalState {
             session_closed: false,
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
             set_aside_note: None,
+            last_start_refusal: None,
             viewport_size: (28, 100),
         }
     }
@@ -2930,6 +2945,8 @@ impl TerminalState {
             });
             let context_bytes = serde_json::to_vec_pretty(&ctx_val).unwrap_or_default();
             let canvas_doc = if !is_scoped { doc.clone() } else { crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name) };
+            let (ask_mode, ask_risky) = self.snapshot_approval_hook_flags();
+            self.sync_tab_hook_scripts();
             self.last_synced_key = Some(key);
             self.snapshot_worker.enqueue(crate::agent_session_files::SnapshotJob {
                 session_dir: self.session_dir.clone(),
@@ -2949,8 +2966,8 @@ impl TerminalState {
                 run_id: self.active_run_id.clone(),
                 bootstrap_run_id: self.run_id,
                 agent_runtime: self.active_mcp_runtime_name().to_string(),
-                ask_mode: self.permission_mode.installs_approval_hook(),
-                ask_risky: self.permission_mode.auto_allows_safe_tiers(),
+                ask_mode,
+                ask_risky,
                 unread_probe: Some(self.live_patch.unread_probe()),
                 exact_project_config: None,
             });
@@ -3016,6 +3033,35 @@ impl TerminalState {
         self.provision_session_agent_files_exact(file_path, None)
     }
 
+    /// `(ask_mode, ask_risky)` for a canvas snapshot: while any running tab uses the approval hook, the private channel stays
+    /// provisioned, and the shared fallback script only auto-allows safe tiers when every hooked tab is in `Ask when risky`.
+    fn snapshot_approval_hook_flags(&self) -> (bool, bool) {
+        if self.tabs.is_empty() {
+            (self.permission_mode.installs_approval_hook(), self.permission_mode.auto_allows_safe_tiers())
+        } else {
+            let any_ask_hook = self.tabs.iter().any(|tab| tab.permission_mode.installs_approval_hook());
+            let all_risky = any_ask_hook
+                && self.tabs.iter().filter(|tab| tab.permission_mode.installs_approval_hook()).all(|tab| tab.permission_mode.auto_allows_safe_tiers());
+            (any_ask_hook, all_risky)
+        }
+    }
+
+    /// Ensures each running tab with the approval hook keeps its own `<channel>/approve-hook-tab-<id>.sh` for the mode it started in.
+    fn sync_tab_hook_scripts(&self) {
+        if !self.tabs.iter().any(|tab| tab.permission_mode.installs_approval_hook()) {
+            return;
+        }
+        let Ok(channel_dir) = crate::agent_approval_channel::prepare_channel_dir(&self.session_dir) else {
+            return;
+        };
+        let status_file = crate::agent_hook_outputs::HookPaths::prepare(&self.session_dir).ok().map(|p| p.status());
+        for tab in &self.tabs {
+            if tab.permission_mode.installs_approval_hook() {
+                let _ = crate::agent_permissions::install_tab_hook_script(&channel_dir, status_file.as_deref(), tab.id, tab.permission_mode);
+            }
+        }
+    }
+
     /// [`Self::provision_session_agent_files`] that also makes the project config of `exact` exactly Studio's, and then returns
     /// the first error of that CLI's files.
     fn provision_session_agent_files_exact(
@@ -3030,13 +3076,22 @@ impl TerminalState {
         self.write_backoff.clear();
         self.last_synced_key = None;
         let job = self.provisioning_job(file_path, exact);
-        match write_session_agent_files(&job) {
+        let res = match write_session_agent_files(&job) {
             Ok(note) => {
                 self.set_aside_note = note;
                 None
             }
             Err(e) => Some(e),
+        };
+        if !job.ask_mode && self.tabs.iter().any(|tab| tab.permission_mode.installs_approval_hook()) {
+            let mut hook_job = self.provisioning_job(file_path, None);
+            let (ask_mode, ask_risky) = self.snapshot_approval_hook_flags();
+            hook_job.ask_mode = ask_mode;
+            hook_job.ask_risky = ask_risky;
+            let _ = write_session_agent_files(&hook_job);
         }
+        self.sync_tab_hook_scripts();
+        res
     }
 
     /// The job that writes the session's agent files when an agent is about to start: no canvas, this run's id and permission mode.
@@ -3064,7 +3119,8 @@ impl TerminalState {
             bootstrap_run_id: self.run_id,
             agent_runtime: self.active_mcp_runtime_name().to_string(),
             ask_mode: self.permission_mode.installs_approval_hook(),
-            ask_risky: self.permission_mode.auto_allows_safe_tiers(),
+            ask_risky: self.permission_mode.auto_allows_safe_tiers()
+                && self.tabs.iter().filter(|tab| tab.permission_mode.installs_approval_hook()).all(|tab| tab.permission_mode.auto_allows_safe_tiers()),
             unread_probe: None,
             exact_project_config: exact,
         }
@@ -3136,6 +3192,19 @@ impl TerminalState {
                 }
             }
             FixAction::RunLogin(command) => {
+                // A login that is the agent itself (Gemini, Antigravity) starts a session, so the mode decides first: refused, it
+                // leaves the banner up and shows the reason a start would get.
+                if let Some(agent) = agent_start_failure::agent_started_by_login(command) {
+                    self.refresh_permission_mode_from_disk();
+                    if let Err(reason) = self.refuse_start_in_mode(agent, false, self.permission_mode) {
+                        // Nothing in the panel paints the status line: the caption under the composer is where a refused send
+                        // writes its reason, on the composer of the tab on screen and no other.
+                        let composer = self.active_composer_mut();
+                        composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::ModeUnavailable));
+                        composer.notice = Some(reason);
+                        return;
+                    }
+                }
                 self.clear_active_tab_session_failure();
                 // A login runs as a plain command tab: it is not an agent tab, so a quick
                 // "already signed in" exit is not reported as a failed start.
@@ -3392,10 +3461,28 @@ impl TerminalState {
         }
     }
 
+    /// Fails closed when `mode` is Ask when risky and the CLI has no approval hook: nothing starts, and the status line and the
+    /// returned error carry the reason the agent menu shows for that CLI. Every way of starting an agent session asks this first.
+    fn refuse_start_in_mode(&mut self, preset: AgentCliPreset, custom: bool, mode: PermissionMode) -> Result<(), String> {
+        match crate::agent_permissions::start_refusal_in_mode(preset, custom, mode) {
+            Some(reason) => {
+                self.last_start_refusal = Some(reason);
+                self.status_msg = Some(reason.to_string());
+                Err(reason.to_string())
+            }
+            None => {
+                self.last_start_refusal = None;
+                Ok(())
+            }
+        }
+    }
+
     /// Spawns a custom CLI command tab (`"Other CLI…"` / `custom_clis`) in this file's session folder
     /// with the `DESIGNOS_*` environment, without registering a resumable session (`#652` §3 rule 7).
     pub fn spawn_custom_cli_tab(&mut self, label: &str, command: &str, file_path: Option<&Path>) -> Result<usize, String> {
         let clean_title = if label.trim().is_empty() { command.trim() } else { label.trim() };
+        self.refresh_permission_mode_from_disk();
+        self.refuse_start_in_mode(AgentCliPreset::Claude, true, self.permission_mode)?;
         if let Err(e) = crate::agent_session_files::ensure_session_dir(&self.session_dir) {
             let message = crate::agent_session_files::start_failure_message(clean_title, &e);
             self.status_msg = Some(message.clone());
@@ -3404,6 +3491,7 @@ impl TerminalState {
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
         self.provision_session_agent_files(file_path);
+        let provisioning_note = self.set_aside_note.take();
         let env = self.session_env();
         let mut cmd = match build_agent_shell_cmd_checked_for_tab(&default_shell_program(), command, AgentCliPreset::Claude, file_path, Some(&env)) {
             Ok(cmd) => cmd,
@@ -3421,6 +3509,7 @@ impl TerminalState {
             Ok(mut tab) => {
                 tab.preset = AgentCliPreset::Shell;
                 tab.title = clean_title.to_string();
+                tab.permission_mode = self.permission_mode;
                 if self.tabs.is_empty() || self.picker_open {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
@@ -3430,7 +3519,11 @@ impl TerminalState {
                 self.picker_open = false;
                 self.sessions_popover_open = false;
                 self.viewport_focused = true;
-                self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
+                let spawned = format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name);
+                self.status_msg = Some(match provisioning_note {
+                    Some(note) => format!("{spawned}. {note}"),
+                    None => spawned,
+                });
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
                     self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
                 }
@@ -3450,6 +3543,7 @@ impl TerminalState {
         self.refresh_permission_mode_from_disk();
         let mode = self.permission_mode;
         if crate::agent_sessions::is_agent_cli_preset(preset) {
+            self.refuse_start_in_mode(preset, false, mode)?;
             let session_uuid =
                 if crate::agent_sessions::uses_preassigned_session_id(preset) { Some(crate::agent_sessions::generate_session_uuid()) } else { None };
             let launch_cmd = crate::agent_permissions::build_new_session_command_for_mode(preset, mode, session_uuid.as_deref());
@@ -3499,9 +3593,10 @@ impl TerminalState {
         self.next_run_seq = run_seq + 1;
         self.active_run_id = format!("{}-{}-{}", self.session_id, id, run_seq);
         // Grok and Antigravity load their project config, hooks and MCP servers included, from the session folder, as the user.
-        let exact = match (preset, mode) {
-            (AgentCliPreset::Grok, PermissionMode::Ask) => Some(crate::agent_session_files::ExactProjectConfig::Grok),
-            (AgentCliPreset::Antigravity, PermissionMode::Ask) => Some(crate::agent_session_files::ExactProjectConfig::Antigravity),
+        // Every mode that installs the approval hook gets these guards, so a mode added later is covered without touching this.
+        let exact = match (preset, mode.installs_approval_hook()) {
+            (AgentCliPreset::Grok, true) => Some(crate::agent_session_files::ExactProjectConfig::Grok),
+            (AgentCliPreset::Antigravity, true) => Some(crate::agent_session_files::ExactProjectConfig::Antigravity),
             _ => None,
         };
         let provisioned = if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
@@ -3509,20 +3604,37 @@ impl TerminalState {
         } else {
             self.provision_session_agent_files(file_path)
         };
-        // Gemini CLI, Grok and Antigravity load the files Studio just rewrote by themselves. In Ask mode, files that could not be
-        // rewritten, or do not read back as written, or an entry that is not Studio's and could not be moved aside, may be a copy an
-        // agent kept (hooks and servers included): the tab does not start.
-        if let (AgentCliPreset::Gemini | AgentCliPreset::Grok | AgentCliPreset::Antigravity, PermissionMode::Ask, Some(e)) = (preset, mode, &provisioned) {
+        // Gemini CLI, Grok and Antigravity load the files Studio just rewrote by themselves. In every mode with the approval hook,
+        // files that could not be rewritten, or do not read back as written, or an entry that is not Studio's and could not be moved
+        // aside, may be a copy an agent kept (hooks and servers included): the tab does not start.
+        if let (AgentCliPreset::Gemini | AgentCliPreset::Grok | AgentCliPreset::Antigravity, true, Some(e)) =
+            (preset, mode.installs_approval_hook(), &provisioned)
+        {
             let message = crate::agent_session_files::start_failure_message(preset.tab_title(), e);
             self.set_aside_note = None;
             self.status_msg = Some(message.clone());
             return Err(message);
         }
+        let effective_command = command.map(|c| {
+            // The design decides: one with no file and no private workspace has nothing for the server to serve, whatever the
+            // provisioning step managed to write.
+            if preset == AgentCliPreset::Codex && session_workspace_dir(file_path).is_err() {
+                strip_codex_mcp_overrides(c)
+            } else {
+                c.to_string()
+            }
+        });
         let mut env = self.session_env();
         env.tab_session_uuid = session_uuid.clone();
         // A Gemini tab in Ask mode reads its status hooks from a private file, written before the tab starts.
         env.gemini_system_defaults = crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, id, mode, preset).map(|path| path.display().to_string());
-        let cmd_override = match command {
+        if mode.installs_approval_hook() {
+            if let Ok(channel_dir) = crate::agent_approval_channel::prepare_channel_dir(&self.session_dir) {
+                let status_file = crate::agent_hook_outputs::HookPaths::prepare(&self.session_dir).ok().map(|p| p.status());
+                let _ = crate::agent_permissions::install_tab_hook_script(&channel_dir, status_file.as_deref(), id, mode);
+            }
+        }
+        let cmd_override = match effective_command.as_deref() {
             Some(c) => match build_agent_shell_cmd_checked_for_tab(&default_shell_program(), c, preset, file_path, Some(&env)) {
                 Ok(cmd) => {
                     #[cfg(test)]
@@ -3555,7 +3667,7 @@ impl TerminalState {
                 }
                 tab.session_uuid = session_uuid.clone();
                 tab.is_resumed = is_resumed;
-                tab.spawned_command = command.map(str::to_string);
+                tab.spawned_command = effective_command;
                 tab.permission_mode = self.permission_mode;
                 // Antigravity has no permission hook. A Gemini tab with no hooks file is not on this list: its waits start from the
                 // dialog on its screen (`gemini_dialog`), never from words in its output.
@@ -3682,6 +3794,7 @@ impl TerminalState {
         let mode = self.permission_mode;
         let preset =
             crate::agent_sessions::preset_from_cli_name(&entry_clone.cli).ok_or_else(|| format!("Unsupported CLI '{}' in sessions.json", entry_clone.cli))?;
+        self.refuse_start_in_mode(preset, false, mode)?;
         let cmd_str = crate::agent_permissions::build_resume_command_for_mode(entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped, mode)
             .ok_or_else(|| format!("CLI '{}' does not support safe session resume", entry_clone.cli))?;
 
@@ -3751,6 +3864,33 @@ impl TerminalState {
     pub fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
             let mut removed = self.tabs.remove(idx);
+            // A tab can own prompts waiting for a busy CLI. Preserve user prompts
+            // in the unattached composer before dropping the tab so closing it
+            // cannot silently lose queued work.
+            // Only what still waits comes back: a prompt already written to the agent (`sent_in_start_window`) is in its hands, and
+            // sending it again would repeat what it has done.
+            let mut restored_text = false;
+            if !removed.composer.pending_send.is_empty()
+                && removed.composer.recover_undelivered_queue(
+                    false,
+                    "Queued message restored after tab close",
+                    crate::agent_composer::RefuseReason::NotWritable,
+                )
+            {
+                let recovered = std::mem::take(&mut removed.composer.draft);
+                if !recovered.trim().is_empty() {
+                    if self.unattached_composer.draft.trim().is_empty() {
+                        self.unattached_composer.draft = recovered;
+                    } else {
+                        self.unattached_composer.draft.push_str("\n\n");
+                        self.unattached_composer.draft.push_str(&recovered);
+                    }
+                    self.unattached_composer.notice = Some("Queued message restored after tab close".into());
+                    // The caption line shows a notice only beside a refused outcome, as it does for a draft returned by a failed start.
+                    self.unattached_composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
+                    restored_text = true;
+                }
+            }
             let _ = removed.child.kill();
             Self::withdraw_tab_approvals(&mut removed);
             if removed.spawn_preset == AgentCliPreset::Gemini {
@@ -3771,6 +3911,14 @@ impl TerminalState {
                 self.session_grants.clear();
             }
             self.sync_active_tab_approvals();
+            // The text waits in New chat, which is not on screen while another tab stays: say so where the person is looking.
+            if restored_text {
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.composer.notice = Some("Queued message restored after tab close".into());
+                    tab.composer.last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NotWritable));
+                    self.status_msg = Some("Queued message restored after tab close".into());
+                }
+            }
         }
         if self.tabs.is_empty() {
             self.cleanup_ephemeral_session_dir();
@@ -4317,7 +4465,9 @@ impl TerminalState {
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
         let outcome = self.send_to_agent(cli_prompt, file_path);
         if self.tabs.is_empty() && self.picker_open {
-            if outcome != crate::agent_composer::SendOutcome::Queued {
+            // A refusal for the mode keeps the text in the composer: held here too it would be sent a second time later.
+            let kept_in_composer = matches!(outcome, crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::ModeUnavailable));
+            if outcome != crate::agent_composer::SendOutcome::Queued && !kept_in_composer {
                 self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
             }
         } else if matches!(outcome, crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued) {
@@ -5956,6 +6106,124 @@ mod workspace_dir_tests {
         assert!(problems.is_empty(), "{problems:#?}");
     }
 
+    #[test]
+    fn codex_untitled_launch_does_not_register_designos_without_a_workspace() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Ask);
+            let idx = st.spawn_tab(AgentCliPreset::Codex, None).expect("Codex tab starts");
+            let command = st.tabs[idx].spawned_command.as_deref().expect("launch command");
+            assert!(!command.contains("mcp_servers.designos"), "untitled Codex must not register a server with an empty workspace: {command}");
+            assert!(!command.contains("--workspace"), "untitled Codex must not pass an empty workspace: {command}");
+            assert!(st.status_msg.as_deref().is_some_and(|status| status.contains("No design tools in this session")));
+            st.shutdown();
+        });
+    }
+
+    /// The decision follows the design (an untitled one with no private workspace), not a note the provisioning step has to write:
+    /// a provisioning that fails part way writes no note, and Codex must still start without a server with an empty workspace.
+    #[test]
+    fn codex_untitled_launch_registers_no_design_server_even_when_provisioning_fails() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Ask);
+            // A file where Gemini's settings folder belongs makes writing the session files fail.
+            crate::agent_session_files::test_support::plant(&st.session_dir, ".gemini", "not a folder");
+            let provisioned = st.provision_session_agent_files(None);
+            assert!(provisioned.is_some(), "precondition: the provisioning step fails");
+            let idx = st.spawn_tab(AgentCliPreset::Codex, None).expect("Codex tab starts");
+            let command = st.tabs[idx].spawned_command.as_deref().expect("launch command");
+            assert!(!command.contains("mcp_servers.designos"), "no server with an empty workspace: {command}");
+            assert!(!command.contains("--workspace"), "{command}");
+            st.shutdown();
+        });
+    }
+
+    /// A design with a file has a workspace of its own (its folder), so Codex keeps its design server there.
+    #[test]
+    fn codex_keeps_its_design_server_for_a_design_with_a_file() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Ask);
+            let folder = std::env::temp_dir().join(format!("designos-codex-titled-{}", std::process::id()));
+            std::fs::create_dir_all(&folder).expect("a folder");
+            let file = folder.join("design.designos");
+            let idx = st.spawn_tab(AgentCliPreset::Codex, Some(&file)).expect("Codex tab starts");
+            let command = st.tabs[idx].spawned_command.as_deref().expect("launch command");
+            assert!(command.contains("mcp_servers.designos.command"), "{command}");
+            st.shutdown();
+            let _ = std::fs::remove_dir_all(&folder);
+        });
+    }
+
+    #[test]
+    fn custom_cli_status_keeps_the_no_workspace_note() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Ask);
+            st.spawn_custom_cli_tab("Custom", "true", None).expect("custom tab starts");
+            let status = st.status_msg.as_deref().unwrap_or_default();
+            assert!(status.starts_with("Spawned Custom"), "custom status names the started CLI: {status}");
+            assert!(status.contains("No design tools in this session"), "custom status preserves workspace note: {status}");
+            st.shutdown();
+        });
+    }
+
+    /// A resumed Codex session of an untitled design starts through the same function with the `codex resume` command, and
+    /// registers no design server either.
+    #[test]
+    fn a_resumed_codex_session_of_an_untitled_design_registers_no_design_server() {
+        without_private_root(|| {
+            let mut st = tab_state_in(PermissionMode::Skip);
+            let resume = format!("codex resume --last --dangerously-bypass-approvals-and-sandbox{}", codex_mcp_overrides!());
+            let idx = st
+                .spawn_tab_with_registration(
+                    AgentCliPreset::Codex,
+                    None,
+                    Some(&resume),
+                    None,
+                    true,
+                    None,
+                    false,
+                    crate::agent_permissions::AgentPermissionMode::Skip,
+                )
+                .expect("the resumed Codex tab starts");
+            let command = st.tabs[idx].spawned_command.as_deref().expect("launch command");
+            assert_eq!(command, "codex resume --last --dangerously-bypass-approvals-and-sandbox");
+            st.shutdown();
+        });
+    }
+
+    /// Every mode with the approval hook starts Grok and Antigravity on a project config that is exactly Studio's: a hook file an
+    /// agent planted in the session folder is moved aside before the tab starts, in Ask when risky as in Ask.
+    #[test]
+    fn a_grok_tab_in_every_approval_mode_starts_on_the_exact_project_config() {
+        for mode in [crate::agent_permissions::AgentPermissionMode::Ask, crate::agent_permissions::AgentPermissionMode::AskRisky] {
+            without_private_root(|| {
+                let mut st = tab_state_in(mode);
+                crate::agent_session_files::ensure_session_dir(&st.session_dir).expect("the session folder");
+                let planted = st.session_dir.join(".grok/hooks/planted.json");
+                std::fs::create_dir_all(planted.parent().expect("a hooks folder")).expect("hooks folder");
+                std::fs::write(&planted, b"{}").expect("a planted hook file");
+
+                st.spawn_tab_with_registration(AgentCliPreset::Grok, None, Some("true"), None, false, None, false, mode).expect("the Grok tab starts");
+
+                assert!(!planted.exists(), "{mode:?}: the planted hook file was moved aside");
+                st.shutdown();
+            });
+        }
+    }
+
+    /// Only the design server's overrides go: the permission flags and a `resume` before them stay, and a command with no
+    /// override is returned as it came.
+    #[test]
+    fn stripping_the_codex_overrides_keeps_the_prefix_and_leaves_other_commands_alone() {
+        for (mode, prefix) in [(PermissionMode::Ask, "codex"), (PermissionMode::Skip, "codex --dangerously-bypass-approvals-and-sandbox")] {
+            let launch = AgentCliPreset::Codex.cli_launch_command_for_mode(mode);
+            assert!(launch.contains("mcp_servers.designos"), "precondition: the launch command registers the server: {launch}");
+            assert_eq!(super::strip_codex_mcp_overrides(launch), prefix, "{mode:?}");
+        }
+        let resume = format!("codex resume --last --dangerously-bypass-approvals-and-sandbox{}", codex_mcp_overrides!());
+        assert_eq!(super::strip_codex_mcp_overrides(&resume), "codex resume --last --dangerously-bypass-approvals-and-sandbox");
+        assert_eq!(super::strip_codex_mcp_overrides("claude --resume abc"), "claude --resume abc");
+    }
+
     /// The writer thread reports a failed write as "Couldn't update the agent files" and retries it; a missing workspace is not one.
     #[test]
     fn a_missing_workspace_is_not_a_failed_write_of_the_agent_files() {
@@ -6645,11 +6913,11 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 ui.ctx().memory_mut(|m| m.surrender_focus(fid));
             }
         }
-        let card_h = crate::agent_approval_card::approval_card_outer_height(if in_active_terminal && banner_preset == AgentCliPreset::Claude {
-            banner_preset
-        } else {
-            AgentCliPreset::Codex
-        });
+        let card_preset = if in_active_terminal && banner_preset == AgentCliPreset::Claude { banner_preset } else { AgentCliPreset::Codex };
+        let has_session_grant = in_active_terminal
+            && banner_preset == AgentCliPreset::Claude
+            && reqs.first().is_some_and(|req| crate::agent_permissions::offer_session_grant(card_mode, req));
+        let card_h = crate::agent_approval_card::approval_card_outer_height_for_width(card_preset, viewport_rect.width(), has_session_grant);
         Rect::from_min_max(Pos2::new(viewport_rect.left(), (viewport_rect.top() + card_h).min(viewport_rect.bottom())), viewport_rect.max)
     } else {
         viewport_rect
@@ -7376,6 +7644,9 @@ pub(crate) fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[Ag
 
 #[cfg(test)]
 mod ask_mode_tests;
+
+#[cfg(test)]
+mod ask_risky_start_tests;
 
 #[cfg(all(test, unix))]
 mod ask_hooks_tests;
@@ -12054,6 +12325,279 @@ mod tests {
         assert_eq!(st.tabs[idx].permission_mode, AgentPermissionMode::Skip);
         kill_tabs(&mut st);
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn switching_global_permission_mode_leaves_existing_project_tabs_in_their_mode() {
+        use crate::agent_permissions::AgentPermissionMode;
+        let mut app = crate::app::App::new(designos_doc::Document::new("Tab 1"));
+        app.terminal.permission_mode = AgentPermissionMode::Ask;
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.open_new_design_tab(&mut app);
+        app.tabs = tabs;
+        assert_eq!(app.tabs.entries[0].terminal.permission_mode, AgentPermissionMode::Ask);
+        app.set_agent_permission_mode(AgentPermissionMode::Skip);
+        assert_eq!(app.terminal.permission_mode, AgentPermissionMode::Skip);
+        assert_eq!(
+            app.tabs.entries[0].terminal.permission_mode,
+            AgentPermissionMode::Ask,
+            "an existing project tab keeps the permission mode it was running in when another tab changes the global setting"
+        );
+        app.terminal.shutdown();
+        for entry in &mut app.tabs.entries {
+            entry.terminal.shutdown();
+        }
+    }
+
+    #[cfg(unix)]
+    fn write_idle_stub_clis(bin_dir: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(bin_dir).expect("create stub bin dir");
+        for name in ["claude", "codex"] {
+            let path = bin_dir.join(name);
+            std::fs::write(&path, "#!/bin/sh\nsleep 30\n").expect("write stub cli");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod stub cli");
+        }
+    }
+
+    #[cfg(unix)]
+    fn spawn_tab_approval_hook(script: &Path, tab_id: usize, payload: &str) -> std::process::Child {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("/bin/sh")
+            .arg(script)
+            .env("DESIGNOS_TAB_ID", tab_id.to_string())
+            .env("DESIGNOS_APPROVAL_TIMEOUT_MS", "2500")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn approval hook");
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(payload.as_bytes());
+        }
+        child
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn running_tab_keeps_asking_after_global_mode_switch_canvas_snapshot_and_new_tab() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode, ApprovalDecision};
+        const SAFE_READ_PAYLOAD: &str = r#"{"tool_name":"mcp__designos__designos_get_document","tool_input":{}}"#;
+
+        for (case_idx, later_mode) in [AgentPermissionMode::AskRisky, AgentPermissionMode::Skip].into_iter().enumerate() {
+            let root = permission_window_root(&format!("running-tab-keeps-ask-{case_idx}"));
+            let bin_dir = root.join("bin");
+            write_idle_stub_clis(&bin_dir);
+            save_permission_mode(&root, AgentPermissionMode::Ask).expect("save Ask");
+
+            let mut app = crate::app::App::new(designos_doc::Document::new("Running Tab Ask"));
+            app.lib = Some(designos_library::Library::open(&root).expect("open library"));
+            app.terminal.bind_library_file(&root, &format!("file-keep-ask-{case_idx}"), &format!("win-keep-ask-{case_idx}"));
+            app.terminal.path_override = Some(bin_dir.clone().into_os_string());
+            app.terminal.path_prepend = vec![bin_dir.clone()];
+            app.set_agent_permission_mode(AgentPermissionMode::Ask);
+
+            let first_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn first Ask tab");
+            let first_tab_id = app.terminal.tabs[first_idx].id;
+            assert_eq!(app.terminal.tabs[first_idx].permission_mode, AgentPermissionMode::Ask);
+
+            let private_hooks = crate::agent_approval_channel::hooks_file_path(&app.terminal.session_dir).expect("private hooks path");
+            let script_path = crate::agent_approval_channel::hook_script_path(&app.terminal.session_dir).expect("private hook script path");
+            assert!(private_hooks.is_file(), "Ask tab provisions private hooks.json");
+            assert!(script_path.is_file(), "Ask tab provisions approve-hook.sh");
+            if later_mode == AgentPermissionMode::Skip {
+                std::fs::remove_file(&private_hooks).expect("clear initial hooks.json so canvas snapshot must rewrite it");
+            }
+
+            app.set_agent_permission_mode(later_mode);
+            let page = app.doc.pages.first().copied().unwrap_or(designos_doc::NodeId(1));
+            app.doc.name = format!("Snapshot After Switch {case_idx}");
+            app.terminal.sync_live_file_context(&app.doc, page, &[], None);
+            app.terminal.flush_live_sync();
+
+            let second_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn second tab in new global mode");
+            assert_eq!(app.terminal.tabs[first_idx].permission_mode, AgentPermissionMode::Ask, "running tab keeps Ask mode");
+            assert_eq!(app.terminal.tabs[second_idx].permission_mode, later_mode, "new tab takes the newly selected global mode");
+
+            app.doc.name = format!("Snapshot After Second Tab {case_idx}");
+            app.terminal.sync_live_file_context(&app.doc, page, &[], None);
+            app.terminal.flush_live_sync();
+
+            assert!(private_hooks.is_file(), "{later_mode:?}: canvas snapshot while an Ask tab is running must keep writing the private Ask hooks");
+
+            let hook_child = spawn_tab_approval_hook(&script_path, first_tab_id, SAFE_READ_PAYLOAD);
+            let asked = crate::test_timing::poll_until(std::time::Duration::from_millis(1200), || {
+                let _ = app.terminal.poll_live_agent_bridge();
+                !app.terminal.tabs[first_idx].pending_approvals.is_empty()
+            });
+            assert!(asked, "{later_mode:?}: first tab started in Ask must still raise an in-panel approval request instead of auto-allowing");
+            let req_id = app.terminal.tabs[first_idx].pending_approvals[0].id.clone();
+            app.terminal.focus_tab_by_id(first_tab_id);
+            app.terminal.answer_pending_approval(&req_id, ApprovalDecision::Allow);
+            let out = hook_child.wait_with_output().expect("wait for approval hook");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(stdout.contains("\"behavior\":\"allow\""), "{later_mode:?}: answering Allow lets the first tab proceed: {stdout}");
+
+            kill_tabs(&mut app.terminal);
+            app.terminal.shutdown();
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn two_running_tabs_with_different_modes_keep_their_own_approval_behavior_across_canvas_snapshots() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode, ApprovalDecision};
+        const SAFE_READ_PAYLOAD: &str = r#"{"tool_name":"mcp__designos__designos_get_document","tool_input":{}}"#;
+
+        let root = permission_window_root("two-tabs-different-modes");
+        let bin_dir = root.join("bin");
+        write_idle_stub_clis(&bin_dir);
+        save_permission_mode(&root, AgentPermissionMode::Ask).expect("save Ask");
+
+        let mut app = crate::app::App::new(designos_doc::Document::new("Two Tabs Different Modes"));
+        app.lib = Some(designos_library::Library::open(&root).expect("open library"));
+        app.terminal.bind_library_file(&root, "file-two-tabs", "win-two-tabs");
+        app.terminal.path_override = Some(bin_dir.clone().into_os_string());
+        app.terminal.path_prepend = vec![bin_dir.clone()];
+        app.set_agent_permission_mode(AgentPermissionMode::Ask);
+
+        // Tab A starts in Ask first.
+        let tab_a_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn tab A in Ask");
+        let tab_a_id = app.terminal.tabs[tab_a_idx].id;
+        assert_eq!(app.terminal.tabs[tab_a_idx].permission_mode, AgentPermissionMode::Ask);
+
+        // Switch global mode to AskRisky and start Tab B (Tab A is now in the background, Tab B is active).
+        app.set_agent_permission_mode(AgentPermissionMode::AskRisky);
+        let tab_b_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn tab B in AskRisky");
+        let tab_b_id = app.terminal.tabs[tab_b_idx].id;
+        assert_eq!(app.terminal.active_tab, tab_b_idx);
+        assert_eq!(app.terminal.tabs[tab_a_idx].permission_mode, AgentPermissionMode::Ask);
+        assert_eq!(app.terminal.tabs[tab_b_idx].permission_mode, AgentPermissionMode::AskRisky);
+
+        // Canvas snapshot runs while Tab B (AskRisky) is active and Tab A (Ask) is in the background.
+        let page = app.doc.pages.first().copied().unwrap_or(designos_doc::NodeId(1));
+        app.doc.name = "Snapshot With Risky Tab Active".to_string();
+        app.terminal.sync_live_file_context(&app.doc, page, &[], None);
+        app.terminal.flush_live_sync();
+
+        let script_path = crate::agent_approval_channel::hook_script_path(&app.terminal.session_dir).expect("private hook script path");
+
+        // Tab A (Ask, background) must NOT be weakened: a safe read tool must still ask.
+        let child_a = spawn_tab_approval_hook(&script_path, tab_a_id, SAFE_READ_PAYLOAD);
+        let a_asked = crate::test_timing::poll_until(std::time::Duration::from_millis(1200), || {
+            let _ = app.terminal.poll_live_agent_bridge();
+            !app.terminal.tabs[tab_a_idx].pending_approvals.is_empty()
+        });
+        assert!(a_asked, "background Ask tab A must still ask after a canvas snapshot while AskRisky tab B is active");
+        let req_id = app.terminal.tabs[tab_a_idx].pending_approvals[0].id.clone();
+        app.terminal.focus_tab_by_id(tab_a_id);
+        app.terminal.answer_pending_approval(&req_id, ApprovalDecision::Allow);
+        let out_a = child_a.wait_with_output().expect("wait for tab A hook");
+        assert!(String::from_utf8_lossy(&out_a.stdout).contains("\"behavior\":\"allow\""));
+
+        // Now Tab A (Ask) is active and Tab B (AskRisky) is in the background; run a canvas snapshot in the other direction.
+        assert_eq!(app.terminal.active_tab, tab_a_idx);
+        app.doc.name = "Snapshot With Ask Tab Active".to_string();
+        app.terminal.sync_live_file_context(&app.doc, page, &[], None);
+        app.terminal.flush_live_sync();
+
+        // Tab B (AskRisky, background) must still auto-allow safe read tools without raising a card.
+        let out_b = spawn_tab_approval_hook(&script_path, tab_b_id, SAFE_READ_PAYLOAD).wait_with_output().expect("wait for tab B hook");
+        let stdout_b = String::from_utf8_lossy(&out_b.stdout);
+        assert!(
+            stdout_b.contains("\"behavior\":\"allow\""),
+            "AskRisky tab B must still auto-allow safe tools after a canvas snapshot while Ask tab A is active: {stdout_b}"
+        );
+        let _ = app.terminal.poll_live_agent_bridge();
+        assert!(app.terminal.tabs[tab_b_idx].pending_approvals.is_empty(), "auto-allowed tool on Tab B leaves no pending request");
+
+        kill_tabs(&mut app.terminal);
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restarted_and_resumed_tabs_take_the_mode_selected_when_they_restart_and_keep_refusing_unsupported_clis_in_ask_risky() {
+        use crate::agent_permissions::{ask_risky_unsupported_reason, save_permission_mode, AgentPermissionMode};
+        use crate::agent_start_failure::FixAction;
+
+        let root = permission_window_root("restart-and-resume-modes");
+        let bin_dir = root.join("bin");
+        write_idle_stub_clis(&bin_dir);
+        save_permission_mode(&root, AgentPermissionMode::Ask).expect("save Ask");
+
+        let mut app = crate::app::App::new(designos_doc::Document::new("Restart And Resume"));
+        app.lib = Some(designos_library::Library::open(&root).expect("open library"));
+        app.terminal.bind_library_file(&root, "file-restart-resume", "win-restart-resume");
+        app.terminal.path_override = Some(bin_dir.clone().into_os_string());
+        app.terminal.path_prepend = vec![bin_dir.clone()];
+        app.terminal.codex_cwd_scoped = true;
+        app.set_agent_permission_mode(AgentPermissionMode::Ask);
+
+        // Start a Claude tab in Ask, then switch global mode to AskRisky and restart via FixAction::NewSession.
+        let first_idx = app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn initial Claude tab in Ask");
+        assert_eq!(app.terminal.tabs[first_idx].permission_mode, AgentPermissionMode::Ask);
+
+        app.set_agent_permission_mode(AgentPermissionMode::AskRisky);
+        app.terminal.apply_start_fix(FixAction::NewSession, None);
+        assert_eq!(app.terminal.tabs.len(), 2, "NewSession spawns a restarted tab");
+        let restarted_idx = app.terminal.active_tab;
+        assert_eq!(app.terminal.tabs[first_idx].permission_mode, AgentPermissionMode::Ask, "original tab keeps Ask");
+        assert_eq!(
+            app.terminal.tabs[restarted_idx].permission_mode,
+            AgentPermissionMode::AskRisky,
+            "restarted tab takes the AskRisky mode selected when it restarted"
+        );
+
+        // Record an exited Claude session and resume it after switching global mode to Skip, then AskRisky.
+        let entry = crate::agent_sessions::SessionEntry {
+            tab_id: 90,
+            title: "Claude Code #90".into(),
+            cli: "claude".into(),
+            session_id: Some("11111111-2222-4333-8444-555555555555".into()),
+            created_at: 10,
+            last_active_at: 20,
+            status: crate::agent_sessions::SessionEntryStatus::Exited,
+            extra: Default::default(),
+        };
+        app.terminal.session_registry.sessions.push(entry);
+
+        app.set_agent_permission_mode(AgentPermissionMode::Skip);
+        let resumed_skip_idx = app.terminal.resume_session_by_tab_id(90, None).expect("resume Claude in Skip");
+        assert_eq!(app.terminal.tabs[resumed_skip_idx].permission_mode, AgentPermissionMode::Skip, "resumed tab takes the Skip mode selected when it resumed");
+
+        // Start a Codex tab in Ask, switch global mode to AskRisky: both restarting (NewSession) and resuming Codex stay refused.
+        app.set_agent_permission_mode(AgentPermissionMode::Ask);
+        let codex_idx = app.terminal.spawn_tab(AgentCliPreset::Codex, None).expect("Codex starts in Ask");
+        assert_eq!(app.terminal.tabs[codex_idx].permission_mode, AgentPermissionMode::Ask);
+        let codex_tab_id = 91;
+        app.terminal.session_registry.sessions.push(crate::agent_sessions::SessionEntry {
+            tab_id: codex_tab_id,
+            title: "Codex #91".into(),
+            cli: "codex".into(),
+            session_id: None,
+            created_at: 25,
+            last_active_at: 30,
+            status: crate::agent_sessions::SessionEntryStatus::Exited,
+            extra: Default::default(),
+        });
+
+        app.set_agent_permission_mode(AgentPermissionMode::AskRisky);
+        let tabs_before = app.terminal.tabs.len();
+        app.terminal.active_tab = codex_idx;
+        app.terminal.apply_start_fix(FixAction::NewSession, None);
+        assert_eq!(app.terminal.tabs.len(), tabs_before, "restarting Codex in AskRisky must be refused");
+        assert_eq!(app.terminal.status_msg.as_deref(), ask_risky_unsupported_reason(AgentCliPreset::Codex));
+
+        let err = app.terminal.resume_session_by_tab_id(codex_tab_id, None).expect_err("resuming Codex in AskRisky must be refused");
+        assert_eq!(Some(err.as_str()), ask_risky_unsupported_reason(AgentCliPreset::Codex));
+
+        kill_tabs(&mut app.terminal);
+        app.terminal.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }
 

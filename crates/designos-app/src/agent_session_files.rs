@@ -300,7 +300,7 @@ pub struct SnapshotJob {
     /// Agent run counter whose first-turn `bootstrap.delivered.<n>` marker the Claude prompt hook checks (in the hook folder, `agent_hook_outputs`).
     pub bootstrap_run_id: u64,
     pub agent_runtime: String,
-    /// True when the session runs in `Ask` or `Ask for risky only`, so its hooks route approvals through the panel.
+    /// True when the session runs in `Ask` or `Ask when risky`, so its hooks route approvals through the panel.
     pub ask_mode: bool,
     /// True when read and additive designos tools may auto-allow inside `approve-hook.sh`.
     pub ask_risky: bool,

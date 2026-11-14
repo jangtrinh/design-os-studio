@@ -2738,7 +2738,7 @@ pub fn tools() -> Vec<Value> {
     let code_langs: Vec<&str> = designos_export::CodeLanguage::ALL.iter().map(|l| l.id()).chain(std::iter::once("svg")).collect();
     add(
         "generate_code",
-        "Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
+        "Generate handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
         json!({"node_id":id,"language":{"type":"string","enum":code_langs},"fragment":{"type":"boolean","default":false,"description":"When language is html, emit only <style> and the root element without <!doctype html>, <html>, <head>, or <body>."}}),
         vec!["node_id", "language"],
         json!({
@@ -2795,7 +2795,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "add_comment",
-        "Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo.",
+        "Pin a new comment thread to a node (local offset x/y) or page coordinates. Supports undo.",
         json!({"text":{"type":"string","minLength":1,"maxLength":10000},"author":{"type":"string","maxLength":256},"node_id":id,"page_id":id,"x":coordinate,"y":coordinate,"idempotency_key":idempotency_key}),
         vec!["text"],
         json!({
@@ -4416,6 +4416,62 @@ mod tests {
         e.call("designos_undo", json!({})).unwrap();
         assert!(e.doc.get(root2).is_none());
         assert!(e.doc.get(root_id).is_some());
+    }
+
+    #[test]
+    fn mcp_export_spec_preserves_instance_arc_override_on_apply_round_trip() {
+        use designos_doc::{create_component, create_instance, record_override, ArcData, Command, OverrideField, Rect, Vec2};
+        use std::f32::consts::{PI, TAU};
+
+        let mut e = Engine::default();
+        let page = e.active_page_id.unwrap();
+
+        let comp_id = e.doc.alloc_id();
+        let mut comp_node = Node::frame(comp_id, Rect::new(0.0, 0.0, 48.0, 48.0));
+        comp_node.name = "ProgressRing".into();
+        let comp = e.doc.insert(page, comp_node).unwrap();
+
+        let ring_id = e.doc.alloc_id();
+        let mut ring = Node::ellipse(ring_id, Rect::new(0.0, 0.0, 48.0, 48.0));
+        ring.name = "Ring".into();
+        ring.kind = NodeKind::Ellipse(ArcData { start: 0.0, end: TAU, inner_radius: 0.75 });
+        e.doc.insert(comp, ring).unwrap();
+        create_component(&mut e.doc, comp).apply(&mut e.doc).unwrap();
+        create_instance(&mut e.doc, comp, page, Vec2::new(80.0, 0.0)).apply(&mut e.doc).unwrap();
+        let inst = *e.doc.get(page).unwrap().children.last().unwrap();
+        let inst_ring = e.doc.get(inst).unwrap().children[0];
+
+        let before = e.doc.get(inst_ring).unwrap().clone();
+        let mut own = before.clone();
+        own.kind = NodeKind::Ellipse(ArcData { start: 0.25, end: 0.25 + PI, inner_radius: 0.6 });
+        own.component.overrides.extend(record_override(&before, &own));
+        Command::Update { node: Box::new(own) }.apply(&mut e.doc).unwrap();
+
+        let exported = e.call("designos_export_spec", json!({ "node_id": inst.0 })).unwrap();
+        assert_eq!(exported["spec"]["kind"], "instance");
+        let arc_json = &exported["spec"]["overrides"][0]["arc"];
+        assert!((arc_json["start_angle"].as_f64().unwrap() - 0.25).abs() < 1e-5);
+        assert!((arc_json["sweep_angle"].as_f64().unwrap() - f64::from(PI)).abs() < 1e-5);
+        assert!((arc_json["inner_radius"].as_f64().unwrap() - 0.6).abs() < 1e-5);
+
+        let reapplied = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": exported["spec"]
+                }),
+            )
+            .unwrap();
+        let inst2 = NodeId(reapplied["root_node_id"].as_u64().unwrap());
+        let inst2_ring = e.doc.get(inst2).unwrap().children[0];
+        let NodeKind::Ellipse(arc2) = &e.doc.get(inst2_ring).unwrap().kind else {
+            panic!("expected ring ellipse");
+        };
+        assert!((arc2.start - 0.25).abs() < 1e-5);
+        assert!((arc2.end - (0.25 + PI)).abs() < 1e-5);
+        assert!((arc2.inner_radius - 0.6).abs() < 1e-5);
+        assert!(e.doc.get(inst2_ring).unwrap().component.overrides.contains(&OverrideField::Arc));
     }
 
     #[test]

@@ -565,11 +565,10 @@ mod tests {
             .collect()
     }
 
-    fn temp_log(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("designos-patch-log-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir.join("doc-patch.jsonl")
+    fn temp_log(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::Builder::new().prefix(&format!("designos-patch-log-{name}-")).tempdir().unwrap();
+        let path = dir.path().join("doc-patch.jsonl");
+        (dir, path)
     }
 
     fn append(path: &Path, text: &str) {
@@ -595,7 +594,7 @@ mod tests {
 
     #[test]
     fn an_edit_before_a_newer_one_applies_and_every_edit_after_it_waits_for_the_next_switch() {
-        let path = temp_log("fence");
+        let (_dir, path) = temp_log("fence");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &(line(1) + &newer_line() + &line(2) + &newer_line() + &line(3)));
         let errors = read(&mut log);
@@ -611,7 +610,7 @@ mod tests {
     fn an_edit_to_a_layer_a_newer_edit_may_have_removed_is_not_held() {
         // A newer build's line removes layer 7 (this build cannot tell); the next line, in a format this
         // build reads, renames layer 7. Applying it would act on a layer in an unknown state.
-        let path = temp_log("fence-update");
+        let (_dir, path) = temp_log("fence-update");
         let mut log = LivePatchLog::bind(path.clone());
         let mut set = serde_json::Map::new();
         set.insert("name".into(), "Renamed".into());
@@ -624,7 +623,7 @@ mod tests {
 
     #[test]
     fn the_message_shows_once_per_epoch_even_when_the_newer_edits_arrive_in_different_polls() {
-        let path = temp_log("fence-polls");
+        let (_dir, path) = temp_log("fence-polls");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &newer_line());
         assert_eq!(read(&mut log), [newer_message()]);
@@ -638,7 +637,7 @@ mod tests {
 
     #[test]
     fn a_document_switch_lifts_the_fence_and_the_next_newer_edit_is_reported_again() {
-        let path = temp_log("fence-switch");
+        let (_dir, path) = temp_log("fence-switch");
         let mut log = LivePatchLog::bind(path.clone());
         let mut doc = Document::new("Switched");
         doc.add_page("Page");
@@ -662,7 +661,7 @@ mod tests {
 
     #[test]
     fn a_recreated_log_is_a_new_epoch_for_the_message() {
-        let path = temp_log("fence-recreate");
+        let (_dir, path) = temp_log("fence-recreate");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &(newer_line() + &line(1)));
         assert_eq!(read(&mut log), [newer_message()]);
@@ -675,7 +674,8 @@ mod tests {
 
     #[test]
     fn a_newer_edit_that_reaches_ingest_is_refused_too() {
-        let mut log = LivePatchLog::bind(temp_log("newer-ingest"));
+        let (_dir, path) = temp_log("newer-ingest");
+        let mut log = LivePatchLog::bind(path);
         let errors = log.ingest(vec![LiveLogLine::Newer { v: LIVE_PATCH_VERSION + 1 }]);
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert_eq!(errors[0], format!("Agent edit not applied. {UPDATE_BOTH_HINT}"));
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn version_one_edits_still_read() {
-        let path = temp_log("version-one");
+        let (_dir, path) = temp_log("version-one");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &(version_one_line(3) + &line(4)));
         let (lines, errors) = log.poll();
@@ -696,7 +696,7 @@ mod tests {
 
     #[test]
     fn old_lines_are_ignored_and_partial_lines_wait() {
-        let path = temp_log("partial");
+        let (_dir, path) = temp_log("partial");
         append(&path, &line(1));
         let mut log = LivePatchLog::bind(path.clone());
         let next = line(2);
@@ -708,7 +708,7 @@ mod tests {
 
     #[test]
     fn a_recreated_or_rewritten_log_is_read_from_the_start() {
-        let path = temp_log("rotate");
+        let (_dir, path) = temp_log("rotate");
         append(&path, &line(1));
         let mut log = LivePatchLog::bind(path.clone());
         // Recreated and refilled past the old read position.
@@ -722,7 +722,7 @@ mod tests {
 
     #[test]
     fn oversized_lines_are_reported_and_reading_continues() {
-        let path = temp_log("caps");
+        let (_dir, path) = temp_log("caps");
         let mut log = LivePatchLog::bind(path.clone());
         log.max_line_bytes = 64;
         log.max_poll_bytes = 100;
@@ -742,7 +742,7 @@ mod tests {
 
     #[test]
     fn only_a_complete_unread_line_counts_as_unread() {
-        let path = temp_log("unread");
+        let (_dir, path) = temp_log("unread");
         append(&path, &line(1));
         let mut log = LivePatchLog::bind(path.clone());
         assert!(!log.has_unread_complete_line(), "lines from before the bind are not unread");
@@ -757,7 +757,7 @@ mod tests {
 
     #[test]
     fn a_recreated_log_and_a_discarded_oversized_line_are_judged_like_the_poll_does() {
-        let path = temp_log("unread-rotate");
+        let (_dir, path) = temp_log("unread-rotate");
         append(&path, &line(1));
         let mut log = LivePatchLog::bind(path.clone());
         std::fs::remove_file(&path).unwrap();
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn a_normal_line_after_an_oversized_tail_and_a_log_recreated_meanwhile_count_as_unread() {
-        let path = temp_log("unread-skipping");
+        let (_dir, path) = temp_log("unread-skipping");
         append(&path, &line(1));
         let mut log = LivePatchLog::bind(path.clone());
         log.max_line_bytes = 64;
@@ -798,14 +798,15 @@ mod tests {
 
     #[test]
     fn the_unread_check_stops_at_the_first_newline_and_ignores_a_line_over_the_limit() {
-        let path = temp_log("unread-bounded");
+        let (_dir, path) = temp_log("unread-bounded");
         let mut log = LivePatchLog::bind(path.clone());
         log.max_line_bytes = 64;
         append(&path, &"z".repeat(300_000));
         assert!(!log.has_unread_complete_line(), "an unfinished line past the limit is never applied");
         append(&path, "\n");
         assert!(!log.has_unread_complete_line(), "a complete line over the limit is reported by the poll, not applied");
-        let mut log = LivePatchLog::bind(temp_log("unread-bounded-ok"));
+        let (_dir_ok, path_ok) = temp_log("unread-bounded-ok");
+        let mut log = LivePatchLog::bind(path_ok);
         append(&log.path.clone(), &(line(5) + &"q".repeat(300_000)));
         assert!(log.has_unread_complete_line(), "the first newline decides, whatever follows it");
         assert_eq!(ids(&log.poll().0), [5]);
@@ -818,7 +819,7 @@ mod tests {
 
     #[test]
     fn a_document_switch_drops_the_edits_held_before_it_and_keeps_those_after_it() {
-        let path = temp_log("switch");
+        let (_dir, path) = temp_log("switch");
         let mut log = LivePatchLog::bind(path.clone());
         let mut doc = Document::new("Switched");
         doc.add_page("Page");
@@ -835,7 +836,7 @@ mod tests {
 
     #[test]
     fn a_version_one_document_switch_still_loads() {
-        let path = temp_log("switch-v1");
+        let (_dir, path) = temp_log("switch-v1");
         let mut log = LivePatchLog::bind(path.clone());
         let mut doc = Document::new("Old switch");
         doc.add_page("Page");
@@ -850,7 +851,7 @@ mod tests {
 
     #[test]
     fn a_switch_whose_document_was_overwritten_by_a_later_one_waits_for_that_later_switch() {
-        let path = temp_log("superseded");
+        let (_dir, path) = temp_log("superseded");
         let mut log = LivePatchLog::bind(path.clone());
         let mut first = Document::new("First");
         first.add_page("Page");
@@ -874,7 +875,7 @@ mod tests {
 
     #[test]
     fn a_switch_to_a_document_that_cannot_be_read_is_reported_and_its_edits_are_dropped() {
-        let path = temp_log("unreadable");
+        let (_dir, path) = temp_log("unreadable");
         let mut log = LivePatchLog::bind(path.clone());
         let mut doc = Document::new("Gone");
         doc.add_page("Page");
@@ -899,7 +900,7 @@ mod tests {
 
     #[test]
     fn edits_dropped_while_stuck_belong_to_the_switch_that_loads_later_in_the_same_batch() {
-        let path = temp_log("stuck-then-switch");
+        let (_dir, path) = temp_log("stuck-then-switch");
         let mut log = LivePatchLog::bind(path.clone());
         let mut doc = Document::new("Recovered");
         doc.add_page("Page");
@@ -918,7 +919,7 @@ mod tests {
 
     #[test]
     fn a_rewritten_log_resets_dropped_edit_count_when_replayed_from_zero() {
-        let path = temp_log("rewrite-dropped-count");
+        let (_dir, path) = temp_log("rewrite-dropped-count");
         let mut log = LivePatchLog::bind(path.clone());
         let mut doc = Document::new("Switched");
         doc.add_page("Page");
@@ -942,7 +943,7 @@ mod tests {
 
     #[test]
     fn edits_after_a_refused_close_are_held_not_dropped() {
-        let path = temp_log("refused-close");
+        let (_dir, path) = temp_log("refused-close");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &(line(1) + &close_line() + &line(2)));
         read(&mut log);
@@ -961,7 +962,7 @@ mod tests {
 
     #[test]
     fn a_close_dropped_because_the_tab_was_hidden_stops_dropping_edits() {
-        let path = temp_log("hidden-close");
+        let (_dir, path) = temp_log("hidden-close");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &close_line());
         read(&mut log);
@@ -973,7 +974,7 @@ mod tests {
 
     #[test]
     fn a_refused_close_does_not_undo_a_drop_that_was_already_on() {
-        let path = temp_log("refused-close-while-stuck");
+        let (_dir, path) = temp_log("refused-close-while-stuck");
         let mut log = LivePatchLog::bind(path.clone());
         log.discarding = true;
         append(&path, &close_line());

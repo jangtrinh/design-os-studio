@@ -239,8 +239,8 @@ fn component_changes(old_comp: &Map<String, Value>, new_comp: &Map<String, Value
         if !new_comp.contains_key(k) {
             let reset_val = match k.as_str() {
                 "source" | "slot_content_id" | "override_level" | "detached_symbol_id" => Value::Null,
-                "props" => Value::Array(Vec::new()),
-                "values" | "slot_configs" | "slot_content_ids" | "bindings" | "variant_props" => Value::Object(Map::new()),
+                "props" | "parked_overrides" => Value::Array(Vec::new()),
+                "values" | "slot_configs" | "slot_content_ids" | "prop_default_variables" | "bindings" | "variant_props" => Value::Object(Map::new()),
                 "is_slot" | "is_slot_content" | "expose_nested_instances" | "layout_cleared" => Value::Bool(false),
                 "description" => Value::String(String::new()),
                 "grid_align_overrides" => serde_json::to_value(after.grid_align_overrides).map_err(|e| e.to_string())?,

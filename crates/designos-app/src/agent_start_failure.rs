@@ -80,6 +80,15 @@ pub fn login_command(preset: AgentCliPreset) -> &'static str {
     }
 }
 
+/// The agent a login command starts when the command is that agent's own binary, or `None` for a real login subcommand.
+/// Gemini and Antigravity have no login subcommand, so their "login" is the agent itself and needs the checks a start does.
+pub fn agent_started_by_login(command: &str) -> Option<AgentCliPreset> {
+    let command = command.trim();
+    [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::OpenCode]
+        .into_iter()
+        .find(|preset| preset.binary_name() == command)
+}
+
 pub fn billing_url(preset: AgentCliPreset) -> &'static str {
     match preset {
         AgentCliPreset::Claude => "https://console.anthropic.com/settings/billing",

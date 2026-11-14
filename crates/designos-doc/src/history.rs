@@ -827,7 +827,7 @@ fn layout_inputs_changed(old: &Node, new: &Node) -> bool {
         || !old.variables.bindings.iter().filter(|(k, _)| is_layout_binding_key(k)).eq(new.variables.bindings.iter().filter(|(k, _)| is_layout_binding_key(k)))
 }
 
-fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>) {
+pub(crate) fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>) {
     match cmd {
         Command::Update { node } => {
             let Some(cur) = doc.get(node.id) else { return };
@@ -882,7 +882,7 @@ fn apply_with_table_relayout(doc: &mut Document, c: Command) -> Result<Command, 
     let inv = c.apply_atomic(doc)?;
     let mut steps = vec![inv];
     if !prop_scope.is_empty() {
-        match apply_prop_resync(doc, &prop_scope) {
+        match apply_prop_resync_and_relayout(doc, &prop_scope) {
             Ok(Some(resync_inv)) => steps.insert(0, resync_inv),
             Ok(None) => {}
             Err(e) => {

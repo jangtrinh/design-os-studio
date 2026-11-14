@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DESIGN:OS Studio compared with OpenPencil, Penpot, Lunacy and Figma MCP</title>
+<meta name="description" content="A factual comparison of DESIGN:OS Studio with OpenPencil, Penpot, Lunacy and Figma's official MCP server, for people looking for a free Figma alternative or a Figma MCP alternative.">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<link rel="canonical" href="https://jangtrinh.github.io/design-os-studio/compare/">
+<link rel="alternate" type="text/plain" href="/design-os-studio/llms.txt" title="LLM documentation">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DESIGN:OS Studio">
+<meta property="og:title" content="DESIGN:OS Studio compared with OpenPencil, Penpot, Lunacy and Figma MCP">
+<meta property="og:description" content="A factual comparison of DESIGN:OS Studio with OpenPencil, Penpot, Lunacy and Figma's official MCP server, for people looking for a free Figma alternative or a Figma MCP alternative.">
+<meta property="og:url" content="https://jangtrinh.github.io/design-os-studio/compare/">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="https://jangtrinh.github.io/design-os-studio/images/og-designos-studio.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The words Own your design canvas next to a pricing section that a coding agent added to a file open in DESIGN:OS Studio.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DESIGN:OS Studio compared with OpenPencil, Penpot, Lunacy and Figma MCP">
+<meta name="twitter:description" content="A factual comparison of DESIGN:OS Studio with OpenPencil, Penpot, Lunacy and Figma's official MCP server, for people looking for a free Figma alternative or a Figma MCP alternative.">
+<meta name="twitter:image" content="https://jangtrinh.github.io/design-os-studio/images/og-designos-studio.png">
+<meta name="twitter:image:alt" content="The words Own your design canvas next to a pricing section that a coding agent added to a file open in DESIGN:OS Studio.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/design-os-studio/assets/site.css">
+<style>
+/* Single typeface mandate: Inter across all text and tabular registers. */
+:root{--font-sans:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;--font-display:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;--font-mono:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;--stack-sans:var(--font-sans);--stack-mono:var(--font-mono)}.prose table{font-variant-numeric:tabular-nums}
+/* This page has a six-column comparison table. Widen the article; keep
+   body paragraphs at the site's 68ch measure. Render the table as a real
+   table (site.css sets .prose table to display:block for overflow). */
+.prose{max-width:72rem}
+.prose .table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;margin:var(--s-4) 0 var(--s-12)}
+.prose .table-scroll table{display:table;width:100%;min-width:56rem;margin:0;border-collapse:collapse}
+</style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://jangtrinh.github.io/design-os-studio/compare/#page",
+      "url": "https://jangtrinh.github.io/design-os-studio/compare/",
+      "name": "DESIGN:OS Studio compared with OpenPencil, Penpot, Lunacy and Figma MCP",
+      "description": "A factual comparison of DESIGN:OS Studio with OpenPencil, Penpot, Lunacy and Figma's official MCP server, for people looking for a free Figma alternative or a Figma MCP alternative.",
+      "inLanguage": "en",
+      "dateModified": "2026-11-13",
+      "isPartOf": {
+        "@id": "https://jangtrinh.github.io/design-os-studio/#app"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://jangtrinh.github.io/design-os-studio/compare/#faq",
+      "isPartOf": {
+        "@id": "https://jangtrinh.github.io/design-os-studio/compare/#page"
+      },
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Is DESIGN:OS Studio free?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). You can use and modify it freely, including for paid work. The terms are PolyForm Shield 1.0.0. You cannot resell it or use it to build a product that competes with it. Pre-built packages for v0.7.14 are on the GitHub Releases page."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is design:os affiliated with Figma?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. design:os is not affiliated with, endorsed by, or sponsored by Figma, Inc. \"Figma alternative\" in the product sentence and in this comparison describes a category of tool. It is not a claim of parity, partnership, or official compatibility beyond what the Studio README and issue #834 actually say about reading and writing .fig files."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can DESIGN:OS Studio open and save .fig files?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes, with known issue #834, which is still open (P1). Studio reads .fig containers and writes version 106 with meta.json and images/. On save, a numbered list loses its numbers and item spacing grows; a breadcrumb arrow icon renders heavier; and inherited or variable-bound paints on instances are written as fixed values. Keep the original .fig, or save as .designos, until #834 is fixed. Details are in the issue and in the Studio README."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is designos-mcp a Figma MCP alternative?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "It can show up in the same search, but it is a different job. Figma's official MCP server talks to a Figma file in Figma. It needs a Figma account, and write access depends on plan and seat. designos-mcp is a local stdio server, 39 tools in v0.7.14, that inspects, edits and exports a .fig on disk, with no Figma app and no Figma token. Both can be useful. If your files live in Figma, use Figma MCP. If you have a .fig on disk and no Figma session, use designos-mcp or the designos CLI."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What platforms does DESIGN:OS Studio run on?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "v0.7.14 ships packages for macOS (a universal .dmg, verified on Apple Silicon), Windows (a .zip with a per-user install script) and Linux (.deb and .tar.gz). The Windows and Linux packages are built by the same release workflow but are not verified before release. You can also build from source. There is no account and no telemetry."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="ds-skip-link" href="#main">Skip to content</a>
+<div class="ds-shell">
+  <nav class="ds-shell-nav" aria-label="Primary">
+    <a class="wordmark" href="https://jangtrinh.github.io/design-os/">DESIGN:OS</a>
+    <div class="home-nav-links">
+      <a class="ds-tab" href="/design-os-studio/deep-dive.html">Deep dive</a>
+      <a class="ds-tab" href="https://github.com/jangtrinh/design-os-studio"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></svg>GitHub</a>
+    </div>
+  </nav>
+
+  <main id="main" class="ds-shell-main">
+    <article class="prose">
+      <p class="ds-heading eyebrow doc-head" data-level="3">DESIGN:OS Toolchain · docs</p>
+      <h1 id="designos-studio-compared-with-openpencil-penpot-lunacy-and-figma-mcp">DESIGN:OS Studio compared with OpenPencil, Penpot, Lunacy and Figma MCP</h1>
+
+    <p>DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). It is a native Rust editor that opens and writes .fig files with no Figma app, and lets coding agents edit a .fig headless through designos-mcp (39 tools, v0.7.14) or the designos CLI. design:os is not affiliated with or endorsed by Figma. Saving a .fig has known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>, which is still open (P1): a numbered list loses its numbers and the spacing between items grows; a breadcrumb arrow icon renders heavier (the issue title is ".fig save drops numbered-list formatting and changes icon strokes"); and the writer turns inherited or variable-bound paints on instances into literal overrides, so a fill bound to a variable becomes a fixed hex.</p>
+
+    <p>This page is a factual comparison for people searching for a free Figma alternative, a desktop .fig editor, or a Figma MCP alternative. "Figma MCP alternative" usually means a server that talks to the Figma API or a Figma plugin. designos-mcp is different: it edits a .fig file on disk, with no Figma app and no Figma token. Both can be useful; they are not the same job.</p>
+
+    <p>The facts below were checked against each product's public pages on 13 November 2026 (Asia/Saigon). Where a figure is not published, this page says so. Sources are listed at the end.</p>
+
+    <h2 id="who-each-tool-is-for">Who each tool is for</h2>
+
+    <p><strong>DESIGN:OS Studio</strong> is for people who want a local desktop editor, and a headless agent path, that opens and writes a .fig on disk with no Figma app and no Figma account. Jang Trịnh, a creative technologist and autonomous system architect, started design:os on 10/10/2026. The current release is v0.7.14.</p>
+
+    <p><strong>OpenPencil</strong> is for people who want a local-first editor under the MIT License, with a large MCP and CLI surface, peer-to-peer collaboration, and official claims that it reads and writes .fig. It also runs in the browser. A hosted Cloud product is on a waitlist; no public Cloud price was published when this page was written.</p>
+
+    <p><strong>Penpot</strong> is for teams that want a mature, self-hostable design platform in the browser, under the Mozilla Public License 2.0, with real-time collaboration and an official MCP server that reads and writes the open Penpot file. It does not open a native .fig. Migration from Figma goes through the Penpot Exporter plugin.</p>
+
+    <p><strong>Lunacy</strong> (by Icons8) is for people who want a free native desktop editor with a built-in Icons8 asset library, native .sketch read and write, and optional cloud collaboration. It opens and imports .fig. Its native format is .free. Saving back to .fig is not documented on the official export list.</p>
+
+    <p><strong>Figma's official MCP server</strong> is for people whose files already live in Figma and who want the official agent integration into those files. It is not a desktop .fig editor. It does not operate on a .fig sitting on your disk.</p>
+
+    <h2 id="comparison">Comparison</h2>
+
+    <div class="table-scroll">
+      <table aria-labelledby="comparison">
+        <thead>
+          <tr>
+            <th scope="col"></th>
+            <th scope="col">DESIGN:OS Studio</th>
+            <th scope="col">OpenPencil</th>
+            <th scope="col">Penpot</th>
+            <th scope="col">Lunacy</th>
+            <th scope="col">Official Figma MCP</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <th scope="row">Native desktop, no account</th>
+          <td>Yes. macOS packages are verified on Apple Silicon. Windows and Linux packages are built, not verified before release. No account.</td>
+          <td>Yes. Desktop app for macOS, Windows and Linux, and a web app. No account for local use.</td>
+          <td>Browser and self-host. Cloud use has an account. Not a native desktop editor.</td>
+          <td>Yes. Native apps for Windows, macOS and Linux. Local files need no account. Cloud and some graphics features ask you to log in.</td>
+          <td>Needs a Figma account. The remote server needs no Figma desktop app. The desktop server needs the Figma desktop app and a Dev or Full seat on a Professional, Education, Organization, Government or Enterprise plan.</td>
+        </tr>
+        <tr>
+          <th scope="row">Opens and writes <code>.fig</code></th>
+          <td>Yes, writes container version 106, with known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> (still open).</td>
+          <td>Yes. The homepage and README state that it reads and writes .fig, and that you can export to .fig.</td>
+          <td>No native .fig. Official migration uses the Penpot Exporter plugin in Figma, then import of a .penpot file.</td>
+          <td>Opens and imports .fig (About, Interface, and the v12 release notes). Native format is .free. Native save-back is documented for .sketch. Official export formats do not include .fig. Write-back to .fig is not published.</td>
+          <td>Works on a Figma file inside Figma, not on a .fig file on disk.</td>
+        </tr>
+        <tr>
+          <th scope="row">Headless / MCP for agents</th>
+          <td>designos-mcp: 39 tools in v0.7.14, read and write, local stdio. The designos CLI can inspect, export and write a .fig with no window.</td>
+          <td>Official homepage: 24 CLI commands and 126 MCP tools, stdio or HTTP, inspect, edit and export. The MCP docs say "100+" shared design tools and list named tools (115 counted on that page on 13 November 2026). The CLI works on a file with no app running.</td>
+          <td>Official Penpot MCP, remote or local. Agents can read and modify the focused Penpot page. Local MCP names five tools. The Penpot file and plugin must be connected.</td>
+          <td>A local MCP server runs with the Lunacy app. Docs describe read access to the selection, color variables, components and images. Release notes for 11.6 say an LLM can edit the selection over MCP. Tool count is not published. Not described as a headless file-on-disk server.</td>
+          <td>Official remote server at <code>https://mcp.figma.com/mcp</code> (all plans) and a desktop server (paid-plan Dev or Full seat). Agents can read Figma files. Writing to the canvas is available on Professional, Education, Organization and Enterprise plans; writing outside drafts needs a Full seat. The desktop server does not write to the canvas. Free during the beta period; Figma says it will become a usage-based paid feature. Rate limits depend on plan and seat.</td>
+        </tr>
+        <tr>
+          <th scope="row">Price</th>
+          <td>FREE to use and modify, including for paid work.</td>
+          <td>The download page calls the desktop app free, with nothing to sign up for. Hosted Cloud is on a waitlist; no public Cloud price was published. Bring-your-own-key AI uses your own provider, so any provider charges are yours.</td>
+          <td>Cloud Professional is $0 per user per month. Self-host Professional is free. Paid Cloud plans add storage, history and governance. Enterprise self-host starts at $950 per month.</td>
+          <td>The editor is free for personal and commercial use. Paid graphics, cloud and team plans exist. The public pricing page uses Free, Pro and Enterprise labels and, on 13 November 2026, did not expose a visible Pro figure in the fetched page. An Icons8 Help article dated 30 January 2026 lists Graphics at $9.99 per month or $95.99 per year, Personal cloud at $4.99 per month or $47.99 per year, Team Professional at $4.99 per seat, and Enterprise at $49.99 per seat. Built-in graphics on the free plan require a link to Icons8.</td>
+          <td>Access depends on your Figma plan and seat. The MCP feature is free during beta and will become usage-based, according to Figma's help article. Read-tool rate limits: View or Collab seats, up to 20 per month; Full or Dev seats on Professional, up to 200 per day and 10 per minute (Education matches that); Organization, up to 200 per day and 15 per minute; Enterprise, up to 600 per day and 20 per minute. Some write tools and <code>whoami</code> are exempt. Figma may change these limits.</td>
+        </tr>
+        <tr>
+          <th scope="row">Licence</th>
+          <td>PolyForm Shield 1.0.0, source-available. You cannot resell it or use it to build a product that competes with it.</td>
+          <td>MIT License for the editor, the rendering engine, the .fig codec and the CLI. OpenPencil Cloud is under Apache License 2.0.</td>
+          <td>Mozilla Public License 2.0 (MPL-2.0). Source is on GitHub at penpot/penpot.</td>
+          <td>Proprietary end-user licence from Icons8 LLC. You may use the software for personal or commercial projects. You may not modify or reverse engineer it.</td>
+          <td>A Figma product. It is not a separately licensed desktop editor. Use is under your Figma plan and Figma's terms.</td>
+        </tr>
+        <tr>
+          <th scope="row">Offline / local-first</th>
+          <td>Yes. Files stay on your disk. No telemetry.</td>
+          <td>Yes. Documents are files on your disk. No account and no internet required for local use. Official builds send one anonymous ping a day; usage stats are shared only if you agree, and the privacy page says how to turn this off.</td>
+          <td>Cloud is hosted. Self-host puts the stack on your servers. There is no official native offline desktop editor.</td>
+          <td>Yes for local documents. Cloud documents need the network. A web version also exists.</td>
+          <td>The remote server talks to Figma over the network. The desktop server runs in the Figma desktop app and still works on a Figma file, not a local .fig.</td>
+        </tr>
+        <tr>
+          <th scope="row">Collaboration</th>
+          <td>None of the hosted kind: no real-time multiplayer, no SSO or SCIM, no hosted comment notifications.</td>
+          <td>Peer-to-peer rooms over WebRTC: live cursors, follow mode, comments and voice calls, with no server and no account. Optional Cloud collaboration is on the roadmap and a waitlist.</td>
+          <td>Real-time collaboration in the browser, on cloud or self-host, with teams, libraries and comments. This is a core strength.</td>
+          <td>Real-time collaboration on cloud documents, including across platforms. About says up to 10 simultaneous editors, plus observer mode and comments.</td>
+          <td>Inherits Figma's own collaboration. The MCP server is an agent interface into those files, not a standalone collab product.</td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="designos-studio-and-openpencil">DESIGN:OS Studio and OpenPencil</h2>
+
+    <p>OpenPencil is stronger where a MIT-licensed local editor, a large published MCP and CLI surface, and peer-to-peer collaboration matter. Its homepage and download page present a free desktop app for macOS, Windows and Linux, a web app with no install, 24 CLI commands that work on a file with no app running, and an MCP server over stdio or HTTP. It states that it reads and writes .fig, and that you can export to .fig, PDF, PPTX, SVG, HTML and JSX. Collaboration in a shared room does not need an account. Those are real advantages.</p>
+
+    <p>Studio differs in licence, stack and freshness. It is a native Rust and GPU editor (wgpu, with a tiny-skia CPU path for headless captures), released as FREE + source-available under PolyForm Shield 1.0.0. That licence lets you use and modify it, including for paid work, and does not let you resell it or build a competing product. It ships designos-mcp with 39 tools in v0.7.14, pinned by the tool table in the README, and a designos CLI that can inspect, scan a design system, generate code and write a .fig with no window. It does not offer live multiplayer. It is also newer: work on design:os started on 10/10/2026.</p>
+
+    <p>On MCP tool counts, this page repeats OpenPencil's own homepage figure of 126, and also records what the MCP docs say: "100+" shared design tools, plus MCP-only operations, with 115 named tools counted in the published tables on 13 November 2026. If you need a single audited number, read their live docs. Studio's 39 is the count in the v0.7.14 README tool table, which is generated from <code>designos-mcp</code>.</p>
+
+    <p>If you want MIT terms, a large agent tool list, P2P collab, or a web app, OpenPencil is the stronger fit. If you want a native Rust desktop studio, a 39-tool local MCP and CLI with no Figma app, and PolyForm Shield terms, look at Studio, and read <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> before you rely on .fig save.</p>
+
+    <h2 id="designos-studio-and-penpot">DESIGN:OS Studio and Penpot</h2>
+
+    <p>Penpot is stronger on maturity, self-hosting and team collaboration. You can run it in Penpot's cloud or on your own servers. Cloud Professional is $0 per user per month. Self-host Professional is free, with unlimited users, teams and files on your infrastructure. The product is licensed under MPL-2.0, and the source is public. Inspect is available without a separate paid Dev Mode add-on. The official MCP server, remote or local, lets an agent read and modify the focused Penpot page, and Penpot describes this MCP as free with no credit caps. For a team that wants a design platform it can host and govern, Penpot is the stronger choice.</p>
+
+    <p>Studio differs on the file and on where the agent works. Penpot does not open a native .fig. Official migration uses the Penpot Exporter plugin inside Figma, then import into Penpot; the enterprise migration guide says to expect some layout cleanup, and that the exporter is for one-off migration, not continuous sync. Studio opens and writes the .fig on your disk, with <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>. designos-mcp talks to that file, with no Penpot (or Figma) session. Studio has no real-time multiplayer and no self-hosted team workspace. It is a local desktop app, not a browser platform.</p>
+
+    <p>If you need browser collaboration, self-hosting, or MPL-2.0 terms, choose Penpot. If you need to keep a .fig on disk and let an agent edit it headless, choose Studio or OpenPencil, not Penpot.</p>
+
+    <h2 id="designos-studio-and-lunacy">DESIGN:OS Studio and Lunacy</h2>
+
+    <p>Lunacy is stronger as a free native desktop design app with a built-in Icons8 library of icons, illustrations and photos, native .sketch open, edit and save, optional real-time cloud collaboration, and a low hardware bar. It runs on Windows, macOS and Linux. The About page says it is completely free for personal and commercial use. You can work offline on local documents. A built-in MCP server sits next to the app, and the 11.6 release notes say an LLM can edit the selection over MCP. For a designer who wants a familiar desktop editor and a large offline-capable asset library, Lunacy is the stronger fit.</p>
+
+    <p>Studio differs on .fig writing and on headless agents. Lunacy opens and imports .fig, as of the v12 release notes (9 February 2026), which replaced Figma API import with .fig file import. Its native format is .free. Official export formats are raster and vector image types, not .fig. This page does not claim that Lunacy writes .fig, because that is not published. (An older features page still lists ".fig format support" under features unlikely to appear. That conflicts with the later About, Interface and v12 notes. This page follows the more specific, later docs and treats .fig write-back as not published.) Studio writes .fig, with <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>. designos-mcp and the designos CLI can edit a .fig with no window; Lunacy's MCP is documented as a local server alongside the running app, and a tool count is not published.</p>
+
+    <p>Paid Lunacy plans unlock higher-resolution graphics without Icons8 attribution, AI tools, and more cloud and team capacity. Exact current Pro pricing should be read on the live pricing page, because the Help article and the marketing page use different plan names.</p>
+
+    <h2 id="designos-studio-and-figma-mcp">DESIGN:OS Studio and Figma MCP</h2>
+
+    <p>Figma's official MCP server is stronger wherever your source of truth is already a Figma file: official integration, a remote server that needs no desktop app, write to the canvas on paid plans, Code Connect, skills, and a published tools list that covers design-to-code, code-to-design, libraries and (separately) Figma Weave. If your team designs in Figma and you want an agent to read or write those files, the official server is the direct path. This page does not treat it as a weaker product. It is a different job.</p>
+
+    <p>Studio differs because designos-mcp does not talk to the Figma API and does not need a Figma token, a Figma seat, or the Figma app. It opens a .fig on disk. That is useful when you have a file and no Figma session, or when an agent should run headless in CI. It is not a replacement for Figma, and it is not a drop-in stand-in for Figma MCP. Other community MCP servers that talk to Figma also exist; this page compares only the official Figma MCP server.</p>
+
+    <p>Access and cost follow your Figma plan. The remote server is available on all plans, with rate limits. Writing to the canvas is on Professional, Education, Organization and Enterprise, and writing outside drafts needs a Full seat. A Dev seat can write in drafts and has read access to other files. The desktop server needs a Dev or Full seat on a paid plan (or Education or Government, as documented) and does not support writing to the canvas. The feature is free during beta and will become usage-based.</p>
+
+    <p>On tool counts: Figma's official tools page does not publish a single total. On 13 November 2026 the published index listed 19 read tools and 15 write tools, with many write tools marked remote-only, and a separate Weave group that needs a paid Weave account. Studio publishes 39 tools for v0.7.14.</p>
+
+    <h2 id="which-should-you-pick">Which should you pick</h2>
+
+    <ul>
+      <li><strong>Choose DESIGN:OS Studio</strong> if you want a native desktop editor that opens and writes a .fig on your disk, and a local MCP server plus CLI so a coding agent can inspect, edit and export that file with no Figma app and no Figma token. Read <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> first. Use it FREE under PolyForm Shield 1.0.0.</li>
+      <li><strong>Choose OpenPencil</strong> if you want MIT terms, a free local (and web) editor that also claims .fig read and write, a large MCP and CLI surface, or peer-to-peer collaboration without an account.</li>
+      <li><strong>Choose Penpot</strong> if you want a mature browser design platform you can self-host, real-time team collaboration, MPL-2.0 terms, and an official MCP server against Penpot files. Plan a migration through the Penpot Exporter; do not expect to open a raw .fig.</li>
+      <li><strong>Choose Lunacy</strong> if you want a free native desktop editor with a built-in Icons8 asset library, native .sketch, optional cloud collab, and offline local files. Use it to open a .fig; do not assume it will write one back, unless Icons8 later documents that.</li>
+      <li><strong>Choose Figma's official MCP server</strong> if your designs live in Figma and you want the official agent path into those files, including write to the canvas on a qualifying plan and seat.</li>
+    </ul>
+
+    <p>You can also use more than one. A team can keep Figma (and Figma MCP) as the shared cloud canvas, and use Studio or OpenPencil on a .fig export when an agent needs to work on a file on disk. That is a neighbouring workflow, not a swap of one product for the other.</p>
+
+    <h2 id="known-limitations-of-designos-studio">Known limitations of DESIGN:OS Studio</h2>
+
+    <ul>
+      <li><strong>Issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> is still open (P1)</strong> as of 13 November 2026. The title is ".fig save drops numbered-list formatting and changes icon strokes". The issue body, measured on the Untitled UI PRO v8.0 kit, says: a numbered list loses its numbers and item spacing grows; a breadcrumb arrow icon renders heavier (in v0.5.0 it also shifted into the next word); and the writer turns inherited paints into literal instance overrides, including a fill bound to a variable (example: <code>bg-secondary</code> became the literal <code>#FAFAFA</code>). A literal value cannot follow a variable mode. The README recommends keeping the original .fig, or saving as <code>.designos</code>, until this is fixed. Pixel-mismatch counts in the issue were measured on v0.5.0 and v0.6.0 and are not restated here as current.</li>
+      <li><strong>No hosted collaboration.</strong> Studio has no real-time multiplayer, no enterprise cloud administration with SSO and SCIM, and no hosted comment notifications. The README is explicit: if you need those, use Figma (optionally with the live <code>design-os-figma-plugin</code> bridge) or a hosted Penpot instance.</li>
+      <li><strong>Windows and Linux packages</strong> are built by the same release workflow but are not verified before release. macOS packages are verified on Apple Silicon.</li>
+      <li><strong>The product is young.</strong> Work on design:os started on 10/10/2026. Penpot, Lunacy and Figma have longer public histories. That is a fair reason to trial before you depend on it for a large production kit.</li>
+      <li><strong>Other published limits in v0.7.13</strong> (see the changelog): re-solving the imported Untitled UI PRO v8.0 kit still moves 2,039 layers, about 1 percent; a nested instance can lose overrides when its variant is switched by hand; a main-component sync with no change can resize instances imported from a .fig; after a .fig save and reopen, a change made inside a nested instance can be lost at the next edit of the main component (#1925).</li>
+    </ul>
+
+    <h2 id="faq">FAQ</h2>
+
+    <h3 id="is-designos-studio-free">Is DESIGN:OS Studio free?</h3>
+
+    <p>Yes. DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI, released as FREE + source-available (PolyForm Shield). You can use and modify it freely, including for paid work. The terms are PolyForm Shield 1.0.0. You cannot resell it or use it to build a product that competes with it. Pre-built packages for v0.7.14 are on the GitHub Releases page.</p>
+
+    <h3 id="is-designos-affiliated-with-figma">Is design:os affiliated with Figma?</h3>
+
+    <p>No. design:os is not affiliated with, endorsed by, or sponsored by Figma, Inc. "Figma alternative" in the product sentence and in this comparison describes a category of tool. It is not a claim of parity, partnership, or official compatibility beyond what the Studio README and issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> actually say about reading and writing .fig files.</p>
+
+    <h3 id="can-designos-studio-open-and-save-fig-files">Can DESIGN:OS Studio open and save .fig files?</h3>
+
+    <p>Yes, with known issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>, which is still open (P1). Studio reads .fig containers and writes version 106 with <code>meta.json</code> and <code>images/</code>. On save, a numbered list loses its numbers and item spacing grows; a breadcrumb arrow icon renders heavier; and inherited or variable-bound paints on instances are written as fixed values. Keep the original .fig, or save as <code>.designos</code>, until <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a> is fixed. Details are in the issue and in the Studio README.</p>
+
+    <h3 id="is-designos-mcp-a-figma-mcp-alternative">Is designos-mcp a Figma MCP alternative?</h3>
+
+    <p>It can show up in the same search, but it is a different job. Figma's official MCP server talks to a Figma file in Figma. It needs a Figma account, and write access depends on plan and seat. designos-mcp is a local stdio server, 39 tools in v0.7.14, that inspects, edits and exports a .fig on disk, with no Figma app and no Figma token. Both can be useful. If your files live in Figma, use Figma MCP. If you have a .fig on disk and no Figma session, use designos-mcp or the designos CLI.</p>
+
+    <h3 id="what-platforms-does-designos-studio-run-on">What platforms does DESIGN:OS Studio run on?</h3>
+
+    <p>v0.7.14 ships packages for macOS (a universal .dmg, verified on Apple Silicon), Windows (a .zip with a per-user install script) and Linux (.deb and .tar.gz). The Windows and Linux packages are built by the same release workflow but are not verified before release. You can also build from source. There is no account and no telemetry.</p>
+
+    <h2 id="close">Close</h2>
+
+    <p>Download DESIGN:OS Studio v0.7.14 from <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.7.14">GitHub Releases</a>. Product pages and a guide to opening a .fig without Figma live at <a href="https://jangtrinh.github.io/design-os-studio/">jangtrinh.github.io/design-os-studio</a>. Before you rely on .fig save, read <a href="https://github.com/jangtrinh/design-os-studio/issues/834">issue #834</a>. design:os is not affiliated with or endorsed by Figma.</p>
+
+    <h2 id="sources">Sources</h2>
+
+    <p>Primary sources, all accessed on 13 November 2026 (Asia/Saigon):</p>
+
+    <ul>
+      <li>DESIGN:OS Studio README, CHANGELOG, LICENSE, llms.txt and the v0.7.13 release, plus GitHub issue <a href="https://github.com/jangtrinh/design-os-studio/issues/834">#834</a>, all from <a href="https://github.com/jangtrinh/design-os-studio">jangtrinh/design-os-studio</a>, accessed 13 November 2026.</li>
+      <li>OpenPencil: <a href="https://openpencil.dev/">openpencil.dev</a>, <a href="https://openpencil.dev/download">download</a>, <a href="https://openpencil.dev/programmable/mcp-server">MCP server docs</a>, and <a href="https://github.com/open-pencil/open-pencil">open-pencil/open-pencil</a>, accessed 13 November 2026.</li>
+      <li>Penpot: <a href="https://penpot.app/pricing">pricing</a>, <a href="https://penpot.app/pricing/self-host">self-host pricing</a>, <a href="https://help.penpot.app/mcp/">MCP help</a>, <a href="https://help.penpot.app/user-guide/first-steps/migration-guide/">migration guide</a>, and <a href="https://github.com/penpot/penpot">penpot/penpot</a>, accessed 13 November 2026.</li>
+      <li>Lunacy: <a href="https://lunacy.docs.icons8.com/about/">About</a>, <a href="https://lunacy.docs.icons8.com/interface/">Interface</a>, <a href="https://lunacy.docs.icons8.com/export/">Export</a>, <a href="https://lunacy.docs.icons8.com/mcp/">MCP</a>, <a href="https://lunacy.docs.icons8.com/lunacy%20license/">EULA</a>, <a href="https://lunacy.docs.icons8.com/release-notes/">release notes</a>, <a href="https://icons8.com/lunacy-pricing">pricing</a>, and the <a href="https://intercom.help/icons8-7fb7577e8170/en/articles/6877721-pricing-system-of-lunacy">Help article on plans</a>, accessed 13 November 2026.</li>
+      <li>Figma MCP: <a href="https://help.figma.com/hc/en-us/articles/39216419318551-Get-started-with-the-Figma-MCP-server">Get started</a>, <a href="https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/">rate limits and access</a>, <a href="https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/">remote server</a>, <a href="https://developers.figma.com/docs/figma-mcp-server/local-server-installation/">desktop server</a>, <a href="https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/">tools and prompts</a>, and <a href="https://help.figma.com/hc/en-us/articles/39252411778583-Figma-MCP-server-FAQs">FAQs</a>, accessed 13 November 2026.</li>
+    </ul>
+
+      <nav class="doc-nav" aria-label="Documents">
+        <a class="ds-tab" href="/design-os-studio/"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224,128a8,8,0,0,1-8,8H59.31l58.35,58.34a8,8,0,0,1-11.32,11.32l-72-72a8,8,0,0,1,0-11.32l72-72a8,8,0,0,1,11.32,11.32L59.31,120H216A8,8,0,0,1,224,128Z"/></svg>Overview</a>
+        <a class="ds-tab" href="/design-os-studio/deep-dive.html">Deep dive</a>
+      </nav>
+    </article>
+  </main>
+
+  <footer class="ds-shell-footer">
+    <div class="ds-shell-footer-inner">
+      <a class="wordmark" href="https://jangtrinh.github.io/design-os/">DESIGN:OS</a>
+      <nav class="ds-shell-footer-nav" aria-label="Footer">
+        <a class="ds-tab" href="https://github.com/jangtrinh/design-os-studio">GitHub</a><a class="ds-tab" href="https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE">PolyForm Shield 1.0.0</a>
+        <a class="ds-tab" href="#main">Back to top</a>
+      </nav>
+    </div>
+  </footer>
+</div>
+<script>
+/* Links written for the repository ("../plugin/src/...") have no target on the Pages site;
+   point them at the same file on GitHub instead of a 404. */
+(function () {
+  var base = "https://github.com/jangtrinh/design-os-studio/blob/main/";
+  document.querySelectorAll('.prose a[href^="../"]').forEach(function (a) {
+    a.setAttribute("href", base + a.getAttribute("href").replace(/^(\.\.\/)+/, ""));
+  });
+})();
+</script>
+<script data-name="BMC-Widget" data-cfasync="false" src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js" data-id="jangtrinh" data-description="Support me on Buy me a coffee!" data-message="" data-color="#FF813F" data-position="Right" data-x_margin="18" data-y_margin="18"></script>
+</body>
+</html>

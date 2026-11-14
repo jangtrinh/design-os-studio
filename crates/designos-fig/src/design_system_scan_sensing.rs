@@ -8,9 +8,9 @@
 //!   bound as an override on a node inside a nested instance is not sensed.
 //! - **Bindings.** Every value of `Node::variables.bindings` of a visited node: the importers flatten each place
 //!   Figma keeps a binding (node fields, fills and strokes item by item including gradient stops, effects, layout
-//!   grids, text, `componentProperties/<name>`) into that one map. A binding to a variable of a remote collection
-//!   is listed by id like any other. Not sensed: variables reached only through a style applied to a node, and the
-//!   variable-bound defaults of component property definitions (the document keeps no variable for a default).
+//!   grids, text, `componentProperties/<name>`) into that one map, and variable-bound defaults of component property
+//!   definitions live in `ComponentLink::prop_default_variables`. A binding to a variable of a remote collection
+//!   is listed by id like any other. Not sensed: variables reached only through a style applied to a node.
 //! - **Frames.** Every frame that is a direct child of a page, or of a section at any depth under a page. The walk of
 //!   a frame reads no binding, and a component or set met inside it is a boundary: neither counted nor entered.
 //! - **No self-reference.** A component or set never lists itself in its own `instances` (a variant using a sibling
@@ -90,6 +90,11 @@ fn walk_to_instance_boundary(doc: &Document, root: NodeId, walk: Walk) -> Result
         }
         if walk == Walk::Component {
             walked.bound.extend(n.variables.bindings.values().cloned());
+            for p in &n.component.props {
+                if let Some(var) = n.component.prop_default_variables.get(&p.name) {
+                    walked.bound.insert(var.clone());
+                }
+            }
         }
         if matches!(n.kind, NodeKind::Instance { .. }) && id != root {
             walked.instances.push(id);

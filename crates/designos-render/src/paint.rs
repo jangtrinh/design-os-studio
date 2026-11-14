@@ -170,6 +170,10 @@ impl<'a> PaintEnv<'a> {
 type ImgKey = (u64, u32, u32);
 type ConvertedKey = (ImgKey, d::ColorProfile);
 
+/// Byte budget for the per-thread decoded-image cache (64 MiB), exceeded only when a single image and its most recent reduced copy together exceed the bound.
+pub const MAX_DECODED_IMAGE_BYTES: usize = 64 << 20;
+const MAX_DECODED_IMAGE_ENTRIES: usize = 2048;
+
 /// Byte budget for the per-thread converted-image cache (64 MiB).
 pub const MAX_CONVERTED_IMAGE_BYTES: usize = 64 << 20;
 
@@ -218,11 +222,70 @@ impl ConvertedCache {
     }
 }
 
+#[derive(Default)]
+struct DecodedCache {
+    entries: HashMap<ImgKey, Option<Rc<sk::Pixmap>>>,
+    order: VecDeque<ImgKey>,
+    bytes: usize,
+}
+
+impl DecodedCache {
+    fn get(&self, key: &ImgKey) -> Option<Option<Rc<sk::Pixmap>>> {
+        self.entries.get(key).cloned()
+    }
+
+    fn insert(&mut self, key: ImgKey, image: Option<Rc<sk::Pixmap>>) {
+        if let Some(old) = self.entries.remove(&key) {
+            if let Some(old) = old {
+                self.bytes = self.bytes.saturating_sub(old.data().len());
+            }
+            self.order.retain(|k| *k != key);
+        }
+        let new_bytes = image.as_ref().map_or(0, |pm| pm.data().len());
+        let keep_full = (key.1 != 0 || key.2 != 0).then_some((key.0, 0, 0));
+        let mut skipped_full = false;
+        // An image over the budget may be held together with its own most recent reduced copy so
+        // repeated reduced paints do not decode it again; everything else is evicted oldest first.
+        while (self.bytes + new_bytes > MAX_DECODED_IMAGE_BYTES || self.entries.len() >= MAX_DECODED_IMAGE_ENTRIES) && !self.order.is_empty() {
+            if let Some(oldest) = self.order.pop_front() {
+                if Some(oldest) == keep_full {
+                    skipped_full = true;
+                    continue;
+                }
+                if let Some(old) = self.entries.remove(&oldest).flatten() {
+                    self.bytes = self.bytes.saturating_sub(old.data().len());
+                }
+            }
+        }
+        self.bytes += new_bytes;
+        self.entries.insert(key, image);
+        self.order.push_back(key);
+        if skipped_full {
+            self.order.push_back((key.0, 0, 0));
+        }
+    }
+
+    fn retain_ids(&mut self, keep: &HashSet<u64>) {
+        self.entries.retain(|(id, _, _), image| {
+            if keep.contains(id) {
+                true
+            } else {
+                if let Some(image) = image {
+                    self.bytes = self.bytes.saturating_sub(image.data().len());
+                }
+                false
+            }
+        });
+        self.order.retain(|(id, _, _)| keep.contains(id));
+    }
+}
+
 thread_local! {
     /// Images already converted to a document profile, by (image, size) and profile.
     static CONVERTED_IMAGES: RefCell<ConvertedCache> = RefCell::new(ConvertedCache::default());
     static CONVERSIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static IMAGES: RefCell<HashMap<ImgKey, Option<Rc<sk::Pixmap>>>> = RefCell::new(HashMap::new());
+    static IMAGES: RefCell<DecodedCache> = RefCell::new(DecodedCache::default());
+    static DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// How many image pixmaps this thread has converted to a document profile (a counter for tests: a
@@ -232,18 +295,28 @@ pub fn image_conversions() -> usize {
     CONVERSIONS.with(std::cell::Cell::get)
 }
 
+/// How many encoded images this thread has decoded into RGBA pixmaps (a counter for tests: a
+/// repeated render of an unchanged image must not decode it again).
+#[doc(hidden)]
+pub fn image_decodes() -> usize {
+    DECODES.with(std::cell::Cell::get)
+}
+
 /// Bytes currently held by the thread-local converted-image cache.
 #[doc(hidden)]
 pub fn converted_image_bytes() -> usize {
     CONVERTED_IMAGES.with(|c| c.borrow().bytes)
 }
 
-/// Keeps only cached profile-converted pixmaps whose image hash is held by a surviving document or
-/// its undo/redo history, dropping every other entry.
+/// Bytes currently held by the thread-local decoded-image cache.
+#[doc(hidden)]
+pub fn decoded_image_bytes() -> usize {
+    IMAGES.with(|c| c.borrow().bytes)
+}
+
+/// Keeps only cached decoded and profile-converted pixmaps whose image hash is held by a surviving
+/// document or its undo/redo history, dropping every other entry.
 pub fn retain_converted_images<'a>(surviving: impl IntoIterator<Item = (&'a Document, Option<&'a d::History>)>) {
-    if CONVERTED_IMAGES.with(|c| c.borrow().entries.is_empty()) {
-        return;
-    }
     let mut keep = HashSet::new();
     for (doc, hist) in surviving {
         for (k, v) in &doc.images {
@@ -256,6 +329,7 @@ pub fn retain_converted_images<'a>(surviving: impl IntoIterator<Item = (&'a Docu
         }
     }
     CONVERTED_IMAGES.with(|c| c.borrow_mut().retain_ids(&keep));
+    IMAGES.with(|c| c.borrow_mut().retain_ids(&keep));
 }
 
 fn hash_bytes(key: &str, data: &[u8]) -> u64 {
@@ -285,27 +359,22 @@ pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32
     let data = doc.images.get(image_ref)?;
     let id = hash_bytes(image_ref, data);
     let (kw, kh) = want.unwrap_or((0, 0));
-    if let Some(hit) = IMAGES.with(|c| c.borrow().get(&(id, kw, kh)).cloned()) {
+    if let Some(hit) = IMAGES.with(|c| c.borrow().get(&(id, kw, kh))) {
         return hit;
     }
-    let full = IMAGES.with(|c| c.borrow().get(&(id, 0, 0)).cloned());
-    let full = match full {
+    let full = match IMAGES.with(|c| c.borrow().get(&(id, 0, 0))) {
         Some(f) => f,
         None => {
+            DECODES.with(|n| n.set(n.get() + 1));
             let decoded = image::load_from_memory(data).ok().and_then(|i| premultiplied_pixmap(&i.to_rgba8())).map(Rc::new);
-            IMAGES.with(|c| {
-                let mut c = c.borrow_mut();
-                if c.len() > 1024 {
-                    c.clear();
-                }
-                c.insert((id, 0, 0), decoded.clone());
-            });
+            IMAGES.with(|c| c.borrow_mut().insert((id, 0, 0), decoded.clone()));
             decoded
         }
     };
     let full = full?;
+    let cache_resized = matches!(want, Some((w, h)) if w < full.width() || h < full.height());
     let result = match want {
-        Some((w, h)) if w < full.width() || h < full.height() => {
+        Some((w, h)) if cache_resized => {
             let src = image::RgbaImage::from_raw(full.width(), full.height(), full.data().to_vec())?;
             let small = image::imageops::resize(&src, w.max(1), h.max(1), image::imageops::FilterType::Triangle);
             let mut pm = sk::Pixmap::new(small.width(), small.height())?;
@@ -314,13 +383,12 @@ pub(crate) fn load_image(doc: &Document, image_ref: &str, want: Option<(u32, u32
         }
         _ => Some(full),
     };
-    IMAGES.with(|c| {
-        let mut c = c.borrow_mut();
-        if c.len() > 2048 {
-            c.clear();
-        }
-        c.insert((id, kw, kh), result.clone());
-    });
+    // A full-size request returns the same allocation cached under `(id, 0, 0)`. Do not add an
+    // alias entry: the byte budget tracks allocations, so counting that Rc twice would evict
+    // unrelated images before the cache actually reaches its limit.
+    if cache_resized {
+        IMAGES.with(|c| c.borrow_mut().insert((id, kw, kh), result.clone()));
+    }
     result
 }
 
@@ -621,4 +689,61 @@ pub fn stroke_paths(
             target.stroke_path(path, sp, stroke, ts, clip);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decoded_image_bytes, load_image, retain_converted_images};
+    use designos_doc::Document;
+    use std::io::Cursor;
+    use std::rc::Rc;
+
+    #[test]
+    fn full_size_decode_request_does_not_double_count_the_pixmap() {
+        let side = 64;
+        let image = image::RgbaImage::from_pixel(side, side, image::Rgba([10, 20, 30, 255]));
+        let mut bytes = Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        let mut doc = Document::new("full-size-cache");
+        doc.images.insert("image".into(), bytes.into_inner());
+        retain_converted_images(std::iter::empty());
+
+        let full = load_image(&doc, "image", None).unwrap();
+        let requested = load_image(&doc, "image", Some((side, side))).unwrap();
+        assert!(Rc::ptr_eq(&full, &requested));
+        assert_eq!(decoded_image_bytes(), (side * side * 4) as usize);
+    }
+
+    #[test]
+    fn decoded_cache_replaces_and_evicts_oversized_entry_with_exact_byte_count() {
+        let mut cache = super::DecodedCache::default();
+        let pm_a = Rc::new(super::sk::Pixmap::new(16, 16).unwrap());
+        let pm_b = Rc::new(super::sk::Pixmap::new(32, 32).unwrap());
+        cache.insert((1, 0, 0), Some(pm_a.clone()));
+        assert_eq!(cache.bytes, pm_a.data().len());
+        cache.insert((1, 0, 0), Some(pm_b.clone()));
+        assert_eq!(cache.bytes, pm_b.data().len());
+        assert_eq!(cache.entries.len(), 1);
+
+        let full = Rc::new(super::sk::Pixmap::new(4100, 4100).unwrap());
+        let red1 = Rc::new(super::sk::Pixmap::new(64, 64).unwrap());
+        let red2 = Rc::new(super::sk::Pixmap::new(32, 32).unwrap());
+        cache.insert((2, 0, 0), Some(full.clone()));
+        cache.insert((2, 64, 64), Some(red1.clone()));
+        assert!(cache.entries.contains_key(&(2, 0, 0)));
+        assert!(cache.entries.contains_key(&(2, 64, 64)));
+        assert_eq!(cache.bytes, full.data().len() + red1.data().len());
+
+        cache.insert((2, 32, 32), Some(red2.clone()));
+        assert!(cache.entries.contains_key(&(2, 0, 0)));
+        assert!(!cache.entries.contains_key(&(2, 64, 64)));
+        assert!(cache.entries.contains_key(&(2, 32, 32)));
+        assert_eq!(cache.bytes, full.data().len() + red2.data().len());
+
+        cache.insert((3, 0, 0), Some(pm_a.clone()));
+        assert!(!cache.entries.contains_key(&(2, 0, 0)));
+        assert!(!cache.entries.contains_key(&(2, 32, 32)));
+        assert!(cache.entries.contains_key(&(3, 0, 0)));
+        assert_eq!(cache.bytes, pm_a.data().len());
+    }
 }
