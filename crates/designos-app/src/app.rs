@@ -252,7 +252,6 @@ pub struct App {
     pub(crate) queued_work: Vec<crate::deferred_work::QueuedWork>,
     pub toast: Option<Toast>,
     pub toast_queue: std::collections::VecDeque<Toast>,
-    dropped_toast: Option<Toast>,
     /// Counts the error toasts raised, whether they reached the screen or the queue, and keeps the latest text. An
     /// operation that reports an error through a toast reads these instead of the toast slot.
     pub(crate) error_toast_seq: u64,
@@ -363,7 +362,6 @@ impl App {
             queued_work: Vec::new(),
             toast: None,
             toast_queue: Default::default(),
-            dropped_toast: None,
             error_toast_seq: 0,
             last_error_toast: String::new(),
             file_path: None,
@@ -517,8 +515,8 @@ impl App {
 
     /// Adds `next` at the back of the queue (or at the front when `front` is true). The queue keeps only the latest
     /// plain notice (a newer progress or info toast replaces an older queued one) and holds at most [`TOAST_QUEUE_CAP`]
-    /// toasts by dropping the oldest plain notice or error without an action when a burst fills the queue. Toasts with
-    /// an action are never dropped; if the queue is already full of toasts that cannot be dropped, `next` is not queued.
+    /// toasts by dropping the oldest queued toast without an action when a burst fills the queue. Toasts with an action
+    /// are never dropped and are always queued, even past the cap.
     fn enqueue_toast(&mut self, next: Toast) -> &mut Toast {
         self.enqueue_toast_at(next, false)
     }
@@ -533,8 +531,6 @@ impl App {
                 self.toast_queue.iter().position(is_plain).or_else(|| self.toast_queue.iter().position(|t| t.error && !t.has_action()))
             {
                 self.toast_queue.remove(i);
-            } else {
-                return self.dropped_toast.insert(next);
             }
         }
         if front {

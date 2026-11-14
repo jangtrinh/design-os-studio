@@ -422,9 +422,22 @@ fn the_queue_cap_never_drops_an_error_toast_with_an_action() {
     for i in 0..crate::app::TOAST_QUEUE_CAP {
         s_all_actions.shell.app.show_toast_with_reveal(format!("Exported {i}"), reveal_path(&format!("{i}.png")));
     }
-    s_all_actions.shell.app.show_toast("Cannot save: disk full", true);
-    assert_eq!(s_all_actions.app().toast_queue.len(), crate::app::TOAST_QUEUE_CAP);
-    assert!(s_all_actions.app().toast_queue.iter().all(|t| t.has_action()), "when the queue is full of action toasts, none is dropped");
+    s_all_actions.shell.app.show_no_file_dialog_toast(true);
+    assert_eq!(s_all_actions.app().toast_queue.len(), crate::app::TOAST_QUEUE_CAP + 1, "action toasts are always queued even past the cap");
+    assert!(s_all_actions.app().toast_queue.back().is_some_and(|t| t.enter_path), "the Enter a path toast is queued behind the eight reveal toasts");
+    for _ in 0..=crate::app::TOAST_QUEUE_CAP {
+        let now = s_all_actions.app().now;
+        frame_at(&mut s_all_actions, now + crate::theme::TOAST_REVEAL_SECONDS + 0.1);
+    }
+    let shown = s_all_actions.app().toast.as_ref().expect("the Enter a path toast is shown after the earlier ones");
+    assert!(shown.enter_path, "the shown toast carries the Enter a path action");
+    assert!(s_all_actions.rect_of("toast-enter-path").width() > 0.0, "the Enter a path button is painted");
+    let first_painted_at = s_all_actions.app().now;
+    frame_at(&mut s_all_actions, first_painted_at + crate::theme::TOAST_REVEAL_SECONDS - 0.1);
+    assert!(
+        s_all_actions.app().toast.as_ref().is_some_and(|t| t.enter_path) && s_all_actions.rect_of("toast-enter-path").width() > 0.0,
+        "the Enter a path toast gets its full time from first paint"
+    );
 }
 
 #[test]
