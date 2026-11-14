@@ -946,68 +946,50 @@ fn merge_table_replay_geometry(doc: &Document, current: &Node, merged: &mut Node
         return;
     }
 
-    let cell_spans: Vec<(NodeId, std::ops::Range<usize>, std::ops::Range<usize>)> = current
-        .children
-        .iter()
-        .filter_map(|&cid| {
-            let Some(Node { kind: NodeKind::TableCell(cell), .. }) = doc.get(cid) else { return None };
-            let r_idx = current_props.rows.iter().position(|t| t.id == cell.row)?;
-            let c_idx = current_props.cols.iter().position(|t| t.id == cell.col)?;
-            let (r_span, c_span) = current_props
-                .merges
-                .iter()
-                .find(|m| m.row == cell.row && m.col == cell.col)
-                .map_or((1usize, 1usize), |m| ((m.row_span as usize).max(1), (m.col_span as usize).max(1)));
-            let r_end = (r_idx + r_span).min(current_props.rows.len());
-            let c_end = (c_idx + c_span).min(current_props.cols.len());
-            Some((cid, r_idx..r_end, c_idx..c_end))
-        })
-        .collect();
-
-    let col_all_sized = |col_idx: usize| -> bool {
+    let col_all_sized = |col_id: crate::TrackId| -> bool {
         let mut any = false;
-        for (cid, _, c_range) in &cell_spans {
-            if c_range.contains(&col_idx) {
-                any = true;
-                if !size_changed_cells.contains(cid) {
-                    return false;
+        for &cid in &current.children {
+            if let Some(Node { kind: NodeKind::TableCell(cell), .. }) = doc.get(cid) {
+                if cell.col == col_id {
+                    any = true;
+                    if !size_changed_cells.contains(&cid) {
+                        return false;
+                    }
                 }
             }
         }
         any
     };
-    let row_all_sized = |row_idx: usize| -> bool {
+    let row_all_sized = |row_id: crate::TrackId| -> bool {
         let mut any = false;
-        for (cid, r_range, _) in &cell_spans {
-            if r_range.contains(&row_idx) {
-                any = true;
-                if !size_changed_cells.contains(cid) {
-                    return false;
+        for &cid in &current.children {
+            if let Some(Node { kind: NodeKind::TableCell(cell), .. }) = doc.get(cid) {
+                if cell.row == row_id {
+                    any = true;
+                    if !size_changed_cells.contains(&cid) {
+                        return false;
+                    }
                 }
             }
         }
         any
     };
-    let col_has_single_span_cell = |col_idx: usize| -> bool { cell_spans.iter().any(|(_, _, c_range)| c_range.contains(&col_idx) && c_range.len() == 1) };
-    let row_has_single_span_cell = |row_idx: usize| -> bool { cell_spans.iter().any(|(_, r_range, _)| r_range.contains(&row_idx) && r_range.len() == 1) };
 
-    let all_cols_sized = (0..current_props.cols.len()).all(&col_all_sized);
-    let all_rows_sized = (0..current_props.rows.len()).all(&row_all_sized);
+    let all_cols_sized = current_props.cols.iter().all(|t| col_all_sized(t.id));
+    let all_rows_sized = current_props.rows.iter().all(|t| row_all_sized(t.id));
     let single_row_pure_row_resize = current_props.rows.len() == 1 && current_props.cols.len() > 1 && all_cols_sized && transform_changed_cells.is_empty();
     let single_col_pure_col_resize = current_props.cols.len() == 1 && current_props.rows.len() > 1 && all_rows_sized && transform_changed_cells.is_empty();
 
-    for (col_idx, track) in merged_props.cols.iter_mut().enumerate() {
-        let shared_span_unchanged = !col_has_single_span_cell(col_idx) && track.size == crate::table::TABLE_DEFAULT_COLUMN_WIDTH;
-        let agent_resized = col_all_sized(col_idx) && !single_row_pure_row_resize && !shared_span_unchanged;
+    for track in &mut merged_props.cols {
+        let agent_resized = col_all_sized(track.id) && !single_row_pure_row_resize;
         if !agent_resized {
             if let Some(old) = current_props.cols.iter().find(|t| t.id == track.id) {
                 track.size = old.size;
             }
         }
     }
-    for (row_idx, track) in merged_props.rows.iter_mut().enumerate() {
-        let shared_span_unchanged = !row_has_single_span_cell(row_idx) && track.size == crate::table::TABLE_DEFAULT_ROW_HEIGHT;
-        let agent_resized = row_all_sized(row_idx) && !single_col_pure_col_resize && !shared_span_unchanged;
+    for track in &mut merged_props.rows {
+        let agent_resized = row_all_sized(track.id) && !single_col_pure_col_resize;
         if !agent_resized {
             if let Some(old) = current_props.rows.iter().find(|t| t.id == track.id) {
                 track.size = old.size;
